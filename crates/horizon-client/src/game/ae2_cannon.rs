@@ -303,7 +303,12 @@ impl Game<'_> {
         let result = self.guest_hit_by(host, conn, |game| {
             let hurt = game.player_hits_player_kind(amount, origin, "ae2:matter_cannon", shooter);
             if hurt {
-                game.knock_back_player(0.0, -dir[0], -dir[2]);
+                let source = horizon_client::health::HurtSource {
+                    damage_type: "ae2:matter_cannon",
+                    causing: shooter as i32,
+                    direct: 0,
+                };
+                game.knock_back_player(0.0, -dir[0], -dir[2], source);
             }
             (
                 hurt,
@@ -455,17 +460,15 @@ impl Game<'_> {
                     let amount = damage(penetration);
                     penetration -= amount;
                     let old = self.mobs[index].health;
-                    let hurt = self.mobs[index].damage(
-                        amount,
-                        Damage {
-                            kind: DamageKind::MatterCannon,
-                            attacker: Some(Who::Player),
-                            from: Some(origin),
-                        },
-                    );
+                    let source = Damage {
+                        kind: DamageKind::MatterCannon,
+                        attacker: Some(Who::Player),
+                        from: Some(origin),
+                    };
+                    let hurt = self.mobs[index].damage(amount, source);
                     if hurt && self.mobs[index].health != old {
                         self.mob_damage_event(self.mobs[index].id);
-                        self.mobs[index].knockback(0.0, -dir[0], -dir[2]);
+                        self.mobs[index].knockback(0.0, -dir[0], -dir[2], &source);
                     }
                     if !(hurt && !self.mobs[index].alive() && penetration > 0.0) {
                         break;

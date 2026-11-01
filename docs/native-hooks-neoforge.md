@@ -78,6 +78,16 @@ has under a NeoForge-like name: `server_tick`, `level_tick_pre`, `level_tick_pos
 `block_entity_tick`, `destroy_block`, `place_block`, `attack_entity`. Per rule 6 none of them is renamed:
 a rename is a new hook with a new name, if ever wanted.
 
+Hooks added since their own PRs carry their event here too.
+
+### Data reload
+
+`data_pack_files` is `AddReloadListenerEvent`: server-side and not cancellable, fired while the server
+assembles its data tables — a world's first open and every `/reload` — before the recipes, tags, loot and
+advancements are built. A mod adds `(path, bytes)` pack files to the hook's out parameter; they join the
+load below the world's own data packs, so a pack's file for the same path still overrides them. A mod that
+adds nothing leaves the tables as they were.
+
 ## Next hooks
 
 Hooks main does not have yet, with the vanilla method each would sit in (rule 2). The NeoForge names are
@@ -103,7 +113,7 @@ and `Capabilities.Energy.BLOCK` with `EnergyHandler`
 ([Capabilities](https://docs.neoforged.net/docs/inventories/capabilities/)). A Horizon
 `block_capability(pos, kind, side, out)` hook could fill an out parameter with a handler object, so new kinds
 (fluids, energy) are new kinds, not new fields on a struct, and older mods keep compiling. Energy took typed
-hooks instead (API 63, `fe_storage`, `fe_receive`, `fe_extract`, server-side, not cancellable, no NeoForge event):
+hooks instead (API 81, `fe_storage`, `fe_receive`, `fe_extract`, server-side, not cancellable, no NeoForge event):
 1.21.1's `IEnergyStorage` with its `simulate` flag, which the ported mods speak, rather than 26.3's
 transactional `EnergyHandler`, and no handler object borrowed across the hook boundary. Menus and screens
 are not modelled here: main already has `menu_clicked`, `menu_closed`, `screen*` and `block_entity_container`,

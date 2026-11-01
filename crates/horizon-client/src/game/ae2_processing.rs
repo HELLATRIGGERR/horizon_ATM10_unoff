@@ -1084,7 +1084,7 @@ mod tests {
         assert!(ae2_private_power_face(MachineKind::GrowthAccelerator, &state, North));
         assert!(ae2_private_power_face(MachineKind::GrowthAccelerator, &state, South));
         assert!(!ae2_private_power_face(MachineKind::GrowthAccelerator, &state, East));
-        state.properties.clear();
+        state.properties = Default::default();
         assert!(!ae2_private_power_face(MachineKind::Charger, &state, North));
         assert!(ae2_private_power_face(MachineKind::Chest, &state, North));
     }

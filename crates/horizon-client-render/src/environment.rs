@@ -141,6 +141,8 @@ pub struct Sky {
     pub fog_end: f32,
     /// `visual/cloud_fog_end_distance`.
     pub cloud_fog_end: f32,
+    /// `visual/cloud_height`.
+    pub cloud_height: f32,
 }
 impl Environment {
     /// AE2 19.2.18 InitDimensionTypes / SpatialStorageSkyProperties:
@@ -322,6 +324,10 @@ impl Environment {
                 .base
                 .get("minecraft:visual/cloud_fog_end_distance")
                 .map_or(2048.0, |v| v[0]),
+            cloud_height: self
+                .base
+                .get("minecraft:visual/cloud_height")
+                .map_or(crate::clouds::CLOUD_HEIGHT as f32, |v| v[0]),
         }
     }
 }

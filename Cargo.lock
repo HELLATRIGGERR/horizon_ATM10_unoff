@@ -1364,6 +1364,7 @@ dependencies = [
  "horizon-items",
  "horizon-mods",
  "horizon-narrator",
+ "horizon-optifine",
  "horizon-protocol",
  "horizon-server-files",
  "horizon-shader-api",
@@ -1375,6 +1376,9 @@ dependencies = [
  "log",
  "miniz_oxide 0.8.9",
  "naga",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "open",
  "png",
  "pollster",
@@ -1437,6 +1441,7 @@ dependencies = [
  "horizon-hdr",
  "horizon-items",
  "horizon-narrator",
+ "horizon-optifine",
  "horizon-protocol",
  "horizon-shader-api",
  "horizon-shaders",
@@ -1523,6 +1528,7 @@ dependencies = [
  "horizon-command",
  "horizon-core",
  "horizon-world",
+ "log",
  "serde",
  "serde_json",
 ]
@@ -1552,6 +1558,15 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "windows 0.62.2",
+]
+
+[[package]]
+name = "horizon-optifine"
+version = "0.1.0"
+dependencies = [
+ "horizon-bench",
+ "log",
+ "regex",
 ]
 
 [[package]]
@@ -1657,6 +1672,7 @@ version = "0.1.0"
 dependencies = [
  "bytemuck",
  "naga",
+ "png",
  "serde",
  "serde_json",
  "sha2",

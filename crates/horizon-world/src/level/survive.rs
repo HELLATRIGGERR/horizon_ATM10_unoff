@@ -21,7 +21,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             let facing = self.b.facing(state);
             return self.can_support_center(rel(pos, facing.opposite()), facing);
         }
-        self.can_survive_at(0, state, pos)
+        let mut survives = None;
+        self.level.before_can_survive(pos, state, &mut survives);
+        survives.unwrap_or_else(|| self.can_survive_at(0, state, pos))
     }
     fn can_survive_at(&self, depth: usize, state: BlockStateId, pos: BlockPos) -> bool {
         let chain = &self.b.data(state).chain;
@@ -365,6 +367,12 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         ground: BlockStateId,
         ground_pos: BlockPos,
     ) -> bool {
+        let mut may = None;
+        self.level
+            .before_may_place_on(state, ground, ground_pos, &mut may);
+        if let Some(may) = may {
+            return may;
+        }
         let b = self.b;
         let t = &b.tags;
         let data = b.data(state);

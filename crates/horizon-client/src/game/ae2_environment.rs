@@ -218,12 +218,12 @@ impl Game<'_> {
                 .properties
                 .get("waterlogged")
                 .is_some_and(|v| v == "true");
-        let mut properties = std::collections::BTreeMap::new();
+        let mut properties = std::collections::BTreeMap::<String, String>::new();
         properties.insert("facing".into(), face.into());
         properties.insert("waterlogged".into(), waterlogged.to_string());
         let Ok(new_state) = self.pack.assets.registry.resolve(&BlockState {
             name: new_id.into(),
-            properties,
+            properties: properties.into(),
         }) else {
             return;
         };

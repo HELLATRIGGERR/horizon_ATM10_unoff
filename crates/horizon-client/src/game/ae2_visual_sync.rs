@@ -173,7 +173,7 @@ pub(super) fn visual(pos: (i32, i32, i32), entity: &BlockEntity, powered: bool) 
             let (block, properties) = match entry.get("state") {
                 Some(tag) => match horizon_world::chunk::BlockState::from_nbt(tag) {
                     Ok(state) if state.name.len() <= 128 && state.properties.len() <= 16
-                        && state.properties.iter().all(|(k,v)| k.len() <= 64 && v.len() <= 64) => (state.name, state.properties),
+                        && state.properties.iter().all(|(k,v)| k.len() <= 64 && v.len() <= 64) => (state.name, state.properties.into()),
                     _ => continue,
                 },
                 None => (material.clone(), BTreeMap::new()),
@@ -465,7 +465,7 @@ mod tests {
         facade.data_mut().set_other("ae2:facade_item",Some(Tag::String("example:oak_log_item".into())));
         facade.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("secret",Tag::Int(42))])));
         let mut machine=Machine::new(MachineKind::CableBus);
-        let state=horizon_world::chunk::BlockState{name:"minecraft:oak_log".into(),properties:BTreeMap::from([("axis".into(),"z".into())])};
+        let state=horizon_world::chunk::BlockState{name:"minecraft:oak_log".into(),properties:[("axis".to_owned(),"z".to_owned())].into()};
         machine.config.insert("facades".into(),Tag::List(vec![Tag::compound([
             ("face",Tag::String("south".into())),("stack",save::item_to_nbt(&facade)),("state",state.to_nbt()),
         ])]));

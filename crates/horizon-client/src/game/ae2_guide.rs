@@ -511,7 +511,7 @@ impl Game<'_> {
         let Some(s)=self.ae2_guide.as_ref() else{return Value::Null;};
         serde_json::json!({"page":s.current,"title":s.pages.get(&s.current).map(|p|p.title.as_str()),"search":s.search.value,"search_focused":s.search.focused,"search_rect":[s.search.x,s.search.y,s.search.x+s.search.width,s.search.y+s.search.height],"scroll":s.scroll,"scroll_max":s.scroll_max,"sidebar_scroll":s.side_scroll,"sidebar_scroll_max":s.side_max,"doc_clip":s.doc_clip,"side_clip":s.side_clip,"visible":s.visible,"history_index":s.history_index,"history_len":s.history.len(),"status":s.status})
     }
-    pub(super) fn ae2_guide_close(&mut self) {self.ae2_guide=None;self.ae2_guide_left_down=false;self.ae2_guide_right_down=false;if self.screen==Screen::Mod {self.screen=Screen::Playing;if self.player.is_some(){self.capture(true);}}}
+    pub(super) fn ae2_guide_close(&mut self) {self.ae2_guide=None;self.ae2_guide_left_down=false;self.ae2_guide_right_down=false;if self.screen==Screen::Ae2Guide {self.screen=Screen::Playing;if self.player.is_some(){self.capture(true);}}}
 }
 
 #[cfg(test)]

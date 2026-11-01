@@ -866,9 +866,10 @@ mod item_key_tests {
         let a=make(&first);let b=make(&second);
         assert!(a.same_item_same_components(&b));
         assert_eq!(crate::ae2_cell_codec::key(&a).unwrap(),crate::ae2_cell_codec::key(&b).unwrap());
+        // Level 0 is outside the persistent codec's 1..=255, so the entry drops (read_levels).
         let zero=Tag::compound([("minecraft:enchantments",Tag::compound([("minecraft:sharpness",Tag::Int(0))]))]);
         let decoded=make(&zero);assert_eq!(decoded.enchantment_level("minecraft:sharpness"),0);
-        assert_eq!(encode_components(&decoded),Some(zero));
+        assert_eq!(encode_components(&decoded),None);
     }
 }
 

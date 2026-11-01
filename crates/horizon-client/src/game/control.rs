@@ -131,10 +131,28 @@ impl Game<'_> {
             let _ = flight.reply.send(summary.to_string());
         }
     }
+    /// The frame summary, with Horizon's own passes' median GPU times while they are timed.
+    fn summary_with_passes(&self) -> Value {
+        let mut summary = self.frame_stats.summary();
+        let passes = self
+            .renderer
+            .as_ref()
+            .map(|r| r.own_pass_times())
+            .unwrap_or_default();
+        if !passes.is_empty() {
+            summary["gpu_passes"] = Value::Object(
+                passes
+                    .into_iter()
+                    .map(|(name, ms)| (name, json!(ms)))
+                    .collect(),
+            );
+        }
+        summary
+    }
     pub(super) fn poll_control(&mut self, event_loop: &dyn EventLoopCtl) {
         if let Some((deadline, reply)) = self.pending_bench.take() {
             if Instant::now() >= deadline {
-                let _ = reply.send(self.frame_stats.summary().to_string());
+                let _ = reply.send(self.summary_with_passes().to_string());
             } else {
                 self.pending_bench = Some((deadline, reply));
             }
@@ -170,6 +188,90 @@ impl Game<'_> {
             Err(e) => json!({ "error": e.to_string() }),
         };
         let _ = request.reply.send(reply.to_string());
+    }
+
+    /// Text typed at the open screen's text box by the control socket's
+    /// `type`: its `\b` is a backspace sentinel for the boxes that have always
+    /// taken one, not the characters `\` and `b`. `Err` when no text box of
+    /// the screen takes it.
+    pub(super) fn type_into_screen(&mut self, text: &str) -> Result<()> {
+        if text == "\\b" {
+            match self.screen {
+                Screen::WorldOptions => {
+                    self.world_options_text(None);
+                    return Ok(());
+                }
+                Screen::Inventory if self.mod_browser_typing() => {
+                    self.mod_browser_text(None, true);
+                    return Ok(());
+                }
+                Screen::Social => {
+                    self.social_backspace();
+                    return Ok(());
+                }
+                #[cfg(feature = "ae2-lab")]
+                Screen::Ae2Guide if self.ae2_guide_active() => {
+                    self.ae2_guide_key(KeyCode::Backspace);
+                    return Ok(());
+                }
+                #[cfg(feature = "ae2-lab")]
+                Screen::Inventory if self.ae2_search_focused() => {
+                    self.ae2_search_input(None, Some(KeyCode::Backspace));
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+        self.type_chars_into_screen(text)
+    }
+
+    /// Characters the open screen's focused text box takes: the control
+    /// socket's `type` and a key press's surviving characters (`charTyped`).
+    /// Nothing here is a key — the caller drops control characters. `Err` when
+    /// no text box of the screen takes them.
+    pub(super) fn type_chars_into_screen(&mut self, text: &str) -> Result<()> {
+        if self.book.is_some() {
+            self.book_type(text);
+            return Ok(());
+        }
+        if self.sign_edit.is_some() {
+            self.sign_input(None, Some(text));
+            return Ok(());
+        }
+        match self.screen {
+            #[cfg(feature = "ae2-lab")]
+            Screen::Ae2Guide if self.ae2_guide_active() => self.ae2_guide_text(text),
+            Screen::Chat => self.chat_type(text),
+            Screen::CommandBlock => self.command_block_type(text),
+            Screen::Social => self.social_type(text),
+            Screen::BlockEditor => self.block_editor_type(text),
+            Screen::DebugOptions => self.debug_options_type(text),
+            Screen::Options => self.ui.options.type_text(&self.gui.atlas, text),
+            // The port, or the game rules' search and number boxes.
+            Screen::WorldOptions => self.world_options_text(Some(text)),
+            Screen::Inventory if self.mod_browser_typing() => {
+                self.mod_browser_text(Some(text), false)
+            }
+            Screen::Inventory if self.recipe_search_focused() => {
+                self.recipe_text(Some(text), false)
+            }
+            #[cfg(feature = "ae2-lab")]
+            Screen::Inventory if self.ae2_search_focused() => {
+                self.ae2_search_input(Some(text), None);
+            }
+            // The anvil's rename box, while it has an input to name.
+            Screen::Inventory if self.station_typing() => self.station_text(Some(text), false),
+            Screen::Creative if self.creative_screen.tab().search => {
+                // As typed: replaces a selected query, keeps the length limit.
+                self.creative_search_edit(Some(text))
+            }
+            _ => {
+                return Err(
+                    "type needs the chat screen (key t tap), a sign or book, the language search, the creative search, the anvil or World Options".into(),
+                );
+            }
+        }
+        Ok(())
     }
 
     fn control_command(
@@ -273,6 +375,15 @@ impl Game<'_> {
                 }
                 Ok(Some(json!({ "ok": true, "cull": r.section_cull() })))
             }
+            "gpu-passes" => {
+                match words.get(1).copied() {
+                    None => {}
+                    Some("on") => self.gpu_passes = true,
+                    Some("off") => self.gpu_passes = false,
+                    Some(other) => return Err(format!("unknown gpu pass mode {other}").into()),
+                }
+                Ok(Some(json!({ "ok": true, "gpu_passes": self.gpu_passes })))
+            }
             "section-sides" => {
                 let r = self.renderer.as_mut().ok_or("no renderer")?;
                 match words.get(1).copied() {
@@ -361,6 +472,13 @@ impl Game<'_> {
                     )
                     .into());
                 }
+                // ConfirmScreen.keyPressed: Escape answers no, nothing else goes past it.
+                if self.command_prompt.is_some() {
+                    if key == KeyCode::Escape && arg(2)? != "up" {
+                        self.answer_command_prompt(false);
+                    }
+                    return ok();
+                }
                 // A server's dialog takes the keys, in configuration too.
                 if self.dialog_open() {
                     if arg(2)? != "up" {
@@ -420,6 +538,17 @@ impl Game<'_> {
                 }
                 // Native mods see the key as the keyboard hook does.
                 let action = arg(2)?;
+                // ScreenEvent.KeyPressed.Pre: the open screen hears of the
+                // press before it acts on it, as the window's key event hands
+                // it over. A cancelled press goes no further — not to the
+                // screens, not to `native_key` — and its release still comes.
+                if action != "up" && self.screen_key_pressed(physical, action == "repeat") {
+                    if action == "tap" {
+                        self.physical_keys.remove(&physical);
+                        self.native_key_event(physical, false, false);
+                    }
+                    return ok();
+                }
                 self.native_key_event(physical, action != "up", action == "repeat");
                 #[cfg(feature = "ae2-lab")]
                 self.ae2_hotkey_key(physical, action != "up", action == "repeat");
@@ -697,6 +826,7 @@ impl Game<'_> {
                 renderer.screenshot = Some(horizon_client::gfx::ScreenshotRequest {
                     path: path.trim().into(),
                     size: None,
+                    scaled: false,
                 });
                 self.pending_screenshot = Some(reply.clone());
                 Ok(None)
@@ -747,60 +877,20 @@ impl Game<'_> {
                 self.require_world()?;
                 // Typed keys: the open screen's narration hears them.
                 self.narration.keyboard_action();
-                if self.book.is_some() {
-                    self.book_type(text);
-                    return ok();
-                }
-                if self.sign_edit.is_some() {
-                    self.sign_input(None, Some(text));
-                    return ok();
-                }
-                match self.screen {
-                    #[cfg(feature = "ae2-lab")]
-                    Screen::Mod if self.ae2_guide_active()=>{
-                        if text=="\\b"{self.ae2_guide_key(KeyCode::Backspace);}else{self.ae2_guide_text(text);}
-                    },
-                    Screen::Chat => self.chat_type(text),
-                    Screen::CommandBlock => self.command_block_type(text),
-                    Screen::BlockEditor => self.block_editor_type(text),
-                    Screen::DebugOptions => self.debug_options_type(text),
-                    Screen::Options => self.ui.options.type_text(&self.gui.atlas, text),
-                    // The port, or the game rules' search and number boxes.
-                    Screen::WorldOptions if text == "\\b" => self.world_options_text(None),
-                    Screen::WorldOptions => self.world_options_text(Some(text)),
-                    Screen::Inventory if self.mod_browser_typing() => {
-                        self.mod_browser_text((text != "\\b").then_some(text), text == "\\b")
-                    }
-                    Screen::Inventory if self.recipe_search_focused() => {
-                        self.recipe_text(Some(text), false)
-                    }
-                    #[cfg(feature = "ae2-lab")]
-                    Screen::Inventory if self.ae2_search_focused() => {
-                        if text == "\\b" {
-                            self.ae2_search_input(None, Some(KeyCode::Backspace));
-                        } else {
-                            self.ae2_search_input(Some(text), None);
-                        }
-                    }
-                    // The anvil's rename box.
-                    Screen::Inventory
-                        if self
-                            .station
-                            .as_ref()
-                            .is_some_and(|s| s.kind == super::stations::Kind::Anvil) =>
-                    {
-                        self.station_text(Some(text), false)
-                    }
-                    Screen::Creative if self.creative_screen.tab().search => {
-                        // As typed: replaces a selected query, keeps the length limit.
-                        self.creative_search_edit(Some(text))
-                    }
-                    _ => {
-                        return Err(
-                            "type needs the chat screen (key t tap), a sign or book, the language search, the creative search, the anvil or World Options".into(),
-                        );
-                    }
-                }
+                // ScreenEvent.CharacterTyped.Pre: the open screen hears of
+                // each character before a text box takes it, as the window's
+                // key event fires it. A cancelled character is dropped, so
+                // `type` types the survivors only.
+                // `\b` is the socket's backspace sentinel, not two characters.
+                let typed = if text == "\\b" {
+                    text.to_owned()
+                } else {
+                    let Some(typed) = self.screen_text_typed(text) else {
+                        return ok();
+                    };
+                    typed
+                };
+                self.type_into_screen(&typed)?;
                 ok()
             }
             "options" => {
@@ -858,7 +948,7 @@ impl Game<'_> {
                 })))
             }
             "stats" => {
-                let summary = self.frame_stats.summary();
+                let summary = self.summary_with_passes();
                 if words.get(1) == Some(&"reset") {
                     self.frame_stats.reset();
                 }
@@ -980,6 +1070,15 @@ impl Game<'_> {
                 );
                 ok()
             }
+            // A splitscreen player leaves splitscreen; only P1's game ends the process.
+            "quit" if self.options.split_guest => {
+                if self.remote.is_some() {
+                    self.leave_server(None)?;
+                } else if let Some(title) = self.title.as_mut() {
+                    title.escape();
+                }
+                ok()
+            }
             "quit" => {
                 self.begin_closing_save(true)?;
                 ok()
@@ -1044,7 +1143,7 @@ impl Game<'_> {
         match self.screen {
             Screen::Playing => "playing",
             #[cfg(feature = "ae2-lab")]
-            Screen::Mod => "mod",
+            Screen::Ae2Guide => "ae2-guide",
             Screen::GameModeSwitcher => "gamemode-switcher",
             Screen::Paused => "paused",
             Screen::Options => "options",
@@ -1056,6 +1155,7 @@ impl Game<'_> {
             Screen::Advancements => "advancements",
             Screen::WorldOptions => "world-options",
             Screen::Friends => "friends",
+            Screen::Social => "social",
             Screen::ServerLinks => "server-links",
             Screen::ConfirmLink => "confirm-link",
             Screen::DialogWarning => "dialog-warning",
@@ -1063,6 +1163,7 @@ impl Game<'_> {
             Screen::BlockEditor => "block-editor",
             Screen::Win => "win",
             Screen::DebugOptions => "debug-options",
+            Screen::Mod => "mod",
         }
     }
 
@@ -1175,7 +1276,7 @@ impl Game<'_> {
             "distance": self.settings.horizon.lod_distance,
             "effective_distance": self.lod_distance(),
             "terrain_distance": self.terrain_distance(),
-            "source": if self.lod.is_none() { "none" } else if self.integrated.is_some() { "integrated" } else { "local" },
+            "source": if self.lod.is_none() { "none" } else if self.integrated.is_some() { "integrated" } else if self.server_far_terrain().is_some() { "server" } else { "local" },
             "source_attempted": self.lod_source_attempted,
             "active_tiles": self.lod.as_ref().map_or(0, |lod| lod.stats().0),
             "cached_tiles": self.lod.as_ref().map_or(0, |lod| lod.stats().1),

@@ -1,5 +1,5 @@
 // Forge Energy for Mekanism's energy cubes, through the engine's FE
-// capability (hook points API 63): support module `crate::game::mek_fe` of
+// capability (hook points API 81): support module `crate::game::mek_fe` of
 // the test bundle `mekanism_fe`, applied over the `mekanism` bundle
 // (pack/mods/mekanism) for the world test beside it. The cube stays that
 // bundle's (its Joules, side config and ejection into other cubes); this
@@ -166,7 +166,7 @@ fn exposed(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig) -
     Some((cube, capacity, output))
 }
 
-// ---- The FE hook points (API 63) -------------------------------------------
+// ---- The FE hook points (API 81) -------------------------------------------
 
 /// `native_fe_storage`: `ForgeEnergyIntegration`'s readback, in whole FE;
 /// Mekanism answers `canReceive` and `canExtract` true on every side it

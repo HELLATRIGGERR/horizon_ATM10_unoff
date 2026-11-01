@@ -1,5 +1,5 @@
 # Test bundle: Forge Energy for Mekanism's energy cubes through the engine's
-# FE capability (hook points API 63), applied over the `mekanism` bundle
+# FE capability (hook points API 81), applied over the `mekanism` bundle
 # (pack/mods/mekanism) only by `pack/scripts/fe-test.ts`, never with the
 # pack. It adds the cube's `IEnergyStorage` on each side and its ejector's
 # FE neighbours, so a cube feeds AE2's Energy Acceptor and AE2 feeds a cube.

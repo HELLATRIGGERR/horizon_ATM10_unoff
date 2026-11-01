@@ -1,4 +1,4 @@
-// Tests the engine's Forge Energy capability (hook points API 63) with Mekanism's energy cubes and AE2: the
+// Tests the engine's Forge Energy capability (hook points API 81) with Mekanism's energy cubes and AE2: the
 // `mekanism` bundle with the test bundle pack/tests/mekanism-fe over it (the cubes' FE edge), staged with
 // horizon-mixins, built, and the world test pack/tests/mekanism-fe/fe-cube-ae2.ts run on that build.
 // Usage: bun run pack/scripts/fe-test.ts <step>... (steps: units, stage, build, world; all: every one)

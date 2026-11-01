@@ -107,25 +107,25 @@ fn descriptor(input:&str) -> Result<BlockState,String> {
         (name,rest.strip_suffix('}').ok_or("invalid guide block state")?)
     } else {(input,"")};
     if name.is_empty() {return Err("empty guide block state".into())}
-    let mut properties=BTreeMap::new();
+    let mut properties=BTreeMap::<String,String>::new();
     if !props.is_empty() {for prop in props.split(',') {
         let (key,value)=prop.split_once(':').ok_or("invalid guide block property")?;
         let key=if key=="light_level" {"light"} else {key};
         properties.insert(key.to_owned(),value.to_owned());
     }}
-    Ok(BlockState{name:name.to_owned(),properties})
+    Ok(BlockState{name:name.to_owned(),properties:properties.into()})
 }
 fn attr<'a>(node:&'a Value, key:&str)->Option<&'a Value> {node.get("attrs")?.get(key)}
 fn block_image_state(node:&Value)->Result<BlockState,String> {
     let name=node.get("resource_id").and_then(Value::as_str).ok_or("BlockImage has no block ID")?;
-    let mut properties=BTreeMap::new();
+    let mut properties=BTreeMap::<String,String>::new();
     if let Some(attrs)=node.get("attrs").and_then(Value::as_object) {for (key,value) in attrs {
         if let Some(key)=key.strip_prefix("p:") {
             let value=match value {Value::String(v)=>v.clone(),Value::Bool(v)=>v.to_string(),Value::Number(v)=>v.to_string(),_=>return Err(format!("invalid block property {key}"))};
             properties.insert(key.to_owned(),value);
         }
     }}
-    Ok(BlockState{name:name.to_owned(),properties})
+    Ok(BlockState{name:name.to_owned(),properties:properties.into()})
 }
 fn number(node:&Value,key:&str,default:f32)->f32 {
     let n=attr(node,key).and_then(|x|x.as_f64().map(|v|v as f32).or_else(||x.as_str().and_then(|s|s.parse().ok()))).unwrap_or(default);

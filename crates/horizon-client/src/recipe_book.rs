@@ -325,7 +325,7 @@ impl Book {
                 Recipe::Special(special) => {
                     for shown in special.book_displays() {
                         entries.push(Entry {
-                            id: format!("minecraft:{name}"),
+                            id: crate::crafting::recipe_id(name),
                             display_id: -1,
                             category: crafting_category(&category),
                             group: group(&grp),
@@ -339,7 +339,7 @@ impl Book {
                 }
             };
             entries.push(Entry {
-                id: format!("minecraft:{name}"),
+                id: crate::crafting::recipe_id(name),
                 display_id: -1,
                 category: crafting_category(&category),
                 group: group(&grp),
@@ -360,7 +360,7 @@ impl Book {
                 _ => continue,
             };
             entries.push(Entry {
-                id: format!("minecraft:{}", c.id),
+                id: crate::crafting::recipe_id(&c.id),
                 display_id: -1,
                 category,
                 group: group(&c.group),
@@ -704,11 +704,16 @@ impl RecipeIndex {
                 },
             );
         };
+        // NeoForge's load conditions: the book lists only what loaded; a
+        // recipe gated on an absent mod isn't in the manager either.
+        let mods = crate::recipe_conditions::loaded_mods(root);
+        let tags = crate::items::load_tags(root, "item", overlay).unwrap_or_default();
+        let conditions_hold =
+            |v: &serde_json::Value| crate::recipe_conditions::enabled(v, &mods, &tags);
         // Recipe resource locations in vanilla's namespace and the content
         // mods': the whole folder, `brewing/` under it too, in id order
         // (`SimpleJsonResourceReloadListener` walks it recursively): a
         // subfolder's recipe keeps it in its id, `minecraft:brewing/<name>`.
-        let tags = crate::items::load_tags(root, "item", overlay).unwrap_or_default();
         let mut namespaces = vec!["minecraft".to_owned()];
         namespaces.extend(crate::mod_content::namespaces(root));
         namespaces.sort();
@@ -721,24 +726,31 @@ impl RecipeIndex {
             }
         }
         files.sort();
-        for (id, path) in files {
-            let Some(v) = std::fs::read(&path)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-            else {
-                continue;
-            };
-            if !crate::recipe_conditions::enabled(&v, &tags) {
-                continue;
-            }
-            insert(id, &v);
-        }
-        // The world's packs' recipes over the game's own: the top pack's
-        // file for each id replaces it (`SimpleJsonResourceReloadListener`).
+        // The packs' files replace first and the gate answers the merged
+        // file, as the crafting loader's does: a false-conditioned pack
+        // file leaves the lower one gone too.
+        let mut sources: Vec<(String, serde_json::Value)> = files
+            .into_iter()
+            .filter_map(|(id, path)| {
+                let v = std::fs::read(&path)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())?;
+                Some((id, v))
+            })
+            .collect();
         for (id, files) in overlay.kind("recipe") {
             match serde_json::from_slice::<serde_json::Value>(PackOverlay::top(files)) {
-                Ok(v) => insert(id.to_owned(), &v),
+                Ok(v) => match sources.iter_mut().find(|(n, _)| n == id) {
+                    Some(slot) => slot.1 = v,
+                    None => sources.push((id.to_owned(), v)),
+                },
                 Err(e) => log::warn!("Horizon: pack recipe {id} not shown in the book: {e}"),
+            }
+        }
+        let filters = horizon_items::recipe_filters::RecipeFilters::load(root, overlay);
+        for (id, mut v) in sources {
+            if conditions_hold(&v) && filters.apply(&id, &mut v) {
+                insert(id, &v);
             }
         }
         // RecipeManager keeps its recipes sorted by id and numbers the displays in that order.

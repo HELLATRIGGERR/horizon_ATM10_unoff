@@ -426,7 +426,7 @@ impl Game<'_> {
                         if expected.name!=facade.block {continue;}
                     }
                     let state = horizon_world::chunk::BlockState {
-                        name: facade.block.clone(), properties: facade.properties.clone(),
+                        name: facade.block.clone(), properties: facade.properties.clone().into(),
                     };
                     let Ok(state) = self.pack.assets.registry.resolve(&state) else {continue};
                     let pose=base*glam::Mat4::from_quat(rotate(&facade.face))

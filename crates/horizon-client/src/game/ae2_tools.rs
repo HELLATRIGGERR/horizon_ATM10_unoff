@@ -146,7 +146,7 @@ fn fluid_legacy_output(
     registry
         .resolve(&BlockState {
             name: block.into(),
-            properties: BTreeMap::from([("level".into(), level.to_string())]),
+            properties: [("level".to_owned(), level.to_string())].into(),
         })
         .map_err(|e| e.to_string())
 }
@@ -241,13 +241,13 @@ impl Game<'_> {
             }
         };
         let flowing = !facts.waterlogged && (facts.fluid_falling || facts.fluid_level < 8);
-        let mut properties = BTreeMap::from([("falling".into(), facts.fluid_falling.to_string())]);
+        let mut properties = BTreeMap::from([("falling".to_owned(), facts.fluid_falling.to_string())]);
         if flowing {
             properties.insert("level".into(), facts.fluid_level.to_string());
         }
         BlockState {
             name: format!("minecraft:{}{base}", if flowing { "flowing_" } else { "" }),
-            properties,
+            properties: properties.into(),
         }
     }
     /// Fluid.ANY hit selection for this source tool; normal block outlines
@@ -395,7 +395,8 @@ impl Game<'_> {
             if block.name == "ae2:tiny_tnt" {
                 self.ae2_ignite_tiny_tnt(pos, false);
             } else {
-                self.spawn_primed_tnt(pos, false);
+                let guest = self.lan_acting;
+                self.spawn_primed_tnt(pos, false, Some(horizon_client::mobs::Who::Player), guest);
             }
             self.level_set(hit.pos, self.world.air)
                 .map_err(|e| e.to_string())?;
@@ -508,7 +509,7 @@ mod tests {
         };
         let source = BlockState {
             name: "minecraft:water".into(),
-            properties: BTreeMap::from([("falling".into(), "false".into())]),
+            properties: [("falling".to_owned(), "false".to_owned())].into(),
         };
         let recipe = serde_json::json!({"mode":"cool","input":{"fluid":{"id":"minecraft:water"}},"output":{"block":{"id":"minecraft:ice"}}});
         assert!(matches_recipe(&recipe, true, &block, &source));

@@ -4,10 +4,10 @@ use horizon_client::{items::ItemStack, text::Text};
 use serde_json::{Value,json};
 use winit::event::MouseButton;
 impl Game<'_> {
-    pub(super) fn ae2_guide_active(&self) -> bool {self.screen==Screen::Mod && self.ae2_guide.is_some()}
+    pub(super) fn ae2_guide_active(&self) -> bool {self.screen==Screen::Ae2Guide && self.ae2_guide.is_some()}
     pub(super) fn ae2_guide_open(&mut self) -> bool {
         match super::ae2_guide::GuideState::load(&self.options.resources) {
-            Ok(state)=>{self.ae2_guide=Some(state);self.ae2_guide_left_down=false;self.ae2_guide_right_down=false;self.screen=Screen::Mod;self.capture(false);true},
+            Ok(state)=>{self.ae2_guide=Some(state);self.ae2_guide_left_down=false;self.ae2_guide_right_down=false;self.screen=Screen::Ae2Guide;self.capture(false);true},
             Err(error)=>{self.system_message(Text::literal(format!("AE2 guide: {error}")));false},
         }
     }

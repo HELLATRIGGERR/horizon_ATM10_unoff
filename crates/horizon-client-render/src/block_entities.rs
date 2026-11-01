@@ -185,6 +185,26 @@ pub struct BlockEntities {
     /// The fluid tanks of mod blocks' block entities, by block state id;
     /// built with `states`, like the containers.
     mod_fluids: FxHashMap<u32, Arc<ModFluidTanks>>,
+    /// The positions of the mod block entities (`BlockEntity::Mod`) by chunk,
+    /// for the renderer: the mesher lists block entities by their template,
+    /// which leaves out a mod block whose template has none. One taken out
+    /// (`take`) stays listed until `put` or `remove`.
+    mods: FxHashMap<(i32, i32), FxHashSet<Pos>>,
+}
+
+fn chunk_of((x, _, z): Pos) -> (i32, i32) {
+    (x >> 4, z >> 4)
+}
+
+/// Takes `pos` out of its chunk's mod block entity set.
+fn forget_mod(mods: &mut FxHashMap<(i32, i32), FxHashSet<Pos>>, pos: Pos) {
+    let chunk = chunk_of(pos);
+    if let Some(set) = mods.get_mut(&chunk) {
+        set.remove(&pos);
+        if set.is_empty() {
+            mods.remove(&chunk);
+        }
+    }
 }
 
 impl std::ops::Deref for BlockEntities {
@@ -271,6 +291,7 @@ impl BlockEntities {
             replaced: self.replaced.clone(),
             mod_containers: self.mod_containers.clone(),
             mod_fluids: self.mod_fluids.clone(),
+            mods: self.mods.clone(),
             #[cfg(feature="ae2-lab")]
             vanilla_metadata: self.vanilla_metadata.clone(),
             #[cfg(feature="ae2-lab")]
@@ -544,6 +565,23 @@ impl BlockEntities {
         self.pending.remove(pos);
     }
 
+    /// Whether any mod block entity is in the map: until one is, a block change
+    /// never looks one up (`LevelAccess::has_mod_block_entity`).
+    pub fn has_mods(&self) -> bool {
+        !self.mods.is_empty()
+    }
+    /// The mod block entities within `radius` blocks of `x`, `z` (by chunk, so
+    /// far ones are skipped whole; the caller checks each distance).
+    pub fn mods_near(&self, x: f64, z: f64, radius: f64) -> impl Iterator<Item = &Pos> {
+        let far = move |c: i32, at: f64| {
+            let (lo, hi) = (f64::from(c * 16), f64::from(c * 16 + 16));
+            at < lo - radius || at > hi + radius
+        };
+        self.mods
+            .iter()
+            .filter(move |((cx, cz), _)| !far(*cx, x) && !far(*cz, z))
+            .flat_map(|(_, set)| set)
+    }
     pub fn get_mut(&mut self, pos: &Pos) -> Option<&mut BlockEntity> {
         self.map.get_mut(pos)
     }
@@ -558,6 +596,7 @@ impl BlockEntities {
     pub fn insert(&mut self, pos: Pos, entity: BlockEntity) -> Option<BlockEntity> {
         #[cfg(feature = "ae2-lab")]
         let previous_incarnation = self.incarnation(&pos);
+        let new_is_mod = matches!(entity, BlockEntity::Mod(_));
         let old = self.map.insert(pos, entity);
         self.new_incarnation(pos);
         #[cfg(feature = "ae2-lab")]
@@ -572,6 +611,11 @@ impl BlockEntities {
         }
         if old.is_none() {
             self.add(pos);
+        }
+        if new_is_mod {
+            self.mods.entry(chunk_of(pos)).or_default().insert(pos);
+        } else if matches!(old, Some(BlockEntity::Mod(_))) {
+            forget_mod(&mut self.mods, pos);
         }
         old
     }
@@ -659,6 +703,9 @@ impl BlockEntities {
         self.vanilla_metadata.remove(pos);
         let incarnation = self.incarnations.remove(pos);
         let removed = self.map.remove(pos);
+        if matches!(removed, Some(BlockEntity::Mod(_))) {
+            forget_mod(&mut self.mods, *pos);
+        }
         #[cfg(feature = "ae2-lab")]
         if self.ae2_journal_enabled() {
             if let (Some(incarnation), Some(entity @ BlockEntity::Ae2(_))) = (incarnation, removed.as_ref()) {
@@ -689,6 +736,9 @@ impl BlockEntities {
         let was_out = self.out.remove(&pos);
         #[cfg(feature = "ae2-lab")]
         self.ae2_taken.remove(&pos);
+        if matches!(entity, BlockEntity::Mod(_)) {
+            self.mods.entry(chunk_of(pos)).or_default().insert(pos);
+        }
         if !was_out || !self.incarnations.contains_key(&pos) {
             self.new_incarnation(pos);
             #[cfg(feature = "ae2-lab")]
@@ -714,6 +764,7 @@ impl BlockEntities {
         let (live, pending, freed, incarnations) = (&mut self.live, &mut self.pending, &mut self.freed, &mut self.incarnations);
         #[cfg(feature = "ae2-lab")]
         let metadata=&mut self.vanilla_metadata;
+        let mods = &mut self.mods;
         self.map.retain(|p, e| {
             let kept = keep(p, e);
             if !kept {
@@ -730,6 +781,7 @@ impl BlockEntities {
                 }
                 #[cfg(not(feature = "ae2-lab"))]
                 let _ = incarnation;
+                forget_mod(mods, *p);
             }
             kept
         });
@@ -749,6 +801,7 @@ impl BlockEntities {
         self.incarnations.clear();
         #[cfg(feature = "ae2-lab")]
         {self.vanilla_metadata.clear();self.vanilla_loaded_metadata.clear();}
+        self.mods.clear();
         self.tickers = Arc::default();
         self.live.clear();
         self.added.clear();
@@ -773,6 +826,7 @@ impl BlockEntities {
         for (p, e) in entities {
             #[cfg(feature = "ae2-lab")]
             let previous = self.incarnation(&p);
+            let new_is_mod = matches!(e, BlockEntity::Mod(_));
             let old = self.map.insert(p, e);
             if old.is_some() {
                 self.replaced.insert(p);
@@ -800,6 +854,11 @@ impl BlockEntities {
             }
             #[cfg(not(feature = "ae2-lab"))]
             let _ = old;
+            if new_is_mod {
+                self.mods.entry(chunk_of(p)).or_default().insert(p);
+            } else if matches!(old, Some(BlockEntity::Mod(_))) {
+                forget_mod(&mut self.mods, p);
+            }
         }
         for p in order {
             self.add(p);
@@ -943,6 +1002,38 @@ mod tests {
             .collect()
     }
 
+    fn near(b: &BlockEntities, x: f64, z: f64, radius: f64) -> Vec<Pos> {
+        let mut found: Vec<Pos> = b.mods_near(x, z, radius).copied().collect();
+        found.sort();
+        found
+    }
+    #[test]
+    fn mod_block_entities_are_listed_by_chunk_until_they_go() {
+        let mut b = level();
+        let modded = || BlockEntity::Mod(Box::default());
+        b.insert((1, 64, 1), modded());
+        b.insert((200, 64, 1), modded());
+        b.insert((2, 64, 2), hopper());
+        b.get_or_insert_with((3, 64, 3), modded);
+        b.load_chunk(vec![((4, 64, 4), modded()), ((5, 64, 5), hopper())]);
+        // Only mods, and only chunks within reach.
+        assert_eq!(
+            near(&b, 0.0, 0.0, 64.0),
+            [(1, 64, 1), (3, 64, 3), (4, 64, 4)]
+        );
+        assert_eq!(near(&b, 200.0, 0.0, 8.0), [(200, 64, 1)]);
+        // Taken out for a tick, still listed; removed or replaced, gone.
+        let taken = b.take(&(1, 64, 1)).unwrap();
+        assert_eq!(near(&b, 0.0, 0.0, 64.0).len(), 3);
+        b.put((1, 64, 1), taken);
+        b.remove(&(3, 64, 3));
+        b.insert((4, 64, 4), hopper());
+        assert_eq!(near(&b, 0.0, 0.0, 64.0), [(1, 64, 1)]);
+        b.retain(|p, _| p.0 != 1);
+        assert!(near(&b, 0.0, 0.0, 64.0).is_empty());
+        b.clear();
+        assert!(near(&b, 200.0, 0.0, 8.0).is_empty());
+    }
     #[test]
     fn slots_follow_vanilla_lifecycle() {
         let mut b = level();

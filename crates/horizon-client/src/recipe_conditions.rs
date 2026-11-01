@@ -1,32 +1,75 @@
-//! NeoForge conditions used by the pinned AE2 19.2.18 recipe data.
-//! Evaluate tag conditions at data-load time, against the resolved item tags.
+//! NeoForge's load conditions on recipes, with the item tags at hand: the
+//! ones `horizon_world::conditions` answers from the loaded mods, and
+//! `neoforge:tag_empty`, which the pinned AE2 19.2.18 recipe data asks at
+//! data-load time against the resolved item tags.
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-fn condition(v: &Value, tags: &HashMap<String, HashSet<String>>, depth: u8) -> Option<bool> {
-    if depth == 64 { return None; }
-    match v.get("type")?.as_str()? {
-        "neoforge:tag_empty" => Some(tags.get(v.get("tag")?.as_str()?).is_none_or(HashSet::is_empty)),
-        "neoforge:not" => Some(!condition(v.get("value")?, tags, depth + 1)?),
-        _ => None,
+use std::path::Path;
+
+/// The mods a `neoforge:mod_loaded` can name: `minecraft`, always, and the
+/// content mods in this root.
+pub(crate) fn loaded_mods(root: &Path) -> Vec<String> {
+    let mut mods = horizon_items::content_namespaces::mod_ids(root);
+    if !mods.iter().any(|m| m == "minecraft") {
+        mods.push("minecraft".to_owned());
     }
+    mods
 }
-pub(crate) fn enabled(recipe: &Value, tags: &HashMap<String, HashSet<String>>) -> bool {
-    let Some(conditions) = recipe.get("neoforge:conditions") else { return true; };
-    let Some(conditions) = conditions.as_array() else { return false; };
-    conditions.iter().all(|v| match condition(v, tags, 0) {
-        Some(enabled) => enabled,
-        None => { log::warn!("Horizon: unsupported or invalid recipe condition {v}"); false }
-    })
+
+/// Whether the recipe loads: a file without `neoforge:conditions` does, one
+/// with an unknown condition type doesn't.
+pub(crate) fn enabled(
+    recipe: &Value,
+    mods: &[String],
+    tags: &HashMap<String, HashSet<String>>,
+) -> bool {
+    horizon_world::conditions::conditions_hold_with_tags(
+        recipe,
+        &|id: &str| mods.iter().any(|m| m == id),
+        &|tag: &str| tags.get(tag).is_none_or(HashSet::is_empty),
+    )
 }
-#[cfg(test)] mod tests {
+
+#[cfg(test)]
+mod tests {
     use super::*;
-    #[test] fn ae2_optional_ammunition_tracks_resolved_tags_and_rejects_unknown_conditions() {
-        let tags = HashMap::from([("c:nuggets/iron".to_owned(), HashSet::from(["minecraft:iron_nugget".to_owned()])),("c:nuggets/empty".to_owned(),HashSet::new())]);
-        let recipe = |tag: &str| serde_json::json!({"neoforge:conditions":[{"type":"neoforge:not","value":{"type":"neoforge:tag_empty","tag":tag}}]});
-        assert!(enabled(&recipe("c:nuggets/iron"), &tags));
-        assert!(!enabled(&recipe("c:nuggets/zinc"), &tags));
-        assert!(!enabled(&recipe("c:nuggets/empty"), &tags));
-        assert!(enabled(&serde_json::json!({}), &tags));
-        assert!(!enabled(&serde_json::json!({"neoforge:conditions":[{"type":"unknown:condition"}]}), &tags));
+    #[test]
+    fn ae2_optional_ammunition_tracks_resolved_tags_and_rejects_unknown_conditions() {
+        let tags = HashMap::from([
+            (
+                "c:nuggets/iron".to_owned(),
+                HashSet::from(["minecraft:iron_nugget".to_owned()]),
+            ),
+            ("c:nuggets/empty".to_owned(), HashSet::new()),
+        ]);
+        let mods = ["minecraft".to_owned()];
+        let recipe = |tag: &str| {
+            serde_json::json!({"neoforge:conditions":[{"type":"neoforge:not","value":{"type":"neoforge:tag_empty","tag":tag}}]})
+        };
+        assert!(enabled(&recipe("c:nuggets/iron"), &mods, &tags));
+        assert!(!enabled(&recipe("c:nuggets/zinc"), &mods, &tags));
+        assert!(!enabled(&recipe("c:nuggets/empty"), &mods, &tags));
+        assert!(enabled(&serde_json::json!({}), &mods, &tags));
+        assert!(!enabled(
+            &serde_json::json!({"neoforge:conditions":[{"type":"unknown:condition"}]}),
+            &mods,
+            &tags
+        ));
+    }
+    #[test]
+    fn mod_conditions_and_tag_conditions_combine() {
+        let tags = HashMap::from([(
+            "c:ingots/iron".to_owned(),
+            HashSet::from(["minecraft:iron_ingot".to_owned()]),
+        )]);
+        let mods = ["minecraft".to_owned(), "ae2".to_owned()];
+        let both = |modid: &str| {
+            serde_json::json!({"neoforge:conditions":[
+                {"type":"neoforge:mod_loaded","modid":modid},
+                {"type":"neoforge:not","value":{"type":"neoforge:tag_empty","tag":"c:ingots/iron"}}
+            ]})
+        };
+        assert!(enabled(&both("ae2"), &mods, &tags));
+        assert!(!enabled(&both("mekanism"), &mods, &tags));
     }
 }

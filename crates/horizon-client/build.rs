@@ -1,7 +1,21 @@
 //! Embeds Horizon's icon (`packaging/icons/horizon.ico`) in the Windows executables, as icon
 //! resource 1: Explorer and the task bar show it, and the window takes it as its icon.
 //! The optional Segment Heap manifest is embedded in the same resource compilation.
+//! The game's main thread also gets a large stack on Windows, whose default is 1 MiB.
+
+/// The main thread's stack reserve on Windows, in bytes. Opening a world goes through frames of
+/// several hundred KiB (`App::about_to_wait`, `Game::new`) and overran the default 1 MiB; Linux's
+/// main thread has 8 MiB. Only the pages used are committed, so this costs address space, not memory.
+const WINDOWS_MAIN_STACK: u64 = 16 << 20;
+
 fn main() {
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        let arg = match std::env::var("CARGO_CFG_TARGET_ENV").as_deref() {
+            Ok("msvc") => format!("/STACK:{WINDOWS_MAIN_STACK}"),
+            _ => format!("-Wl,--stack,{WINDOWS_MAIN_STACK}"),
+        };
+        println!("cargo:rustc-link-arg-bin=horizon-client={arg}");
+    }
     let dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
     let ico = format!("{dir}/../../packaging/icons/horizon.ico");
     println!("cargo:rerun-if-changed={ico}");

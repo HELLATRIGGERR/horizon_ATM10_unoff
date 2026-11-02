@@ -21102,6 +21102,9 @@ fn load_resources(
             .rest
             .set(rest)
             .map_err(|_| "world resources already loaded")?;
+        if root != vanilla_root {
+            write_prepared_files(root.clone());
+        }
         None
     };
     // The world tables load (above) while the handoff's CPU work is done: the

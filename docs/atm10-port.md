@@ -12,7 +12,7 @@ Start here on a new machine. Read "Setting up a machine", then "What to do next"
 |---|---|---|
 | `atm10-horizon-rework` (default) | Upstream merged (b702e0f35), AE2, MEGA Cells, Mekanism cubes, Forge Energy hooks | Unit tests and the world suites `machine-screens`, `provider-session`, `inscriber-menu-filter`, `fe-partial-acceptance`, `megacells-cells` pass |
 | `int/atm10` | The default branch plus port-pack, AE2 terminals, AE2 screens, ME Requester, Powah, Flux Networks, the Windows main thread stack | Type-checks. **World suites not finished here**: run them (below), then fast-forward the default branch |
-| `wip/fullpack-4` | On `int/atm10`: the pack scripts, `horizon-port-pack`'s review fixes, the faster content root, the engine track's placement/loot/rails commit, and the fixes that let the full pack start | The full pack reaches the title screen; a world not yet (see "The full pack") |
+| `wip/fullpack-4` | On `int/atm10`: the pack scripts, `horizon-port-pack`'s review fixes, the faster content root, the engine track's placement/loot/rails commit, and the fixes that let the full pack start, on upstream merged (2db815d01) | A world opens with all carries on a 16 GB PC, in 73 s on a second start (see "The full pack") |
 | `wip/port-pack-2`, `wip/fullpack-rebased` | Folded into `wip/fullpack-4` | Delete |
 | `wip/fullpack-start` | The same work before the move, on 85020d24a | Compiled there; conflicts with upstream in `game/mods.rs` and `mod_content.rs` (upstream's per-block row logic, `accept_mod`, `register_entity_types`) |
 | `wip/extendedae` | ExtendedAE first slice, on 85020d24a | Its world test has not passed yet (last run: `ECONNRESET`, on a loaded machine). Applies cleanly on upstream, conflicts with ME Requester at the shared addon points |
@@ -133,18 +133,50 @@ another, each hidden behind the one before (a first start on this PC, `wip/fullp
 | run 6 | 6.2 s | 44 s | 65 s | core tables ready at 120 s; the world's loaders took the game to 10 GB (a 1.3 GB JSON tree) and the memory floor stopped it at 128 s |
 | run 7 | 8.7 s | 64 s | 92 s | core tables at 178 s (a minute reading item definitions one by one); the machine (7 GB free) ran out as the world loaded |
 | run 8 | 10.1 s | 50 s | 75 s | core tables at 126 s (item definitions read on every thread); started with 4 GB free, stopped by the memory floor at 128 s as the world loaded |
+| run 9 | 6.9 s | 43 s | 66 s | core tables at 107 s; the memory floor at 109 s: 1.3 GB read whole to hash it |
+| run 12 | 5.8 s | 42 s | 59 s | tables one at a time: memory holds (peak 6.8 GB); crash at 226 s: 36,446 sprites, more than 8 arrays of 2,048 |
+| run 19 | 7.3 s | 45 s | 69 s | **first world with all carries**: first frame at 275 s |
+| run 21 | 5.6 s | 49 s | 68 s | a first start on the final code: first frame at 249 s, its data file written behind it in 273 s |
+| run 22 | none | none | 6.5 s | a second start: first frame at **73 s** |
 
-So: not stuck, and the parts that were slow are faster (the content read 52 -> 6-10 s, the root 187 -> 44-74 s, the
-title at 65-107 s against Java's 140 s on a first start, which on Horizon includes the root build). A world has not
-been opened with all carries yet: the world phase needs more memory than this 16 GB PC leaves while other builds and
-games run (Java's ATM10 asks for an 8.3 GB heap).
+A world opens with all carries. All of these with the session locked, so no frame rate here compares with Java's (the
+compositor holds the window to 30 fps); memory, tick and load times do. Against Java's 200 s, on the same PC:
+
+| | First start (run 21) | Second start (run 22) |
+|---|--:|--:|
+| Content root built | 49 s | reused |
+| Core tables | 108 s | 21 s |
+| World tables | 178 s | 35 s |
+| Renderer | 190 s | 46 s |
+| Server's data | 216 s | 56 s |
+| Generator, server's game | 237 s | 71 s |
+| First frame in the world | 249 s | **73 s** |
+| Peak working set | 6.7 GB | 6.9 GB |
+| At spawn: working set, private (with 1.5 GB of GPU memory) | 5.0, 9.4 GB | 6.6, 9.1 GB |
+| Lowest free memory, from 7-8 GB at the start | 0.2 GB | 1.0 GB |
+
+The server thread's tick, over runs 18-22: 5.0-8.8 ms standing at spawn (peak 7.9-15.6 ms); 7.2-16.6 ms on a 400-block
+flight at 10 blocks a second (peak 15-47 ms, and one 1.08 s spike in run 22 not looked into). 637 chunks, 322-1,911
+block entities, 168-228 mobs. Java's ATM10 was not measured beside it: its 8.3 GB heap doesn't fit in what this PC leaves.
 
 The fixes, in the engine: content mods' GUI and entity textures (Java binds those one by one when drawn) are optional in
 the GUI atlas and fill only what room and the texture budget leave; a mod's own damage effects and death message types
 read as vanilla's defaults; damage tags lose only the references that are missing; the content root's tag merge is no
 longer quadratic (40 s of the build); every texture that doesn't load shares one layer; terrain vertices index sprite
-layers with 32 bits. Most of the time left is reading small files (the root's links, models, textures), on Windows with
-Defender scanning each open.
+layers with 32 bits. What opened the world, in the engine: terrain.wgsl grows past 8 sprite arrays, to 24 on a GPU that binds
+them; a mod's growing plant takes its way of growing from its template, and a structure that doesn't decode is left out,
+not the generator; a large registry (past 200,000 states) loads the world's tables and a world's opening one at a time;
+the behaviour snapshot's fingerprint hashes files in pieces (it read 1.3 GB whole, side by side with everything else);
+`model-states.json` stays text until a block is reached, and the behaviour document is read only on a snapshot miss;
+6 million baked faces let go of their sprite names; a content root gets its own `horizon-data.bin`, written behind the
+first start, so the next ones open one file for 600,000: that took the world from 172 s to 73 s. A piston that finished
+moving also removed its own base (upstream's 5b2970e45, still on its main): fixed here. `HORIZON_STARTUP_TRACE` now
+records memory at each step's end. On the way: 319 of the pack's placed features can't run yet and are skipped, and
+`underground_villages:underground_village` is left out (its own height provider).
+
+What holds the memory now, in MB, by `resource_memory`: the registry 260; baked block models about 1,250 (276,297
+variants, 6.26 million faces at 128 bytes each); parsed models 360; recipes 656; items 221; block facts and behaviours
+297. The GUI atlas is 640 MB of GPU memory. Baking models when a chunk first needs them would take the most off.
 
 Known defects in the generated carries, from a review that read the files, and what the regenerated carries say
 against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 8.4):
@@ -188,9 +220,9 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 ## What to do next
 
 1. Run the suites above on `int/atm10`, fix what fails, fast-forward the default branch.
-2. Open a world with all carries (`wip/fullpack-4`): measure the world phase's memory (several loaders build per-state
-   tables at once) and bring it under what a 16 GB PC leaves; then a second start (the root reused) against Java's
-   200 s. Lazy GUI/entity textures for native mods' screens; reading fewer small files at start.
+2. On `wip/fullpack-4`, with the session unlocked: frame rate at spawn against Java's. Then what is still loaded for
+   nothing: baked models on demand (about 1 GB, and `assets.state_models`' 25 s on a first start), lazy GUI/entity
+   textures (640 MB of GPU memory), the 319 placed features that can't run.
 3. Fix the engine defects in the table above.
 4. Bring `wip/mekanism`, `wip/extendedae` and `wip/quests` onto the head, in that order.
 5. Then, as the roadmap in the handoff folder lays out: data maps and biome modifiers, a shared GUI kit and machine recipe

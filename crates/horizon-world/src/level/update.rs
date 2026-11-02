@@ -351,9 +351,6 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             // PistonMovingBlockEntity.preRemoveSideEffects -> finalTick; the
             // block is already replaced, so only the entity goes away.
             self.remove_moving_piston(pos);
-            // MovingPistonBlock.destroy: the extended base the head belonged to
-            // goes with it, so a broken moving piston leaves no extended piston.
-            self.destroy_moving_piston_base(pos, old);
         } else if block_changed
             && (self.b.has_flag(old, super::data::state_flags::BLOCK_ENTITY)
                 || self.level.has_mod_block_entity(pos))
@@ -395,12 +392,16 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         (tags.copper_chests.contains(new) && tags.copper_chests.contains(old))
             || (tags.copper_golem_statues.contains(new) && tags.copper_golem_statues.contains(old))
     }
-    /// `MovingPistonBlock.destroy`: a `moving_piston` that goes away takes the
-    /// piston base behind it with it when that base is extended (a head that was
-    /// still moving over a base that finished extending). An unextended base, or
-    /// no piston base at all, stays.
-    fn destroy_moving_piston_base(&mut self, pos: BlockPos, state: BlockStateId) {
+    /// `MovingPistonBlock.destroy`: a broken `moving_piston` takes the piston base
+    /// behind it with it when that base is extended (a head that was still moving
+    /// over a base that finished extending). An unextended base, or no piston base
+    /// at all, stays. A moving piston that finishes moving isn't broken: its head
+    /// replaces it and keeps its base.
+    pub(super) fn destroy_moving_piston_base(&mut self, pos: BlockPos, state: BlockStateId) {
         let b = self.b;
+        if b.block(state) != b.named.moving_piston {
+            return;
+        }
         let Some(facing) = b.table.dir(state, b.props.facing) else {
             return;
         };
@@ -438,6 +439,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let destroyed = self.set_block_limit(pos, legacy, 3, limit);
         if destroyed {
             self.game_event_state(pos, "minecraft:block_destroy", state);
+            self.destroy_moving_piston_base(pos, state);
         }
         destroyed
     }

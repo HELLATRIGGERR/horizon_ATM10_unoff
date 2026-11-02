@@ -10,15 +10,9 @@ Start here on a new machine. Read "Setting up a machine", then "What to do next"
 
 | Branch | What it holds | State |
 |---|---|---|
-| `atm10-horizon-rework` (default) | Upstream merged (b702e0f35), AE2, MEGA Cells, Mekanism cubes, Forge Energy hooks | Unit tests and the world suites `machine-screens`, `provider-session`, `inscriber-menu-filter`, `fe-partial-acceptance`, `megacells-cells` pass |
-| `int/atm10` | The default branch plus port-pack, AE2 terminals, AE2 screens, ME Requester, Powah, Flux Networks, the Windows main thread stack | Type-checks. **World suites not finished here**: run them (below), then fast-forward the default branch |
-| `wip/fullpack-4` | On `int/atm10`: the pack scripts, `horizon-port-pack`'s review fixes, the faster content root, the engine track's placement/loot/rails commit, and the fixes that let the full pack start, on upstream merged (2db815d01) | A world opens with all carries on a 16 GB PC, in 73 s on a second start (see "The full pack") |
-| `wip/port-pack-2`, `wip/fullpack-rebased` | Folded into `wip/fullpack-4` | Delete |
-| `wip/fullpack-start` | The same work before the move, on 85020d24a | Compiled there; conflicts with upstream in `game/mods.rs` and `mod_content.rs` (upstream's per-block row logic, `accept_mod`, `register_entity_types`) |
-| `wip/extendedae` | ExtendedAE first slice, on 85020d24a | Its world test has not passed yet (last run: `ECONNRESET`, on a loaded machine). Applies cleanly on upstream, conflicts with ME Requester at the shared addon points |
-| `wip/mekanism` | Cube tiers on Forge Energy, Universal Cables, block entity lifecycle hooks, on 85020d24a | `mekanism-cable` and `mekanism-cube-fe` passed; conflicts in `native_hooks.rs`, `block_entities.rs`, `pack/tests/mekanism-fe` |
+| `atm10-horizon-rework` (default) | Upstream merged (6e1635c1e), AE2, MEGA Cells, ME Requester, ExtendedAE's first slice, Mekanism (cubes, cables, Solar and Heat Generators), Powah, Flux Networks, `horizon-port-pack`, the full pack's start | Unit tests, the default world suites and the bundles' tests pass (3 November 2026). A world opens with all carries (below) |
 | `wip/quests` | Quest book native mod, on 85020d24a | World test not passing yet. Its own screen hooks must move onto upstream's native mod screens (`Screen::Mod`, `screen_render_post`) |
-| `wip/port-pack`, `wip/ae2-terminals`, `wip/ae2-screens`, `wip/merequester`, `wip/powah`, `wip/fluxnetworks` | The same work as on `int/atm10`, on the old base | Delete once `int/atm10` lands |
+| `wip/upstream-merge`, `int/atm10`, `wip/port-pack`, `wip/port-pack-2`, `wip/fullpack-rebased`, `wip/fullpack-start`, `wip/extendedae`, `wip/mekanism`, `wip/ae2-terminals`, `wip/ae2-screens`, `wip/merequester`, `wip/powah`, `wip/fluxnetworks` | Folded into the default branch | Delete when the owner agrees |
 | `horizon-connect` | The owner's separate project | Leave alone |
 
 ## Setting up a machine
@@ -62,7 +56,7 @@ bun run ae2/scripts/test-world.ts machine-screens provider-session
 Optional settings: `AE2_TEST_BINARY` (a built `horizon-client.exe`), `AE2_CONTENT_DIR`, `AE2_RESOURCES`,
 `AE2_ADDON_CONTENT_ROOT`.
 
-Suites to pass before `int/atm10` lands:
+Suites that must pass before anything lands:
 
 ```
 machine-screens provider-session inscriber-menu-filter fe-partial-acceptance megacells-cells merequester-stock
@@ -120,7 +114,7 @@ The Java baseline to beat, on the 16 GB laptop: 200 s from launch to in-world (1
 96,202 recipes, about 8.3 GB heap.
 
 Where the Horizon start stands: the start was neither slow nor stuck in one place: it failed, one fatal error after
-another, each hidden behind the one before (a first start on this PC, `wip/fullpack-4`):
+another, each hidden behind the one before (first starts on this PC):
 
 | Start | Content read | Root build | Title shown | Ended |
 |---|--:|--:|--:|---|
@@ -219,12 +213,12 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 
 ## What to do next
 
-1. Run the suites above on `int/atm10`, fix what fails, fast-forward the default branch.
-2. On `wip/fullpack-4`, with the session unlocked: frame rate at spawn against Java's. Then what is still loaded for
-   nothing: baked models on demand (about 1 GB, and `assets.state_models`' 25 s on a first start), lazy GUI/entity
-   textures (640 MB of GPU memory), the 319 placed features that can't run.
+1. With the session unlocked: frame rate at spawn against Java's. Then what is still loaded for nothing: baked models on
+   demand (about 1 GB, and `assets.state_models`' 25 s on a first start), lazy GUI/entity textures (640 MB of GPU memory),
+   the 319 placed features that can't run. A first start still dips to 0.2 GB free on a 16 GB PC.
+2. Open a world through the title screen (every run so far used `--world`), with sound on.
 3. Fix the engine defects in the table above.
-4. Bring `wip/mekanism`, `wip/extendedae` and `wip/quests` onto the head, in that order.
+4. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`); Mekanism's processing machines; bring `wip/quests` onto the head.
 5. Then, as the roadmap in the handoff folder lays out: data maps and biome modifiers, a shared GUI kit and machine recipe
    matcher, the small required machines, mod fluids, custom dimensions and mob types as data. Measure against the Java
    baseline as you go.

@@ -72,6 +72,16 @@ export class WorldFixture {
   }
 
   async raw(line: string): Promise<any> {
+    // The client hears of a setup's blocks a little after the server changed them: until then the
+    // block to use may not be there, or old terrain may stand before it.
+    if (!/^(interact|look-at block) /.test(line)) return this.send(line);
+    const end = awakeNowMs() + 15000;
+    for (;;) {
+      try { return await this.send(line); }
+      catch (error) { if (!/no face of block/.test(String(error)) || awakeNowMs() >= end) throw error; await Bun.sleep(100); }
+    }
+  }
+  private send(line: string): Promise<any> {
     return new Promise((resolveReply, reject) => {
       let data = '', settled = false;
       // Windows: {"transport":"tcp","port","token"}, and `auth TOKEN` as the first line.

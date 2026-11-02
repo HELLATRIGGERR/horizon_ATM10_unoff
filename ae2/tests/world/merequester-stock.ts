@@ -87,6 +87,8 @@ try {
   const assembler = at(2, 0, -1), cpu = at(2, 1);
   const deposit = async (item: string, n: number) => {
     await fixture.replace('hotbar.0', item, n); await fixture.select(0, item);
+    // A block just taken from the grid: it forms again before it takes anything.
+    await until(grid, v => v.online && v.powered, 'the grid back online', 30000);
     assert.equal((await fixture.ae(`grid deposit ${drive}`)).inserted, n);
   };
   await fixture.command(`setblock ${assembler} minecraft:air`);

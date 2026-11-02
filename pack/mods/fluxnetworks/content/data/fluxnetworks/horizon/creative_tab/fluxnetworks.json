@@ -1,0 +1,17 @@
+{
+  "title": "itemGroup.fluxnetworks",
+  "icon": "fluxnetworks:flux_core",
+  "items": [
+    "fluxnetworks:flux_dust",
+    "fluxnetworks:flux_core",
+    "fluxnetworks:flux_block",
+    "fluxnetworks:flux_plug",
+    "fluxnetworks:flux_point",
+    "fluxnetworks:flux_controller",
+    "fluxnetworks:basic_flux_storage",
+    "fluxnetworks:herculean_flux_storage",
+    "fluxnetworks:gargantuan_flux_storage",
+    "fluxnetworks:flux_configurator",
+    "fluxnetworks:admin_configurator"
+  ]
+}

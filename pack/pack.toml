@@ -35,9 +35,14 @@ name = "Powah"
 enabled = false
 configs = ["powah.json5"]
 
+# One network in one dimension: plugs and points, picked from a chest menu in
+# place of the mod's GUI (storages, the controller and the rest are planned). A
+# native bundle over a content mod built from the player's jar;
+# `pack/scripts/fluxnetworks.ts` builds and tests both.
 [mods.fluxnetworks]
 name = "Flux Networks"
-enabled = false
+enabled = true
+bundle = "mods/fluxnetworks"
 configs = ["fluxnetworks-common.toml", "fluxnetworks-server.toml", "fluxnetworks-client.toml"]
 
 # AE2 addons. `content` is the addon's content folder under content/, which

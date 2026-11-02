@@ -1,0 +1,30 @@
+{
+  "template": "minecraft:beacon",
+  "properties": {
+    "hardness": 1.0,
+    "explosion_resistance": 1000.0,
+    "requires_tool": false,
+    "sounds": "minecraft:iron_block",
+    "no_occlusion": true,
+    "light": 0
+  },
+  "state_properties": {
+    "down": { "type": "boolean" },
+    "up": { "type": "boolean" },
+    "north": { "type": "boolean" },
+    "south": { "type": "boolean" },
+    "west": { "type": "boolean" },
+    "east": { "type": "boolean" }
+  },
+  "default_state": {
+    "down": "false",
+    "up": "false",
+    "north": "false",
+    "south": "false",
+    "west": "false",
+    "east": "false"
+  },
+  "collision_boxes": { "*": [0.25, 0.25, 0.25, 0.75, 0.75, 0.75] },
+  "outline_boxes": { "*": [0.25, 0.25, 0.25, 0.75, 0.75, 0.75] },
+  "components": { "minecraft:rarity": "common" }
+}

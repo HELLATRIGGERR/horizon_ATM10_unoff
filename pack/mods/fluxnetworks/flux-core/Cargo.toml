@@ -1,0 +1,9 @@
+[package]
+name = "fluxnetworks-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Flux Networks 8.0's network rules (buffers, priority, limits, surge, saved networks) for the pack's Flux Networks port"
+
+[dependencies]
+toml = "1"

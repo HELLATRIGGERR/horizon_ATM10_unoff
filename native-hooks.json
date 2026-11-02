@@ -576,6 +576,21 @@
       "name": "block_entity_drop",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_drop"
+    },
+    {
+      "name": "block_entity_load",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_load"
+    },
+    {
+      "name": "block_entity_unload",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_unload"
+    },
+    {
+      "name": "block_entity_save",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_save"
     }
   ]
 }

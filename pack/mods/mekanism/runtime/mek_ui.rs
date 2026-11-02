@@ -11,17 +11,24 @@
 // inventory, with the same buttons, textures and behaviour. Which page shows
 // is the screen's own (Mekanism's windows are client-side too): page buttons
 // still go to the server, which ignores them, so the press is taken.
+//
+// It also writes a cube item's tooltip (stored energy and capacity) and its
+// energy bar, from the energy its custom data keeps (`mek_world::item_data`).
 
 use super::{Game, native_hooks::NativeScreen};
-use horizon_client::hud::HudBatch;
+use horizon_client::{hud::HudBatch, items::ItemStack, text::Text};
 use mekanism_energy::{
-    config::EnergyConfig,
+    config::{self, EnergyConfig},
+    cube,
     display,
     menu::{Button, Kind, View},
     sides::{DataType, RelativeSide},
     tier::CubeTier,
 };
-use std::cell::{Cell, RefCell};
+use std::{
+    cell::{Cell, RefCell},
+    time::{Duration, Instant},
+};
 
 const TITLE: u32 = 0x404040;
 const SCREEN_TEXT: u32 = 0x3CFE9A;
@@ -29,15 +36,29 @@ const SCREEN_TEXT: u32 = 0x3CFE9A;
 thread_local! {
     /// 0: the cube; 1: energy side configuration; 2: item side configuration.
     static PAGE: Cell<u8> = const { Cell::new(0) };
-    /// The settings this side reads for the unit it shows (`energyType`).
-    static SETTINGS: RefCell<Option<EnergyConfig>> = const { RefCell::new(None) };
+    /// The settings this side reads (`energyType`, tier sizes), when their
+    /// files last changed, and when that was last looked at.
+    static SETTINGS: RefCell<Option<(EnergyConfig, Stamp, Instant)>> = const { RefCell::new(None) };
 }
 
+type Stamp = [Option<std::time::SystemTime>; 3];
+
+/// The settings, read again when a file changed (looked at once a second).
 fn settings() -> EnergyConfig {
     SETTINGS.with(|s| {
-        s.borrow_mut()
-            .get_or_insert_with(|| Game::native_config_dir().map(|d| EnergyConfig::load(&d)).unwrap_or_default())
-            .clone()
+        let mut s = s.borrow_mut();
+        let stale = s.as_ref().is_none_or(|(_, _, at)| at.elapsed() >= Duration::from_secs(1));
+        if stale {
+            let dir = Game::native_config_dir().ok();
+            let stamp = dir.as_deref().map_or([None; 3], config::stamp);
+            if s.as_ref().is_none_or(|(_, old, _)| *old != stamp) {
+                let fresh = dir.as_deref().map(EnergyConfig::load).unwrap_or_default();
+                *s = Some((fresh, stamp, Instant::now()));
+            } else if let Some((_, _, at)) = s.as_mut() {
+                *at = Instant::now();
+            }
+        }
+        s.as_ref().map(|(c, _, _)| c.clone()).unwrap_or_default()
     })
 }
 
@@ -422,4 +443,38 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         pen.button(r, true);
         pen.fill([r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0], side_color(sides[side.index()]));
     }
+}
+
+// ---- Items ------------------------------------------------------------------
+
+/// The Joules a cube item holds and its tier's capacity: its custom data's
+/// energy; none saved is an empty cube, or a full creative one.
+fn item_energy(stack: &ItemStack, settings: &EnergyConfig) -> Option<(u64, u64)> {
+    let tier = CubeTier::of_block(&stack.item)?;
+    let capacity = settings.cube(tier).0;
+    let saved = super::mek_world::item_data(stack).and_then(|d| super::mek_world::saved_energy(&d));
+    Some((cube::stored_from(tier, saved, capacity), capacity))
+}
+
+/// `native_tooltip`: `ItemBlockEnergyCube.appendHoverText`, under the name:
+/// the stored energy (`StorageUtils.addStoredEnergy`) and the tier's capacity.
+pub(super) fn item_tooltip(stack: &ItemStack, lines: &mut Vec<(Text, u32)>) {
+    let settings = settings();
+    let Some((stored, capacity)) = item_energy(stack, &settings) else {
+        return;
+    };
+    let at = lines.len().min(1);
+    let stored = display::fraction(stored, capacity, &settings);
+    let capacity = display::energy(capacity, &settings);
+    lines.insert(at, (Text::legacy(&format!("§aStored energy: §7{stored}")), u32::MAX));
+    lines.insert(at + 1, (Text::legacy(&format!("§9Capacity: §7{capacity}")), u32::MAX));
+}
+
+/// `native_item_bar`: a single cube's energy bar (`getEnergyBarWidth`,
+/// `energyColor`); a stack of several shows none.
+pub(super) fn item_bar(stack: &ItemStack, bar: &mut Option<(i32, u32)>) {
+    let Some((stored, capacity)) = item_energy(stack, &settings()) else {
+        return;
+    };
+    *bar = (stack.count == 1).then(|| (display::bar_width(stored, capacity), display::ENERGY_COLOR));
 }

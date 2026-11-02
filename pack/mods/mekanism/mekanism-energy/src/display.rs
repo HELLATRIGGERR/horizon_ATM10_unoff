@@ -72,9 +72,31 @@ pub fn fraction(stored: u64, capacity: u64, config: &EnergyConfig) -> String {
     format!("{}/{}", energy(stored, config), energy(capacity, config))
 }
 
+/// `StorageUtils.getEnergyBarWidth`: the bar under an item, 0 to 13
+/// pixels (`Math.round(13 * stored / capacity)`).
+pub fn bar_width(stored: u64, capacity: u64) -> i32 {
+    if capacity == 0 {
+        return 0;
+    }
+    let ratio = (stored.min(capacity) as f64 / capacity as f64) as f32;
+    (13.0f32 * ratio + 0.5).floor() as i32
+}
+
+/// `MekanismConfig.client.energyColor`'s default, the bar's colour.
+pub const ENERGY_COLOR: u32 = 0x3CFE9A;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_item_bar_rounds_to_thirteen_pixels() {
+        assert_eq!(bar_width(0, 4_000_000), 0);
+        assert_eq!(bar_width(4_000_000, 4_000_000), 13);
+        assert_eq!(bar_width(1_000_000, 4_000_000), 3, "3.25");
+        assert_eq!(bar_width(2_000_000, 4_000_000), 7, "6.5 rounds up");
+        assert_eq!(bar_width(5, 0), 0);
+    }
 
     #[test]
     fn energy_reads_as_in_mekanisms_screens() {

@@ -6,6 +6,10 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 83 adds a mod block entity's lifecycle, as NeoForge's `BlockEntity.onLoad`, `setRemoved`,
+//! `onChunkUnloaded` and `saveAdditional`: `native_block_entity_load`, `native_block_entity_unload`,
+//! `native_block_entity_save`, and the helper `native_block_entity_changed` (`setChanged`).
+//!
 //! API 82 adds what a machine's item and slots need: `native_block_entity_drop` (what a broken block's
 //! entity gives its dropped item, `copy_components` in vanilla's block loot tables),
 //! `native_block_entity_slot_accepts` (`Container.canPlaceItem` and `Slot.mayPlace` of a mod's slot) and
@@ -345,7 +349,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 82;
+pub(crate) const NATIVE_HOOKS_API: u32 = 83;
 
 impl GameLevel<'_> {
     /// An authoritative server committed a changed state through `Level.setBlock`.
@@ -1740,6 +1744,51 @@ impl Game<'_> {
         given: &mut Option<i64>,
     ) {
         let _ = (dimension, pos, face, entity, max, simulate, wide, given);
+    }
+    /// A block entity of a mod entered the world: placed, or loaded with its
+    /// chunk (`BlockEntity.onLoad`). Told on the server at the start of its
+    /// level's next running block entity pass, before any of them tick, oldest
+    /// first, after `native_block_entity_unload` of those that left with
+    /// their block since. Check `entity.id`; it is out of the world during the
+    /// call, as in `native_block_entity_tick`, so an old save's data can be
+    /// changed here, and `dimension` is the level in place. One that came and
+    /// left with its chunk before then isn't told at all. API 83.
+    pub(super) fn native_block_entity_load(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        entity: &mut ModBlockEntity,
+    ) {
+        let _ = (dimension, pos, entity);
+    }
+    /// A block entity of a mod is leaving the world. `removed`: its block was
+    /// broken or replaced (`setRemoved`), told as `native_block_entity_load`
+    /// is, with `entity` as it last was. Otherwise its chunk is unloading
+    /// (`onChunkUnloaded`), told at once, with the chunk's last save snapshot
+    /// taken already and `dimension` the level in place. Closing a world tells
+    /// nothing: `native_world_lifecycle` does. API 83.
+    pub(super) fn native_block_entity_unload(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        entity: &ModBlockEntity,
+        removed: bool,
+    ) {
+        let _ = (dimension, pos, entity, removed);
+    }
+    /// A block entity of a mod is written for saving (autosave, unload,
+    /// close), when `id` is yours (`BlockEntity.saveAdditional`): change `nbt`,
+    /// the copy that goes to disk. The world's own entity keeps its compound.
+    /// A chunk is saved only when it changed: `native_block_entity_changed`
+    /// says so for what's kept outside `nbt`. API 83.
+    pub(super) fn native_block_entity_save(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        id: &str,
+        nbt: &mut Compound,
+    ) {
+        let _ = (dimension, pos, id, nbt);
     }
     /// A server tick of the block entity at `pos`, in vanilla's order among
     /// the others (`Level.tickBlockEntities`), when its `id` is yours: read
@@ -3809,6 +3858,20 @@ impl Game<'_> {
         }
         Some(out)
     }
+    /// `BlockEntity.setChanged` for the mod block entity at `pos` in the level
+    /// in place: its chunk is saved next time, without touching the entity.
+    /// False when there is none there, or it is out of the world for a call.
+    /// API 83.
+    pub(super) fn native_block_entity_changed(&mut self, pos: [i32; 3]) -> bool {
+        let key = (pos[0], pos[1], pos[2]);
+        match self.world.block_entities.get(&key) {
+            Some(BlockEntity::Mod(m)) if !m.id.is_empty() => {
+                self.world.modified.insert((key.0 >> 4, key.2 >> 4));
+                true
+            }
+            _ => false,
+        }
+    }
     /// Sends clients the block at `pos` and its block entity's update tag
     /// (`native_block_entity_update_tag`) again, as `Level.sendBlockUpdated`
     /// does: with the level's other block changes, to the players who see its
@@ -4917,6 +4980,72 @@ impl Game<'_> {
         let label_y = oy + s.screen.inventory_y - 11.0;
         batch.text(atlas, &inventory, ox + 8.0, label_y, grey, false);
         true
+    }
+    /// `native_block_entity_unload` and `native_block_entity_load` for the mod
+    /// block entities that came and went since the last block entity pass.
+    pub(super) fn tell_mod_block_entity_changes(&mut self) {
+        let (added, removed) = self.world.block_entities.take_mod_lifecycle();
+        if added.is_empty() && removed.is_empty() {
+            return;
+        }
+        let dimension = self.dim.id();
+        for (pos, entity) in removed {
+            self.native_block_entity_unload(dimension, [pos.0, pos.1, pos.2], &entity, true);
+        }
+        for pos in added {
+            let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos) else {
+                continue;
+            };
+            if m.id.is_empty() {
+                continue;
+            }
+            let mut taken = std::mem::take(&mut **m);
+            let before = taken.clone();
+            self.native_block_entity_load(dimension, [pos.0, pos.1, pos.2], &mut taken);
+            if taken == before {
+                // Nothing to save for being looked at.
+                if let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos)
+                    && m.id.is_empty()
+                {
+                    **m = taken;
+                }
+            } else {
+                self.put_back_mod_block_entity(pos, taken, &before.items);
+            }
+        }
+    }
+    /// `native_block_entity_unload` of the mod block entities in the chunks
+    /// `gone`, just before the chunks' block entities are dropped.
+    pub(super) fn tell_mod_block_entities_unloaded(&mut self, gone: &horizon_client::fast_hash::FxHashSet<(i32, i32)>) {
+        let mut leaving: Vec<Pos> = Vec::new();
+        for (p, e) in self.world.block_entities.iter() {
+            if let BlockEntity::Mod(m) = e
+                && !m.id.is_empty()
+                && gone.contains(&(p.0 >> 4, p.2 >> 4))
+            {
+                leaving.push(*p);
+            }
+        }
+        let dimension = self.dim.id();
+        for pos in leaving {
+            let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos) else {
+                continue;
+            };
+            let entity = std::mem::take(&mut **m);
+            self.native_block_entity_unload(dimension, [pos.0, pos.1, pos.2], &entity, false);
+        }
+    }
+    /// `native_block_entity_save` of the mod block entities in a save copy.
+    pub(super) fn tell_mod_block_entities_saved(&self, chunk: &mut horizon_client::chunk::Chunk) {
+        let dimension = self.dim.id();
+        for (p, e) in &mut chunk.block_entities {
+            if let BlockEntity::Mod(m) = e
+                && !m.id.is_empty()
+            {
+                let ModBlockEntity { id, nbt, .. } = &mut **m;
+                self.native_block_entity_save(dimension, [p.0, p.1, p.2], id, nbt);
+            }
+        }
     }
     /// The tick of the mod block entity at `pos`.
     pub(super) fn tick_mod_block_entity(&mut self, pos: Pos) {

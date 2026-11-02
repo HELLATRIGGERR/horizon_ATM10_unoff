@@ -23,7 +23,7 @@
 //! Which states tick is a table by state id, built by the game from the block
 //! registry; whether a slot is made is decided when the slot is promoted at
 //! the start of the next tick, from the block state then.
-use crate::chunk::block_entity::{BlockEntity, ModContainer, ModFluidTanks};
+use crate::chunk::block_entity::{BlockEntity, ModBlockEntity, ModContainer, ModFluidTanks};
 use crate::fast_hash::{FxHashMap, FxHashSet};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -190,6 +190,12 @@ pub struct BlockEntities {
     /// which leaves out a mod block whose template has none. One taken out
     /// (`take`) stays listed until `put` or `remove`.
     mods: FxHashMap<(i32, i32), FxHashSet<Pos>>,
+    /// Mod block entities that entered the world (placed, or loaded with a
+    /// chunk) and that their mod hasn't heard of yet, oldest first.
+    mod_added: Vec<Pos>,
+    /// Mod block entities that left the world with their block, as they were,
+    /// that their mod hasn't heard of yet, oldest first.
+    mod_removed: Vec<(Pos, Box<ModBlockEntity>)>,
 }
 
 fn chunk_of((x, _, z): Pos) -> (i32, i32) {
@@ -292,6 +298,8 @@ impl BlockEntities {
             mod_containers: self.mod_containers.clone(),
             mod_fluids: self.mod_fluids.clone(),
             mods: self.mods.clone(),
+            mod_added: self.mod_added.clone(),
+            mod_removed: self.mod_removed.clone(),
             #[cfg(feature="ae2-lab")]
             vanilla_metadata: self.vanilla_metadata.clone(),
             #[cfg(feature="ae2-lab")]
@@ -599,6 +607,7 @@ impl BlockEntities {
         let new_is_mod = matches!(entity, BlockEntity::Mod(_));
         let old = self.map.insert(pos, entity);
         self.new_incarnation(pos);
+        self.note_mod_change(pos, old.as_ref());
         #[cfg(feature = "ae2-lab")]
         if self.ae2_journal_enabled() {
             if let (Some(incarnation), Some(entity @ BlockEntity::Ae2(_))) = (previous_incarnation, old.as_ref()) {
@@ -706,6 +715,7 @@ impl BlockEntities {
         if matches!(removed, Some(BlockEntity::Mod(_))) {
             forget_mod(&mut self.mods, *pos);
         }
+        self.note_mod_change(*pos, removed.as_ref());
         #[cfg(feature = "ae2-lab")]
         if self.ae2_journal_enabled() {
             if let (Some(incarnation), Some(entity @ BlockEntity::Ae2(_))) = (incarnation, removed.as_ref()) {
@@ -747,12 +757,31 @@ impl BlockEntities {
                 self.record_ae2(pos, Ae2MutationKind::EntityAdded { incarnation, entity: entity.clone(), provider_inventory: Ae2ProviderInitialInventory::Constructed, cpu_core: Ae2CpuInitialCore::Constructed });
             }
         }
-        if self.map.insert(pos, entity).is_none()
-            && !self.live.contains_key(&pos)
-            && !self.pending.contains_key(&pos)
-        {
+        let old = self.map.insert(pos, entity);
+        if !was_out {
+            self.note_mod_change(pos, old.as_ref());
+        }
+        if old.is_none() && !self.live.contains_key(&pos) && !self.pending.contains_key(&pos) {
             self.add(pos);
         }
+    }
+    /// The block entity at `pos` changed, from `old`: what mods hear of. A mod
+    /// block entity with an empty id is out of the world for a call to its mod.
+    fn note_mod_change(&mut self, pos: Pos, old: Option<&BlockEntity>) {
+        if let Some(BlockEntity::Mod(m)) = old
+            && !m.id.is_empty()
+        {
+            self.mod_removed.push((pos, m.clone()));
+        }
+        if matches!(self.map.get(&pos), Some(BlockEntity::Mod(_))) {
+            self.mod_added.push(pos);
+        }
+    }
+    /// The mod block entities that entered the world since the last call, and
+    /// those that left it with their block. A chunk that unloaded before its
+    /// entities were heard of takes them out of the first list.
+    pub fn take_mod_lifecycle(&mut self) -> (Vec<Pos>, Vec<(Pos, Box<ModBlockEntity>)>) {
+        (std::mem::take(&mut self.mod_added), std::mem::take(&mut self.mod_removed))
     }
     /// Removes the block entities `keep` refuses, and their slots
     /// (`clearAllBlockEntities` of unloaded chunks).
@@ -785,6 +814,10 @@ impl BlockEntities {
             }
             kept
         });
+        if !self.mod_added.is_empty() {
+            let map = &self.map;
+            self.mod_added.retain(|p| map.contains_key(p));
+        }
         #[cfg(feature = "ae2-lab")]
         for (pos, incarnation, entity) in removed { self.record_ae2(pos, Ae2MutationKind::EntityRemoved { incarnation, entity, bulk_unload: true }); }
     }
@@ -799,6 +832,8 @@ impl BlockEntities {
         }
         self.map.clear();
         self.incarnations.clear();
+        self.mod_added.clear();
+        self.mod_removed.clear();
         #[cfg(feature = "ae2-lab")]
         {self.vanilla_metadata.clear();self.vanilla_loaded_metadata.clear();}
         self.mods.clear();
@@ -832,6 +867,7 @@ impl BlockEntities {
                 self.replaced.insert(p);
             }
             self.new_incarnation(p);
+            self.note_mod_change(p, old.as_ref());
             #[cfg(feature = "ae2-lab")]
             if let Some(raw)=self.vanilla_loaded_metadata.remove(&p) {
                 self.remember_vanilla_metadata(p,&raw);
@@ -943,6 +979,72 @@ impl BlockEntities {
     /// Frees the slot at `pos` (the block entity stays).
     pub fn forget(&mut self, pos: &Pos) {
         self.cancel(pos);
+    }
+}
+
+#[cfg(test)]
+mod mod_lifecycle_tests {
+    use super::*;
+
+    fn cable(energy: i32) -> BlockEntity {
+        let mut m = ModBlockEntity { id: "mod:cable".into(), ..ModBlockEntity::default() };
+        m.nbt.insert(horizon_world::nbt::JavaString::from("energy"), horizon_world::nbt::Tag::Int(energy));
+        BlockEntity::Mod(Box::new(m))
+    }
+
+    #[test]
+    fn placed_loaded_and_broken_mod_entities_are_listed_once() {
+        let mut b = BlockEntities::default();
+        let (p, q, r) = ((1, 2, 3), (4, 5, 6), (7, 8, 9));
+        b.insert(p, cable(1));
+        b.load_chunk(vec![(q, cable(2)), (r, BlockEntity::Chest(vec![None; 27]))]);
+        let (added, removed) = b.take_mod_lifecycle();
+        assert_eq!(added, vec![p, q], "not the chest");
+        assert!(removed.is_empty());
+        assert_eq!(b.take_mod_lifecycle().0, Vec::<Pos>::new(), "told once");
+        b.remove(&p);
+        let (added, removed) = b.take_mod_lifecycle();
+        assert!(added.is_empty());
+        assert_eq!(removed.len(), 1);
+        assert_eq!(removed[0].0, p);
+        let energy = horizon_world::nbt::JavaString::from("energy");
+        assert_eq!(removed[0].1.nbt.get(&energy), Some(&horizon_world::nbt::Tag::Int(1)), "as it was");
+    }
+
+    #[test]
+    fn a_replaced_mod_entity_leaves_and_the_new_one_enters() {
+        let mut b = BlockEntities::default();
+        let p = (0, 0, 0);
+        b.insert(p, cable(1));
+        b.take_mod_lifecycle();
+        b.insert(p, cable(2));
+        let (added, removed) = b.take_mod_lifecycle();
+        assert_eq!((added, removed.len()), (vec![p], 1));
+    }
+
+    #[test]
+    fn a_tick_taking_it_out_and_back_says_nothing() {
+        let mut b = BlockEntities::default();
+        let p = (0, 0, 0);
+        b.insert(p, cable(1));
+        b.take_mod_lifecycle();
+        let e = b.take(&p).unwrap();
+        b.put(p, e);
+        let (added, removed) = b.take_mod_lifecycle();
+        assert!(added.is_empty() && removed.is_empty());
+    }
+
+    #[test]
+    fn a_chunk_gone_before_they_were_heard_of_drops_them_from_the_list() {
+        let mut b = BlockEntities::default();
+        b.load_chunk(vec![((0, 0, 0), cable(1)), ((16, 0, 0), cable(2))]);
+        b.retain(|p, _| p.0 < 16);
+        let (added, removed) = b.take_mod_lifecycle();
+        assert_eq!(added, vec![(0, 0, 0)]);
+        assert!(removed.is_empty(), "an unload is not a removal");
+        b.insert((1, 0, 0), cable(3));
+        b.clear();
+        assert!(b.take_mod_lifecycle().0.is_empty());
     }
 }
 

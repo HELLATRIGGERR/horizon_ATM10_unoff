@@ -677,6 +677,12 @@ API 81 adds [Forge Energy](#forge-energy) on a mod block's block entity, by side
 
 API 82 adds what a machine's item and slots need: `native_block_entity_drop` puts components on the item a broken block drops (`copy_components` from a block entity in vanilla's block loot tables, or only when `by_player`, as a mod's `Block.playerDestroy` would; `native_place_block` hears the item placed again), `native_block_entity_slot_accepts` narrows what a hopper or a menu click puts into a mod's slot (`Container.canPlaceItem`, `Slot.mayPlace`), and the helpers `native_burn_time(stack)` and `native_crafting_remainder(item)` read a stack's furnace fuel ticks (`ItemStack.getBurnTime`) and what a used-up item leaves (`Item.getCraftingRemainder`). Bundles that use them need "hooks": 82.
 
+API 83 adds a block entity's lifecycle, as NeoForge's `BlockEntity.onLoad`, `setRemoved`, `onChunkUnloaded` and `saveAdditional`: `native_block_entity_load`
+(placed, or loaded with its chunk; told at the start of the level's next running block entity pass), `native_block_entity_unload` (`removed`: broken or replaced, told
+at that same point; otherwise its chunk is unloading, told at once, after the chunk's last save snapshot), `native_block_entity_save` (change the copy of `nbt` that
+goes to disk) and the helper `native_block_entity_changed(pos)` (`setChanged` without touching the entity). A cable network kept in a mod's own state needs no ticking
+block entity with them. Closing a world tells nothing: use `native_world_lifecycle`. Bundles that use them need "hooks": 83.
+
 ## What the launcher does
 
 In the window: install a native mod from the Mods page, into the instance picked on the left ("Installs into

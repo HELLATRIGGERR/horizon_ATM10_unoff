@@ -29,6 +29,7 @@ impl Game<'_> {
             let fluids = self.native_fluid_tables();
             self.world.block_entities.set_mod_fluids(fluids);
         }
+        self.tell_mod_block_entity_changes();
         // Only lingering cooldowns are dropped; a hopper that ticks checks
         // its own block. Once a second is soon enough for the rest.
         if self.world.game_time % 20 == 0 {

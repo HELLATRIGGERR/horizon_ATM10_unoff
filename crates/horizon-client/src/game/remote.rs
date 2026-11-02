@@ -5755,6 +5755,8 @@ impl Game<'_> {
 
     /// One client tick while connected (Minecraft.tick with a ClientLevel).
     pub(super) fn tick_remote(&mut self) -> Result<()> {
+        // A client's copies of mod block entities: their lifecycle hook points are the server's.
+        self.world.block_entities.take_mod_lifecycle();
         self.tick_remote_level()?;
         // Client mods tick on any server, single player's own included.
         self.native_net.to_server = 0;

@@ -34,8 +34,18 @@ impl Default for EnergyConfig {
     }
 }
 
+/// The files `EnergyConfig::load` reads, under `<config>/Mekanism/`.
+pub const FILES: [&str; 3] = ["general.toml", "tiers.toml", "common.toml"];
+
+/// When each of `FILES` last changed (none: missing): Mekanism's configs
+/// reload live (NeoForge's file watcher), so a holder of the settings reads
+/// them again when this changes.
+pub fn stamp(config: &Path) -> [Option<std::time::SystemTime>; 3] {
+    FILES.map(|name| std::fs::metadata(config.join("Mekanism").join(name)).and_then(|m| m.modified()).ok())
+}
+
 impl EnergyConfig {
-    /// Reads `<config>/Mekanism/general.toml` and `tiers.toml`.
+    /// Reads `<config>/Mekanism/general.toml`, `tiers.toml` and `common.toml`.
     pub fn load(config: &Path) -> Self {
         let read = |name: &str| {
             std::fs::read_to_string(config.join("Mekanism").join(name))
@@ -113,6 +123,20 @@ fn positive(table: &toml::Table, key: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn written_files_are_read_again() {
+        let dir = std::env::temp_dir().join(format!("mekanism-energy-config-{}", std::process::id()));
+        let mek = dir.join("Mekanism");
+        std::fs::create_dir_all(&mek).unwrap();
+        assert_eq!(stamp(&dir), [None, None, None]);
+        assert_eq!(EnergyConfig::load(&dir), EnergyConfig::default());
+        std::fs::write(mek.join("tiers.toml"), "[energy_cubes]\nbasicOutput = 5000\n").unwrap();
+        let written = stamp(&dir);
+        assert!(written[1].is_some() && written[0].is_none());
+        assert_eq!(EnergyConfig::load(&dir).cube(CubeTier::Basic), (4_000_000, 5_000));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn atm10_files_override_the_defaults_and_bad_values_are_ignored() {

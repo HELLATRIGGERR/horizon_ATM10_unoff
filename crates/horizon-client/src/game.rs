@@ -12569,6 +12569,7 @@ impl Game<'_> {
             if let Some(modes) = modes.as_ref() { self.ae2_project_saved_node_modes(&mut c, modes); }
             #[cfg(feature = "ae2-lab")]
             self.ae2_project_saved_energy(&mut c);
+            self.tell_mod_block_entities_saved(&mut c);
             self.attach_save_data(&mut c);
             Arc::new(c)
         })
@@ -17314,6 +17315,7 @@ impl Game<'_> {
         if !unloaded.is_empty() {
             let gone: horizon_client::fast_hash::FxHashSet<(i32, i32)> =
                 unloaded.iter().map(|c| (c.x, c.z)).collect();
+            self.tell_mod_block_entities_unloaded(&gone);
             self.world
                 .block_entities
                 .retain(|p, _| !gone.contains(&(p.0 >> 4, p.2 >> 4)));

@@ -81,6 +81,27 @@ impl Direction {
     }
 }
 
+/// `AttributeStateFacing.getStateForPlacement` with `PLAYER_LOCATION` for a
+/// block that faces all six ways (an energy cube): up when the player looks
+/// down at 65 degrees or more, down at -65 or less, else toward the player by
+/// yaw (0 faces south, 90 west).
+pub fn placement_facing(yaw: f32, pitch: f32) -> Direction {
+    // Java's `Math.round`: halves up.
+    let height = (f64::from(pitch) + 0.5).floor() as i64;
+    if height >= 65 {
+        return Direction::Up;
+    }
+    if height <= -65 {
+        return Direction::Down;
+    }
+    match ((f64::from(yaw) * 4.0 / 360.0) + 0.5).floor() as i64 & 3 {
+        0 => Direction::North,
+        1 => Direction::East,
+        2 => Direction::South,
+        _ => Direction::West,
+    }
+}
+
 /// `mekanism.api.RelativeSide`, in its ordinal order (the order of a saved
 /// `config<type>` int array).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -308,6 +329,21 @@ mod tests {
                 assert_eq!(RelativeSide::from_directions(facing, side.direction(facing)), side);
             }
         }
+    }
+
+    #[test]
+    fn a_placed_cube_faces_the_player() {
+        use Direction::*;
+        // Looking south (yaw 0), its front faces north, back at the player.
+        assert_eq!(placement_facing(0.0, 10.0), North);
+        assert_eq!(placement_facing(90.0, 0.0), East);
+        assert_eq!(placement_facing(-90.0, 0.0), West);
+        assert_eq!(placement_facing(180.0, 0.0), South);
+        assert_eq!(placement_facing(44.0, 0.0), North);
+        assert_eq!(placement_facing(46.0, 0.0), East);
+        assert_eq!(placement_facing(0.0, 64.6), Up);
+        assert_eq!(placement_facing(0.0, 64.4), North);
+        assert_eq!(placement_facing(0.0, -70.0), Down);
     }
 
     #[test]

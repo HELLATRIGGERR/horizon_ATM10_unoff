@@ -194,6 +194,67 @@ mod tests {
         }
     }
 
+    /// Mekanism's `EnergyConversionTest` at 2.5 J per FE: (stored J, capacity J,
+    /// FE offered, FE accepted, J stored after).
+    #[test]
+    fn mekanism_conversion_cases_receiving() {
+        for (stored, capacity, offered, accepted, after) in [
+            (0, 1_000, 1_000, 400, 1_000),   // testJoulesAsFESmallEmptyToFull
+            (0, 1_000, 1, 0, 0),             // testJoulesAsFESmallEmptySubUnit
+            (1_000, 1_000, 1_000, 0, 1_000), // testJoulesAsFESmallFull
+            (998, 1_000, 1_000, 0, 998),     // testJoulesAsFENearlyFullNoAccept
+            (997, 1_000, 1_000, 0, 997),     // testJoulesAsFEFullContainerPartialStore
+            (992, 1_000, 1_000, 2, 997),     // testJoulesAsFEInsertPartialStore
+            (0, 1_000, 3, 2, 5),             // testJoulesAsFEEmptyContainerPartialStore
+            (0, 1, 1_000, 0, 0),             // testJoulesAsFECantFit
+        ] {
+            let mut b = Buffer { stored, capacity };
+            let simulated = receive_fe(&mut b, Conversion(2.5), offered, true);
+            assert_eq!(b.stored, stored, "a simulation changes nothing");
+            assert_eq!(receive_fe(&mut b, Conversion(2.5), offered, false), simulated);
+            assert_eq!((simulated, b.stored), (accepted, after), "{stored} of {capacity} J, {offered} FE");
+        }
+    }
+
+    /// The same, drawing: (stored J, FE asked, FE given, J stored after).
+    #[test]
+    fn mekanism_conversion_cases_extracting() {
+        for (stored, asked, given, after) in [
+            (0, 1_000, 0, 0),         // testJoulesAsFESmallEmptyToFull
+            (1_000, 1_000, 400, 0),   // testJoulesAsFESmallFull
+            (2, 1_000, 0, 2),         // testJoulesAsFEExtractNotEnough
+            (8, 1_000, 2, 3),         // testJoulesAsFEExtractPartial
+        ] {
+            let mut b = Buffer { stored, capacity: 1_000 };
+            let simulated = extract_fe(&mut b, Conversion(2.5), asked, true);
+            assert_eq!(b.stored, stored, "a simulation changes nothing");
+            assert_eq!(extract_fe(&mut b, Conversion(2.5), asked, false), simulated);
+            assert_eq!((simulated, b.stored), (given, after), "{stored} J, {asked} FE");
+        }
+    }
+
+    /// `ForgeStrictEnergyHandler`, `testFEAsJoulesFillToMax`: an FE store of 400
+    /// as Joules takes 1000 J and has none to give while empty.
+    #[test]
+    fn mekanism_conversion_case_fe_as_joules() {
+        let rate = Conversion(2.5);
+        let mut stored = 0i32;
+        let mut receive = |fe: i32, simulate: bool, stored: &mut i32| {
+            let taken = fe.min(400 - *stored);
+            if !simulate {
+                *stored += taken;
+            }
+            taken
+        };
+        let given = extract_from_fe(400, rate, true, false, |fe, _| fe.min(0));
+        assert_eq!(given, 0, "nothing in it");
+        assert_eq!(insert_into_fe(1_000, rate, true, true, |fe, sim| receive(fe, sim, &mut stored)), 0);
+        assert_eq!(stored, 0);
+        assert_eq!(insert_into_fe(1_000, rate, true, false, |fe, sim| receive(fe, sim, &mut stored)), 0);
+        assert_eq!(stored, 400);
+        assert_eq!(rate.from_fe(i64::from(stored)), 1_000);
+    }
+
     #[test]
     fn whole_fe_cross_the_edge_at_two_and_a_half_joules() {
         let rate = Conversion(2.5);

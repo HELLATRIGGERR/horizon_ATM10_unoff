@@ -2,15 +2,16 @@
 # Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules are
 # ported from its source in the crate `mekanism-energy`.
 #
-# It hooks only Horizon's named hook points (API 3, 8, 15-20, 26), so it
-# builds on any Horizon with hooks API 26 or later: it pins no revision
-# (horizon-mixins refuses any other commit than a pinned one). Tested on
-# hooks API 62. Its blocks, models and recipes are a content mod built from
-# the ATM10 carry by `mekanism-content` (see pack/scripts/mekanism.ts),
-# loaded with `--dev-mod`.
+# It hooks only Horizon's named hook points (API 3, 7, 8, 12, 14-20, 23, 26,
+# 42, 47, 60, 81 and 83), so it builds on any Horizon with hooks API 83 or later:
+# it pins no revision (horizon-mixins refuses any other commit than a pinned
+# one). Its world tests last passed on hooks API 64, the same hook points
+# numbered 63 and 64 then. Its blocks, models and recipes are a content
+# mod built from the ATM10 carry by `mekanism-content` (see
+# pack/scripts/mekanism.ts), loaded with `--dev-mod`.
 [mod]
 id = "mekanism"
-version = "0.2.0"
+version = "0.6.0"
 priority = 100
 
 [[crate]]
@@ -170,4 +171,170 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
   { name = "id", ty = "i32", value = "id" },
+]
+
+[[injection]]
+id = "place-block"
+hook = "place_block"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/place_block.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+]
+
+[[injection]]
+id = "destroy-block"
+hook = "destroy_block"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/destroy_block.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "entity-join-level"
+hook = "entity_join_level"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/entity_join_level.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "pos", ty = "[f64; 3]", value = "pos" },
+  { name = "loaded_from_disk", ty = "bool", value = "loaded_from_disk" },
+]
+
+[[injection]]
+id = "level-tick-post"
+hook = "level_tick_post"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/level_tick_post.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+]
+
+[[injection]]
+id = "tooltip"
+hook = "tooltip"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/tooltip.rs"
+bindings = [
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "lines", ty = "&mut Vec<(horizon_client::text::Text, u32)>", value = "&mut *lines" },
+]
+
+[[injection]]
+id = "item-bar"
+hook = "item_bar"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/item_bar.rs"
+bindings = [
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "bar", ty = "&mut Option<(i32, u32)>", value = "&mut *bar" },
+]
+
+[[injection]]
+id = "fe-storage"
+hook = "fe_storage"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fe_storage.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "info", ty = "&mut Option<crate::game::native_hooks::NativeFeInfo>", value = "&mut *info" },
+]
+
+[[injection]]
+id = "fe-receive"
+hook = "fe_receive"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fe_receive.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "max", ty = "i64", value = "max" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "accepted", ty = "&mut Option<i64>", value = "&mut *accepted" },
+]
+
+[[injection]]
+id = "fe-extract"
+hook = "fe_extract"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fe_extract.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "max", ty = "i64", value = "max" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "given", ty = "&mut Option<i64>", value = "&mut *given" },
+]
+
+[[injection]]
+id = "block-entity-load"
+hook = "block_entity_load"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_load.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+]
+
+[[injection]]
+id = "block-entity-unload"
+hook = "block_entity_unload"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_unload.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "removed", ty = "bool", value = "removed" },
+]
+
+[[injection]]
+id = "block-entity-save"
+hook = "block_entity_save"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_save.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "id", ty = "&str", value = "id" },
+  { name = "nbt", ty = "&mut horizon_world::nbt::Compound", value = "&mut *nbt" },
+]
+
+[[injection]]
+id = "block-changed"
+hook = "block_changed"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_changed.rs"
+bindings = [
+  { name = "pos", ty = "horizon_core::position::BlockPos", value = "pos" },
 ]

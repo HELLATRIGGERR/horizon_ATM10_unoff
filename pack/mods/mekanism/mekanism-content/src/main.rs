@@ -11,6 +11,9 @@
 //!   Mekanism's `mekanism:energy_cube` model loader becomes a multipart
 //!   blockstate over a frame and one part per face and state, and the
 //!   `builtin/entity` item model a flat model of the default state.
+//! - Each universal cable the overlay declares gets Mekanism's OBJ transmitter
+//!   model (`mekanism:transmitter`) converted to a multipart blockstate
+//!   (`transmitter`); its carried loot and shaped recipe stay.
 //! - Its loot table drops the cube without Mekanism's item components, which
 //!   the game refuses; its `mekanism:mek_data` recipe becomes
 //!   `minecraft:crafting_shaped`, so an upgrade keeps no energy.
@@ -21,6 +24,8 @@
 //!
 //! The output is generated, never committed: Mekanism's files stay local.
 //! It may only replace a folder this tool made (`mekanism-content.json`).
+mod transmitter;
+
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::fs;
@@ -79,11 +84,14 @@ fn build(carry: &Path, overlay: &Path, out: &Path) -> Result<Value> {
         return Err(format!("{} has no data/", overlay.display()));
     }
     prepare(out)?;
+    // Written again at the end; a failed build leaves a folder it may replace.
+    write_json(&out.join(MARKER), &json!({ "incomplete": true }))?;
     let copied = copy_tree(carry, out)?;
     let overlaid = copy_tree(overlay, out)?;
     let mut cubes = Vec::new();
     let mut loot = Vec::new();
     let mut recipes = Vec::new();
+    let mut cables = Vec::new();
     let mut files = 0;
     let blocks = overlay.join("data/mekanism/horizon/block");
     let mut names: Vec<String> = match fs::read_dir(&blocks) {
@@ -96,6 +104,14 @@ fn build(carry: &Path, overlay: &Path, out: &Path) -> Result<Value> {
     names.sort();
     for name in names {
         let block = name.trim_end_matches(".json");
+        if let Some(tier) = block.strip_suffix("_universal_cable") {
+            for (path, value) in cable_files(carry, tier)? {
+                write_json(&out.join(path), &value)?;
+                files += 1;
+            }
+            cables.push(block.to_owned());
+            continue;
+        }
         let Some(tier) = block.strip_suffix("_energy_cube") else {
             continue;
         };
@@ -136,7 +152,7 @@ fn build(carry: &Path, overlay: &Path, out: &Path) -> Result<Value> {
     let report = json!({
         "carry": carry, "overlay": overlay, "out": out,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
-        "cubes": cubes, "loot_tables": loot, "recipes": recipes, "gui_sprites": gui_sprites,
+        "cubes": cubes, "cables": cables, "loot_tables": loot, "recipes": recipes, "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;
     Ok(report)
@@ -409,6 +425,22 @@ fn cube_models(
     }
     files.push((format!("assets/mekanism/models/item/{tier}_energy_cube.json"), item_model));
     Ok(files)
+}
+
+/// A cable tier's models, from the carried OBJ model and its texture names.
+fn cable_files(carry: &Path, tier: &str) -> Result<Vec<(String, Value)>> {
+    let models = carry.join("assets/mekanism/models");
+    let small = read_json(&models.join("block/transmitter/small/small.json"))?;
+    let own = read_json(&models.join(format!("block/transmitter/small/universal_cable/{tier}.json")))?;
+    let texture = |name: &str| -> Result<&str> {
+        own["textures"][name].as_str().ok_or_else(|| format!("the {tier} cable model has no texture {name}"))
+    };
+    let read = |path: PathBuf| fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()));
+    let materials = transmitter::parse_mtl(&read(models.join("block/transmitter_small.mtl"))?);
+    let flip_v = small["flip_v"].as_bool().unwrap_or(false);
+    let objects = transmitter::parse_obj(&read(models.join("block/transmitter_small.obj.mek"))?, &materials, flip_v)
+        .map_err(|e| format!("transmitter_small.obj.mek: {e}"))?;
+    transmitter::cable_models(tier, &objects, texture("side")?, texture("center_down")?, small.get("display"))
 }
 
 /// The block's loot table without its item modifiers: Mekanism copies its

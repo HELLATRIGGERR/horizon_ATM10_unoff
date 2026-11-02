@@ -707,7 +707,9 @@ impl Game<'_> {
         true
     }
     pub(super) fn lan_craft_confirm_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
-        host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.take_if(|s|window.is_none_or(|w|w==s.window))).is_some()
+        if host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.take_if(|s|window.is_none_or(|w|w==s.window))).is_none(){return false;}
+        // CraftConfirmMenu's content told the inventory too (AbstractContainerMenu.removed, transferState).
+        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,gi);}true
     }
     pub(super) fn lan_refresh_craft_confirms(&mut self,host:&mut LanHost) {
         let conns:Vec<_>=host.play.iter().filter_map(|(&conn,p)|p.ae2_craft_confirm.as_ref().map(|_|conn)).collect();

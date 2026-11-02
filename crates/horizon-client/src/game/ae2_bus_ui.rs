@@ -1081,7 +1081,7 @@ impl Game<'_> {
             return false;
         };
         if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
-            self.guest_carried_back(host, gi);
+            self.guest_told_window_closed(host, gi);
         }
         true
     }

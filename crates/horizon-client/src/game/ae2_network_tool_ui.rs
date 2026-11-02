@@ -282,7 +282,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_network_tool_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
         let Some(_)=host.play.get_mut(&conn).and_then(|p|p.ae2_network_tool.take_if(|v|window.is_none_or(|w|v.window==w))) else {return false;};
-        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_carried_back(host,gi);}
+        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,gi);}
         true
     }
     pub(super) fn lan_refresh_ae2_network_tools(&mut self,host:&mut LanHost) {

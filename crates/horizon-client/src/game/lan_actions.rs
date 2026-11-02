@@ -3060,6 +3060,20 @@ impl Game<'_> {
         }
     }
 
+    /// `ServerPlayer.doCloseContainer` for a window whose content ends with
+    /// the player's inventory and told it (`Guest::inventory_told_by`):
+    /// `removed` gives the cursor back, then `InventoryMenu.transferState`
+    /// takes over what the window told. A client that closed the window before
+    /// the answer to its last click arrived dropped that content, so what it
+    /// was told is not known: the inventory goes out again, whatever the
+    /// cursor held, or a slot the click changed would never be sent.
+    pub(super) fn guest_told_window_closed(&mut self, host: &mut LanHost, gi: usize) {
+        if let Some(c) = host.hub.guests[gi].carried.take() {
+            self.lan_place_back(host, gi, vec![c]);
+        }
+        host.hub.send_inventory(gi);
+    }
+
     pub(super) fn drop_guest_items(&mut self, host: &LanHost, gi: usize, stacks: Vec<ItemStack>) {
         let g = &host.hub.guests[gi];
         let eye = [

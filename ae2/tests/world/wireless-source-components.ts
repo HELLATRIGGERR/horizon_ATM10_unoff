@@ -36,13 +36,31 @@ try {
   await until(() => fixture.raw('inventory'), state => state.counts?.['minecraft:oak_planks'] === 4, 'the crafted planks in the inventory');
   fixture.mark('a source-only wireless link opens a physical matrix and crafting updates its item component');
 
+  // The close overtakes the clicks' answers: a held server takes the craft, the put-down and the close in one tick, after
+  // the client has closed the window, so the window content answering the clicks is dropped. The close sends the
+  // inventory again (ServerPlayer.doCloseContainer, InventoryMenu.transferState), or the client keeps a stale terminal.
+  await fixture.replace('hotbar.0', item); await fixture.select(0, 'ae2:wireless_crafting_terminal');
+  assert.equal(slot(await open(), 336)?.count, 4);
+  await fixture.hold();
+  try { await fixture.raw('click-slot 336'); await fixture.raw('click-slot 1'); await fixture.raw('close'); await fixture.stepServer(2); }
+  finally { await fixture.hold(false); }
+  const energy = (text: string) => Number(text.match(/ae2:stored_energy\\?"?:\s*([0-9.]+)d/)?.[1]);
+  const served = JSON.stringify((await fixture.command('data get entity @s SelectedItem')).chat);
+  assert.doesNotMatch(served, /minecraft:oak_log/); assert.ok(energy(served) < 10000, served);
+  const stored = JSON.stringify((await fixture.command('data get entity @s Inventory')).chat);
+  assert.match(stored, /\{[^{}]*Slot: 1b[^{}]*\}/); assert.match(stored.match(/\{[^{}]*Slot: 1b[^{}]*\}/)![0], /count: 8\b[^{}]*oak_planks|oak_planks[^{}]*count: 8\b/, stored);
+  await until(() => fixture.raw('inventory'), state => state.counts?.['minecraft:oak_planks'] === 8 && !state.carried
+    && !/oak_log/.test(state.hotbar?.[0]?.components ?? '') && energy(state.hotbar?.[0]?.components ?? '') === energy(served),
+    'the client sees the inventory the server holds after a close that overtook the clicks\' answers');
+  fixture.mark('a close that overtakes the clicks\' answers sends the inventory again');
+
   await fixture.restart();
   await until(() => fixture.ae(`grid status ${access}`), state => state.online && state.powered, 'reloaded wireless access point', 30000);
   await fixture.select(0, 'ae2:wireless_crafting_terminal');
   await fixture.raw('use-item');
   const reopened = await until(() => fixture.raw('screen'), view => view.screen === 'container' && slot(view, 327)?.item === null, 'source wireless item and empty matrix survive restart');
   assert.equal(slot(reopened, 336)?.item, null);
-  assert.equal((await fixture.raw('inventory')).counts?.['minecraft:oak_planks'], 4);
+  assert.equal((await fixture.raw('inventory')).counts?.['minecraft:oak_planks'], 8);
   fixture.assertHidden(await fixture.raw('status'));
   fixture.mark('the linked owner and conserved output persist across restart');
   fixture.report('passed');

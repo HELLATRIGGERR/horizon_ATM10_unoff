@@ -56,7 +56,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_anchor_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
         let Some(_)=host.play.get_mut(&conn).and_then(|p|p.ae2_anchor.take_if(|s|window.is_none_or(|w|w==s.window))) else{return false;};
-        if let Some(i)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_carried_back(host,i);}true
+        if let Some(i)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,i);}true
     }
     pub(super) fn lan_refresh_ae2_anchors(&mut self,host:&mut LanHost) {
         let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|p.ae2_anchor.as_ref().map(|s|(c,s.pos,s.dim.clone(),s.incarnation,s.window))).collect();

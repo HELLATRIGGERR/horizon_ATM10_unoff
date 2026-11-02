@@ -480,7 +480,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_pattern_access_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
         if host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.take_if(|s|window.is_none_or(|w|w==s.window))).is_none(){return false;}
-        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_carried_back(host,gi);}true
+        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,gi);}true
     }
     pub(super) fn lan_refresh_pattern_access(&mut self,host:&mut LanHost) {
         let viewers:Vec<_>=host.play.iter().filter_map(|(&id,p)|p.ae2_pattern_access.as_ref().map(|s|(id,s.pos,s.face.clone(),s.dim.clone(),s.window,s.terminal))).collect();

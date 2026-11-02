@@ -557,6 +557,12 @@ struct GenerationScan {
     plan_basis: Option<bool>,
 }
 impl GenerationScan {
+    /// A failed column's wait ended: the plan left it out, so it goes, and the
+    /// next scan takes the column back by its distance.
+    fn retry_expired(&mut self) {
+        self.exhausted = false;
+        self.plan_basis = None;
+    }
     fn same_ranges(&self, ranges: &Ranges<'_>) -> bool {
         self.center == ranges.center
             && self.radius == ranges.radius
@@ -635,6 +641,7 @@ impl GenerationScan {
         let missing = |&(_, x, z): &(i64, i32, i32)| {
             !input.world.chunks.contains_key(&(x, z))
                 && !input.generating.contains(&(x, z))
+                && !input.retry_at.contains_key(&(x, z))
                 && !input.protos.contains_key(&(x, z))
                 && !input.finishing.contains(&(x, z))
         };
@@ -2044,7 +2051,7 @@ impl Streaming {
         let now = std::time::Instant::now();
         let before = self.retry_at.len();
         self.retry_at.retain(|_, deadline| *deadline > now);
-        if self.retry_at.len() != before { self.generation_scan.exhausted = false; }
+        if self.retry_at.len() != before { self.generation_scan.retry_expired(); }
         let input = GenerationInputs {
             ranges: Ranges {
                 center: self.center,
@@ -3194,9 +3201,20 @@ mod tests {
         assert!(!before.iter().any(|(_,x,z)| (*x,*z)==(0,0)));
         assert!(!fixture.world.chunks.contains_key(&(0,0)));
         fixture.retry_at.clear();
-        scan.exhausted = false;
+        scan.retry_expired();
         let after = scan.candidates(fixture.input(), usize::MAX).unwrap();
         assert!(after.iter().any(|(_,x,z)| (*x,*z)==(0,0)));
+    }
+
+    #[test]
+    fn a_planned_column_that_failed_waits_for_its_retry() {
+        let mut fixture = GenerationFixture::new(1, true);
+        let mut scan = GenerationScan::default();
+        let planned = scan.candidates(fixture.input(), usize::MAX).unwrap();
+        assert!(planned.iter().any(|(_,x,z)| (*x,*z)==(0,0)));
+        fixture.retry_at.insert((0,0), std::time::Instant::now() + std::time::Duration::from_secs(2));
+        let waiting = scan.candidates(fixture.input(), usize::MAX).unwrap();
+        assert!(!waiting.iter().any(|(_,x,z)| (*x,*z)==(0,0)));
     }
 
     #[test]

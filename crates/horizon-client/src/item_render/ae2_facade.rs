@@ -40,7 +40,7 @@ impl ItemRenderer {
         }
         let extents=self.quad_extents("ae2:item/facade_base",&base);
         layers.push(LayerRender{geometry:LayerGeometry::Quads(base.clone()),tints:Vec::new(),foil:FoilType::None,matrix,particle:sprite_name(&base.particle.sprite).to_owned(),uses_block_light:false,extents});
-        ItemRenderState{display,layers,oversized_in_gui:false,animated:texture.animated}
+        ItemRenderState{display,layers,oversized_in_gui:false,animated:texture.animated,cit_glint:None,hdr_tier:0,hdr_light:0}
     }
 }
 #[cfg(test)] mod tests {

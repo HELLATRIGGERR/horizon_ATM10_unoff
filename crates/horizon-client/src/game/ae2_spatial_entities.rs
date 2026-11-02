@@ -14,10 +14,6 @@ use horizon_core::geometry::{Aabb, Vec3};
 use horizon_world::nbt::Tag;
 use std::collections::HashMap;
 
-pub(super) struct SpatialLocalPlayerMove {
-    destination: super::Dim,
-    at: [f64; 3],
-}
 pub(super) struct SpatialEntities {
     min: (i32, i32, i32),
     size: [i32; 3],
@@ -454,49 +450,6 @@ impl Game<'_> {
     ) {
         for movement in &moves {if movement.dim==super::Dim::Spatial {self.ae2_queue_connection_advancement(movement.conn,"ae2:spatial_explorer");}}
         self.level_teleports.extend(moves);
-    }
-    /// Capture a standalone in-frame player; defer travel until both halves
-    /// of the exchange are committed.
-    pub(super) fn ae2_spatial_local_player_transfer(
-        &self,
-        batch: &SpatialEntities,
-        destination: super::Dim,
-        to: (i32, i32, i32),
-    ) -> Option<SpatialLocalPlayerMove> {
-        if self.options.dedicated.is_some() || self.remote.is_some() {
-            return None;
-        }
-        let player = self.player.as_ref()?;
-        let p = array(player.position);
-        intersects(player.bounds(), batch.min, batch.size).then(|| SpatialLocalPlayerMove {
-            destination,
-            at: mapped(p, batch.min, to, batch.size),
-        })
-    }
-    pub(super) fn ae2_apply_spatial_local_player_transfer(
-        &mut self,
-        movement: SpatialLocalPlayerMove,
-    ) -> horizon_client::Result<()> {
-        if movement.destination==super::Dim::Spatial && self.player.is_some() {self.trigger_player("ae2:spatial_explorer");}
-        let Some(mut player) = self.player.take() else {
-            return Ok(());
-        };
-        let from = self.dim;
-        if let Err(error) = self.switch_level(movement.destination, player.position) {
-            self.player = Some(player);
-            return Err(error);
-        }
-        self.trigger_dimension(from, movement.destination, movement.at);
-        let target = vec3(movement.at);
-        player.position = target;
-        player.velocity = Vec3::ZERO;
-        player.fall_distance = 0.0;
-        player.ground.on_ground = false;
-        self.travelling = Some((player, target));
-        self.portals.travel = None;
-        self.end_travel = false;
-        self.end_portal_travel = false;
-        Ok(())
     }
     pub(super) fn ae2_restore_spatial_entities(
         &mut self,

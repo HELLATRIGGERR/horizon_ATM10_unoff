@@ -59,7 +59,7 @@ into `powah:stored_block_entity_state` as a compound; placing reads it back. The
 - Shape updates (API 32) answering connections from `native_fe_info`.
 - The network: rebuilt from the loaded cables, not saved. The Wrench's Config mode and block-entity NBT for side modes.
 - Trace the oracle first: furnator, 10 starter cables, AE2 acceptor, and a branched net into two sinks.
-- `native_block_entity_drop` and `native_block_entity_slot_accepts` (API 82) serve P3's cells as they are.
+- `native_block_entity_drop` and `native_block_entity_slot_accepts` (API 155) serve P3's cells as they are.
 
 ## State
 

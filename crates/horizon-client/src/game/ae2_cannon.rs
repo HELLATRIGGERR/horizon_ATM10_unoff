@@ -288,7 +288,7 @@ impl Game<'_> {
         let shooter = self
             .lan_acting
             .and_then(|c| host.hub.guest(c))
-            .map_or(host.host_entity as u32, |g| g.entity_id as u32);
+            .map_or(0, |g| g.entity_id as u32);
         let attacker = self.player_team().cloned();
         let target = host
             .hub

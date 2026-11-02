@@ -4,8 +4,8 @@
 # crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12, 14-20, 23, 26,
-# 42, 47, 60 and 81-83) and calls the helpers of API 84 (`native_biome`,
-# `native_dimension_type`), so it builds on any Horizon with hooks API 84 or
+# 42, 47, 60 and 154-156) and calls the helpers of API 157 (`native_biome`,
+# `native_dimension_type`), so it builds on any Horizon with hooks API 157 or
 # later: it pins no revision (horizon-mixins refuses any other commit than a
 # pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by

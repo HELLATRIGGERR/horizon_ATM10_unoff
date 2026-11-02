@@ -718,26 +718,23 @@ impl RecipeIndex {
         namespaces.extend(crate::mod_content::namespaces(root));
         namespaces.sort();
         namespaces.dedup();
-        let mut files = Vec::new();
+        // Read through `json_folder`, so the loads holding a folder share one
+        // read of it.
+        let mut sources: Vec<(String, serde_json::Value)> = Vec::new();
         for namespace in namespaces {
             let dir = root.join("data").join(&namespace).join("recipe");
-            for (name, path) in crate::crafting::recipe_files(&dir).unwrap_or_default() {
-                files.push((format!("{namespace}:{name}"), path));
-            }
+            let Ok(folder) = crate::json_folder::read(&dir) else {
+                continue;
+            };
+            sources.extend(folder.files.iter().filter_map(|file| {
+                let v = serde_json::from_slice::<serde_json::Value>(file.bytes().ok()?).ok()?;
+                Some((format!("{namespace}:{}", file.name), v))
+            }));
         }
-        files.sort();
+        sources.sort_by(|a, b| a.0.cmp(&b.0));
         // The packs' files replace first and the gate answers the merged
         // file, as the crafting loader's does: a false-conditioned pack
         // file leaves the lower one gone too.
-        let mut sources: Vec<(String, serde_json::Value)> = files
-            .into_iter()
-            .filter_map(|(id, path)| {
-                let v = std::fs::read(&path)
-                    .ok()
-                    .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())?;
-                Some((id, v))
-            })
-            .collect();
         for (id, files) in overlay.kind("recipe") {
             match serde_json::from_slice::<serde_json::Value>(PackOverlay::top(files)) {
                 Ok(v) => match sources.iter_mut().find(|(n, _)| n == id) {
@@ -847,11 +844,15 @@ impl Settings {
         let mut displays = 0;
         let mut added = Vec::new();
         for id in ids {
-            if !self.recipes.contains(id) && !index.special(id) {
+            // The whole id: the crafting copy names a `minecraft:` recipe
+            // bare, and every reader of the book (the network copy, the
+            // advancements' JSON, the saved file) knows it qualified.
+            let id = crate::crafting::qualified(id);
+            if !self.recipes.contains(&id) && !index.special(&id) {
                 self.recipes.insert(id.clone());
                 self.to_be_displayed.insert(id.clone());
-                displays += index.displays(id);
-                added.push(id.clone());
+                displays += index.displays(&id);
+                added.push(id);
             }
         }
         (displays, added)
@@ -891,9 +892,10 @@ impl Settings {
     pub fn remove_recipes(&mut self, index: &RecipeIndex, ids: &[String]) -> Vec<i32> {
         let mut displays = Vec::new();
         for id in ids {
-            if self.recipes.remove(id) {
-                self.to_be_displayed.remove(id);
-                displays.extend(index.display_ids(id));
+            let id = crate::crafting::qualified(id);
+            if self.recipes.remove(&id) {
+                self.to_be_displayed.remove(&id);
+                displays.extend(index.display_ids(&id));
             }
         }
         displays
@@ -971,6 +973,24 @@ impl Settings {
 
 #[cfg(test)]
 mod tests {
+    /// A book saved before #7186's fix holds bare names: reading fills the
+    /// namespace in, so those recipes show in the book too.
+    #[test]
+    fn a_book_saved_with_bare_names_reads_qualified() {
+        use horizon_world::nbt::{Compound, Tag};
+        let list = || Tag::List(vec![Tag::String("folder_recipe".into())]);
+        let mut compound = Compound::new();
+        compound.insert("recipes".into(), list());
+        compound.insert("toBeDisplayed".into(), list());
+        let tag = Tag::Compound(compound);
+        let read = Settings::read_valid(Some(&tag), &|_| true);
+        assert_eq!(
+            read.recipes,
+            ["minecraft:folder_recipe".to_owned()].into_iter().collect()
+        );
+        assert!(read.to_be_displayed.contains("minecraft:folder_recipe"));
+    }
+
     use super::*;
 
     /// Compare all actual AE2 ids and isSpecial flags, not static file counts.

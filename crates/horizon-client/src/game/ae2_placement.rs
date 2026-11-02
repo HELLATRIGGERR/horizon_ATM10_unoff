@@ -128,7 +128,7 @@ impl Game<'_> {
         if self.ae2_prepare_cpu_removal(key).is_err(){return true;}
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&key) else{return true};
         let machine=(**machine).clone();let name=self.world.block_names.get(&key).cloned();
-        let held=self.held().cloned();let mut drops=self.block_loot_at(pos,old,held.as_ref());
+        let held=self.held().cloned();let mut drops=self.block_loot_at(pos,old,held.as_ref(),None);
         if let Some(block)=drops.iter_mut().find(|item|item.item.as_ref()==machine.id()) {
             block.set_custom_name_component(super::ae2_memory_host::machine_name_component(&machine,name.as_deref()));
             if matches!(machine.kind,MachineKind::EnergyCell|MachineKind::DenseEnergyCell) && machine.energy>0.0 {

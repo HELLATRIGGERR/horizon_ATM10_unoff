@@ -17,7 +17,7 @@ bun run pack/scripts/fluxnetworks.ts content units stage build world
 
 ## State (2026-11-02)
 
-F0 and F1 are done. The bundle needs hooks API 82 (Forge Energy, block entity drop).
+F0 and F1 are done. The bundle needs hooks API 155 (Forge Energy, API 154; block entity drop, API 155).
 
 - F0: the `content` step carries the jar: 135 files, 4 recipes moved in, 8 custom recipes kept but not craftable.
 - F1: one network, plug to point, on the chest menu. `units`: 42 tests pass. `world` (`tests/plug-point.ts`): passes on

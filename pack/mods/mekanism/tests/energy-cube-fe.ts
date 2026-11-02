@@ -1,4 +1,4 @@
-/** Forge Energy between Mekanism's energy cubes and AE2, through the engine's FE capability (hook points API 81).
+/** Forge Energy between Mekanism's energy cubes and AE2, through the engine's FE capability (hook points API 154).
  *
  * - AE2 powers a cube: the debug energy generator pushes 8 FE a tick into the cube beside it, which Mekanism
  *   takes as 20 J (2.5 J per FE, ATM10's feConversionRate), and the cube counts them as its input.

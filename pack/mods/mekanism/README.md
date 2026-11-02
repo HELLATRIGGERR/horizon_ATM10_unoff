@@ -21,14 +21,14 @@ assets when `mekanism-content` is given them.
   ejection, the screen, placement facing, an item that keeps its energy.
 - Settings from ATM10's `config/Mekanism/` (`general.toml`, `tiers.toml`, `common.toml`, `generators.toml`,
   `generator-storage.toml`), read again when a file changes.
-- Forge Energy at a cube's edge (hook points API 81): each side as an `IEnergyStorage`, and the ejector feeding any block
+- Forge Energy at a cube's edge (hook points API 154): each side as an `IEnergyStorage`, and the ejector feeding any block
   with Forge Energy, such as AE2's Energy Acceptor, at `feConversionRate` Joules to the FE.
-- Basic, Advanced, Elite and Ultimate Universal Cables (block entity lifecycle hook points, API 83): networks with one
+- Basic, Advanced, Elite and Ultimate Universal Cables (block entity lifecycle hook points, API 156): networks with one
   buffer as big as their cables together, kept in the bundle per dimension; they connect to cubes and to any block with
   Forge Energy, emit to all of them each tick, pull through a pull side, and keep their shares across saves, restarts
   and chunks unloading. Their OBJ model becomes a multipart blockstate in `mekanism-content`.
 - The Solar Generator: Joules from the sun by its biome (the helpers `native_biome` and `native_dimension_type` of hook
-  points API 84), the time of day and the weather, Minecraft 1.21.1's maths for the sun as Mekanism reads it on ATM10,
+  points API 157), the time of day and the weather, Minecraft 1.21.1's maths for the sun as Mekanism reads it on ATM10,
   out of its bottom, at ATM10's `solarGeneration = 150` (`generators.toml`) and 96 000 J (`generator-storage.toml`).
 - The Heat Generator: a lava tank (24 000 mB) filled from lava buckets and furnace fuel in its fuel slot (`burnTime / 20`
   mB; a hopper puts only fuel there), heat from burning 10 mB a tick (800), from lava on each face (30) and in an

@@ -86,6 +86,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
+        own_background: false,
     });
 }
 
@@ -498,7 +499,7 @@ fn generator_screen(kind: GeneratorKind) -> NativeScreen {
         GeneratorKind::Solar => vec![Some([143.0, 35.0]), None, None, None, None],
         GeneratorKind::Heat => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
     };
-    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true }
+    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false }
 }
 
 /// The tooltip of what is under `at` on a generator's screen.

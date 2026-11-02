@@ -7,9 +7,10 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
 - S0-S3 committed (2eeaed18d).
 - S5 (tiers, creative semantics, config reload) and S4 (cube on Forge Energy): committed; see the log for what ran.
 - S6 (engine: block entity load, unload, save, changed): committed as hooks API 64 on the old base (85020d24a), moved
-  onto `int/atm10` as API 83 (Forge Energy, once 63, is 81 there).
+  onto `int/atm10` as API 83 (Forge Energy, once 63, is 81 there). Since the upstream merge at 6e1635c1e (upstream
+  API 153) they are API 156 and Forge Energy is API 154.
 - S7 (Universal Cables): committed. World test `universal-cable`.
-- S8 (Solar Generator) and S9 (Heat Generator): on `feat/mekanism-generators`. The world reads S8 needed are hooks API 84:
+- S8 (Solar Generator) and S9 (Heat Generator): on `feat/mekanism-generators`. The world reads S8 needed are hooks API 84 (157 since the upstream merge):
   the helpers `native_biome` and `native_dimension_type`; light, weather and the day time were there (`native_light`,
   `native_weather`, `native_day_time`), and lava beside a block is `native_block`. World tests `solar-generator`,
   `heat-generator`.

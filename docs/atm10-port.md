@@ -77,8 +77,10 @@ ATM10_DIR=... bun run pack/scripts/powah.ts units stage build world         # se
 ATM10_DIR=... bun run pack/scripts/fluxnetworks.ts units stage build world  # see pack/mods/fluxnetworks/NOTES.md
 ```
 
-Also run `cargo test -p horizon-client --no-default-features --features ae2-lab --bin horizon-client` and `--lib`, and
-`cargo check -p horizon-client` with default features.
+Also run `cargo test -p horizon-client --no-default-features --features ae2-lab --bin horizon-client` and `--lib`,
+`cargo test -p horizon-client-lib --no-default-features --features ae2-lab --lib` (upstream split the client's library:
+the game is in `horizon-client`'s, the rest, with AE2's library modules, in `horizon-client-lib`, which has the same
+`ae2-*` features), `cargo check -p horizon-client` with default features and `cargo run -p xtask -- mod-api --check`.
 
 Machine notes:
 
@@ -137,8 +139,13 @@ parse and 295 need items we lack, so about 35,900 can be crafted today.
 - LGPL mods (AE2, Powah and others) stay in this fork and are never proposed upstream. Upstream's contributing rules forbid
   even reading LGPL code for its pull requests. Flux Networks' GUI art is CC BY-NC-SA: local only.
 - Native mods hook named hook points (`game/native_hooks.rs`, `native-hooks.json`). Hooks are only appended. That file holds
-  no `cfg` or macros outside tests. New hooks take the next `NATIVE_HOOKS_API` number; it is 82 on `int/atm10`, and
-  `wip/mekanism` and `wip/quests` still say 64 and must be renumbered.
+  no `cfg` or macros outside tests. A new hook is added in upstream's style: its `native_*` function with the placeholder
+  body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract, `python3 tools/stamp_native_hooks.py`
+  run with only the fork's fragment there (upstream's pending ones moved aside, then put back), and
+  `cargo run -p xtask -- mod-api`, which writes its `Hooks` trait method and dispatch. The fork's hooks are APIs 154-157
+  since the merge of upstream 6e1635c1e (whose latest was 153): Forge Energy 154, a machine's item and slots 155, the
+  block entity lifecycle 156, biome and dimension type 157. Upstream stamps its pending fragments after 153 too, so
+  at each merge the fork's take the numbers after upstream's latest again. `wip/quests` still says 64.
 - Compare behaviour with the Java mod, run on NeoForge where a number matters (`tools/neoforge_oracle.py`), and don't trust
   an assertion that can't fail.
 - One commit per finished stage on the default branch. Merge upstream every two or three days: it moves fast.

@@ -1095,6 +1095,7 @@ impl Game<'_> {
             inventory_y: iy as f32,
             inventory_x: ix as f32,
             own_labels: true,
+            own_background: false,
         };
         Some((laid_out, screen))
     }

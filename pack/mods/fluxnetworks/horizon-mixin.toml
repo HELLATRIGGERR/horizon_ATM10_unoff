@@ -3,8 +3,8 @@
 # the rules are ported from its source in the crate `fluxnetworks-core`. See
 # README.md for the notice and what isn't covered by it (the GUI's art).
 #
-# It hooks Horizon's named hook points and needs hooks API 82 (Forge Energy,
-# block entity drop). `flux_world` also reads the game's open levels directly,
+# It hooks Horizon's named hook points and needs hooks API 155 (Forge Energy,
+# API 154; block entity drop, API 155). `flux_world` also reads the game's open levels directly,
 # to reach a device in any of them. It pins no revision. Its blocks, models and recipes are a content mod
 # built locally from the player's jar by `pack/scripts/fluxnetworks.ts content`,
 # loaded with `--dev-mod`.

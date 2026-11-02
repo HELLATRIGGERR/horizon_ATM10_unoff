@@ -2427,7 +2427,7 @@ impl Game<'_> {
         } else if let Some(tag)=saved.as_ref() {
             self.pending.record_saved(at,tag);
         }
-        let mut drops=self.block_loot_at(at,state,tool.as_ref());
+        let mut drops=self.block_loot_at(at,state,tool.as_ref(),None);
         for stack in &mut drops {self.pending.attach(at,stack);}
         self.pending.clear(at);
         drops.retain(|stack|stack.count>0 && stack.item.as_ref()!="minecraft:air");

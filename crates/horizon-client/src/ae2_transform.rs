@@ -197,6 +197,10 @@ mod tests {
             bob_offset: 0.0,
             ticks: 0,
             needs_sync: false,
+            stuck: Vec3::ZERO,
+            no_gravity: false,
+            vertical_collision: false,
+            horizontal_collision: false,
         }
     }
     #[test]

@@ -2,8 +2,8 @@
 # Powah is LGPL-3.0; see this folder's README.md for the credits. This bundle
 # stays in the fork and is never proposed to Horizon.
 #
-# It hooks only Horizon's named hook points (API 3, 8, 12, 14-20, 63, 81, 82), so
-# it builds on any Horizon with hooks API 82 or later: it pins no revision.
+# It hooks only Horizon's named hook points (API 3, 8, 12, 14-20, 63, 154, 155), so
+# it builds on any Horizon with hooks API 155 or later: it pins no revision.
 # Its blocks, models and recipes are a content mod built from the carry of the
 # player's own jar by `powah-content` (see pack/scripts/powah.ts), loaded with
 # `--dev-mod`.

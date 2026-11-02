@@ -652,7 +652,6 @@ impl Game<'_> {
             .as_ref()
             .map(|h| self.ae2_spatial_guest_transfers(h, &src_entities, Dim::Spatial, dst))
             .unwrap_or_default();
-        let local = self.ae2_spatial_local_player_transfer(&src_entities, Dim::Spatial, dst);
         if let Err(e) = self.enter_level(None, Dim::Spatial) {
             self.ae2_restore_spatial_entities(src_entities, source);
             if !creative_source {
@@ -760,10 +759,6 @@ impl Game<'_> {
         }
         self.enter_level(None, source_dim)
             .map_err(|e| e.to_string())?;
-        if let Some(local) = local {
-            self.ae2_apply_spatial_local_player_transfer(local)
-                .map_err(|e| e.to_string())?;
-        }
         self.ae2_spatial_post_updates(source_dim,source,dst,region.size,&skip)?;
         Ok(
             json!({"plot":plot.id,"dimension":Dim::Spatial.id(),"origin":dst,"size":region.size,"power":region.power,"efficiency":region.efficiency}),

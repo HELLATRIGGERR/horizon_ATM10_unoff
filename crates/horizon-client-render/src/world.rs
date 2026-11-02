@@ -52,6 +52,11 @@ impl DirtySections {
     }
 }
 pub struct World {
+    /// Server-owned mod data attached to this dimension.
+    pub attachments: horizon_world::attachments::Attachments,
+    /// The holders lent to mods since the last flush, whose synced changes
+    /// `flush_attachment_sync` sends.
+    pub attachment_syncs: FxHashSet<horizon_world::attachments::Holder>,
     /// The level's build range and skylight (its dimension type); its
     /// chunks hold `shape.column()`.
     pub shape: LevelShape,
@@ -222,6 +227,8 @@ impl World {
             game_time: self.game_time, day_time: self.day_time, weather: self.weather,
             chunks: self.chunks.placement_snapshot(),
             block_entities: self.block_entities.placement_snapshot(),
+            attachments: self.attachments.clone(),
+            attachment_syncs: self.attachment_syncs.clone(),
             // Derived cache; a shadow edit must not invalidate the live cache.
             pois: Default::default(),
         }
@@ -242,6 +249,8 @@ impl World {
             loaded_entities: Vec::new(),
             loaded_chunks: Vec::new(),
             modified: FxHashSet::default(),
+            attachments: Default::default(),
+            attachment_syncs: FxHashSet::default(),
             block_entities: Default::default(),
             dynamic_shapes: Default::default(),
             chest_openers: FxHashMap::default(),

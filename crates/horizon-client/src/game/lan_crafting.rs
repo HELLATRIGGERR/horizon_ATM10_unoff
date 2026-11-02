@@ -25,7 +25,7 @@ pub(super) struct GuestCrafting {
     /// The open furnace's or brewing stand's window and menu (`AbstractFurnaceMenu`,
     /// `BrewingStandMenu`); its slots live in the block entity and the hub's
     /// container menu keeps the client in sync.
-    machine: Option<(i32, Box<Menu>)>,
+    pub(super) machine: Option<(i32, Box<Menu>)>,
 }
 
 /// Effects that must happen only after the caller commits the menu's owner.
@@ -35,6 +35,8 @@ pub(super) struct GuestMenuEffects {
     equipped: Vec<(&'static str, Option<ItemStack>)>,
     brewed: Vec<ItemStack>,
     crafted: Vec<(String, Vec<Option<ItemStack>>)>,
+    /// What the click crafted, for `native_item_crafted`.
+    item_crafted: Vec<(String, ItemStack)>,
 }
 
 impl GuestMenuEffects {
@@ -43,6 +45,7 @@ impl GuestMenuEffects {
         self.equipped.extend(other.equipped);
         self.brewed.extend(other.brewed);
         self.crafted.extend(other.crafted);
+        self.item_crafted.extend(other.item_crafted);
     }
 }
 
@@ -163,10 +166,17 @@ impl Game<'_> {
             self.register_made_maps(maps);
         }
         let effects = GuestMenuEffects {
-            dropped: std::mem::take(&mut menu.dropped),
+            // A taken anvil result waits for AnvilCraftEvent.Pre: what the click
+            // dropped waits with it (lan_station_op throws it or refuses the take).
+            dropped: if menu.anvil_craft.is_some() {
+                Vec::new()
+            } else {
+                std::mem::take(&mut menu.dropped)
+            },
             equipped: std::mem::take(&mut menu.equipped),
             brewed: std::mem::take(&mut menu.brewed),
             crafted: std::mem::take(&mut menu.crafted),
+            item_crafted: std::mem::take(&mut menu.item_crafted),
         };
         menu.drops.clear();
         store_player(menu, &mut host.hub.guests[gi]);
@@ -192,6 +202,15 @@ impl Game<'_> {
             self.as_guest(host, conn, |g| {
                 for (recipe, ingredients) in &effects.crafted {
                     g.trigger_recipe_crafted(recipe, ingredients);
+                }
+            });
+        }
+        if !effects.item_crafted.is_empty() {
+            let conn = host.hub.guests[gi].conn;
+            self.as_guest(host, conn, |g| {
+                let player = g.native_acting_id();
+                for (recipe, stack) in &effects.item_crafted {
+                    g.native_item_crafted(player, recipe, stack);
                 }
             });
         }
@@ -242,6 +261,12 @@ impl Game<'_> {
                 .filter(|&s| menu.slot(s) != before[s].as_ref())
                 .collect::<Vec<_>>()
         });
+        let guest = &host.hub.guests[gi];
+        let (uuid, name) = (guest.uuid, guest.name.clone());
+        let mut result = menu.slot(0).cloned();
+        self.native_prepare_item_craft(uuid, &name, None, &mut result);
+        let env = self.menu_env();
+        menu.set_slot(&env, 0, result);
         let g = &mut host.hub.guests[gi];
         for k in 0..4 {
             g.craft_grid[k] = menu.slot(1 + k).cloned();
@@ -379,6 +404,17 @@ impl Game<'_> {
         let count = |s: Option<&ItemStack>| s.map_or(0, |s| s.count);
         if furnace && count(menu.slot(2)) < count(items[2].as_ref()) {
             let at = host.hub.guests[gi].position;
+            let guest = &host.hub.guests[gi];
+            let output = items[2].as_ref();
+            if let Some(output) = output {
+                self.native_furnace_extract(
+                    guest.uuid,
+                    &guest.name,
+                    [pos.0, pos.1, pos.2],
+                    &output.item,
+                    output.count - count(menu.slot(2)),
+                );
+            }
             self.award_furnace_recipes(pos, at);
         }
         // Slot.setChanged on a changed container slot: BlockEntity.setChanged,
@@ -460,6 +496,8 @@ impl Game<'_> {
         {
             return;
         }
+        let (player, name) = (g.uuid, g.name.clone());
+        self.native_player_recipe_book_click(player, &name, &id, p.use_max);
         let creative = g.creative();
         let placed = if p.container == 0 {
             let crafting = host.play.entry(conn).or_default();
@@ -505,6 +543,9 @@ impl Game<'_> {
 
     /// The guest opened a crafting table (`CraftingTableBlock.getMenuProvider`).
     pub(super) fn lan_open_crafting(&mut self, host: &mut LanHost, conn: u32, pos: [i32; 3]) {
+        if !self.guest_may_open(host, conn, "minecraft:crafting", Some(pos)) {
+            return;
+        }
         // ServerPlayer.openMenu closes the menu that was open.
         self.guest_close_all(host, conn);
         let title = horizon_protocol::text::translatable("container.crafting", &[]);
@@ -542,7 +583,7 @@ impl Game<'_> {
             && !host.hub.guests[gi].spectator()
             && self.lan_table_valid(&host.hub.guests[gi], pos)
         {
-            let changed = self.guest_menu_op(host, gi, &mut menu, |menu, env| {
+            let mut changed = self.guest_menu_op(host, gi, &mut menu, |menu, env| {
                 let before: Vec<_> = (0..menu.slot_count())
                     .map(|s| menu.slot(s).cloned())
                     .collect();
@@ -551,6 +592,16 @@ impl Game<'_> {
                     .filter(|&s| menu.slot(s) != before[s].as_ref())
                     .collect::<Vec<_>>()
             });
+            let guest = &host.hub.guests[gi];
+            let (uuid, name) = (guest.uuid, guest.name.clone());
+            let mut result = menu.slot(0).cloned();
+            let vanilla = result.clone();
+            self.native_prepare_item_craft(uuid, &name, Some(pos), &mut result);
+            if result != vanilla && !changed.contains(&0) {
+                changed.push(0);
+            }
+            let env = self.menu_env();
+            menu.set_slot(&env, 0, result);
             agreed = p.state == state
                 && host.hub.click_agreed(
                     gi,

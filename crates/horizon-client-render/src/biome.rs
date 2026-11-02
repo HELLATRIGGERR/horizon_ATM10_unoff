@@ -10,26 +10,32 @@ use std::{
     sync::Arc,
 };
 
-/// Match synchronized registry ordering: vanilla first, then namespaces and
-/// recursive entry paths. Appending a mod must not renumber vanilla biomes.
-fn biome_files(root: &Path) -> Result<Vec<(String, PathBuf)>> {
-    fn walk(dir: &Path, namespace: &str, prefix: &str, out: &mut Vec<(String,PathBuf)>) -> Result<()> {
-        if !dir.is_dir() { return Ok(()); }
-        let mut entries=fs::read_dir(dir)?.collect::<std::io::Result<Vec<_>>>()?;
-        entries.sort_by_key(|entry|entry.file_name());
-        for entry in entries {
-            let path=entry.path();let name=entry.file_name().to_string_lossy().into_owned();
-            if path.is_dir() {walk(&path,namespace,&format!("{prefix}{name}/"),out)?;}
-            else if let Some(stem)=name.strip_suffix(".json") {out.push((format!("{namespace}:{prefix}{stem}"),path));}
+/// The biome files of every namespace but vanilla's (`data/<ns>/worldgen/biome`, its
+/// subfolders too), by id: what content mods add. They come after vanilla's, as the
+/// synchronized registry orders them: appending a mod must not renumber vanilla biomes.
+fn mod_biome_files(root: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let Ok(entries) = fs::read_dir(root.join("data")) else {
+        return Ok(Vec::new());
+    };
+    let mut namespaces = entries
+        .collect::<std::io::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|ns| ns != "minecraft")
+        .collect::<Vec<_>>();
+    namespaces.sort();
+    let mut files = Vec::new();
+    for namespace in namespaces {
+        let dir = root.join("data").join(&namespace).join("worldgen/biome");
+        if !dir.is_dir() {
+            continue;
         }
-        Ok(())
+        for (name, path) in horizon_world::json_folder::list(&dir)? {
+            files.push((format!("{namespace}:{name}"), path));
+        }
     }
-    let mut namespaces=fs::read_dir(root.join("data"))?.collect::<std::io::Result<Vec<_>>>()?
-        .into_iter().filter(|e|e.path().is_dir()).map(|e|e.file_name().to_string_lossy().into_owned()).collect::<Vec<_>>();
-    namespaces.sort_by(|a,b|(a!="minecraft",a).cmp(&(b!="minecraft",b)));
-    let mut files=Vec::new();
-    for namespace in namespaces {walk(&root.join("data").join(&namespace).join("worldgen/biome"),&namespace,"",&mut files)?;}
-    files.sort_by(|a,b|(!a.0.starts_with("minecraft:"),&a.0).cmp(&(!b.0.starts_with("minecraft:"),&b.0)));
+    files.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(files)
 }
 
@@ -194,7 +200,9 @@ fn color(v: &Value) -> Option<u32> {
 }
 fn colormap(root: &Path, name: &str) -> Result<Vec<u32>> {
     let path = root.join(format!("assets/minecraft/textures/colormap/{name}.png"));
-    let mut decoder = png::Decoder::new(std::io::BufReader::new(fs::File::open(path)?));
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(horizon_core::prepared_files::read(
+        &path,
+    )?));
     decoder.ignore_checksums(true);
     decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = decoder.read_info()?;
@@ -300,7 +308,25 @@ impl Biomes {
             dry: colormap(root, "dry_foliage")?,
         };
         let mut list = Vec::new();
-        for (name,path) in biome_files(root)? {
+        // The folder's own files (not its subfolders'), by file name: through `json_folder`,
+        // from the prepared data file when there is one.
+        let folder = horizon_world::json_folder::read(&root.join("data/minecraft/worldgen/biome"))?;
+        let mut files: Vec<_> = folder
+            .files
+            .iter()
+            .filter(|f| !f.name.contains('/'))
+            .collect();
+        files.sort_by_cached_key(|f| format!("{}.json", f.name));
+        for file in files {
+            let v: Value = serde_json::from_slice(file.bytes()?)?;
+            list.push(BiomeInfo::from_json(
+                format!("minecraft:{}", file.name),
+                &v,
+                &maps,
+            ));
+        }
+        // Then the content mods' biomes (AE2's spatial storage), by id.
+        for (name, path) in mod_biome_files(root)? {
             let v: Value = serde_json::from_slice(&fs::read(&path)?)?;
             list.push(BiomeInfo::from_json(name, &v, &maps));
         }

@@ -3,11 +3,11 @@
 // `mekanism_energy` (MIT, from Mekanism and Mekanism Generators 10.7.19,
 // Copyright (c) 2017-2025 Aidan C. Brady); this module is the glue: the
 // Solar and Heat Generators (what they read of the world: the sun, the weather,
-// the biome and its dimension through hook points API 84, lava beside them, the
+// the biome and its dimension through hook points API 157, lava beside them, the
 // fuel in their slot), the cubes' block entities and
 // their saved compound, the ejector's neighbours, Forge Energy at the cube's
-// edge (hook points API 81), universal cables and their networks (kept here,
-// per dimension, through the block entity lifecycle hook points API 83; each
+// edge (hook points API 154), universal cables and their networks (kept here,
+// per dimension, through the block entity lifecycle hook points API 156; each
 // level's tick commits them, refreshes connections, pulls, emits and marks their
 // chunks changed), the settings from `config/Mekanism/`, the menu's
 // data slots and buttons (its screen is `mek_ui`), placing a cube (facing the
@@ -474,7 +474,7 @@ fn last_input(entity: &ModBlockEntity) -> u64 {
     View::unpack(&entity.data).map_or(0, |view| view.input)
 }
 
-// ---- Forge Energy (hook points API 81) --------------------------------------
+// ---- Forge Energy (hook points API 154) -------------------------------------
 
 fn mek_direction(face: Face) -> Direction {
     Direction::ALL[face as usize]
@@ -703,7 +703,7 @@ impl StrictEnergy for CableSide<'_> {
     }
 }
 
-// ---- Universal cables (hook points API 83) ----------------------------------
+// ---- Universal cables (hook points API 156) ---------------------------------
 
 /// `connection`: the raw `ConnectionType` ordinal of each side, by `Direction`.
 fn connections_of(nbt: &Compound) -> [Connection; 6] {

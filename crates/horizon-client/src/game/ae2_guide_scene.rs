@@ -209,7 +209,8 @@ fn source_quads(game:&Game<'_>,blocks:&[(StructureBlock,BlockStateId)], world:&W
     let atlas=&game.gui.atlas;
     let scene=horizon_client::block_entity_render::Scene{glyphs:0,camera:DVec3::ZERO,orientation:glam::Quat::IDENTITY,
         anim:&|_|Default::default(),texts:None,partial:0.0,game_time:0,max_y:319,world,sprites:&atlas.sprites,nether:false,
-        lid:&|_|0.0,sign:&|_|None,banner:&|_|Vec::new(),skull:&|_|None,glyph:&|c|atlas.glyph_cell(c)};
+        lid:&|_|0.0,sign:&|_|None,banner:&|_|Vec::new(),skull:&|_|None,glyph:&|c|atlas.glyph_cell(c),
+        emissive:&atlas.emissive,translucent_sprites:&atlas.translucent,atlas_revision:atlas.revision};
     let entity_blocks:Vec<_>=blocks.iter().map(|(b,s)|(b.pos,s.0)).collect();
     game.res.block_entity_render().render(&scene,entity_blocks.iter(),&mut dynamic);
     if dynamic.len()%4!=0 {diagnostics.push("block-entity mesh has an incomplete quad".into())}

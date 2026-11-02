@@ -119,7 +119,7 @@ impl ItemRenderer {
             let extents=self.quad_extents(key,&lights);
             layers.push(LayerRender{geometry:LayerGeometry::Quads(lights),tints:card_led_colors(stack).into_iter().map(opaque).collect(),foil,matrix,particle:sprite_name(CARD_HASH).to_owned(),uses_block_light:false,extents});
         }
-        ItemRenderState{display,layers,oversized_in_gui:false,animated:false}
+        ItemRenderState{display,layers,oversized_in_gui:false,animated:false,cit_glint:None,hdr_tier:0,hdr_light:0}
     }
 
     /// Source FluidKeyRenderHandler draws the still sprite as a GUI quad.
@@ -143,7 +143,7 @@ impl ItemRenderer {
         let matrix=glam_matrix(&geometry.layer_matrix(display,&horizon_assets::math::Mat4::IDENTITY));
         let extents=self.quad_extents(&key,&geometry);
         let tint=if namespace=="minecraft" && path=="water" {0x3f76e4} else {0xffffff};
-        Some(ItemRenderState{display,layers:vec![LayerRender{geometry:LayerGeometry::Quads(geometry),tints:vec![opaque(tint)],foil:FoilType::None,matrix,particle:sprite_name(&sprite).to_owned(),uses_block_light:false,extents}],oversized_in_gui:false,animated:false})
+        Some(ItemRenderState{display,layers:vec![LayerRender{geometry:LayerGeometry::Quads(geometry),tints:vec![opaque(tint)],foil:FoilType::None,matrix,particle:sprite_name(&sprite).to_owned(),uses_block_light:false,extents}],oversized_in_gui:false,animated:false,cit_glint:None,hdr_tier:0,hdr_light:0})
     }
 }
 

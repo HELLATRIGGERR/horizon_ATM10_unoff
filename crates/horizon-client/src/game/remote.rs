@@ -500,7 +500,7 @@ pub(super) struct Remote {
     #[cfg(feature = "ae2-lab")]
     pub(super) ae2_terminal_screen: bool,
     #[cfg(feature = "ae2-lab")]
-    ae2_encoding_screen: bool,
+    pub(super) ae2_encoding_screen: bool,
     #[cfg(feature = "ae2-lab")]
     ae2_encoding_processing: bool,
     #[cfg(feature = "ae2-lab")]
@@ -539,6 +539,9 @@ pub(super) struct Remote {
     pub(super) ae2_view_cells: Option<Vec<Option<ItemStack>>>,
     #[cfg(feature = "ae2-lab")]
     pub(super) ae2_terminal_toolbox: Option<(usize, Vec<Option<ItemStack>>)>,
+    /// The open ME terminal screen's scroll and its view of the entries.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_term: super::ae2_terminal_screen::TermState,
     use_target: Option<[i32; 3]>,
     entities: HashMap<i32, Tracked>,
     lerps: HashMap<i32, Lerp>,
@@ -1077,6 +1080,8 @@ impl Game<'_> {
             ae2_view_cells: None,
             #[cfg(feature = "ae2-lab")]
             ae2_terminal_toolbox: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_term: Default::default(),
             use_target: None,
             entities: HashMap::new(),
             lerps: HashMap::new(),
@@ -3001,6 +3006,10 @@ impl Game<'_> {
                         }
                     }
                 }
+            }
+            #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:repo_view" => {
+                if p.data.len()<=1_048_576 {self.ae2_accept_repo_view(&p.data);}
             }
             #[cfg(feature = "ae2-lab")]
             C::CustomPayload(p) if p.channel == "ae2:repo_slots" => {
@@ -8970,10 +8979,12 @@ impl Game<'_> {
         }
         if self.ae2_local_craft_screen()==1 {return self.ae2_local_craft_click_field(ox,oy,right);}
         if self.ae2_terminal_open() {return self.ae2_local_terminal_search_click(ox,oy,right);}
+        // A sub screen covers the terminal and its search field.
+        if self.ae2_term_sub().is_some() {return false;}
         let (mx, my) = self.cursor;
         let amount = self.remote.as_ref().is_some_and(|r|r.ae2_craft_screen==1 || r.ae2_priority_screen || r.ae2_energy_screen);
         let access=self.remote.as_ref().is_some_and(|r|r.ae2_pattern_access_screen);
-        let priority=self.ae2_priority_field();
+        let priority=self.ae2_priority_field().or_else(||self.ae2_term_field());
         let (x,y,width)=if let Some((r,_))=priority {(r[0],r[1],r[2])} else if amount {(48.0,55.0,66.0)} else if access {(104.0,4.0,65.0)} else {(80.0,3.0,90.0)};
         let hit = (!right || !amount) && mx >= ox+x && mx < ox+x+width && my >= oy+y && my < oy+y+12.0;
         let shift = self.has_shift_down();
@@ -9007,6 +9018,8 @@ impl Game<'_> {
         }
         if self.ae2_local_craft_screen()==1 {self.ae2_local_craft_draw(batch,ox,oy);return;}
         if self.ae2_terminal_open() {self.ae2_local_terminal_search_draw(batch,ox,oy);return;}
+        // The terminal screen draws its own AETextField.
+        if self.ae2_term_kind().is_some() {return;}
         if let Some(mut field) = self.remote.as_ref().and_then(|r| r.ae2_search.clone()) {
             let amount=self.remote.as_ref().is_some_and(|r|r.ae2_craft_screen==1 || r.ae2_priority_screen || r.ae2_energy_screen);
             let access=self.remote.as_ref().is_some_and(|r|r.ae2_pattern_access_screen);
@@ -9192,6 +9205,21 @@ impl Game<'_> {
         if remote.ae2_priority_screen || remote.ae2_energy_screen || remote.ae2_craft_screen!=0 {return false;}
         let Some((_,menu))=remote.menu.as_ref() else{return false;};
         Self::menu_slot_index(menu,slot).is_some_and(|wire|remote.ae2_repo_slots.contains(&(wire as i16)))
+    }
+    /// A press on one of the terminal screen's buttons: a click on the
+    /// menu place `wire` that stands for it, not predicted.
+    #[cfg(feature="ae2-lab")]
+    pub(super) fn ae2_send_menu_button(&mut self,wire:i16,button:i32) {
+        self.ae2_send_menu_input(wire,button,Input::Pickup);
+    }
+    #[cfg(feature="ae2-lab")]
+    pub(super) fn ae2_send_menu_input(&mut self,wire:i16,button:i32,input:Input) {
+        let (window,_)=self.remote_menu();
+        self.send_clicks(window,vec![(wire,button,input,Vec::new(),self.carried.clone())],false);
+    }
+    #[cfg(feature="ae2-lab")]
+    pub(super) fn ae2_send_payload(&self,channel:&str,data:Vec<u8>) {
+        self.send(S::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:channel.into(),data}));
     }
     #[cfg(feature="ae2-lab")]
     fn ae2_is_remote_fake_slot(&self,slot:usize)->bool {
@@ -9457,6 +9485,7 @@ impl Game<'_> {
                 r.ae2_anchor_screen = false;
                 r.ae2_view_cells = None;
                 r.ae2_terminal_toolbox = None;
+                r.ae2_term = Default::default();
             }
         }
         self.mount_menu_reset();
@@ -9681,6 +9710,7 @@ impl Game<'_> {
                 r.ae2_anchor_screen=ae2_anchor;
                 r.ae2_view_cells=None;
                 r.ae2_terminal_toolbox=None;
+                r.ae2_term=super::ae2_terminal_screen::TermState::opened(&settings);
                 r.ae2_pattern_access_screen=ae2_pattern_access;
                 r.ae2_pattern_layout=None;
                 r.ae2_bus_screen=ae2_bus || ae2_pattern_access;

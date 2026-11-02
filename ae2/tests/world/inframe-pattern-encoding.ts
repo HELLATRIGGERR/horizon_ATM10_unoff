@@ -25,9 +25,7 @@ try {
   await fixture.replace('hotbar.8', 'minecraft:stick'); await fixture.select(8, 'minecraft:stick');
   await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 2.5}`);
   await fixture.raw(`interact ${terminal} north`);
-  await until(() => fixture.raw('screen'), view => String(slot(view, 348)?.components ?? '').includes('Encode crafting pattern'), 'encoding terminal storage view');
-  await fixture.raw('click-slot 348');
-  await until(() => fixture.raw('screen'), view => String(slot(view, 348)?.components ?? '').includes('Back to storage'), 'encoding editor');
+  await until(() => fixture.raw('screen'), view => String(slot(view, 346)?.components ?? '').includes('Mode: crafting'), 'encoding terminal opens on its encoding grid');
   await fixture.raw('click-slot 0'); await fixture.raw('click-slot 300');
   await until(() => fixture.raw('screen'), view => slot(view, 300)?.item === 'minecraft:oak_log' && slot(view, 313)?.item === 'minecraft:oak_planks', 'ghost recipe and crafting preview');
   assert.equal((await fixture.raw('inventory')).carried?.item, 'minecraft:oak_log', 'ghost input does not consume the source');

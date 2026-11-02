@@ -1,5 +1,6 @@
 /** Source key-type preferences filter the physical wireless network view. */
 import assert from 'node:assert/strict';
+import { join } from 'node:path';
 import { WorldFixture, until } from './harness';
 
 const fixture = new WorldFixture('wireless-key-types', 'server-thread');
@@ -27,7 +28,20 @@ try {
   await fixture.command(`tp @s ${x + 1.5} ${y} ${z + 1.5}`); await fixture.raw('use-item');
   await until(() => fixture.raw('screen'), view => shown(view, 'minecraft:oak_log') && !shown(view, 'minecraft:water_bucket'), 'source item-only selection');
   await fixture.raw('click-slot 352');
-  await until(() => fixture.raw('screen'), view => /Items: enabled/.test(label(view,300)) && /Fluids: disabled/.test(label(view,301)), 'key-type selection screen');
+  const selection = await until(() => fixture.raw('screen'), view => /Items: enabled/.test(label(view,300)) && /Fluids: disabled/.test(label(view,301)), 'key-type selection screen');
+  {
+    // KeyTypeSelectionScreen covers the placeholder places: the last selected type stays on.
+    const boxes = await until(() => fixture.raw('screen'), view => view.ae2_terminal?.sub === 'KeyTypes', 'the key-type screen covers the terminal');
+    const check = (name: string) => boxes.ae2_terminal.checks.find((c: any) => c.check === name);
+    assert.deepEqual([check('Items').selected, check('Items').active, check('Fluids').selected, check('Fluids').active], [true, false, false, true]);
+    if (process.env.AE2_TERM_SHOTS) { await fixture.raw(`screenshot ${join(process.env.AE2_TERM_SHOTS, 'key-types.png')}`); await Bun.sleep(700); }
+    const [fx, fy, fw, fh] = check('Fluids').rect;
+    await fixture.raw(`click-at ${fx + fw / 2} ${fy + fh / 2}`);
+    await until(() => fixture.raw('screen'), view => /Fluids: enabled/.test(label(view,301)) && view.ae2_terminal?.checks?.find((c: any) => c.check === 'Items')?.active === true, 'a press on the checkbox selects the type');
+    await fixture.raw('click-slot 301');
+    await until(() => fixture.raw('screen'), view => /Fluids: disabled/.test(label(view,301)), 'and it can be undone');
+  }
+  assert(selection);
   await fixture.raw('click-slot 301');
   await until(() => fixture.raw('screen'), view => /Fluids: enabled/.test(label(view,301)), 'fluids enabled');
   await fixture.raw('click-slot 300');

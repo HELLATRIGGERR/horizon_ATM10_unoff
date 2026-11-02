@@ -2645,6 +2645,14 @@ impl Game<'_> {
             S::CustomPayload(p) if p.channel == "ae2:pinned_keys" => {
                 self.lan_ae2_pinned_keys(host,conn,&p.data);
             }
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == "ae2:terminal_scroll" => {
+                self.lan_ae2_terminal_scroll(host,conn,&p.data);
+            }
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == "ae2:terminal_action" => {
+                self.lan_ae2_terminal_action(host,conn,&p.data);
+            }
             S::CustomPayload(p) if p.channel == horizon_protocol::quiet::CHANNEL => {
                 self.guest_quiet_commands(host, conn, &p.data)
             }

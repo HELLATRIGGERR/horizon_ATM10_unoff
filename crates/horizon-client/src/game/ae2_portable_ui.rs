@@ -88,8 +88,8 @@ impl Game<'_> {
             return Ok(());
         }
         let mut stack = self.portable_stack(source)?;
-        let got = ae2_interactions::portable_extract_energy(&mut stack, 5.0, false)?;
-        *buffer = (got / 0.5).ceil().clamp(0.0, 10.0) as u8;
+        let usage = horizon_client::ae2_common_config::gameplay().usage_multiplier;
+        *buffer = ae2_interactions::portable_idle_drain(&mut stack, usage)?;
         *self.stack_in_mut(source) = Some(stack);
         Ok(())
     }
@@ -532,10 +532,11 @@ impl Game<'_> {
     /// not selected. The same owned item backs the local portable menu.
     pub(super) fn ae2_open_local_portable_source(&mut self, source: usize) -> bool {
         if self.remote.is_some() || self.lan_acting.is_some() || (source >= 36 && source != super::shield::OFFHAND_SLOT) { return false; }
-        if self.portable_stack(source).is_err() {
+        let Ok(stack) = self.portable_stack(source) else {
             return false;
-        }
+        };
         self.ae2_portable_slot = Some(source);
+        self.ae2_portable_item = Some(stack.item.clone());
         self.ae2_portable_page = 0;
         self.ae2_portable_idle_buffer = 0;
         self.container = None;
@@ -550,6 +551,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_portable_close(&mut self) {
         self.ae2_portable_slot = None;
+        self.ae2_portable_item = None;
         self.ae2_portable_page = 0;
         self.ae2_portable_idle_buffer = 0;
     }
@@ -560,8 +562,10 @@ impl Game<'_> {
         let Some(slot) = self.ae2_portable_slot else {
             return;
         };
+        // ItemMenuHost.isValid: the same item in the slot, whatever it holds.
+        let same_item = self.portable_stack(slot).is_ok_and(|stack| self.ae2_portable_item.as_ref() == Some(&stack.item));
         let mut buffer = self.ae2_portable_idle_buffer;
-        if self.portable_idle_step(slot, &mut buffer).is_err() {
+        if !same_item || self.portable_idle_step(slot, &mut buffer).is_err() {
             self.ae2_portable_close()
         } else {
             self.ae2_portable_idle_buffer = buffer;
@@ -847,6 +851,10 @@ impl Game<'_> {
         for (conn, source, mut idle, previous, window) in menus {
             let current = self
                 .as_guest(host, conn, |g| {
+                    // ItemMenuHost.isValid: the same item in the slot, whatever it holds.
+                    if g.portable_stack(source)?.item != previous.item {
+                        return Err("portable cell moved".to_owned());
+                    }
                     g.portable_idle_step(source, &mut idle)?;
                     g.portable_stack(source)
                 })

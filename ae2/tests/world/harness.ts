@@ -16,6 +16,16 @@ export async function until<T>(read: () => Promise<T>, accept: (value: T) => boo
   throw new Error(`${label}: ${JSON.stringify(last)}`);
 }
 
+/** A control request that got no answer while the game starts: opening a world holds its main
+ * thread for minutes on a loaded machine. The caller's next round sees the process if it died. */
+export function notAnsweringYet(error: unknown): boolean {
+  return /ENOENT|ECONNREFUSED|ECONNRESET|Control timeout|Control closed before reply/.test(String(error));
+}
+/** An exit code as Windows reports crashes: 0xC00000FD is a stack overflow, 0xC0000005 an access violation. */
+export function exitName(code: number | null | undefined): string {
+  return typeof code === 'number' && code > 255 ? `0x${(code >>> 0).toString(16).toUpperCase()}` : String(code);
+}
+
 export class WorldFixture {
   readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast', process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
   readonly resources = resolve(process.env.AE2_RESOURCES ?? join(root, '.local/resources/26.3'));
@@ -104,10 +114,10 @@ export class WorldFixture {
     this.logs = [this.child.stdout, this.child.stderr].map(async stream => { if (stream) for await (const bytes of stream) appendFileSync(log, bytes); });
     try {
       return await until(async () => {
-        if (this.child?.exitCode !== null) throw new Error(`Client exited; see ${log}`);
+        if (this.child?.exitCode !== null) throw new Error(`Client exited with ${exitName(this.child?.exitCode)}; see ${log}`);
         let status;
         try { status = await this.raw('status'); }
-        catch (error) { if (/ENOENT|ECONNREFUSED/.test(String(error))) return {}; throw error; }
+        catch (error) { if (notAnsweringYet(error)) return {}; throw error; }
         this.assertHidden(status);
         if (status.player && status.screen === 'advancements') await this.raw('close');
         return status;

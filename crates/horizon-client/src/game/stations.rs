@@ -2941,6 +2941,10 @@ impl Game<'_> {
             self.ae2_priority_tooltip(batch);
             return;
         }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_term_tooltip(batch) {
+            return;
+        }
         let Some(slot) = self.slot_at(batch, self.cursor.0, self.cursor.1) else {
             return;
         };

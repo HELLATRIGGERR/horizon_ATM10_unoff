@@ -59,7 +59,7 @@ pub(super) const HELP: &[&str] = &[
     "drag-at [right|middle] X Y X Y...  press at the first GUI point, move through the others, release",
     #[cfg(feature = "ae2-lab")]
     "ae2-drag-step start|add|end MODE [SLOT]  send one crafting-terminal drag packet for race fixtures",
-    "scroll-at X Y STEPS            turn the wheel at GUI pixel X Y (positive scrolls up)",
+    "scroll-at X Y STEPS [shift]    turn the wheel at GUI pixel X Y (positive scrolls up)",
     "command TEXT                   run a /command",
     "pause                          open the pause menu",
     "wait TICKS                     wait for game ticks to pass (held keys stay held)",
@@ -782,6 +782,9 @@ impl Game<'_> {
                 }
                 if let Some(screen) = self.ae2_priority_agent_value(origin) {
                     v["ae2_priority"] = screen;
+                }
+                if let Some(screen) = self.ae2_term_agent_value(origin) {
+                    v["ae2_terminal"] = screen;
                 }
             }
             #[cfg(feature = "ae2-lab")]
@@ -1658,6 +1661,13 @@ impl Game<'_> {
                         position,
                     },
                 );
+                let held = a.has("shift").then(|| {
+                    horizon_client_input::modifiers::hold(
+                        &mut self.modifiers,
+                        &mut self.physical_keys,
+                        winit::keyboard::KeyCode::ShiftLeft,
+                    )
+                });
                 for _ in 0..steps.abs() as u32 {
                     self.handle_window_event(
                         event_loop,
@@ -1667,6 +1677,13 @@ impl Game<'_> {
                             delta: MouseScrollDelta::LineDelta(0.0, steps.signum()),
                             phase: TouchPhase::Moved,
                         },
+                    );
+                }
+                if let Some(held) = held {
+                    horizon_client_input::modifiers::restore(
+                        &mut self.modifiers,
+                        &mut self.physical_keys,
+                        held,
                     );
                 }
                 ok(json!({ "ok": true, "screen": self.screen_label() }))

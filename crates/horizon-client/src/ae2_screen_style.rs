@@ -141,15 +141,73 @@ pub struct WidgetStyle {
     pub hide_edge: bool,
 }
 
+/// `TerminalStyle`: how an ME terminal screen is built from its storage
+/// rows (`MEStorageScreen.drawBG`) and what its toolbar offers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerminalStyle {
+    pub header: Image,
+    pub first_row: Image,
+    pub row: Image,
+    pub last_row: Image,
+    pub bottom: Image,
+    pub slots_per_row: i32,
+    pub sortable: bool,
+    pub supports_auto_crafting: bool,
+}
+
+impl TerminalStyle {
+    fn read(v: &Value) -> Option<Self> {
+        let image = |key: &str| v.get(key).and_then(Image::read);
+        let flag = |key: &str, default: bool| v.get(key).and_then(Value::as_bool).unwrap_or(default);
+        Some(Self {
+            header: image("header")?,
+            first_row: image("firstRow")?,
+            row: image("row")?,
+            last_row: image("lastRow")?,
+            bottom: image("bottom")?,
+            slots_per_row: v.get("slotsPerRow").and_then(Value::as_i64).map_or(9, |n| n as i32),
+            sortable: flag("sortable", true),
+            supports_auto_crafting: flag("supportsAutoCrafting", false),
+        })
+    }
+
+    /// `getScreenWidth`: the widest part.
+    pub fn width(&self) -> i32 {
+        [&self.header, &self.first_row, &self.row, &self.last_row, &self.bottom].iter().map(|i| i.size().0).max().unwrap_or(0)
+    }
+
+    /// `getPossibleRows`: the rows `available` pixels of height leave room for.
+    pub fn possible_rows(&self, available: i32) -> i32 {
+        (available - self.header.size().1 - self.bottom.size().1) / self.row.size().1.max(1)
+    }
+
+    /// `getScreenHeight` with `rows` storage rows.
+    pub fn height(&self, rows: i32) -> i32 {
+        self.header.size().1 + self.first_row.size().1 + (rows - 2).max(0) * self.row.size().1 + self.last_row.size().1 + self.bottom.size().1
+    }
+
+    /// `getSlotPos`: where the item of the storage slot at `row`, `col` goes.
+    pub fn slot(&self, row: i32, col: i32) -> (i32, i32) {
+        let mut y = self.header.size().1;
+        if row > 0 {
+            y += self.first_row.size().1 + (row - 1) * self.row.size().1;
+        }
+        (7 + col * 18 + 1, y + 1)
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScreenStyle {
     pub background: Option<Image>,
+    /// `generatedBackground`'s width and height, for a screen with no image.
+    pub generated_background: Option<(i32, i32)>,
     pub slots: BTreeMap<String, SlotStyle>,
     pub text: BTreeMap<String, TextStyle>,
     /// `PaletteColor` name to `0xAARRGGBB`.
     pub palette: BTreeMap<String, u32>,
     pub images: BTreeMap<String, Image>,
     pub widgets: BTreeMap<String, WidgetStyle>,
+    pub terminal: Option<TerminalStyle>,
 }
 
 /// The keys merged across layers rather than replaced (`combineLayers`).
@@ -164,7 +222,15 @@ impl ScreenStyle {
 
     pub fn from_tree(tree: &Map<String, Value>) -> Self {
         let object = |key: &str| tree.get(key).and_then(Value::as_object);
-        let mut style = Self { background: tree.get("background").and_then(Image::read), ..Self::default() };
+        let mut style = Self {
+            background: tree.get("background").and_then(Image::read),
+            generated_background: tree.get("generatedBackground").map(|g| {
+                let int = |key: &str| g.get(key).and_then(Value::as_i64).unwrap_or(0) as i32;
+                (int("width"), int("height"))
+            }),
+            terminal: tree.get("terminalStyle").and_then(TerminalStyle::read),
+            ..Self::default()
+        };
         for (name, v) in object("palette").into_iter().flatten() {
             if let Some(color) = v.as_str().and_then(parse_color) {
                 style.palette.insert(name.clone(), color);
@@ -221,7 +287,7 @@ impl ScreenStyle {
     /// The screen's size: its background's (`AEBaseScreen` sets
     /// `imageWidth` and `imageHeight` from it).
     pub fn size(&self) -> (i32, i32) {
-        self.background.as_ref().map_or((176, 166), Image::size)
+        self.background.as_ref().map(Image::size).or(self.generated_background).unwrap_or((176, 166))
     }
 
     /// Where the `index`th slot of `semantic` goes, from the screen's top
@@ -376,7 +442,16 @@ mod tests {
                 ScreenStyle::load(&screens, &name).unwrap();
             }
         }
-        ScreenStyle::load(&screens, "terminals/crafting_terminal.json").unwrap();
+        let crafting = ScreenStyle::load(&screens, "terminals/crafting_terminal.json").unwrap();
+        // terminalStyle merges key by key: the crafting texture over the base
+        // terminal, which says it supports auto-crafting.
+        let terminal = crafting.terminal.as_ref().unwrap();
+        assert_eq!(terminal.header.texture, "guis/crafting");
+        assert!(terminal.supports_auto_crafting && terminal.sortable);
+        assert_eq!((terminal.width(), terminal.height(2), terminal.height(1)), (195, 233, 233));
+        assert_eq!(terminal.slot(1, 2), (44, 36));
+        let plain = ScreenStyle::load(&screens, "terminals/terminal.json").unwrap();
+        assert_eq!(plain.terminal.as_ref().unwrap().possible_rows(270 - 50), 5);
     }
 
     #[test]

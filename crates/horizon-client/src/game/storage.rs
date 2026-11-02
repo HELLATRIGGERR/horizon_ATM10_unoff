@@ -496,6 +496,11 @@ impl Game<'_> {
             return;
         }
         #[cfg(feature="ae2-lab")]
+        if self.ae2_term_kind().is_some() {
+            self.ae2_draw_terminal(batch,ox,oy);
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
         if self.ae2_pattern_access_screen() {
             batch.sprite_region(atlas,"ae2:guis/patternaccessterminal",[ox,oy,195.0,224.0],256.0,256.0);
             batch.text(atlas,"Pattern Access",ox+8.0,oy+6.0,grey,false);

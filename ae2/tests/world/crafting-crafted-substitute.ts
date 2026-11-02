@@ -37,9 +37,7 @@ try {
   await fixture.replace('hotbar.8', 'minecraft:blaze_rod'); await fixture.select(8, 'minecraft:blaze_rod');
   await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 2.5}`);
   await fixture.raw(`interact ${terminal} north`);
-  await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot === 348 && String(slot.components ?? '').includes('Encode crafting pattern')), 'encoding terminal');
-  await fixture.raw('click-slot 348');
-  await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot === 348 && String(slot.components ?? '').includes('Back to storage')), 'encoding grid');
+  await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot === 346 && String(slot.components ?? '').includes('Mode: crafting')), 'encoding terminal opens on its encoding grid');
   await fixture.raw('click-slot 0');
   await until(() => fixture.raw('inventory'), view => view.carried?.item === 'minecraft:oak_planks', 'oak template on cursor');
   await fixture.raw('click-slot 300');

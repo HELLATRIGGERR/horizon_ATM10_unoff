@@ -9,6 +9,98 @@ use std::sync::Arc;
 const PAGE_ITEMS: usize = 45;
 const PREV: usize = 45;
 const NEXT: usize = 53;
+/// The Pattern Encoding Terminal's storage entries: its menu shows the
+/// encoding panel and the storage rows together (`PatternEncodingTermScreen`),
+/// so the entries take the menu places no encoding mode uses, two rows.
+pub(super) const ENCODING_REPO: [usize; 18] = [9, 10, 11, 12, 14, 15, 16, 17, 21, 22, 23, 24, 25, 26, 27, 28, 29, 53];
+
+/// How many storage entries a guest terminal's menu carries.
+fn terminal_page_size(crafting: bool, encoding: bool) -> usize {
+    if crafting { 27 } else if encoding { ENCODING_REPO.len() } else { PAGE_ITEMS }
+}
+
+/// `MEStorageScreen`'s rows follow the window, so a tall screen shows more
+/// entries than the menu has places. Those travel in `ae2:repo_view`, and a
+/// click on one names `REPO_EXTRA_WIRE` plus its index past the places.
+pub(super) const REPO_EXTRA_WIRE: i16 = 1000;
+/// The most rows a screen may ask for.
+pub(super) const TERMINAL_MAX_ROWS: usize = 128;
+/// `ContainerClick` buttons of a shift-wheel on a storage entry
+/// (`InventoryAction.ROLL_DOWN` and `ROLL_UP`).
+pub(super) const ROLL_DOWN_BUTTON: i32 = 40;
+pub(super) const ROLL_UP_BUTTON: i32 = 41;
+
+/// How many entries a screen of `rows` rows shows: at least the menu's places.
+fn terminal_view_size(page_size: usize, rows: usize) -> usize {
+    page_size.max(rows.min(TERMINAL_MAX_ROWS) * 9)
+}
+
+/// `Repo.get` for a view scrolled `row` rows down (`page_size` places):
+/// the pinned row stays on top, empty places kept so a click still maps to
+/// its key, the other entries scroll under it. Also the scrollbar's rows
+/// (`MEStorageScreen.updateScrollbar`) and the last row it may start at.
+fn terminal_window(
+    all:&[(ae2_cell_core::ItemKey,u64)], filtered:Vec<(ae2_cell_core::ItemKey,u64)>,
+    pins:&[ae2_cell_core::ItemKey], page_size:usize, row:usize,
+) -> (Vec<(ae2_cell_core::ItemKey,u64)>, usize, usize, bool) {
+    let mut chosen=Vec::new();
+    if page_size>9 {
+        for pin in pins.iter().take(9) {
+            if !chosen.iter().any(|(key,_)|key==pin) {
+                if let Some(entry)=all.iter().find(|(key,_)|key==pin) {chosen.push(entry.clone());}
+            }
+        }
+    }
+    let rest:Vec<_>=filtered.into_iter().filter(|(key,_)|!chosen.iter().any(|(pinned,_)|pinned==key)).collect();
+    let total=(rest.len()+chosen.len()).div_ceil(9)+usize::from(!chosen.is_empty());
+    let last=rest.len().div_ceil(9).saturating_sub(1);
+    let row=row.min(last);
+    let mut out=Vec::new();
+    let mut room=page_size;
+    if !chosen.is_empty() {
+        let gap=(ae2_cell_core::ItemKey{item_id:String::new(),components:Vec::new()},0);
+        out.extend(chosen.iter().cloned());
+        out.extend(std::iter::repeat_n(gap,9-chosen.len()));
+        room-=9;
+    }
+    out.extend(rest.into_iter().skip(row*9).take(room));
+    (out,total,last,!chosen.is_empty())
+}
+
+#[cfg(test)]
+mod terminal_view_tests {
+    use super::*;
+
+    #[test]
+    fn a_tall_screen_sees_entries_past_the_menu_places() {
+        let key=|i:usize|ae2_cell_core::ItemKey{item_id:format!("minecraft:item_{i}"),components:Vec::new()};
+        let all:Vec<_>=(0..100).map(|i|(key(i),1u64)).collect();
+        assert_eq!(terminal_view_size(45,2),45);
+        assert_eq!(terminal_view_size(45,8),72);
+        assert_eq!(terminal_view_size(27,9999),TERMINAL_MAX_ROWS*9);
+        let (shown,total,last,pinned)=terminal_window(&all,all.clone(),&[],72,3);
+        assert_eq!(shown.len(),72);
+        assert_eq!(shown[0].0,key(27));
+        assert_eq!((total,last,pinned),(12,11,false));
+        // A pinned row stays on top of a tall view and takes its nine places.
+        let (shown,total,_,pinned)=terminal_window(&all,all.clone(),&[key(50)],72,1);
+        assert_eq!(shown.len(),72);
+        assert_eq!(shown[0].0,key(50));
+        assert!(shown[1].0.item_id.is_empty());
+        assert_eq!(shown[9].0,key(9));
+        assert!(pinned && total==13);
+    }
+}
+
+/// The storage key of a stack in an encoding input: its item, or what a
+/// wrapped generic stack holds (a fluid under its marker).
+fn terminal_stack_key(stack:&ItemStack)->Option<ae2_cell_core::ItemKey> {
+    if stack.item.as_ref()=="ae2:wrapped_generic_stack" {
+        let wrapped=horizon_client::ae2_generic_stack::unwrap_item_stack(stack).ok()??;
+        return Some(if wrapped.fluid {fluid_marker(&wrapped.key)} else {wrapped.key});
+    }
+    horizon_client::ae2_cell_codec::key(stack).ok()
+}
 
 fn navigation(label: &str) -> ItemStack {
     let mut stack = ItemStack {
@@ -576,7 +668,7 @@ impl Game<'_> {
         self.ae2_job_ui.terminal_opened();
         self.ae2_terminal_page = 0;
         self.container = Some(pos);
-        self.ae2_local_terminal=Some(LocalTerminalSession{pos,host,part,part_identity,dim:self.dim.id().to_owned(),crafting,encoding,encoding_open:false,encoding_page:0,encoding_fluid_mode:false,encoding_fluid_amount:1000,encoding_selected_fluid:0,search,sort:chest.sort,view:chest.view,descending:chest.descending,search_mod_name:client.search_mod_name_in_tooltips,cache:std::cell::RefCell::new(None)});
+        self.ae2_local_terminal=Some(LocalTerminalSession{pos,host,part,part_identity,dim:self.dim.id().to_owned(),crafting,encoding,encoding_open:encoding,encoding_page:0,encoding_fluid_mode:false,encoding_fluid_amount:1000,encoding_selected_fluid:0,search,sort:chest.sort,view:chest.view,descending:chest.descending,search_mod_name:client.search_mod_name_in_tooltips,cache:std::cell::RefCell::new(None)});
         true
     }
     pub(super) fn ae2_invalidate_local_terminal(&self) {
@@ -1194,6 +1286,30 @@ impl Game<'_> {
             .set_other("minecraft:lore", Some(Tag::List(lore)));
         Some(stack)
     }
+    /// `MEStorageMenu`'s `ROLL_DOWN` (one carried item into the network,
+    /// whatever is under the cursor) and `ROLL_UP` (one of the entry under
+    /// the cursor onto the carried stack).
+    fn ae2_terminal_roll(&mut self,key:Option<&ae2_cell_core::ItemKey>,insert:bool)->Result<(),String> {
+        let pos=self.container.ok_or("terminal closed")?;
+        if insert {
+            let Some(carried)=self.carried.clone() else{return Ok(())};
+            if self.ae2_terminal_insert(pos,&carried,1)?>0 {
+                self.carried=(carried.count>1).then(||ItemStack{count:carried.count-1,..carried});
+            }
+            return Ok(());
+        }
+        let Some(key)=key.filter(|key|marker_fluid(key).is_none()) else{return Ok(())};
+        if let Some(carried)=self.carried.as_ref() {
+            if carried.count>=self.res.items().stack_max(carried) || horizon_client::ae2_cell_codec::key(carried).ok().as_ref()!=Some(key) {return Ok(());}
+        }
+        if let Some(rolled)=self.ae2_terminal_extract(pos,key,1)? {
+            match self.carried.as_mut() {
+                Some(carried)=>carried.count+=rolled.count,
+                None=>self.carried=Some(rolled),
+            }
+        }
+        Ok(())
+    }
     /// Consume all menu inputs when terminal is open: the generic chest menu
     /// must never see virtual slots, even for unsupported click gestures.
     pub(super) fn ae2_terminal_click(
@@ -1687,7 +1803,12 @@ pub(super) struct GuestTerminal {
     encoding_snapshot: Option<horizon_client::ae2_world::Machine>,
     encoding_revisions: std::collections::VecDeque<(i32, Option<horizon_client::ae2_world::Machine>, usize)>,
     craft_snapshot: Vec<Option<ItemStack>>,
+    /// The first storage row shown (the screen's scrollbar), and the last
+    /// scroll request of the screen it answers.
     page: usize,
+    scroll_ack: u32,
+    /// The rows the client's screen shows (`ae2:terminal_scroll`).
+    rows: usize,
     job_index: usize,
     craft_amount: u64,
     craft_amount_edit: bool,
@@ -2011,10 +2132,14 @@ impl Game<'_> {
             encoding_revisions:std::collections::VecDeque::new(),
             craft_snapshot: Vec::new(),
             page: 0,
+            scroll_ack: 0,
+            rows: 0,
             job_index: 0,
             craft_amount: 1,
             craft_amount_edit: false,
-            encoding: false,
+            // PatternEncodingTermScreen has no storage-only view: its
+            // encoding panel is always there, under the storage rows.
+            encoding: encoding_part.is_some(),
             pattern_grid: vec![None; 81],
             substitutes: false,
             fluid_substitutes: false,
@@ -2107,6 +2232,65 @@ impl Game<'_> {
         if t.pinned==pins && t.search_mod_name==include_mod && language.is_none(){return;}
         t.pinned=pins;t.search_mod_name=include_mod;if let Some(language)=language {t.search_language=language;}t.page=0;
         self.lan_send_ae2_terminal(host,conn);
+    }
+    /// `MEStorageScreen`'s scrollbar moved or its rows changed
+    /// (`ae2:terminal_scroll`: the window, the first row shown, the request's
+    /// number, which the view sent back names so the screen knows its own
+    /// scroll arrived, and the rows it shows).
+    pub(super) fn lan_ae2_terminal_scroll(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
+        let Ok(bytes)=<[u8;16]>::try_from(data) else{return};
+        let word=|i:usize|[bytes[i],bytes[i+1],bytes[i+2],bytes[i+3]];
+        let (window,row,seq,rows)=(i32::from_be_bytes(word(0)),u32::from_be_bytes(word(4)),u32::from_be_bytes(word(8)),u32::from_be_bytes(word(12)));
+        let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window) else{return};
+        t.page=row.min(1<<20) as usize;
+        t.scroll_ack=seq;
+        t.rows=(rows as usize).min(TERMINAL_MAX_ROWS);
+        self.lan_send_ae2_terminal(host,conn);
+    }
+    /// A toolbar button of `MEStorageScreen` (`ae2:terminal_action`: the
+    /// window, the action and whether it steps backwards): 0 sort by, 1 view
+    /// mode, 2 sort direction (`SettingToggleButton`), 3 the crafting status
+    /// tab. These work in every view, the encoding one too, whose menu
+    /// places hold the encoding panel.
+    pub(super) fn lan_ae2_terminal_action(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
+        let &[w0,w1,w2,w3,action,back]=data else{return};
+        let window=i32::from_be_bytes([w0,w1,w2,w3]);
+        let Some((pos,wireless,chest,dimension))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.window==window)
+            .map(|t|(t.pos,t.wireless.clone(),t.chest_identity,t.owner_dim.clone())) else{return};
+        let valid=match wireless.as_ref() {
+            Some(ctx)=>self.ae2_wireless_source_valid(host,conn,ctx),
+            None=>dimension==self.dim.id() && self.ae2_has_terminal(pos)
+                && host.hub.guests.iter().find(|g|g.conn==conn).is_some_and(|g|!g.spectator() && g.within_block_range([pos.0,pos.1,pos.2],4.0)),
+        };
+        if !valid {return;}
+        match action {
+            0..=2 => {
+                let slot=[46,47,51][usize::from(action)];
+                if let Some(identity)=chest {
+                    if self.chest_terminal_write(pos,identity,slot,i8::from(back!=0)).is_none() {
+                        self.lan_ae2_terminal_closed(host,conn,None);
+                        host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
+                        return;
+                    }
+                } else if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()) {
+                    let step=if back!=0 {2} else {1};
+                    match action {
+                        0=>t.sort_mode=(t.sort_mode+step)%3,
+                        1=>t.filter_mode=(t.filter_mode+step)%3,
+                        _=>t.sort_descending=!t.sort_descending,
+                    }
+                }
+                self.lan_send_ae2_terminal(host,conn);
+            }
+            3 => {
+                let cpus=self.ae2_terminal_status_cpus(pos);
+                let Some((selected,part,wireless,owner))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref())
+                    .map(|t|(t.job_index,t.craft_part,t.wireless.clone(),t.view_part.zip(t.view_identity))) else{return};
+                let cpu=(!cpus.is_empty()).then(||cpus[selected%cpus.len()]);
+                self.lan_open_terminal_craft_status(host,conn,pos,cpu,part,wireless,owner);
+            }
+            _ => {}
+        }
     }
     fn lan_send_ae2_terminal(&mut self, host: &mut super::lan::LanHost, conn: u32) {
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.processing_amount_edit.is_some()){self.lan_send_processing_amount(host,conn);return;}
@@ -2268,7 +2452,9 @@ impl Game<'_> {
         let view_entries=terminal_key_types(&self.ae2_view_filtered(&snapshot,view_part),enabled_types);
         let craft_part = host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.craft_part);
         let owner = craft_owner(craft_part, wireless.as_ref());
-        let page_size = if owner.is_some() { 27 } else { PAGE_ITEMS };
+        let encoding_view=encoding && owner.is_none()
+            && host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.encoding_part.is_some());
+        let page_size = terminal_page_size(owner.is_some(), encoding_view);
         let pins=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).map(|t|t.pinned.clone()).unwrap_or_default();
         let Some((search_mod_name,search_language))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).map(|t|(t.search_mod_name,t.search_language.clone())) else{return;};
         let filtered = terminal_filter_entries(
@@ -2281,9 +2467,12 @@ impl Game<'_> {
             &|key|self.ae2_terminal_display_name(key,&search_language),
             &|key,query|self.ae2_terminal_search_matches(key,query,search_mod_name,&search_language),
         );
-        let displayed=terminal_pinned_entries(&snapshot,filtered,&pins,page_size);
+        let view_size=terminal_view_size(page_size,host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).map_or(0,|t|t.rows));
+        let (displayed,total_rows,last_row,pinned)=terminal_window(&snapshot,filtered,&pins,view_size,page);
+        let page=page.min(last_row);
+        let places=&displayed[..displayed.len().min(page_size)];
         let mut items: Vec<_> = (0..54)
-            .map(|i| self.ae2_terminal_display(i, page, &displayed, page_size))
+            .map(|i| self.ae2_terminal_display(i, 0, places, page_size))
             .collect();
         let craft_grid = owner.as_ref()
             .and_then(|owner| self.lan_craft_matrix_read(host, conn, owner).ok())
@@ -2336,13 +2525,8 @@ impl Game<'_> {
         };
         let encoding_part=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_part);
         if craft_part.is_none() && encoding_part.is_some() {
-            items[48] = Some(navigation(if encoding {
-                "Back to storage"
-            } else {
-                "Encode crafting pattern"
-            }));
             if encoding {
-                items[..48].fill(None);
+                items.fill(None);
                 if let Some(machine)=encoding_part.and_then(|part|self.ae2_part_machine(part).ok().flatten()) {
                     items[49]=machine.slots.first().cloned().flatten();items[50]=machine.slots.get(1).cloned().flatten();
                 }
@@ -2477,6 +2661,45 @@ impl Game<'_> {
             items[1]=Some(navigation(if enabled_types.1 {"Fluids: enabled"}else{"Fluids: disabled"}));
             items[2]=Some(navigation("Back to storage"));
         }
+        let key_type_edit=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.key_type_edit);
+        let storage_view=!craft_amount_edit && !search_edit && !key_type_edit;
+        if encoding_view && storage_view {
+            for (i,&slot) in ENCODING_REPO.iter().enumerate() {
+                items[slot]=self.ae2_terminal_display(i,0,&displayed,page_size);
+            }
+        }
+        // MEStorageScreen's view of the entries the menu carries: amounts and
+        // craftability for the size labels, and the settings its toolbar shows.
+        let entries:Vec<serde_json::Value>=(0..view_size).map(|i|displayed.get(i).filter(|(key,_)|!key.item_id.is_empty())
+            .map_or(serde_json::Value::Null,|(key,amount)|serde_json::json!([amount,craftable.contains(key),marker_fluid(key).map(|fluid|fluid.item_id)]))).collect();
+        // The entries past the menu's places travel with the view.
+        let extra:Vec<_>=(page_size..view_size).map(|i|horizon_client::item_data::canon_stack(self.ae2_terminal_display(i,0,&displayed,view_size).as_ref())).collect();
+        let jobs=if connected {self.ae2_recursive_jobs(pos).len()} else {0};
+        let chest=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.chest_identity.is_some());
+        // PatternEncodingTermScreen's panel state: the mode, the processing
+        // page, the substitution toggles and the stonecutting recipes.
+        let stone_recipes=if encoding_view && special_mode==2 {
+            pattern_grid.first().cloned().flatten().map(|input|self.res.stations().recipes.stonecutter(&input)).unwrap_or_default()
+        } else {Vec::new()};
+        let stone_selected=stone_recipe.as_ref().and_then(|id|stone_recipes.iter().position(|r|&r.id==id));
+        let stonecutting:Vec<_>=stone_recipes.iter().map(|r|horizon_client::item_data::canon_stack(Some(&r.result))).collect();
+        let encoding_panel=encoding_view.then(||serde_json::json!({
+            "mode":match (processing,special_mode) {(true,_)=>1,(_,1)=>2,(_,2)=>3,_=>0},
+            "page":processing_page.min(8),"substitutes":substitutes,"fluid_substitutes":fluid_substitutes,
+            "stonecutting":stonecutting,"stone_selected":stone_selected,
+            // PatternEncodingTermScreen.shouldShowCraftableIndicatorForSlot:
+            // the inputs the grid already has a pattern for.
+            "craftable":(0..9usize).filter(|&i|items[i].as_ref().is_some_and(|stack|terminal_stack_key(stack).is_some_and(|key|craftable.contains(&key)))).collect::<Vec<_>>(),
+        }));
+        let repo_view=serde_json::json!({
+            "encoding":encoding_panel,
+            "row":page,"total":total_rows,"pinned":pinned,"online":connected,"overlay":!storage_view,
+            "entries":if storage_view {entries} else {Vec::new()},
+            "extra":if storage_view {extra} else {Vec::new()},
+            "key_type_edit":key_type_edit,
+            "sort":sort_mode,"view":filter_mode,"descending":sort_descending,
+            "types":wireless.as_ref().map(|_|[enabled_types.0,enabled_types.1]),"priority":chest,"jobs":jobs,
+        });
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else {
             return;
         };
@@ -2495,8 +2718,9 @@ impl Game<'_> {
         t.snapshot = snapshot;
         t.displayed_snapshot = displayed;
         t.state = (t.state + 1) & 0x7fff;
-        if !t.encoding && !t.craft_amount_edit && !t.search_edit && !t.key_type_edit {
-            t.storage_revisions.push_back((t.state,terminal_view_keys(&t.displayed_snapshot,page,page_size)));
+        t.page = page;
+        if storage_view && (!t.encoding || encoding_view) {
+            t.storage_revisions.push_back((t.state,terminal_view_keys(&t.displayed_snapshot,0,view_size)));
             while t.storage_revisions.len()>64 {t.storage_revisions.pop_front();}
         }
         if t.chest_identity.is_some() {
@@ -2507,11 +2731,17 @@ impl Game<'_> {
             t.encoding_revisions.push_back((t.state,t.encoding_snapshot.clone(),t.processing_page));
             while t.encoding_revisions.len()>64 {t.encoding_revisions.pop_front();}
         }
-        let (window, state) = (t.window, t.state);
-        let repo_slots:Vec<u8>=if !t.encoding && !t.craft_amount_edit && !t.search_edit && !t.key_type_edit {
-            (0..page_size as u8).collect()
-        } else {Vec::new()};
+        let (window, state, ack) = (t.window, t.state, t.scroll_ack);
+        let repo_slots:Vec<u8>=if !storage_view {Vec::new()}
+            else if encoding_view {ENCODING_REPO.iter().map(|&slot|slot as u8).collect()}
+            else if !t.encoding {(0..page_size as u8).collect()} else {Vec::new()};
         Self::lan_ae2_repo_slots(host,conn,window,&repo_slots);
+        let mut repo_view=repo_view;
+        repo_view["window"]=serde_json::json!(window);
+        repo_view["ack"]=serde_json::json!(ack);
+        if let Ok(data)=serde_json::to_vec(&repo_view) {
+            host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:repo_view".into(),data}));
+        }
         let packet = C::ContainerSetContent(play::ContainerSetContent {
             container: window,
             state,
@@ -3672,7 +3902,7 @@ impl Game<'_> {
         conn: u32,
         p: &horizon_protocol::packets::play::ContainerClick,
     ) -> bool {
-        let Some((pos, page, wireless, connected, craft_amount, craft_amount_edit)) = host
+        let Some((pos, _page, wireless, connected, craft_amount, craft_amount_edit)) = host
             .play
             .get(&conn)
             .and_then(|x| x.ae2_terminal.as_ref())
@@ -3739,7 +3969,22 @@ impl Game<'_> {
             return true;
         }
         let owner = craft_owner(craft_part, wireless.as_ref());
-        let page_size = if owner.is_some() { 27 } else { PAGE_ITEMS };
+        let encoding_view=owner.is_none() && encoding_part.is_some()
+            && host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.encoding);
+        let page_size = terminal_page_size(owner.is_some(), encoding_view);
+        let view_size = terminal_view_size(page_size,host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).map_or(0,|t|t.rows));
+        // The storage entry a click on the menu's place `p.slot` is on, or
+        // on one past the places the screen's rows show.
+        let repo=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref())
+            .filter(|t|!t.craft_amount_edit && !t.search_edit && !t.key_type_edit)
+            .and_then(|t|if p.slot>=REPO_EXTRA_WIRE {
+                    (encoding_view || !t.encoding).then_some(page_size+(p.slot-REPO_EXTRA_WIRE) as usize).filter(|&i|i<view_size)
+                } else if encoding_view {ENCODING_REPO.iter().position(|&slot|slot as i16==p.slot)}
+                else if !t.encoding {usize::try_from(p.slot).ok().filter(|&i|i<page_size)} else {None});
+        if p.slot>=REPO_EXTRA_WIRE && (repo.is_none() || !matches!(super::lan_crafting::input(p.input),Input::Pickup|Input::QuickMove|Input::Clone)) {
+            self.lan_send_ae2_terminal(host,conn);
+            return true;
+        }
         let valid = wireless.as_ref().map_or_else(
             || {
                 host.hub
@@ -4041,7 +4286,7 @@ impl Game<'_> {
             }
         }
         if !connected
-            && ((0..=53).contains(&p.slot) || super::lan_crafting::input(p.input) != Input::Pickup)
+            && ((0..=53).contains(&p.slot) || repo.is_some() || super::lan_crafting::input(p.input) != Input::Pickup)
         {
             if let Some(t) = host.play.get_mut(&conn).and_then(|p| p.ae2_terminal.as_mut()) {
                 t.craft_drag = None;
@@ -4119,7 +4364,7 @@ impl Game<'_> {
             .is_some_and(|t| {
                 current.as_ref().is_ok_and(|v| {
                     *v == t.snapshot
-                        && terminal_pinned_entries(v,terminal_filter_entries(
+                        && terminal_window(v,terminal_filter_entries(
                             &terminal_key_types(&self.ae2_view_filtered(v,t.view_part),wireless_key_types(host,conn,t.wireless.as_ref())),
                             &craftable_now,
                             t.sort_mode,
@@ -4128,16 +4373,15 @@ impl Game<'_> {
                             &t.search,
                             &|key|self.ae2_terminal_display_name(key,&t.search_language),
                             &|key,query|self.ae2_terminal_search_matches(key,query,t.search_mod_name,&t.search_language),
-                        ),&t.pinned,page_size) == t.displayed_snapshot
+                        ),&t.pinned,view_size,t.page).0 == t.displayed_snapshot
                 })
             });
         // An indexed storage view can be reordered between updates. Only
         // those virtual-key clicks require the exact displayed revision;
         // physical matrix, player and control slots use current server state.
-        let virtual_key_click = host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|
-            !t.encoding && !t.craft_amount_edit && !t.search_edit && p.slot>=0 && (p.slot as usize)<page_size);
+        let virtual_key_click = repo.is_some();
         let same_key=host.play.get(&conn).and_then(|x|x.ae2_terminal.as_ref()).is_some_and(|t|
-            terminal_view_revision_matches(&t.storage_revisions,p.state,&t.displayed_snapshot,page,page_size,p.slot as usize));
+            terminal_view_revision_matches(&t.storage_revisions,p.state,&t.displayed_snapshot,0,view_size,repo.unwrap_or(0)));
         if virtual_key_click && (!matches_snapshot || !same_key) {
             self.lan_send_ae2_terminal(host, conn);
             return true;
@@ -4206,26 +4450,6 @@ impl Game<'_> {
                 return true;
             }
         }
-        if p.slot == 48
-            && craft_part.is_none()
-            && encoding_part.is_some()
-            && !host
-                .play
-                .get(&conn)
-                .and_then(|p| p.ae2_terminal.as_ref())
-                .is_some_and(|t| t.search_edit)
-            && super::lan_crafting::input(p.input) == Input::Pickup
-        {
-            if let Some(t) = host
-                .play
-                .get_mut(&conn)
-                .and_then(|p| p.ae2_terminal.as_mut())
-            {
-                t.encoding = !t.encoding;
-            }
-            self.lan_send_ae2_terminal(host, conn);
-            return true;
-        }
         let encoding = host
             .play
             .get(&conn)
@@ -4258,7 +4482,7 @@ impl Game<'_> {
             && host.hub.guests.iter().find(|g|g.conn==conn).is_none_or(|g|g.carried.is_none()) {
             self.lan_send_ae2_terminal(host,conn);return true;
         }
-        if encoding && (0..=53).contains(&p.slot) {
+        if encoding && repo.is_none() && (0..=53).contains(&p.slot) {
             if (30..=40).contains(&p.slot) && super::lan_crafting::input(p.input) == Input::Pickup {
                 if let Some(t) = host
                     .play
@@ -4288,8 +4512,11 @@ impl Game<'_> {
                 if let Some((item,current))=special {
                     let recipes=self.res.stations().recipes.stonecutter(&item);if !recipes.is_empty(){
                         let index=current.as_ref().and_then(|id|recipes.iter().position(|r|&r.id==id)).unwrap_or(0);
-                        let next=if p.slot==42 {(index+recipes.len()-1)%recipes.len()}else{(index+1)%recipes.len()};
-                        let id=recipes[next].id.clone();if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()){t.stone_recipe=Some(id);}
+                        // StonecuttingEncodingPanel picks a recipe by its place
+                        // in the list (button 10 + index); 42 and 43 step.
+                        let next=if p.button>=10 {usize::try_from(p.button-10).ok().filter(|i|*i<recipes.len())}
+                            else if p.slot==42 {Some((index+recipes.len()-1)%recipes.len())} else {Some((index+1)%recipes.len())};
+                        if let Some(next)=next {let id=recipes[next].id.clone();if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()){t.stone_recipe=Some(id);}}
                     }
                 }
                 if let Some(t) = host
@@ -4325,7 +4552,14 @@ impl Game<'_> {
                     .get_mut(&conn)
                     .and_then(|p| p.ae2_terminal.as_mut())
                 {
-                    match (t.processing,t.special_mode) {(false,0)=>t.processing=true,(true,_)=>{t.processing=false;t.special_mode=1;},(false,1)=>t.special_mode=2,_=>t.special_mode=0}
+                    // A mode tab (`modeTabButton`) names its EncodingMode
+                    // (button 10 + ordinal); a plain press steps to the next.
+                    if (10..14).contains(&p.button) {
+                        let mode=p.button-10;
+                        t.processing=mode==1;t.special_mode=match mode {2=>1,3=>2,_=>0};
+                    } else {
+                        match (t.processing,t.special_mode) {(false,0)=>t.processing=true,(true,_)=>{t.processing=false;t.special_mode=1;},(false,1)=>t.special_mode=2,_=>t.special_mode=0}
+                    }
                 }
             } else if p.slot == 47 && super::lan_crafting::input(p.input) == Input::Pickup {
                 if let Some(t) = host
@@ -4626,7 +4860,7 @@ impl Game<'_> {
             .get(&conn)
             .and_then(|p| p.ae2_terminal.as_ref())
             .map(|t| {
-                terminal_pinned_entries(&t.snapshot,terminal_filter_entries(
+                terminal_window(&t.snapshot,terminal_filter_entries(
                     &terminal_key_types(&self.ae2_view_filtered(&t.snapshot,t.view_part),wireless_key_types(host,conn,t.wireless.as_ref())),
                     &craftable,
                     t.sort_mode,
@@ -4635,10 +4869,11 @@ impl Game<'_> {
                     &t.search,
                     &|key|self.ae2_terminal_display_name(key,&t.search_language),
                     &|key,query|self.ae2_terminal_search_matches(key,query,t.search_mod_name,&t.search_language),
-                ),&t.pinned,page_size)
+                ),&t.pinned,view_size,t.page).0
             })
             .unwrap_or_default();
         let slot = match p.slot {
+            _ if let Some(index)=repo => Some(300 + index),
             0..=53 => Some(300 + p.slot as usize),
             54..=80 => Some(9 + (p.slot as usize - 54)),
             81..=89 => Some(p.slot as usize - 81),
@@ -4646,11 +4881,28 @@ impl Game<'_> {
         };
         let button = i32::from(p.button);
         let input = super::lan_crafting::input(p.input);
+        // MEStorageScreen.mouseScrolled: shift and the wheel over the storage.
+        if repo.is_some() && input==Input::Pickup && matches!(button,ROLL_DOWN_BUTTON|ROLL_UP_BUTTON) {
+            let key=repo.and_then(|index|displayed.get(index)).map(|(key,_)|key.clone()).filter(|key|!key.item_id.is_empty());
+            self.as_guest(host,conn,|game| {
+                let (old_container,old_power)=(game.container,game.ae2_wireless_power);
+                game.container=Some(pos);
+                game.ae2_wireless_power=wireless.as_ref().map(|ctx|ctx.source);
+                if let Err(message)=game.ae2_terminal_roll(key.as_ref(),button==ROLL_DOWN_BUTTON) {
+                    game.system_message(Text::literal(format!("ME terminal: {message}")));
+                }
+                game.ae2_wireless_power=old_power;
+                game.container=old_container;
+            });
+            let viewers:Vec<u32>=host.play.iter().filter_map(|(&id,p)|p.ae2_terminal.as_ref().map(|_|id)).collect();
+            for viewer in viewers {self.lan_send_ae2_terminal(host,viewer);}
+            return true;
+        }
         // A craftable virtual entry opens confirmation without reserving inputs.
-        if p.slot>=0 && (p.slot as usize)<page_size {
+        if let Some(index)=repo {
             let empty_cursor=host.hub.guests.iter().find(|g|g.conn==conn).is_some_and(|g|g.carried.is_none());
-            if let Some((key,count))=displayed.get(page*page_size+p.slot as usize) {
-                if craftable.contains(key) && (input==Input::QuickMove || (empty_cursor && *count==0)) {
+            if let Some((key,count))=displayed.get(index) {
+                if craftable.contains(key) && (input==Input::QuickMove || input==Input::Clone || (empty_cursor && *count==0)) {
                     let fluid=marker_fluid(key);
                     let is_fluid=fluid.is_some();
                     let selected=fluid.unwrap_or_else(||key.clone());
@@ -4670,17 +4922,24 @@ impl Game<'_> {
             let old_container = game.container;
             let old_page = game.ae2_terminal_page;
             game.container = Some(pos);
-            game.ae2_terminal_page = page;
+            game.ae2_terminal_page = 0;
             let old_power = game.ae2_wireless_power;
             game.ae2_wireless_power = wireless.as_ref().map(|ctx| ctx.source);
+            // An entry past the menu's places is its own one-entry page.
+            let beyond=repo.filter(|&index|index>=page_size);
+            let (slot,entries,size)=match beyond.and_then(|index|displayed.get(index..=index)) {
+                Some(one)=>(Some(300),one,1),
+                None if beyond.is_some()=>(Some(300),&[][..],1),
+                None=>(slot,&displayed[..],page_size),
+            };
             if let Err(message) = game.ae2_terminal_click_inner(
                 slot,
                 button,
                 input,
-                Some(&displayed),
+                Some(entries),
                 wireless.is_some(),
                 craft_amount,
-                page_size,
+                size,
             ) {
                 game.system_message(Text::literal(format!("ME terminal: {message}")));
             }
@@ -4690,14 +4949,9 @@ impl Game<'_> {
             game.ae2_terminal_page = old_page;
             next
         });
-        if let (Some(page), Some(t)) = (
-            next,
-            host.play
-                .get_mut(&conn)
-                .and_then(|p| p.ae2_terminal.as_mut()),
-        ) {
-            t.page = page;
-        }
+        // The screen's scrollbar chooses the rows; the native page the
+        // click helper keeps stays at the window it was given.
+        let _ = next;
         let viewers: Vec<u32> = host
             .play
             .iter()

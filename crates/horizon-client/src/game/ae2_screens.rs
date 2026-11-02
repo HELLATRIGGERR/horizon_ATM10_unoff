@@ -1302,7 +1302,7 @@ impl Game<'_> {
 
     /// `UpgradesPanel.drawBackgroundLayer` for one column of `count` slots
     /// (machines have 8 at most), panel top left at `at`.
-    fn ae2_draw_upgrades(&self, batch: &mut HudBatch, ox: f32, oy: f32, at: (i32, i32), count: i32) {
+    pub(super) fn ae2_draw_upgrades(&self, batch: &mut HudBatch, ox: f32, oy: f32, at: (i32, i32), count: i32) {
         let panel = Image { texture: "guis/extra_panels".into(), texture_size: (128, 128), src: None };
         let (x0, y0) = (at.0 + PANEL_PADDING, at.1 + PANEL_PADDING);
         for i in 0..count {

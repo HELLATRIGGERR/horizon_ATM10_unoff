@@ -70,9 +70,7 @@ try {
   const encodingData=async()=> (await fixture.command(`data get block ${terminal} ae2_lab_config.parts[{face:"south"}]`)).chat.join('\n');
   const openEncoding=async()=>{
     await fixture.raw(`interact ${terminal} south`);
-    await until(()=>fixture.raw('screen'),view=>JSON.stringify(view.title??'').includes('AE2 ME Terminal') && view.slots?.some((s:any)=>s.slot===348 && String(s.components??'').includes('Encode crafting pattern')),'encoding terminal menu');
-    await fixture.raw('click-slot 348');
-    await until(()=>fixture.raw('screen'),view=>view.slots?.some((s:any)=>s.slot===348 && String(s.components??'').includes('Back to storage')),'encoding grid');
+    await until(()=>fixture.raw('screen'),view=>JSON.stringify(view.title??'').includes('AE2 ME Terminal') && view.slots?.some((s:any)=>s.slot===346 && String(s.components??'').includes('Mode: crafting')),'encoding terminal opens on its encoding grid');
   };
   await openEncoding();
   await fixture.raw('click-slot 0');

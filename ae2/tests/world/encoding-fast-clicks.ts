@@ -29,9 +29,7 @@ try {
   await fixture.replace('hotbar.0', 'minecraft:oak_planks', 2);
   await fixture.replace('hotbar.8', 'minecraft:stick'); await fixture.select(8, 'minecraft:stick');
   await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 2.5}`); await fixture.raw(`interact ${terminal} north`);
-  await until(() => fixture.raw('screen'), view => String(slot(view, 348)?.components ?? '').includes('Encode crafting pattern'), 'encoding terminal');
-  await fixture.raw('click-slot 348');
-  await until(() => fixture.raw('screen'), view => String(slot(view, 348)?.components ?? '').includes('Back to storage'), 'encoding editor');
+  await until(() => fixture.raw('screen'), view => String(slot(view, 346)?.components ?? '').includes('Mode: crafting'), 'encoding terminal opens on its encoding grid');
   // PatternEncodingLogic clamps crafting inputs to one; processing mode retains quantities.
   await fixture.raw('click-slot 346'); await until(() => fixture.raw('screen'), view => String(slot(view, 346)?.components ?? '').includes('processing'), 'processing mode');
   await fixture.raw('click-slot 0');

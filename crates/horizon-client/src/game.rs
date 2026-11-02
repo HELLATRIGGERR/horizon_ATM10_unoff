@@ -59,6 +59,10 @@ mod ae2_channels;
 mod ae2_screens;
 #[cfg(feature = "ae2-lab")]
 mod ae2_priority_screen;
+#[cfg(feature = "ae2-lab")]
+mod ae2_terminal_screen;
+#[cfg(feature = "ae2-lab")]
+mod ae2_terminal_settings;
 mod screen_extras;
 mod energy_extras;
 #[cfg(feature = "ae2-lab")]
@@ -2778,6 +2782,7 @@ struct Game<'a> {
     ae2_portable_page: usize,
     #[cfg(feature = "ae2-lab")]
     ae2_portable_idle_buffer: u8,
+    ae2_portable_item: Option<std::sync::Arc<str>>,
     #[cfg(feature = "ae2-lab")]
     ae2_portable_drag: ae2_portable_ui::PortableDrag,
     #[cfg(feature = "ae2-lab")]
@@ -9178,7 +9183,7 @@ impl Game<'_> {
     fn screen_batch(&self, size: [u32; 2]) -> HudBatch {
         let mut batch = HudBatch::new(size);
         #[cfg(feature="ae2-lab")]
-        if (self.ae2_crafting_terminal_screen() || self.ae2_pattern_access_screen()) && batch.height < 251.0 && batch.scale > 1.0 {
+        if ((self.ae2_crafting_terminal_screen() && self.ae2_term_kind().is_none()) || self.ae2_pattern_access_screen()) && batch.height < 251.0 && batch.scale > 1.0 {
             batch.scale -= 1.0;
             batch.width = (size[0] as f32 / batch.scale).ceil();
             batch.height = (size[1] as f32 / batch.scale).ceil();
@@ -9189,6 +9194,8 @@ impl Game<'_> {
         if self.screen == Screen::Creative {
             return Self::creative_origin(batch);
         }
+        #[cfg(feature="ae2-lab")]
+        if let Some((w,h))=self.ae2_term_size() {return batch.centered_origin(w,h);}
         #[cfg(feature="ae2-lab")]
         if self.ae2_crafting_terminal_screen() {return batch.centered_origin(195.0,251.0);}
         #[cfg(feature="ae2-lab")]
@@ -9379,6 +9386,8 @@ impl Game<'_> {
     }
     /// InventoryMenu / CraftingMenu slot layouts.
     fn slot_position(&self, i: usize) -> (f32, f32) {
+        #[cfg(feature="ae2-lab")]
+        if let Some(p)=self.ae2_term_slot_position(i) {return p;}
         #[cfg(feature="ae2-lab")]
         if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) && (365..374).contains(&i) {
             let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
@@ -9591,6 +9600,10 @@ impl Game<'_> {
         if slot == 309 && matches!(self.container_kind(), Some(BlockEntity::Crafter(_))) {
             return;
         }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_term_button_slot(slot) {
+            return;
+        }
         let (sx, sy) = self.slot_position(slot);
         self.draw_slot_highlight(batch, front, ox + sx, oy + sy);
     }
@@ -9676,7 +9689,7 @@ impl Game<'_> {
     }
     fn draw_inventory_slots(&mut self, batch: &mut HudBatch, ox: f32, oy: f32) {
         #[cfg(feature="ae2-lab")]
-        if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {
+        if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) && self.ae2_term_kind().is_none() {
             let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
             batch.sprite_subregion(&self.gui.atlas,"ae2:guis/extra_panels",[ox+174.0,oy+height-90.0,59.0,66.0],[69.0,62.0],128.0,128.0);
         }
@@ -9694,7 +9707,12 @@ impl Game<'_> {
             }
             let (sx, sy) = self.slot_position(i);
             #[cfg(feature="ae2-lab")]
-            if (360..365).contains(&i) {
+            if self.ae2_term_kind().is_some() {
+                if sx < -500.0 {continue;}
+                if self.ae2_term_draw_slot(batch, i, ox + sx, oy + sy) {continue;}
+            }
+            #[cfg(feature="ae2-lab")]
+            if (360..365).contains(&i) && self.ae2_term_kind().is_none() {
                 batch.fill(&self.gui.atlas,ox+sx,oy+sy,18.0,18.0,rgba(65,65,65,255));
                 batch.fill(&self.gui.atlas,ox+sx+1.0,oy+sy+1.0,16.0,16.0,rgba(139,139,139,255));
             }
@@ -10798,6 +10816,10 @@ impl Game<'_> {
                 self.inv_clicks.skip_release();
                 return;
             }
+            if self.ae2_term_press([self.cursor.0-ox,self.cursor.1-oy], right) {
+                self.inv_clicks.skip_release();
+                return;
+            }
             if !right && self.ae2_pattern_access_screen() {
                 let (x,y)=(self.cursor.0-ox,self.cursor.1-oy);
                 let action=if (175.0..191.0).contains(&x) && (18.0..34.0).contains(&y) {Some(-10)}
@@ -11062,6 +11084,7 @@ impl Game<'_> {
     #[cfg(feature = "ae2-lab")]
     fn ae2_clicked_outside(&self, batch: &HudBatch) -> Option<bool> {
         let (ox, oy) = self.inventory_origin(batch);
+        if let Some(outside) = self.ae2_term_outside([self.cursor.0-ox,self.cursor.1-oy]) {return Some(outside);}
         if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {
             let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
             if (ox+174.0..ox+233.0).contains(&self.cursor.0) && (oy+height-90.0..oy+height-24.0).contains(&self.cursor.1) {return Some(false);}
@@ -11144,6 +11167,8 @@ impl Game<'_> {
     /// cancels the drag, drops a stack released outside, or clicks.
     fn inventory_mouse_release(&mut self, right: bool) {
         use horizon_client::container_screen::{Release, Target};
+        #[cfg(feature="ae2-lab")]
+        self.ae2_term_release();
         self.tweak_release();
         let (slot, outside) = self.inventory_target();
         let dragged = self.inv_drag.as_ref().is_some_and(|(_, s)| !s.is_empty());
@@ -17968,6 +17993,10 @@ impl Game<'_> {
                         if matches!(self.screen, Screen::Inventory | Screen::Creative) {
                             self.inventory_drag_move();
                         }
+                        #[cfg(feature = "ae2-lab")]
+                        if self.screen == Screen::Inventory {
+                            self.ae2_term_drag();
+                        }
                         if let Some(title) = &mut self.title {
                             title.drag(self.cursor, (b.width, b.height));
                             title.drag_field(&self.gui.atlas, self.cursor.0);
@@ -18113,10 +18142,15 @@ impl Game<'_> {
                         && self.remote_pattern_access_control(if d>0.0 {-10} else {-11});
                     #[cfg(not(feature="ae2-lab"))]
                     let pattern_access_scroll=false;
+                    #[cfg(feature="ae2-lab")]
+                    let terminal_scroll=self.screen==Screen::Inventory && d!=0.0 && self.ae2_term_wheel(d);
+                    #[cfg(not(feature="ae2-lab"))]
+                    let terminal_scroll=false;
                     if self.screen == Screen::Inventory
                         && d != 0.0
                         && !craft_report_scroll
                         && !pattern_access_scroll
+                        && !terminal_scroll
                         && !bundle
                         && !self.tweak_scroll(d, self.inventory_target().0)
                     {
@@ -19299,6 +19333,7 @@ impl<'a> Game<'a> {
             ae2_portable_page: 0,
             #[cfg(feature = "ae2-lab")]
             ae2_portable_idle_buffer: 0,
+            ae2_portable_item: None,
             #[cfg(feature = "ae2-lab")]
             ae2_portable_drag: Default::default(),
             #[cfg(feature = "ae2-lab")]

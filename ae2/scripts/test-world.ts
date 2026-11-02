@@ -14,7 +14,7 @@ const suites = [
   'common-config-power', 'annihilation-sky-dust-config', 'spatial-anchor-random-config',
   'fe-partial-acceptance', 'p2p-configured-tax', 'stored-energy-boundary', 'crafting-owner-events',
   'dynamic-item-models', 'storage-fuzzy-fluid', 'name-press-components',
-  'quartz-knife-name-component', 'inframe-terminal', 'terminal-search',
+  'quartz-knife-name-component', 'inframe-terminal', 'terminal-search', 'terminal-screen-views',
   'inframe-crafting-status', 'inframe-crafting-matrix', 'name-press-list-inheritance',
   'quantum-source-singularity', 'quantum-hopper-inventory', 'crafting-crafted-substitute',
   'spatial-source-component', 'ae2-component-commands', 'inframe-pattern-encoding',

@@ -1361,6 +1361,8 @@ impl Game<'_> {
     /// `imageHeight` of the open screen (HopperScreen is 133 tall).
     pub(super) fn screen_height(&self) -> f32 {
         #[cfg(feature="ae2-lab")]
+        if let Some((_,h))=self.ae2_term_size() {return h;}
+        #[cfg(feature="ae2-lab")]
         if self.ae2_pattern_access_screen() {return 224.0;}
         #[cfg(feature="ae2-lab")]
         if self.ae2_priority_ui() {return self.ae2_priority_size().1;}

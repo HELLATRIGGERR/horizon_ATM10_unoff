@@ -113,6 +113,10 @@ impl Game<'_> {
                 let slot: usize = arg(1)?.parse()?;
                 let (ox, oy) = self.gui_origin()?;
                 let (sx, sy) = self.slot_position(slot);
+                #[cfg(feature = "ae2-lab")]
+                if self.ae2_term_hidden_click(slot, (sx, sy), flag("right"), flag("shift")) {
+                    return ok();
+                }
                 self.click_at(ox + sx + 8.0, oy + sy + 8.0, flag("right"), flag("shift"));
                 ok()
             }

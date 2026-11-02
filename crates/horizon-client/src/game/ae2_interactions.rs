@@ -163,6 +163,16 @@ pub(super) fn portable_extract_energy(
     }
     Ok(extracted)
 }
+/// `ItemMenuHost.consumeIdlePower` at `PowerMultiplier.CONFIG`: ten ticks of
+/// 0.5 AE, paid at the configured usage, and the ticks that what the item
+/// could pay buys.
+pub(super) fn portable_idle_drain(stack: &mut ItemStack, usage: f64) -> Result<u8, String> {
+    const BUFFER_ENERGY_TICKS: f64 = 10.0;
+    const POWER_DRAIN_PER_TICK: f64 = 0.5;
+    let wanted = BUFFER_ENERGY_TICKS * POWER_DRAIN_PER_TICK * usage;
+    let paid = portable_extract_energy(stack, wanted, false)? / usage;
+    Ok((paid / POWER_DRAIN_PER_TICK).ceil().clamp(0.0, BUFFER_ENERGY_TICKS) as u8)
+}
 pub(super) fn clamp_portable_energy(stack: &mut ItemStack) -> Result<(), String> {
     let (current, max) = portable_energy(stack)?;
     set_portable_energy(stack, current.min(max))
@@ -170,6 +180,22 @@ pub(super) fn clamp_portable_energy(stack: &mut ItemStack) -> Result<(), String>
 #[cfg(test)]
 mod portable_tests {
     use super::*;
+    #[test]
+    fn idle_drain_pays_ten_ticks_at_the_configured_usage() {
+        use horizon_world::nbt::Tag;
+        let mut cell=ItemStack::new("ae2:portable_item_cell_1k",1);
+        cell.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(1000.0f64.to_bits())));
+        cell.data_mut().set_other("ae2:energy_capacity",Some(Tag::Double(1000.0f64.to_bits())));
+        assert_eq!(portable_idle_drain(&mut cell,1.0).unwrap(),10);
+        assert_eq!(portable_energy(&cell).unwrap().0,995.0);
+        assert_eq!(portable_idle_drain(&mut cell,3.0).unwrap(),10);
+        assert_eq!(portable_energy(&cell).unwrap().0,980.0);
+        // What is left buys what it can: 3 AE at usage 3 is 1 AE, two ticks.
+        cell.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(3.0f64.to_bits())));
+        assert_eq!(portable_idle_drain(&mut cell,3.0).unwrap(),2);
+        assert_eq!(portable_energy(&cell).unwrap().0,0.0);
+        assert_eq!(portable_idle_drain(&mut cell,3.0).unwrap(),0);
+    }
     #[test]
     fn source_portable_power_overrides_legacy_and_updates_on_transfer() {
         use horizon_world::nbt::Tag;

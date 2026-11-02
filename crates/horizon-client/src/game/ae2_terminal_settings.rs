@@ -21,8 +21,6 @@ const CHECK_SIZE: i32 = 14;
 const KEY_TYPE_LABEL_ROOM: i32 = 24;
 const KEY_TYPE_PADDING: i32 = 6;
 /// `BackgroundGenerator`: a 256 x 256 sheet with a border of 4.
-const BACKGROUND_SIZE: i32 = 256;
-const BACKGROUND_BORDER: i32 = 4;
 /// The name AE2 uses for an external item list without one installed.
 const EXTERNAL_SEARCH: &str = "REI/EMI";
 /// `Icon.BACK`.
@@ -291,41 +289,6 @@ impl Game<'_> {
                 batch.text(&self.gui.atlas, &line, text_x, line_y, color, false);
                 line_y += 9.0;
             }
-        }
-    }
-
-    /// `BackgroundGenerator.draw`: the sheet's corners, its tiled edges and
-    /// middle.
-    fn ae2_draw_generated_background(&self, batch: &mut HudBatch, ox: f32, oy: f32, w: i32, h: i32) {
-        const B: i32 = BACKGROUND_BORDER;
-        const TILE: i32 = BACKGROUND_SIZE - 2 * B;
-        if w < 2 * B || h < 2 * B {
-            return;
-        }
-        let image = Image { texture: "guis/background".into(), texture_size: (BACKGROUND_SIZE, BACKGROUND_SIZE), src: None };
-        let at = |x: i32, y: i32| (ox + x as f32, oy + y as f32);
-        let mut blit = |src: [i32; 4], x: i32, y: i32| {
-            let (dx, dy) = at(x, y);
-            self.ae2_blit(batch, &image, src, dx, dy);
-        };
-        let (right, bottom) = (BACKGROUND_SIZE - B, BACKGROUND_SIZE - B);
-        blit([0, 0, B, B], 0, 0);
-        blit([right, 0, B, B], w - B, 0);
-        blit([0, bottom, B, B], 0, h - B);
-        blit([right, bottom, B, B], w - B, h - B);
-        let (inner_w, inner_h) = (w - 2 * B, h - 2 * B);
-        for cx in (0..inner_w).step_by(TILE as usize) {
-            let tile_w = TILE.min(inner_w - cx);
-            blit([B, 0, tile_w, B], B + cx, 0);
-            blit([B, bottom, tile_w, B], B + cx, h - B);
-            for cy in (0..inner_h).step_by(TILE as usize) {
-                blit([B, B, tile_w, TILE.min(inner_h - cy)], B + cx, B + cy);
-            }
-        }
-        for cy in (0..inner_h).step_by(TILE as usize) {
-            let tile_h = TILE.min(inner_h - cy);
-            blit([0, B, B, tile_h], 0, B + cy);
-            blit([right, B, B, tile_h], w - B, B + cy);
         }
     }
 

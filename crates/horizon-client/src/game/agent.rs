@@ -786,6 +786,18 @@ impl Game<'_> {
                 if let Some(screen) = self.ae2_term_agent_value(origin) {
                     v["ae2_terminal"] = screen;
                 }
+                if let Some(screen) = self.ae2_craft_agent_value(origin) {
+                    v["ae2_craft"] = screen;
+                }
+                if let Some(screen) = self.ae2_part_agent_value(origin) {
+                    v["ae2_part"] = screen;
+                }
+                if let Some(screen) = self.ae2_status_agent_value(origin) {
+                    v["ae2_status"] = screen;
+                }
+                if let Some(screen) = self.ae2_workbench_agent_value(origin) {
+                    v["ae2_workbench"] = screen;
+                }
             }
             #[cfg(feature = "ae2-lab")]
             if self.ae2_local_bus_open() {v["title"]=json!([{ "text": self.ae2_local_bus_title() }]);}

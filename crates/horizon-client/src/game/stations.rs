@@ -2945,6 +2945,22 @@ impl Game<'_> {
         if self.ae2_term_tooltip(batch) {
             return;
         }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_craft_tooltip(batch) {
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_part_tooltip(batch) {
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_status_tooltip(batch) {
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_workbench_tooltip(batch) {
+            return;
+        }
         let Some(slot) = self.slot_at(batch, self.cursor.0, self.cursor.1) else {
             return;
         };

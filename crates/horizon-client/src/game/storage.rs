@@ -496,6 +496,11 @@ impl Game<'_> {
             return;
         }
         #[cfg(feature="ae2-lab")]
+        if self.ae2_part_open() {
+            self.ae2_draw_part(batch,ox,oy);
+            return;
+        }
+        #[cfg(feature="ae2-lab")]
         if self.ae2_term_kind().is_some() {
             self.ae2_draw_terminal(batch,ox,oy);
             return;
@@ -517,11 +522,7 @@ impl Game<'_> {
                     }}
                 }
             }
-            for (x,y,label) in [(175.0,18.0,"^"),(175.0,107.0,"v"),(-18.0,18.0,"F")] {
-                batch.fill(atlas,ox+x,oy+y,16.0,16.0,rgba(70,70,70,255));
-                batch.fill(atlas,ox+x+1.0,oy+y+1.0,14.0,14.0,rgba(185,185,185,255));
-                batch.text(atlas,label,ox+x+5.0,oy+y+4.0,grey,false);
-            }
+            self.ae2_draw_pattern_access_chrome(batch,ox,oy);
             self.ae2_search_draw(batch,ox,oy);
             let icons:Vec<_>=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()).into_iter().flatten().take(6).enumerate().filter_map(|(i,row)|{
                 if row.get("kind")?.as_str()? != "header" {return None;}
@@ -537,83 +538,13 @@ impl Game<'_> {
             return;
         }
         #[cfg(feature="ae2-lab")]
-        if self.ae2_craft_screen()==3 {
-            batch.sprite_region(atlas,"ae2:guis/craftingcpu",[ox,oy,238.0,185.0],256.0,256.0);
-            batch.text(atlas,"Crafting status",ox+8.0,oy+7.0,grey,false);
-            batch.text(atlas,"Stored / scheduled / crafting",ox+8.0,oy+110.0,grey,false);
-            if let Some(items)=self.ae2_craft_menu_items() {
-                if let Some(label)=items.get(1).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
-                    batch.text(atlas,&label.chars().take(31).collect::<String>(),ox+8.0,oy+122.0,grey,false);
-                }
-                for i in 0..12 {
-                    if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
-                        let amounts=label.split_once(": stored ").map(|(_,v)|v.replace(", pending ","/").replace(", active ","/")).unwrap_or_else(||label.to_owned());
-                        batch.text(atlas,&amounts.chars().take(9).collect::<String>(),ox+30.0+(i%3) as f32*68.0,oy+29.0+(i/3) as f32*18.0,grey,false);
-                    }
-                }
-            }
-            if let Some(mode)=self.ae2_craft_menu_items().and_then(|items|items.first()).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
-                batch.fill(atlas,ox-18.0,oy+18.0,16.0,16.0,rgba(70,70,70,255));
-                let initial=if mode.contains("PLAYER_ONLY") {"P"} else if mode.contains("MACHINE_ONLY") {"M"} else {"A"};
-                batch.text(atlas,initial,ox-14.0,oy+22.0,grey,false);
-            }
-            if self.ae2_craft_menu_items().and_then(|items|items.get(20)).is_some_and(Option::is_some) {
-                batch.fill(atlas,ox+8.0,oy+164.0,80.0,20.0,rgba(70,70,70,255));
-                batch.fill(atlas,ox+9.0,oy+165.0,78.0,18.0,rgba(185,185,185,255));
-                batch.text(atlas,"Back",ox+12.0,oy+170.0,grey,false);
-            }
-            let suspended=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()).is_some_and(|s|s.starts_with("Suspended"));
-            for (x,w,label) in [(8.0,80.0,"Next CPU"),(103.0,50.0,if suspended {"Resume"} else {"Suspend"}),(163.0,50.0,"Cancel")] {
-                batch.fill(atlas,ox+x,oy+140.0,w,20.0,rgba(70,70,70,255));
-                batch.fill(atlas,ox+x+1.0,oy+141.0,w-2.0,18.0,rgba(185,185,185,255));
-                batch.text(atlas,label,ox+x+4.0,oy+146.0,grey,false);
-            }
-            for (y,label) in [(19.0,"^"),(117.0,"v")] {batch.fill(atlas,ox+218.0,oy+y,16.0,16.0,rgba(70,70,70,255));batch.text(atlas,label,ox+222.0,oy+y+4.0,grey,false);}
+        if self.ae2_craft_screen()!=0 {
+            self.ae2_draw_craft(batch,ox,oy);
             return;
         }
         #[cfg(feature="ae2-lab")]
-        if self.ae2_craft_screen()!=0 {
-            let amount=self.ae2_craft_screen()==1;
-            if amount {
-                batch.sprite_region(atlas,"ae2:guis/craft_amt",[ox,oy,176.0,107.0],256.0,256.0);
-                batch.text(atlas,"Select amount",ox+8.0,oy+6.0,grey,false);
-                self.ae2_search_draw(batch,ox,oy);
-            } else {
-                batch.sprite_region(atlas,"ae2:guis/craftingreport",[ox,oy,238.0,206.0],256.0,256.0);
-                batch.text(atlas,"Crafting confirmation",ox+8.0,oy+7.0,grey,false);
-                if let Some(label)=self.ae2_craft_menu_items().and_then(|items|items.get(1)).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
-                    batch.text(atlas,&label,ox+36.0,oy+24.0,grey,false);
-                }
-                if let Some(items)=self.ae2_craft_menu_items() {
-                    if let Some(label)=items.get(17).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
-                        batch.text(atlas,&label,ox+115.0,oy+119.0,grey,false);
-                    }
-                    if items.iter().skip(5).take(12).flatten().any(|s|s.data().and_then(|d|d.custom_name_plain()).is_some_and(|label|label.starts_with("Missing "))) {
-                        batch.text(atlas,"! = missing",ox+12.0,oy+119.0,grey,false);
-                    }
-                    for i in 0..12 {
-                        if let Some(label)=items.get(5+i).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()) {
-                            let text=label.replace("minecraft:","").replace("Missing ","!").replace("Stored ","").replace("Planned ","+").chars().take(12).collect::<String>();
-                            batch.text(atlas,&text,ox+12.0+(i%3) as f32*68.0,oy+43.0+(i/3) as f32*18.0,grey,false);
-                        }
-                    }
-                    let label=items.get(4).and_then(Option::as_ref).and_then(|s|s.data()).and_then(|d|d.custom_name_plain()).unwrap_or_else(||"CPU: Automatic".into());
-                    batch.fill(atlas,ox+19.0,oy+138.0,180.0,20.0,rgba(70,70,70,255));
-                    batch.fill(atlas,ox+20.0,oy+139.0,178.0,18.0,rgba(185,185,185,255));
-                    batch.text(atlas,&label.chars().take(27).collect::<String>(),ox+23.0,oy+144.0,grey,false);
-                }
-                for (y,label) in [(19.0,"^"),(117.0,"v")] {
-                    batch.fill(atlas,ox+218.0,oy+y,16.0,16.0,rgba(70,70,70,255));
-                    batch.fill(atlas,ox+219.0,oy+y+1.0,14.0,14.0,rgba(185,185,185,255));
-                    batch.text(atlas,label,ox+223.0,oy+y+4.0,grey,false);
-                }
-            }
-            let buttons=if amount {[(120.0,51.0,38.0,"Next"),(152.0,0.0,20.0,"X")]} else {[(162.0,181.0,50.0,"Start"),(6.0,181.0,50.0,"Cancel")]};
-            for (x,y,w,label) in buttons {
-                batch.fill(atlas,ox+x,oy+y,w,20.0,rgba(70,70,70,255));
-                batch.fill(atlas,ox+x+1.0,oy+y+1.0,w-2.0,18.0,rgba(185,185,185,255));
-                batch.text(atlas,label,ox+x+4.0,oy+y+6.0,grey,false);
-            }
+        if self.ae2_status_open() {
+            self.ae2_draw_status(batch,ox,oy);
             return;
         }
         #[cfg(feature="ae2-lab")]

@@ -25,7 +25,7 @@ try {
   await fixture.replace('hotbar.3', 'minecraft:bucket'); await fixture.replace('hotbar.4', 'minecraft:bucket');
   await fixture.replace('hotbar.6', 'minecraft:gold_ingot', 2); await fixture.replace('hotbar.7', itemPortable);
   await fixture.replace('hotbar.8', 'minecraft:stick'); await fixture.select(8, 'minecraft:stick');
-  await fixture.command(`tp @s ${x + 1.5} ${y} ${z + 2.5}`); await fixture.raw(`interact ${chest} south`);
+  await fixture.command(`tp @s ${x + 1.5} ${y} ${z + 2.5}`); await fixture.raw(`interact ${chest} up`);
   let view = await until(() => fixture.raw('screen'), state => entry(state, 'minecraft:iron_ingot') && entry(state, 'minecraft:water_bucket'), 'ME Chest displays native items and foreign stored fluid');
   let water = entry(view, 'minecraft:water_bucket'); await fixture.raw('click-slot 0'); await fixture.raw(`click-slot ${water.slot}`);
   await until(() => fixture.raw('inventory'), state => state.carried?.item === 'minecraft:water_bucket', 'foreign water fills a real bucket');

@@ -101,7 +101,7 @@ try {
   assert.equal(fluid(await fluids(), 'minecraft:water'), FLUID_256M, 'a 256M fluid cell holds 2,130,706,432 buckets');
   await bucket(); await assert.rejects(fixture.ae(`fluid grid insert ${chest}`), 'a full 256M fluid cell refuses a bucket');
   await fixture.select(8, 'minecraft:stick');
-  await fixture.command(`tp @s ${x + 4.5} ${y} ${z + 5.5}`); await fixture.raw(`interact ${chest} south`);
+  await fixture.command(`tp @s ${x + 4.5} ${y} ${z + 5.5}`); await fixture.raw(`interact ${chest} up`);
   await until(() => fixture.raw('screen'), view => listed(view, 'minecraft:water_bucket'), 'the ME Chest\'s terminal lists the stored water', 30000);
   await fixture.raw('close');
   fixture.mark('in an ME Chest a 256M fluid cell stops at 2,130,706,432 buckets, and its terminal lists the fluid');

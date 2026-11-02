@@ -21,6 +21,8 @@ pub(super) struct ClientSettings {
     pub terminal_style: u8,
     pub terminal_margin: i32,
     pub use_large_fonts: bool,
+    /// `client.powerUnit`: AE or FE as 0 or 1.
+    pub power_unit: u8,
 }
 
 /// `TerminalStyle`'s names, in order.
@@ -32,7 +34,7 @@ impl Default for ClientSettings {
             use_external_search: false, sync_with_external_search: true, clear_external_search_on_open: true, clear_grid_on_close: false,
             pin_auto_crafted_items: true, notify_finished_jobs: true,
             show_cell_upgrades: true, show_cell_content: true, max_cell_content_shown: 5,
-            terminal_style: 0, terminal_margin: 25, use_large_fonts: false }
+            terminal_style: 0, terminal_margin: 25, use_large_fonts: false, power_unit: 0 }
     }
 }
 
@@ -68,6 +70,9 @@ fn parse(text: &str) -> Result<ClientSettings, String> {
         if let Some(margin)=table.get("terminalMargin") {
             settings.terminal_margin=margin.as_integer().and_then(|n|i32::try_from(n).ok()).filter(|n|*n>=0).ok_or("terminals.terminalMargin must be a non-negative integer")?;
         }
+    }
+    if let Some(unit)=value.get("client").and_then(|table|table.get("powerUnit")) {
+        settings.power_unit=match unit.as_str() {Some("AE")=>0,Some("FE")=>1,_=>return Err("client.powerUnit must be AE or FE".into())};
     }
     if let Some(table)=value.get("tooltips") {
         if let Some(value)=table.get("maxCellContentShown") {
@@ -121,6 +126,29 @@ fn config_path() -> std::path::PathBuf {
     horizon_client::logging::game_home().join("config/ae2-client.toml")
 }
 
+/// The unit AE2's screens print power in (`getSelectedEnergyUnit`): AE or
+/// FE as 0 or 1, read once from the settings.
+static POWER_UNIT: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(u8::MAX);
+
+pub(super) fn power_unit() -> u8 {
+    use std::sync::atomic::Ordering::Relaxed;
+    match POWER_UNIT.load(Relaxed) {
+        u8::MAX => {
+            let unit = settings().power_unit;
+            POWER_UNIT.store(unit, Relaxed);
+            unit
+        }
+        unit => unit,
+    }
+}
+
+/// `AEConfig.nextEnergyUnit`: the power unit button saves its choice.
+pub(super) fn next_power_unit() {
+    let next = (power_unit() + 1) % 2;
+    POWER_UNIT.store(next, std::sync::atomic::Ordering::Relaxed);
+    save_setting("client", "powerUnit", toml::Value::String(["AE", "FE"][usize::from(next)].into()));
+}
+
 /// `AEConfig.setTerminalStyle`: the terminal style button saves its choice.
 pub(super) fn save_terminal_style(style: u8) {
     save_setting("terminals", "terminalStyle", toml::Value::String(TERMINAL_STYLES[usize::from(style.min(3))].into()));
@@ -159,6 +187,14 @@ pub(super) fn settings() -> ClientSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn the_power_unit_reads_ae_or_fe() {
+        assert_eq!(parse("").unwrap().power_unit, 0);
+        assert_eq!(parse("[client]\npowerUnit = \"AE\"\n").unwrap().power_unit, 0);
+        assert_eq!(parse("[client]\npowerUnit = \"FE\"\n").unwrap().power_unit, 1);
+        assert!(parse("[client]\npowerUnit = \"EU\"\n").is_err());
+    }
+
     #[test]
     fn source_defaults_and_independent_search_and_grid_settings() {
         assert_eq!(parse("").unwrap(), ClientSettings::default());

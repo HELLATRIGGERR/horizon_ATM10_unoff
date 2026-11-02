@@ -511,6 +511,14 @@ pub mod extended {
             let made=self.escrow.get(&plan.target).copied().unwrap_or(0).saturating_add(self.delivered_target);
             Some((plan.target.as_str(),plan.amount,plan.amount.saturating_sub(made)))
         }
+        /// What is still to come of the job in items: pending and in-flight
+        /// outputs and emitted shortages (`ElapsedTimeTracker`'s remaining count).
+        pub fn items_left(&self)->u64 {
+            let sum=|inventory:&Inventory|inventory.values().fold(0u64,|n,v|n.saturating_add(*v));
+            let pending=self.pending.iter().fold(0u64,|n,step|n.saturating_add(sum(&step.outputs)));
+            let flying=self.flights.values().fold(0u64,|n,flight|n.saturating_add(sum(&flight.remaining)));
+            pending.saturating_add(flying).saturating_add(sum(&self.emitted_waiting))
+        }
         pub fn is_cancelled(&self)->bool { self.cancelled }
         pub fn is_active(&self)->bool { self.plan.is_some() }
     }

@@ -590,6 +590,37 @@ const LAYOUTS: &[Layout] = &[
         lock_line: None,
         panels: &[],
     },
+    Layout {
+        kind: MachineKind::Chest,
+        style: "me_chest.json",
+        slots: &[(0, "STORAGE_CELL")],
+        icons: &[(0, icon::BACKGROUND_STORAGE_CELL)],
+        upgrades: 0..0,
+        toggles: &[],
+        progress: None,
+        priority: Some(26),
+        decorations: &[],
+        grid: None,
+        cogs: None,
+        lock_line: None,
+        panels: &[],
+    },
+    // The filters and the toolbar's other buttons are `ae2_workbench_screen`'s.
+    Layout {
+        kind: MachineKind::CellWorkbench,
+        style: "cell_workbench.json",
+        slots: &[(0, "STORAGE_CELL")],
+        icons: &[(0, icon::BACKGROUND_STORAGE_CELL)],
+        upgrades: 1..5,
+        toggles: &[],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: None,
+        lock_line: None,
+        panels: &[],
+    },
     // The link slots sit on the panel right of the screen.
     Layout {
         kind: MachineKind::WirelessAccessPoint,
@@ -632,6 +663,13 @@ pub(super) struct Ae2Screen {
 struct Button {
     rect: [i32; 4],
     toggle: Option<&'static Toggle>,
+    /// `CommonButtons.togglePowerUnit`.
+    power: bool,
+}
+
+/// The screens with the power unit button.
+fn has_power_button(kind: MachineKind) -> bool {
+    matches!(kind, MachineKind::SpatialIoPort | MachineKind::WirelessAccessPoint)
 }
 
 impl Ae2Screen {
@@ -658,14 +696,15 @@ impl Ae2Screen {
         let shown = |t: &Toggle| t.shown_by.is_none_or(|i| value(data, i) != 0);
         let on_toolbar = self.layout.toggles.iter().filter(|t| t.place.is_none() && shown(t));
         // MARGIN 2, VERTICAL_SPACING 6.
-        let mut buttons: Vec<Button> = std::iter::once(None)
-            .chain(on_toolbar.map(Some))
+        let mut buttons: Vec<Button> = std::iter::once((None, false))
+            .chain(has_power_button(self.layout.kind).then_some((None, true)))
+            .chain(on_toolbar.map(|t| (Some(t), false)))
             .enumerate()
-            .map(|(i, toggle)| Button { rect: [x - 2 - 16, y + 2 + i as i32 * 22, 16, 16], toggle })
+            .map(|(i, (toggle, power))| Button { rect: [x - 2 - 16, y + 2 + i as i32 * 22, 16, 16], toggle, power })
             .collect();
         for t in self.layout.toggles.iter().filter(|t| shown(t)) {
             if let Some((bx, by)) = t.place {
-                buttons.push(Button { rect: [bx, by, 16, 16], toggle: Some(t) });
+                buttons.push(Button { rect: [bx, by, 16, 16], toggle: Some(t), power: false });
             }
         }
         buttons
@@ -673,7 +712,7 @@ impl Ae2Screen {
 
     /// The left toolbar's buttons alone (the first ones of `buttons`).
     fn toolbar_len(&self, data: &[i32]) -> usize {
-        1 + self.layout.toggles.iter().filter(|t| t.place.is_none() && t.shown_by.is_none_or(|i| value(data, i) != 0)).count()
+        1 + usize::from(has_power_button(self.layout.kind)) + self.layout.toggles.iter().filter(|t| t.place.is_none() && t.shown_by.is_none_or(|i| value(data, i) != 0)).count()
     }
 
     /// The stock cogs shown: each one's 16 x 16 box and its entry, above the
@@ -733,8 +772,13 @@ fn long_value(data: &[i32], i: usize) -> i64 {
 
 /// `Platform.formatPower` in AE units: under a thousand, then k, M, G...,
 /// with at most two decimals; `/t` for a rate.
-fn format_power(mut p: f64, rate: bool) -> String {
+pub(super) fn format_power(mut p: f64, rate: bool) -> String {
     const PREFIXES: [&str; 10] = ["k", "M", "G", "T", "P", "T", "P", "E", "Z", "Y"];
+    let fe = super::ae2_client_config::power_unit() == 1;
+    // `PowerUnit.AE.convertTo(FE)`: 1 AE is 2 FE.
+    if fe {
+        p *= 2.0;
+    }
     let mut level = "";
     for prefix in PREFIXES {
         if p <= 1000.0 {
@@ -743,7 +787,7 @@ fn format_power(mut p: f64, rate: bool) -> String {
         p /= 1000.0;
         level = prefix;
     }
-    format!("{} {level}AE{}", trimmed(p), if rate { "/t" } else { "" })
+    format!("{} {level}{}{}", trimmed(p), if fe { "FE" } else { "AE" }, if rate { "/t" } else { "" })
 }
 
 /// Java's `Double.toString` / `Float.toString` for an everyday value: the
@@ -753,7 +797,7 @@ fn java_number(text: String) -> String {
 }
 
 /// A translation with its `%s` filled in order and `%%` as `%`.
-fn fill(template: &str, args: &[String]) -> String {
+pub(super) fn fill(template: &str, args: &[String]) -> String {
     let mut out = String::new();
     let mut args = args.iter();
     let mut rest = template;
@@ -1166,7 +1210,7 @@ impl Game<'_> {
         }
         let upgrades = layout.upgrades.len() as i32;
         if upgrades > 0 {
-            self.ae2_draw_upgrades(batch, ox, oy, screen.panel(), upgrades);
+            self.ae2_draw_upgrades(batch, ox, oy, screen.panel(), self.ae2_workbench_upgrades().map_or(upgrades, |n| n as i32));
         }
         for &(id, (x, y)) in layout.decorations {
             self.draw_item(batch, &ItemStack::new(id, 1), ox + x as f32, oy + y as f32);
@@ -1185,7 +1229,8 @@ impl Game<'_> {
             }
         }
         // Empty slots' icons (`AEBaseScreen.drawSlotIcons`).
-        let upgrade_icons = layout.upgrades.clone().map(|e| (e, icon::BACKGROUND_UPGRADE));
+        let shown_upgrades = self.ae2_workbench_upgrades().unwrap_or(layout.upgrades.len());
+        let upgrade_icons = layout.upgrades.clone().take(shown_upgrades).map(|e| (e, icon::BACKGROUND_UPGRADE));
         for (entry, place) in layout.icons.iter().copied().chain(upgrade_icons) {
             if let Some([x, y]) = screen.slots.get(entry).copied().flatten()
                 && self.container_kind().is_none_or(|e| e.slots().get(entry).is_none_or(Option::is_none))
@@ -1195,6 +1240,7 @@ impl Game<'_> {
         }
         for b in &buttons {
             let shown = match b.toggle {
+                None if b.power => super::ae2_status_screens::power_icon(),
                 None => icon::HELP,
                 Some(t) => t.values[value(data, t.data).clamp(0, t.values.len() as i32 - 1) as usize].1,
             };
@@ -1349,6 +1395,7 @@ impl Game<'_> {
             .buttons(&data)
             .into_iter()
             .map(|b| match b.toggle {
+                None if b.power => serde_json::json!({"button": "power", "rect": rect(b.rect), "value": super::ae2_client_config::power_unit()}),
                 None => serde_json::json!({"button": "help", "rect": rect(b.rect)}),
                 Some(t) => {
                     let n = value(&data, t.data).clamp(0, t.values.len() as i32 - 1) as usize;
@@ -1368,6 +1415,12 @@ impl Game<'_> {
     /// closes and the guide opens at the machine's page. False elsewhere.
     pub(super) fn ae2_screen_help(&mut self, at: [f32; 2]) -> bool {
         let data = self.mod_screen_data();
+        let power = self.mod_screen_extra().and_then(|e| e.as_ref()).is_some_and(|s| s.buttons(&data).iter().any(|b| b.power && inside(b.rect, at)));
+        if power {
+            self.audio.play_button_click();
+            super::ae2_client_config::next_power_unit();
+            return true;
+        }
         let Some(block) = self
             .mod_screen_extra()
             .and_then(|e| e.as_ref())
@@ -1417,6 +1470,7 @@ impl Game<'_> {
                 continue;
             }
             match b.toggle {
+                None if b.power => self.ae2_power_tooltip(lines),
                 None => self.ae2_help_tooltip(lines),
                 Some(t) => {
                     let (name, _, key) = t.values[value(data, t.data).clamp(0, t.values.len() as i32 - 1) as usize];

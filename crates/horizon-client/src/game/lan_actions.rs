@@ -2153,6 +2153,14 @@ impl Game<'_> {
                         self.lan_open_ae2_machine(host, conn, target);
                         return;
                     }
+                    // MEChestBlock.useWithoutItem: the top face is the terminal's,
+                    // the others open the chest's cell screen.
+                    if menu_allowed && direction(p.face)!=[0,1,0]
+                        && matches!(self.world.block_entities.get(&target),Some(BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::Chest)
+                    {
+                        self.lan_open_ae2_machine(host, conn, target);
+                        return;
+                    }
                     let terminal_face = match self.world.block_entities.get(&target) {
                         Some(BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::CableBus => {
                             let face=match direction(p.face) {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};

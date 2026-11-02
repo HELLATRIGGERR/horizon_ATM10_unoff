@@ -569,6 +569,7 @@ impl TransferHost for Host<'_, '_> {
 /// Dispatches each actual resource key to its matching capability while one
 /// BusState owns the source operation budget and per-slot schedule.
 struct MixedHost<'a, 'g> {
+    key_types: [bool; 2],
     game: &'a mut Game<'g>,
     cable: (i32, i32, i32),
     target: (i32, i32, i32),
@@ -576,6 +577,51 @@ struct MixedHost<'a, 'g> {
     fuzzy_mode: String,
     craft: CraftState,
 }
+impl Game<'_> {
+    /// The keys in the block a bus on `face` of `pos` faces, for a storage
+    /// bus's partition button (`StorageBusMenu.partition`).
+    pub(super) fn ae2_bus_adjacent_keys(&self, pos: (i32, i32, i32), face: u8) -> Vec<Key> {
+        let Some(name) = ["east", "west", "up", "down", "south", "north"].get(face as usize).copied() else {
+            return Vec::new();
+        };
+        let (Some(adjacent), Some(neighbor)) = (target(pos, name), target_face(name)) else {
+            return Vec::new();
+        };
+        let Some(address) = self.ae2_local_address(adjacent) else {
+            return Vec::new();
+        };
+        let mut keys: Vec<Key> = Vec::new();
+        let items = self.ae2_item_p2p_candidates(address, neighbor).unwrap_or_else(|| self.ae2_native_item_candidates(address, neighbor));
+        let fluids = self.ae2_fluid_p2p_entries(address, neighbor).unwrap_or_else(|| {
+            self.ae2_interface_fluid_entries(address, neighbor)
+                .unwrap_or_else(|| self.ae2_tank_contents_encoded(address).ok().flatten().into_iter().collect())
+        });
+        let found = items.iter().filter_map(|stack| ae2_lab::key(stack).ok()).chain(fluids.into_iter().map(|(key, _)| key));
+        for key in found {
+            let key = Key::from(&key);
+            if !keys.contains(&key) {
+                keys.push(key);
+            }
+        }
+        keys
+    }
+}
+
+/// An import bus's `KeyTypeSelection`: items, fluids. Both when never set.
+pub(super) fn bus_key_types(part: &Compound) -> [bool; 2] {
+    match part.get(&"key_types".into()) {
+        Some(Tag::Byte(bits)) if bits & 3 != 0 => [bits & 1 != 0, bits & 2 != 0],
+        _ => [true, true],
+    }
+}
+
+/// One more or less of a key type, never leaving none.
+pub(super) fn toggle_key_type(types: [bool; 2], index: usize) -> [bool; 2] {
+    let mut next = types;
+    next[index] = !next[index];
+    if next == [false, false] { types } else { next }
+}
+
 fn fluid_bus_key(key: &Key) -> bool {
     let key = ae2_cell_core::ItemKey::from(key);
     super::ae2_fluids::valid_fluid_id(&key.item_id) && ae2_lab::prototype(&key).is_err()
@@ -620,6 +666,7 @@ impl TransferHost for MixedHost<'_, '_> {
             .ae2_item_p2p_candidates(address, self.face)
             .unwrap_or_else(|| self.game.ae2_native_item_candidates(address, self.face))
             .iter()
+            .filter(|_| self.key_types[0])
             .filter_map(|s| {
                 ae2_lab::key(s)
                     .ok()
@@ -643,6 +690,7 @@ impl TransferHost for MixedHost<'_, '_> {
         result.extend(
             fluids
                 .into_iter()
+                .filter(|_| self.key_types[1])
                 .map(|(key, amount)| (Key::from(&key), amount)),
         );
         result
@@ -1953,6 +2001,7 @@ impl Game<'_> {
                     let loaded = self.ae2_block_entity(address).is_some();
                     let fuzzy_mode =
                         str_field(data, "fuzzy_mode").unwrap_or_else(|| "ignore_all".into());
+                    let key_types = bus_key_types(data);
                     if ![
                         "ignore_all",
                         "percent_99",
@@ -1999,6 +2048,7 @@ impl Game<'_> {
                         face: neighbor_face,
                         fuzzy_mode,
                         craft,
+                        key_types,
                     };
                     let outcome = state.tick(direction, active, loaded, &mut host);
                     craft_requests.extend(host.craft.requests);
@@ -2148,6 +2198,21 @@ mod tests {
         entries.push(entries[0].clone());
         assert!(export_craft_links(&data).is_err());
     }
+    #[test]
+    fn import_key_types_default_to_both_and_never_reach_none() {
+        let mut part = Compound::new();
+        assert_eq!(bus_key_types(&part), [true, true]);
+        part.insert("key_types".into(), Tag::Byte(1));
+        assert_eq!(bus_key_types(&part), [true, false]);
+        part.insert("key_types".into(), Tag::Byte(2));
+        assert_eq!(bus_key_types(&part), [false, true]);
+        part.insert("key_types".into(), Tag::Byte(0));
+        assert_eq!(bus_key_types(&part), [true, true]);
+        assert_eq!(toggle_key_type([true, true], 1), [true, false]);
+        assert_eq!(toggle_key_type([true, false], 0), [true, false]);
+        assert_eq!(toggle_key_type([true, false], 1), [true, true]);
+    }
+
     #[test]
     fn fuzzy_partitions_follow_upstream_durability_breakpoints() {
         let mk = |damage| {

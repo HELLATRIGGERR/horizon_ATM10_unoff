@@ -309,8 +309,17 @@ fn decimal_down(value: f64, digits: usize) -> String {
 
 /// `AEKeyType.formatAmount(amount, SLOT)`: buckets for fluids.
 fn slot_amount(entry: &Entry, large: bool) -> String {
+    amount_text(entry.amount, entry.fluid.is_some(), large)
+}
+
+fn amount_text(amount: u64, fluid: bool, large: bool) -> String {
     let width = if large { 3 } else { 4 };
-    if entry.fluid.is_some() { readable_units(entry.amount as f64 / 1000.0, width) } else { readable(entry.amount, width) }
+    if fluid { readable_units(amount as f64 / 1000.0, width) } else { readable(amount, width) }
+}
+
+/// `formatAmount(amount, SLOT)`, as tables print it.
+pub(super) fn slot_text(amount: u64, fluid: bool) -> String {
+    amount_text(amount, fluid, false)
 }
 
 fn parse_view(data: &[u8]) -> Option<(i64, RepoView)> {

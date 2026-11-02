@@ -15,7 +15,7 @@ try {
   await fixture.command(`item replace block ${chest} container.0 with ae2:item_storage_cell_1k[ae2:storage_cell_inv=[{"#t":"ae2:i",id:"minecraft:iron_ingot","#":3L}]]`);
   await until(()=>fixture.ae(`grid status ${chest}`),s=>s.online&&s.powered,'powered ME Chest',30000);
   await fixture.command('clear @s');await fixture.command('gamemode survival @s');await fixture.replace('hotbar.0','minecraft:gold_ingot',2);await fixture.replace('hotbar.8','minecraft:stick');
-  await fixture.select(8,'minecraft:stick');await fixture.command(`tp @s ${x+1.5} ${y} ${z+2.5}`);await fixture.raw(`interact ${chest} south`);
+  await fixture.select(8,'minecraft:stick');await fixture.command(`tp @s ${x+1.5} ${y} ${z+2.5}`);await fixture.raw(`interact ${chest} up`);
   await until(()=>fixture.raw('screen'),s=>entry(s,'minecraft:iron_ingot')&&!slot(s,310)?.item,'terminal with an empty repository slot',30000);
   await fixture.raw('click-slot 0');await fixture.command(`data get block ${chest}`);
   await until(()=>fixture.raw('inventory'),s=>s.carried?.item==='minecraft:gold_ingot'&&s.carried.count===2,'physical player pickup processed');

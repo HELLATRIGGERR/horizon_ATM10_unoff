@@ -16,17 +16,21 @@ struct BusDrag {
     carried: ItemStack,
 }
 pub(super) struct GuestBus {
-    window: i32,
-    state: i32,
-    pos: Pos,
-    face: u8,
+    pub(super) window: i32,
+    pub(super) state: i32,
+    pub(super) pos: Pos,
+    pub(super) face: u8,
     page: usize,
-    dim: String,
+    pub(super) dim: String,
+    /// The part's priority tab is open.
+    pub(super) priority_edit: Option<super::ae2_terminal::PriorityEdit>,
+    /// The `ae2:part_view` the client has.
+    last_view: Vec<u8>,
     signature: Tag,
     menu: Menu,
     drag: Option<BusDrag>,
     fake_revisions: std::collections::VecDeque<(i32,usize,usize)>,
-    owner_identity: (u64,[i32;4]),
+    pub(super) owner_identity: (u64,[i32;4]),
     emitter_identity: Option<(u64,[i32;4])>,
     emitter_edit: Option<String>,
     energy_edit: Option<EnergyEdit>,
@@ -233,7 +237,7 @@ impl Game<'_> {
             Some(EnergyEdit{token:0,text})
         }else{self.ae2_local_energy=None;None};
         self.container=Some(pos);self.ae2_local_bus=Some(GuestBus{
-            window:0,state:0,pos,face,page:0,dim:self.dim.id().into(),signature,
+            window:0,state:0,pos,face,page:0,dim:self.dim.id().into(),priority_edit:None,last_view:Vec::new(),signature,
             menu:if emitter {emitter_session_menu(&data)}else{Menu::new(Kind::Chest(6))},drag:None,fake_revisions:Default::default(),
             owner_identity,emitter_identity:emitter.then_some(owner_identity),emitter_edit:None,energy_edit,
         });
@@ -309,10 +313,10 @@ impl Game<'_> {
         let emitter=energy || field(&data,"id").as_deref()==Some("ae2:level_emitter");
         let Some(owner_identity)=self.bus_ui_identity(pos,&data) else{return false};
         let emitter_identity=if emitter {Some(owner_identity)}else{None};
-        let energy_edit=if energy {
-            let Ok(state)=super::ae2_emitter::energy_emitter_read(&data) else{return false};
+        let energy_edit=if emitter {
+            let Some(text)=emitter_entry_text(&data) else{return false};
             static NEXT_ENERGY_EDITOR:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(1);
-            Some(EnergyEdit{token:NEXT_ENERGY_EDITOR.fetch_add(1,std::sync::atomic::Ordering::Relaxed),text:energy_entry_text(state.threshold)})
+            Some(EnergyEdit{token:NEXT_ENERGY_EDITOR.fetch_add(1,std::sync::atomic::Ordering::Relaxed),text})
         }else{None};
         self.lan_ae2_bus_closed(host, conn, None);
         self.lan_ae2_network_tool_closed(host, conn, None);
@@ -342,6 +346,8 @@ impl Game<'_> {
             face,
             page: 0,
             dim: self.dim.id().into(),
+            priority_edit: None,
+            last_view: Vec::new(),
             signature,
             menu: if emitter {emitter_session_menu(&data)}else{Menu::new(Kind::Chest(6))},
             drag: None,
@@ -424,7 +430,125 @@ impl Game<'_> {
         }
         Some(items)
     }
-    fn lan_send_ae2_bus(&mut self, host: &mut LanHost, conn: u32) {
+    /// What the client sees of the open part: its menu, or the priority
+    /// editor in front of it, and the part screen's view.
+    pub(super) fn lan_send_ae2_bus(&mut self, host: &mut LanHost, conn: u32) {
+        if host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).is_some_and(|s|s.priority_edit.is_some()) {
+            self.lan_send_priority(host,conn);
+            return;
+        }
+        self.lan_send_ae2_bus_menu(host,conn);
+        self.lan_send_part_view(host,conn);
+    }
+    /// `ae2:part_view`, when it differs from what the client has.
+    fn lan_send_part_view(&mut self, host: &mut LanHost, conn: u32) {
+        let Some((pos,face,window))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).map(|s|(s.pos,s.face,s.window)) else{return};
+        let Some(data)=self.bus_ui_read(pos,face) else{return};
+        let Some(view)=self.ae2_part_view_of(window,pos,face,&data) else{return};
+        let Ok(bytes)=serde_json::to_vec(&view) else{return};
+        let Some(session)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()) else{return};
+        if session.last_view==bytes {return;}
+        session.last_view=bytes.clone();
+        host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:part_view".into(),data:bytes}));
+    }
+    fn ae2_part_view_of(&self,window:i32,pos:Pos,face:u8,data:&Compound)->Option<super::ae2_part_screens::PartView> {
+        let kind=field(data,"id")?;
+        let mut view=super::ae2_part_screens::PartView{window,kind:kind.clone(),..Default::default()};
+        match kind.as_str() {
+            "ae2:level_emitter" => {
+                let state=super::ae2_emitter::emitter_read(data).ok()?;
+                view.upgrades=1;
+                view.low=state.low;
+                view.craft_via_redstone=state.craft_via_redstone;
+                view.crafting_card=emitter_card(&state,"ae2:crafting_card");
+                view.fuzzy_card=emitter_card(&state,"ae2:fuzzy_card");
+                view.fuzzy=state.fuzzy_mode.clone();
+                view.fluid=matches!(state.filter,Some(super::ae2_emitter::EmitterFilter::Fluid(_)));
+            }
+            "ae2:energy_level_emitter" => {
+                view.low=super::ae2_emitter::energy_emitter_read(data).ok()?.low;
+            }
+            _ => {
+                let state=super::ae2_buses::bus_state(data).ok()?;
+                view.config=state.config.iter().take(super::ae2_part_screens::CONFIG_PLACES).map(|key|{
+                    let Some(key)=key.as_ref() else{return String::new()};
+                    let key=ae2_cell_core::ItemKey::from(key);
+                    let stack=super::ae2_lab::prototype(&key).ok().or_else(||super::ae2_fluids::fluid_bucket(&key.item_id).map(|id|ItemStack::new(id,1)));
+                    stack.map_or_else(String::new,|stack|horizon_client::item_data::canon_stack(Some(&stack)))
+                }).collect();
+                view.enabled=state.slots();
+                view.upgrades=5;
+                view.redstone=format!("{:?}",state.redstone);
+                view.schedule=format!("{:?}",state.schedule);
+                view.fuzzy=field(data,"fuzzy_mode").unwrap_or_else(||"ignore_all".into());
+                view.access=field(data,"access").unwrap_or_else(||"read_write".into());
+                view.filter_on_extract=!matches!(data.get(&"filter_on_extract".into()),Some(Tag::Byte(0)));
+                view.storage_filter=field(data,"storage_filter").unwrap_or_else(||"extractable_only".into());
+                view.craft_only=matches!(data.get(&"craft_only".into()),Some(Tag::Byte(1)));
+                view.item_entity=matches!(data.get(&"formation_entity".into()),Some(Tag::Byte(1)));
+                let cards=super::ae2_buses::bus_upgrade_slots(data).unwrap_or_default();
+                let has=|id:&str|cards.iter().flatten().any(|card|card.item.as_ref()==id);
+                view.fuzzy_card=has("ae2:fuzzy_card");
+                view.redstone_card=has("ae2:redstone_card");
+                view.crafting_card=has("ae2:crafting_card");
+                view.key_types=super::ae2_buses::bus_key_types(data);
+                if kind=="ae2:storage_bus" {view.connected=self.ae2_part_connected(pos,face);}
+            }
+        }
+        Some(view)
+    }
+    /// `getConnectedToDescription`: the block entity's block the bus faces.
+    fn ae2_part_connected(&self,pos:Pos,face:u8)->Option<String> {
+        let [dx,dy,dz]=[[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]].get(face as usize).copied()?;
+        let at=(pos.0+dx,pos.1+dy,pos.2+dz);
+        self.world.block_entities.get(&at)?;
+        Some(self.res.facts().get(self.world.block(at.0,at.1,at.2)).name.to_string())
+    }
+    pub(super) fn ae2_part_priority(&self,pos:Pos,face:u8,identity:(u64,[i32;4]))->Option<i32> {
+        let data=self.bus_ui_read(pos,face)?;
+        if self.bus_ui_identity(pos,&data)!=Some(identity) {return None;}
+        if !matches!(field(&data,"id").as_deref(),Some("ae2:storage_bus"|"ae2:formation_plane")) {return None;}
+        Some(match data.get(&"priority".into()) {Some(Tag::Int(n))=>*n,_=>0})
+    }
+    pub(super) fn ae2_part_set_priority(&mut self,pos:Pos,face:u8,identity:(u64,[i32;4]),value:i32)->bool {
+        let Some(mut data)=self.bus_ui_read(pos,face) else{return false};
+        if self.bus_ui_identity(pos,&data)!=Some(identity) {return false;}
+        data.insert("priority".into(),Tag::Int(value));
+        self.bus_ui_store(pos,face,data)
+    }
+    /// A part screen's press on what the placeholder menu has no place for.
+    fn ae2_part_place(&mut self,session:&mut GuestBus,mut data:Compound,place:usize,button:i32) {
+        use super::ae2_part_screens::{CLEAR_PLACE,CONFIG_PLACE,CONFIG_PLACES,KEY_TYPES_PLACE,PARTITION_PLACE};
+        let kind=field(&data,"id").unwrap_or_default();
+        if (CONFIG_PLACE..CONFIG_PLACE+CONFIG_PLACES).contains(&place) {
+            let (index,page)=(place-CONFIG_PLACE,session.page);
+            session.page=index/36;
+            self.ae2_bus_action(session,data,index%36,button,Input::Pickup);
+            session.page=page;
+            return;
+        }
+        let Ok(mut state)=super::ae2_buses::bus_state(&data) else{return};
+        match place {
+            CLEAR_PLACE if kind=="ae2:storage_bus" => state.config.iter_mut().for_each(|key|*key=None),
+            PARTITION_PLACE if kind=="ae2:storage_bus" => {
+                state.config.iter_mut().for_each(|key|*key=None);
+                let keys=self.ae2_bus_adjacent_keys(session.pos,session.face);
+                let room=state.slots();
+                for (slot,key) in state.config.iter_mut().take(room).zip(keys) {*slot=Some(key);}
+            }
+            p if kind=="ae2:import_bus" && (KEY_TYPES_PLACE..KEY_TYPES_PLACE+2).contains(&p) => {
+                let next=super::ae2_buses::toggle_key_type(super::ae2_buses::bus_key_types(&data),p-KEY_TYPES_PLACE);
+                data.insert("key_types".into(),Tag::Byte(i8::from(next[0])|i8::from(next[1])<<1));
+            }
+            _ => return,
+        }
+        if let Ok(encoded)=serde_json::to_string(&state) {
+            data.insert("state_json".into(),Tag::String(encoded.as_str().into()));
+            data.insert("bus_next_tick".into(),Tag::Long(0));
+            self.bus_ui_store(session.pos,session.face,data);
+        }
+    }
+    fn lan_send_ae2_bus_menu(&mut self, host: &mut LanHost, conn: u32) {
         let Some((pos, face, window, page)) = host
             .play
             .get(&conn)
@@ -895,6 +1019,11 @@ impl Game<'_> {
             host.play.entry(conn).or_default().ae2_bus=Some(session);
             self.lan_ae2_bus_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:p.container}));return true;
         }
+        // The editor changes the part's data itself: before the check for others' changes.
+        if session.priority_edit.is_some() {
+            host.play.entry(conn).or_default().ae2_bus = Some(session);
+            return self.lan_ae2_priority_click(host, conn, p);
+        }
         if stable(&data).as_ref() != Some(&session.signature) {
             if session.emitter_identity.is_some() {session.menu=emitter_session_menu(&data);session.emitter_edit=None;}
             if let Some((token,text))=reset_energy_edit(&mut session,&data) {Self::energy_payload(host,conn,session.window,token,"set",&text);}
@@ -903,9 +1032,24 @@ impl Game<'_> {
             self.lan_send_ae2_bus(host, conn);
             return true;
         }
+        if p.slot as usize==super::ae2_part_screens::PRIORITY_PLACE {
+            let (window,pos,face,identity)=(session.window,session.pos,session.face,session.owner_identity);
+            host.play.entry(conn).or_default().ae2_bus = Some(session);
+            if !self.lan_part_priority_open(host,conn,window,pos,face,identity) {self.lan_send_ae2_bus(host,conn);}
+            return true;
+        }
+        if (super::ae2_part_screens::CONFIG_PLACE..300).contains(&(p.slot as usize)) && session.emitter_identity.is_none() {
+            let (place,button)=(p.slot as usize,i32::from(p.button));
+            self.as_guest(host,conn,|game|game.ae2_part_place(&mut session,data,place,button));
+            host.play.entry(conn).or_default().ae2_bus = Some(session);
+            self.lan_send_ae2_bus(host,conn);
+            return true;
+        }
         if session.emitter_identity.is_some() {
             if field(&data,"id").as_deref()==Some("ae2:energy_level_emitter") {return self.lan_ae2_energy_emitter_click(host,conn,gi,p,session,data);}
-            return self.lan_ae2_emitter_click(host,conn,gi,p,session,data);
+            let handled=self.lan_ae2_emitter_click(host,conn,gi,p,session,data);
+            if matches!(p.slot,0|1|45..=48) {self.lan_ae2_emitter_echo(host,conn);}
+            return handled;
         }
         let slot = p.slot as usize;
         let raw_input=super::lan_crafting::input(p.input);
@@ -989,6 +1133,7 @@ impl Game<'_> {
                     self.lan_send_ae2_bus(host,conn);
                 }
             }
+            if host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).is_some_and(|s|s.priority_edit.is_none()) {self.lan_send_part_view(host,conn);}
         }
     }
 }
@@ -1137,6 +1282,20 @@ impl Game<'_> {
             self.emitter_ui_provider_changed(session.pos,session.face);
         }
         true
+    }
+    /// The field shows what a step or a new filter left: text being typed
+    /// stays as it is, valid or not, until then.
+    fn lan_ae2_emitter_echo(&mut self,host:&mut LanHost,conn:u32) {
+        let Some((pos,face,window))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).map(|s|(s.pos,s.face,s.window)) else{return};
+        let Some(data)=self.bus_ui_read(pos,face) else{return};
+        let Ok(state)=super::ae2_emitter::emitter_read(&data) else{return};
+        let unit=if matches!(state.filter,Some(super::ae2_emitter::EmitterFilter::Fluid(_))) {1000} else {1};
+        let Some(edit)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()).and_then(|s|s.energy_edit.as_mut()) else{return};
+        if super::ae2_number_entry::number_value(&edit.text,unit,0,i64::MAX,'.')!=Some(state.threshold) {
+            edit.text=emitter_entry_text(&data).unwrap_or_default();
+            let (token,text)=(edit.token,edit.text.clone());
+            Self::energy_payload(host,conn,window,token,"set",&text);
+        }
     }
     fn lan_ae2_emitter_click(&mut self,host:&mut LanHost,conn:u32,gi:usize,p:&play::ContainerClick,
         mut session:GuestBus,data:Compound)->bool {
@@ -1299,9 +1458,21 @@ pub(super) fn energy_confirmable(text:&str)->bool {
     super::ae2_number_entry::number_value(text,1,0,i64::MAX,'.').is_some()
 }
 fn energy_entry_text(value:i64)->String {value.max(0).to_string().chars().take(16).collect()}
+/// The number entry's text for an emitter's threshold: a fluid's is in buckets.
+fn emitter_entry_text(data:&Compound)->Option<String> {
+    if field(data,"id").as_deref()==Some("ae2:energy_level_emitter") {
+        return Some(energy_entry_text(super::ae2_emitter::energy_emitter_read(data).ok()?.threshold));
+    }
+    let state=super::ae2_emitter::emitter_read(data).ok()?;
+    if matches!(state.filter,Some(super::ae2_emitter::EmitterFilter::Fluid(_))) {
+        let value=format!("{}.{:03}",state.threshold/1000,state.threshold%1000);
+        return Some(value.trim_end_matches('0').trim_end_matches('.').to_owned());
+    }
+    Some(energy_entry_text(state.threshold))
+}
 fn reset_energy_edit(session:&mut GuestBus,data:&Compound)->Option<(u64,String)> {
-    let state=super::ae2_emitter::energy_emitter_read(data).ok()?;let edit=session.energy_edit.as_mut()?;
-    edit.text=energy_entry_text(state.threshold);Some((edit.token,edit.text.clone()))
+    let text=emitter_entry_text(data)?;let edit=session.energy_edit.as_mut()?;
+    edit.text=text;Some((edit.token,edit.text.clone()))
 }
 impl Game<'_> {
     fn energy_payload(host:&mut LanHost,conn:u32,window:i32,token:u64,mode:&str,text:&str) {
@@ -1319,12 +1490,26 @@ impl Game<'_> {
         let valid=host.hub.here(&host.hub.guests[gi]) && !host.hub.guests[gi].spectator()
             && host.hub.guests[gi].within_block_range([session.pos.0,session.pos.1,session.pos.2],4.0)
             && session.dim==self.dim.id() && data.as_ref().is_some_and(|data|
-                field(data,"id").as_deref()==Some("ae2:energy_level_emitter") && self.bus_ui_identity(session.pos,data)==session.emitter_identity);
+                matches!(field(data,"id").as_deref(),Some("ae2:energy_level_emitter"|"ae2:level_emitter")) && self.bus_ui_identity(session.pos,data)==session.emitter_identity);
         if !valid {
             let window=session.window;host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_ae2_bus_closed(host,conn,None);
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;
         }
-        let mut data=data.unwrap();let Ok(mut state)=super::ae2_emitter::energy_emitter_read(&data) else {
+        let mut data=data.unwrap();
+        if field(&data,"id").as_deref()==Some("ae2:level_emitter") {
+            let text=text.chars().take(19).collect::<String>();
+            if stable(&data).as_ref()==Some(&session.signature) && let Ok(mut state)=super::ae2_emitter::emitter_read(&data) {
+                let unit=if matches!(state.filter,Some(super::ae2_emitter::EmitterFilter::Fluid(_))) {1000} else {1};
+                let open=!emitter_card(&state,"ae2:crafting_card");
+                if let Some(next)=super::ae2_number_entry::number_value(&text,unit,0,i64::MAX,'.').filter(|next|open && *next!=state.threshold) {
+                    state.threshold=next;
+                    if super::ae2_emitter::emitter_store(&mut data,&state).is_ok() {self.bus_ui_store(session.pos,session.face,data);}
+                }
+                session.energy_edit.as_mut().unwrap().text=text;
+            }
+            host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_send_ae2_bus(host,conn);return true;
+        }
+        let Ok(mut state)=super::ae2_emitter::energy_emitter_read(&data) else {
             let window=session.window;host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_ae2_bus_closed(host,conn,None);
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;
         };
@@ -1360,6 +1545,23 @@ mod emitter_menu_tests {
         assert!(!bus_fake_revision_matches(&history,4,0,9));
     }
     use super::*;
+    #[test]
+    fn an_emitter_field_shows_a_fluid_threshold_in_buckets() {
+        use super::{Compound, Tag, emitter_entry_text};
+        let mut part = Compound::new();
+        part.insert("id".into(), Tag::String("ae2:level_emitter".into()));
+        let mut state = super::super::ae2_emitter::emitter_read(&part).unwrap();
+        state.threshold = 1500;
+        super::super::ae2_emitter::emitter_store(&mut part, &state).unwrap();
+        assert_eq!(emitter_entry_text(&part).as_deref(), Some("1500"));
+        state.filter = Some(super::super::ae2_emitter::EmitterFilter::Fluid(super::super::ae2_fluids::fluid_key("minecraft:water")));
+        super::super::ae2_emitter::emitter_store(&mut part, &state).unwrap();
+        assert_eq!(emitter_entry_text(&part).as_deref(), Some("1.5"));
+        state.threshold = 2000;
+        super::super::ae2_emitter::emitter_store(&mut part, &state).unwrap();
+        assert_eq!(emitter_entry_text(&part).as_deref(), Some("2"));
+    }
+
     #[test]
     fn number_entry_energy_wire_and_limits() {
         let old=energy_transport_value(7,"=2^3^4");

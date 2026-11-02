@@ -63,6 +63,16 @@ mod ae2_priority_screen;
 mod ae2_terminal_screen;
 #[cfg(feature = "ae2-lab")]
 mod ae2_terminal_settings;
+#[cfg(feature = "ae2-lab")]
+mod ae2_widgets;
+#[cfg(feature = "ae2-lab")]
+mod ae2_craft_screens;
+#[cfg(feature = "ae2-lab")]
+mod ae2_part_screens;
+#[cfg(feature = "ae2-lab")]
+mod ae2_status_screens;
+#[cfg(feature = "ae2-lab")]
+mod ae2_workbench_screen;
 mod screen_extras;
 mod energy_extras;
 #[cfg(feature = "ae2-lab")]
@@ -2772,6 +2782,8 @@ struct Game<'a> {
     ae2_local_terminal: Option<ae2_terminal::LocalTerminalSession>,
     #[cfg(feature = "ae2-lab")]
     ae2_local_craft: Option<ae2_craft_confirm::LocalCraftConfirm>,
+    #[cfg(feature = "ae2-lab")]
+    ae2_craft_ui: ae2_craft_screens::CraftUi,
     #[cfg(feature = "ae2-lab")]
     ae2_local_craft_allowance: Option<u64>,
     #[cfg(feature = "ae2-lab")]
@@ -9207,6 +9219,8 @@ impl Game<'_> {
         #[cfg(feature="ae2-lab")]
         if self.ae2_priority_ui() {let (w,h)=self.ae2_priority_size();return batch.centered_origin(w,h);}
         #[cfg(feature="ae2-lab")]
+        if let Some((w,h))=self.ae2_part_size() {return batch.centered_origin(w,h);}
+        #[cfg(feature="ae2-lab")]
         if self.ae2_craft_screen()==1 {return batch.centered_origin(176.0,107.0);}
         #[cfg(feature="ae2-lab")]
         if self.ae2_craft_screen()==2 {return batch.centered_origin(238.0,206.0);}
@@ -9242,9 +9256,11 @@ impl Game<'_> {
             return slots;
         }
         #[cfg(feature="ae2-lab")]
+        if self.ae2_stock_ui() {return (300..=311).collect();}
+        #[cfg(feature="ae2-lab")]
         if self.ae2_priority_ui() {return (300..=308).collect();}
         #[cfg(feature="ae2-lab")]
-        if self.ae2_craft_screen()!=0 {return (300..=320).collect();}
+        if self.ae2_craft_screen()!=0 {return (300..=321).collect();}
         #[cfg(feature="ae2-lab")]
         if self.ae2_network_status_screen() {return (303..311).chain([325,326]).collect();}
         #[cfg(feature="ae2-lab")]
@@ -9407,19 +9423,15 @@ impl Game<'_> {
         #[cfg(feature="ae2-lab")]
         if self.ae2_priority_ui() {return (-1000.0,-1000.0);}
         #[cfg(feature="ae2-lab")]
+        if let Some(place)=self.ae2_part_slot_position(i) {return place;}
+        #[cfg(feature="ae2-lab")]
         if self.ae2_craft_screen()!=0 {
-            return match (self.ae2_craft_screen(),i) {
-                (1,300)=>(23.0,53.0),(1,302)=>(120.0,53.0),(1,303)=>(152.0,0.0),
-                (2,300)=>(12.0,22.0),(2,302)=>(162.0,181.0),(2,303)=>(6.0,181.0),
-                (2,304)=>(19.0,138.0),
-                (2,305..=316)=>(12.0+((i-305)%3) as f32*68.0,43.0+((i-305)/3) as f32*18.0),
-                (2,318)=>(218.0,19.0),(2,319)=>(218.0,117.0),
-                (3,300)=>(-18.0,18.0),(3,302)=>(103.0,140.0),(3,303)=>(163.0,140.0),(3,304)=>(8.0,140.0),
-                (3,305..=316)=>(12.0+((i-305)%3) as f32*68.0,25.0+((i-305)/3) as f32*18.0),
-                (3,318)=>(218.0,19.0),(3,319)=>(218.0,117.0),(3,320)=>(8.0,164.0),
-                _=>(-1000.0,-1000.0),
-            };
+            return self.ae2_craft_slot_position(i);
         }
+        #[cfg(feature="ae2-lab")]
+        if let Some(place)=self.ae2_anchor_slot_position(i) {return place;}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_status_open() {return (-1000.0,-1000.0);}
         #[cfg(feature="ae2-lab")]
         if self.ae2_anchor_screen() { return if i==300 {(-18.0,18.0)} else {(-1000.0,-1000.0)}; }
         #[cfg(feature="ae2-lab")]
@@ -9537,30 +9549,7 @@ impl Game<'_> {
         if self.ae2_priority_ui() {return self.ae2_priority_entry_at([x-ox,y-oy]).map(|entry|300+entry);}
         #[cfg(feature="ae2-lab")]
         if self.ae2_craft_screen()!=0 {
-            let hit=|sx:f32,sy:f32,w:f32,h:f32|x>=ox+sx && x<ox+sx+w && y>=oy+sy && y<oy+sy+h;
-            if self.ae2_craft_screen()==1 {
-                if hit(120.0,51.0,38.0,20.0) {return Some(302);}
-                if hit(152.0,0.0,20.0,20.0) {return Some(303);}
-            } else if self.ae2_craft_screen()==3 {
-                if hit(-18.0,18.0,16.0,16.0) {return Some(300);}
-                if hit(8.0,164.0,80.0,20.0) {return Some(320);}
-                if hit(103.0,140.0,50.0,20.0) {return Some(302);}
-                if hit(163.0,140.0,50.0,20.0) {return Some(303);}
-                if hit(8.0,140.0,80.0,20.0) {return Some(304);}
-                if hit(218.0,19.0,16.0,16.0) {return Some(318);}
-                if hit(218.0,117.0,16.0,16.0) {return Some(319);}
-                for i in 0..12 {if hit(12.0+(i%3) as f32*68.0,25.0+(i/3) as f32*18.0,68.0,18.0) {return Some(305+i);}}
-            } else {
-                if hit(162.0,181.0,50.0,20.0) {return Some(302);}
-                if hit(6.0,181.0,50.0,20.0) {return Some(303);}
-                if hit(19.0,138.0,180.0,20.0) {return Some(304);}
-                if hit(218.0,19.0,16.0,16.0) {return Some(318);}
-                if hit(218.0,117.0,16.0,16.0) {return Some(319);}
-                for i in 0..12 {
-                    if hit(12.0+(i%3) as f32*68.0,43.0+(i/3) as f32*18.0,68.0,18.0) {return Some(305+i);}
-                }
-            }
-            return None;
+            return self.ae2_craft_entry_at([x-ox,y-oy]);
         }
         self.slots().into_iter().find(|&i| {
             let (sx, sy) = self.slot_position(i);
@@ -9698,9 +9687,11 @@ impl Game<'_> {
             #[cfg(feature="ae2-lab")]
             if self.ae2_network_status_screen() || self.ae2_anchor_screen() || self.ae2_priority_ui() {continue;}
             #[cfg(feature="ae2-lab")]
+            if self.ae2_part_open() && self.slot_position(i).0 < -999.0 {continue;}
+            #[cfg(feature="ae2-lab")]
             if self.ae2_pattern_access_screen() && !(300..=353).contains(&i) && i>=300 {continue;}
             #[cfg(feature="ae2-lab")]
-            if self.ae2_craft_screen()!=0 && ((self.ae2_craft_screen()==3 && !(305..=316).contains(&i)) || (self.ae2_craft_screen()!=3 && i!=300)) {continue;}
+            if self.ae2_craft_screen()!=0 && (self.ae2_craft_screen()!=1 || i!=300) {continue;}
             #[cfg(feature="ae2-lab")]
             if self.ae2_crafting_terminal_screen() && matches!(i,337|338|345|346|347|349|350|351|353) {
                 continue;
@@ -10820,10 +10811,22 @@ impl Game<'_> {
                 self.inv_clicks.skip_release();
                 return;
             }
+            if self.ae2_craft_press([self.cursor.0-ox,self.cursor.1-oy], right) {
+                self.inv_clicks.skip_release();
+                return;
+            }
+            if self.ae2_part_press([self.cursor.0-ox,self.cursor.1-oy], right) {
+                self.inv_clicks.skip_release();
+                return;
+            }
+            if self.ae2_status_press([self.cursor.0-ox,self.cursor.1-oy], right) {
+                self.inv_clicks.skip_release();
+                return;
+            }
             if !right && self.ae2_pattern_access_screen() {
                 let (x,y)=(self.cursor.0-ox,self.cursor.1-oy);
-                let action=if (175.0..191.0).contains(&x) && (18.0..34.0).contains(&y) {Some(-10)}
-                    else if (175.0..191.0).contains(&x) && (107.0..123.0).contains(&y) {Some(-11)}
+                let action=if (175.0..191.0).contains(&x) && (18.0..71.0).contains(&y) {Some(-10)}
+                    else if (175.0..191.0).contains(&x) && (71.0..124.0).contains(&y) {Some(-11)}
                     else if (-18.0..-2.0).contains(&x) && (18.0..34.0).contains(&y) {Some(-12)} else {None};
                 if action.is_some_and(|action|self.remote_pattern_access_control(action)) {self.inv_clicks.skip_release();return;}
             }
@@ -11095,10 +11098,9 @@ impl Game<'_> {
         if self.ae2_anchor_screen() {return Some(self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+100.0);}
         if self.ae2_pattern_access_screen() {return Some(self.cursor.0<ox-18.0 || self.cursor.0>=ox+195.0 || self.cursor.1<oy || self.cursor.1>=oy+224.0);}
         if self.ae2_priority_ui() {return Some(self.ae2_priority_outside([self.cursor.0-ox,self.cursor.1-oy]));}
+        if let Some(outside)=self.ae2_part_outside([self.cursor.0-ox,self.cursor.1-oy]) {return Some(outside);}
         if self.ae2_craft_screen()!=0 {
-            let (w,h)=match self.ae2_craft_screen(){1=>(176.0,107.0),3=>(238.0,185.0),_=>(238.0,206.0)};
-            let left=if self.ae2_craft_screen()==3 {ox-18.0} else {ox};
-            return Some(self.cursor.0<left || self.cursor.0>=ox+w || self.cursor.1<oy || self.cursor.1>=oy+h);
+            return Some(self.ae2_craft_outside([self.cursor.0-ox,self.cursor.1-oy]));
         }
         None
     }
@@ -11169,6 +11171,12 @@ impl Game<'_> {
         use horizon_client::container_screen::{Release, Target};
         #[cfg(feature="ae2-lab")]
         self.ae2_term_release();
+        #[cfg(feature="ae2-lab")]
+        self.ae2_craft_release();
+        #[cfg(feature="ae2-lab")]
+        self.ae2_part_release();
+        #[cfg(feature="ae2-lab")]
+        self.ae2_status_release();
         self.tweak_release();
         let (slot, outside) = self.inventory_target();
         let dragged = self.inv_drag.as_ref().is_some_and(|(_, s)| !s.is_empty());
@@ -17996,6 +18004,11 @@ impl Game<'_> {
                         #[cfg(feature = "ae2-lab")]
                         if self.screen == Screen::Inventory {
                             self.ae2_term_drag();
+                            self.ae2_craft_drag();
+                            #[cfg(feature = "ae2-lab")]
+                            self.ae2_part_drag();
+                            #[cfg(feature = "ae2-lab")]
+                            self.ae2_status_drag();
                         }
                         if let Some(title) = &mut self.title {
                             title.drag(self.cursor, (b.width, b.height));
@@ -18133,8 +18146,7 @@ impl Game<'_> {
                         self.creative_screen.wheel(f64::from(d), &self.pack.names);
                     }
                     #[cfg(feature="ae2-lab")]
-                    let craft_report_scroll=self.screen==Screen::Inventory && d!=0.0 && self.ae2_craft_screen()==2
-                        && self.menu_click(Some(if d>0.0 {318} else {319}),0,horizon_client::menu::Input::Pickup);
+                    let craft_report_scroll=self.screen==Screen::Inventory && d!=0.0 && (self.ae2_craft_wheel(d) || self.ae2_status_wheel(d));
                     #[cfg(not(feature="ae2-lab"))]
                     let craft_report_scroll=false;
                     #[cfg(feature="ae2-lab")]
@@ -18522,6 +18534,15 @@ impl Game<'_> {
                     } else {
                         self.creative_search_edit(event.text.as_deref());
                     }
+                }
+                #[cfg(feature = "ae2-lab")]
+                WindowEvent::KeyboardInput { event, .. }
+                    if self.screen == Screen::Inventory
+                        && self.ae2_craft_screen() == 2
+                        && event.state == ElementState::Pressed
+                        && matches!(event.physical_key, PhysicalKey::Code(KeyCode::Enter | KeyCode::NumpadEnter)) =>
+                {
+                    self.ae2_craft_enter();
                 }
                 #[cfg(feature = "ae2-lab")]
                 WindowEvent::KeyboardInput { event, .. }
@@ -19323,6 +19344,8 @@ impl<'a> Game<'a> {
             ae2_local_terminal: None,
             #[cfg(feature = "ae2-lab")]
             ae2_local_craft: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_craft_ui: Default::default(),
             #[cfg(feature = "ae2-lab")]
             ae2_local_craft_allowance: None,
             #[cfg(feature = "ae2-lab")]

@@ -117,6 +117,10 @@ impl Game<'_> {
                 if self.ae2_term_hidden_click(slot, (sx, sy), flag("right"), flag("shift")) {
                     return ok();
                 }
+                #[cfg(feature = "ae2-lab")]
+                if self.ae2_hidden_click(slot, flag("right"), flag("shift")) {
+                    return ok();
+                }
                 self.click_at(ox + sx + 8.0, oy + sy + 8.0, flag("right"), flag("shift"));
                 ok()
             }

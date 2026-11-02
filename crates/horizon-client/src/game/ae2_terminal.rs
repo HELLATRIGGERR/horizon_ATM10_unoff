@@ -277,7 +277,7 @@ struct ChestTerminalSettings {
 }
 
 #[derive(Clone, Debug)]
-struct PriorityEdit { value: i32, text: String, token:u64 }
+pub(super) struct PriorityEdit { value: i32, text: String, token:u64 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct InterfaceMenuOwner { host:u64, part:Option<[i32;4]> }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -5105,6 +5105,8 @@ pub(super) struct LocalTerminalSession {
 #[derive(Clone,Copy,Debug)]
 enum PriorityTarget {
     Chest { pos:(i32,i32,i32), identity:u64 },
+    /// A storage bus's or formation plane's priority, in its part data.
+    Part { pos:(i32,i32,i32), face:u8, identity:(u64,[i32;4]) },
     Drive { pos:(i32,i32,i32), identity:u64 },
     Provider { pos:(i32,i32,i32), part:Option<super::ae2_parts::PartAddress>, identity:ProviderMenuOwner },
     /// `InterfaceLogicHost`'s priority (`IPriorityHost`), kept in the machine's config.
@@ -5515,6 +5517,7 @@ impl Game<'_> {
                 if self.chest_terminal_read(pos)?.0!=identity {return None;}
                 self.ae2_storage_priority(self.ae2_local_address(pos)?).ok()
             },
+            PriorityTarget::Part{pos,face,identity} => self.ae2_part_priority(pos,face,identity),
             PriorityTarget::Drive{pos,identity} => {
                 if !self.ae2_drive_window_valid(pos,Some(identity)){return None;}
                 self.ae2_storage_priority(self.ae2_local_address(pos)?).ok()
@@ -5540,6 +5543,7 @@ impl Game<'_> {
         if old==value{return true;}
         use horizon_client::containers::BlockEntity;
         match target {
+            PriorityTarget::Part{pos,face,identity} => self.ae2_part_set_priority(pos,face,identity,value),
             PriorityTarget::Chest{pos,..}|PriorityTarget::Drive{pos,..} => self.ae2_set_storage_priority_local(pos,value).is_ok(),
             PriorityTarget::Provider{pos,part,identity:_} => {
                 if let Some(part)=part {
@@ -5567,6 +5571,11 @@ impl Game<'_> {
     fn priority_session(&self,host:&super::lan::LanHost,conn:u32)->Option<(i32,PriorityTarget,PriorityEdit)> {
         let player=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g) && !g.spectator())?;
         let play=host.play.get(&conn)?;
+        if let Some(b)=play.ae2_bus.as_ref() {
+            let edit=b.priority_edit.clone()?;
+            if b.dim!=self.dim.id() || !player.within_block_range([b.pos.0,b.pos.1,b.pos.2],4.0){return None;}
+            return Some((b.window,PriorityTarget::Part{pos:b.pos,face:b.face,identity:b.owner_identity},edit));
+        }
         if let Some(t)=play.ae2_terminal.as_ref() {
             let edit=t.priority_edit.clone()?;let identity=t.chest_identity?;
             if t.owner_dim!=self.dim.id() || !player.within_block_range([t.pos.0,t.pos.1,t.pos.2],4.0){return None;}
@@ -5585,12 +5594,21 @@ impl Game<'_> {
         }
     }
     fn lan_priority_invalid(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+        if let Some(window)=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).filter(|b|b.priority_edit.is_some()).map(|b|b.window) {
+            self.lan_ae2_bus_closed(host,conn,Some(window));
+            host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
+            return;
+        }
         let window=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref().filter(|t|t.priority_edit.is_some()).map(|t|t.window)
             .or_else(||p.ae2_machine.as_ref().filter(|m|m.priority_edit.is_some()).map(|m|m.window)));
         if let Some(window)=window {
             if !self.lan_ae2_terminal_closed(host,conn,Some(window)){self.lan_ae2_machine_closed(host,conn,Some(window));}
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
         }
+    }
+    /// A part's priority tab.
+    pub(super) fn lan_part_priority_open(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,pos:(i32,i32,i32),face:u8,identity:(u64,[i32;4]))->bool {
+        self.lan_priority_open(host,conn,window,PriorityTarget::Part{pos,face,identity})
     }
     fn lan_priority_open(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,target:PriorityTarget)->bool {
         let Some(value)=self.priority_target_read(target) else{
@@ -5600,12 +5618,13 @@ impl Game<'_> {
         if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_carried_back(host,gi);}
         let token=NEXT_NUMBER_EDITOR.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
         let edit=PriorityEdit{value,text:value.to_string(),token};
-        if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.priority_edit=Some(edit.clone());}
+        if let Some(b)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()).filter(|b|b.window==window){b.priority_edit=Some(edit.clone());}
+        else if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.priority_edit=Some(edit.clone());}
         else if let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){m.priority_edit=Some(edit.clone());m.provider_return_revisions.clear();}
         else{return true}
         Self::priority_payload(host,conn,window,edit.token,"open",&edit.text);self.lan_send_priority(host,conn);true
     }
-    fn lan_send_priority(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    pub(super) fn lan_send_priority(&mut self,host:&mut super::lan::LanHost,conn:u32) {
         let Some((window,target,edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return};
         if self.priority_target_read(target).is_none(){self.lan_priority_invalid(host,conn);return;}
         let is_machine=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.window==window);
@@ -5616,7 +5635,8 @@ impl Game<'_> {
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
         let snapshot=if is_machine {match target {PriorityTarget::Drive{pos,..}=>self.ae2_owned_machine_slots(pos,None),PriorityTarget::Provider{pos,part,..}|PriorityTarget::Interface{pos,part,..}=>self.ae2_owned_machine_slots(pos,part),_=>None}}else{None};
         let chest_settings=match target {PriorityTarget::Chest{pos,identity}=>self.chest_terminal_read(pos).filter(|(current,_)|*current==identity).map(|(_,settings)|settings),_=>None};
-        let state=if is_machine {
+        let bus=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()).filter(|b|b.window==window).map(|b|{b.state=(b.state+1)&0x7fff;b.state});
+        let state=if let Some(state)=bus {state} else if is_machine {
             let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()) else{return};
             if let Some(snapshot)=snapshot {m.snapshot=snapshot;}m.state=(m.state+1)&0x7fff;m.state
         } else {
@@ -5629,7 +5649,7 @@ impl Game<'_> {
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
     fn priority_update(&mut self,host:&mut super::lan::LanHost,conn:u32,text:&str,echo:bool)->bool {
-        let active=host.play.get(&conn).is_some_and(|p|p.ae2_terminal.as_ref().is_some_and(|t|t.priority_edit.is_some()) || p.ae2_machine.as_ref().is_some_and(|m|m.priority_edit.is_some()));
+        let active=host.play.get(&conn).is_some_and(|p|p.ae2_terminal.as_ref().is_some_and(|t|t.priority_edit.is_some()) || p.ae2_machine.as_ref().is_some_and(|m|m.priority_edit.is_some()) || p.ae2_bus.as_ref().is_some_and(|b|b.priority_edit.is_some()));
         if !active{return false;}
         let Some((window,target,mut edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return true};
         let Some(actual)=self.priority_target_read(target) else{self.lan_priority_invalid(host,conn);return true};
@@ -5645,7 +5665,8 @@ impl Game<'_> {
             }
             if echo {Self::priority_payload(host,conn,window,edit.token,"set",&edit.text);}
         }
-        if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.priority_edit=Some(edit);}
+        if let Some(b)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()).filter(|b|b.window==window){b.priority_edit=Some(edit);}
+        else if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.priority_edit=Some(edit);}
         else if let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){m.priority_edit=Some(edit);}
         self.lan_send_priority(host,conn);true
     }
@@ -5657,15 +5678,21 @@ impl Game<'_> {
             return self.lan_ae2_stock_text(host,conn,value);
         }
         if !value.starts_with(PRIORITY_WIRE_PREFIX) {
-            return host.play.get(&conn).is_some_and(|p|p.ae2_terminal.as_ref().is_some_and(|t|t.priority_edit.is_some()) || p.ae2_machine.as_ref().is_some_and(|m|m.priority_edit.is_some()));
+            return host.play.get(&conn).is_some_and(|p|p.ae2_terminal.as_ref().is_some_and(|t|t.priority_edit.is_some()) || p.ae2_machine.as_ref().is_some_and(|m|m.priority_edit.is_some()) || p.ae2_bus.as_ref().is_some_and(|b|b.priority_edit.is_some()));
         }
         let Some((_,_,edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return true};
         if let Some(text)=priority_transport_for(value,edit.token) {self.priority_update(host,conn,text,false);}true
     }
-    fn lan_ae2_priority_click(&mut self,host:&mut super::lan::LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    pub(super) fn lan_ae2_priority_click(&mut self,host:&mut super::lan::LanHost,conn:u32,p:&play::ContainerClick)->bool {
         let Some((window,_,edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return true};
         let input=super::lan_crafting::input(p.input);
         if p.slot==8 && input==Input::Pickup {
+            if let Some(b)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()).filter(|b|b.window==window) {
+                b.priority_edit=None;
+                Self::priority_payload(host,conn,window,edit.token,"close","");
+                self.lan_send_ae2_bus(host,conn);
+                return true;
+            }
             if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.priority_edit=None;Self::priority_payload(host,conn,window,edit.token,"close","");self.lan_send_ae2_terminal(host,conn);}
             else if let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){m.priority_edit=None;Self::priority_payload(host,conn,window,edit.token,"close","");self.lan_send_ae2_machine(host,conn);}
         } else if (0..8).contains(&p.slot) && matches!(input,Input::Pickup|Input::QuickMove) {
@@ -5930,7 +5957,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_has_machine_menu(&self, pos: (i32, i32, i32)) -> bool {
         use horizon_client::{ae2_world::MachineKind as K, containers::BlockEntity};
-        matches!(self.world.block_entities.get(&pos),Some(BlockEntity::Ae2(m)) if matches!(m.kind,K::Drive|K::VibrationChamber|K::Inscriber|K::Interface|K::PatternProvider|K::MolecularAssembler|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|K::IoPort|K::Condenser|K::WirelessAccessPoint))
+        matches!(self.world.block_entities.get(&pos),Some(BlockEntity::Ae2(m)) if matches!(m.kind,K::Drive|K::Chest|K::VibrationChamber|K::Inscriber|K::Interface|K::PatternProvider|K::MolecularAssembler|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|K::IoPort|K::Condenser|K::WirelessAccessPoint))
     }
     fn ae2_machine_slots(&self, pos: (i32, i32, i32)) -> Option<Vec<Option<ItemStack>>> {
         use horizon_client::containers::BlockEntity;
@@ -6062,7 +6089,7 @@ impl Game<'_> {
         match m.kind {
             // AE2 cells are unstackable; splitting a multi-count cell carrying
             // content components would clone its inventory.
-            K::Drive => super::ae2_storage_devices::is_valid_storage_cell(item),
+            K::Drive|K::Chest => super::ae2_storage_devices::is_valid_storage_cell(item),
             K::CellWorkbench => super::ae2_storage_devices::is_valid_workbench_cell(item),
             K::VibrationChamber => {
                 self.res
@@ -6119,7 +6146,7 @@ impl Game<'_> {
             return false;
         }
         let Ok(provider_owner)=self.ae2_provider_menu_owner(pos,None) else{return false};
-        let drive_owner = if matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::Drive) {
+        let drive_owner = if matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::Drive|horizon_client::ae2_world::MachineKind::Chest)) {
             let Some(identity)=self.world.block_entities.incarnation(&pos) else{return false};Some(identity)
         } else {None};
         let Some(owner)=self.ae2_machine_menu_owner(pos,None) else{return false};
@@ -6449,7 +6476,7 @@ impl Game<'_> {
             }
         };
         if let Some(machine) = displayed_machine {
-            if matches!(machine.kind,horizon_client::ae2_world::MachineKind::Drive|horizon_client::ae2_world::MachineKind::PatternProvider) {
+            if matches!(machine.kind,horizon_client::ae2_world::MachineKind::Drive|horizon_client::ae2_world::MachineKind::Chest|horizon_client::ae2_world::MachineKind::PatternProvider) {
                 items[26]=Some(navigation("Priority: click to edit"));
             }
             if machine.kind == horizon_client::ae2_world::MachineKind::Inscriber {
@@ -6577,6 +6604,7 @@ impl Game<'_> {
         };
         let provider_return_snapshot=displayed_machine.as_ref().and_then(|machine|provider_return_slots(machine).ok());
         let workbench_keep=displayed_machine.as_ref().filter(|machine|machine.kind==horizon_client::ae2_world::MachineKind::CellWorkbench).map(workbench_copy_kept);
+        let workbench_view=workbench_keep.and_then(|_|self.ae2_workbench_view_of(pos,window));
         items.extend((9..36).chain(0..9).map(|i| g.inventory[i].clone()));
         let carried = g.carried.clone();
         Self::lan_ae2_fake_slots(host,conn,window,&fake_slots);
@@ -6597,6 +6625,9 @@ impl Game<'_> {
         if let Some(keep)=workbench_keep {
             m.workbench_revisions.push_back(WorkbenchRevision{state,page,keep});
             while m.workbench_revisions.len()>64 {m.workbench_revisions.pop_front();}
+            if let Some(data)=workbench_view.as_ref().and_then(|view|serde_json::to_vec(view).ok()) {
+                host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:workbench_view".into(),data}));
+            }
         }
         let packet = C::ContainerSetContent(play::ContainerSetContent {
             container: window,
@@ -6790,6 +6821,17 @@ impl Game<'_> {
         if paged_ghost && matches!(p.button,2|3) && super::lan_crafting::input(p.input)==Input::Pickup
             && host.hub.guests.iter().find(|g|g.conn==conn).is_none_or(|g|g.carried.is_none()) {
             self.lan_send_ae2_machine(host,conn);return true;
+        }
+        // CellWorkbenchScreen presses a filter by its index, whatever the page.
+        if (super::ae2_workbench_screen::CONFIG_PLACE..super::ae2_workbench_screen::CONFIG_PLACE+super::ae2_workbench_screen::CONFIG_PLACES as i16).contains(&p.slot)
+            && matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(machine)) if machine.kind==horizon_client::ae2_world::MachineKind::CellWorkbench)
+        {
+            let index=(p.slot-super::ae2_workbench_screen::CONFIG_PLACE) as usize;
+            let mut page=index/18;
+            let (slot,button)=(305+index%18,i32::from(p.button));
+            self.as_guest(host,conn,|game|{game.ae2_workbench_menu_click(pos,&mut page,Some(slot),button,Input::Pickup);});
+            self.lan_send_ae2_machine(host,conn);
+            return true;
         }
         if paged_ghost {
             // AEBaseMenu receives a separate fake-slot action without a vanilla
@@ -7959,7 +8001,7 @@ mod terminal_filter_tests {
 fn machine_slot_limit(m:&horizon_client::ae2_world::Machine,slot:usize,item_max:u32)->u32 {
     use horizon_client::ae2_world::MachineKind as K;
     let capacity=if slot>=m.slots.len() {1} else {match m.kind {
-        K::Drive|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|K::IoPort|K::Condenser|K::MolecularAssembler=>1,
+        K::Drive|K::Chest|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|K::IoPort|K::Condenser|K::MolecularAssembler=>1,
         K::Inscriber if slot<3=>match m.config.get(&"inscriber_input_capacity".into()) {
             Some(Tag::String(value)) if value.to_string().ok().as_deref()==Some("ONE")=>1,
             Some(Tag::String(value)) if value.to_string().ok().as_deref()==Some("FOUR")=>4,

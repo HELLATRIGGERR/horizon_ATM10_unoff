@@ -583,6 +583,20 @@ mod recursive {
         export_requester: Option<ExportRequester>,
         #[serde(default)]
         player_owner: Option<[i64;2]>,
+        /// The game tick the job began and how many items it makes in all,
+        /// for its progress and time (`ElapsedTimeTracker`); 0 on older jobs.
+        #[serde(default)]
+        started_tick: i64,
+        #[serde(default)]
+        start_items: u64,
+    }
+    /// A CPU's job as its status shows it.
+    pub(in crate::game) struct CpuJob {
+        pub(in crate::game) key:String,
+        pub(in crate::game) requested:u64,
+        pub(in crate::game) progress:f32,
+        pub(in crate::game) elapsed_ms:u64,
+        pub(in crate::game) eta_ms:u64,
     }
     fn job_status(session:&Session,status:horizon_client::ae2_job_status::Status)->Option<(u128,horizon_client::ae2_job_status::CraftingJobStatus)> {
         let owner=super::super::ae2_job_events::owner_uuid(session.player_owner?);
@@ -2223,6 +2237,7 @@ mod recursive {
                     let count=left.min(chunk_max);exemplar.count=count as u32;physical.push(exemplar.clone());left-=count;
                 }
             }
+            let start_items = cpu.items_left();
             let session = Session {
                 cpu,
                 suspended: false,
@@ -2233,6 +2248,8 @@ mod recursive {
                 requester: None,
                 export_requester: None,
                 player_owner: player_owner.map(super::super::ae2_job_events::owner_words),
+                started_tick: self.world.game_time,
+                start_items,
             };
             let started=job_status(&session,horizon_client::ae2_job_status::Status::Started);
             if let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity_mut(cpu_pos) {
@@ -3532,6 +3549,29 @@ mod recursive {
             if let Some(fluid)=parse_fluid(key) {return super::super::ae2_fluids::fluid_bucket(&fluid.item_id).map(|id|ItemStack::new(id,1));}
             from_key(key).ok()
         }
+        /// A CPU's storage and co-processors, busy or not.
+        pub(in crate::game) fn ae2_cpu_capacity(&self, cpu:GridAddress) -> (u64,u32) {
+            if super::super::ae2_event_live::cpu_formation_enabled()
+                && let Ok(capacity)=self.ae2_observed_cpu_capacity(cpu) {return capacity;}
+            let cluster=self.ae2_address_parts(cpu).and_then(|(dim,local)|cluster_checked(self.ae2_world_for(dim)?,local,false,true).ok());
+            cluster.map_or((0,0),|(_,capacity,coprocessors)|(capacity,coprocessors))
+        }
+        /// What the CPU crafts (`CraftingJobStatus`).
+        pub(in crate::game) fn ae2_cpu_job(&self, pos:GridAddress) -> Option<CpuJob> {
+            let dim = self.ae2_address_parts(pos)?.0;
+            let BlockEntity::Ae2(machine) = self.ae2_block_entity(pos)? else { return None; };
+            let session = read_session(machine, dim).ok()?;
+            let (key,requested,remaining)=session.cpu.requested_output()?;
+            let (start,left)=if session.start_items>0 {(session.start_items,session.cpu.items_left())} else {(requested,remaining)};
+            let done=start.saturating_sub(left);
+            let elapsed_ms=if session.started_tick>0 {(self.world.game_time-session.started_tick).max(0) as u64*50} else {0};
+            Some(CpuJob {
+                key:key.to_owned(),requested,
+                progress:if start>0 {done as f32/start as f32} else {0.0},
+                elapsed_ms,
+                eta_ms:(elapsed_ms as f64/done.max(1) as f64*left as f64) as u64,
+            })
+        }
         /// A read-only snapshot of real CPU escrow, pending outputs, and in-flight outputs.
         pub(in crate::game) fn ae2_recursive_status_rows(&self, pos: GridAddress) -> Option<Vec<(String,u64,u64,u64)>> {
             let dim = self.ae2_address_parts(pos)?.0;
@@ -4382,7 +4422,7 @@ mod recursive {
             registry.register(ExtendedPattern{id:"large".into(),inputs:vec![Ingredient{choices:Inventory::from([(key.clone(),999_999)])}],outputs:Inventory::from([(target.clone(),1)])}).unwrap();
             let mut available=Inventory::from([(key.clone(),999_999)]);let plan=registry.plan(&available,&target,1).unwrap();
             let mut cpu=Cpu::new(2_000_000,0);cpu.submit(plan,&mut available).unwrap();assert!(available.is_empty());
-            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,player_owner:None};
+            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
             item.count=999_999;let mut machine=Machine::new(MachineKind::CraftingStorage256k);
             write_session(&mut machine,&session,&[item.clone()]).unwrap();
             let bytes=horizon_world::nbt::write_network(&Tag::Compound(machine.config.clone()),Default::default()).unwrap();
@@ -4433,7 +4473,7 @@ mod recursive {
             let result=canon(&ItemStack::new("minecraft:netherite_sword",1));
             let mut registry=ExtendedRegistry::default();registry.register(ExtendedPattern{id:"legacy".into(),inputs:vec![Ingredient{choices:Inventory::from([(old.clone(),1)])}],outputs:Inventory::from([(result.clone(),1)])}).unwrap();
             let mut inventory=Inventory::from([(old.clone(),1)]);let plan=registry.plan(&inventory,&result,1).unwrap();let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut inventory).unwrap();
-            let session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None};
+            let session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);let json=serde_json::to_string(&session).unwrap();machine.config.insert(JOB.into(),Tag::String(json.as_str().into()));machine.config.insert(ESCROW.into(),Tag::List(vec![horizon_client::save::item_to_nbt(&item)]));
             let loaded=read_session(&machine,super::super::super::Dim::Overworld).unwrap();assert_eq!(loaded.cpu.escrow(),&Inventory::from([(modern,1)]));
         }
@@ -4447,7 +4487,7 @@ mod recursive {
             registry.set_emittable(vec![input_key.clone()]).unwrap();
             let mut available=Inventory::new();let plan=registry.plan(&available,&output_key,4).unwrap();
             let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut available).unwrap();
-            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None};
+            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);
             write_fluids(&mut machine,&BTreeMap::new()).unwrap();write_session(&mut machine,&session,&[]).unwrap();
             session=read_session(&machine,super::super::super::Dim::Overworld).unwrap();
@@ -4481,6 +4521,8 @@ mod recursive {
                 requester: None,
                 export_requester: None,
                 player_owner: None,
+                started_tick: 0,
+                start_items: 0,
             };
             assert!(matching_assembler_flight(&owner, &session, assembler));
             session.job_id = Some([42, 74]);
@@ -4493,7 +4535,7 @@ mod recursive {
         }
         #[test]
         fn suspended_job_roundtrips_and_legacy_jobs_resume_by_default() {
-            let session=Session { cpu:Cpu::new(1024,0), suspended:true, specs:BTreeMap::new(), flights:BTreeMap::new(), job_id:Some([1,2]), address_version:1, requester:None, export_requester:None, player_owner:None };
+            let session=Session { cpu:Cpu::new(1024,0), suspended:true, specs:BTreeMap::new(), flights:BTreeMap::new(), job_id:Some([1,2]), address_version:1, requester:None, export_requester:None, player_owner:None, started_tick:0, start_items:0 };
             let mut saved=serde_json::to_value(&session).unwrap();
             assert!(serde_json::from_value::<Session>(saved.clone()).unwrap().suspended);
             saved.as_object_mut().unwrap().remove("suspended");
@@ -4516,6 +4558,7 @@ mod recursive {
                 cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),
                 job_id:Some([i64::MIN,i64::MAX]),address_version:1,requester:None,
                 export_requester:None,player_owner:Some(super::super::super::ae2_job_events::owner_words(owner)),
+                started_tick:0,start_items:0,
             };
             let (recipient,started)=job_status(&session,Status::Started).unwrap();
             assert_eq!(recipient,owner);
@@ -4595,7 +4638,7 @@ mod recursive {
         }
         #[test]
         fn legacy_job_identity_migration_is_persistable_and_never_rotates() {
-            let mut session=Session {cpu:Cpu::new(1024,0),suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None};
+            let mut session=Session {cpu:Cpu::new(1024,0),suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
             assert!(migrate_job_identity(&mut session,[13,17]));
             let mut restored:Session=serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
             assert!(!migrate_job_identity(&mut restored,[19,23]));
@@ -4625,7 +4668,7 @@ mod recursive {
             registry.set_source_inputs("pattern",vec![SourceInput{encoded:primary.clone(),primary,remaining:BTreeMap::new()}]).unwrap();
             let mut network=stock.clone();let plan=registry.plan(&network,&result,4097).unwrap();assert_eq!(plan.steps.len(),4097);
             let mut cpu=Cpu::new(16384,0);cpu.submit(plan,&mut network).unwrap();assert!(network.is_empty());
-            let session=Session{cpu,suspended:false,specs,flights:BTreeMap::new(),job_id:Some([7,11]),address_version:1,requester:None,export_requester:None,player_owner:None};
+            let session=Session{cpu,suspended:false,specs,flights:BTreeMap::new(),job_id:Some([7,11]),address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage16k);write_session(&mut machine,&session,&inputs).unwrap();
             assert!(matches!(machine.config.get(&JOB.into()),Some(Tag::ByteArray(v)) if v.len()>65_535));
             let root=Tag::Compound(machine.config.clone());
@@ -4702,6 +4745,8 @@ mod recursive {
                 requester: None,
                 export_requester: None,
                 player_owner: None,
+                started_tick: 0,
+                start_items: 0,
             };
             let mut machine = Machine::new(MachineKind::CraftingStorage1k);
             let mut value = serde_json::to_value(&session).unwrap();

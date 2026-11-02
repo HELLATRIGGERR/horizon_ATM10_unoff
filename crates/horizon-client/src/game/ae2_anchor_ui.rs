@@ -23,6 +23,14 @@ impl Game<'_> {
     fn lan_send_ae2_anchor(&mut self,host:&mut LanHost,conn:u32) {
         let Some((pos,window,state))=host.play.get(&conn).and_then(|p|p.ae2_anchor.as_ref()).map(|s|(s.pos,s.window,s.state)) else{return;};
         let snapshot=self.ae2_local_address(pos).and_then(|a|self.ae2_anchor_snapshot(a));
+        let view=snapshot.as_ref().map(|s|super::ae2_status_screens::AnchorView{
+            window,overlay:s.overlay,power:s.idle.into(),chunks:s.owned_chunks.len(),
+            all_loaded:s.anchor_max_by_dimension.iter().map(|(_,n)|*n).sum::<usize>(),loaded_worlds:s.anchor_max_by_dimension.len(),
+            all_chunks:s.grid_chunks_by_dimension.iter().map(|(_,v)|v.len()).sum::<usize>(),all_worlds:s.grid_chunks_by_dimension.len(),
+        });
+        if let Some(data)=view.and_then(|view|serde_json::to_vec(&view).ok()) {
+            host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:anchor_view".into(),data}));
+        }
         let labels=if let Some(s)=snapshot {
             vec![format!("Overlay: {}",if s.overlay{"on"}else{"off"}),format!("Power: {:.0} AE/t",s.idle),format!("Loaded chunks: {}",s.owned_chunks.len()),format!("Loaded: {} chunks in {} worlds",s.anchor_max_by_dimension.iter().map(|(_,n)|n).sum::<usize>(),s.anchor_max_by_dimension.len()),format!("Total: {} chunks in {} worlds",s.grid_chunks_by_dimension.iter().map(|(_,v)|v.len()).sum::<usize>(),s.grid_chunks_by_dimension.len())]
         } else {vec!["Network unavailable".into()]};

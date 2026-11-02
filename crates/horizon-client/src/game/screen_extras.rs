@@ -37,12 +37,13 @@ impl Game<'_> {
             return false;
         };
         self.ae2_draw_screen(batch, ox, oy, screen, data);
+        self.ae2_draw_workbench(batch, ox, oy);
         true
     }
 
     /// A press handled on this client alone (the help button): true then.
     pub(super) fn extra_screen_local_press(&mut self, at: [f32; 2], right: bool) -> bool {
-        !right && self.ae2_screen_help(at)
+        self.ae2_workbench_press(at, right) || (!right && self.ae2_screen_help(at))
     }
 
     /// The menu button a press at `at` makes, if any.

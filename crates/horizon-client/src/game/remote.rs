@@ -428,7 +428,9 @@ pub(super) struct Remote {
     #[cfg(feature = "ae2-lab")]
     ae2_bus_pending: VecDeque<(i16,i32,Input,bool)>,
     #[cfg(feature = "ae2-lab")]
-    ae2_bus_screen: bool,
+    pub(super) ae2_bus_screen: bool,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_part: super::ae2_part_screens::PartUi,
     #[cfg(feature = "ae2-lab")]
     ae2_bus_ack_enabled: bool,
     #[cfg(feature = "ae2-lab")]
@@ -533,6 +535,10 @@ pub(super) struct Remote {
     pub(super) ae2_network_tool_screen: bool,
     #[cfg(feature = "ae2-lab")]
     pub(super) ae2_network_status_screen: bool,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_status: super::ae2_status_screens::StatusUi,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_workbench: Option<super::ae2_workbench_screen::WorkbenchView>,
     #[cfg(feature="ae2-lab")]
     pub(super) ae2_anchor_screen: bool,
     #[cfg(feature="ae2-lab")]
@@ -1063,6 +1069,8 @@ impl Game<'_> {
             #[cfg(feature = "ae2-lab")]
             ae2_bus_screen: false,
             #[cfg(feature = "ae2-lab")]
+            ae2_part: Default::default(),
+            #[cfg(feature = "ae2-lab")]
             ae2_bus_ack_enabled: false,
             #[cfg(feature = "ae2-lab")]
             ae2_bus_deferred: Vec::new(),
@@ -1074,6 +1082,10 @@ impl Game<'_> {
             ae2_network_tool_screen: false,
             #[cfg(feature = "ae2-lab")]
             ae2_network_status_screen: false,
+            #[cfg(feature = "ae2-lab")]
+            ae2_status: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_workbench: None,
             #[cfg(feature="ae2-lab")]
             ae2_anchor_screen: false,
             #[cfg(feature="ae2-lab")]
@@ -3008,6 +3020,10 @@ impl Game<'_> {
                 }
             }
             #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:craft_view" => {
+                if p.data.len()<=1_048_576 {self.ae2_accept_craft_view(&p.data);}
+            }
+            #[cfg(feature = "ae2-lab")]
             C::CustomPayload(p) if p.channel == "ae2:repo_view" => {
                 if p.data.len()<=1_048_576 {self.ae2_accept_repo_view(&p.data);}
             }
@@ -3056,6 +3072,22 @@ impl Game<'_> {
                         }
                     }
                 }
+            }
+            #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:workbench_view" => {
+                if p.data.len()<=1_048_576 {self.ae2_accept_workbench_view(&p.data);}
+            }
+            #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:status_view" => {
+                if p.data.len()<=1_048_576 {self.ae2_accept_status_view(&p.data);}
+            }
+            #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:anchor_view" => {
+                if p.data.len()<=4096 {self.ae2_accept_anchor_view(&p.data);}
+            }
+            #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:part_view" => {
+                if p.data.len()<=1_048_576 {self.ae2_accept_part_view(&p.data);}
             }
             #[cfg(feature = "ae2-lab")]
             C::CustomPayload(p) if p.channel == "ae2:energy_editor" => {
@@ -8903,7 +8935,7 @@ impl Game<'_> {
         }
         if self.remote.as_ref().is_some_and(|r|r.ae2_craft_screen==1) && key==Some(winit::keyboard::KeyCode::Enter) {
             // The server validates the latest text before opening a preview.
-            self.remote_menu_ops(&[(Some(302),0,Input::Pickup)]);
+            self.ae2_send_menu_button(2,if self.has_shift_down() {super::ae2_craft_screens::AUTO_START} else {0});
             return;
         }
         if self.remote.as_ref().is_some_and(|r|r.ae2_priority_screen) && key==Some(winit::keyboard::KeyCode::Enter) {
@@ -8984,7 +9016,7 @@ impl Game<'_> {
         let (mx, my) = self.cursor;
         let amount = self.remote.as_ref().is_some_and(|r|r.ae2_craft_screen==1 || r.ae2_priority_screen || r.ae2_energy_screen);
         let access=self.remote.as_ref().is_some_and(|r|r.ae2_pattern_access_screen);
-        let priority=self.ae2_priority_field().or_else(||self.ae2_term_field());
+        let priority=self.ae2_priority_field().or_else(||self.ae2_term_field()).or_else(||self.ae2_craft_field_rects()).or_else(||self.ae2_part_field_rects());
         let (x,y,width)=if let Some((r,_))=priority {(r[0],r[1],r[2])} else if amount {(48.0,55.0,66.0)} else if access {(104.0,4.0,65.0)} else {(80.0,3.0,90.0)};
         let hit = (!right || !amount) && mx >= ox+x && mx < ox+x+width && my >= oy+y && my < oy+y+12.0;
         let shift = self.has_shift_down();
@@ -9018,8 +9050,8 @@ impl Game<'_> {
         }
         if self.ae2_local_craft_screen()==1 {self.ae2_local_craft_draw(batch,ox,oy);return;}
         if self.ae2_terminal_open() {self.ae2_local_terminal_search_draw(batch,ox,oy);return;}
-        // The terminal screen draws its own AETextField.
-        if self.ae2_term_kind().is_some() {return;}
+        // The terminal and crafting screens draw their own AETextField.
+        if self.ae2_term_kind().is_some() || self.ae2_craft_screen()!=0 || self.ae2_part_open() {return;}
         if let Some(mut field) = self.remote.as_ref().and_then(|r| r.ae2_search.clone()) {
             let amount=self.remote.as_ref().is_some_and(|r|r.ae2_craft_screen==1 || r.ae2_priority_screen || r.ae2_energy_screen);
             let access=self.remote.as_ref().is_some_and(|r|r.ae2_pattern_access_screen);
@@ -9475,6 +9507,7 @@ impl Game<'_> {
                 r.ae2_pattern_access_screen = false;
                 r.ae2_pattern_layout = None;
                 r.ae2_bus_screen = false;
+                r.ae2_part = Default::default();
                 r.ae2_bus_ack_enabled = false;
                 r.ae2_bus_pending.clear();
                 r.ae2_bus_deferred.clear();
@@ -9482,6 +9515,8 @@ impl Game<'_> {
                 r.ae2_crafting_screen = false;
                 r.ae2_network_tool_screen = false;
                 r.ae2_network_status_screen = false;
+                r.ae2_status = Default::default();
+                r.ae2_workbench = None;
                 r.ae2_anchor_screen = false;
                 r.ae2_view_cells = None;
                 r.ae2_terminal_toolbox = None;
@@ -9707,6 +9742,8 @@ impl Game<'_> {
                 r.ae2_encoding_processing=false;
                 r.ae2_network_tool_screen=ae2_network_tool;
                 r.ae2_network_status_screen=ae2_network_status;
+                r.ae2_status=Default::default();
+                r.ae2_workbench=None;
                 r.ae2_anchor_screen=ae2_anchor;
                 r.ae2_view_cells=None;
                 r.ae2_terminal_toolbox=None;
@@ -9714,6 +9751,7 @@ impl Game<'_> {
                 r.ae2_pattern_access_screen=ae2_pattern_access;
                 r.ae2_pattern_layout=None;
                 r.ae2_bus_screen=ae2_bus || ae2_pattern_access;
+                r.ae2_part=Default::default();
                 r.ae2_bus_ack_enabled=false;
                 r.ae2_bus_pending.clear();
                 r.ae2_bus_deferred.clear();

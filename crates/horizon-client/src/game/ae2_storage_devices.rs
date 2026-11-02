@@ -1396,6 +1396,30 @@ include!("ae2_workbench.rs");
 
 // Staged replacement for the two Cell Workbench menu methods.
 impl Game<'_> {
+    /// What `CellWorkbenchScreen` shows beyond the paged menu's entries.
+    pub(super) fn ae2_workbench_view_of(&self,pos:Pos,window:i32)->Option<super::ae2_workbench_screen::WorkbenchView>{
+        let BlockEntity::Ae2(machine)=self.world.block_entities.get(&pos)? else{return None};
+        if machine.kind!=MachineKind::CellWorkbench{return None}
+        let cell=machine.slots.first()?.clone();
+        let settings=cell.as_ref().map(|cell|self.ae2_checked_cell_settings(cell)).transpose().ok()?;
+        let mut config=Vec::with_capacity(super::ae2_workbench_screen::CONFIG_PLACES);
+        for page in 0..4 {
+            let slots=self.ae2_workbench_menu_slots(pos,page)?;
+            config.extend(slots[5..23].iter().map(|slot|slot.as_ref().map_or_else(String::new,|stack|horizon_client::item_data::canon_stack(Some(stack)))));
+        }
+        config.truncate(super::ae2_workbench_screen::CONFIG_PLACES);
+        let upgrades=cell.as_ref().and_then(|cell|horizon_client::ae2_upgrade_inventory::capacity(&cell.item)).unwrap_or(0);
+        let fuzzy_card=match settings.as_ref().and_then(|s|s.get(&"upgrades".into())) {
+            Some(Tag::List(cards))=>cards.iter().any(|card|card.get("id")==Some(&Tag::String("ae2:fuzzy_card".into()))),
+            _=>false,
+        };
+        let keep=workbench_keep(machine);
+        Some(super::ae2_workbench_screen::WorkbenchView{
+            window,config,enabled:if cell.is_some()||keep {super::ae2_workbench_screen::CONFIG_PLACES}else{0},upgrades,
+            fuzzy:settings.as_ref().and_then(|s|text(s,"fuzzy_mode")).unwrap_or_else(||"ignore_all".into()),fuzzy_card,keep,
+            ..Default::default()
+        })
+    }
     pub(super) fn ae2_workbench_menu_slots(&self,pos:Pos,page:usize)->Option<Vec<Option<ItemStack>>>{
         let BlockEntity::Ae2(machine)=self.world.block_entities.get(&pos)? else{return None};
         if machine.kind!=MachineKind::CellWorkbench{return None}

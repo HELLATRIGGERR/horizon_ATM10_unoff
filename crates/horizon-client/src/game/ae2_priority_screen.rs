@@ -32,6 +32,12 @@ const STEPS_1000: [i32; 4] = [1, 10, 100, 1000];
 const STEPS_64: [i32; 4] = [1, 16, 32, 64];
 /// The menu entry the back tab presses.
 const BACK: usize = 8;
+/// The stock amount editor's entries beyond the steps (`lan_send_stock`).
+const STOCK_SAVE: usize = 8;
+const STOCK_BACK: usize = 9;
+const STOCK_WHAT: usize = 10;
+/// `FLUID`'s unit at the field's end, and the style's save button.
+const FLUID_UNIT: &str = "B";
 /// `ValidationIcon` from the widget's top left.
 const INVALID_AT: (i32, i32) = (104, 27);
 /// `AETextField.PADDING`, and the room it keeps for the cursor (`width("_")`).
@@ -54,8 +60,13 @@ fn help(style: &ScreenStyle) -> [i32; 4] {
 
 /// Each button's entry and box.
 fn buttons(style: &ScreenStyle) -> impl Iterator<Item = (usize, [i32; 4])> {
-    let [x, y, _, _] = widget(style, "priority").unwrap_or([20, 30, 138, 62]);
+    let [x, y, _, _] = number_widget(style);
     BUTTONS.into_iter().enumerate().map(move |(entry, (bx, by, w))| (entry, [x + bx, y + by, w, 20]))
+}
+
+/// `NumberEntryWidget`'s place in `priority.json` or `set_stock_amount.json`.
+fn number_widget(style: &ScreenStyle) -> [i32; 4] {
+    widget(style, "priority").or_else(|| widget(style, "amountToStock")).unwrap_or([20, 30, 138, 62])
 }
 
 fn back(style: &ScreenStyle) -> [i32; 4] {
@@ -67,11 +78,33 @@ impl Game<'_> {
     /// Whether the open menu is an AE2 machine's priority editor, which
     /// this screen shows.
     pub(super) fn ae2_priority_ui(&self) -> bool {
-        self.remote.as_ref().is_some_and(|r| r.ae2_priority_screen && r.ae2_stock_spec.is_none())
-            && self.open_native_screen_extra().is_some_and(|(_, extra)| extra.is_some())
+        self.remote.as_ref().is_some_and(|r| r.ae2_priority_screen)
+            && (self.open_native_screen_extra().is_some_and(|(_, extra)| extra.is_some())
+                || (self.ae2_part_kind().is_some() && !self.ae2_stock_spec_set()))
+    }
+
+    fn ae2_stock_spec_set(&self) -> bool {
+        self.remote.as_ref().is_some_and(|r| r.ae2_stock_spec.is_some())
+    }
+
+    /// Whether the editor is an Interface's stock amount (`SetStockAmountScreen`).
+    pub(super) fn ae2_stock_ui(&self) -> bool {
+        self.ae2_priority_ui() && self.ae2_stock_spec_set()
+    }
+
+    /// The block or part the editor belongs to.
+    fn ae2_priority_owner(&self) -> Option<String> {
+        self.open_native_screen_extra().map(|(block, _)| block.to_owned()).or_else(|| self.ae2_part_kind().map(str::to_owned))
+    }
+
+    fn ae2_stock_save(&self, style: &ScreenStyle) -> Option<[i32; 4]> {
+        self.ae2_stock_ui().then(|| super::ae2_widgets::widget(style, "save", (38, 20))).flatten()
     }
 
     fn ae2_priority_style(&self) -> Option<&'static ScreenStyle> {
+        if self.ae2_stock_spec_set() {
+            return self.ae2_style("set_stock_amount.json");
+        }
         static STYLE: OnceLock<Option<ScreenStyle>> = OnceLock::new();
         STYLE
             .get_or_init(|| {
@@ -93,7 +126,10 @@ impl Game<'_> {
     pub(super) fn ae2_priority_entry_at(&self, at: [f32; 2]) -> Option<usize> {
         let style = self.ae2_priority_style()?;
         if inside(back(style), at) {
-            return Some(BACK);
+            return Some(if self.ae2_stock_ui() { STOCK_BACK } else { BACK });
+        }
+        if self.ae2_stock_save(style).is_some_and(|rect| inside(rect, at)) {
+            return self.ae2_priority_field_valid().then_some(STOCK_SAVE);
         }
         buttons(style).find(|(_, rect)| inside(*rect, at)).map(|(entry, _)| entry)
     }
@@ -112,8 +148,12 @@ impl Game<'_> {
         if !self.ae2_priority_ui() {
             return None;
         }
-        let [x, y, w, h] = widget(self.ae2_priority_style()?, "priorityInput")?;
-        let text = [x + FIELD_PADDING, y + FIELD_PADDING, w - 2 * FIELD_PADDING - CURSOR_ROOM, h - 2 * FIELD_PADDING];
+        let style = self.ae2_priority_style()?;
+        let [x, y, w, h] = widget(style, "priorityInput").or_else(|| widget(style, "amountToStockInput"))?;
+        let mut text = [x + FIELD_PADDING, y + FIELD_PADDING, w - 2 * FIELD_PADDING - CURSOR_ROOM, h - 2 * FIELD_PADDING];
+        if self.ae2_stock_fluid() {
+            text[2] -= HudBatch::text_width(&self.gui.atlas, FLUID_UNIT) as i32 + 3;
+        }
         Some(([x, y, w, h].map(|v| v as f32), text.map(|v| v as f32)))
     }
 
@@ -125,8 +165,7 @@ impl Game<'_> {
             return false;
         };
         if !right && inside(help(style), at) {
-            let block = self.open_native_screen_extra().map(|(block, _)| block.to_owned());
-            if let Some(block) = block {
+            if let Some(block) = self.ae2_priority_owner() {
                 self.audio.play_button_click();
                 self.ae2_open_guide(&block);
             }
@@ -141,8 +180,20 @@ impl Game<'_> {
         false
     }
 
-    /// Whether the field's text is a priority (`NumberEntryWidget.validate`).
+    fn ae2_stock_fluid(&self) -> bool {
+        self.remote.as_ref().and_then(|r| r.ae2_stock_spec).is_some_and(|(unit, _)| unit == 1000)
+    }
+
+    fn ae2_priority_field_valid(&self) -> bool {
+        self.remote.as_ref().and_then(|r| r.ae2_search.as_ref()).is_some_and(|f| self.ae2_priority_valid(&f.value))
+    }
+
+    /// Whether the field's text is a priority (`NumberEntryWidget.validate`),
+    /// or a stock amount within the slot's limit.
     fn ae2_priority_valid(&self, text: &str) -> bool {
+        if let Some((unit, max)) = self.remote.as_ref().and_then(|r| r.ae2_stock_spec) {
+            return super::ae2_number_entry::number_value(text, unit, 0, max, '.').is_some();
+        }
         super::ae2_number_entry::number_value(text, 1, i64::from(i32::MIN), i64::MAX, '.')
             .is_some_and(|n| i32::try_from(n).is_ok())
     }
@@ -198,9 +249,22 @@ impl Game<'_> {
             field.text_color = super::ae2_screens::argb(style.color(if valid { "TEXTFIELD_TEXT" } else { "TEXTFIELD_ERROR" }));
             [field.x, field.y, field.width, field.height] = [ox + text[0], oy + text[1], text[2], text[3]];
             field.draw(batch, atlas, None);
-            if !valid {
-                let [px, py, _, _] = widget(style, "priority").unwrap_or([20, 30, 138, 62]);
+            if self.ae2_stock_fluid() {
+                // The number entry's unit, at the field's end.
+                let width = HudBatch::text_width(atlas, FLUID_UNIT);
+                batch.text(atlas, FLUID_UNIT, x + w - width - 2.0, y + 2.0, rgba(0x55, 0x55, 0x55, 255), false);
+            }
+            if !valid && !self.ae2_stock_ui() {
+                let [px, py, _, _] = number_widget(style);
                 self.ae2_icon(batch, icon::INVALID, (16, 16), ox + (px + INVALID_AT.0) as f32, oy + (py + INVALID_AT.1) as f32);
+            }
+        }
+        if let Some(rect) = self.ae2_stock_save(style) {
+            let label = self.translate("gui.ae2.Set", "Set");
+            self.ae2_draw_button(batch, ox, oy, rect, &label, self.ae2_priority_field_valid(), mouse);
+            let what = self.container_kind().and_then(|e| e.slots().get(STOCK_WHAT).cloned().flatten());
+            if let (Some(what), Some((x, y))) = (what, style.slot("MACHINE_OUTPUT", 0)) {
+                self.draw_item_model(batch, &what, ox + x as f32, oy + y as f32);
             }
         }
         self.ae2_draw_texts(batch, ox, oy, style, &[]);
@@ -218,10 +282,10 @@ impl Game<'_> {
         if inside(help(style), at) {
             self.ae2_help_tooltip(&mut lines);
         } else if inside(back(style), at)
-            && let Some((block, _)) = self.open_native_screen_extra()
+            && let Some(block) = self.ae2_priority_owner()
         {
-            let key = format!("block.{}", block.replace(':', "."));
-            lines.push(self.translate(&key, block));
+            let key = format!("{}.{}", if self.ae2_part_kind().is_some() { "item" } else { "block" }, block.replace(':', "."));
+            lines.push(self.translate(&key, &block));
         }
         if lines.is_empty() {
             return;
@@ -244,7 +308,8 @@ impl Game<'_> {
             buttons(style).map(|(entry, r)| serde_json::json!({"entry": entry, "rect": rect(r)})).collect();
         let text = self.remote.as_ref().and_then(|r| r.ae2_search.as_ref()).map(|f| f.value.clone());
         Some(serde_json::json!({
-            "style": "priority.json",
+            "style": if self.ae2_stock_ui() { "set_stock_amount.json" } else { "priority.json" },
+            "save": self.ae2_stock_save(style).map(rect),
             "buttons": buttons,
             "back": rect(back(style)),
             "help": rect(help(style)),

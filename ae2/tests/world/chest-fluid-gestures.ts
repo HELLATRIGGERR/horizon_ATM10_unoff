@@ -16,7 +16,7 @@ try {
   await fixture.command(`item replace block ${chest} container.0 with ae2:fluid_storage_cell_1k[ae2:storage_cell_inv=[{"#t":"ae2:f",id:"minecraft:water","#":2000L},{"#t":"ae2:i",id:"minecraft:bucket","#":2L}]]`);
   await until(()=>fixture.ae(`grid status ${chest}`),s=>s.online&&s.powered,'powered ME Chest',30000);
   await fixture.command('clear @s'); await fixture.command('gamemode survival @s'); await fixture.replace('hotbar.0','minecraft:bucket'); await fixture.replace('hotbar.8','minecraft:stick');
-  const open=async()=>{await fixture.select(8,'minecraft:stick');await fixture.command(`tp @s ${x+1.5} ${y} ${z+2.5}`);await fixture.raw(`interact ${chest} south`);return until(()=>fixture.raw('screen'),s=>water(s),'ME Chest water view',30000);};
+  const open=async()=>{await fixture.select(8,'minecraft:stick');await fixture.command(`tp @s ${x+1.5} ${y} ${z+2.5}`);await fixture.raw(`interact ${chest} up`);return until(()=>fixture.raw('screen'),s=>water(s),'ME Chest water view',30000);};
   let view=await open(); assert(amount(view,2000)); await fixture.raw('click-slot 0');
   await until(()=>fixture.raw('inventory'),s=>s.carried?.item==='minecraft:bucket','empty bucket held');
   await fixture.raw(`click-slot ${water(view).slot} right`); await fixture.command(`data get block ${chest}`);

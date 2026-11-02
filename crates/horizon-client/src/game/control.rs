@@ -455,6 +455,10 @@ impl Game<'_> {
             "ui-key" => {
                 self.require_world()?;
                 let key=key_code(arg(1)?).ok_or_else(||format!("unknown key {}",words[1]))?;
+                if self.ae2_craft_screen()==2 && key==KeyCode::Enter {
+                    self.ae2_craft_enter();
+                    return ok();
+                }
                 if !self.ae2_search_focused() || key==KeyCode::Escape {
                     return Err("ui-key requires a focused AE2 field; Escape uses the ordinary key route".into());
                 }

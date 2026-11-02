@@ -148,6 +148,7 @@ impl Game<'_> {
     }
     fn lan_send_ae2_network_tool(&mut self, host: &mut LanHost, conn: u32) {
         let Some((source, window, state, status, requested_page)) = host.play.get(&conn).and_then(|p| p.ae2_network_tool.as_ref()).map(|s| (s.source,s.window,s.state,s.status,s.status_page)) else { return; };
+        let mut status_view=None;
         let status_lines=status.and_then(|pos| {
             let network=self.ae2_network();let analysis=network.analyze().ok()?;
             let node=self.ae2_local_address(pos)?.network_pos();let state=analysis.nodes.get(&node)?;
@@ -167,6 +168,10 @@ impl Game<'_> {
                     }
                 }
             }
+            status_view=Some(super::ae2_status_screens::StatusView{
+                window,channels:component.channels_in_use as u64,stored:power.energy,capacity,usage:component.idle_per_tick,
+                groups:groups.iter().map(|(id,count)|super::ae2_status_screens::Group::new(horizon_client::item_data::canon_stack(Some(&ItemStack::new(id.as_str(),1))),*count)).collect(),
+            });
             let available=if power.energy>=f64::MAX/2.0 {"Available: unlimited".into()} else {format!("Stored: {:.2e} AE",power.energy)};
             let mut lines=vec![format!("Channels: {}",component.channels_in_use),available,format!("Capacity: {:.2e} AE",capacity)];
             let pages=groups.len().max(1).div_ceil(8);
@@ -182,6 +187,9 @@ impl Game<'_> {
         let Some(tool)=held(g,source) else {return;};
         let Ok(inv)=Inventory::read(tool) else {return;};
         let (lines,page,pages)=status_lines.unwrap_or_else(||(vec!["Network unavailable".into()],0,1));
+        if let Some(data)=status_view.and_then(|view|serde_json::to_vec(&view).ok()) {
+            host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:status_view".into(),data}));
+        }
         let mut items:Vec<_>=if status.is_some() {
             (0..27).map(|i|lines.get(i).map(|line|{let mut s=ItemStack::new("minecraft:paper",1);s.data_mut().custom_name=Some(horizon_client::item_data::text_name(line.clone()));s})).collect()
         } else {inv.slots.into_iter().collect()};

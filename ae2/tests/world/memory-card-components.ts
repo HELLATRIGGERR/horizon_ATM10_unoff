@@ -31,8 +31,7 @@ try {
 
   await fixture.replace('hotbar.0', 'ae2:memory_card'); await fixture.select(0, 'ae2:memory_card');
   await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 1.5}`);
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${input} south`); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${input} south`);
   await until(() => fixture.command('data get entity @s SelectedItem'), r => {
     const item = text(r);
     return item.includes('ae2:exported_p2p_type') && item.includes('ae2:exported_p2p_frequency') && item.includes('ae2:memory_card_colors');
@@ -44,8 +43,7 @@ try {
   await fixture.command(`tp @s ${x + 4.5} ${y} ${z + 1.5}`);
   await fixture.raw(`interact ${inscriber} south`);
   await until(() => fixture.command(`data get block ${inscriber} ae2_lab_config`), r => /auto_export.*YES/.test(text(r)), 'source-only Inscriber settings apply');
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${inscriber} south`); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${inscriber} south`);
   await until(() => fixture.command('data get entity @s SelectedItem'), r => text(r).includes('ae2:exported_settings') && text(r).includes('ae2:exported_upgrades'), 'machine save emits source settings and upgrade components');
   await fixture.restart();
   await until(() => fixture.command(`data get block ${inscriber} ae2_lab_config`), r => /auto_export.*YES/.test(text(r)), 'source settings survive restart');

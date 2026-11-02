@@ -679,7 +679,8 @@ impl Game<'_> {
             .collect();
         let config = (0..CONFIG_PLACES).filter_map(|i| {
             let [x, y, w, h] = self.ae2_part_config_slot(style, i)?;
-            Some(serde_json::json!({"rect": rect([x, y, w, h]), "item": v.stacks.get(i).and_then(Option::as_ref).map(|s| s.item.to_string()), "open": i < v.enabled}))
+            let stack = v.stacks.get(i).and_then(Option::as_ref);
+            Some(serde_json::json!({"rect": rect([x, y, w, h]), "item": stack.map(|s| s.item.to_string()), "components": stack.and_then(|s| self.stack_value(s).get("components").cloned()), "open": i < v.enabled}))
         });
         let config: Vec<serde_json::Value> = if is_emitter(&v.kind) { Vec::new() } else { config.collect() };
         let numbers: Vec<serde_json::Value> = self.ae2_part_number_buttons(style).into_iter().map(|(i, r)| serde_json::json!({"entry": i, "rect": rect(r)})).collect();

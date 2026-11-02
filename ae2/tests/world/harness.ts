@@ -183,6 +183,20 @@ export class WorldFixture {
       await this.raw(`click-at ${x + w / 2} ${y + h / 2}`);
     } else await this.raw(`click-slot ${300 + entry}`);
   }
+  /** `interact ARGS` once what the client sends with its tick has reached the server: the look
+   * towards the block (a use carries none, and the server places by the last look it heard of)
+   * and, `sneak`ing, the sneak (`ServerboundPlayerInputPacket`). A use sent before that tick
+   * reaches the server with the old look, unsneaking. */
+  async aimedInteract(args: string, sneak = false): Promise<void> {
+    await this.raw(`look-at block ${args}`);
+    if (sneak) await this.raw('key shift down');
+    try {
+      const ticks = (await this.raw('status')).ticks;
+      await until(() => this.raw('status'), view => view.ticks >= ticks + 2, 'look and sneak sent');
+      await this.raw(`interact ${args}`);
+    } finally { if (sneak) await this.raw('key shift up'); }
+  }
+  async sneakInteract(args: string): Promise<void> { await this.aimedInteract(args, true); }
   async hold(held = true): Promise<void> { await this.raw(`server-hold ${held ? 'on' : 'off'}`); }
   async stepServer(ticks = 1): Promise<void> {
     assert(Number.isInteger(ticks) && ticks >= 1 && ticks <= 1000);

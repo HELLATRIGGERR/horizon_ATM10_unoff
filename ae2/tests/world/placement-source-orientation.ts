@@ -21,7 +21,7 @@ try {
   await fixture.command(`tp @s ${x + .5} ${y + 1} ${z - 2.5}`);
   await fixture.replace('hotbar.0', 'ae2:sky_stone_chest');
   await fixture.select(0, 'ae2:sky_stone_chest');
-  await fixture.raw(`interact ${at()} up`);
+  await fixture.aimedInteract(`${at()} up`);
   const chest = await until(() => state(0), s => s.startsWith('ae2:sky_stone_chest['), 'placed physical Sky Chest');
   assert.match(chest, /facing=north/, 'horizontal strategy points opposite the player view');
 
@@ -30,7 +30,7 @@ try {
   await fixture.command(`tp @s ${x + 6.5} ${y + 1} ${z + .5}`);
   await fixture.replace('hotbar.0', 'ae2:crafting_monitor');
   await fixture.select(0, 'ae2:crafting_monitor');
-  await fixture.raw(`interact ${at(4)} up`);
+  await fixture.aimedInteract(`${at(4)} up`);
   const monitor = await until(() => state(4), s => s.startsWith('ae2:crafting_monitor['), 'placed physical Crafting Monitor');
   assert.match(monitor, /facing=east/);
   assert.match(monitor, /spin=0/);

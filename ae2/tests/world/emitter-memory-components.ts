@@ -37,8 +37,7 @@ try {
   await until(() => fixture.raw('inventory'), v => !v.hotbar?.some((s: any) => s?.item === 'ae2:fuzzy_card'), 'the physical Fuzzy Card leaves the player inventory');
   fixture.mark('source-only Storage Level Emitter card imports settings and filter while moving the actual upgrade');
 
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${at(0)} south`); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${at(0)} south`);
   const saved = await until(() => fixture.command('data get entity @s SelectedItem'), r => {
     const v = text(r);
     return v.includes('ae2:exported_config_inv') && v.includes('ae2:exported_level_emitter_value') && v.includes('ae2:exported_upgrades');

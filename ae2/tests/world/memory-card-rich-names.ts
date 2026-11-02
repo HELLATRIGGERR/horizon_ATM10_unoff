@@ -21,8 +21,7 @@ try {
   };
   const save = async (dx: number) => {
     await fixture.command(`tp @s ${x+dx+.5} ${y} ${z+2.5}`);
-    await fixture.raw('key shift down');
-    try { await fixture.raw(`interact ${at(dx)} south`); } finally { await fixture.raw('key shift up'); }
+    await fixture.sneakInteract(`${at(dx)} south`);
     const item = await until(() => fixture.command('data get entity @s SelectedItem'), r => text(r).includes('ae2:exported_custom_name'), 'source Memory Card name exported');
     for (const expected of ['item.minecraft.diamond', 'color', 'red', 'extra', 'bold']) assert(text(item).includes(expected), text(item));
   };

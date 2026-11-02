@@ -20,16 +20,7 @@ const cell = (id: string, n: number) => `ae2:item_storage_cell_1k[ae2:storage_ce
 // Processing patterns: a stone in, one of 36 outputs out. Those of slots 0 and 35 sort first in a terminal.
 const outputs = ['minecraft:acacia_boat', ...colours.map(c => `minecraft:${c}_concrete`), ...colours.map(c => `minecraft:${c}_terracotta`), 'minecraft:oak_door', 'minecraft:oak_fence', 'minecraft:acacia_button'];
 assert.equal(outputs.length, 35 + 1);
-// A sneaking use. The server hears of the sneak with the client's next tick (`ServerboundPlayerInputPacket`),
-// and a use sent before that tick reaches it unsneaking: wait for two client ticks after the key goes down.
-const sneakInteract = async (target: string, side: string) => {
-  const ticks = (await fixture.raw('status')).ticks;
-  await fixture.raw('key shift down');
-  try {
-    await until(() => fixture.raw('status'), view => view.ticks >= ticks + 2, 'the sneak sent');
-    await fixture.raw(`interact ${target} ${side}`);
-  } finally { await fixture.raw('key shift up'); }
-};
+const sneakInteract = (target: string, side: string) => fixture.sneakInteract(`${target} ${side}`);
 const pattern = (output: string) => `ae2:processing_pattern[ae2:encoded_processing_pattern={sparseInputs:[{"#t":"ae2:i",id:"minecraft:stone","#":1L}],sparseOutputs:[{"#t":"ae2:i",id:"${output}","#":1L}]}]`;
 try {
   const start = await fixture.start(), [px, py, pz] = start.player.position;

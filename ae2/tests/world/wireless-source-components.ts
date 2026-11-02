@@ -33,7 +33,7 @@ try {
   assert.match(itemData, /ae2:wireless_link_target/);
   assert.match(itemData, /ae2:crafting_inv/);
   assert.doesNotMatch(itemData, /minecraft:oak_log/);
-  assert.equal((await fixture.raw('inventory')).counts?.['minecraft:oak_planks'], 4);
+  await until(() => fixture.raw('inventory'), state => state.counts?.['minecraft:oak_planks'] === 4, 'the crafted planks in the inventory');
   fixture.mark('a source-only wireless link opens a physical matrix and crafting updates its item component');
 
   await fixture.restart();

@@ -235,7 +235,8 @@ impl Game<'_> {
         let config: Vec<serde_json::Value> = (0..CONFIG_PLACES)
             .filter_map(|i| {
                 let (x, y) = style.slot("CONFIG", i)?;
-                Some(serde_json::json!({"rect": rect([x, y, 16, 16]), "item": v.stacks.get(i).and_then(Option::as_ref).map(|s| s.item.to_string()), "open": i < v.enabled}))
+                let stack = v.stacks.get(i).and_then(Option::as_ref);
+                Some(serde_json::json!({"rect": rect([x, y, 16, 16]), "item": stack.map(|s| s.item.to_string()), "components": stack.and_then(|s| self.stack_value(s).get("components").cloned()), "open": i < v.enabled}))
             })
             .collect();
         let tools: Vec<serde_json::Value> = tools(v)

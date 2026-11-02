@@ -26,8 +26,7 @@ try {
   const pair = async (input: string, inputFace: string, output: string, outputFace: string, inputX: number, outputX: number) => {
     await fixture.replace('hotbar.0', 'ae2:memory_card'); await fixture.select(0, 'ae2:memory_card');
     await fixture.command(`tp @s ${x + inputX + 0.5} ${y} ${z + 1.5}`);
-    await fixture.raw('key shift down');
-    try { await fixture.raw(`interact ${input} ${inputFace}`); } finally { await fixture.raw('key shift up'); }
+    await fixture.sneakInteract(`${input} ${inputFace}`);
     await until(() => fixture.command('data get entity @s SelectedItem'), r => JSON.stringify(r).includes('ae2_p2p_card'), 'physical P2P frequency saved');
     await fixture.command(`tp @s ${x + outputX + 0.5} ${y - 2} ${z + 0.5}`);
     await fixture.raw(`interact ${output} ${outputFace}`);

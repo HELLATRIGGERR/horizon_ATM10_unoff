@@ -35,8 +35,7 @@ try {
   const preserved = text(await data());
   assert.match(preserved, /ae2:crafting_pattern/, 'styled foreign source keeps physical patterns');
   assert.match(preserved, /Factory/, 'styled foreign source does not replace the matching host name');
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${provider} south`); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${provider} south`);
   const exported = await until(() => fixture.command('data get entity @s SelectedItem'), reply => ['ae2:exported_patterns','ae2:exported_settings','ae2:exported_priority','ae2:exported_push_direction','ae2:exported_custom_name'].every(key => text(reply).includes(key)), 'Provider save emits source components');
   assert.match(text(exported), /Factory/); assert.match(text(exported), /color.*red/, 'rich source name survives import and export');
   await fixture.restart();

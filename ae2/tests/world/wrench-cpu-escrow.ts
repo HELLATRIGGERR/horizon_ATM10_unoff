@@ -47,9 +47,7 @@ try {
   await fixture.replace('hotbar.1', 'ae2:certus_quartz_wrench');
   await fixture.select(1, 'ae2:certus_quartz_wrench');
   await fixture.command(`tp @s ${x + 2.5} ${y + 1} ${z - 2.5}`);
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${cpu} north`); }
-  finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${cpu} north`);
   await until(() => fixture.command(`execute if block ${cpu} minecraft:air`), reply =>
     reply.chat?.includes('Test passed'), 'wrench removed the running CPU', 30000);
   await until(fluids, view => view.entries?.some((entry: any) => entry.fluid === 'minecraft:water' && entry.amount_mb === 1377),

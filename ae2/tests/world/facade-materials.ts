@@ -27,8 +27,7 @@ try {
     assert.ok(!line(installed).includes('test_marker'), 'placed facade reconstructs only its block material');
   };
   const take = async (count: number, material: string) => {
-    await fixture.select(0, 'ae2:certus_quartz_wrench'); await fixture.raw('key shift down');
-    try { await fixture.raw(`interact ${host} south`); } finally { await fixture.raw('key shift up'); }
+    await fixture.select(0, 'ae2:certus_quartz_wrench'); await fixture.sneakInteract(`${host} south`);
     const inventory = await until(() => fixture.raw('inventory'), view => view.counts?.['ae2:facade'] === count, 'physical facade returned exactly once');
     const result = [...inventory.hotbar, ...inventory.main].find((item: any) => item.item === 'ae2:facade' && String(item.components ?? '').includes(material));
     assert.ok(result, `returned facade contains ${material}`); assert.doesNotMatch(String(result.components), /test_marker/);

@@ -24,9 +24,7 @@ try {
 
   await fixture.replace('hotbar.1', 'ae2:certus_quartz_wrench');
   await fixture.select(1, 'ae2:certus_quartz_wrench');
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${cell} south`); }
-  finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${cell} south`);
   await until(() => blockIs('minecraft:air'), result => result.chat?.includes('Test passed'), 'wrench removed the real cell', 30000);
   const inv = await until(() => fixture.raw('inventory'), view => view.hotbar?.some((item: any) => item?.item === 'ae2:energy_cell'), 'recovered physical cell in player inventory');
   const slot = inv.hotbar.findIndex((item: any) => item?.item === 'ae2:energy_cell');

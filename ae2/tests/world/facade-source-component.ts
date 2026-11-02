@@ -27,8 +27,7 @@ try {
   await until(hostData, reply => text(reply).includes('ae2:facade_item') && text(reply).includes('minecraft:stone'), 'source-only facade mounted on physical cable');
   assert.equal((await fixture.raw('inventory')).counts?.['ae2:facade'] ?? 0, 0);
   await fixture.replace('hotbar.0', 'ae2:certus_quartz_wrench'); await fixture.select(0, 'ae2:certus_quartz_wrench');
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${host} south`); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${host} south`);
   await until(() => fixture.raw('inventory'), view => view.counts?.['ae2:facade'] === 1, 'same physical facade returned');
   const returned = (await fixture.raw('inventory')).hotbar.find((item: any) => item.item === 'ae2:facade') ?? (await fixture.raw('inventory')).main.find((item: any) => item.item === 'ae2:facade');
   assert.match(String(returned?.components ?? ''), /ae2:facade_item/);

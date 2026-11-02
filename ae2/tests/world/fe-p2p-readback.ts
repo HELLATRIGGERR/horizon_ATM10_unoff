@@ -23,8 +23,7 @@ try {
   await fixture.command(`tp @s ${x + 1.5} ${y} ${z + 1.5}`);
   await until(() => fixture.raw('status'), s => Math.abs(s.player.position[0] - (x + 1.5)) < 0.2, 'input teleport');
   await fixture.replace('hotbar.0', 'ae2:memory_card'); await fixture.select(0, 'ae2:memory_card');
-  await fixture.raw('key shift down');
-  try { await fixture.raw(`interact ${input} south`); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakInteract(`${input} south`);
   await until(() => fixture.command('data get entity @s SelectedItem'), r => JSON.stringify(r).includes('ae2_p2p_card'), 'input frequency saved to physical card');
   await fixture.raw(`interact ${outputA} south`);
   await fixture.command(`setblock ${at(2, 0, 1)} ae2:debug_energy_gen`);

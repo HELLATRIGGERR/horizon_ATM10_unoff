@@ -54,7 +54,8 @@ try {
   assert(!(await sectionHalvesEqual()), 'one guaranteed selection changes the full random-tickable section');
   await fixture.command('gamerule randomTickSpeed 0');
   await fixture.hold(false); await fixture.restart();
-  await until(() => fixture.ae(`anchor status ${anchor}`), s => s.count >= 1, 'owned remote chunk restored', 30000);
+  // Until the restored world loads the anchor's chunk the command finds no anchor there.
+  await until(() => fixture.ae(`anchor status ${anchor}`).catch(() => ({ count: 0 })), s => s.count >= 1, 'owned remote chunk restored', 30000);
   assert(!(await sectionHalvesEqual()), 'the physical redstone-ore state change survives restart');
   fixture.assertHidden(await fixture.raw('status'));
   fixture.mark('one enabled random selection changes a real block and survives restart');

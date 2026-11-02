@@ -549,7 +549,7 @@ mod tests {
         // Two blocks: one opaque, one cutout, then an opaque one again, so
         // every bucket holds both kinds out of order.
         let mut solid = Vec::new();
-        let mut id = 0u16;
+        let mut id = 0u32;
         for (origin, opaque) in [
             ([0.0, 0.0, 0.0], true),
             ([4.0, 2.0, 6.0], false),
@@ -565,7 +565,7 @@ mod tests {
         for grouped in [false, true] {
             let mut solid = unsorted.clone();
             let sides = sort_parts(&mut solid, grouped);
-            let layers: Vec<u16> = solid
+            let layers: Vec<u32> = solid
                 .as_chunks::<4>()
                 .0
                 .iter()

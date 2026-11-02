@@ -924,6 +924,9 @@ mod initial_history_tests {
     }
     fn frame(hud: &HudBatch) -> Frame<'_> {
         Frame {
+            anchor_overlay_faces: &[],
+            anchor_overlay_lines: &[],
+            anchor_overlay_occluded: &[],
             eye: glam::DVec3::ZERO,
             eye_rotation: [0.0; 2],
             first_person: true,

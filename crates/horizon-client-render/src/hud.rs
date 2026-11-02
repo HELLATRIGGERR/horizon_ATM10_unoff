@@ -932,18 +932,17 @@ impl HudAtlas {
     /// budget (`budget` texels). Java binds a mod's GUI and entity textures one by one, when something first
     /// draws them; here one atlas holds every sprite, and ATM10's alone (about 210 million texels) are more than
     /// a 16384x16384 atlas. Without this the whole resource load failed, and every content mod with it.
-    fn optional_that_fit(images: &[PackedImage], optional: &[PackedImage], budget: u64, max: u32) -> usize {
+    fn optional_that_fit(images: &[(u32, u32)], optional: &[(u32, u32)], budget: u64, max: u32) -> usize {
         let mut spent = 0u64;
         let within = optional
             .iter()
             .take_while(|i| {
-                spent += u64::from(i.1) * u64::from(i.2);
+                spent += u64::from(i.0) * u64::from(i.1);
                 spent <= budget
             })
             .count();
         let fits = |n: usize| {
-            let mut sizes: Vec<(u32, u32)> =
-                images.iter().chain(&optional[..n]).map(|i| (i.1, i.2)).collect();
+            let mut sizes: Vec<(u32, u32)> = images.iter().chain(&optional[..n]).copied().collect();
             sizes.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
             Self::layout_sizes(&sizes, max).is_ok()
         };
@@ -1175,7 +1174,13 @@ impl HudAtlas {
         let mut gui_sizes = HashMap::new();
         let mut animated: Vec<String> = Vec::new();
         let mut images: Vec<PackedImage> = Vec::with_capacity(decoded.len());
-        let mut keep = |(image, image_flags, gui_size, is_animated): Decoded, into: &mut Vec<PackedImage>| {
+        fn keep(
+            (image, image_flags, gui_size, is_animated): Decoded,
+            flags: &mut HashMap<String, TextureFlags>,
+            gui_sizes: &mut HashMap<String, (u32, u32)>,
+            animated: &mut Vec<String>,
+            into: &mut Vec<PackedImage>,
+        ) {
             if let Some(f) = image_flags {
                 flags.insert(image.0.clone(), f);
             }
@@ -1186,13 +1191,9 @@ impl HudAtlas {
                 animated.push(image.0.clone());
             }
             into.push(image);
-        };
-        for d in decoded {
-            keep(d, &mut images);
         }
-        let mut optional_images = Vec::new();
-        for d in decode_all(&optional) {
-            keep(d, &mut optional_images);
+        for d in decoded {
+            keep(d, &mut flags, &mut gui_sizes, &mut animated, &mut images);
         }
         let mut cit_names = HashSet::new();
         if full {
@@ -1325,31 +1326,44 @@ impl HudAtlas {
         // border wrapped from their own edges keeps the filter off their
         // neighbours, as repeat addressing of their own texture would.
         let mut bordered = std::collections::HashSet::new();
-        for image in images.iter_mut().chain(&mut optional_images) {
+        // The optional textures, GUI ones before entity ones and the small before the large of each: when not all
+        // fit, most of what a native mod's screen may draw stays. By their headers alone: ATM10 has 12,446, and
+        // decoding the ones left out cost more memory than the atlas.
+        let headers = crate::par::par_map(&optional, |p| png_size(p));
+        let mut sized: Vec<(PathBuf, (u32, u32))> = optional
+            .into_iter()
+            .zip(headers)
+            .filter_map(|(p, size)| Some((p, size?)))
+            .collect();
+        let area = |(w, h): (u32, u32)| u64::from(w) * u64::from(h);
+        let is_entity = |p: &Path| p.to_string_lossy().replace('\\', "/").contains("/textures/entity/");
+        sized.sort_by_key(|(p, size)| (is_entity(p), area(*size)));
+        let budget = crate::sprites::texture_budget() / 4;
+        let required: Vec<(u32, u32)> = images.iter().map(|i| (i.1, i.2)).collect();
+        let sizes: Vec<(u32, u32)> = sized.iter().map(|(_, size)| *size).collect();
+        let kept = Self::optional_that_fit(&required, &sizes, budget, MAX_ATLAS_SIZE);
+        if kept < sized.len() {
+            let left: u64 = sizes[kept..].iter().copied().map(area).sum();
+            log::warn!(
+                "Horizon: {} of the content mods' {} GUI and entity textures ({left} texels) left out of the GUI \
+                 atlas: past the texture budget ({} MiB) or the atlas's {MAX_ATLAS_SIZE}x{MAX_ATLAS_SIZE}; a native \
+                 mod that draws one gets none",
+                sized.len() - kept,
+                sized.len(),
+                budget * 4 >> 20,
+            );
+        }
+        sized.truncate(kept);
+        let chosen: Vec<PathBuf> = sized.into_iter().map(|(p, _)| p).collect();
+        for d in decode_all(&chosen) {
+            keep(d, &mut flags, &mut gui_sizes, &mut animated, &mut images);
+        }
+        for image in &mut images {
             if flags.get(&image.0).is_some_and(|f: &TextureFlags| f.blur) {
                 *image = wrap_border(image);
                 bordered.insert(image.0.clone());
             }
         }
-        // The optional textures, GUI ones before entity ones and the small before the large of each: when not all
-        // fit, most of what a native mod's screen may draw stays.
-        let area = |i: &PackedImage| u64::from(i.1) * u64::from(i.2);
-        optional_images.sort_by_key(|i| (i.0.contains(":entity/"), area(i)));
-        let budget = crate::sprites::texture_budget() / 4;
-        let kept = Self::optional_that_fit(&images, &optional_images, budget, MAX_ATLAS_SIZE);
-        if kept < optional_images.len() {
-            let left: u64 = optional_images[kept..].iter().map(area).sum();
-            log::warn!(
-                "Horizon: {} of the content mods' {} GUI and entity textures ({left} texels) left out of the GUI \
-                 atlas: past the texture budget ({} MiB) or the atlas's {MAX_ATLAS_SIZE}x{MAX_ATLAS_SIZE}; a native \
-                 mod that draws one gets none",
-                optional_images.len() - kept,
-                optional_images.len(),
-                budget * 4 >> 20,
-            );
-        }
-        optional_images.truncate(kept);
-        images.extend(optional_images);
         images.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
         let (width, placements, glyph_region) =
             Self::layout_leaving_out(&mut images, &mut animated, &cit_names, MAX_ATLAS_SIZE)?;
@@ -3730,7 +3744,9 @@ texture=wide",
         let images = sized(100, 1024, 512);
         let optional = sized(300, 1024, 1024);
         let unlimited = u64::MAX;
-        let kept = HudAtlas::optional_that_fit(&images, &optional, unlimited, MAX_ATLAS_SIZE);
+        let of = |images: &[PackedImage]| images.iter().map(|i| (i.1, i.2)).collect::<Vec<_>>();
+        let (required, wanted) = (of(&images), of(&optional));
+        let kept = HudAtlas::optional_that_fit(&required, &wanted, unlimited, MAX_ATLAS_SIZE);
         assert!(kept > 0 && kept < optional.len(), "{kept}");
         let mut all: Vec<PackedImage> = images.iter().chain(&optional[..kept]).cloned().collect();
         all.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
@@ -3739,9 +3755,9 @@ texture=wide",
         all.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
         assert!(HudAtlas::layout(&all, MAX_ATLAS_SIZE).is_err());
         // The texture budget stops them sooner: two of 1024x1024 in 2.5 Mi texels.
-        assert_eq!(HudAtlas::optional_that_fit(&images, &optional, 5 << 19, MAX_ATLAS_SIZE), 2);
+        assert_eq!(HudAtlas::optional_that_fit(&required, &wanted, 5 << 19, MAX_ATLAS_SIZE), 2);
         // All of them when they fit.
-        assert_eq!(HudAtlas::optional_that_fit(&images, &optional[..3], unlimited, MAX_ATLAS_SIZE), 3);
+        assert_eq!(HudAtlas::optional_that_fit(&required, &wanted[..3], unlimited, MAX_ATLAS_SIZE), 3);
     }
 
     #[test]

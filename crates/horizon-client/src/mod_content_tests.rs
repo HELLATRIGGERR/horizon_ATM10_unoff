@@ -1802,7 +1802,12 @@ fn a_reused_root_registers_what_the_build_did() {
         let toml = manifest(id, namespaces);
         let mut all = vec![("horizon-mod.toml", toml.as_str())];
         all.extend_from_slice(files);
-        folder_mod(&dir, &all);
+        // Only written: load_root reads them, with what code declares.
+        for (name, text) in all {
+            let path = dir.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
         Candidate {
             manifest: horizon_mods::Package::read(&dir).unwrap().manifest,
             path: dir,
@@ -1871,6 +1876,73 @@ fn a_reused_root_registers_what_the_build_did() {
     assert_eq!(reused.effects, built.effects);
     assert_eq!(reused.entity_types, built.entity_types);
     assert_eq!(reused.menu_types, built.menu_types);
+    // A mod in the root is announced by either path; a refused one isn't.
+    assert_eq!(built.accepted, ["example"]);
+    assert_eq!(reused.accepted, built.accepted);
+    // What native code declares joins the mods, a change of it needs a new root, and a file item
+    // may name a declared item as its remainder.
+    let wrench = horizon_mods::content::Item {
+        id: "tools:wrench".into(),
+        template: "minecraft:stick".into(),
+        ..Default::default()
+    };
+    let shaft = horizon_mods::content::Block {
+        id: "example:shaft".into(),
+        template: "minecraft:oak_log".into(),
+        item: true,
+        ..Default::default()
+    };
+    let remainder = horizon_mods::content::Item {
+        id: "example:dust".into(),
+        template: "minecraft:stick".into(),
+        ..Default::default()
+    };
+    let with_remainder = candidate(
+        "example",
+        "",
+        &[(
+            "data/example/horizon/item/gem.json",
+            r#"{"template": "minecraft:snowball", "crafting_remainder": "example:dust"}"#,
+        )],
+    );
+    let declared = load_root(
+        &base,
+        std::slice::from_ref(&with_remainder),
+        std::slice::from_ref(&shaft),
+        &[remainder.clone(), wrench],
+        &cache,
+    )
+    .unwrap();
+    assert!(!sentinel.exists(), "what code declares is part of the root's stamp");
+    assert_eq!(declared.mods, 2);
+    assert_eq!(declared.accepted, ["example", "tools"]);
+    let registry = Assets::load(&declared.root).unwrap().registry;
+    assert!(registry.default_state("example:shaft").is_some());
+    // The declared item refused (no such stack size): the file item's remainder dangles,
+    // so its mod alone is left out.
+    let dangling = horizon_mods::content::Item {
+        id: "other:dust".into(),
+        template: "minecraft:stick".into(),
+        max_stack_size: Some(200),
+        ..Default::default()
+    };
+    let left = load_root(
+        &base,
+        std::slice::from_ref(&candidate(
+            "other",
+            "",
+            &[(
+                "data/other/horizon/item/gem.json",
+                r#"{"template": "minecraft:snowball", "crafting_remainder": "other:dust"}"#,
+            )],
+        )),
+        &[],
+        std::slice::from_ref(&dangling),
+        &cache,
+    )
+    .unwrap();
+    assert!(left.accepted.is_empty(), "{:?}", left.accepted);
+    assert_eq!(left.root, base);
     let _ = fs::remove_dir_all(&scratch);
 }
 

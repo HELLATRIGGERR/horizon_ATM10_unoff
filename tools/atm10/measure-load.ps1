@@ -1,9 +1,9 @@
-# measure-load.ps1 [-Minutes 20] [-FloorMB 700] [-HoldSeconds 60] [-Profile DIR] [game arguments for play-atm10.ts...]
+# measure-load.ps1 [-Minutes 20] [-FloorMB 700] [-HoldSeconds 60] [-LineSeconds 10] [-Profile DIR] [game arguments for play-atm10.ts...]
 # Starts the game with play-atm10.ts (every carry), samples the client's memory every 0.7 s, and stops it once it
 # has joined a world and run -HoldSeconds more, after -Minutes, or when the machine's free memory falls under -FloorMB
 # (so the PC never runs out). Prints the log's milestones and the memory peaks; the log stays in
-# ..\play\game\logs\latest.log, and a line every 10 s goes to memory.csv beside it (in the profile).
-param([int]$Minutes = 20, [int]$FloorMB = 700, [int]$HoldSeconds = 60, [string]$Profile = '', [Parameter(ValueFromRemainingArguments = $true)][string[]]$GameArgs)
+# ..\play\game\logs\latest.log, and a line every -LineSeconds goes to memory.csv beside it (in the profile).
+param([int]$Minutes = 20, [int]$FloorMB = 700, [int]$HoldSeconds = 60, [int]$LineSeconds = 10, [string]$Profile = '', [Parameter(ValueFromRemainingArguments = $true)][string[]]$GameArgs)
 $here = if ($env:ATM10_WORK) { $env:ATM10_WORK } else { Split-Path -Parent $PSScriptRoot }
 # BUN: bun.exe (default: the one on PATH). ATM10_WORK and HORIZON_REPO go through to play-atm10.ts.
 $bun = if ($env:BUN) { $env:BUN } else { (Get-Command bun).Source }
@@ -37,11 +37,11 @@ while (((Get-Date) - $start).TotalMinutes -lt $Minutes) {
     if ($client.HasExited) { $why = "the game exited with code $($client.ExitCode)"; break }
     if ($client.WorkingSet64 -gt $peakWs) { $peakWs = $client.WorkingSet64 }
     if ($client.PrivateMemorySize64 -gt $peakPrivate) { $peakPrivate = $client.PrivateMemorySize64 }
-    # A line every 10 s: seconds since start, the game's working set and private bytes, the machine's free MB.
+    # A line every -LineSeconds: seconds since start, the game's working set and private bytes, the machine's free MB.
     $t = [int]((Get-Date) - $start).TotalSeconds
     if ($t -ge $nextLine) {
       Add-Content -Path $csv -Value ("{0},{1},{2},{3}" -f $t, [int]($client.WorkingSet64 / 1MB), [int]($client.PrivateMemorySize64 / 1MB), $free)
-      $nextLine = $t + 10
+      $nextLine = $t + $LineSeconds
     }
   } elseif ($launcher.HasExited) { $why = 'the launcher exited before the game started'; break }
   if ($free -lt $FloorMB) { $why = "free memory fell to $free MB"; break }

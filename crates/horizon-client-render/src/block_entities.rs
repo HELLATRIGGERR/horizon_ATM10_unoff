@@ -1088,7 +1088,8 @@ mod mod_lifecycle_tests {
     use super::*;
 
     fn cable(energy: i32) -> BlockEntity {
-        let mut m = ModBlockEntity { id: "mod:cable".into(), ..ModBlockEntity::default() };
+        let mut m = ModBlockEntity::default();
+        m.id = "mod:cable".into();
         m.nbt.insert(horizon_world::nbt::JavaString::from("energy"), horizon_world::nbt::Tag::Int(energy));
         BlockEntity::Mod(Box::new(m))
     }

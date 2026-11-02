@@ -547,6 +547,21 @@ mod tests {
             r#"{"parent":"lanef:block/shaft_half","textures":{"side":"lanef:block/cog"}}"#,
         );
         fixture.write("lanef:block/orphan", r#"{"parent":"lanef:block/absent"}"#);
+        // Real textures: every missing one shares a layer.
+        for (name, shade) in [("shaft", 40u8), ("cog", 200u8)] {
+            let path = fixture
+                .0
+                .join(format!("assets/lanef/textures/block/{name}.png"));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut encoder = png::Encoder::new(fs::File::create(path).unwrap(), 16, 16);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            encoder
+                .write_header()
+                .unwrap()
+                .write_image_data(&[shade; 16 * 16 * 4])
+                .unwrap();
+        }
         let mut models = StateModels::default();
         let mut sprites = Sprites::default();
         let names: Vec<String> = [

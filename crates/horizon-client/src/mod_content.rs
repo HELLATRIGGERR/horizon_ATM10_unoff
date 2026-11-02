@@ -3603,7 +3603,12 @@ fn stamp<'a>(
         }
     }
     for (id, path, files) in mods {
-        parts.push(format!("{id} {} {files}", std::path::absolute(path)?.display()));
+        // A mod declared in code only is nowhere.
+        let place = match path.as_os_str().is_empty() {
+            true => PathBuf::new(),
+            false => std::path::absolute(path)?,
+        };
+        parts.push(format!("{id} {} {files}", place.display()));
     }
     // What native code declares (the mods' files have their own stamps above).
     parts.push(declared.to_owned());

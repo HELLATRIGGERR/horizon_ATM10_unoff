@@ -519,12 +519,17 @@ impl Game<'_> {
     /// `click-slot` on a menu place the terminal screen does not show (a
     /// storage entry below its rows, a placeholder control with no widget):
     /// the click goes to the place itself. False for a place it shows.
-    pub(super) fn ae2_term_hidden_click(&mut self, slot: usize, (x, _): (f32, f32), right: bool, shift: bool) -> bool {
+    pub(super) fn ae2_term_hidden_click(&mut self, slot: usize, (x, _): (f32, f32), right: bool, shift: bool, middle: bool) -> bool {
         if self.ae2_term_kind().is_none() || x > -500.0 || !self.slots().contains(&slot) {
             return false;
         }
-        let input = if shift { horizon_client::menu::Input::QuickMove } else { horizon_client::menu::Input::Pickup };
-        self.remote_menu_ops(&[(Some(slot), i32::from(right), input)]);
+        use horizon_client::menu::Input;
+        let (button, input) = if middle {
+            (2, Input::Clone)
+        } else {
+            (i32::from(right), if shift { Input::QuickMove } else { Input::Pickup })
+        };
+        self.remote_menu_ops(&[(Some(slot), button, input)]);
         true
     }
 

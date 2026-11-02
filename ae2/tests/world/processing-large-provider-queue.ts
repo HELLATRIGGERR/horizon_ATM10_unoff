@@ -52,7 +52,7 @@ try {
   };
   const submit = async () => {
     const screen = await openTerminal();
-    await fixture.raw(`click-slot ${screen.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:diamond').slot} shift`);
+    await fixture.raw(`click-slot ${screen.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:diamond').slot} middle`);
     await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Amount'), 'large processing amount'); await fixture.raw('click-slot 302');
     const confirm = await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Confirm') && /bytes|Missing materials|craft planning:/.test(JSON.stringify(view)), 'large processing confirmation', 90000);
     assert.doesNotMatch(JSON.stringify(confirm), /Missing materials|craft planning:/); await fixture.raw('click-slot 302'); await fixture.raw('close');

@@ -132,10 +132,49 @@ impl Game<'_> {
         if let Some(index) = self.ae2_workbench_filter_at(style, at) {
             if index < v.enabled {
                 self.ae2_send_menu_button(CONFIG_PLACE + index as i16, i32::from(right));
+                let held = self.carried.is_some();
+                if let Some(r) = self.remote.as_mut() {
+                    r.ae2_workbench_drag = held.then(|| (right, vec![index]));
+                }
             }
             return true;
         }
         false
+    }
+
+    /// `AEBaseScreen.mouseDragged` over the filters with a stack held: each filter the drag reaches joins it,
+    /// and from the second on every one of them is set again, as AE2 sends them.
+    pub(super) fn ae2_workbench_drag(&mut self) {
+        let Some((right, mut filters)) = self.remote.as_ref().and_then(|r| r.ae2_workbench_drag.clone()) else {
+            return;
+        };
+        let (Some(style), Some(enabled), Some((ox, oy))) = (
+            self.ae2_workbench_style(),
+            self.ae2_workbench_view().map(|v| v.enabled),
+            self.gui_scale().map(|b| self.inventory_origin(&b)),
+        ) else {
+            return;
+        };
+        let at = [self.cursor.0 - ox, self.cursor.1 - oy];
+        let Some(index) = self.ae2_workbench_filter_at(style, at).filter(|&i| i < enabled && !filters.contains(&i)) else {
+            return;
+        };
+        if self.carried.is_none() {
+            return;
+        }
+        filters.push(index);
+        for &i in &filters {
+            self.ae2_send_menu_button(CONFIG_PLACE + i as i16, i32::from(right));
+        }
+        if let Some(r) = self.remote.as_mut() {
+            r.ae2_workbench_drag = Some((right, filters));
+        }
+    }
+
+    pub(super) fn ae2_workbench_release(&mut self) {
+        if let Some(r) = self.remote.as_mut() {
+            r.ae2_workbench_drag = None;
+        }
     }
 
     /// The filters and toolbar over the machine screen.

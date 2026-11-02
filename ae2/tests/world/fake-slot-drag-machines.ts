@@ -37,6 +37,14 @@ try {
     await fixture.raw('click-slot 0');
     await until(() => fixture.raw('inventory'), view => !view.carried && view.counts?.['minecraft:diamond'] === 4, 'real diamonds returned');
   };
+  // The Workbench and bus screens draw their filters themselves, all at once as AE2's do, so a drag goes by
+  // their places on the screen rather than by menu slots.
+  const dragFilters = async (screen: 'ae2_workbench' | 'ae2_part') => {
+    const filters = (await until(() => fixture.raw('screen'), v => v[screen]?.config?.[1]?.open, `${screen} filters`))[screen].config;
+    const [[ax, ay], [bx, by]] = [0, 1].map(i => [filters[i].rect[0] + 8, filters[i].rect[1] + 8]);
+    await fixture.raw(`drag-at ${ax} ${ay} ${bx} ${by} ${ax} ${ay}`);
+  };
+  const twoFilters = (v: any, screen: string) => v[screen]?.config[0]?.item === 'minecraft:diamond' && v[screen]?.config[1]?.item === 'minecraft:diamond' && v.carried?.count === 4;
   await open(iface, 0, /Interface|AE2 Machine/i); await holdDiamond();
   await drag(309, 310); await fixture.command(`data get block ${iface} ae2_lab_config`);
   let view = await until(() => fixture.raw('screen'), v => slot(v, 309)?.item === 'minecraft:diamond' && slot(v, 309)?.count === 4 && slot(v, 310)?.count === 4, 'Interface left drag copies full stack to each stock ghost');
@@ -48,12 +56,12 @@ try {
   await open(bench, 3, /AE2 Machine/i); await fixture.raw('click-slot 1'); await fixture.raw('click-slot 300');
   await fixture.command(`data get block ${bench}`);
   await until(() => fixture.raw('screen'), v => slot(v, 300)?.item === 'ae2:item_storage_cell_1k' && !v.carried, 'physical cell installed');
-  await holdDiamond(); await drag(305, 306); await fixture.command(`data get block ${bench} ae2_lab_config`);
-  view = await until(() => fixture.raw('screen'), v => slot(v, 305)?.item === 'minecraft:diamond' && slot(v, 306)?.item === 'minecraft:diamond' && v.carried?.count === 4, 'Workbench drag fills two type filters');
+  await holdDiamond(); await dragFilters('ae2_workbench'); await fixture.command(`data get block ${bench} ae2_lab_config`);
+  view = await until(() => fixture.raw('screen'), v => twoFilters(v, 'ae2_workbench'), 'Workbench drag fills two type filters');
   assert.equal(slot(view, 300)?.item, 'ae2:item_storage_cell_1k'); await returnDiamond(); await fixture.raw('close');
 
-  await open(bus, 6, /AE2 Bus/i); await holdDiamond(); await drag(300, 301); await fixture.command(`data get block ${bus} ae2_lab_config.parts`);
-  view = await until(() => fixture.raw('screen'), v => slot(v, 300)?.item === 'minecraft:diamond' && slot(v, 301)?.item === 'minecraft:diamond' && v.carried?.count === 4, 'bus drag fills two type filters');
+  await open(bus, 6, /AE2 Bus/i); await holdDiamond(); await dragFilters('ae2_part'); await fixture.command(`data get block ${bus} ae2_lab_config.parts`);
+  view = await until(() => fixture.raw('screen'), v => twoFilters(v, 'ae2_part'), 'bus drag fills two type filters');
   await returnDiamond(); await fixture.raw('click-slot 2'); await until(() => fixture.raw('inventory'), v => v.carried?.item === 'ae2:speed_card' && v.carried.count === 2, 'physical upgrade cards held');
   // Real upgrade slots use vanilla physical quick-craft, not fake-slot actions.
   const widgets = await fixture.raw('ui'); const centers = [336,337].map(index => { const n=widgets.widgets.find((entry: any) => entry.id === `slot-${index}`); assert(n); return [n.bounds[0]+8,n.bounds[1]+8]; });

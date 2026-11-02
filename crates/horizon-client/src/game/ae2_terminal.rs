@@ -1350,13 +1350,18 @@ impl Game<'_> {
         }
         let page_size=if self.ae2_local_crafting_terminal_open(){27}else{PAGE_ITEMS};
         if let (Some(slot),Some(pos))=(slot,self.container) {
-            if (300..300+page_size).contains(&slot) && matches!(input,Input::Pickup|Input::QuickMove) && (0..=1).contains(&button) {
+            if (300..300+page_size).contains(&slot) && matches!(input,Input::Pickup|Input::Clone) {
                 if let Ok(entries)=self.ae2_local_terminal_entries(pos) {
                     let page=self.ae2_terminal_page.min(entries.len().saturating_sub(1)/page_size);
                     if let Some((key,count))=entries.get(page*page_size+slot-300) {
                         let fluid=marker_fluid(key);
                         let craftable=if let Some(fluid)=fluid.as_ref() {self.ae2_craftable_fluids(pos).contains(fluid)} else {self.ae2_craftable_outputs(pos).contains(key)};
-                        if craftable && (input==Input::QuickMove || self.carried.is_none() && *count==0) {
+                        // MEStorageScreen: a middle click, or a left click with an empty cursor on an item that
+                        // isn't stored (or while only craftables are shown); a left click on a fluid fills a
+                        // container instead, and a shift click always moves the stored stack.
+                        let only_craftable=self.ae2_local_terminal.as_ref().is_some_and(|s|s.view==2);
+                        let left=input==Input::Pickup && button==0 && fluid.is_none() && self.carried.is_none() && (*count==0 || only_craftable);
+                        if craftable && (input==Input::Clone || left) {
                             self.ae2_open_local_craft_confirm(pos,fluid.clone().unwrap_or_else(||key.clone()),fluid.is_some());
                             return true;
                         }
@@ -1390,10 +1395,14 @@ impl Game<'_> {
             return Ok(());
         };
         if (300..354).contains(&slot) {
-            if !matches!(input, Input::Pickup | Input::QuickMove) || !(0..=1).contains(&button) {
+            let clone = input == Input::Clone;
+            if !clone && (!matches!(input, Input::Pickup | Input::QuickMove) || !(0..=1).contains(&button)) {
                 return Ok(());
             }
             let index = slot - 300;
+            if clone && (index == 49 || index == PREV || index == NEXT) {
+                return Ok(());
+            }
             if index == 49 {
                 let jobs = self.ae2_recursive_jobs(pos);
                 if let Some((cpu, pending, flight, cancelled)) = jobs.first().copied() {
@@ -1422,6 +1431,18 @@ impl Game<'_> {
                 .ae2_terminal_page
                 .min(entries.len().saturating_sub(1) / page_size);
             if index < page_size && entries.get(self.ae2_terminal_page*page_size+index).is_some_and(|(key,_)|key.item_id.is_empty()) {return Ok(());}
+            // MEStorageMenu CREATIVE_DUPLICATE: a middle click in creative puts a full stack of an item on the
+            // cursor and leaves the network's stock alone (craftable keys were sent to the amount screen).
+            if clone {
+                if let Some((key, _)) = entries.get(self.ae2_terminal_page * page_size + index).filter(|_| index < page_size) {
+                    if self.creative && marker_fluid(key).is_none() {
+                        let mut stack = ae2_lab::prototype(key)?;
+                        stack.count = self.res.items().stack_max(&stack);
+                        self.carried = Some(stack);
+                    }
+                }
+                return Ok(());
+            }
             if index == PREV {
                 self.ae2_terminal_page = self.ae2_terminal_page.saturating_sub(1);
                 return Ok(());
@@ -1480,25 +1501,27 @@ impl Game<'_> {
                 }
             }
             if input == Input::QuickMove {
-                if let Some((key, _)) = entries.get(self.ae2_terminal_page * page_size + index) {
-                    if marker_fluid(key).is_some()
-                        || self.ae2_craftable_outputs(pos).iter().any(|k| k == key)
-                    {
-                        let cpu = if let Some(fluid) = marker_fluid(key) {
-                            self.ae2_begin_recursive_fluid_craft(
-                                pos,
-                                &fluid,
-                                craft_amount
-                                    .checked_mul(1000)
-                                    .ok_or("craft amount overflow")?,
-                            )?
-                        } else {
-                            self.ae2_begin_recursive_craft(pos, key, craft_amount)?
+                // MEStorageMenu.moveOneStackToPlayer (SHIFT_CLICK): up to a stack of an item into the first player
+                // slot with room for it, the main inventory before the hotbar as AE2's quick-move priorities order
+                // them; the slot a wireless terminal is used from stays locked. Fluids are not moved.
+                if let Some((key, count)) = entries.get(self.ae2_terminal_page * page_size + index) {
+                    if marker_fluid(key).is_none() && *count > 0 {
+                        let exemplar = ae2_lab::prototype(key)?;
+                        let max = self.res.items().stack_max(&exemplar);
+                        let locked = self.ae2_wireless_power;
+                        let room = |i: usize, held: &Option<ItemStack>| match held {
+                            _ if locked == Some(i) => 0,
+                            None => max,
+                            Some(held) if held.same_item_same_components(&exemplar) => max.saturating_sub(held.count),
+                            Some(_) => 0,
                         };
-                        self.system_message(Text::literal(format!(
-                            "Crafting started on CPU {}",
-                            self.ae2_cpu_label(cpu)
-                        )));
+                        let target = (9..36).chain(0..9).map(|i| (i, room(i, &self.inventory[i]))).find(|&(_, n)| n > 0);
+                        if let Some((i, amount)) = target {
+                            if let Some(extracted) = self.ae2_terminal_extract(pos, key, u64::from(amount))? {
+                                let held = self.inventory[i].as_ref().map_or(0, |held| held.count);
+                                self.inventory[i] = Some(ItemStack { count: held + extracted.count, ..extracted });
+                            }
+                        }
                     }
                 }
                 return Ok(());
@@ -1522,17 +1545,12 @@ impl Game<'_> {
                 entries.get(self.ae2_terminal_page * page_size + index)
             {
                 if *count == 0 {
-                    let cpu = if let Some(fluid) = marker_fluid(key) {
-                        self.ae2_begin_recursive_fluid_craft(
-                            pos,
-                            &fluid,
-                            craft_amount
-                                .checked_mul(1000)
-                                .ok_or("craft amount overflow")?,
-                        )?
-                    } else {
-                        self.ae2_begin_recursive_craft(pos, key, craft_amount)?
-                    };
+                    // A click on a fluid fills a container (MEStorageScreen's FILL_ITEM); only the middle click
+                    // and the amount screen request one.
+                    if marker_fluid(key).is_some() {
+                        return Ok(());
+                    }
+                    let cpu = self.ae2_begin_recursive_craft(pos, key, craft_amount)?;
                     self.system_message(Text::literal(format!(
                         "Crafting started on CPU {}",
                         self.ae2_cpu_label(cpu)
@@ -4901,8 +4919,13 @@ impl Game<'_> {
         // A craftable virtual entry opens confirmation without reserving inputs.
         if let Some(index)=repo {
             let empty_cursor=host.hub.guests.iter().find(|g|g.conn==conn).is_some_and(|g|g.carried.is_none());
+            let only_craftable=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.filter_mode==2);
             if let Some((key,count))=displayed.get(index) {
-                if craftable.contains(key) && (input==Input::QuickMove || input==Input::Clone || (empty_cursor && *count==0)) {
+                // MEStorageScreen: a middle click, or a left click with an empty cursor on an item that isn't
+                // stored (or while only craftables are shown); a left click on a fluid fills a container
+                // instead, and a shift click always moves the stored stack.
+                let left=input==Input::Pickup && button==0 && marker_fluid(key).is_none() && empty_cursor && (*count==0 || only_craftable);
+                if craftable.contains(key) && (input==Input::Clone || left) {
                     let fluid=marker_fluid(key);
                     let is_fluid=fluid.is_some();
                     let selected=fluid.unwrap_or_else(||key.clone());

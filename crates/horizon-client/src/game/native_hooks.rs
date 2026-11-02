@@ -1638,7 +1638,7 @@ impl Game<'_> {
     /// stack burns in a furnace. It only narrows what the container's `inputs`
     /// let through, and asks neither for what a mod's own tick does nor for
     /// the stacks already in a slot. Asked often, from any thread's menu or
-    /// hopper: answer from the arguments alone. API 64.
+    /// hopper: answer from the arguments alone. API 82.
     pub(super) fn native_block_entity_slot_accepts(
         block: &str,
         slot: usize,
@@ -1655,7 +1655,7 @@ impl Game<'_> {
     /// (`Block.playerDestroy`), not an explosion, a command or a piston. A
     /// dropped stack of the block's own item takes them, unless the block is
     /// broken without drops. `native_place_block` hears the item placed again.
-    /// Read `entity` alone: it runs from a level's own pass. API 64.
+    /// Read `entity` alone: it runs from a level's own pass. API 82.
     pub(super) fn native_block_entity_drop(
         block: &str,
         entity: &ModBlockEntity,

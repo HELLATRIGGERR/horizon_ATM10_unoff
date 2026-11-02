@@ -1029,9 +1029,11 @@ mod tests {
 
     #[test]
     fn a_view_survives_its_wire_form_with_its_icons() {
+        // The server sends each row's stack as canonical SNBT.
+        let wire_stack = |id: &str| horizon_client::item_data::canon_stack(Some(&ItemStack::new(id, 1)));
         let mut view = CraftView { window: 7, host: "ae2:terminal".into(), ..CraftView::default() };
-        view.rows.push(Row::new("minecraft:oak_log".into(), false, [1, 2, 3]));
-        view.cpus.push(Cpu { storage: 4096, job: Some(Row::new("minecraft:stone".into(), false, [5, 0, 0])), ..Cpu::default() });
+        view.rows.push(Row::new(wire_stack("minecraft:oak_log"), false, [1, 2, 3]));
+        view.cpus.push(Cpu { storage: 4096, job: Some(Row::new(wire_stack("minecraft:stone"), false, [5, 0, 0])), ..Cpu::default() });
         let wire = serde_json::to_vec(&view).unwrap();
         let back = serde_json::from_slice::<CraftView>(&wire).unwrap().parsed();
         assert_eq!(back.rows[0].amounts, [1, 2, 3]);

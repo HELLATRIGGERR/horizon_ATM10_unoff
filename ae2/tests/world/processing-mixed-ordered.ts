@@ -29,7 +29,7 @@ try {
  await fixture.raw(`click-slot ${menu.slots.find((v:any)=>v.slot<36&&v.item==='ae2:processing_pattern').slot} shift`);await until(()=>fixture.raw('inventory'),s=>!s.counts?.['ae2:processing_pattern'],'pattern installed');await fixture.raw('close');
  await fixture.command(`tp @s ${x+2.5} ${y} ${z-2.5}`);await fixture.raw(`interact ${terminal} north`);
  const screen=await until(()=>fixture.raw('screen'),s=>s.slots?.some((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond'),'processing output shown');
- await fixture.raw(`click-slot ${screen.slots.find((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond').slot} shift`);await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Amount'),'amount');await fixture.raw('click-slot 302');
+ await fixture.raw(`click-slot ${screen.slots.find((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond').slot} middle`);await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Amount'),'amount');await fixture.raw('click-slot 302');
  const confirm=await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Confirm')&&/bytes|Missing materials|craft planning:/.test(JSON.stringify(s)),'mixed processing plan');assert.doesNotMatch(JSON.stringify(confirm),/Missing materials|craft planning:/);
  await fixture.raw('click-slot 302');await fixture.raw('close');
  const queued=async()=>(await fixture.command(`data get block ${provider}`)).chat?.join('\n')??'';

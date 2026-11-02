@@ -114,7 +114,15 @@ impl Game<'_> {
                 let (ox, oy) = self.gui_origin()?;
                 let (sx, sy) = self.slot_position(slot);
                 #[cfg(feature = "ae2-lab")]
-                if self.ae2_term_hidden_click(slot, (sx, sy), flag("right"), flag("shift")) {
+                if self.ae2_term_hidden_click(slot, (sx, sy), flag("right"), flag("shift"), flag("middle")) {
+                    return ok();
+                }
+                if flag("middle") {
+                    // The pick-item key over a slot clones it, as a middle press does.
+                    let saved = self.cursor;
+                    self.cursor = (ox + sx + 8.0, oy + sy + 8.0);
+                    self.inventory_pick_key();
+                    self.cursor = saved;
                     return ok();
                 }
                 #[cfg(feature = "ae2-lab")]

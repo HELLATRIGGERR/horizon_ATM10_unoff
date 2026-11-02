@@ -39,7 +39,7 @@ try {
   };
   const terminalView = await openTerminal();
   const output = terminalView.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:oak_planks');
-  await fixture.raw(`click-slot ${output.slot} shift`);
+  await fixture.raw(`click-slot ${output.slot} middle`);
   await until(() => fixture.raw('screen'), state => JSON.stringify(state.title ?? '').includes('AE2 Craft Amount'), 'craft amount');
   await fixture.raw('ui-key right'); await fixture.raw('ui-key backspace'); await fixture.raw('type 672'); await fixture.raw('click-slot 302');
   await until(() => fixture.raw('screen'), state => JSON.stringify(state.title ?? '').includes('AE2 Craft Confirm') && /bytes/.test(text(state)), 'finished plan');

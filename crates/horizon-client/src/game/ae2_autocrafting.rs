@@ -1940,14 +1940,6 @@ mod recursive {
                 .report(&available, &target, amount)
                 .map_err(|e| format!("craft planning: {e:?}"))
         }
-        pub(in crate::game) fn ae2_begin_recursive_fluid_craft(
-            &mut self,
-            pos: Pos,
-            key: &ae2_cell_core::ItemKey,
-            amount: u64,
-        ) -> Result<GridAddress, String> {
-            self.ae2_begin_recursive_target(pos, fluid_name(key), amount)
-        }
         pub(in crate::game) fn ae2_begin_recursive_fluid_craft_on(
             &mut self,
             pos: Pos,

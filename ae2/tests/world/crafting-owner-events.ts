@@ -52,7 +52,7 @@ try {
     const before=(await trace()).events.length;
     const view=await openTerminal();
     const slot=view.slots?.find((s:any)=>s.slot>=300&&s.slot<345&&s.item==='minecraft:oak_planks');assert(slot,'craftable output');
-    await fixture.raw(`click-slot ${slot.slot} shift`);
+    await fixture.raw(`click-slot ${slot.slot} middle`);
     await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Amount'),'craft amount');
     await fixture.raw('ui-key right');await fixture.raw('ui-key backspace');await fixture.raw('type 672');await fixture.raw('wait 5');await fixture.raw('click-slot 302');
     const confirm=await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Confirm') && /bytes/.test(JSON.stringify(s)) && !/Calculating/i.test(JSON.stringify(s)),'completed craft confirmation');

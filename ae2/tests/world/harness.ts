@@ -26,6 +26,20 @@ export function exitName(code: number | null | undefined): string {
   return typeof code === 'number' && code > 255 ? `0x${(code >>> 0).toString(16).toUpperCase()}` : String(code);
 }
 
+/** `--width`/`--height` take logical pixels, which Windows' display scale multiplies. The hidden window asks for
+ * 960x540 physical pixels on every machine, so the automatic GUI scale gives the 480x270 GUI the suites' layouts
+ * are written for. AE2_TEST_DISPLAY_SCALE overrides the scale read from the signed-in user's display settings. */
+function windowArgs(): string[] {
+  let scale = Number(process.env.AE2_TEST_DISPLAY_SCALE ?? 0);
+  if (!(scale > 0) && process.platform === 'win32') {
+    const query = Bun.spawnSync(['reg', 'query', 'HKCU\\Control Panel\\Desktop\\WindowMetrics', '/v', 'AppliedDPI']);
+    const dpi = /AppliedDPI\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(query.stdout.toString());
+    if (dpi) scale = parseInt(dpi[1], 16) / 96;
+  }
+  if (!(scale > 0)) scale = 1;
+  return ['--width', String(Math.round(960 / scale)), '--height', String(Math.round(540 / scale))];
+}
+
 export class WorldFixture {
   readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast', process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
   readonly resources = resolve(process.env.AE2_RESOURCES ?? join(root, '.local/resources/26.3'));
@@ -109,7 +123,7 @@ export class WorldFixture {
     if (process.env.AE2_TEST_BINARY_SHA256) assert.equal(binarySha, process.env.AE2_TEST_BINARY_SHA256, 'fixture binary matches the selected build snapshot');
     writeFileSync(join(this.run, `runtime-${this.phase}.json`), JSON.stringify({ phase: this.phase, mode: this.mode, binary_sha256: binarySha, fixture_source_sha256: createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'), harness_source_sha256: createHash('sha256').update(readFileSync(import.meta.path)).digest('hex'), background: true, max_fps: 30 }, null, 2) + '\n');
     const env = { ...process.env, HORIZON_HOME: this.game, HORIZON_LAUNCHER_HOME: join(this.run, 'launcher'), XDG_DATA_HOME: join(this.run, 'data'), XDG_CONFIG_HOME: join(this.run, 'config'), HORIZON_LAUNCHER_NO_SELF_UPDATE: '1', HORIZON_NO_AUDIO: '1', HORIZON_TELEMETRY_URL: 'off', HORIZON_SERVER_THREAD: this.mode === 'server-thread' ? '1' : '0' };
-    this.child = Bun.spawn([this.binary, '--resources', this.resources, ...this.devMods(), '--world', 'AE2 Fixture', '--seed', '1234', '--creative', '--name', 'AE2Fixture', '--render-distance', '4', '--width', '960', '--height', '540', '--control-socket', this.socket, '--background', '--no-pause', this.mode === 'server-thread' ? '--server-thread' : '--in-frame'], { cwd: this.game, env, stdout: 'pipe', stderr: 'pipe' });
+    this.child = Bun.spawn([this.binary, '--resources', this.resources, ...this.devMods(), '--world', 'AE2 Fixture', '--seed', '1234', '--creative', '--name', 'AE2Fixture', '--render-distance', '4', ...windowArgs(), '--control-socket', this.socket, '--background', '--no-pause', this.mode === 'server-thread' ? '--server-thread' : '--in-frame'], { cwd: this.game, env, stdout: 'pipe', stderr: 'pipe' });
     const log = join(this.run, `game-${this.phase}.log`);
     this.logs = [this.child.stdout, this.child.stderr].map(async stream => { if (stream) for await (const bytes of stream) appendFileSync(log, bytes); });
     try {
@@ -126,10 +140,18 @@ export class WorldFixture {
   }
 
   async command(command: string): Promise<any> {
-    const reply = await this.raw('command ' + command); assert.notEqual(reply.ok, false, JSON.stringify(reply));
+    const setup = /^(?:execute in \S+ run )?(?:fill|setblock|item replace block|data (?:merge|modify|remove) block)\b/.test(command);
+    const unloaded = (reply: any) => !!reply.chat?.some((line: string) => line.includes('That position is not loaded'));
+    let reply = await this.raw('command ' + command);
+    // A world that has just opened may still be loading the chunks a setup writes to. Such a write changed
+    // nothing, so it is sent again until they are loaded.
+    for (const end = awakeNowMs() + 30000; setup && unloaded(reply) && awakeNowMs() < end;) {
+      await Bun.sleep(250); reply = await this.raw('command ' + command);
+    }
+    assert.notEqual(reply.ok, false, JSON.stringify(reply));
     if (this.mode === 'in-frame' && reply.chat) reply.chat = reply.chat.slice(0, 1);
-    if (/^(?:execute in \S+ run )?(?:fill|setblock|item replace block|data (?:merge|modify|remove) block)\b/.test(command)) {
-      assert(!reply.chat?.some((line: string) => line.includes('That position is not loaded')), `Unloaded setup write: ${command}: ${JSON.stringify(reply.chat)}`);
+    if (setup) {
+      assert(!unloaded(reply), `Unloaded setup write: ${command}: ${JSON.stringify(reply.chat)}`);
     }
     const teleport = command.match(/^(?:execute in (\S+) run )?tp @s (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)$/);
     if (teleport) {

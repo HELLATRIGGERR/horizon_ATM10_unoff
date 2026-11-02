@@ -82,7 +82,7 @@ try {
   await fixture.replace('hotbar.0', 'ae2:item_storage_cell_1k');
   await fixture.replace('hotbar.1', 'minecraft:diamond');
   await fixture.select(8, 'minecraft:stick');
-  await fixture.raw(`interact ${bench} south`);
+  await fixture.raw(`interact ${bench} north`);
   await until(() => fixture.raw('screen'), v => v.ae2_screen?.style === 'cell_workbench.json' && v.ae2_workbench, 'workbench screen', 15000);
   await fixture.raw('click-slot 0 shift');
   let work = (await until(() => fixture.raw('screen'), v => v.ae2_workbench?.config[0].open, 'cell in the workbench', 15000)).ae2_workbench;

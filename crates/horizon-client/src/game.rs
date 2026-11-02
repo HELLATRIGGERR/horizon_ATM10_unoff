@@ -9212,6 +9212,7 @@ impl Game<'_> {
         }
         #[cfg(feature="ae2-lab")]
         if let Some((w,h))=self.ae2_term_size() {return batch.centered_origin(w,h);}
+        #[cfg(feature="ae2-lab")]
         if let Some((w,h))=self.ae2x_screen_size() {return batch.centered_origin(w,h);}
         #[cfg(feature="ae2-lab")]
         if self.ae2_crafting_terminal_screen() {return batch.centered_origin(195.0,251.0);}
@@ -9411,6 +9412,7 @@ impl Game<'_> {
     fn slot_position(&self, i: usize) -> (f32, f32) {
         #[cfg(feature="ae2-lab")]
         if let Some(p)=self.ae2_term_slot_position(i) {return p;}
+        #[cfg(feature="ae2-lab")]
         if let Some(at) = self.ae2x_slot_position(i) {return at;}
         #[cfg(feature="ae2-lab")]
         if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) && (365..374).contains(&i) {
@@ -11183,6 +11185,8 @@ impl Game<'_> {
         use horizon_client::container_screen::{Release, Target};
         #[cfg(feature="ae2-lab")]
         self.ae2_term_release();
+        #[cfg(feature="ae2-lab")]
+        self.ae2_workbench_release();
         #[cfg(feature="ae2-lab")]
         self.ae2_craft_release();
         #[cfg(feature="ae2-lab")]
@@ -18016,6 +18020,7 @@ impl Game<'_> {
                         #[cfg(feature = "ae2-lab")]
                         if self.screen == Screen::Inventory {
                             self.ae2_term_drag();
+                            self.ae2_workbench_drag();
                             self.ae2_craft_drag();
                             #[cfg(feature = "ae2-lab")]
                             self.ae2_part_drag();

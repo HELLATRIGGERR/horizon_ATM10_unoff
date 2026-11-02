@@ -1677,7 +1677,8 @@ impl Game<'_> {
                         position,
                     },
                 );
-                let held = a.has("shift").then(|| {
+                let shift = a.pos.get(3) == Some(&"shift") || a.has("shift");
+                let held = shift.then(|| {
                     horizon_client_input::modifiers::hold(
                         &mut self.modifiers,
                         &mut self.physical_keys,

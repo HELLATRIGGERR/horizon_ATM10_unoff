@@ -1375,6 +1375,7 @@ impl Game<'_> {
     pub(super) fn screen_height(&self) -> f32 {
         #[cfg(feature="ae2-lab")]
         if let Some((_,h))=self.ae2_term_size() {return h;}
+        #[cfg(feature="ae2-lab")]
         if let Some((_, h)) = self.ae2x_screen_size() {return h;}
         #[cfg(feature="ae2-lab")]
         if self.ae2_pattern_access_screen() {return 224.0;}

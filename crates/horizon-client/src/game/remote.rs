@@ -539,6 +539,9 @@ pub(super) struct Remote {
     pub(super) ae2_status: super::ae2_status_screens::StatusUi,
     #[cfg(feature = "ae2-lab")]
     pub(super) ae2_workbench: Option<super::ae2_workbench_screen::WorkbenchView>,
+    /// A drag across the Workbench's filters with a stack held: (right button, filters so far).
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_workbench_drag: Option<(bool, Vec<usize>)>,
     #[cfg(feature="ae2-lab")]
     pub(super) ae2_anchor_screen: bool,
     #[cfg(feature="ae2-lab")]
@@ -1086,6 +1089,8 @@ impl Game<'_> {
             ae2_status: Default::default(),
             #[cfg(feature = "ae2-lab")]
             ae2_workbench: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_workbench_drag: None,
             #[cfg(feature="ae2-lab")]
             ae2_anchor_screen: false,
             #[cfg(feature="ae2-lab")]

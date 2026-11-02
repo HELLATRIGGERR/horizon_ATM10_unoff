@@ -31,7 +31,7 @@ try {
   await until(() => fixture.raw('inventory'), view => !view.counts?.['ae2:crafting_pattern'], 'real pattern installed'); await fixture.raw('close');
   await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 2.5}`); await fixture.raw(`interact ${terminal} north`);
   const screen = await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:oak_planks'), 'substitutable plank pattern is craftable');
-  await fixture.raw(`click-slot ${screen.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:oak_planks').slot} shift`);
+  await fixture.raw(`click-slot ${screen.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:oak_planks').slot} middle`);
   await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Amount'), 'large craft amount');
   await fixture.raw('ui-key right'); await fixture.raw('ui-key backspace'); await fixture.raw('type 40000'); await fixture.raw('click-slot 302');
   const confirm = await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Confirm') && /bytes|Missing materials|craft planning:/.test(JSON.stringify(view)), '10,000-push plan', 90000);

@@ -101,7 +101,7 @@ try {
   if (mode === 'in-frame') {
     // A leading '=' asks for the shortfall. Four are already stored, so the
     // overlay must return to the same terminal without submitting a job.
-    await fixture.raw(`click-slot ${plankSlot} shift`);
+    await fixture.raw(`click-slot ${plankSlot} middle`);
     await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Amount'), 'shortfall amount');
     await fixture.raw('ui-key right'); await fixture.raw('ui-key backspace'); await fixture.raw('type =4');
     await fixture.raw('click-slot 302');
@@ -116,7 +116,7 @@ try {
 
     // A planned request belongs to its original face. Replacing that face
     // while the confirmation is open must neither submit nor move inputs.
-    await fixture.raw(`click-slot ${plankSlot} shift`);
+    await fixture.raw(`click-slot ${plankSlot} middle`);
     await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Amount'), 'stale-owner amount');
     await fixture.raw('ui-key right'); await fixture.raw('ui-key backspace'); await fixture.raw('type 8'); await fixture.raw('click-slot 302');
     await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Confirm') && /bytes/.test(JSON.stringify(view)), 'stale-owner planned confirmation');
@@ -132,7 +132,7 @@ try {
     plankSlot = terminalView.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:oak_planks').slot;
     fixture.mark('replacing the original terminal face invalidates its unsubmitted plan without moving materials');
   }
-  await fixture.raw(`click-slot ${plankSlot} shift`);
+  await fixture.raw(`click-slot ${plankSlot} middle`);
   await until(() => fixture.raw('screen'), view => JSON.stringify(view.title ?? '').includes('AE2 Craft Amount'), 'craft amount');
   await fixture.raw('ui-key right');
   await fixture.raw('ui-key backspace');

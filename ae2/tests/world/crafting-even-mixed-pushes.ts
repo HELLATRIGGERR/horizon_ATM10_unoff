@@ -32,7 +32,7 @@ try {
  assert.equal(count(await ready(),'minecraft:stone'),4);assert.equal(count(await ready(),'minecraft:dirt'),2);
  await fixture.select(8,'minecraft:blaze_rod');await fixture.command(`tp @s ${x+2.5} ${y} ${z-2.5}`);await fixture.raw(`interact ${terminal} north`);
  const screen=await until(()=>fixture.raw('screen'),s=>s.slots?.some((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond'),'diamond recipe shown');
- await fixture.raw(`click-slot ${screen.slots.find((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond').slot} shift`);await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Amount'),'amount');
+ await fixture.raw(`click-slot ${screen.slots.find((v:any)=>v.slot>=300&&v.slot<345&&v.item==='minecraft:diamond').slot} middle`);await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Amount'),'amount');
  await fixture.raw('ui-key right');await fixture.raw('ui-key backspace');await fixture.raw('type 2');await fixture.raw('click-slot 302');
  const confirm=await until(()=>fixture.raw('screen'),s=>JSON.stringify(s.title??'').includes('AE2 Craft Confirm')&&/bytes|Missing materials|craft planning:/.test(JSON.stringify(s)),'source tree plan');
  assert.doesNotMatch(JSON.stringify(confirm),/Missing materials|craft planning:/);assert.match(JSON.stringify(confirm),/26 bytes/);

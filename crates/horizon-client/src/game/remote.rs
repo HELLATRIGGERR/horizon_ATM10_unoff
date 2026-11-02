@@ -3039,6 +3039,8 @@ impl Game<'_> {
                 }
             }
             #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if self.ae2x_client_payload(&p.channel, &p.data) => {}
+            #[cfg(feature = "ae2-lab")]
             C::CustomPayload(p) if p.channel == "ae2:base_screen" => {
                 if let Ok(bytes)=<&[u8;4]>::try_from(p.data.as_slice()) {
                     let window=i32::from_be_bytes(*bytes);
@@ -7796,13 +7798,13 @@ impl Game<'_> {
             let pos=(hit.pos[0],hit.pos[1],hit.pos[2]);
             let block=&self.res.facts().get(self.world.block(pos.0,pos.1,pos.2)).name;
             let physical=K::from_id(block.as_ref()).is_some_and(|kind|matches!(kind,
-                K::Drive|K::VibrationChamber|K::Inscriber|K::Interface|K::PatternProvider|
+                K::Ext(_)|K::Drive|K::VibrationChamber|K::Inscriber|K::Interface|K::PatternProvider|
                 K::MolecularAssembler|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|
                 K::IoPort|K::Condenser|K::WirelessAccessPoint|K::Terminal|K::CraftingTerminal|K::Chest|K::SpatialAnchor|K::SkyStoneChest|K::SmoothSkyStoneChest));
             let cpu=K::from_id(block.as_ref()).is_some_and(|kind|matches!(kind,K::CraftingUnit|K::CraftingAccelerator|K::CraftingStorage1k|K::CraftingStorage4k|K::CraftingStorage16k|K::CraftingStorage64k|K::CraftingStorage256k|K::CraftingMonitor)) && self.pack.assets.registry.state(self.world.block(pos.0,pos.1,pos.2)).is_some_and(|state|state.properties.get("formed").is_some_and(|v|v=="true") && state.properties.get("powered").is_some_and(|v|v=="true"));
             let face=match hit.face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
             let part=self.ae2_visual_cache.get(&pos).is_some_and(|v|v.parts.iter().any(|p|p.face==face && matches!(p.id.as_str(),
-                "ae2:terminal"|"ae2:pattern_encoding_terminal"|"ae2:crafting_terminal"|"ae2:pattern_access_terminal"|
+                "ae2:terminal"|"ae2:pattern_encoding_terminal"|"ae2:crafting_terminal"|"ae2:pattern_access_terminal"|"merequester:requester_terminal"|
                 "ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:import_bus"|
                 "ae2:export_bus"|"ae2:storage_bus"|"ae2:formation_plane"|"ae2:level_emitter"|"ae2:energy_level_emitter")));
             if physical || part || cpu {return (InteractionResult::Success, DryUse::default());}

@@ -27,7 +27,9 @@ pub(super) fn placement(
         // as required by HorizontalFacingStrategy.getStateForPlacement.
         return Some((horizontal,None));
     }
-    if !matches!(name, "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:crafting_monitor") {
+    // ME Requester's FacingWithVerticalSpin places as FacingWithSpinStrategy
+    // does: a horizontal facing always has spin 0 there.
+    if !matches!(name, "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:crafting_monitor" | "merequester:requester") {
         return None;
     }
     let opposite = match horizontal {

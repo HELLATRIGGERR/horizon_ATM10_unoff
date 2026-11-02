@@ -490,6 +490,11 @@ impl Game<'_> {
                     }
                 }
             }
+            MachineKind::Ext(_) => {
+                if !self.ae2x_device(machine, properties.map(|s| &s.properties), &mut device) {
+                    return None;
+                }
+            }
             _ => {}
         }
         Some(device)
@@ -567,7 +572,11 @@ impl Game<'_> {
         }
         let encode = |dim, pos| GridAddress::from_local(dimension(dim)?, pos).map(GridAddress::network_pos);
         let device = |m: &Machine, state| self.ae2_event_device(m, state);
-        let is_ae2 = |state| self.res.facts().get(BlockStateId(state)).name.starts_with("ae2:");
+        // AE2's blocks and the addons' machines, whose ids have their own namespaces.
+        let is_ae2 = |state| {
+            let name = &self.res.facts().get(BlockStateId(state)).name;
+            name.starts_with("ae2:") || MachineKind::from_id(name).is_some()
+        };
         let observe = |replay: &EventReplay, tick| {
                 staged_runtime.observe_services(&replay.topology.services, tick)?;
                 staged_devices.observe_services(&replay.topology.services, tick);

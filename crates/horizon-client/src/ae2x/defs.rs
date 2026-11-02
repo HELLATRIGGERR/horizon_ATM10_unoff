@@ -8,6 +8,7 @@
 //! then each addon's; the tables are built once, on first use, and do not
 //! change after. An addon whose content is not loaded leaves rows that no item
 //! reaches.
+use crate::ae2_world::ExtMachine;
 use ae2_cell_core::{CellConfig, Channel, Tier};
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -40,6 +41,16 @@ impl CellDef {
     }
 }
 
+/// A part an addon puts on cables (`IPart` with its grid node).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PartDef {
+    pub id: String,
+    /// `setIdlePowerUsage`, AE/t.
+    pub idle_power: f64,
+    /// `GridFlags.REQUIRE_CHANNEL`.
+    pub requires_channel: bool,
+}
+
 /// The tables. Filled by [`Defs::ae2`] and the addons' `register`.
 #[derive(Debug, Default)]
 pub struct Defs {
@@ -47,6 +58,8 @@ pub struct Defs {
     components: HashMap<String, Tier>,
     upgrade_slots: HashMap<String, usize>,
     upgrades: HashMap<(String, String), usize>,
+    machines: Vec<ExtMachine>,
+    parts: HashMap<String, PartDef>,
 }
 impl Defs {
     /// A storage cell, with the upgrade inventory `BasicStorageCell` and
@@ -69,6 +82,22 @@ impl Defs {
     /// `Upgrades.add(card, host, max)`: `host` takes up to `max` of `card`.
     pub fn add_upgrade(&mut self, card: &str, host: &str, max: usize) {
         self.upgrades.insert((card.to_owned(), host.to_owned()), max);
+    }
+
+    /// An addon's machine block: `MachineKind::Ext` of its index.
+    pub fn add_machine(&mut self, machine: ExtMachine) -> usize {
+        self.machines.push(machine);
+        self.machines.len() - 1
+    }
+    pub fn machines(&self) -> &[ExtMachine] {
+        &self.machines
+    }
+    /// An addon's cable part.
+    pub fn add_part(&mut self, part: PartDef) {
+        self.parts.insert(part.id.clone(), part);
+    }
+    pub fn part(&self, id: &str) -> Option<&PartDef> {
+        self.parts.get(id)
     }
 
     pub fn cell(&self, id: &str) -> Option<&CellDef> {
@@ -176,6 +205,10 @@ pub fn get() -> &'static Defs {
         let mut defs = Defs::ae2();
         #[cfg(feature = "ae2-megacells")]
         super::megacells::register(&mut defs);
+        #[cfg(feature = "ae2-merequester")]
+        super::merequester::register(&mut defs);
+        // The addon machines' block ids, for `MachineKind::from_id`.
+        crate::ae2_world::install_ext_machines(defs.machines.clone());
         defs
     });
     &DEFS

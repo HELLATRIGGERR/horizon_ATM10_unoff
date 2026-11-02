@@ -459,6 +459,10 @@ impl Game<'_> {
                     self.ae2_craft_enter();
                     return ok();
                 }
+                if self.ae2x_field_focused() && key!=KeyCode::Escape {
+                    self.ae2x_field_input(None,Some(key));
+                    return ok();
+                }
                 if !self.ae2_search_focused() || key==KeyCode::Escape {
                     return Err("ui-key requires a focused AE2 field; Escape uses the ordinary key route".into());
                 }
@@ -876,6 +880,11 @@ impl Game<'_> {
                     .unwrap_or("");
                 // A server's dialog, in configuration too.
                 if self.dialog_type(text) {
+                    return ok();
+                }
+                #[cfg(feature = "ae2-lab")]
+                if self.ae2x_field_focused() {
+                    self.ae2x_field_input(Some(text), None);
                     return ok();
                 }
                 self.require_world()?;

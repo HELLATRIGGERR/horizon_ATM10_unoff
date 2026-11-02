@@ -2937,6 +2937,10 @@ impl Game<'_> {
     /// Hovered-slot tooltip on the plain inventory, crafting and container screens.
     pub(super) fn draw_slot_tooltip(&mut self, batch: &mut HudBatch) {
         #[cfg(feature = "ae2-lab")]
+        if self.ae2x_tooltip(batch) {
+            return;
+        }
+        #[cfg(feature = "ae2-lab")]
         if self.ae2_priority_ui() {
             self.ae2_priority_tooltip(batch);
             return;

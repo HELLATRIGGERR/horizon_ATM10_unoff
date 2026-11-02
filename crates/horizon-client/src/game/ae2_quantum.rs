@@ -572,8 +572,8 @@ impl Game<'_> {
   use horizon_client::command::{Registries,Reader,SuggestionsBuilder,item::{parse_stack,suggest_stack}};
   let mut reg=Registries::default();reg.items.push("ae2:quantum_entangled_singularity".into());
   horizon_client::ae2_components::register(&mut reg);horizon_client::ae2_components::register(&mut reg);
-  assert_eq!(reg.persistent_components.len(),35,"registration is idempotent");
-  assert_eq!(reg.ids("minecraft:data_component_type").len(),35);
+  assert_eq!(reg.persistent_components.len(),36,"registration is idempotent");
+  assert_eq!(reg.ids("minecraft:data_component_type").len(),36);
   let prefix="ae2:quantum_entangled_singularity[ae2:entangled";
   let mut suggestions=SuggestionsBuilder::new(prefix,0);suggest_stack(&mut suggestions,&reg);
   assert!(suggestions.out.iter().any(|s|s.text=="ae2:entangled_singularity_id="));

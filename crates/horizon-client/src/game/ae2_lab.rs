@@ -92,6 +92,9 @@ impl Game<'_> {
         if words.get(1) == Some(&"crafting") {
             return self.ae2_crafting_command(&words[2..]);
         }
+        if let Some(result) = self.ae2x_command(&words[1..]) {
+            return result;
+        }
         if words.get(1) == Some(&"fluid") {
             return self.ae2_fluid_command(&words[2..]);
         }

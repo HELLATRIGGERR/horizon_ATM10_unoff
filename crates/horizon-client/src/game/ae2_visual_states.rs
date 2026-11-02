@@ -163,6 +163,12 @@ impl Game<'_> {
                         (line != "none" && status.is_some_and(|s| s.online)).to_string(),
                     );
                 }
+                MachineKind::Ext(_) => {
+                    let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&p) else { continue };
+                    if !self.ae2x_visual_props(m, &mut props) {
+                        continue;
+                    }
+                }
                 MachineKind::QuantumRing | MachineKind::QuantumLink => {
                     // Loaded block entities start with no constructed cluster;
                     // leave their saved appearance until a real callback changes it.

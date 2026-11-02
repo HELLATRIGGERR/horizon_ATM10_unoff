@@ -67,7 +67,8 @@ fn part_node(part: &Tag, host: u64) -> Result<Option<(NodeIdentity, Option<Chann
             | "ae2:fe_p2p_tunnel"
             | "ae2:redstone_p2p_tunnel"
             | "ae2:light_p2p_tunnel"
-    ) {
+    ) && crate::ae2x::defs::get().part(id.as_str()).is_none()
+    {
         return Err("unsupported part topology".into());
     }
     let Some(Tag::IntArray(raw)) = part.get("ae2_part_identity") else {
@@ -253,6 +254,8 @@ fn networked(machine: &Machine) -> bool {
             | MachineKind::SpatialAnchor
             | MachineKind::CraftingMonitor
             | MachineKind::DebugPhantomNode
+            // An addon's machine: `Game::ae2x_device` sets its node up.
+            | MachineKind::Ext(_)
     )
 }
 fn center(mut device: Device) -> Device {
@@ -953,6 +956,10 @@ mod tests {
             };
         }
         Some(result)
+    }
+    #[test]
+    fn an_addon_machine_is_a_grid_node_in_the_replay() {
+        assert!(networked(&Machine::new(MachineKind::Ext(0))));
     }
     #[test]
     fn phantom_replay_creates_main_then_proxy_and_keeps_proxy_after_removal() {

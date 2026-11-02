@@ -36,3 +36,10 @@ commit `f46ab8f9a2c14f0de3e09241241b49fb2d06a81a`) is under its
 MEGA Cells' assets, by its README under
 [CC BY-NC-SA 3.0](LICENSES/CC-BY-NC-SA-3.0.txt), are generated locally from the
 player's own jar by `scripts/prepare-addon.ts` and are not distributed here.
+Code derived from [ME Requester](https://github.com/AlmostReliable/merequester)
+1.21.1-1.5.0 by AlmostReliable (tag `v1.21.1-neoforge-1.5.0`, commit
+`57554ba7e126b38e4a38f19c37cf9916dfef48bc`) is under its
+[LGPL 3.0](LICENSES/AE2-LGPL-3.0.txt); the files are listed in
+[addons/merequester/SOURCE_MANIFEST.json](addons/merequester/SOURCE_MANIFEST.json).
+Its assets, whose licence the mod does not state, are likewise generated
+locally from the player's jar and not distributed here.

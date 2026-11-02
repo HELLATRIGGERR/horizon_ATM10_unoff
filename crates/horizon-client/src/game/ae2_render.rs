@@ -384,6 +384,14 @@ impl Game<'_> {
                 for part in &v.parts {
                     let pose = base * glam::Mat4::from_quat(rotate(&part.face));
                     let name = part.id.strip_prefix("ae2:").unwrap_or(&part.id);
+                    // An addon's terminal: AE2's display parts around its own screen.
+                    if let Some(screen) = name.strip_suffix("_terminal").filter(|_| name.starts_with("merequester:")) {
+                        let screen = screen.replacen(':', ":part/", 1);
+                        model("ae2:part/display_base",pose,None);
+                        model(&format!("{screen}_terminal_{}",if part.online {"on"} else {"off"}),pose,None);
+                        model(&format!("ae2:part/display_status_{}",if part.online {"has_channel"} else {"off"}),pose,None);
+                        continue;
+                    }
                     let terminal = match name {"terminal"=>Some("terminal"),"crafting_terminal"=>Some("crafting_terminal"),"pattern_encoding_terminal"=>Some("pattern_encoding_terminal"),"pattern_access_terminal"=>Some("pattern_access_terminal"),_=>None};
                     if let Some(terminal) = terminal {
                         model("ae2:part/display_base",pose,None);

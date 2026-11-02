@@ -25,7 +25,7 @@ pub(super) fn boxes(v:&Visual, collision:bool)->Vec<B> {
     for p in &v.parts {
         let id=p.id.strip_prefix("ae2:").unwrap_or(&p.id);
         let parts:Vec<B>=match id {
-            "terminal"|"crafting_terminal"|"pattern_encoding_terminal"|"pattern_access_terminal"|"storage_monitor"|"conversion_monitor"|"monitor"|"semi_dark_monitor"|"dark_monitor" => vec![b([2.,2.,14.,14.,14.,16.]),b([4.,4.,13.,12.,12.,14.])],
+            "terminal"|"crafting_terminal"|"pattern_encoding_terminal"|"pattern_access_terminal"|"merequester:requester_terminal"|"storage_monitor"|"conversion_monitor"|"monitor"|"semi_dark_monitor"|"dark_monitor" => vec![b([2.,2.,14.,14.,14.,16.]),b([4.,4.,13.,12.,12.,14.])],
             "export_bus" => vec![b([4.,4.,12.,12.,12.,14.]),b([5.,5.,14.,11.,11.,15.]),b([6.,6.,15.,10.,10.,16.]),b([6.,6.,11.,10.,10.,12.])],
             "import_bus" => vec![b([6.,6.,11.,10.,10.,13.]),b([5.,5.,13.,11.,11.,14.]),b([4.,4.,14.,12.,12.,16.])],
             "cable_pattern_provider"|"cable_interface" => vec![b([2.,2.,14.,14.,14.,16.]),b([5.,5.,12.,11.,11.,14.])],

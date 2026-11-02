@@ -93,6 +93,10 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
         }
     }
     if machine.kind==MachineKind::PatternProvider {append_provider_custody(&mut out,&machine.config,max);}
+    // An addon machine's owned keys (`addAdditionalDrops`).
+    if let Some(drops)=machine.kind.ext().and_then(|m|m.key_drops) {
+        for (item,amount) in drops(machine) {append_ae2_key_drops(&mut out,&item,amount,max);}
+    }
     if machine.kind == horizon_client::ae2_world::MachineKind::CableBus {
         let cable = machine
             .config
@@ -179,7 +183,8 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
                     | "ae2:me_p2p_tunnel" | "ae2:item_p2p_tunnel"
                     | "ae2:fluid_p2p_tunnel" | "ae2:fe_p2p_tunnel"
                     | "ae2:redstone_p2p_tunnel" | "ae2:light_p2p_tunnel"
-            ) {
+            ) && horizon_client::ae2x::defs::get().part(id.as_str()).is_none()
+            {
                 continue;
             }
             let saved = part

@@ -827,6 +827,10 @@ impl Game<'_> {
             if self.ae2_pattern_access_screen() {
                 v["pattern_layout"]=self.ae2_pattern_access_layout().unwrap_or(serde_json::Value::Null);
             }
+            #[cfg(feature = "ae2-lab")]
+            if let Some(addon) = self.ae2x_agent_value() {
+                v["addon_screen"] = addon;
+            }
             v["slot_ids"] = json!(
                 "0-8 hotbar, 9-35 inventory, 100+ crafting grid (row-major), 200 crafting result, 300+ container, 500-503 armor, 504 offhand, 600+ station"
             );

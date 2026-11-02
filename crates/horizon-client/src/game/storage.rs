@@ -491,6 +491,8 @@ impl Game<'_> {
         let atlas = &self.gui.atlas;
         let grey = rgba(64, 64, 64, 255);
         #[cfg(feature="ae2-lab")]
+        if self.ae2x_draw(batch, ox, oy) {return;}
+        #[cfg(feature="ae2-lab")]
         if self.ae2_priority_ui() {
             self.ae2_draw_priority(batch,ox,oy);
             return;

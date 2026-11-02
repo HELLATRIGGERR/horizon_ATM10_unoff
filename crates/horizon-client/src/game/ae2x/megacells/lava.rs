@@ -161,6 +161,7 @@ mod tests {
             pickup_delay: 0,
             bob_offset: 0.0,
             ticks: 0,
+            needs_sync: false,
         };
         let mut items = vec![
             entity(1, "ae2:charged_certus_quartz_crystal", 0.5),

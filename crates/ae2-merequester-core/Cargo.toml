@@ -1,0 +1,8 @@
+[package]
+name = "ae2-merequester-core"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-or-later"
+description = "ME Requester 1.5.0's request rows, storage buffers and status machine, without the game"
+
+[dependencies]

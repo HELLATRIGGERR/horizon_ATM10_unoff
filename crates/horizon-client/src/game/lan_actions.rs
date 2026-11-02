@@ -2126,6 +2126,7 @@ impl Game<'_> {
                             && self.lan_open_container(host,conn,target) {return;}
                         let face=match direction(p.face) {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
                         if self.lan_open_pattern_access(host,conn,target,face) {return;}
+                        if self.lan_open_ae2x(host,conn,target,face) {return;}
                         if let (Some(host_address), Some(face)) =
                             (self.ae2_local_address(target), hit_face)
                         {
@@ -2474,6 +2475,8 @@ impl Game<'_> {
                 }
             }
             #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2x_click(host, conn, &p) => {}
+            #[cfg(feature = "ae2-lab")]
             S::ContainerClick(p) if self.lan_pattern_access_click(host, conn, &p) => {
                 host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload {
                     channel:"ae2:bus_ack".into(), data:p.container.to_be_bytes().to_vec(),
@@ -2550,6 +2553,8 @@ impl Game<'_> {
             S::SelectTrade(p) => self.lan_select_trade(host, conn, p.item),
             #[cfg(feature = "ae2-lab")]
             S::ContainerClose(p) if self.lan_pattern_access_closed(host, conn, Some(p.container)) => {}
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2x_closed(host, conn, p.container) => {}
             #[cfg(feature = "ae2-lab")]
             S::ContainerClose(p) if self.lan_craft_confirm_closed(host, conn, Some(p.container)) => {}
             #[cfg(feature = "ae2-lab")]
@@ -2641,6 +2646,8 @@ impl Game<'_> {
             S::CustomPayload(p) if p.channel == super::ae2_hotkeys::CHANNEL => {
                 self.lan_ae2_hotkey(host, conn, &p.data);
             }
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if self.lan_ae2x_payload(host, conn, &p.channel, &p.data) => {}
             #[cfg(feature = "ae2-lab")]
             S::CustomPayload(p) if p.channel == "ae2:mouse_wheel" => {
                 self.lan_ae2_item_wheel(host, conn, &p.data);
@@ -3819,6 +3826,8 @@ impl Game<'_> {
         self.lan_refresh_craft_confirms(host);
         #[cfg(feature = "ae2-lab")]
         self.lan_refresh_pattern_access(host);
+        #[cfg(feature = "ae2-lab")]
+        self.lan_refresh_ae2x(host);
         #[cfg(feature = "ae2-lab")]
         self.lan_refresh_ae2_buses(host);
         #[cfg(feature = "ae2-lab")]

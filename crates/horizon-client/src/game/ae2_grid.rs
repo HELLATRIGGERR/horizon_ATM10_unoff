@@ -66,6 +66,8 @@ pub(super) fn kind(m: &Machine) -> Option<DeviceKind> {
         | MachineKind::SpatialPylon
         | MachineKind::SpatialAnchor
         | MachineKind::CraftingMonitor => DeviceKind::Interface,
+        // An addon machine; `Game::ae2x_device` sets its node up.
+        MachineKind::Ext(_) => DeviceKind::Interface,
         _ => return None,
     })
 }
@@ -104,7 +106,8 @@ impl Game<'_> {
                     | "ae2:cable_interface"
                     | "ae2:cable_pattern_provider"
             )
-        ) {
+        ) && !self.held().is_some_and(|s| horizon_client::ae2x::defs::get().part(&s.item).is_some())
+        {
             return false;
         }
         let mut target = pos;
@@ -232,6 +235,12 @@ impl Game<'_> {
                     if m.kind == MachineKind::SpatialPylon {
                         d.idle_override = Some(0.5);
                     }
+                    if matches!(m.kind, MachineKind::Ext(_)) {
+                        let properties = self.pack.assets.registry.state(world.block(p.0, p.1, p.2)).map(|state| &state.properties);
+                        if !self.ae2x_device(m, properties, &mut d) {
+                            continue;
+                        }
+                    }
                     if m.kind == MachineKind::SpatialAnchor {
                         // The host retains AE2's last updated idle value;
                         // cleanup can release tickets without recalculating it.
@@ -311,6 +320,10 @@ impl Game<'_> {
                                     | "ae2:quartz_fiber"
                                     | "ae2:cable_energy_acceptor" => 0.0,
                                     id if super::ae2_p2p::is_tunnel(id) => super::ae2_p2p::idle(id),
+                                    // An addon's part (`ae2x::defs`).
+                                    id if horizon_client::ae2x::defs::get().part(id).is_some() => {
+                                        horizon_client::ae2x::defs::get().part(id).map_or(0.0, |part| part.idle_power)
+                                    }
                                     _ => continue,
                                 };
                                 let saved_mode = match part { Tag::Compound(data) => super::ae2_channels::node_mode(data,"gn"), _ => None };
@@ -1360,7 +1373,8 @@ impl Game<'_> {
                         | "ae2:conversion_monitor"
                         | "ae2:cable_interface"
                         | "ae2:cable_pattern_provider"
-                ) {
+                ) && horizon_client::ae2x::defs::get().part(&held.item).is_none()
+                {
                     return Err("unsupported part".into());
                 }
                 // ToggleBusPart.addToWorld samples the real host signal before

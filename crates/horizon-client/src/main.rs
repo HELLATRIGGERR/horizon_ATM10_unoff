@@ -57,6 +57,9 @@ fn main() {
         ram_limit::start(&home, side);
     }
     raise_open_file_limit();
+    // AE2 addons' machine blocks, before any world loads.
+    #[cfg(feature = "ae2-lab")]
+    horizon_client::ae2x::install();
     if let Err(error) = game::run() {
         // A bad command line is the caller's mistake, not a crash: no report.
         let usage = error.is::<game::UsageError>();

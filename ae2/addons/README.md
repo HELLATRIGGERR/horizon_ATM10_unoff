@@ -43,8 +43,11 @@ tables built once on first use: AE2's own rows (`Defs::ae2`), then each built-in
 | storage components: id, tier | `IStorageComponent` | the Condenser |
 | item upgrade slots: host, size | `IUpgradeableItem.getUpgrades` | `ae2_upgrade_inventory::capacity` |
 | upgrade rows: card, host, max | `Upgrades.add` | `ae2_upgrade_inventory` |
+| machines: block id, slots, card slots, owned keys a break drops | `AEBaseEntityBlock` with its block entity | `MachineKind::Ext(index)` (`MachineKind::from_id`, saves, drops); the game's `ae2x` gives the grid node, block state and menu |
+| parts: id, idle power, channel | `IPart` with its grid node | part placement and the grid's idle draw |
 
 `ae2-cell-core::Tier` is a size in kilobytes, so a cell of any power-of-four tier up to 256M works
-with the verified byte maths. Next tables, as their addons need them: CPU blocks (bytes, threads),
-parts and machines (`MachineKind::Ext`), wireless terminals (AE2WTLib's `WTDefinition`: item, menu,
+with the verified byte maths. The game reaches an addon's behaviour through `game/ae2x/mod.rs` alone (its tick, grid node, block
+state, menus, screen and `/ae2` commands). Next tables, as their addons need them: CPU blocks (bytes,
+threads), wireless terminals (AE2WTLib's `WTDefinition`: item, menu,
 hotkey, upgrade slots) and key types.

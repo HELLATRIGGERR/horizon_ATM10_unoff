@@ -3,6 +3,8 @@
 //! Persistent source component identifiers and command-codec validation.
 pub const PERSISTENT_IDS: &[&str] = &[
     "ae2:exported_settings_source",
+    // ME Requester's rows on a Memory Card (its `exported_settings` tag entry).
+    "merequester:exported_requests",
     "ae2:exported_custom_name",
     "ae2:exported_upgrades",
     "ae2:exported_settings",
@@ -362,6 +364,19 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
         return Err("AE2 component nesting exceeds 64".into());
     }
     match id {
+        "merequester:exported_requests" => {
+            let Tag::List(rows) = &t else {
+                return Err("Not a list".into());
+            };
+            let valid = rows.iter().all(|row| {
+                matches!(row, Tag::Compound(_))
+                    && matches!(row.get("state"), Some(Tag::Byte(_)))
+                    && matches!(row.get("amount"), Some(Tag::Long(_)))
+                    && matches!(row.get("batch"), Some(Tag::Long(_)))
+                    && matches!(row.get("client_status"), Some(Tag::String(_)))
+            });
+            if valid { Ok(t) } else { Err("Invalid exported request".into()) }
+        }
         "ae2:exported_settings_source" | "ae2:exported_custom_name" | "ae2:name_press_name" => {
             crate::component::decode(&t)?;
             Ok(t)

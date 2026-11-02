@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "addon": "merequester",
+  "name": "ME Requester",
+  "version": "1.21.1-1.5.0",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/AlmostReliable/merequester",
+    "tag": "v1.21.1-neoforge-1.5.0",
+    "commit": "57554ba7e126b38e4a38f19c37cf9916dfef48bc",
+    "license": "LGPL-3.0",
+    "license_file": "LICENSE at the tag"
+  },
+  "assets_license": "not stated (LGPL-3.0 covers the repository)",
+  "jar": {
+    "file": "merequester-neoforge-1.21.1-1.5.0.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "8ac35e46e0a6102fd17eaa7aeda94eaf4755e448c703b6130f3ff1731bee03e5"
+  },
+  "requires": ["ae2 19.2.18"],
+  "derived_files": [
+    "crates/ae2-merequester-core/src/lib.rs",
+    "crates/horizon-client/src/ae2x/merequester.rs",
+    "crates/horizon-client/src/game/ae2x/merequester/mod.rs",
+    "crates/horizon-client/src/game/ae2x/merequester/menu.rs",
+    "crates/horizon-client/src/game/ae2x/merequester/screen.rs",
+    "crates/horizon-client/src/game/ae2x/merequester/lab.rs"
+  ]
+}

@@ -779,6 +779,7 @@ mod tests {
         let generic = || Tag::compound([("#t", string("ae2:i")), ("id", string("minecraft:stone")), ("#", Tag::Long(1))]);
         let samples = vec![
             ("ae2:exported_settings_source", string("Example")),
+            ("merequester:exported_requests", list()),
             ("ae2:exported_custom_name", string("Named")),
             ("ae2:exported_upgrades", list()),
             ("ae2:exported_settings", Tag::compound([("redstone_mode", string("HIGH"))])),

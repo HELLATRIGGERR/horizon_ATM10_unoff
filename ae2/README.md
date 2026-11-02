@@ -64,6 +64,7 @@ AE2 addons from All the Mods 10 are listed in `pack/pack.toml` and described in 
 
 ```sh
 ATM10_DIR="/path/to/All the Mods 10" bun run ae2/scripts/prepare-addon.ts megacells
+ATM10_DIR="/path/to/All the Mods 10" bun run ae2/scripts/prepare-addon.ts merequester
 ```
 
 The tested default build disables audio and controller support. To enable audio in a separate build, use `bun run ae2/scripts/build.ts --features audio`; that configuration was not part of the stated native-world checks.

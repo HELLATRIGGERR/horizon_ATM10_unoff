@@ -2788,6 +2788,9 @@ struct Game<'a> {
     ae2_local_craft_allowance: Option<u64>,
     #[cfg(feature = "ae2-lab")]
     ae2_pending_machine_crafts: Vec<ae2_autocrafting::PendingMachineCraft>,
+    /// What the AE2 addons keep while the game runs (`ae2x`).
+    #[cfg(feature = "ae2-lab")]
+    ae2x: ae2x::State,
     #[cfg(feature = "ae2-lab")]
     ae2_portable_slot: Option<usize>,
     #[cfg(feature = "ae2-lab")]
@@ -8021,6 +8024,7 @@ impl Game<'_> {
             self.ae2_tick_debug_cubes();
             self.tick_ae2_grid();
             self.tick_ae2_interfaces();
+            self.tick_ae2x();
             self.ae2_portable_tick();
         } else if self.remote.is_none() {
             self.ae2_tick_frozen_grid_service();
@@ -9208,6 +9212,7 @@ impl Game<'_> {
         }
         #[cfg(feature="ae2-lab")]
         if let Some((w,h))=self.ae2_term_size() {return batch.centered_origin(w,h);}
+        if let Some((w,h))=self.ae2x_screen_size() {return batch.centered_origin(w,h);}
         #[cfg(feature="ae2-lab")]
         if self.ae2_crafting_terminal_screen() {return batch.centered_origin(195.0,251.0);}
         #[cfg(feature="ae2-lab")]
@@ -9237,6 +9242,8 @@ impl Game<'_> {
     }
     /// 300.. are the open container's slots.
     fn slots(&self) -> Vec<usize> {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(slots) = self.ae2x_slots() {return slots;}
         #[cfg(feature = "ae2-lab")]
         if self.ae2_local_provider_open() {
             return (0..36).chain(300..327).collect();
@@ -9404,6 +9411,7 @@ impl Game<'_> {
     fn slot_position(&self, i: usize) -> (f32, f32) {
         #[cfg(feature="ae2-lab")]
         if let Some(p)=self.ae2_term_slot_position(i) {return p;}
+        if let Some(at) = self.ae2x_slot_position(i) {return at;}
         #[cfg(feature="ae2-lab")]
         if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) && (365..374).contains(&i) {
             let height = if self.ae2_crafting_terminal_screen() {251.0} else {self.screen_height()};
@@ -10799,6 +10807,10 @@ impl Game<'_> {
         if let Some(r) = self.renderer.as_ref() {
             let batch = self.screen_batch([r.config.width, r.config.height]);
             let (ox, oy) = self.inventory_origin(&batch);
+            if self.ae2x_press([self.cursor.0-ox,self.cursor.1-oy], right) {
+                self.inv_clicks.skip_release();
+                return;
+            }
             if self.ae2_search_click(ox, oy, right) {
                 self.inv_clicks.skip_release();
                 return;
@@ -18150,8 +18162,8 @@ impl Game<'_> {
                     #[cfg(not(feature="ae2-lab"))]
                     let craft_report_scroll=false;
                     #[cfg(feature="ae2-lab")]
-                    let pattern_access_scroll=self.screen==Screen::Inventory && d!=0.0 && self.ae2_pattern_access_screen()
-                        && self.remote_pattern_access_control(if d>0.0 {-10} else {-11});
+                    let pattern_access_scroll=self.screen==Screen::Inventory && d!=0.0 && (self.ae2x_scroll(d) || self.ae2_pattern_access_screen()
+                        && self.remote_pattern_access_control(if d>0.0 {-10} else {-11}));
                     #[cfg(not(feature="ae2-lab"))]
                     let pattern_access_scroll=false;
                     #[cfg(feature="ae2-lab")]
@@ -18543,6 +18555,15 @@ impl Game<'_> {
                         && matches!(event.physical_key, PhysicalKey::Code(KeyCode::Enter | KeyCode::NumpadEnter)) =>
                 {
                     self.ae2_craft_enter();
+                }
+                #[cfg(feature = "ae2-lab")]
+                WindowEvent::KeyboardInput { event, .. }
+                    if self.ae2x_field_focused()
+                        && event.state == ElementState::Pressed
+                        && !matches!(event.physical_key, PhysicalKey::Code(KeyCode::Escape)) =>
+                {
+                    let key = match event.physical_key { PhysicalKey::Code(key) => Some(key), _ => None };
+                    self.ae2x_field_input(event.text.as_deref(), key);
                 }
                 #[cfg(feature = "ae2-lab")]
                 WindowEvent::KeyboardInput { event, .. }
@@ -19350,6 +19371,8 @@ impl<'a> Game<'a> {
             ae2_local_craft_allowance: None,
             #[cfg(feature = "ae2-lab")]
             ae2_pending_machine_crafts: Vec::new(),
+            #[cfg(feature = "ae2-lab")]
+            ae2x: Default::default(),
             #[cfg(feature = "ae2-lab")]
             ae2_portable_slot: None,
             #[cfg(feature = "ae2-lab")]

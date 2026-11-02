@@ -163,6 +163,7 @@ impl Game<'_> {
         if mark_dirty {self.world.modified.insert((pos[0]>>4,pos[2]>>4));}Ok(())
     }
     pub(super) fn ae2_try_machine_memory_face(&mut self,pos:[i32;3],face:&str)->bool {
+        if self.ae2x_memory(pos){return true}
         if self.ae2_try_bus_memory_face(pos,face){return true}
         if self.ae2_try_energy_emitter_memory_face(pos,face){return true}
         if self.ae2_try_emitter_memory_face(pos,face){return true}

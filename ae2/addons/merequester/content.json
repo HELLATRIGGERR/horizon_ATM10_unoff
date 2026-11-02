@@ -1,0 +1,24 @@
+{
+  "namespace": "merequester",
+  "name": "ME Requester",
+  "description": "ME Requester 1.21.1-1.5.0 for the AE2 port: the ME Requester block and the ME Requester Terminal.",
+  "authors": ["AlmostReliable (ME Requester)"],
+  "slices": [
+    "1: the ME Requester block, its request rows, statuses and screen",
+    "2: the ME Requester Terminal part"
+  ],
+  "items": {
+    "requester_terminal": {}
+  },
+  "blocks": {
+    "requester": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {
+        "facing": ["down", "up", "north", "south", "west", "east"],
+        "spin": ["0", "1", "2", "3"],
+        "active": ["false", "true"]
+      },
+      "state_defaults": {"facing": "north", "spin": "0", "active": "false"}
+    }
+  }
+}

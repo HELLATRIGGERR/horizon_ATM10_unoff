@@ -29,7 +29,9 @@ pub(super) fn source_description_matches(value:Option<&Tag>,translation:&str)->b
 const P2P:&str="ae2_p2p_card";
 // Source data/ae2/tags/data_component_type/exported_settings.json. Clearing
 // removes only these registered exports and the separately stored LED colors.
-const EXPORTED_COMPONENTS:[&str;11]=[
+const EXPORTED_COMPONENTS:[&str;12]=[
+    // `data/ae2/tags/data_component_type/exported_settings.json` of ME Requester.
+    "merequester:exported_requests",
     "ae2:exported_config_inv","ae2:exported_patterns","ae2:exported_custom_name",
     "ae2:exported_level_emitter_value","ae2:exported_p2p_frequency","ae2:exported_p2p_type",
     "ae2:exported_priority","ae2:exported_push_direction","ae2:exported_settings",

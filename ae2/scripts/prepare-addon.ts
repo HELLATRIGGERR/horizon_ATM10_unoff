@@ -8,7 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { root, help } from './common';
 
 type Declared = { fire_resistant?: boolean; max_stack_size?: number };
-type Block = Declared & { template?: string; properties?: Record<string, unknown> };
+type Block = Declared & { template?: string; properties?: Record<string, unknown>;
+  state_properties?: Record<string, string[]>; state_defaults?: Record<string, string> };
 type Content = { namespace: string; name: string; description: string; authors: string[]; slices: string[];
   items: Record<string, Declared>; blocks: Record<string, Block> };
 type Manifest = { addon: string; name: string; version: string; source: { url: string; tag: string; commit: string; license: string };
@@ -74,6 +75,7 @@ if (!help(usage)) {
     put(join(out, 'data', ns, 'horizon/block', block + '.json'), {
       template: spec.template ?? 'minecraft:iron_block', item: true,
       ...(spec.properties ? { properties: spec.properties } : {}),
+      ...(spec.state_properties ? { state_properties: spec.state_properties, state_defaults: spec.state_defaults ?? {} } : {}),
       ...(spec.fire_resistant ? { components: fireResistant } : {}),
     });
   }

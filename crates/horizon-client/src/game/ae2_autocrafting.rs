@@ -581,6 +581,10 @@ mod recursive {
         requester: Option<InterfaceRequester>,
         #[serde(default)]
         export_requester: Option<ExportRequester>,
+        /// An ME Requester row's job (`ae2x::merequester`).
+        #[cfg(feature = "ae2-merequester")]
+        #[serde(default)]
+        me_requester: Option<MeRequester>,
         #[serde(default)]
         player_owner: Option<[i64;2]>,
         /// The game tick the job began and how many items it makes in all,
@@ -645,14 +649,29 @@ mod recursive {
         target: String,
         amount: u64,
     }
+    #[cfg(feature = "ae2-merequester")]
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    struct MeRequester {
+        owner: super::super::ae2x::merequester::RequesterOwner,
+        slot: usize,
+        target: String,
+        amount: u64,
+    }
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum RequestOwner {
         Interface(super::super::ae2_interface::InterfaceCraftOwner),
         Export(super::super::ae2_buses::ExportBusCraftOwner),
+        #[cfg(feature = "ae2-merequester")]
+        Requester(super::super::ae2x::merequester::RequesterOwner),
     }
     impl RequestOwner {
         fn anchor(self) -> GridAddress {
-            match self { Self::Interface(owner) => owner.anchor(), Self::Export(owner) => owner.anchor() }
+            match self {
+                Self::Interface(owner) => owner.anchor(),
+                Self::Export(owner) => owner.anchor(),
+                #[cfg(feature = "ae2-merequester")]
+                Self::Requester(owner) => owner.host,
+            }
         }
         fn identity(self, network: &ae2_network_core::Network) -> Option<ae2_network_core::NodeIdentity> {
             let pos = self.anchor().network_pos();
@@ -660,6 +679,8 @@ mod recursive {
                 Self::Interface(super::super::ae2_interface::InterfaceCraftOwner::Block(_)) => network.node_identities.get(&pos),
                 Self::Interface(super::super::ae2_interface::InterfaceCraftOwner::Part { face, .. }) => network.part_identities.get(&(pos, face)),
                 Self::Export(owner) => network.part_identities.get(&(pos, owner.face)),
+                #[cfg(feature = "ae2-merequester")]
+                Self::Requester(_) => network.node_identities.get(&pos),
             }.copied()
         }
     }
@@ -681,23 +702,136 @@ mod recursive {
         target: String,
         amount: u64,
     }
-    fn session_request(s: &Session) -> Result<Option<Request>, String> {
-        match (&s.requester, &s.export_requester) {
-            (Some(_), Some(_)) => Err("multiple CPU requesters".into()),
-            (Some(r), None) => Ok(Some(Request {
-                owner: RequestOwner::Interface(r.owner),
-                slot: r.slot,
-                target: r.target.clone(),
-                amount: r.amount,
-            })),
-            (None, Some(r)) => Ok(Some(Request {
-                owner: RequestOwner::Export(r.owner),
-                slot: r.slot,
-                target: r.target.clone(),
-                amount: r.amount,
-            })),
-            (None, None) => Ok(None),
+    /// ME Requester's crafting requests (`RequestState`, `PlanState`):
+    /// AE2's calculation with REPORT_MISSING_ITEMS, then a job submitted for
+    /// the row, whose results the CPU hands to the requester's buffer.
+    #[cfg(feature = "ae2-merequester")]
+    impl Game<'_> {
+        /// `beginCraftingCalculation(key, amount, REPORT_MISSING_ITEMS)` for
+        /// row `slot`, in place of one the row had.
+        pub(in crate::game) fn ae2_requester_begin_calculation(
+            &mut self,
+            owner: super::super::ae2x::merequester::RequesterOwner,
+            slot: usize,
+            key: &ae2_cell_core::ItemKey,
+            fluid: bool,
+            amount: u64,
+            pos: (i32, i32, i32),
+        ) -> Result<(), String> {
+            let request = RequestOwner::Requester(owner);
+            self.ae2_pending_machine_crafts.retain(|work| !(work.owner == request && work.slot == slot));
+            let identity = request.identity(&self.ae2_network()).ok_or("requester missing")?;
+            let generation = self.ae2_machine_request_generation(request, slot, key, fluid).ok_or("request changed")?;
+            let (registry, inventory, target) = self.ae2_craft_calculation_snapshot(pos, key, fluid, amount)?;
+            let calculation = ae2_crafting_core::calculation::Calculation::with_strategy(
+                registry.clone(), inventory, target, amount, ae2_crafting_core::calculation::Strategy::Full,
+            );
+            self.ae2_pending_machine_crafts.push(PendingMachineCraft {
+                owner: request, slot, key: key.clone(), fluid, identity, generation, registry,
+                calculation: Some(calculation), result: None,
+            });
+            Ok(())
         }
+        /// Whether row `slot`'s calculation has finished.
+        pub(in crate::game) fn ae2_requester_calculation_done(
+            &self, owner: super::super::ae2x::merequester::RequesterOwner, slot: usize,
+        ) -> bool {
+            self.ae2_pending_machine_crafts.iter()
+                .any(|work| work.owner == RequestOwner::Requester(owner) && work.slot == slot && work.calculation.is_none())
+        }
+        /// `PlanState.handle`: a plan with missing ingredients is Missing; one
+        /// no CPU takes is Cpu; a submitted one links the row to its CPU.
+        pub(in crate::game) fn ae2_requester_finish_calculation(
+            &mut self,
+            owner: super::super::ae2x::merequester::RequesterOwner,
+            slot: usize,
+            pos: (i32, i32, i32),
+        ) -> horizon_client::ae2x::merequester::core::Planned<[i32; 3]> {
+            use horizon_client::ae2x::merequester::core::Planned;
+            let request = RequestOwner::Requester(owner);
+            let Some(index) = self.ae2_pending_machine_crafts.iter().position(|work| work.owner == request && work.slot == slot) else {
+                // Cancelled: the row or the requester changed meanwhile.
+                return Planned::Idle;
+            };
+            if self.ae2_pending_machine_crafts[index].calculation.is_some() {
+                return Planned::Pending;
+            }
+            let work = self.ae2_pending_machine_crafts.remove(index);
+            let (plan, _) = match work.result {
+                Some(Ok(result)) => result,
+                other => {
+                    self.ae2x.merequester.notes.insert(owner.host, format!("row {slot}: calculation: {:?}", other.map(|r| r.map(|_| ()))));
+                    return Planned::Idle;
+                }
+            };
+            if plan.simulated {
+                return Planned::Missing;
+            }
+            if plan.steps.is_empty() && plan.emitted.is_empty() {
+                return Planned::Idle;
+            }
+            let target = if work.fluid {
+                fluid_name(&work.key)
+            } else {
+                match ae2_lab::prototype(&work.key) { Ok(item) => canon(&item), Err(_) => return Planned::Idle }
+            };
+            let before = snapshot(self);
+            let result = (|| {
+                let cpu = self.ae2_begin_recursive_target_on(pos, target.clone(), plan.amount, None, true, None, Some((&work.registry, &plan)))?;
+                let cpu_dim = self.ae2_address_parts(cpu).ok_or("invalid CPU address")?.0;
+                let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(cpu) else {
+                    return Err("CPU disappeared".to_string());
+                };
+                let mut session = read_session(machine, cpu_dim)?;
+                let physical = read_escrow(machine)?;
+                session.me_requester = Some(MeRequester { owner, slot, target, amount: plan.amount });
+                let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity_mut(cpu) else {
+                    return Err("CPU disappeared".to_string());
+                };
+                write_session(machine, &session, &physical)?;
+                self.ae2_mark_modified(cpu);
+                Ok(cpu)
+            })();
+            match result {
+                Ok(cpu) => {
+                    let (x, y, z) = cpu.encoded();
+                    Planned::Linked { link: [x, y, z], total: i64::try_from(plan.amount).unwrap_or(i64::MAX) }
+                }
+                Err(error) => {
+                    restore(self, before);
+                    self.ae2x.merequester.notes.insert(owner.host, format!("row {slot}: submit: {error}"));
+                    // NO_CPU_FOUND, NO_SUITABLE_CPU_FOUND, CPU_BUSY, CPU_OFFLINE, CPU_TOO_SMALL.
+                    if error.contains("CPU") { Planned::Cpu } else { Planned::Idle }
+                }
+            }
+        }
+        /// Whether `cpu` still runs row `slot`'s job: a broken CPU or one
+        /// whose job ended without handing it back does not.
+        pub(in crate::game) fn ae2_requester_cpu_runs(
+            &self, owner: super::super::ae2x::merequester::RequesterOwner, slot: usize, cpu: GridAddress,
+        ) -> bool {
+            let Some((dim, _)) = self.ae2_address_parts(cpu) else { return false };
+            let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(cpu) else { return false };
+            read_session(machine, dim).ok().and_then(|session| session.me_requester)
+                .is_some_and(|r| r.owner == owner && r.slot == slot)
+        }
+    }
+    fn session_request(s: &Session) -> Result<Option<Request>, String> {
+        let mut found = Vec::new();
+        if let Some(r) = &s.requester {
+            found.push(Request { owner: RequestOwner::Interface(r.owner), slot: r.slot, target: r.target.clone(), amount: r.amount });
+        }
+        if let Some(r) = &s.export_requester {
+            found.push(Request { owner: RequestOwner::Export(r.owner), slot: r.slot, target: r.target.clone(), amount: r.amount });
+        }
+        #[cfg(feature = "ae2-merequester")]
+        if let Some(r) = &s.me_requester {
+            found.push(Request { owner: RequestOwner::Requester(r.owner), slot: r.slot, target: r.target.clone(), amount: r.amount });
+        }
+        if found.len() > 1 {
+            return Err("multiple CPU requesters".into());
+        }
+        Ok(found.pop())
     }
     fn from_key(key: &str) -> Result<ItemStack, String> {
         item_data::parse_stack(key)?.ok_or_else(|| "empty item key".into())
@@ -1837,6 +1971,11 @@ mod recursive {
                 RequestOwner::Export(owner) => {
                     self.ae2_export_craft_link_valid(owner, r.slot, cpu, key, fluid)
                 }
+                #[cfg(feature = "ae2-merequester")]
+                RequestOwner::Requester(owner) => {
+                    let _ = (key, fluid);
+                    self.ae2_requester_link_valid(owner, r.slot, cpu)
+                }
             }
         }
         fn ae2_request_unlink(&mut self, r: &Request, cpu: GridAddress) -> Result<(), String> {
@@ -1861,6 +2000,8 @@ mod recursive {
                         self.ae2_export_set_craft_link(owner, r.slot, Some(cpu), None)?;
                     }
                 }
+                #[cfg(feature = "ae2-merequester")]
+                RequestOwner::Requester(owner) => self.ae2_requester_link_done(owner, r.slot, cpu),
             }
             Ok(())
         }
@@ -1877,6 +2018,11 @@ mod recursive {
                 }
                 RequestOwner::Export(owner) => {
                     self.ae2_export_deliver_item(owner, r.slot, cpu, item, false, plan)
+                }
+                #[cfg(feature = "ae2-merequester")]
+                RequestOwner::Requester(owner) => {
+                    let key = ae2_lab::key(item)?;
+                    Ok(self.ae2_requester_deliver(owner, r.slot, cpu, &key, false, u64::from(item.count)) as u32)
                 }
             }
         }
@@ -1895,12 +2041,16 @@ mod recursive {
                 RequestOwner::Export(owner) => {
                     self.ae2_export_deliver_fluid(owner, r.slot, cpu, key, amount, false, plan)
                 }
+                #[cfg(feature = "ae2-merequester")]
+                RequestOwner::Requester(owner) => Ok(self.ae2_requester_deliver(owner, r.slot, cpu, key, true, amount)),
             }
         }
         fn ae2_machine_request_generation(&self, owner: RequestOwner, slot: usize, key: &ae2_cell_core::ItemKey, fluid: bool) -> Option<i64> {
             match owner {
                 RequestOwner::Interface(owner) => self.ae2_interface_pending_craft_generation(owner, slot, key, fluid),
                 RequestOwner::Export(owner) => self.ae2_export_pending_craft_generation(owner, slot, key),
+                #[cfg(feature = "ae2-merequester")]
+                RequestOwner::Requester(owner) => self.ae2_requester_pending_generation(owner, slot, key, fluid),
             }
         }
         /// Cancel stale futures on owner replacement, card removal or a changed
@@ -2247,6 +2397,8 @@ mod recursive {
                 address_version: 1,
                 requester: None,
                 export_requester: None,
+                #[cfg(feature = "ae2-merequester")]
+                me_requester: None,
                 player_owner: player_owner.map(super::super::ae2_job_events::owner_words),
                 started_tick: self.world.game_time,
                 start_items,
@@ -3411,6 +3563,8 @@ mod recursive {
                                         )?;
                                     }
                                 }
+                                #[cfg(feature = "ae2-merequester")]
+                                RequestOwner::Requester(owner) => self.ae2_requester_link_done(owner, request.slot, *address),
                             }
                         }
                         // The assembler owns its physical ingredients independently of the CPU.
@@ -4325,6 +4479,10 @@ mod recursive {
                                         .ok_or("requester disappeared")?
                                         .amount = remaining
                                 }
+                                #[cfg(feature = "ae2-merequester")]
+                                RequestOwner::Requester(_) => {
+                                    session.me_requester.as_mut().ok_or("requester disappeared")?.amount = remaining
+                                }
                             }
                             remaining_items.retain(|s| s.count > 0);
                             remaining_fluids.retain(|_, n| *n > 0);
@@ -4422,7 +4580,7 @@ mod recursive {
             registry.register(ExtendedPattern{id:"large".into(),inputs:vec![Ingredient{choices:Inventory::from([(key.clone(),999_999)])}],outputs:Inventory::from([(target.clone(),1)])}).unwrap();
             let mut available=Inventory::from([(key.clone(),999_999)]);let plan=registry.plan(&available,&target,1).unwrap();
             let mut cpu=Cpu::new(2_000_000,0);cpu.submit(plan,&mut available).unwrap();assert!(available.is_empty());
-            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             item.count=999_999;let mut machine=Machine::new(MachineKind::CraftingStorage256k);
             write_session(&mut machine,&session,&[item.clone()]).unwrap();
             let bytes=horizon_world::nbt::write_network(&Tag::Compound(machine.config.clone()),Default::default()).unwrap();
@@ -4473,7 +4631,7 @@ mod recursive {
             let result=canon(&ItemStack::new("minecraft:netherite_sword",1));
             let mut registry=ExtendedRegistry::default();registry.register(ExtendedPattern{id:"legacy".into(),inputs:vec![Ingredient{choices:Inventory::from([(old.clone(),1)])}],outputs:Inventory::from([(result.clone(),1)])}).unwrap();
             let mut inventory=Inventory::from([(old.clone(),1)]);let plan=registry.plan(&inventory,&result,1).unwrap();let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut inventory).unwrap();
-            let session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);let json=serde_json::to_string(&session).unwrap();machine.config.insert(JOB.into(),Tag::String(json.as_str().into()));machine.config.insert(ESCROW.into(),Tag::List(vec![horizon_client::save::item_to_nbt(&item)]));
             let loaded=read_session(&machine,super::super::super::Dim::Overworld).unwrap();assert_eq!(loaded.cpu.escrow(),&Inventory::from([(modern,1)]));
         }
@@ -4487,7 +4645,7 @@ mod recursive {
             registry.set_emittable(vec![input_key.clone()]).unwrap();
             let mut available=Inventory::new();let plan=registry.plan(&available,&output_key,4).unwrap();
             let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut available).unwrap();
-            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);
             write_fluids(&mut machine,&BTreeMap::new()).unwrap();write_session(&mut machine,&session,&[]).unwrap();
             session=read_session(&machine,super::super::super::Dim::Overworld).unwrap();
@@ -4520,6 +4678,8 @@ mod recursive {
                 address_version: 1,
                 requester: None,
                 export_requester: None,
+                #[cfg(feature = "ae2-merequester")]
+                me_requester: None,
                 player_owner: None,
                 started_tick: 0,
                 start_items: 0,
@@ -4535,7 +4695,7 @@ mod recursive {
         }
         #[test]
         fn suspended_job_roundtrips_and_legacy_jobs_resume_by_default() {
-            let session=Session { cpu:Cpu::new(1024,0), suspended:true, specs:BTreeMap::new(), flights:BTreeMap::new(), job_id:Some([1,2]), address_version:1, requester:None, export_requester:None, player_owner:None, started_tick:0, start_items:0 };
+            let session=Session { cpu:Cpu::new(1024,0), suspended:true, specs:BTreeMap::new(), flights:BTreeMap::new(), job_id:Some([1,2]), address_version:1, requester:None, export_requester:None, #[cfg(feature = "ae2-merequester")] me_requester:None, player_owner:None, started_tick:0, start_items:0 };
             let mut saved=serde_json::to_value(&session).unwrap();
             assert!(serde_json::from_value::<Session>(saved.clone()).unwrap().suspended);
             saved.as_object_mut().unwrap().remove("suspended");
@@ -4557,7 +4717,7 @@ mod recursive {
             let mut session=Session {
                 cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),
                 job_id:Some([i64::MIN,i64::MAX]),address_version:1,requester:None,
-                export_requester:None,player_owner:Some(super::super::super::ae2_job_events::owner_words(owner)),
+                export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:Some(super::super::super::ae2_job_events::owner_words(owner)),
                 started_tick:0,start_items:0,
             };
             let (recipient,started)=job_status(&session,Status::Started).unwrap();
@@ -4638,7 +4798,7 @@ mod recursive {
         }
         #[test]
         fn legacy_job_identity_migration_is_persistable_and_never_rotates() {
-            let mut session=Session {cpu:Cpu::new(1024,0),suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let mut session=Session {cpu:Cpu::new(1024,0),suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             assert!(migrate_job_identity(&mut session,[13,17]));
             let mut restored:Session=serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
             assert!(!migrate_job_identity(&mut restored,[19,23]));
@@ -4668,7 +4828,7 @@ mod recursive {
             registry.set_source_inputs("pattern",vec![SourceInput{encoded:primary.clone(),primary,remaining:BTreeMap::new()}]).unwrap();
             let mut network=stock.clone();let plan=registry.plan(&network,&result,4097).unwrap();assert_eq!(plan.steps.len(),4097);
             let mut cpu=Cpu::new(16384,0);cpu.submit(plan,&mut network).unwrap();assert!(network.is_empty());
-            let session=Session{cpu,suspended:false,specs,flights:BTreeMap::new(),job_id:Some([7,11]),address_version:1,requester:None,export_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let session=Session{cpu,suspended:false,specs,flights:BTreeMap::new(),job_id:Some([7,11]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage16k);write_session(&mut machine,&session,&inputs).unwrap();
             assert!(matches!(machine.config.get(&JOB.into()),Some(Tag::ByteArray(v)) if v.len()>65_535));
             let root=Tag::Compound(machine.config.clone());
@@ -4744,6 +4904,8 @@ mod recursive {
                 address_version: 0,
                 requester: None,
                 export_requester: None,
+                #[cfg(feature = "ae2-merequester")]
+                me_requester: None,
                 player_owner: None,
                 started_tick: 0,
                 start_items: 0,

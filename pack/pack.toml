@@ -52,6 +52,15 @@ feature = "ae2-megacells"
 content = "megacells"
 configs = ["megacells-common.toml"]
 
+# ME Requester: keeps items and fluids in stock by requesting crafts
+# (ae2/addons/merequester).
+[mods.merequester]
+name = "ME Requester"
+enabled = true
+feature = "ae2-merequester"
+content = "merequester"
+configs = ["merequester-common.toml"]
+
 # AE2 addon: FE stored in ME cells and the Flux Accessor.
 [mods.appflux]
 name = "Applied Flux"

@@ -51,8 +51,40 @@ pub enum MachineKind {
     Paint,
     Crank,
     MysteriousCube,
+    /// A machine of an AE2 addon: an index into the table the addon rows
+    /// install ([`install_ext_machines`]). Addon features stay out of this
+    /// crate; saves keep the block's id, so nothing on disk changes.
+    Ext(u16),
+}
+/// An addon machine's row: its block id and the inventories `Machine::new`
+/// gives it, and what of its saved state is physical (dropped when broken).
+#[derive(Clone, Copy, Debug)]
+pub struct ExtMachine {
+    pub id: &'static str,
+    pub physical_slots: usize,
+    pub upgrade_slots: usize,
+    /// Owned keys kept in the machine's `config` that a break drops: one
+    /// item of each and its amount (AE2's `AEKey.addDrops` splits them).
+    pub key_drops: Option<fn(&Machine) -> Vec<(ItemStack, u64)>>,
+}
+static EXT_MACHINES: std::sync::OnceLock<Vec<ExtMachine>> = std::sync::OnceLock::new();
+/// The addon machines, installed once at start-up before any world loads;
+/// a second call keeps the first table.
+pub fn install_ext_machines(machines: Vec<ExtMachine>) {
+    let _ = EXT_MACHINES.set(machines);
+}
+/// The installed addon machines (none before [`install_ext_machines`]).
+pub fn ext_machines() -> &'static [ExtMachine] {
+    EXT_MACHINES.get().map_or(&[], Vec::as_slice)
 }
 impl MachineKind {
+    /// An addon machine's row.
+    pub fn ext(self) -> Option<&'static ExtMachine> {
+        match self {
+            Self::Ext(i) => ext_machines().get(usize::from(i)),
+            _ => None,
+        }
+    }
     pub fn id(self) -> &'static str {
         match self {
             Self::Drive => "ae2:drive",
@@ -102,6 +134,7 @@ impl MachineKind {
             Self::Paint => "ae2:paint",
             Self::Crank => "ae2:crank",
             Self::MysteriousCube => "ae2:mysterious_cube",
+            Self::Ext(_) => self.ext().map_or("ae2:unknown_addon_machine", |m| m.id),
         }
     }
     pub fn from_id(id: &str) -> Option<Self> {
@@ -153,7 +186,10 @@ impl MachineKind {
             "ae2:paint" => Self::Paint,
             "ae2:crank" => Self::Crank,
             "ae2:mysterious_cube" => Self::MysteriousCube,
-            _ => return None,
+            _ => {
+                let i = ext_machines().iter().position(|m| m.id == id)?;
+                Self::Ext(u16::try_from(i).ok()?)
+            }
         })
     }
     pub fn physical_slots(self) -> usize {
@@ -170,6 +206,7 @@ impl MachineKind {
             Self::PatternEncodingTerminal => 2,
             Self::QuantumRing | Self::QuantumLink => 1,
             Self::SkyStoneChest | Self::SmoothSkyStoneChest => 36,
+            Self::Ext(_) => self.ext().map_or(0, |m| m.physical_slots),
             _ => 0,
         }
     }
@@ -180,6 +217,7 @@ impl MachineKind {
             Self::VibrationChamber | Self::IoPort => 3,
             Self::MolecularAssembler => 5,
             Self::Interface => 1,
+            Self::Ext(_) => self.ext().map_or(0, |m| m.upgrade_slots),
             _ => 0,
         }
     }
@@ -269,6 +307,12 @@ impl Machine {
     /// terminal listings are virtual and must never be emitted as drops.
     pub fn physical_contents(&self) -> Vec<ItemStack> {
         let mut out=self.physical_slots_and_upgrades();
+        if let Some(drops) = self.kind.ext().and_then(|m| m.key_drops) {
+            out.extend(drops(self).into_iter().map(|(item, amount)| ItemStack {
+                count: u32::try_from(amount).unwrap_or(u32::MAX),
+                ..item
+            }));
+        }
         if matches!(
             self.kind,
             MachineKind::CraftingUnit

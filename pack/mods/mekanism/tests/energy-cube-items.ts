@@ -74,12 +74,14 @@ try {
   await fixture.command('gamemode survival');
   await fixture.replace('hotbar.2', 'minecraft:diamond_pickaxe');
   await fixture.select(2, 'minecraft:diamond_pickaxe');
+  // Three blocks off: at two, a drop that pops half a block towards the player is picked up.
+  await fixture.command(`tp @s ${x - 2.5} ${y} ${z - 2.5}`);
   await fixture.raw(`break ${west}`);
   const kept = await until(() => dropped(west, 'Item'), s => s.includes('basic_energy_cube'), 'the charged cube drops');
   log.drop_charged = kept;
   assert(/stored: ?1000000L/.test(kept), `the drop keeps 1 MJ: ${kept}`);
   await fixture.command(`kill @e[type=minecraft:item,distance=..32]`);
-  await fixture.command(`tp @s ${x + 2.5} ${y} ${z + 0.5}`);
+  await fixture.command(`tp @s ${x + 3.5} ${y} ${z + 0.5}`);
   await fixture.raw(`break ${east}`);
   const plain = await until(() => dropped(east, 'Item'), s => s.includes('basic_energy_cube'), 'the untouched cube drops');
   log.drop_plain = plain;

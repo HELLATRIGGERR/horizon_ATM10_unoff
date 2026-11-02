@@ -667,6 +667,18 @@ pub(super) fn load_with_gameplay<G: GameplayStateSource>(
     })
 }
 
+/// [`load_with_gameplay`], reading the behaviour document only when the snapshot misses.
+pub(super) fn load_with_projection<G: GameplayStateSource>(
+    registry: &BlockRegistry,
+    root: &Path,
+    gameplay_states: &[G],
+) -> io::Result<Behaviours> {
+    cached(registry, root, || {
+        let behaviour = read_json(&root.join("block-behaviours.json"))?;
+        build_with_gameplay(registry, root, &behaviour, gameplay_states)
+    })
+}
+
 /// The snapshot when it matches, else `build` and refresh the snapshot.
 fn cached(
     registry: &BlockRegistry,

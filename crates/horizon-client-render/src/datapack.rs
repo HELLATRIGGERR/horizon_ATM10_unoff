@@ -45,6 +45,11 @@ impl DataPack {
         let Source::Dir(root) = &self.source else {
             return self.list("data/");
         };
+        // From the prepared file when it has this folder: a large pack's namespaces and files,
+        // listed and stat-ed one by one, took 20 s at each world's opening.
+        if let Some(files) = horizon_core::prepared_files::files_under(&root.join("data")) {
+            return listed_kinds(files, kinds);
+        }
         let Ok(entries) = std::fs::read_dir(root.join("data")) else {
             return Vec::new();
         };
@@ -94,6 +99,26 @@ impl DataPack {
             .and_then(|b| serde_json::from_slice(&b).ok())
             .unwrap_or_default()
     }
+}
+/// [`DataPack::list_kinds`] from a data folder's files (`<namespace>/<kind>/...`, from `data/`):
+/// by namespace, then kind, then as [`walk`] goes, folder by folder in name order.
+fn listed_kinds(files: Vec<String>, kinds: &[&str]) -> Vec<String> {
+    let mut found: Vec<(&str, usize, Vec<&str>, &String)> = files
+        .iter()
+        .filter_map(|file| {
+            let (namespace, rest) = file.split_once('/')?;
+            let kind = kinds.iter().position(|kind| {
+                rest.strip_prefix(kind)
+                    .is_some_and(|rest| rest.starts_with('/'))
+            })?;
+            Some((namespace, kind, file.split('/').collect(), file))
+        })
+        .collect();
+    found.sort();
+    found
+        .into_iter()
+        .map(|(.., file)| format!("data/{file}"))
+        .collect()
 }
 fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -1197,6 +1222,43 @@ mod tests {
             saved,
             serde_json::json!({"enabled": selected, "disabled": ["file/off"]})
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod listed_kinds_tests {
+    use super::*;
+
+    /// The prepared file's listing comes out as the folder's walk does.
+    #[test]
+    fn listed_kinds_goes_as_the_walk() {
+        let root = std::env::temp_dir().join(format!("horizon-kinds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let files = [
+            "b/recipe/z.json",
+            "b/recipe/a-b.json",
+            "b/recipe/a/b.json",
+            "b/loot_table/x.json",
+            "b/other/x.json",
+            "b/recipes/not_this_kind.json",
+            "a/recipe/one.json",
+        ];
+        for file in files {
+            let path = root.join("data").join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"{}").unwrap();
+        }
+        let kinds = ["loot_table", "recipe"];
+        let pack = DataPack {
+            id: "test".into(),
+            source: Source::Dir(root.clone()),
+        };
+        let walked = pack.list_kinds(&kinds);
+        assert_eq!(walked.len(), 5);
+        let mut names = files.map(str::to_owned).to_vec();
+        names.sort();
+        assert_eq!(listed_kinds(names, &kinds), walked);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

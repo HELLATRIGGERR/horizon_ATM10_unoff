@@ -307,8 +307,9 @@ impl StructureRegistry {
         pools: BTreeMap<String, String>,
         biome_set: &dyn Fn(&Value) -> Result<BTreeSet<BiomeId>, DecodeError>,
     ) -> Result<Self, DecodeError> {
-        let mut defs = Vec::new();
-        for (name, json) in structures {
+        // A mod's structure can name what only its code knows (its own height provider): that
+        // structure is left out, as an unknown structure type is, and the others generate.
+        let structure = |name: &String, json: &String| -> Result<StructureDef, DecodeError> {
             let v: Value = serde_json::from_str(json)?;
             let draws = match v["type"].as_str() {
                 Some("yungsapi:yung_jigsaw") => super::jigsaw::Draws::Yung,
@@ -382,7 +383,7 @@ impl StructureRegistry {
                 },
                 other => StructureKind::Unsupported(other.to_owned()),
             };
-            defs.push(StructureDef {
+            Ok(StructureDef {
                 name: name.clone(),
                 kind,
                 biomes: biome_set(&v["biomes"])?,
@@ -395,11 +396,24 @@ impl StructureRegistry {
                     .get("horizon:enhanced_terrain_adaptation")
                     .map(super::enhanced_terrain::StructureAdaptation::decode)
                     .transpose()?,
-            });
+            })
+        };
+        let mut defs = Vec::new();
+        for (name, json) in structures {
+            defs.push(structure(name, json).unwrap_or_else(|e| {
+                log::warn!("Horizon: structure {name} left out: {e}");
+                StructureDef {
+                    name: name.clone(),
+                    kind: StructureKind::Unsupported("undecodable".to_owned()),
+                    biomes: BTreeSet::new(),
+                    step: 4,
+                    terrain: terrain(None),
+                    enhanced_terrain: None,
+                }
+            }));
         }
         let index = |name: &str| defs.iter().position(|d| d.name == name);
-        let mut out = Vec::new();
-        for (name, json) in sets {
+        let structure_set = |name: &String, json: &String| -> Result<StructureSet, DecodeError> {
             let v: Value = serde_json::from_str(json)?;
             let p = &v["placement"];
             let placement = match p["type"].as_str().unwrap_or_default() {
@@ -416,7 +430,7 @@ impl StructureRegistry {
                 },
                 _ => Placement::Unsupported,
             };
-            out.push(StructureSet {
+            Ok(StructureSet {
                 name: name.clone(),
                 structures: v["structures"]
                     .as_array()
@@ -466,7 +480,14 @@ impl StructureRegistry {
                     .get("horizon:avoid_biomes")
                     .map(|a| AvoidBiomes::decode(a, biome_set))
                     .transpose()?,
-            });
+            })
+        };
+        let mut out = Vec::new();
+        for (name, json) in sets {
+            match structure_set(name, json) {
+                Ok(set) => out.push(set),
+                Err(e) => log::warn!("Horizon: structure set {name} left out: {e}"),
+            }
         }
         Ok(Self {
             structures: defs,
@@ -1590,5 +1611,47 @@ mod tests {
         assert!(avoid.near(ChunkPos::new(1, -1), |q| {
             BiomeId(if q == [18, 30, 10] { 2 } else { 0 })
         }));
+    }
+}
+
+#[cfg(test)]
+mod left_out_tests {
+    use super::*;
+
+    /// A mod's own height provider leaves that structure out, not the generator.
+    #[test]
+    fn a_structure_that_does_not_decode_is_left_out() {
+        let jigsaw = |height: &str| {
+            format!(
+                r#"{{"type": "minecraft:jigsaw", "start_pool": "a:pool", "size": 1,
+                    "start_height": {height}, "biomes": [], "step": "surface_structures"}}"#
+            )
+        };
+        let structures = BTreeMap::from([
+            (
+                "a:good".to_owned(),
+                jigsaw(r#"{"type": "minecraft:constant", "value": {"absolute": 0}}"#),
+            ),
+            ("a:own_height".to_owned(), jigsaw(r#"{"type": "a:constant"}"#)),
+        ]);
+        let sets = BTreeMap::from([
+            (
+                "a:set".to_owned(),
+                r#"{"placement": {"type": "minecraft:random_spread", "salt": 1, "spacing": 8,
+                    "separation": 1},
+                    "structures": [{"structure": "a:good", "weight": 1},
+                    {"structure": "a:own_height", "weight": 1}]}"#
+                    .to_owned(),
+            ),
+            ("a:not_json".to_owned(), "{".to_owned()),
+        ]);
+        let biomes = |_: &Value| -> Result<BTreeSet<BiomeId>, DecodeError> { Ok(BTreeSet::new()) };
+        let registry =
+            StructureRegistry::new(&structures, &sets, BTreeMap::new(), &biomes).unwrap();
+        let def = |name: &str| registry.structures.iter().find(|d| d.name == name).unwrap();
+        assert!(matches!(def("a:good").kind, StructureKind::Jigsaw(_)));
+        assert!(matches!(def("a:own_height").kind, StructureKind::Unsupported(_)));
+        assert_eq!(registry.sets.len(), 1);
+        assert_eq!(registry.sets[0].structures.len(), 2);
     }
 }

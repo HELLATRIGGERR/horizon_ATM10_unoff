@@ -812,6 +812,16 @@ impl Behaviours {
         data::load_with_gameplay(registry, resources_dir, behaviour, gameplay)
     }
 
+    /// [`Self::load_with_gameplay`], reading `block-behaviours.json` only when the snapshot misses:
+    /// a large pack's document is half a gigabyte as a tree.
+    pub fn load_with_projection<G: GameplayStateSource>(
+        registry: &BlockRegistry,
+        resources_dir: &Path,
+        gameplay: &[G],
+    ) -> io::Result<Self> {
+        data::load_with_projection(registry, resources_dir, gameplay)
+    }
+
     pub fn load_with_behaviour_json(
         registry: &BlockRegistry,
         resources_dir: &Path,

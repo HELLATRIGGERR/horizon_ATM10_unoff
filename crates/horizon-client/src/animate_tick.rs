@@ -353,16 +353,27 @@ impl AnimateTables {
                 })
                 .collect()
         };
-        let behaviour: serde_json::Value =
+        // Only the fire table: the whole document's tree is half a gigabyte for a large pack.
+        #[derive(Default, serde::Deserialize)]
+        struct Fire {
+            #[serde(default, rename = "igniteOdds")]
+            ignite_odds: BTreeMap<String, serde_json::Value>,
+        }
+        #[derive(serde::Deserialize)]
+        struct BehaviourFire {
+            #[serde(default)]
+            fire: Fire,
+        }
+        let behaviour: BehaviourFire =
             serde_json::from_slice(&std::fs::read(root.join("block-behaviours.json"))?)?;
-        let ignite_odds = behaviour["fire"]["igniteOdds"].as_object();
+        let ignite_odds = &behaviour.fire.ignite_odds;
         let burnable = (0..registry.len() as u32)
             .map(|id| {
                 // FireBlock.getIgniteOdds: a waterlogged state never burns.
                 registry.state(BlockStateId(id)).is_some_and(|s| {
                     s.properties.get("waterlogged").map(String::as_str) != Some("true")
                         && ignite_odds
-                            .and_then(|m| m.get(s.name.as_str()))
+                            .get(s.name.as_str())
                             .and_then(serde_json::Value::as_i64)
                             .is_some_and(|odds| odds > 0)
                 })

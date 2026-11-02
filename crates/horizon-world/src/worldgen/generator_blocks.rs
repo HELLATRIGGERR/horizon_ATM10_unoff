@@ -145,6 +145,10 @@ impl BlockBehavior {
             rules,
             ignition_odds: serde_json::from_value(extra["ignition_odds"].clone())?,
             fence_gates: serde_json::from_value(extra["fence_gates"].clone())?,
+            growing_plants: match extra.get("growing_plants") {
+                Some(plants) => serde_json::from_value(plants.clone())?,
+                None => BTreeMap::new(),
+            },
         };
         let survival = BlockSurvivalRegistry::new(
             registry,

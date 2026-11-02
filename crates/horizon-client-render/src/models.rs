@@ -92,7 +92,9 @@ pub(crate) fn prepare_with_models(
     sprites: &mut Sprites,
     models: &crate::model_library::ParsedModels,
 ) -> Result<PreparedModels> {
-    let facts: std::collections::BTreeMap<String, Value> =
+    // Each block's entry stays text until its block is reached: a large pack's file is 70 MB,
+    // ten times that as a tree.
+    let facts: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
         serde_json::from_slice(&std::fs::read(root.join("model-states.json"))?)?;
     let blocks: Vec<&str> = facts
         .keys()

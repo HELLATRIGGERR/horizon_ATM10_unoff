@@ -189,11 +189,14 @@ fn shaded(color:u32,normal:Vec3)->u32 {
 }
 fn source_quads(game:&Game<'_>,blocks:&[(StructureBlock,BlockStateId)], world:&World, diagnostics:&mut Vec<String>)->Vec<SceneQuad> {
     let mut quads=Vec::new();let mut models=Vec::new();
+    // A baked face knows its sprite's layer: the layer's names, for the ones this atlas holds.
+    let mut names:std::collections::HashMap<u32,Vec<&str>>=std::collections::HashMap::new();
+    for (name,layer) in &game.pack.render.sprite_layers {names.entry(*layer).or_default().push(name)}
     for (block,state) in blocks {
         if game.pack.render.model_catalog.models_at(*state,BlockPos::new(block.pos[0],block.pos[1],block.pos[2]),&mut models).is_err() {continue}
         for model in &models {for face in &model.faces {
-            let q=&face.quad;let key=q.material.sprite.strip_prefix("minecraft:").unwrap_or(&q.material.sprite);
-            let Some(rect)=game.gui.atlas.sprites.get(key) else {continue};
+            let q=&face.quad;
+            let Some(rect)=names.get(&face.layer).into_iter().flatten().find_map(|name|game.gui.atlas.sprites.get(name.strip_prefix("minecraft:").unwrap_or(name))) else {continue};
             let origin=Vec3::new(block.pos[0] as f32,block.pos[1] as f32,block.pos[2] as f32);
             let points=q.positions.map(|p|origin+Vec3::from_array(p));
             let normal=(points[1]-points[0]).cross(points[2]-points[0]);

@@ -1478,6 +1478,42 @@ fn content_root_registers_a_mod_menu_type() {
     fs::remove_dir_all(&scratch).unwrap();
 }
 
+/// A mod's growing plant: world generation is told which vanilla plant it was made from.
+#[test]
+#[ignore = "full content root: CI and pr_ready run it"]
+fn a_mod_growing_plant_names_its_template_for_world_generation() {
+    let Some(base) = prepared() else {
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-plant-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let m = folder_mod(
+        &scratch.join("example"),
+        &[
+            ("horizon-mod.toml", &manifest("example", "")),
+            (
+                "data/example/horizon/block/roots.json",
+                r#"{"template": "minecraft:cave_vines"}"#,
+            ),
+            (
+                "data/example/horizon/block/roots_plant.json",
+                r#"{"template": "minecraft:cave_vines_plant", "item": false}"#,
+            ),
+        ],
+    );
+    let root = resource_root(&base, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let extra: serde_json::Value = serde_json::from_slice(
+        &fs::read(root.join("worldgen/blocks/survival-extra-definitions.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(extra["growing_plants"]["example:roots"], "minecraft:cave_vines");
+    assert_eq!(
+        extra["growing_plants"]["example:roots_plant"],
+        "minecraft:cave_vines_plant"
+    );
+    let _ = fs::remove_dir_all(&scratch);
+}
+
 /// A content mod folder from `(path, text)` pairs, read as the game reads it.
 fn folder_mod(dir: &Path, files: &[(&str, &str)]) -> ContentMod {
     for (name, text) in files {

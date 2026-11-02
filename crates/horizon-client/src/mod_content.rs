@@ -2007,6 +2007,18 @@ impl<'a> Plan<'a> {
                 if let Some(map) = doc.at("ignition_odds") {
                     self.names(map, false);
                 }
+                // The way a mod's growing plant grows comes from its template.
+                let plants = self
+                    .blocks
+                    .iter()
+                    .filter(|b| GROWING_PLANTS.contains(&b.decl.template.as_str()))
+                    .map(|b| (b.decl.id.clone(), J::Str(b.decl.template.clone())))
+                    .collect::<Vec<_>>();
+                if !plants.is_empty()
+                    && let J::Obj(entries) = doc
+                {
+                    entries.push(("growing_plants".to_owned(), J::Obj(plants)));
+                }
             }
             "items.json" => self.items(doc, true)?,
             "registries.json" => {
@@ -2391,6 +2403,18 @@ const ROW_THREADS: usize = 6;
 /// Mods read, and their files written to the root, at a time. Most of the work
 /// is waiting for the file system, one call per file.
 const FILE_THREADS: usize = 8;
+
+/// The vanilla blocks whose survival rule is `GrowingPlant`.
+const GROWING_PLANTS: [&str; 8] = [
+    "minecraft:kelp",
+    "minecraft:kelp_plant",
+    "minecraft:cave_vines",
+    "minecraft:cave_vines_plant",
+    "minecraft:twisting_vines",
+    "minecraft:twisting_vines_plant",
+    "minecraft:weeping_vines",
+    "minecraft:weeping_vines_plant",
+];
 
 /// The JSON and NBT tables rewritten for new blocks and items.
 const JSON_TABLES: [&str; 16] = [
@@ -3591,7 +3615,7 @@ fn stamp<'a>(
             modified.as_nanos()
         ))
     };
-    let mut parts = vec!["horizon mod content 4".to_owned()];
+    let mut parts = vec!["horizon mod content 5".to_owned()];
     parts.push(meta(&std::env::current_exe()?)?);
     let base = std::path::absolute(base)?;
     parts.push(

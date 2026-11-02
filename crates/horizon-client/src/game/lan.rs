@@ -123,6 +123,12 @@ pub(super) fn preload_sync_data(root: &std::path::Path) -> Option<SyncPreload> {
 }
 
 impl SyncPreload {
+    /// Until the data is read, without taking it up yet.
+    pub(super) fn wait(&self) {
+        while !self.0.is_finished() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
     /// The world is open: without packs of its own (`overlay`), what was read
     /// becomes `sync_data`'s; with them, `sync_data` loads them as before.
     pub(super) fn adopt(self, overlay: &horizon_world::loot::PackOverlay) {

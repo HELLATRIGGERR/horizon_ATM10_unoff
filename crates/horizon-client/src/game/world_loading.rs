@@ -306,6 +306,13 @@ impl WorldLoader {
         Ok(Self { handle })
     }
 
+    /// Until the world is prepared, without taking it up yet.
+    pub fn wait(&self) {
+        while !self.handle.is_finished() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     pub fn finish(self) -> Result<PreparedWorld> {
         self.handle
             .join()
@@ -425,7 +432,10 @@ pub(super) fn preload_launch_world(
         .spawn(move || {
             // Not behind the server: the world's opening waits for it.
             let started = std::time::Instant::now();
-            let sync = spawn_sync_preload(&resources, false);
+            let mut sync = spawn_sync_preload(&resources, false);
+            if registry.len() >= super::LARGE_REGISTRY {
+                join_sync_preload(sync.take(), &resources);
+            }
             // Errors are left for the world opening to report. The world's
             // flags from its level.dat: the feature packs a flag forces on.
             let enabled_features = horizon_client::save::Level::read(&world_root)

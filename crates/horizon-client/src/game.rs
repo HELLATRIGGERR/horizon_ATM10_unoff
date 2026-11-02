@@ -20717,7 +20717,6 @@ struct CoreTables {
 }
 /// The block facts and the tables read from them.
 struct GameplayTables {
-    behaviour_json: serde_json::Value,
     facts: BlockFacts,
     gameplay_projection: Vec<horizon_client::blocks::GameplayProjection>,
     light: LightTables,
@@ -20828,6 +20827,11 @@ fn load_core(
         render,
     }))
 }
+/// The block states from which a start loads the world's tables one at a time: each of a full
+/// modpack's parses gigabytes on the way, and side by side they pass what a 16 GB machine has
+/// left. Vanilla has 30,000.
+const LARGE_REGISTRY: usize = 200_000;
+
 /// The block facts, then the light tables beside the motion tables, which
 /// both read them.
 fn gameplay_tables(
@@ -20844,6 +20848,8 @@ fn gameplay_tables(
     let (facts, gameplay_projection) =
         BlockFacts::load_with_projection(root, assets.registry, &behaviour_json, parallel)
             .map_err(|e| e.to_string())?;
+    // Half a gigabyte for a large pack, and the behaviour tables' snapshot needs none of it.
+    drop(behaviour_json);
     horizon_client::block_contact::set_mod_blocks(
         facts
             .states
@@ -20868,7 +20874,6 @@ fn gameplay_tables(
     Ok(GameplayTables {
         light: light?,
         motion: motion?,
-        behaviour_json,
         facts,
         gameplay_projection,
     })
@@ -20968,7 +20973,6 @@ fn load_resources(
         visibility,
         gameplay:
             GameplayTables {
-                behaviour_json,
                 facts,
                 gameplay_projection,
                 light,
@@ -20980,9 +20984,12 @@ fn load_resources(
     } = core;
     let assets = Arc::new(assets);
     let render = Arc::new(render);
-    if let Some(folder) = launch_world {
+    // After the world's tables, for a large registry: the two read the same files.
+    let large = assets.registry.len() >= LARGE_REGISTRY;
+    if let Some(folder) = launch_world.filter(|_| !large) {
         world_loading::preload_launch_world(folder, &root, assets.registry, biomes.clone());
     }
+    let late_preload = launch_world.filter(|_| large).map(str::to_owned);
     let tables = Arc::new(startup::time("pack.mesh_tables", || {
         MeshTables::new(&assets, &render, &facts, visibility)
     })?);
@@ -21032,6 +21039,8 @@ fn load_resources(
     let rest_loader = if menu {
         let resources = resources.clone();
         let root = root.clone();
+        // A content root's files in one too: its next start opens one file for 600,000.
+        let content_root = (root != vanilla_root).then(|| root.clone());
         let vanilla_root = vanilla_root.to_owned();
         let rest_progress = progress.clone();
         let progress = progress.clone();
@@ -21043,7 +21052,6 @@ fn load_resources(
                     &root,
                     &resources,
                     &assets,
-                    &behaviour_json,
                     &gameplay_projection,
                     visibility,
                     &progress,
@@ -21062,6 +21070,17 @@ fn load_resources(
                     started.elapsed().as_millis()
                 );
                 write_prepared_files(vanilla_root);
+                if let Some(content_root) = content_root {
+                    write_prepared_files(content_root);
+                }
+                if let Some(folder) = late_preload {
+                    world_loading::preload_launch_world(
+                        &folder,
+                        &root,
+                        assets.registry,
+                        resources.biomes().clone(),
+                    );
+                }
                 Ok(())
             })?;
         Some(WorldRestLoader {
@@ -21073,7 +21092,6 @@ fn load_resources(
             &root,
             &resources,
             &assets,
-            &behaviour_json,
             &gameplay_projection,
             visibility,
             progress,
@@ -21164,7 +21182,6 @@ fn load_world_rest(
     root: &std::path::Path,
     resources: &Resources,
     assets: &Assets,
-    behaviour_json: &serde_json::Value,
     gameplay_projection: &[horizon_client::blocks::GameplayProjection],
     visibility: horizon_world::block_render::FaceVisibility,
     progress: &Progress,
@@ -21175,8 +21192,11 @@ fn load_world_rest(
 ) -> Result<WorldRest> {
     let facts = resources.facts();
     let biomes = resources.biomes();
-    let threads = resources.threads();
     let registry = assets.registry;
+    let threads = match registry.len() >= LARGE_REGISTRY {
+        true => 1,
+        false => resources.threads(),
+    };
     let overlay = &horizon_world::loot::PackOverlay::NONE;
     progress.set(6);
     // Independent tables load together, within the worker budget the settings
@@ -21196,7 +21216,7 @@ fn load_world_rest(
     };
     let load_behaviours = || {
         startup::time("rest.behaviours", || {
-            Behaviours::load_with_gameplay(registry, root, behaviour_json, gameplay_projection)
+            Behaviours::load_with_projection(registry, root, gameplay_projection)
         })
     };
     let load_block_entity_render = || -> Result<_> {

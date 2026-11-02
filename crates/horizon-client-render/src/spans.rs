@@ -216,8 +216,9 @@ pub fn describe(spans: &[Span]) -> String {
 /// the start (resource tables, the renderer, the title, a world's open, a
 /// server's join, a dimension change) on whichever thread ran it, one Chrome
 /// trace event per line (`tools/startup_trace.py` reads it; wrapped in `[...]`,
-/// Perfetto opens it). Times are microseconds since the process started. Off,
-/// a step costs one relaxed load.
+/// Perfetto opens it). Times are microseconds since the process started; each
+/// step ends with the process's working set and the allocator's commit, in MiB.
+/// Off, a step costs one relaxed load.
 pub mod startup {
     use std::{
         io::Write as _,
@@ -295,11 +296,15 @@ pub mod startup {
     impl Drop for Step {
         fn drop(&mut self) {
             let end = Instant::now();
+            let resident = horizon_threads::memory_limit::resident_bytes().unwrap_or(0);
+            let (commit, _) = horizon_threads::allocator_commit();
             write(format_args!(
-                r#""ph":"X","name":"{}","ts":{},"dur":{}"#,
+                r#""ph":"X","name":"{}","ts":{},"dur":{},"args":{{"ws_mb":{},"commit_mb":{}}}"#,
                 self.name,
                 micros(self.started),
-                end.saturating_duration_since(self.started).as_micros()
+                end.saturating_duration_since(self.started).as_micros(),
+                resident >> 20,
+                commit >> 20
             ));
         }
     }

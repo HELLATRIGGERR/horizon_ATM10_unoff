@@ -659,6 +659,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let definitions = SurvivalDefinitions {
         rules: definitions,
         ignition_odds: serde_json::from_value(extra["ignition_odds"].clone())?,
+        growing_plants: Default::default(),
         fence_gates: serde_json::from_value(extra["fence_gates"].clone())?,
     };
     let survival = BlockSurvivalRegistry::new(

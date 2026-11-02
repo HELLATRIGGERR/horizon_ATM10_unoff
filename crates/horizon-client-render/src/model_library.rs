@@ -10,12 +10,27 @@ pub struct ParsedModels {
 impl ParsedModels {
     /// Every `models/**.json` of a namespace directory, by identifier.
     pub fn load(root: &Path) -> Self {
-        let Ok(namespaces) = fs::read_dir(root.join("assets")) else {
-            return Self::default();
-        };
+        let assets = root.join("assets");
         // Listed first, then read and parsed at once: a content pack has tens
         // of thousands of models.
         let mut files = Vec::new();
+        if let Some(names) = horizon_core::prepared_files::files_under(&assets) {
+            for name in names {
+                let Some((namespace, rest)) = name.split_once('/') else {
+                    continue;
+                };
+                let rel = rest
+                    .strip_prefix("models/")
+                    .and_then(|rest| rest.strip_suffix(".json"));
+                if let Some(rel) = rel {
+                    files.push((format!("{namespace}:{rel}"), assets.join(&name)));
+                }
+            }
+            return Self::parse(files);
+        }
+        let Ok(namespaces) = fs::read_dir(&assets) else {
+            return Self::default();
+        };
         for ns in namespaces.flatten() {
             let namespace = ns.file_name().to_string_lossy().into_owned();
             let base = ns.path().join("models");
@@ -43,6 +58,10 @@ impl ParsedModels {
                 }
             }
         }
+        Self::parse(files)
+    }
+
+    fn parse(files: Vec<(String, std::path::PathBuf)>) -> Self {
         let parsed = crate::par::par_map(&files, |(_, path)| {
             let text = horizon_core::prepared_files::read_to_string(path).ok()?;
             CuboidModel::from_json(&text).ok().map(Arc::new)

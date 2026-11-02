@@ -1160,7 +1160,13 @@ fn serve(
 ) -> Result<()> {
     // The world prepares, and the registries the server sends are read, on
     // helper threads while this one builds the server's own Game: none of
-    // them reads what another makes (`integrated_open` takes them up).
+    // them reads what another makes (`integrated_open` takes them up). For a
+    // large registry one after the other (`LARGE_REGISTRY`).
+    let large = pack.assets.registry.len() >= super::LARGE_REGISTRY;
+    let sync = preload_sync_data(&options.resources);
+    if large && let Some(sync) = &sync {
+        sync.wait();
+    }
     let world = WorldRequest::new(
         &launch.folder,
         launch.name.as_deref(),
@@ -1178,10 +1184,10 @@ fn serve(
             flags.upgrade.clone(),
         )
     });
-    let opening = Opening {
-        world,
-        sync: preload_sync_data(&options.resources),
-    };
+    if large && let Ok(world) = &world {
+        world.wait();
+    }
+    let opening = Opening { world, sync };
     let mut server = match startup::time("server.game_new", || {
         server_game(res, pack, options, settings)
     }) {

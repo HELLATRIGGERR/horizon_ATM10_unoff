@@ -134,6 +134,22 @@ fn topmost(layers: Vec<Vec<Option<SelectedModels>>>) -> Vec<Option<(usize, Selec
     }
     picked
 }
+/// `model-states.json` by block: as a tree, or as text a block at a time.
+pub(crate) trait ModelStateFacts {
+    fn block(&self, name: &str) -> Result<Option<std::borrow::Cow<'_, Value>>>;
+}
+impl ModelStateFacts for BTreeMap<String, Value> {
+    fn block(&self, name: &str) -> Result<Option<std::borrow::Cow<'_, Value>>> {
+        Ok(self.get(name).map(std::borrow::Cow::Borrowed))
+    }
+}
+impl ModelStateFacts for BTreeMap<String, Box<serde_json::value::RawValue>> {
+    fn block(&self, name: &str) -> Result<Option<std::borrow::Cow<'_, Value>>> {
+        self.get(name)
+            .map(|text| Ok(std::borrow::Cow::Owned(serde_json::from_str(text.get())?)))
+            .transpose()
+    }
+}
 impl StateModels {
     pub fn load(
         root: &Path,
@@ -167,7 +183,7 @@ impl StateModels {
         registry: &BlockRegistry,
         blocks: &[&str],
         sprites: &mut Sprites,
-        facts: &BTreeMap<String, Value>,
+        facts: &impl ModelStateFacts,
         models: &crate::model_library::ParsedModels,
     ) -> Result<Self> {
         let mut choices = Vec::new();
@@ -185,7 +201,9 @@ impl StateModels {
             // Vanilla blocks come bare; content mods' blocks with their namespace.
             let (namespace, path) = block.split_once(':').unwrap_or(("minecraft", block));
             let name = format!("{namespace}:{path}");
-            let facts = facts.get(&name).ok_or("missing block model state schema")?;
+            let facts = facts
+                .block(&name)?
+                .ok_or("missing block model state schema")?;
             let schema: PropertySchema = facts["schema"]
                 .as_object()
                 .ok_or("invalid model schema")?
@@ -396,6 +414,29 @@ impl StateModels {
         }
         Ok(())
     }
+    /// Baked models, their faces, the states with a model and how many multipart
+    /// selections those states hold: what the catalog's memory goes by.
+    pub fn counts(&self) -> (usize, usize, usize, usize) {
+        let faces = self.baked.iter().map(|(_, model)| model.faces.len()).sum();
+        let states = self.states.iter().flatten();
+        let parts = states
+            .clone()
+            .map(|(_, selected)| match selected {
+                SelectedModels::Multipart(parts) => parts.len(),
+                SelectedModels::Variant(_) => 0,
+            })
+            .sum();
+        (self.baked.len(), faces, states.count(), parts)
+    }
+    /// Lets go of each face's sprite name, once whatever matches faces by name has run: `layer` says
+    /// which sprite a face draws. A large pack has millions of faces, each with its own string.
+    pub(crate) fn forget_sprite_names(&mut self) {
+        for (_, model) in &mut self.baked {
+            for face in &mut model.faces {
+                face.quad.material.sprite = String::new();
+            }
+        }
+    }
     /// Every baked model with the variant it was baked from, to change its faces.
     pub fn models_mut(&mut self) -> impl Iterator<Item = (&Variant, &mut BakedModel)> {
         self.baked
@@ -585,6 +626,12 @@ mod tests {
         assert!(models.standalone("lanef:block/unnamed").is_none());
         // Named twice, baked once.
         assert_eq!(models.baked.len(), 2);
+        // The names go; the layers stay.
+        let layer = cog.faces[0].layer;
+        models.forget_sprite_names();
+        let cog = models.standalone("lanef:block/cog").expect("baked");
+        assert_eq!(cog.faces[0].layer, layer);
+        assert!(cog.faces[0].quad.material.sprite.is_empty());
         // Without a parsed library, the files are read directly.
         let mut direct = StateModels::default();
         direct.bake_standalone(&fixture.0, &mut sprites, &ParsedModels::default(), &names)?;

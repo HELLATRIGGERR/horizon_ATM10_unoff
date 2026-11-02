@@ -222,16 +222,21 @@ impl RenderAssets {
         // A server draws no block and no item: its block models (about 24 MB
         // baked) and item model library (7 MB) stay empty.
         let parsed = if draws {
-            crate::model_library::ParsedModels::load(root)
+            crate::spans::startup::time("assets.parsed_models", || {
+                crate::model_library::ParsedModels::load(root)
+            })
         } else {
             crate::model_library::ParsedModels::default()
         };
         let mut models = if draws {
-            crate::models::prepare_with_models(root, registry, &mut sprites, &parsed)?
+            crate::spans::startup::time("assets.state_models", || {
+                crate::models::prepare_with_models(root, registry, &mut sprites, &parsed)
+            })?
         } else {
             crate::models::PreparedModels::default()
         };
-        let model_library = parsed.into_item_library();
+        let model_library =
+            crate::spans::startup::time("assets.item_library", || parsed.into_item_library());
         // Fluids are drawn by the fluid renderer, not block models; breaking
         // progress uses the destroy-stage overlays.
         for name in [
@@ -247,7 +252,9 @@ impl RenderAssets {
             sprites.insert(root, &format!("minecraft:block/destroy_stage_{stage}"))?;
         }
         let fusion = if draws {
-            crate::fusion::FusionTextures::load(root, registry, &mut sprites, &mut models.catalog)
+            crate::spans::startup::time("assets.fusion", || {
+                crate::fusion::FusionTextures::load(root, registry, &mut sprites, &mut models.catalog)
+            })
         } else {
             Default::default()
         };
@@ -285,7 +292,9 @@ impl RenderAssets {
         if draws {
             emissive = crate::native_emissive::load_optifine(root, &mut sprites);
         }
+        models.catalog.forget_sprite_names();
         sprites.save_disk_cache();
+        let _finish = crate::spans::startup::step("assets.sprites_finish");
         if draws {
             sprites.finish();
         } else {

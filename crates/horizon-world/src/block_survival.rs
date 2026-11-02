@@ -74,6 +74,35 @@ pub struct SurvivalDefinitions {
     pub rules: BTreeMap<String, SurvivalRule>,
     pub ignition_odds: BTreeMap<String, i32>,
     pub fence_gates: BTreeSet<String>,
+    /// A mod's growing plant by the vanilla plant it was made from, which says the way it grows.
+    pub growing_plants: BTreeMap<String, String>,
+}
+/// The head, the body, the way it grows and whether it is kelp, of a vanilla growing plant.
+fn vanilla_plant(name: &str) -> Option<(&'static str, &'static str, Direction, bool)> {
+    Some(match name {
+        "minecraft:kelp" | "minecraft:kelp_plant" => {
+            ("minecraft:kelp", "minecraft:kelp_plant", Direction::Up, true)
+        }
+        "minecraft:cave_vines" | "minecraft:cave_vines_plant" => (
+            "minecraft:cave_vines",
+            "minecraft:cave_vines_plant",
+            Direction::Down,
+            false,
+        ),
+        "minecraft:twisting_vines" | "minecraft:twisting_vines_plant" => (
+            "minecraft:twisting_vines",
+            "minecraft:twisting_vines_plant",
+            Direction::Up,
+            false,
+        ),
+        "minecraft:weeping_vines" | "minecraft:weeping_vines_plant" => (
+            "minecraft:weeping_vines",
+            "minecraft:weeping_vines_plant",
+            Direction::Down,
+            false,
+        ),
+        _ => return None,
+    })
 }
 #[derive(Clone, Copy)]
 enum Rule {
@@ -304,42 +333,36 @@ impl<'r> BlockSurvivalRegistry<'r> {
                     }
                 }
                 SurvivalRule::GrowingPlant => {
-                    let (head, body, direction, kelp) = match state.name.as_str() {
-                        "minecraft:kelp" | "minecraft:kelp_plant" => (
-                            "minecraft:kelp",
-                            "minecraft:kelp_plant",
-                            Direction::Up,
-                            true,
-                        ),
-                        "minecraft:cave_vines" | "minecraft:cave_vines_plant" => (
-                            "minecraft:cave_vines",
-                            "minecraft:cave_vines_plant",
-                            Direction::Down,
-                            false,
-                        ),
-                        "minecraft:twisting_vines" | "minecraft:twisting_vines_plant" => (
-                            "minecraft:twisting_vines",
-                            "minecraft:twisting_vines_plant",
-                            Direction::Up,
-                            false,
-                        ),
-                        "minecraft:weeping_vines" | "minecraft:weeping_vines_plant" => (
-                            "minecraft:weeping_vines",
-                            "minecraft:weeping_vines_plant",
-                            Direction::Down,
-                            false,
-                        ),
-                        _ => return Err(invalid("unknown growing plant family")),
-                    };
-                    Rule::GrowingPlant {
-                        head: registry
-                            .default_state(head)
-                            .ok_or_else(|| invalid("missing growing plant head"))?,
-                        body: registry
-                            .default_state(body)
-                            .ok_or_else(|| invalid("missing growing plant body"))?,
-                        direction,
-                        kelp,
+                    if let Some((head, body, direction, kelp)) = vanilla_plant(&state.name) {
+                        Rule::GrowingPlant {
+                            head: registry
+                                .default_state(head)
+                                .ok_or_else(|| invalid("missing growing plant head"))?,
+                            body: registry
+                                .default_state(body)
+                                .ok_or_else(|| invalid("missing growing plant body"))?,
+                            direction,
+                            kelp,
+                        }
+                    } else {
+                        // A mod's: `x` and `x_plant`, or the one block alone.
+                        let (_, _, direction, kelp) = definitions
+                            .growing_plants
+                            .get(&state.name)
+                            .and_then(|template| vanilla_plant(template))
+                            .ok_or_else(|| invalid("unknown growing plant family"))?;
+                        let own = registry
+                            .default_state(&state.name)
+                            .ok_or_else(|| invalid("missing growing plant"))?;
+                        let head_name = state.name.strip_suffix("_plant").unwrap_or(&state.name);
+                        Rule::GrowingPlant {
+                            head: registry.default_state(head_name).unwrap_or(own),
+                            body: registry
+                                .default_state(&format!("{head_name}_plant"))
+                                .unwrap_or(own),
+                            direction,
+                            kelp,
+                        }
                     }
                 }
                 SurvivalRule::MangrovePropagule => Rule::MangrovePropagule(boolean("hanging")?),

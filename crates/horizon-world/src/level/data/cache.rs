@@ -236,10 +236,17 @@ fn hash_file(hasher: &mut Sha256, root: &Path, path: &Path) -> io::Result<()> {
         .strip_prefix(root)
         .map_err(|e| invalid(e.to_string()))?;
     hash_str(hasher, &relative.to_string_lossy());
-    let bytes = fs::read(path)?;
-    hasher.update((bytes.len() as u64).to_le_bytes());
-    hasher.update(bytes);
-    Ok(())
+    // In pieces: a large pack's gameplay facts are over a gigabyte.
+    use std::io::Read as _;
+    let mut file = fs::File::open(path)?;
+    hasher.update(file.metadata()?.len().to_le_bytes());
+    let mut piece = vec![0; 1 << 20];
+    loop {
+        match file.read(&mut piece)? {
+            0 => return Ok(()),
+            read => hasher.update(&piece[..read]),
+        }
+    }
 }
 
 fn direction(index: u8) -> io::Result<Direction> {

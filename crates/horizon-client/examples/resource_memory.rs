@@ -90,6 +90,7 @@ fn main() -> Result<()> {
         );
         last = live;
     };
+    horizon_client::spans::startup::init(std::time::Instant::now());
     step("start");
     let registry = horizon_world::level::data::load_registry(&root)?;
     step("registry alone");
@@ -98,6 +99,10 @@ fn main() -> Result<()> {
     let assets = Assets::load(&root)?;
     let render = assets.reload(&root)?;
     step("assets");
+    println!(
+        "  catalog (baked, faces, states, multipart selections): {:?}",
+        render.model_catalog.counts()
+    );
     println!(
         "  sprites: {} layers of {}px, {:.0} MB of pixels",
         render.texture_layers,

@@ -1540,6 +1540,340 @@ fn listed_namespaces_join_the_root() {
     let _ = fs::remove_dir_all(&scratch);
 }
 
+#[test]
+fn whole_dirs_leave_out_what_the_build_writes_or_reads() {
+    assert_eq!(whole_dir("assets/a/models/block/x.json"), Some("assets/a/models"));
+    assert_eq!(whole_dir("data/a/recipe/x.json"), Some("data/a/recipe"));
+    // Directly in a namespace: nothing to link as one.
+    assert_eq!(whole_dir("assets/a/sounds.json"), None);
+    for kept in [
+        "assets/a/blockstates/x.json",
+        "data/a/tags/block/x.json",
+        "data/a/worldgen/biome/x.json",
+        "data/a/structure/x.nbt",
+        "data/a/horizon/block/x.json",
+    ] {
+        assert_eq!(whole_dir(kept), None, "{kept}");
+    }
+}
+
+/// A folder mod goes into the root as links: its files show there, what the
+/// build writes (a missing blockstate, merged tags) stays out of the mod, and
+/// neither a rebuild nor deleting the root touches it.
+#[test]
+fn a_linked_folder_mod_stays_as_it_was() {
+    let Some(base) = prepared() else {
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-link-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let toml = manifest("ruby", "");
+    let tag = r#"{"values": ["ruby:gem"]}"#;
+    let source = scratch.join("ruby");
+    let m = folder_mod(
+        &source,
+        &[
+            ("horizon-mod.toml", &toml),
+            (
+                "data/ruby/horizon/block/gem.json",
+                r#"{"template": "minecraft:iron_block"}"#,
+            ),
+            ("assets/ruby/models/block/gem.json", r#"{"parent": "x"}"#),
+            ("assets/ruby/sounds.json", "{}"),
+            ("data/ruby/recipe/sub/gem.json", r#"{"type": "x"}"#),
+            ("data/ruby/tags/block/gems.json", tag),
+            ("data/minecraft/tags/block/beacon_base_blocks.json", tag),
+            ("data/ruby/structure/hut.nbt", "not read"),
+        ],
+    );
+    let files: Vec<PathBuf> = m.content.files.iter().map(|f| source.join(f)).collect();
+    let root = scratch.join("root");
+    for _ in 0..2 {
+        build(&base, std::slice::from_ref(&m), &root).unwrap();
+        for (rel, text) in [
+            ("assets/ruby/models/block/gem.json", r#"{"parent": "x"}"#),
+            ("assets/ruby/sounds.json", "{}"),
+            ("data/ruby/recipe/sub/gem.json", r#"{"type": "x"}"#),
+            ("data/ruby/structure/hut.nbt", "not read"),
+            ("worldgen/structure/ruby/hut.nbt", "not read"),
+        ] {
+            assert_eq!(fs::read_to_string(root.join(rel)).unwrap(), text, "{rel}");
+        }
+        assert!(root.join("assets/ruby/blockstates/gem.json").exists());
+        assert!(!source.join("assets/ruby/blockstates").exists());
+        // The vanilla tag merged in the root, the mod's own file untouched.
+        let merged =
+            fs::read_to_string(root.join("data/minecraft/tags/block/beacon_base_blocks.json"));
+        assert_ne!(merged.unwrap(), tag);
+        assert_eq!(
+            fs::read_to_string(source.join("data/minecraft/tags/block/beacon_base_blocks.json"))
+                .unwrap(),
+            tag
+        );
+    }
+    fs::remove_dir_all(&root).unwrap();
+    for file in &files {
+        assert!(file.exists(), "{} went with the root", file.display());
+    }
+    assert!(base.join("gameplay-facts.json").exists());
+    let _ = fs::remove_dir_all(&scratch);
+}
+
+/// A root links to a folder mod, so one moved elsewhere needs a new root.
+#[test]
+fn a_moved_mod_changes_the_stamp() {
+    let Some(base) = prepared() else {
+        return;
+    };
+    let stamp_at = |path: &str| stamp(&base, [("ruby", Path::new(path), 1)], "").unwrap();
+    assert_eq!(stamp_at("a/ruby"), stamp_at("a/ruby"));
+    assert_ne!(stamp_at("a/ruby"), stamp_at("b/ruby"));
+}
+
+/// A mod's file over one the overlay links from the base replaces the link, on
+/// the one volume where that link is a hard link. Writing onto it would change
+/// the base's file, and writing over the mod's would change the mod's.
+#[test]
+fn a_link_over_a_base_file_leaves_the_base_alone() {
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-overlay-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let (base, out, source) = (scratch.join("base"), scratch.join("out"), scratch.join("mod"));
+    fs::create_dir_all(base.join("dir")).unwrap();
+    fs::create_dir_all(&source).unwrap();
+    fs::write(base.join("dir/file.txt"), "base").unwrap();
+    fs::write(source.join("file.txt"), "mod").unwrap();
+    let read = |path: PathBuf| fs::read_to_string(path).unwrap();
+    let overlay = Overlay::new(&base, &out).unwrap();
+    overlay.dir(Path::new("dir")).unwrap();
+    assert_eq!(read(out.join("dir/file.txt")), "base");
+    overlay
+        .link_file(&source.join("file.txt"), "dir/file.txt")
+        .unwrap();
+    assert_eq!(read(out.join("dir/file.txt")), "mod");
+    assert_eq!(read(base.join("dir/file.txt")), "base");
+    overlay.write("dir/file.txt", b"written").unwrap();
+    assert_eq!(read(out.join("dir/file.txt")), "written");
+    assert_eq!(read(source.join("file.txt")), "mod");
+    assert_eq!(read(base.join("dir/file.txt")), "base");
+    let _ = fs::remove_dir_all(&scratch);
+}
+
+/// Every file under `dir`, through links, by its path from `dir`.
+fn files_under(dir: &Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(dir: &Path, prefix: &str, out: &mut BTreeMap<String, Vec<u8>>) {
+        for entry in fs::read_dir(dir).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = entry.path();
+            let rel = format!("{prefix}{name}");
+            if path.is_dir() {
+                walk(&path, &format!("{rel}/"), out);
+            } else {
+                out.insert(rel, fs::read(&path).unwrap());
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    if dir.exists() {
+        walk(dir, "", &mut out);
+    }
+    out
+}
+
+/// A mod's files reach the root as links from a folder and written out from a
+/// package, and nothing else may differ: what is taken in (tags, worldgen, biome
+/// modifiers, structures, declarations) and what is only a file, a modifier's
+/// neighbour in its directory among them.
+#[test]
+fn a_packed_mod_builds_the_root_a_folder_does() {
+    let Some(base) = prepared() else {
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-packed-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let toml = manifest("ruby", "");
+    let tag = r#"{"values": ["ruby:gem"]}"#;
+    let files = [
+        ("horizon-mod.toml", toml.as_str()),
+        (
+            "data/ruby/horizon/block/gem.json",
+            r#"{"template": "minecraft:iron_block"}"#,
+        ),
+        (
+            "data/ruby/horizon/item/shard.json",
+            r#"{"template": "minecraft:snowball"}"#,
+        ),
+        (
+            "data/ruby/horizon/entity_type/bolt.json",
+            r#"{"template": "minecraft:snowball", "item": "ruby:shard", "damage": 2}"#,
+        ),
+        (
+            "data/ruby/horizon/menu/press.json",
+            r#"{"slots": 9, "data_slots": 2, "results": [7, 8]}"#,
+        ),
+        ("assets/ruby/models/block/gem.json", r#"{"parent": "x"}"#),
+        ("assets/ruby/sounds.json", "{}"),
+        ("data/ruby/recipe/sub/gem.json", r#"{"type": "x"}"#),
+        ("data/ruby/tags/block/gems.json", tag),
+        ("data/minecraft/tags/block/beacon_base_blocks.json", tag),
+        ("data/ruby/structure/hut.nbt", "not read"),
+        (
+            "data/ruby/worldgen/configured_feature/ore.json",
+            r#"{"type":"minecraft:ore","config":{}}"#,
+        ),
+        (
+            "data/ruby/worldgen/placed_feature/ore.json",
+            r#"{"feature":"ruby:ore","placement":[]}"#,
+        ),
+        (
+            "data/ruby/neoforge/biome_modifier/ore.json",
+            r##"{"type":"neoforge:add_features","biomes":"#minecraft:is_overworld",
+                "features":"ruby:ore","step":"underground_ores"}"##,
+        ),
+        ("data/ruby/neoforge/loot_modifiers/global.json", "{}"),
+    ];
+    let folder = folder_mod(&scratch.join("folder/ruby"), &files);
+    let hmod = scratch.join("ruby.hmod");
+    let mut zip = zip::ZipWriter::new(fs::File::create(&hmod).unwrap());
+    for (name, text) in files {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(text.as_bytes()).unwrap();
+    }
+    zip.finish().unwrap();
+    let package = horizon_mods::Package::read(&hmod).unwrap();
+    let packed = ContentMod {
+        id: package.manifest.id.clone(),
+        content: Content::read(&hmod, &package.manifest).unwrap(),
+    };
+    let (from_folder, from_package) = (scratch.join("from-folder"), scratch.join("from-package"));
+    assert_eq!(
+        build(&base, &[folder], &from_folder).unwrap(),
+        build(&base, &[packed], &from_package).unwrap()
+    );
+    for dir in ["assets/ruby", "data/ruby", "worldgen/structure/ruby"] {
+        let (a, b) = (files_under(&from_folder.join(dir)), files_under(&from_package.join(dir)));
+        assert!(!a.is_empty(), "{dir}");
+        assert_eq!(
+            a.keys().collect::<Vec<_>>(),
+            b.keys().collect::<Vec<_>>(),
+            "{dir}"
+        );
+        assert_eq!(a, b, "{dir}");
+    }
+    for file in [
+        "facts.json",
+        "gameplay-facts.json",
+        "registries.json",
+        "entity-types.json",
+        "items.json",
+        "model-states.json",
+        "command-registries.json",
+        "occlusion.nbt",
+        "cached-collision.nbt",
+        "data/minecraft/tags/block/beacon_base_blocks.json",
+        "worldgen/biomes.json",
+        "worldgen/placed_features.json",
+        "worldgen/features.json",
+    ] {
+        let read = |root: &Path| fs::read(root.join(file)).unwrap();
+        assert!(read(&from_folder) == read(&from_package), "{file}");
+    }
+    // What each way has to get right, not just alike.
+    let features = biome_features(&from_folder);
+    assert!(features["minecraft:plains"].to_string().contains("ruby:ore"));
+    let files = files_under(&from_folder.join("data/ruby"));
+    assert!(files.contains_key("neoforge/loot_modifiers/global.json"));
+    assert!(!files.keys().any(|f| f.starts_with("horizon/")));
+    let _ = fs::remove_dir_all(&scratch);
+}
+
+/// A root still good is used without reading any mod's files, so what the game
+/// registers from the mods comes from what the build wrote down: the same as the
+/// build's, with the same mods left out.
+#[test]
+fn a_reused_root_registers_what_the_build_did() {
+    let Some(base) = prepared() else {
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-load-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let candidate = |id: &str, namespaces: &str, files: &[(&str, &str)]| {
+        let dir = scratch.join(id);
+        let toml = manifest(id, namespaces);
+        let mut all = vec![("horizon-mod.toml", toml.as_str())];
+        all.extend_from_slice(files);
+        folder_mod(&dir, &all);
+        Candidate {
+            manifest: horizon_mods::Package::read(&dir).unwrap().manifest,
+            path: dir,
+        }
+    };
+    let candidates = [
+        candidate(
+            "example",
+            "",
+            &[
+                (
+                    "data/example/horizon/item/gem.json",
+                    r#"{"template": "minecraft:snowball"}"#,
+                ),
+                (
+                    "data/example/horizon/entity_type/bolt.json",
+                    r#"{"template": "minecraft:snowball", "item": "example:gem", "damage": 2}"#,
+                ),
+                (
+                    "data/example/horizon/menu/press.json",
+                    r#"{"slots": 9, "data_slots": 2, "results": [7, 8]}"#,
+                ),
+                (
+                    "data/example/horizon/mob_effect/glow.json",
+                    r#"{"category": "beneficial", "color": 16773120}"#,
+                ),
+            ],
+        ),
+        // Refused by accept_mod: a component no item has, and a namespace taken.
+        candidate(
+            "typo",
+            "",
+            &[(
+                "data/typo/horizon/item/gem.json",
+                r#"{"template": "minecraft:diamond", "components": {"minecraft:no_such_thing": 1}}"#,
+            )],
+        ),
+        candidate("second", "\"example\"", &[]),
+    ];
+    let cache = scratch.join("cache");
+    let built = load_root(&base, &candidates, &[], &[], &cache).unwrap();
+    assert_eq!(built.mods, 1);
+    assert_ne!(built.root, base);
+    let ids = |root: &LoadedRoot| {
+        (
+            root.effects.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
+            root.entity_types.iter().map(|t| t.id.clone()).collect::<Vec<_>>(),
+            root.menu_types.iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+        )
+    };
+    assert_eq!(
+        ids(&built),
+        (
+            vec!["example:glow".to_owned()],
+            vec!["example:bolt".to_owned()],
+            vec!["example:press".to_owned()],
+        )
+    );
+    // A rebuild starts from an empty folder: this file tells them apart.
+    let sentinel = built.root.join("sentinel");
+    fs::write(&sentinel, b"").unwrap();
+    let reused = load_root(&base, &candidates, &[], &[], &cache).unwrap();
+    assert!(sentinel.exists(), "an unchanged set of mods rebuilt the root");
+    assert_eq!(reused.root, built.root);
+    assert_eq!(reused.mods, built.mods);
+    assert_eq!(reused.effects, built.effects);
+    assert_eq!(reused.entity_types, built.entity_types);
+    assert_eq!(reused.menu_types, built.menu_types);
+    let _ = fs::remove_dir_all(&scratch);
+}
+
 /// Two mods owning one namespace (one's listed namespace is the other's id,
 /// or both list it) are refused together, naming both.
 #[test]

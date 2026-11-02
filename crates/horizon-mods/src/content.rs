@@ -10,7 +10,7 @@
 //! and totals are capped, vanilla ids cannot be redefined, and no two mods
 //! share a namespace ([`clash`]).
 use crate::manifest::{Capability, MANIFEST, Manifest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
@@ -427,7 +427,7 @@ pub struct Item {
 }
 
 /// `MobEffectCategory`.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum EffectCategory {
     Beneficial,
@@ -436,7 +436,7 @@ pub enum EffectCategory {
 }
 
 /// A mob effect the mod adds: what `new MobEffect(category, color)` takes.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MobEffect {
     /// `<mod id>:<path>`.
@@ -453,7 +453,7 @@ pub const ENTITY_TEMPLATES: [&str; 1] = ["minecraft:snowball"];
 
 /// an entity type the mod adds: a copy of a vanilla template's, thrown
 /// from `item` and drawn as it.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EntityType {
     /// `<mod id>:<path>`.
@@ -473,7 +473,7 @@ pub struct EntityType {
 /// `ContainerData` count its menu syncs, and its take-only slots
 /// (`FurnaceResultSlot.mayPlace`). The slots come first in the menu, then the
 /// player's 36, and a mod screen (`native_screen`) places them.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MenuType {
     /// `<mod id>:<path>`.
@@ -569,15 +569,13 @@ impl Content {
         manifest: &Manifest,
         declared: &[String],
     ) -> Result<Content, String> {
-        let (source, sized) = if path.is_dir() {
-            let mut out = Vec::new();
-            for top in ["assets", "data"] {
-                walk(path, &path.join(top), &mut out)?;
-            }
-            (Source::Dir(path.to_owned()), out)
+        let (source, sized, mut reader) = if path.is_dir() {
+            let listed = walk_mod(path)?.into_iter();
+            let sized = listed.map(|file| (file.name, file.size)).collect();
+            (Source::Dir(path.to_owned()), sized, FileReader::Dir(path))
         } else {
             let mut zip = open_zip(path)?;
-            let mut out = Vec::new();
+            let mut out = Vec::with_capacity(zip.len());
             for i in 0..zip.len() {
                 let entry = zip.by_index_raw(i).map_err(|e| e.to_string())?;
                 let name = entry.name().map_err(|e| e.to_string())?.into_owned();
@@ -585,7 +583,8 @@ impl Content {
                     out.push((name.to_owned(), entry.size()));
                 }
             }
-            (Source::Zip(path.to_owned()), out)
+            let reader = FileReader::Zip(Box::new(zip));
+            (Source::Zip(path.to_owned()), out, reader)
         };
         let mut files = Vec::with_capacity(sized.len());
         let mut total = 0u64;
@@ -616,7 +615,7 @@ impl Content {
             menu_types: Vec::new(),
             namespaces: manifest.owned_namespaces().map(str::to_owned).collect(),
         };
-        content.check(manifest, declared)?;
+        content.check(manifest, declared, &mut reader)?;
         Ok(content)
     }
 
@@ -734,8 +733,15 @@ impl Content {
         })
     }
 
-    /// Where content may go, and the declarations.
-    fn check(&mut self, manifest: &Manifest, declared: &[String]) -> Result<(), String> {
+    /// Where content may go, and the declarations. `reader` serves every one of
+    /// them: opening an archive reads its whole index, so one reader per
+    /// declaration is quadratic in a large mod's files.
+    fn check(
+        &mut self,
+        manifest: &Manifest,
+        declared: &[String],
+        reader: &mut FileReader<'_>,
+    ) -> Result<(), String> {
         let id = manifest.id.as_str();
         if !self.files.is_empty() && !manifest.capabilities.contains(&Capability::Registries) {
             return Err(format!(
@@ -805,7 +811,7 @@ impl Content {
         let mut ids = BTreeSet::new();
         for (block, name) in blocks {
             let file: BlockFile =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
             if file
                 .connects_to
                 .as_ref()
@@ -861,7 +867,7 @@ impl Content {
         let mut remainders = Vec::new();
         for (item, name) in items {
             let file: ItemFile =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
             let item = Item {
                 id: item,
                 template: file.template,
@@ -881,7 +887,7 @@ impl Content {
         }
         for (effect, name) in effects {
             let file: MobEffect =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
             if file.color > 0xFF_FFFF {
                 return Err(format!("{name}: color is RGB, 0 to 16777215 (0xFFFFFF)"));
             }
@@ -902,7 +908,7 @@ impl Content {
         }
         for (tab, name) in tabs {
             let file: CreativeTabFile =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
             let id_like = |s: &str| {
                 s.split_once(':')
                     .is_some_and(|(n, p)| !n.is_empty() && !p.is_empty())
@@ -921,7 +927,7 @@ impl Content {
         }
         for (kind, name) in types {
             let file: EntityType =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
             if !ENTITY_TEMPLATES.contains(&file.template.as_str()) {
                 return Err(format!(
                     "{name}: template {:?} is not one of {ENTITY_TEMPLATES:?}",
@@ -948,7 +954,7 @@ impl Content {
         }
         for (menu, name) in menus {
             let file: MenuType =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
             if !(1..=MAX_MENU_SLOTS).contains(&file.slots) || file.data_slots > MAX_MENU_SLOTS {
                 return Err(format!(
                     "{name}: slots is 1 to {MAX_MENU_SLOTS}, data_slots 0 to {MAX_MENU_SLOTS}"
@@ -1271,28 +1277,82 @@ fn open_zip(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, String> {
     zip::ZipArchive::new(file).map_err(|e| e.to_string())
 }
 
-/// Files under `dir`, relative to `root` with `/` separators. Symbolic links
-/// are not followed: a mod folder holds its own files.
-fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, u64)>) -> Result<(), String> {
+/// A file of a mod folder, from its directory entry.
+struct Listed {
+    /// Relative to the folder, with `/` separators.
+    name: String,
+    size: u64,
+    modified: u128,
+}
+
+/// A mod folder's content files, sorted by name.
+fn walk_mod(root: &Path) -> Result<Vec<Listed>, String> {
+    let mut out = Vec::new();
+    for top in ["assets", "data"] {
+        walk(root, &root.join(top), &mut out)?;
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// Files under `dir`. Symbolic links are not followed: a mod folder holds its
+/// own files. Sizes and times come from the directory entries, which Windows
+/// returns with the listing; a metadata call per file opens each one.
+fn walk(root: &Path, dir: &Path, out: &mut Vec<Listed>) -> Result<(), String> {
     let Ok(read) = std::fs::read_dir(dir) else {
         return Ok(());
     };
     for entry in read.flatten() {
         let path = entry.path();
-        let meta = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        let meta = entry.metadata().map_err(|e| e.to_string())?;
         if meta.is_dir() {
             walk(root, &path, out)?;
         } else if meta.is_file() {
             let rel = path.strip_prefix(root).map_err(|e| e.to_string())?;
             let parts: Option<Vec<&str>> = rel.iter().map(|p| p.to_str()).collect();
             let name = parts.ok_or_else(|| format!("{} is not UTF-8", rel.display()))?;
-            out.push((name.join("/"), meta.len()));
+            out.push(Listed {
+                name: name.join("/"),
+                size: meta.len(),
+                modified: modified_nanos(&meta),
+            });
         }
         if out.len() > MAX_FILES {
             return Err(format!("more than {MAX_FILES} content files"));
         }
     }
     Ok(())
+}
+
+fn modified_nanos(meta: &std::fs::Metadata) -> u128 {
+    meta.modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos())
+}
+
+fn stamp_of(files: &[Listed]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for file in files {
+        (&file.name, file.size, file.modified).hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+/// What a mod's content files are, by name, size and modification time, as
+/// build tools count them: without reading a file, and for a `.hmod` without
+/// opening it. A root built from them stays good while this stays the same.
+pub fn source_stamp(path: &Path) -> Result<u64, String> {
+    if path.is_dir() {
+        return Ok(stamp_of(&walk_mod(path)?));
+    }
+    let meta = std::fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(stamp_of(&[Listed {
+        name: String::new(),
+        size: meta.len(),
+        modified: modified_nanos(&meta),
+    }]))
 }
 
 #[cfg(test)]
@@ -2258,5 +2318,38 @@ capabilities = ["registries"]
         ] {
             assert!(check_path(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_source_stamp_follows_the_files() {
+        let dir = scratch("stamp");
+        let block = dir.join("data/ruby/horizon/block");
+        std::fs::create_dir_all(&block).unwrap();
+        std::fs::write(block.join("ruby_block.json"), BLOCK).unwrap();
+        let first = source_stamp(&dir).unwrap();
+        assert_eq!(first, source_stamp(&dir).unwrap());
+        std::fs::write(block.join("other.json"), BLOCK).unwrap();
+        assert_ne!(first, source_stamp(&dir).unwrap());
+        // A .hmod counts as one file.
+        let path = dir.join("m.hmod");
+        std::fs::write(&path, b"one").unwrap();
+        let packed = source_stamp(&path).unwrap();
+        assert_eq!(packed, source_stamp(&path).unwrap());
+        std::fs::write(&path, b"longer").unwrap();
+        assert_ne!(packed, source_stamp(&path).unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_packaged_mods_declarations_all_load_from_one_archive() {
+        // 3,000 declarations: one archive open per declaration took minutes at this size.
+        let names: Vec<String> = (0..3000)
+            .map(|i| format!("data/ruby/horizon/block/b{i}.json"))
+            .collect();
+        let files: Vec<(&str, &[u8])> = names.iter().map(|n| (n.as_str(), BLOCK)).collect();
+        let started = std::time::Instant::now();
+        let content = hmod("many", MANIFEST_TEXT, &files).unwrap();
+        assert_eq!(content.blocks.len(), 3000);
+        assert!(started.elapsed().as_secs() < 60, "{:?}", started.elapsed());
     }
 }

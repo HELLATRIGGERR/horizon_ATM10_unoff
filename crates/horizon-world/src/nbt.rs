@@ -463,6 +463,9 @@ pub fn read_named_streaming(
     Ok((NamedTag { name, tag }, reader.offset))
 }
 
+/// How much [`write_named_to`] holds before writing it out.
+const WRITE_BUFFER: usize = 1 << 20;
+
 /// Read a network root (type and payload, without the file name field).
 pub fn read_network(bytes: &[u8], limits: Limits) -> Result<(Tag, usize), Error> {
     let mut reader = Reader {
@@ -477,8 +480,13 @@ pub fn read_network(bytes: &[u8], limits: Limits) -> Result<(Tag, usize), Error>
     Ok((tag, reader.offset))
 }
 
-struct Writer {
+struct Writer<'w> {
     bytes: Vec<u8>,
+    /// Where full buffers go ([`write_named_to`]), and how much went.
+    out: Option<&'w mut dyn std::io::Write>,
+    flushed: usize,
+    /// The key of the lists that grow, and how ([`write_named_to`]).
+    extension: Option<(&'w str, &'w dyn ListExtension)>,
     limits: Limits,
     nodes: usize,
     /// `NbtIo.StringFallbackDataOutput`, the disk writer's: a string too long
@@ -489,18 +497,71 @@ struct Writer {
     /// is written as the canonical one. The network writer keeps its bits.
     canonical_nan: bool,
 }
-impl Writer {
+impl Writer<'_> {
     fn error(&self, reason: &'static str) -> Error {
         Error {
-            offset: self.bytes.len(),
+            offset: self.flushed + self.bytes.len(),
             reason,
         }
     }
     fn put(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        if bytes.len() > self.limits.max_bytes.saturating_sub(self.bytes.len()) {
+        let written = self.flushed + self.bytes.len();
+        if bytes.len() > self.limits.max_bytes.saturating_sub(written) {
             return Err(self.error("byte limit exceeded"));
         }
         self.bytes.extend_from_slice(bytes);
+        if self.bytes.len() >= WRITE_BUFFER {
+            self.flush()?;
+        }
+        Ok(())
+    }
+    /// Hands the buffer to the output, if there is one.
+    fn flush(&mut self) -> Result<(), Error> {
+        if let Some(out) = &mut self.out {
+            if out.write_all(&self.bytes).is_err() {
+                return Err(self.error("could not write"));
+            }
+            self.flushed += self.bytes.len();
+            self.bytes.clear();
+        }
+        Ok(())
+    }
+    /// A list `extension` adds to: its own elements, then those. Every element
+    /// is of one type, so none needs a wrapper.
+    fn extended_list(
+        &mut self,
+        list: &[Tag],
+        extension: &dyn ListExtension,
+        extra: usize,
+        depth: usize,
+    ) -> Result<(), Error> {
+        if self.nodes >= self.limits.max_nodes {
+            return Err(self.error("node limit exceeded"));
+        }
+        self.nodes += 1;
+        if depth >= self.limits.max_depth {
+            return Err(self.error("depth limit exceeded"));
+        }
+        let id = list.first().map_or(10, Tag::id);
+        if list.iter().any(|v| v.id() != id) {
+            return Err(self.error("a list that grows holds one element type"));
+        }
+        self.put(&[id])?;
+        self.count(list.len() + extra)?;
+        for value in list {
+            self.payload(value, depth + 1)?;
+        }
+        let mut written = 0;
+        extension.elements(list, &mut |value| {
+            if value.id() != id {
+                return Err(self.error("a list that grows holds one element type"));
+            }
+            written += 1;
+            self.payload(value, depth + 1)
+        })?;
+        if written != extra {
+            return Err(self.error("a list grew by another count than it said"));
+        }
         Ok(())
     }
     fn count(&mut self, len: usize) -> Result<(), Error> {
@@ -611,6 +672,15 @@ impl Writer {
                     }
                     self.put(&[value.id()])?;
                     self.string(name)?;
+                    if let (Tag::List(list), Some((key, extension))) = (value, self.extension)
+                        && name.0.iter().copied().eq(key.encode_utf16())
+                    {
+                        let extra = extension.extra(list);
+                        if extra > 0 {
+                            self.extended_list(list, extension, extra, depth + 1)?;
+                            continue;
+                        }
+                    }
                     self.payload(value, depth + 1)?;
                 }
                 self.put(&[0])?;
@@ -637,6 +707,9 @@ impl Writer {
 pub fn write_named(root: &NamedTag, limits: Limits) -> Result<Vec<u8>, Error> {
     let mut writer = Writer {
         bytes: Vec::new(),
+        out: None,
+        flushed: 0,
+        extension: None,
         limits,
         nodes: 0,
         empty_long_strings: true,
@@ -650,9 +723,53 @@ pub fn write_named(root: &NamedTag, limits: Limits) -> Result<Vec<u8>, Error> {
     Ok(writer.bytes)
 }
 
+/// What [`write_named_to`] adds to the lists it is told to, without them being
+/// in the tree.
+pub trait ListExtension {
+    /// How many elements `list` gains.
+    fn extra(&self, list: &[Tag]) -> usize;
+    /// Passes `write` each of them, in order.
+    fn elements(
+        &self,
+        list: &[Tag],
+        write: &mut dyn FnMut(&Tag) -> Result<(), Error>,
+    ) -> Result<(), Error>;
+}
+
+/// [`write_named`] into `out`, with each list keyed `key` also holding what
+/// `extension` adds to it. A table's hundreds of thousands of added rows are
+/// made and written one at a time this way, not held as a tree first.
+pub fn write_named_to<'w>(
+    root: &NamedTag,
+    limits: Limits,
+    out: &'w mut dyn std::io::Write,
+    key: &'w str,
+    extension: &'w dyn ListExtension,
+) -> Result<(), Error> {
+    let mut writer = Writer {
+        bytes: Vec::new(),
+        out: Some(out),
+        flushed: 0,
+        extension: Some((key, extension)),
+        limits,
+        nodes: 0,
+        empty_long_strings: true,
+        canonical_nan: true,
+    };
+    writer.put(&[root.tag.id()])?;
+    if root.tag.id() != 0 {
+        writer.string(&root.name)?;
+    }
+    writer.payload(&root.tag, 0)?;
+    writer.flush()
+}
+
 pub fn write_network(tag: &Tag, limits: Limits) -> Result<Vec<u8>, Error> {
     let mut writer = Writer {
         bytes: Vec::new(),
+        out: None,
+        flushed: 0,
+        extension: None,
         limits,
         nodes: 0,
         empty_long_strings: false,
@@ -860,6 +977,58 @@ impl Snbt<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Grows a non-empty list by two rows.
+    struct TwoMore;
+    impl ListExtension for TwoMore {
+        fn extra(&self, list: &[Tag]) -> usize {
+            if list.is_empty() { 0 } else { 2 }
+        }
+        fn elements(
+            &self,
+            list: &[Tag],
+            write: &mut dyn FnMut(&Tag) -> Result<(), Error>,
+        ) -> Result<(), Error> {
+            for n in 0..self.extra(list) {
+                write(&Tag::compound([("n", Tag::Int(n as i32))]))?;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_written_list_grows_without_being_in_the_tree() {
+        let row = |n: i32| Tag::compound([("n", Tag::Int(n))]);
+        let tree = |extra: bool| NamedTag {
+            name: "root".into(),
+            tag: Tag::compound([
+                (
+                    "inner",
+                    Tag::compound([(
+                        "rows",
+                        Tag::List(if extra {
+                            vec![row(7), row(0), row(1)]
+                        } else {
+                            vec![row(7)]
+                        }),
+                    )]),
+                ),
+                ("empty", Tag::compound([("rows", Tag::List(Vec::new()))])),
+                ("other", Tag::List(vec![row(9)])),
+            ]),
+        };
+        let mut out = Vec::new();
+        write_named_to(&tree(false), Limits::tables(), &mut out, "rows", &TwoMore).unwrap();
+        assert_eq!(out, write_named(&tree(true), Limits::tables()).unwrap());
+        // Over one write buffer: the bytes still arrive whole and in order.
+        let many = NamedTag {
+            name: "root".into(),
+            tag: Tag::compound([("other", Tag::ByteArray(vec![5; WRITE_BUFFER * 2 + 1]))]),
+        };
+        let mut out = Vec::new();
+        write_named_to(&many, Limits::tables(), &mut out, "rows", &TwoMore).unwrap();
+        assert_eq!(out, write_named(&many, Limits::tables()).unwrap());
+    }
+
     /// `NbtIo.write` (`StringFallbackDataOutput`) writes a string too long for
     /// modified UTF-8 empty and goes on (#5064); the network writer refuses
     /// it. Vanilla 26.3's bytes for `{s: 32768 x U+0000}` (65536 encoded).

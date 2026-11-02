@@ -72,99 +72,53 @@ pub(super) fn content_root(
     enabled: &std::collections::BTreeSet<String>,
     dev: &[std::path::PathBuf],
 ) -> std::path::PathBuf {
-    use horizon_client::mod_content::{self, ContentMod};
-    use horizon_mods::{Capability, Content, Package};
+    use horizon_client::mod_content::{self, Candidate};
+    use horizon_mods::{Capability, Package};
     let here = std::env::current_dir().unwrap_or_default();
     let mut paths = horizon_mods::find(&here.join(mod_list::DIR));
     paths.retain(|p| !dev.contains(p));
     paths.extend(dev.iter().cloned());
-    let mut known = None;
-    let mut mods: Vec<ContentMod> = Vec::new();
     // The first load's list stays (`set_local`): a reload does not hash the files again.
     let announce = !horizon_protocol::mod_list::is_set();
-    let mut announced = Vec::new();
-    for path in &paths {
-        let Ok(package) = Package::read(path) else {
+    // Each read parses a packaged mod's whole index.
+    let packages = mod_content::par_map(&paths, 8, |path| Package::read(path).ok());
+    let mut candidates: Vec<Candidate> = Vec::new();
+    for (path, package) in paths.into_iter().zip(packages) {
+        let Some(package) = package else {
             continue;
         };
-        let m = &package.manifest;
-        let on = enabled.contains(&m.id) || dev.contains(path);
-        if !on
-            || !m.capabilities.contains(&Capability::Registries)
-            || mods.iter().any(|c| c.id == m.id)
+        let m = package.manifest;
+        let on = enabled.contains(&m.id) || dev.contains(&path);
+        if on
+            && m.capabilities.contains(&Capability::Registries)
+            && !candidates.iter().any(|c| c.manifest.id == m.id)
         {
-            continue;
-        }
-        // The items this mod's native code declares may be a file item's crafting remainder.
-        let declared: Vec<String> = native_declared()
-            .1
-            .iter()
-            .filter(|i| i.id.split_once(':').is_some_and(|(ns, _)| ns == m.id))
-            .map(|i| i.id.clone())
-            .collect();
-        let content = match Content::read_declaring(path, m, &declared) {
-            Ok(content) => content,
-            Err(e) => {
-                log::warn!("Horizon: mod {} content not loaded: {e}", m.id);
-                continue;
-            }
-        };
-        let known = match &mut known {
-            Some(types) => types,
-            None => match mod_content::known_components(root) {
-                Ok(types) => known.insert(types),
-                Err(e) => {
-                    log::warn!("Horizon: content mods not loaded: {e}");
-                    register_mob_effects(&[]);
-                    return root.to_owned();
-                }
-            },
-        };
-        let candidate = ContentMod {
-            id: m.id.clone(),
-            content,
-        };
-        match mod_content::accept_mod(&mut mods, candidate, known) {
-            Ok(_) if announce => announced.push(announced_entry(m, path)),
-            Ok(_) => {}
-            Err(e) => log::warn!("Horizon: mod {} content not loaded: {e}", m.id),
+            candidates.push(Candidate { path, manifest: m });
         }
     }
     let (blocks, items) = native_declared();
-    if !blocks.is_empty() || !items.is_empty() {
-        if known.is_none() {
-            match mod_content::known_components(root) {
-                Ok(types) => known = Some(types),
-                Err(e) => log::warn!("Horizon: native mods' blocks and items not loaded: {e}"),
-            }
-        }
-        if let Some(known) = &known {
-            for e in mod_content::accept_declared(&mut mods, blocks, items, known) {
-                log::warn!("Horizon: {e}");
-            }
-            // A file item's remainder named a code-declared item that was refused: that mod
-            // alone is left out, not every content mod through the overlay's check.
-            for e in mod_content::drop_dangling_remainders(&mut mods) {
-                log::warn!("Horizon: {e}");
-            }
-        }
-    }
-    match mod_content::resource_root(root, &mods, &here.join(".horizon-cache")) {
-        Ok(out) => {
+    match mod_content::load_root(root, &candidates, blocks, items, &here.join(".horizon-cache")) {
+        Ok(loaded) => {
             if announce {
-                horizon_protocol::mod_list::set_local(announced);
-            }
-            if out != root {
-                log::info!(
-                    "Horizon: content from {} mod(s) in {}",
-                    mods.len(),
-                    out.display()
+                horizon_protocol::mod_list::set_local(
+                    candidates
+                        .iter()
+                        .filter(|c| loaded.accepted.contains(&c.manifest.id))
+                        .map(|c| announced_entry(&c.manifest, &c.path))
+                        .collect(),
                 );
             }
-            register_mob_effects(&mods);
-            register_entity_types(&mods);
-            register_menu_types(&mods);
-            out
+            if loaded.root != root {
+                log::info!(
+                    "Horizon: content from {} mod(s) in {}",
+                    loaded.mods,
+                    loaded.root.display()
+                );
+            }
+            register_mob_effects(&loaded.effects);
+            register_entity_types(&loaded.entity_types);
+            register_menu_types(&loaded.menu_types);
+            loaded.root
         }
         Err(e) => {
             log::warn!("Horizon: content mods not loaded: {e}");
@@ -208,12 +162,11 @@ fn announced_entry(
 /// holding their network ids is built. The startup root's effects, none
 /// included, stay until restart: a pack reload after a Mods switch builds a
 /// root with others.
-fn register_mob_effects(mods: &[horizon_client::mod_content::ContentMod]) {
+fn register_mob_effects(effects: &[horizon_mods::content::MobEffect]) {
     use horizon_client::brewing::{self, Category};
     use horizon_mods::content::EffectCategory;
-    let effects = horizon_client::mod_content::mob_effects(mods);
     let ids: Vec<String> = effects.iter().map(|e| e.id.clone()).collect();
-    let set = brewing::register_mod_effects(effects.into_iter().map(|e| {
+    let set = brewing::register_mod_effects(effects.iter().map(|e| {
         let category = match e.category {
             EffectCategory::Beneficial => Category::Beneficial,
             EffectCategory::Harmful => Category::Harmful,
@@ -233,9 +186,8 @@ fn register_mob_effects(mods: &[horizon_client::mod_content::ContentMod]) {
 
 /// the mods' thrown entity types, as their mob effects: set once, from the
 /// startup root.
-fn register_entity_types(mods: &[horizon_client::mod_content::ContentMod]) {
+fn register_entity_types(types: &[horizon_mods::content::EntityType]) {
     use horizon_client::projectiles;
-    let types = horizon_client::mod_content::entity_types(mods);
     let set = projectiles::register_thrown_types(
         types
             .iter()
@@ -253,9 +205,8 @@ fn register_entity_types(mods: &[horizon_client::mod_content::ContentMod]) {
 
 /// the mods' menu types, as their entity types: set once, from the startup
 /// root.
-fn register_menu_types(mods: &[horizon_client::mod_content::ContentMod]) {
+fn register_menu_types(menus: &[horizon_mods::content::MenuType]) {
     use horizon_client::containers;
-    let menus = horizon_client::mod_content::menu_types(mods);
     let set = containers::register_mod_menu_types(menus.iter().map(|m| {
         let results = m.results.iter().map(|&r| usize::from(r)).collect();
         (m.id.clone(), m.slots.into(), m.data_slots.into(), results)

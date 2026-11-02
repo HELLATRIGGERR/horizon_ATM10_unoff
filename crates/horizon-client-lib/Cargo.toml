@@ -198,6 +198,10 @@ name = "sprite_cache_parity"
 path = "../horizon-client/examples/sprite_cache_parity.rs"
 
 [[example]]
+name = "content_root_build"
+path = "../horizon-client/examples/content_root_build.rs"
+
+[[example]]
 name = "client_probe"
 path = "../horizon-client/examples/probe/main.rs"
 

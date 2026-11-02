@@ -744,6 +744,35 @@ impl HudAtlas {
                         Err(error) => log::warn!("AE2 GUI texture {}: {error}", path.display()),
                     }
                 }
+                // Addons' GUI textures of AE2's namespace, carried under their
+                // own (`assets/<ns>/ae2/textures/guis`).
+                let mut addons: Vec<_> = std::fs::read_dir(root.join("assets"))
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .map(|e| e.path().join("ae2/textures/guis"))
+                    .filter(|p| p.is_dir())
+                    .collect();
+                addons.sort();
+                for guis in addons {
+                    let mut files: Vec<_> = std::fs::read_dir(&guis)
+                        .into_iter()
+                        .flatten()
+                        .flatten()
+                        .map(|e| e.path())
+                        .filter(|p| p.extension().is_some_and(|e| e == "png"))
+                        .collect();
+                    files.sort();
+                    for path in files {
+                        let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                            continue;
+                        };
+                        match decode(&path) {
+                            Ok((w, h, pixels)) => images.push((format!("ae2:guis/{name}"), w, h, pixels)),
+                            Err(error) => log::warn!("AE2 addon GUI texture {}: {error}", path.display()),
+                        }
+                    }
+                }
                 // Its own GUI sprites (`AE2Button`'s, VerticalButtonBar's
                 // backdrop), named `ae2:gui/<name>` and drawn in slices.
                 let sprites = root.join("assets/ae2/textures/gui/sprites");

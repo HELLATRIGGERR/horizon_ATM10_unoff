@@ -149,12 +149,14 @@ struct Layout {
     /// Crafting grid entries, dimmed unless the data slot's bit for them is
     /// set (`MolecularAssemblerPatternSlot`).
     grid: Option<(Range<usize>, usize)>,
-    /// `SetAmountButton`s: a cog above each filled entry of the range, at the
+    /// `SetAmountButton`s: a cog above each filled entry of each range, at the
     /// first one's place and 18 apart; a press opens its stock editor.
-    cogs: Option<(Range<usize>, (i32, i32))>,
+    cogs: &'static [(Range<usize>, (i32, i32))],
     /// The Pattern Provider's lock line (`lockReason`): data slots with the
     /// lock mode, whether it is locked, and why.
     lock_line: Option<[usize; 3]>,
+    /// The Extended Interface's "Config Page %s" line: the data slot with the page.
+    page_line: Option<usize>,
     /// `BackgroundPanel`s: the style's images drawn at its widgets of the
     /// same name.
     panels: &'static [&'static str],
@@ -220,8 +222,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -257,8 +260,9 @@ const LAYOUTS: &[Layout] = &[
         priority: Some(26),
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -272,8 +276,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -359,8 +364,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[("ae2:item_storage_cell_1k", (58, 17)), ("ae2:drive", (102, 17))],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -388,8 +394,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -415,8 +422,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: Some((0..9, 4)),
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -506,8 +514,9 @@ const LAYOUTS: &[Layout] = &[
         priority: Some(26),
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: Some([1, 3, 4]),
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -556,8 +565,9 @@ const LAYOUTS: &[Layout] = &[
         priority: Some(26),
         decorations: &[],
         grid: None,
-        cogs: Some((9..18, (8, 35))),
+        cogs: &[(9..18, (8, 35))],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -571,8 +581,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -586,8 +597,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     Layout {
@@ -601,8 +613,9 @@ const LAYOUTS: &[Layout] = &[
         priority: Some(26),
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     // The filters and the toolbar's other buttons are `ae2_workbench_screen`'s.
@@ -617,8 +630,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &[],
     },
     // The link slots sit on the panel right of the screen.
@@ -633,8 +647,9 @@ const LAYOUTS: &[Layout] = &[
         priority: None,
         decorations: &[],
         grid: None,
-        cogs: None,
+        cogs: &[],
         lock_line: None,
+        page_line: None,
         panels: &["linkPanel"],
     },
 ];
@@ -718,14 +733,12 @@ impl Ae2Screen {
     /// The stock cogs shown: each one's 16 x 16 box and its entry, above the
     /// entries `filled` says hold something.
     fn cogs(&self, filled: impl Fn(usize) -> bool) -> Vec<([i32; 4], usize)> {
-        let Some((entries, (x, y))) = self.layout.cogs.clone() else {
-            return Vec::new();
-        };
-        let first = entries.start;
-        entries
-            .filter(|e| filled(*e))
-            .map(|e| ([x + 18 * (e - first) as i32, y, 16, 16], e))
-            .collect()
+        let mut cogs = Vec::new();
+        for (entries, (x, y)) in self.layout.cogs {
+            let first = entries.start;
+            cogs.extend(entries.clone().filter(|e| filled(*e)).map(|e| ([x + 18 * (e - first) as i32, *y, 16, 16], e)));
+        }
+        cogs
     }
 
     /// The priority tab's 20 x 20 box (`openPriority`).
@@ -849,11 +862,33 @@ fn layout(kind: MachineKind) -> Option<&'static Layout> {
     LAYOUTS.iter().find(|l| l.kind == kind)
 }
 
+#[cfg(feature = "ae2-extendedae")]
+#[path = "ae2x/extendedae/screens.rs"]
+mod extendedae_screens;
+
+/// The layout of an addon's block, and its namespace: where its style is.
+fn addon_layout(block: &str) -> Option<&'static Layout> {
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(found) = extendedae_screens::layout(block) {
+        return Some(found);
+    }
+    let _ = block;
+    None
+}
+
+/// The layout of `m`'s screen, AE2's or its addon's.
+fn layout_of(m: &Machine) -> Option<&'static Layout> {
+    match m.variant {
+        Some(variant) => addon_layout(variant.block),
+        None => layout(m.kind),
+    }
+}
+
 /// A press on toggle entry `slot` (300 + entry) of `m`'s menu where the
 /// machine has no handler of its own: its config value steps on (back with
 /// `reverse`). False when no toggle has that entry.
 pub(super) fn step_setting(m: &mut Machine, slot: usize, reverse: bool) -> bool {
-    let Some(t) = layout(m.kind).and_then(|l| l.toggles.iter().find(|t| t.entry as usize + 300 == slot)) else {
+    let Some(t) = layout_of(m).and_then(|l| l.toggles.iter().find(|t| t.entry as usize + 300 == slot)) else {
         return false;
     };
     let n = t.values.len();
@@ -871,7 +906,7 @@ pub(super) fn step_setting(m: &mut Machine, slot: usize, reverse: bool) -> bool 
 impl Game<'_> {
     /// The data slots of the screen for `m`'s menu, on the server.
     pub(super) fn ae2_screen_data(&self, m: &Machine, pos: (i32, i32, i32)) -> Vec<i16> {
-        let Some(l) = layout(m.kind) else {
+        let Some(l) = layout_of(m) else {
             return Vec::new();
         };
         let mut data = Vec::new();
@@ -1014,10 +1049,19 @@ impl Game<'_> {
 
     /// The screen of block `block`'s menu when it is an AE2 machine with an
     /// AE2 screen: where its slots go, and its style.
-    pub(super) fn ae2_native_screen(&self, block: &str) -> Option<(NativeScreen, Ae2Screen)> {
-        let layout = layout(MachineKind::from_id(block)?)?;
-        let screens = self.options.resources.join("assets/ae2/screens");
-        let style = match ScreenStyle::load(&screens, layout.style) {
+    pub(super) fn ae2_native_screen(&self, block: &str, menu: &str) -> Option<(NativeScreen, Ae2Screen)> {
+        let layout = addon_layout(block).or_else(|| layout(MachineKind::from_id(block)?))?;
+        // The machine's window: 54 entries when the layout has one past 27.
+        let wide = layout.slots.iter().any(|(entry, _)| *entry >= 27) || layout.priority.is_some_and(|entry| entry >= 27);
+        if wide != (menu == "minecraft:generic_9x6") {
+            return None;
+        }
+        let assets = self.options.resources.join("assets");
+        // An addon keeps its files of AE2's namespace under its own (`<ns>/ae2/`):
+        // its style first, its includes from AE2's.
+        let namespace = block.split(':').next().unwrap_or("ae2");
+        let style = ScreenStyle::load_over(&assets.join(namespace).join("ae2/screens"), &assets.join("ae2/screens"), layout.style);
+        let style = match style {
             Ok(style) => style,
             Err(error) => {
                 log::warn!("AE2 screen style for {block}: {error}");
@@ -1026,7 +1070,7 @@ impl Game<'_> {
         };
         let mut screen = Ae2Screen { layout, style, slots: Vec::new(), block: block.to_owned() };
         let (w, h) = screen.size();
-        let mut slots = vec![None; 27];
+        let mut slots = vec![None; if wide { 54 } else { 27 }];
         let mut nth = std::collections::HashMap::<&str, usize>::new();
         for &(entry, semantic) in layout.slots {
             let n = nth.entry(semantic).or_default();
@@ -1254,6 +1298,10 @@ impl Game<'_> {
             let cog = if inside(rect, mouse) { icon::COG } else { icon::COG_DISABLED };
             self.ae2_icon(batch, cog, (16, 16), ox + rect[0] as f32, oy + rect[1] as f32);
         }
+        if let Some(page) = layout.page_line {
+            let line = fill(&self.translate("gui.extendedae.ex_interface.config", "Config Page %s"), &[(value(data, page) + 1).to_string()]);
+            batch.text(&self.gui.atlas, &line, ox + 8.0, oy + 24.0, argb(screen.style.color("DEFAULT_TEXT_COLOR")), false);
+        }
         // PatternProviderLockReason: shown while a lock mode is set.
         if let Some([mode, locked, _]) = layout.lock_line
             && value(data, mode) != 0
@@ -1474,6 +1522,11 @@ impl Game<'_> {
                 None => self.ae2_help_tooltip(lines),
                 Some(t) => {
                     let (name, _, key) = t.values[value(data, t.data).clamp(0, t.values.len() as i32 - 1) as usize];
+                    // A button with no setting's name says what it does and no more.
+                    if t.title.is_empty() {
+                        lines.push(self.translate(key, key));
+                        return;
+                    }
                     lines.push(self.translate(t.title, t.title));
                     // The condenser's outputs say how much matter one takes.
                     let amount = match name {

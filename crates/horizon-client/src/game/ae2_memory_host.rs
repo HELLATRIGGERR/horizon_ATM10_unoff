@@ -108,8 +108,10 @@ impl Game<'_> {
     fn machine_memory_snapshot(&self,pos:[i32;3],face:Option<&str>)->Result<Option<Snapshot>,String>{
         let key=(pos[0],pos[1],pos[2]);
         let Some(BlockEntity::Ae2(host))=self.world.block_entities.get(&key) else{return Ok(None)};
+        // Memory cards on addons' machines of other sizes: later (ae2/addons/).
+        if host.variant.is_some(){return Ok(None)}
         let (target,machine,name,name_component)=if matches!(host.kind,MachineKind::Inscriber|MachineKind::IoPort|MachineKind::VibrationChamber|MachineKind::Interface|MachineKind::MolecularAssembler|MachineKind::Condenser|MachineKind::Drive|MachineKind::Chest) {
-            if self.res.facts().get(self.world.block(pos[0],pos[1],pos[2])).name.as_ref()!=host.kind.id(){return Ok(None)}
+            if self.res.facts().get(self.world.block(pos[0],pos[1],pos[2])).name.as_ref()!=host.id(){return Ok(None)}
             let name=self.world.block_names.get(&key).cloned();let component=machine_name_component(host,name.as_deref());
             (Target::Block,(**host).clone(),name,component)
         }else if host.kind==MachineKind::CableBus {

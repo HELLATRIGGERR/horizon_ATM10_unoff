@@ -599,6 +599,13 @@ fn part_machine_kind(id: &str) -> Option<MachineKind> {
         _ => None,
     }
 }
+/// The machine of part item `id`, empty: AE2's, or an addon's of other sizes.
+pub(super) fn part_machine(id: &str) -> Option<Machine> {
+    if let Some(variant) = horizon_client::ae2_world::variant(id).filter(|v| v.part) {
+        return Some(Machine::of_variant(variant));
+    }
+    Some(Machine::new(part_machine_kind(id)?))
+}
 pub(super) fn strict_part_items(tag: Option<&Tag>, size: usize) -> Result<Vec<Option<ItemStack>>, String> {
     let Some(tag) = tag else {
         return Ok(vec![None; size]);
@@ -680,17 +687,16 @@ impl Game<'_> {
             return Err("invalid part id".into());
         };
         let id = id.to_string().map_err(|_| "invalid part id")?;
-        let Some(kind) = part_machine_kind(&id) else {
+        let Some(mut machine) = part_machine(&id) else {
             return Ok(None);
         };
-        let mut machine = Machine::new(kind);
         if let Some(data) = part.get("machine") {
             let Tag::Compound(data) = data else {
                 return Err("invalid part machine".into());
             };
-            machine.slots = strict_part_items(data.get(&"slots".into()), kind.physical_slots())?;
+            machine.slots = strict_part_items(data.get(&"slots".into()), machine.physical_slots())?;
             machine.upgrades =
-                strict_part_items(data.get(&"upgrades".into()), kind.upgrade_slots())?;
+                strict_part_items(data.get(&"upgrades".into()), machine.upgrade_slots())?;
             machine.config = match data.get(&"config".into()) {
                 None => Default::default(),
                 Some(Tag::Compound(config)) => config.clone(),
@@ -708,8 +714,9 @@ impl Game<'_> {
             .ae2_part_machine(address)?
             .ok_or("missing machine part")?;
         if previous.kind != machine.kind
-            || machine.slots.len() != machine.kind.physical_slots()
-            || machine.upgrades.len() != machine.kind.upgrade_slots()
+            || previous.variant != machine.variant
+            || machine.slots.len() != machine.physical_slots()
+            || machine.upgrades.len() != machine.upgrade_slots()
             || machine.slots.iter().flatten().any(|stack| stack.count == 0)
             || machine
                 .upgrades

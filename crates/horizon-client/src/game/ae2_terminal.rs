@@ -5652,7 +5652,11 @@ impl Game<'_> {
         if self.priority_target_read(target).is_none(){self.lan_priority_invalid(host,conn);return;}
         let is_machine=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.window==window);
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return};
-        let mut items=vec![None;if is_machine {27}else{54}];
+        let window_size=match host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).filter(|_|is_machine) {
+            Some(machine)=>self.ae2_machine_menu_shape(machine.pos,machine.part).size,
+            None=>if is_machine {27} else {54},
+        };
+        let mut items=vec![None;window_size];
         for (i,n) in [1,10,100,1000].into_iter().enumerate(){items[i]=Some(navigation(&format!("Priority +{n}; shift uses 1/16/32/64")));items[i+4]=Some(navigation(&format!("Priority -{n}; shift uses 1/16/32/64")));}
         items[8]=Some(navigation("Back to owner"));items[9]=Some(navigation(&format!("Priority: {}",edit.text)));
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
@@ -5868,7 +5872,6 @@ impl Game<'_> {
         }
     }
     fn ae2_stock_entry(&self,machine:&horizon_client::ae2_world::Machine,index:usize)->Option<(StockKey,u64,i64,u32,ItemStack)> {
-        if index>=9 {return None;}
         let item=super::ae2_interface::interface_config(machine).ok()?.get(index)?.clone();
         let fluid=super::ae2_interface::interface_fluid_config(machine).ok()?.get(index)?.clone();
         match (item,fluid) {
@@ -5920,7 +5923,7 @@ impl Game<'_> {
         let Some((window,pos,part,edit))=self.stock_session(host,conn) else{self.lan_stock_invalid(host,conn);return};
         let Some(snapshot)=self.ae2_owned_machine_slots(pos,part) else{self.lan_stock_invalid(host,conn);return};
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return};
-        let mut items=vec![None;27];
+        let mut items=vec![None;self.ae2_machine_menu_shape(pos,part).size];
         for (i,n) in [1,10,100,1000].into_iter().enumerate(){items[i]=Some(navigation(&format!("Stock +{n}; shift uses 1/16/32/64")));items[i+4]=Some(navigation(&format!("Stock -{n}; shift uses 1/16/32/64")));}
         items[8]=Some(navigation("Set stock amount"));items[9]=Some(navigation("Back to Interface"));items[10]=Some(edit.display.clone());
         items[11]=Some(navigation(&format!("Stock amount: {}{}",edit.text,if edit.unit==1000 {" buckets"}else{""})));
@@ -6071,9 +6074,12 @@ impl Game<'_> {
         } else {
             "ME Interface"
         };
+        // The window's block is the cable: the screen goes by the part.
+        host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:menu_block".into(),
+            data:machine.variant.map_or_else(||machine.kind.id(),|variant|variant.block).as_bytes().to_vec()}));
         let Some(window) = host.hub.open_window(
             conn,
-            "minecraft:generic_9x3",
+            super::ae2_machine_ui::MenuShape::of(&machine).window(),
             horizon_protocol::text::literal(title),
         ) else {
             return true;
@@ -6100,6 +6106,17 @@ impl Game<'_> {
         Self::lan_mark_ae2_base_screen(host,conn,window);
         self.lan_send_ae2_machine(host, conn);
         true
+    }
+    /// The window of the machine at `pos`, or of its part `part`.
+    fn ae2_machine_menu_shape(&self,pos:(i32,i32,i32),part:Option<super::ae2_parts::PartAddress>)->super::ae2_machine_ui::MenuShape {
+        let machine=match part {
+            Some(part)=>self.ae2_part_machine(part).ok().flatten(),
+            None=>match self.world.block_entities.get(&pos) {
+                Some(horizon_client::containers::BlockEntity::Ae2(machine))=>Some((**machine).clone()),
+                _=>None,
+            },
+        };
+        machine.map(|machine|super::ae2_machine_ui::MenuShape::of(&machine)).unwrap_or_default()
     }
     fn ae2_machine_may_place(&self, pos: (i32, i32, i32), slot: usize, item: &ItemStack) -> bool {
         use horizon_client::{ae2_world::MachineKind as K, containers::BlockEntity};
@@ -6201,7 +6218,7 @@ impl Game<'_> {
         };
         let Some(window) = host.hub.open_window(
             conn,
-            "minecraft:generic_9x3",
+            self.ae2_machine_menu_shape(pos,None).window(),
             horizon_protocol::text::literal(title),
         ) else {
             return true;
@@ -6243,16 +6260,24 @@ impl Game<'_> {
             **target=machine.clone();self.world.modified.insert((pos.0>>4,pos.2>>4));true
         }else{false}
     }
+    /// `CUpdatePage`: the Extended Interface shows its other page.
+    fn ae2_interface_turn_page(&mut self,pos:(i32,i32,i32),part:Option<super::ae2_parts::PartAddress>)->bool {
+        let Some(mut machine)=self.ae2_interface_menu_machine(pos,part) else{return false};
+        let page=super::ae2_machine_ui::MenuShape::of(&machine).page.map_or(0,|first|first/super::ae2_machine_ui::PAGE_SLOTS);
+        machine.config.insert(super::ae2_machine_ui::PAGE_KEY.into(),Tag::Int(if page==0 {1} else {0}));
+        self.ae2_store_interface_menu_machine(pos,part,&machine)
+    }
     /// Shared Interface settings, fake filters and fluid-container actions.
     /// The caller supplies the authoritative player's actual carried stack.
     fn ae2_interface_menu_click(&mut self,pos:(i32,i32,i32),part:Option<super::ae2_parts::PartAddress>,slot:usize,button:i32,input:Input)->bool {
         let Some(mut machine)=self.ae2_interface_menu_machine(pos,part) else{return false};
         if input!=Input::Pickup {return false;}
-        if (19..=23).contains(&slot) && matches!(button,0|1) {
-            if super::ae2_interface::interface_setting_click(&mut machine,slot,button) {self.ae2_store_interface_menu_machine(pos,part,&machine);return true;}
+        let n=machine.slots.len();
+        if (2*n+1..=2*n+5).contains(&slot) && matches!(button,0|1) {
+            if super::ae2_interface::interface_setting_click(&mut machine,slot-2*n+18,button) {self.ae2_store_interface_menu_machine(pos,part,&machine);return true;}
             return false;
         }
-        if slot<9 && matches!(button,0|1) {
+        if slot<n && matches!(button,0|1) {
             let fluid=super::ae2_interface::interface_fluid_config(&machine).is_ok_and(|v|v[slot].is_some())
                 || super::ae2_interface::interface_fluid_stock(&machine).is_ok_and(|v|v[slot].is_some());
             if !fluid {return false;}
@@ -6263,12 +6288,12 @@ impl Game<'_> {
             }
             return true;
         }
-        if !(9..18).contains(&slot) || !(0..=3).contains(&button) {return false;}
+        if !(n..2*n).contains(&slot) || !(0..=3).contains(&button) {return false;}
         let mut cursor=self.carried.clone();
         if matches!(button,2|3) && cursor.is_none() {return true;}
         if button==2 {if let Some(item)=cursor.as_mut(){item.count=1;}}
         let configured=(||->Result<(),String>{
-            let index=slot-9;
+            let index=slot-n;
             if let Some(fluid)=encoding_emptying_action(cursor.as_ref(),button) {
                 return super::ae2_interface::set_interface_fluid_config_amount(&mut machine,index,Some((&fluid.key,fluid.amount)));
             }
@@ -6297,7 +6322,8 @@ impl Game<'_> {
         };
         let Some(owner)=self.ae2_machine_menu_owner(pos,part) else{return false};
         if owner.kind==horizon_client::ae2_world::MachineKind::PatternProvider
-            || part.is_some() && owner.kind!=horizon_client::ae2_world::MachineKind::Interface {return false;}
+            || part.is_some() && owner.kind!=horizon_client::ae2_world::MachineKind::Interface
+            || self.ae2_machine_menu_shape(pos,part).size!=27 {return false;}
         self.container=Some(pos);self.ae2_local_machine=Some(LocalMachineSession{
             pos,part,owner,dim:self.dim.id().to_owned(),page:0,edit:None,link_input:None,link_output:None,
         });
@@ -6486,7 +6512,8 @@ impl Game<'_> {
         let mut items = self
             .ae2_workbench_menu_slots(pos, page)
             .unwrap_or_else(|| snapshot.to_vec());
-        items.resize(27, None);
+        let shape=self.ae2_machine_menu_shape(pos,part);
+        items.resize(shape.size, None);
         if part.is_none() {if let Some(condenser)=self.ae2_condenser_menu(pos) {items=condenser;}}
         let displayed_machine = if let Some(part) = part {
             self.ae2_part_machine(part).ok().flatten()
@@ -6500,7 +6527,10 @@ impl Game<'_> {
         };
         if let Some(machine) = displayed_machine {
             if matches!(machine.kind,horizon_client::ae2_world::MachineKind::Drive|horizon_client::ae2_world::MachineKind::Chest|horizon_client::ae2_world::MachineKind::PatternProvider) {
-                items[26]=Some(navigation("Priority: click to edit"));
+                items[shape.priority()]=Some(navigation("Priority: click to edit"));
+            }
+            if shape.page.is_some() {
+                return super::ae2_machine_ui::paged_interface_items(&machine,shape);
             }
             if machine.kind == horizon_client::ae2_world::MachineKind::Inscriber {
                 let value=|key:&str,default:&str|match machine.config.get(&key.into()) {Some(Tag::String(s))=>s.to_string().unwrap_or_else(|_|default.to_owned()),_=>default.to_owned()};
@@ -6550,9 +6580,10 @@ impl Game<'_> {
             }
             if machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider {
                 let visible=machine.config.get(&"terminal_visible".into())!=Some(&Tag::Byte(0));
-                items[20]=Some(navigation(if visible {"Pattern Access: visible"} else {"Pattern Access: hidden"}));
+                let settings=shape.settings() as usize;
+                items[settings+2]=Some(navigation(if visible {"Pattern Access: visible"} else {"Pattern Access: hidden"}));
                 let enabled = machine.config.get(&"ae2_blocking".into()) == Some(&Tag::Byte(1));
-                items[18] = Some(navigation(if enabled {
+                items[settings] = Some(navigation(if enabled {
                     "Blocking mode: on"
                 } else {
                     "Blocking mode: off"
@@ -6561,7 +6592,7 @@ impl Game<'_> {
                     Some(Tag::Int(n)) => *n,
                     _ => 0,
                 };
-                items[19] = Some(navigation(match mode {
+                items[settings+1] = Some(navigation(match mode {
                     1 => "Craft lock: until redstone pulse",
                     2 => "Craft lock: while redstone high",
                     3 => "Craft lock: while redstone low",
@@ -6622,7 +6653,7 @@ impl Game<'_> {
             Some(horizon_client::ae2_world::MachineKind::CellWorkbench)=>(0..63usize.saturating_sub(page*18).min(18)).map(|i|(5+i) as u8).collect(),
             // The Interface config wrapper's registered item capacity is 64;
             // unlike overstacking fake slots, its hotbar key is a fake click.
-            Some(horizon_client::ae2_world::MachineKind::Interface)=>(9..18).map(|slot|slot|0x80).collect(),
+            Some(horizon_client::ae2_world::MachineKind::Interface)=>displayed_machine.as_ref().map(super::ae2_machine_ui::MenuShape::of).unwrap_or_default().config_entries().map(|slot|slot|0x80).collect(),
             _=>Vec::new(),
         };
         let provider_return_snapshot=displayed_machine.as_ref().and_then(|machine|provider_return_slots(machine).ok());
@@ -6762,17 +6793,17 @@ impl Game<'_> {
         window: i32,
         id: i32,
     ) -> bool {
-        let Some(state) = host
+        let Some((state,pos,part)) = host
             .play
             .get(&conn)
             .and_then(|p| p.ae2_machine.as_ref())
             .filter(|m| m.window == window)
-            .map(|m| m.state)
+            .map(|m| (m.state,m.pos,m.part))
         else {
             return false;
         };
         let slot = id & !(super::ae2_screens::REVERSE | super::ae2_screens::QUICK);
-        if !(0..27).contains(&slot) {
+        if !(0..self.ae2_machine_menu_shape(pos,part).size as i32).contains(&slot) {
             return true;
         }
         let click = horizon_protocol::packets::play::ContainerClick {
@@ -6828,10 +6859,21 @@ impl Game<'_> {
         }
         if host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.stock_edit.is_some()){return self.lan_ae2_stock_click(host,conn,p);}
         if host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.priority_edit.is_some()){return self.lan_ae2_priority_click(host,conn,p);}
-        if (9..18).contains(&p.slot) && super::lan_crafting::input(p.input)==Input::QuickMove && self.ae2_interface_menu_owner(pos,part).is_some() {
-            return self.lan_open_stock(host,conn,p.container,pos,part,(p.slot-9) as usize);
+        let shape=self.ae2_machine_menu_shape(pos,part);
+        let window_slot=p.slot;
+        let paged;
+        let p=if shape.page.is_some() {paged=horizon_protocol::packets::play::ContainerClick{slot:shape.logical(p.slot),..p.clone()};&paged} else {p};
+        if shape.page.is_some() && window_slot==super::ae2_machine_ui::PAGE_ENTRY {
+            if super::lan_crafting::input(p.input)==Input::Pickup && self.ae2_interface_turn_page(pos,part) {
+                let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|p.ae2_machine.as_ref().filter(|m|m.pos==pos && m.part==part && m.owner_dim==self.dim.id()).map(|_|c)).collect();
+                for viewer in viewers {self.lan_send_ae2_machine(host,viewer);}
+            }
+            return true;
         }
-        if p.slot==26 && super::lan_crafting::input(p.input)==Input::Pickup {
+        if shape.config().contains(&p.slot) && super::lan_crafting::input(p.input)==Input::QuickMove && self.ae2_interface_menu_owner(pos,part).is_some() {
+            return self.lan_open_stock(host,conn,p.container,pos,part,(p.slot-shape.slots as i16) as usize);
+        }
+        if window_slot==shape.priority() as i16 && super::lan_crafting::input(p.input)==Input::Pickup {
             let target=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).and_then(|m|
                 m.provider_owner.map(|identity|PriorityTarget::Provider{pos,part,identity})
                     .or_else(||m.drive_owner.map(|identity|PriorityTarget::Drive{pos,identity}))
@@ -6866,15 +6908,15 @@ impl Game<'_> {
             if !compatible {self.lan_send_ae2_machine(host,conn);return true;}
         }
         let provider=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.provider_owner.is_some());
-        if provider && (9..18).contains(&p.slot) {
+        if provider && shape.returns().contains(&p.slot) {
             if state != p.state || self.ae2_owned_machine_slots(pos,part).as_ref()!=Some(&snapshot) {
                 let source=self.provider_menu_machine(pos,part).and_then(|machine|provider_return_slots(&machine).ok());
                 let safe=super::lan_crafting::input(p.input)==Input::QuickMove && source.as_ref().is_some_and(|current|
                     host.play.get(&conn).and_then(|player|player.ae2_machine.as_ref()).is_some_and(|menu|
-                        provider_return_revision_matches(&menu.provider_return_revisions,p.state,(p.slot-9) as usize,current)));
+                        provider_return_revision_matches(&menu.provider_return_revisions,p.state,(p.slot-shape.returns().start) as usize,current)));
                 if !safe {self.lan_send_ae2_machine(host,conn);return true;}
             }
-            let index=(p.slot-9) as usize;let button=i32::from(p.button);let input=super::lan_crafting::input(p.input);
+            let index=(p.slot-shape.returns().start) as usize;let button=i32::from(p.button);let input=super::lan_crafting::input(p.input);
             self.as_guest(host,conn,|g|g.ae2_provider_return_click(pos,part,index,button,input));
             let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|p.ae2_machine.as_ref().filter(|m|m.pos==pos && m.part==part && m.owner_dim==self.dim.id()).map(|_|c)).collect();
             for viewer in viewers {self.lan_send_ae2_machine(host,viewer);}
@@ -6882,7 +6924,7 @@ impl Game<'_> {
         }
         let menu_input=super::lan_crafting::input(p.input);
         let interface=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.owner.kind==horizon_client::ae2_world::MachineKind::Interface);
-        if interface && (0..=23).contains(&p.slot) && self.as_guest(host,conn,|game|
+        if interface && (0..=2*shape.slots as i16+5).contains(&p.slot) && self.as_guest(host,conn,|game|
             game.ae2_interface_menu_click(pos,part,p.slot as usize,i32::from(p.button),menu_input)).unwrap_or(false) {
             let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|
                 (p.ae2_machine.as_ref().is_some_and(|m|m.pos==pos && m.part==part && m.owner_dim==self.dim.id())
@@ -6890,19 +6932,20 @@ impl Game<'_> {
             for viewer in viewers {self.lan_send_ae2_machine(host,viewer);}
             return true;
         }
+        let settings=shape.settings();
         if let Some(part) = part {
-            if (p.slot == 18 || p.slot == 19 || p.slot == 20)
+            if (settings..settings+3).contains(&p.slot)
                 && super::lan_crafting::input(p.input) == Input::Pickup
             {
                 if let Ok(Some(mut machine)) = self.ae2_part_machine(part) {
                     if machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider {
-                        if p.slot == 18 {
+                        if p.slot == settings {
                             let old =
                                 machine.config.get(&"ae2_blocking".into()) == Some(&Tag::Byte(1));
                             machine
                                 .config
                                 .insert("ae2_blocking".into(), Tag::Byte(i8::from(!old)));
-                        } else if p.slot==20 {
+                        } else if p.slot==settings+2 {
                             let visible=machine.config.get(&"terminal_visible".into())!=Some(&Tag::Byte(0));
                             machine.config.insert("terminal_visible".into(),Tag::Byte(i8::from(!visible)));
                         } else {
@@ -6923,7 +6966,7 @@ impl Game<'_> {
                 }
             }
         }
-        if (p.slot == 18 || p.slot == 19 || p.slot == 20)
+        if (settings..settings+3).contains(&p.slot)
             && super::lan_crafting::input(p.input) == Input::Pickup
             && (0..=1).contains(&p.button)
         {
@@ -6931,12 +6974,12 @@ impl Game<'_> {
                 self.world.block_entities.get_mut(&pos)
             {
                 if machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider {
-                    if p.slot == 18 {
+                    if p.slot == settings {
                         let old = machine.config.get(&"ae2_blocking".into()) == Some(&Tag::Byte(1));
                         machine
                             .config
                             .insert("ae2_blocking".into(), Tag::Byte(i8::from(!old)));
-                    } else if p.slot==20 {
+                    } else if p.slot==settings+2 {
                         let visible=machine.config.get(&"terminal_visible".into())!=Some(&Tag::Byte(0));
                         machine.config.insert("terminal_visible".into(),Tag::Byte(i8::from(!visible)));
                     } else {
@@ -6994,13 +7037,7 @@ impl Game<'_> {
         } else {
             matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::Interface)
         };
-        let slot = match p.slot {
-            18 if is_interface => Some(309),
-            0..=26 => Some(300 + p.slot as usize),
-            27..=53 => Some(9 + (p.slot as usize - 27)),
-            54..=62 => Some(p.slot as usize - 54),
-            _ => None,
-        };
+        let slot = shape.internal(window_slot, is_interface);
         let raw_input=super::lan_crafting::input(p.input);
         let input=if paged_ghost && raw_input==Input::QuickMove {Input::Pickup}else{raw_input};
         let button = if paged_ghost && matches!(p.button,2|3) {0} else {i32::from(p.button)};
@@ -7020,7 +7057,7 @@ impl Game<'_> {
             .map(|machine|machine.slots);
         let is_provider=provider_slots.is_some();
         let provider_setter=self.as_guest(host, conn, |g| {
-            if is_provider && input==Input::Swap && slot.is_some_and(|slot|(300..309).contains(&slot)) {
+            if is_provider && input==Input::Swap && slot.is_some_and(|slot|(300..300+shape.slots).contains(&slot)) {
                 return g.ae2_provider_slot_swap(pos,part,slot,button);
             }
             if let Some(part) = part {
@@ -7083,12 +7120,12 @@ impl Game<'_> {
     /// the provider registry receives exactly one post-commit refresh.
     fn ae2_provider_slot_swap(&mut self,pos:(i32,i32,i32),part:Option<super::ae2_parts::PartAddress>,slot:Option<usize>,button:i32)->bool {
         use horizon_client::{ae2_world::MachineKind,containers::BlockEntity};
-        let Some(index)=slot.and_then(|slot|slot.checked_sub(300)).filter(|index|*index<9) else{return false};
+        let Some(index)=slot.and_then(|slot|slot.checked_sub(300)) else{return false};
         if !(0..=8).contains(&button) && button!=40 {return false}
         let mut machine=if let Some(part)=part {self.ae2_part_machine(part).ok().flatten()} else {
             match self.world.block_entities.get(&pos) {Some(BlockEntity::Ae2(machine))=>Some((**machine).clone()),_=>None}
         };
-        let Some(machine)=machine.as_mut().filter(|machine|machine.kind==MachineKind::PatternProvider && machine.slots.len()==9) else{return false};
+        let Some(machine)=machine.as_mut().filter(|machine|machine.kind==MachineKind::PatternProvider && index<machine.slots.len()) else{return false};
         let source=if button==40 {self.offhand.clone()} else {self.inventory[button as usize].clone()};
         let target=machine.slots[index].clone();
         if source.is_none() && target.is_none() {return false}
@@ -7158,7 +7195,7 @@ impl Game<'_> {
         let normal = machine.slots.len();
         let mut slots = machine.slots.clone();
         slots.extend(machine.upgrades.clone());
-        if (300..327).contains(&slot) {
+        if (300..354).contains(&slot) {
             let i = slot - 300;
             if i >= slots.len() {
                 return;
@@ -7424,7 +7461,7 @@ impl Game<'_> {
         let Some(mut slots) = self.ae2_machine_slots(pos) else {
             return;
         };
-        if (300..327).contains(&slot) {
+        if (300..354).contains(&slot) {
             let i = slot - 300;
             if i >= slots.len() {
                 return;

@@ -2112,7 +2112,7 @@ mod recursive {
             fluid: bool,
             amount: u64,
         ) -> Result<GridAddress, String> {
-            if slot >= 9 || self.ae2_interface_craft_links(owner)?[slot].is_some() {
+            if self.ae2_interface_craft_links(owner)?.get(slot).is_none_or(Option::is_some) {
                 return Err("interface crafting slot already linked or invalid".into());
             }
             let (dim, pos) = self

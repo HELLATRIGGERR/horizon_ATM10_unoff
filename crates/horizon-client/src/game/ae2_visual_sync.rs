@@ -189,7 +189,7 @@ pub(super) fn visual(pos: (i32, i32, i32), entity: &BlockEntity, powered: bool) 
     let paint_dots=match machine.config.get(&"dots".into()) {Some(Tag::ByteArray(bytes)) if machine.kind==horizon_client::ae2_world::MachineKind::Paint && bytes.len()<=43=>bytes.clone(),_=>vec![]};
     Some(Visual {
         pos: [pos.0, pos.1, pos.2],
-        kind: machine.kind.id().into(),
+        kind: machine.id().into(),
         slots,
         parts,
         facades,
@@ -396,7 +396,7 @@ impl Game<'_> {
             v.pos[0] >> 4 != batch.chunk[0]
                 || v.pos[2] >> 4 != batch.chunk[1]
                 || v.kind.len() > 128
-                || v.slots.len() > 10
+                || v.slots.len() > 20
                 || v.parts.len() > 6
                 || v.facades.len() > 6
                 || v.facades.iter().any(|f| f.face.len()>16 || f.block.len()>128 || f.material.len()>128 || f.properties.len()>16

@@ -122,7 +122,7 @@ impl Game<'_> {
         let white = self.gui.atlas.sprites.get("horizon/white").copied();
         for v in visuals {
             let cpu = matches!(v.kind.as_str(), "ae2:crafting_monitor" | "ae2:crafting_unit" | "ae2:crafting_accelerator" | "ae2:1k_crafting_storage" | "ae2:4k_crafting_storage" | "ae2:16k_crafting_storage" | "ae2:64k_crafting_storage" | "ae2:256k_crafting_storage");
-            if !cpu && v.kind != "ae2:drive" && v.kind != "ae2:cable_bus" && v.kind != "ae2:paint" && v.kind != "ae2:charger" && v.kind != "ae2:crafting_monitor" && v.kind != "ae2:crank" {
+            if !cpu && horizon_client::ae2_world::base_id(&v.kind) != "ae2:drive" && v.kind != "ae2:cable_bus" && v.kind != "ae2:paint" && v.kind != "ae2:charger" && v.kind != "ae2:crafting_monitor" && v.kind != "ae2:crank" {
                 continue;
             }
             let p = v.pos;
@@ -413,6 +413,10 @@ impl Game<'_> {
                         model(&format!("ae2:part/p2p/p2p_tunnel_{front}"),pose,None);
                         model(&format!("ae2:part/p2p/p2p_tunnel_status_{}",if part.online {"has_channel"} else {"off"}),pose,None);
                     } else {
+                        if let Some(addon) = super::ae2x::part_model(part.id.as_str()) {
+                            model(addon,pose,None);
+                            continue;
+                        }
                         let name = match name {"import_bus"=>"import_bus_base","export_bus"=>"export_bus_base","storage_bus"=>"storage_bus_base","cable_interface"=>"interface_base","cable_pattern_provider"=>"pattern_provider_base","quartz_fiber"=>"quartz_fiber","cable_anchor"=>if v.facades.iter().any(|f|f.face==part.face){"cable_anchor_short"}else{"cable_anchor"},"toggle_bus"=>"toggle_bus_base","inverted_toggle_bus"=>"inverted_toggle_bus_base",_=>continue};
                         model(&format!("ae2:part/{name}"),pose,None);
                     }
@@ -481,7 +485,7 @@ impl Game<'_> {
                 }
                 continue;
             }
-            if state.name != "ae2:drive" {
+            if horizon_client::ae2_world::base_id(&state.name) != "ae2:drive" {
                 continue;
             }
             let facing = state
@@ -496,6 +500,8 @@ impl Game<'_> {
                 .unwrap_or(0);
             let base = glam::Mat4::from_translation((center - camera).as_vec3())
                 * orientation(facing, spin);
+            let opposite = match facing {"north"=>"south","south"=>"north","east"=>"west","west"=>"east","up"=>"down",_=>"up"};
+            let back = glam::Mat4::from_translation((center - camera).as_vec3()) * orientation(opposite, spin);
             let light = vertex_light(world.light(p[0], p[1], p[2]));
             // DriveBakedModel translates the source block-cell model into each
             // slot. Keep the original geometry and atlas UVs, rather than using
@@ -503,6 +509,10 @@ impl Game<'_> {
             let library = self.pack.render.model_library.as_ref().ok();
             for (i, slot) in v.slots.iter().enumerate() {
                 let Some(slot) = slot else { continue };
+                // ExDriveBakedModel: slots 10 to 19 are a second bank of two
+                // columns by five rows, as on a drive of the opposite facing
+                // with the same spin (its back).
+                let (bank, i) = (i / 10, i % 10);
                 let row = i / 2;
                 let col = i % 2;
                 let origin = glam::Vec3::new(
@@ -510,6 +520,7 @@ impl Game<'_> {
                     (13.0 - row as f32 * 3.0) / 16.0,
                     1.0 / 16.0,
                 );
+                let base = if bank == 1 { back } else { base };
                 // StorageCellModels: the cell's registered model, else the generic one.
                 let model_name = horizon_client::ae2x::defs::get().cell(&slot.id)
                     .map(|cell| cell.drive_model.clone())

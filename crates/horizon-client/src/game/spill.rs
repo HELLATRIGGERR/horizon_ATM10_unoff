@@ -163,7 +163,7 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
                 continue;
             };
             if !matches!(
-                id.as_str(),
+                horizon_client::ae2_world::base_id(id.as_str()),
                 "ae2:terminal"
                     | "ae2:crafting_terminal"
                     | "ae2:pattern_encoding_terminal"
@@ -201,14 +201,16 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
             if wrenched_part {additional.push(part_item)} else {out.push(part_item)}
             // Interface and provider part machines own physical, slot-tagged
             // inventories separate from virtual filters and fluid return data.
-            if matches!(id.as_str(),"ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:crafting_terminal"|"ae2:pattern_encoding_terminal") {
+            let base=horizon_client::ae2_world::base_id(id.as_str());
+            if matches!(base,"ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:crafting_terminal"|"ae2:pattern_encoding_terminal") {
                 if let Some(machine)=part.get("machine") {
-                    for (key,limit) in [("slots",if id=="ae2:pattern_encoding_terminal" {2} else {9}),("upgrades",if id=="ae2:cable_interface" {1} else {0})] {
+                    let slot_limit=horizon_client::ae2_world::variant(id.as_str()).map_or(if base=="ae2:pattern_encoding_terminal" {2} else {9},|v|v.slots);
+                    for (key,limit) in [("slots",slot_limit),("upgrades",if base=="ae2:cable_interface" {1} else {0})] {
                         if let Ok(slots)=super::ae2_parts::strict_part_items(machine.get(key),limit) {
                             additional.extend(slots.into_iter().flatten());
                         }
                     }
-                    if id=="ae2:cable_pattern_provider" {
+                    if base=="ae2:cable_pattern_provider" {
                         if let Some(Tag::Compound(config))=machine.get("config") {append_provider_custody(&mut additional,config,max);}
                     }
                 }
@@ -221,7 +223,7 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
                 }
             }
             // Bus upgrades are real cards, distinct from state_json filters.
-            if !matches!(id.as_str(),"ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:crafting_terminal"|"ae2:pattern_encoding_terminal") && let Some(Tag::List(upgrades)) = part.get("upgrades") {
+            if !matches!(base,"ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:crafting_terminal"|"ae2:pattern_encoding_terminal") && let Some(Tag::List(upgrades)) = part.get("upgrades") {
                 if let Ok(slots)=horizon_client::ae2_upgrade_inventory::decode(upgrades,5) {
                     additional.extend(slots.into_iter().flatten());
                 }

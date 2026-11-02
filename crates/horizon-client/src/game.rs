@@ -2775,6 +2775,9 @@ struct Game<'a> {
     ae2_local_provider: Option<ae2_terminal::LocalProviderSession>,
     #[cfg(feature = "ae2-lab")]
     ae2_local_machine: Option<ae2_terminal::LocalMachineSession>,
+    /// The block whose screen the next machine window shows (`ae2:menu_block`).
+    #[cfg(feature = "ae2-lab")]
+    ae2_menu_block: Option<String>,
     #[cfg(feature = "ae2-lab")]
     ae2_local_bus: Option<ae2_bus_ui::GuestBus>,
     #[cfg(feature = "ae2-lab")]
@@ -6077,7 +6080,7 @@ impl Game<'_> {
             )
         });
         #[cfg(feature = "ae2-lab")]
-        if removed && horizon_client::ae2_world::MachineKind::from_id(&facts.name).is_some()
+        if removed && horizon_client::ae2_world::is_machine_block(&facts.name)
             && (matches!(self.world.block_entities.get(&key), Some(BlockEntity::Ae2(_))) || spill::saved_entity(&self.world, pos).is_some())
         {
             // The content block currently inherits iron_block's flags, so the
@@ -6392,6 +6395,7 @@ impl Game<'_> {
                     _ => "north",
                 };
                 if self.ae2_try_crafting_upgrade(hit.pos,hit.face) {self.swing_arm();return Ok(true);}
+                if self.ae2x_use_on(hit.pos,hit.face) {self.swing_arm();return Ok(true);}
                 if self.ae2_try_p2p_card((hit.pos[0],hit.pos[1],hit.pos[2]),face) {self.swing_arm();return Ok(true);}
                 if self.ae2_try_place_cable(hit.pos, hit.face) {
                     self.swing_arm();
@@ -19365,6 +19369,8 @@ impl<'a> Game<'a> {
             ae2_local_provider: None,
             #[cfg(feature = "ae2-lab")]
             ae2_local_machine: None,
+            #[cfg(feature = "ae2-lab")]
+            ae2_menu_block: None,
             #[cfg(feature = "ae2-lab")]
             ae2_local_bus: None,
             #[cfg(feature = "ae2-lab")]

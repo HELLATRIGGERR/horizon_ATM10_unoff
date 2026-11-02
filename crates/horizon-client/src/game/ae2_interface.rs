@@ -85,8 +85,8 @@ fn craft_link_cancelled(machine: &Machine, slot: usize) -> bool {
         _ => true,
     }
 }
-fn craft_links(machine: &Machine) -> Result<[Option<GridAddress>; 9], String> {
-    let mut out = [None; 9];
+fn craft_links(machine: &Machine) -> Result<Vec<Option<GridAddress>>, String> {
+    let mut out = vec![None; machine.slots.len()];
     let Some(tag) = machine.config.get(&CRAFT_LINKS.into()) else {
         return Ok(out);
     };
@@ -100,7 +100,7 @@ fn craft_links(machine: &Machine) -> Result<[Option<GridAddress>; 9], String> {
             return Err("invalid interface crafting link".into());
         };
         let slot = *slot as usize;
-        if slot >= 9 || out[slot].is_some() || pos.len() != 3 {
+        if slot >= out.len() || out[slot].is_some() || pos.len() != 3 {
             return Err("duplicate or invalid interface crafting link".into());
         }
         let address = GridAddress::from_network(ae2_network_core::Pos {
@@ -113,7 +113,7 @@ fn craft_links(machine: &Machine) -> Result<[Option<GridAddress>; 9], String> {
     }
     Ok(out)
 }
-fn store_craft_links(machine: &mut Machine, links: &[Option<GridAddress>; 9]) {
+fn store_craft_links(machine: &mut Machine, links: &[Option<GridAddress>]) {
     let entries = links
         .iter()
         .enumerate()
@@ -137,7 +137,7 @@ fn has_crafting_card(machine: &Machine) -> bool {
         .any(|item| item.item.as_ref() == "ae2:crafting_card")
 }
 fn active_craft_link(machine: &Machine, slot: usize, cpu: GridAddress) -> bool {
-    slot < 9
+    slot < machine.slots.len()
         && has_crafting_card(machine)
         && !craft_link_cancelled(machine, slot)
         && craft_links(machine).ok().and_then(|links| links[slot]) == Some(cpu)
@@ -194,19 +194,20 @@ pub(super) fn wake_interface(machine: &mut Machine) {
     }
 }
 pub(super) fn interface_config(machine: &Machine) -> Result<Vec<Option<ItemStack>>, String> {
+    let size = machine.slots.len();
     let Some(tag) = machine.config.get(&CONFIG.into()) else {
-        return Ok(vec![None; 9]);
+        return Ok(vec![None; size]);
     };
     let Tag::List(entries) = tag else {
         return Err("invalid interface config".into());
     };
-    let mut seen = [false; 9];
+    let mut seen = vec![false; size];
     for entry in entries {
         let Some(Tag::Byte(slot)) = entry.get("Slot") else {
             return Err("invalid interface config slot".into());
         };
         let i = *slot as usize;
-        if i >= 9
+        if i >= size
             || seen[i]
             || !matches!(entry.get("count"),Some(Tag::Int(n)) if *n>0)
             || save::item_from_nbt(entry).is_none()
@@ -215,7 +216,7 @@ pub(super) fn interface_config(machine: &Machine) -> Result<Vec<Option<ItemStack
         }
         seen[i] = true;
     }
-    Ok(save::decode_items(Some(tag), 9))
+    Ok(save::decode_items(Some(tag), size))
 }
 // InterfaceLogic calls useRegisteredCapacities for both rows; AE2 registers
 // four buckets for fluids in GenericSlotCapacities.
@@ -240,7 +241,7 @@ fn allows_fluid_slot(
     })
 }
 fn fluid_slots(machine: &Machine, name: &str) -> Result<Vec<Option<(ItemKey, u64)>>, String> {
-    let mut slots = vec![None; 9];
+    let mut slots = vec![None; machine.slots.len()];
     let Some(tag) = machine.config.get(&name.into()) else {
         return Ok(slots);
     };
@@ -264,7 +265,7 @@ fn fluid_slots(machine: &Machine, name: &str) -> Result<Vec<Option<(ItemKey, u64
         };
         let i = *slot as usize;
         let id = id.to_string().map_err(|_| "invalid fluid id")?;
-        if i >= 9
+        if i >= slots.len()
             || slots[i].is_some()
             || *amount <= 0
             || *amount > INTERFACE_FLUID_CAPACITY as i64
@@ -319,7 +320,7 @@ pub(super) fn set_interface_fluid_config(
 pub(super) fn set_interface_fluid_config_amount(
     machine:&mut Machine,index:usize,value:Option<(&ItemKey,u64)>,
 )->Result<(),String> {
-    if machine.kind != MachineKind::Interface || index >= 9 {
+    if machine.kind != MachineKind::Interface || index >= machine.slots.len() {
         return Err("invalid interface fluid config".into());
     }
     if value.is_some_and(|(_,amount)|amount==0) {return Err("invalid interface fluid amount".into());}
@@ -346,7 +347,7 @@ pub(super) fn interface_bucket_exchange(
     cursor: &ItemStack,
 ) -> Result<Option<ItemStack>, String> {
     if machine.kind != MachineKind::Interface
-        || index >= 9
+        || index >= machine.slots.len()
         || cursor.count != 1
         || cursor.damage != 0
         || cursor.data().is_some()
@@ -398,7 +399,7 @@ pub(super) fn set_interface_config(
     index: usize,
     stack: Option<&ItemStack>,
 ) -> Result<(), String> {
-    if machine.kind != MachineKind::Interface || index >= 9 {
+    if machine.kind != MachineKind::Interface || index >= machine.slots.len() {
         return Err("invalid interface config".into());
     }
     let mut cfg = interface_config(machine)?;
@@ -419,8 +420,8 @@ impl Game<'_> {
     pub(super) fn ae2_interface_pending_craft_generation(
         &self, owner: InterfaceCraftOwner, slot: usize, key: &ItemKey, fluid: bool,
     ) -> Option<i64> {
-        if slot >= 9 { return None; }
         let machine = self.interface_get(owner.owner()?)?;
+        if slot >= machine.slots.len() { return None; }
         if !has_crafting_card(&machine) || craft_links(&machine).ok()?[slot].is_some() { return None; }
         let matches = if fluid {
             interface_fluid_config(&machine).ok()?.get(slot)?.as_ref().is_some_and(|(wanted, _)| wanted == key)
@@ -463,7 +464,7 @@ impl Game<'_> {
     pub(super) fn ae2_interface_craft_links(
         &self,
         owner: InterfaceCraftOwner,
-    ) -> Result<[Option<GridAddress>; 9], String> {
+    ) -> Result<Vec<Option<GridAddress>>, String> {
         let owner = owner.owner().ok_or("invalid interface face")?;
         let machine = self.interface_get(owner).ok_or("interface missing")?;
         craft_links(&machine)
@@ -508,7 +509,7 @@ impl Game<'_> {
     ) -> Result<u32, String> {
         let owner = owner.owner().ok_or("invalid interface face")?;
         let mut machine = self.interface_get(owner).ok_or("interface missing")?;
-        if slot >= 9
+        if slot >= machine.slots.len()
             || craft_links(&machine)?[slot] != Some(cpu)
             || !has_crafting_card(&machine)
             || craft_link_cancelled(&machine, slot)
@@ -518,7 +519,7 @@ impl Game<'_> {
         let items = interface_config(&machine)?;
         let fluids = interface_fluid_config(&machine)?;
         let fluid_stock = interface_fluid_stock(&machine)?;
-        if machine.slots.len() != 9
+        if machine.slots.len() != machine.physical_slots()
             || fluids[slot].is_some()
             || fluid_stock[slot].is_some()
             || !self.interface_allowed(&machine, &items, slot, stack)
@@ -553,7 +554,7 @@ impl Game<'_> {
     ) -> Result<u64, String> {
         let owner = owner.owner().ok_or("invalid interface face")?;
         let mut machine = self.interface_get(owner).ok_or("interface missing")?;
-        if slot >= 9
+        if slot >= machine.slots.len()
             || craft_links(&machine)?[slot] != Some(cpu)
             || !has_crafting_card(&machine)
             || craft_link_cancelled(&machine, slot)
@@ -563,7 +564,7 @@ impl Game<'_> {
         let items = interface_config(&machine)?;
         let config = interface_fluid_config(&machine)?;
         let mut stock = interface_fluid_stock(&machine)?;
-        if machine.slots.len() != 9
+        if machine.slots.len() != machine.physical_slots()
             || items[slot].is_some()
             || machine.slots[slot].is_some()
             || !allows_fluid_slot(&machine, config[slot].as_ref(), key)
@@ -618,12 +619,13 @@ impl Game<'_> {
     /// Configuration changes wake immediately; failures restore block entities.
     /// Mirror InterfaceLogic's planned-work state without performing a transfer.
     fn interface_has_work(&self, machine:&Machine) -> Result<bool,String> {
-        if machine.slots.len()!=9 {return Err("invalid interface inventory".into())}
+        let size=machine.physical_slots();
+        if machine.slots.len()!=size {return Err("invalid interface inventory".into())}
         let config=interface_config(machine)?;
         let fluid_config=interface_fluid_config(machine)?;
         let fluids=interface_fluid_stock(machine)?;
         let links=craft_links(machine)?;
-        for i in 0..9 {
+        for i in 0..size {
             if config[i].is_some() && fluid_config[i].is_some() || machine.slots[i].is_some() && fluids[i].is_some() {return Err("interface slot has conflicting item/fluid ownership".into())}
             if fluids[i].is_some() || (fluid_config[i].is_some() && machine.slots[i].is_none()) {
                 let desired=fluid_config[i].as_ref();let existing=fluids[i].as_ref();
@@ -655,7 +657,7 @@ impl Game<'_> {
             } else if m.kind == MachineKind::CableBus {
                 if let Some(Tag::List(parts)) = m.config.get(&"parts".into()) {
                     for p in parts {
-                        if p.get("id") != Some(&Tag::String("ae2:cable_interface".into())) {
+                        if !matches!(p.get("id"),Some(Tag::String(id)) if horizon_client::ae2_world::base_id(&id.to_string_lossy())=="ae2:cable_interface") {
                             continue;
                         }
                         let Some(Tag::String(face)) = p.get("face") else {
@@ -696,7 +698,7 @@ impl Game<'_> {
             let bounds=horizon_client::ae2_tick_config::rates(horizon_client::ae2_tick_config::Kind::Interface);
             if !self.ae2_device_scheduler.borrow_mut().interface_due(identity,service,now,online,work,bounds) {continue}
             let mut worked = false;
-            for _ in 0..9 {
+            for _ in 0..machine.slots.len() {
                 match self.interface_tick_one(owner) {
                     Ok(true) => worked = true,
                     Ok(false) => break,
@@ -720,10 +722,11 @@ impl Game<'_> {
         let fluid_config = interface_fluid_config(&machine)?;
         let fluid_stock = interface_fluid_stock(&machine)?;
         let links = craft_links(&machine)?;
-        if machine.slots.len() != 9 {
+        let size = machine.physical_slots();
+        if machine.slots.len() != size {
             return Err("invalid interface inventory".into());
         }
-        for i in 0..9 {
+        for i in 0..size {
             if config[i].is_some() && fluid_config[i].is_some()
                 || machine.slots[i].is_some() && fluid_stock[i].is_some()
             {
@@ -948,7 +951,7 @@ mod tests {
             z: -4,
         })
         .unwrap();
-        let mut links = [None; 9];
+        let mut links = vec![None; 9];
         links[4] = Some(cpu);
         store_craft_links(&mut machine, &links);
         assert_eq!(craft_links(&machine).unwrap(), links);
@@ -1432,7 +1435,7 @@ impl Game<'_> {
             );
         }
         let mut left = amount;
-        for i in 0..9 {
+        for i in 0..items.len() {
             if left == 0 {
                 break;
             }

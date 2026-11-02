@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "addon": "extendedae",
+  "name": "ExtendedAE",
+  "version": "1.21-2.2.42",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/GlodBlock/ExtendedAE",
+    "tag": "none: 2.2.42 is untagged; the commit, on branch 1.21.1-neoforge, sets its mod_version",
+    "commit": "1f86f927552f02451236465c0c96a12a3de8f66c",
+    "license": "LGPL-3.0",
+    "license_file": "LICENSE.txt at the commit"
+  },
+  "assets_license": "not stated at the commit; generated locally from the player's jar and never committed",
+  "jar": {
+    "file": "ExtendedAE-1.21-2.2.42-neoforge.jar",
+    "from": "the player's All the Mods 10 instance (8.4), mods/ (ATM10_DIR)",
+    "sha256": "a15225108aecadeace640af3447b7ce13d1097dc1547dd52da64cd525101903d"
+  },
+  "requires": ["ae2 19.2.18"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/extendedae.rs",
+    "crates/horizon-client/src/game/ae2x/extendedae/mod.rs",
+    "crates/horizon-client/src/game/ae2x/extendedae/screens.rs",
+    "crates/horizon-client/src/game/ae2x/extendedae/upgrade.rs"
+  ]
+}

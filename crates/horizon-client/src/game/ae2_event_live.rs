@@ -20,6 +20,13 @@ fn source_runtime_setting(value:Option<&std::ffi::OsStr>) -> bool {
 pub(super) fn cpu_formation_enabled() -> bool {
     source_runtime_setting(std::env::var_os("HORIZON_AE2_CPU_FORMATION").as_deref())
 }
+/// Whether the replay keeps a block's state until its entity comes: AE2's
+/// blocks, and the addons' machines (`ae2_world::is_machine_block`: their own
+/// kinds and the variants of AE2's).
+fn event_block_is_ae2(name: &str) -> bool {
+    name.starts_with("ae2:") || horizon_client::ae2_world::is_machine_block(name)
+}
+
 pub(super) fn ordered_provider_enabled() -> bool {
     source_runtime_setting(std::env::var_os("HORIZON_AE2_PROVIDER_ORDERED").as_deref())
 }
@@ -573,10 +580,7 @@ impl Game<'_> {
         let encode = |dim, pos| GridAddress::from_local(dimension(dim)?, pos).map(GridAddress::network_pos);
         let device = |m: &Machine, state| self.ae2_event_device(m, state);
         // AE2's blocks and the addons' machines, whose ids have their own namespaces.
-        let is_ae2 = |state| {
-            let name = &self.res.facts().get(BlockStateId(state)).name;
-            name.starts_with("ae2:") || MachineKind::from_id(name).is_some()
-        };
+        let is_ae2 = |state| event_block_is_ae2(&self.res.facts().get(BlockStateId(state)).name);
         let observe = |replay: &EventReplay, tick| {
                 staged_runtime.observe_services(&replay.topology.services, tick)?;
                 staged_devices.observe_services(&replay.topology.services, tick);
@@ -766,6 +770,19 @@ impl Game<'_> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_replay_keeps_the_state_of_ae2_blocks_only() {
+        horizon_client::ae2x::install();
+        assert!(super::event_block_is_ae2("ae2:cable_bus"));
+        assert!(!super::event_block_is_ae2("minecraft:chest"));
+        #[cfg(feature = "ae2-extendedae")]
+        for block in ["extendedae:ex_drive", "extendedae:ex_pattern_provider", "extendedae:ex_interface"] {
+            assert!(super::event_block_is_ae2(block), "{block}");
+        }
+        #[cfg(feature = "ae2-merequester")]
+        assert!(super::event_block_is_ae2("merequester:requester"));
+    }
+
     use super::*;
     #[test]
     fn source_runtime_defaults_on_and_explicit_zero_opts_out() {

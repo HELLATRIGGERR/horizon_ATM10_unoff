@@ -4801,6 +4801,10 @@ impl Game<'_> {
         menu: &str,
     ) {
         self.mod_screen = None;
+        // The block whose screen this window shows, when the server named it
+        // (a part's window has the cable for its block): taken now, so that it
+        // never outlives this window.
+        let menu_block = self.extra_screen_block();
         let Some(t) = target else {
             return;
         };
@@ -4816,6 +4820,7 @@ impl Game<'_> {
         // A screen of the game's own for its own machines' menus, which asks
         // whether `menu` is the one the block opens itself.
         let mut screen = None;
+        let block = menu_block.unwrap_or(block);
         let extra = self.extra_native_screen(&block, menu, &mut screen);
         if screen.is_none() {
             // Only when this is the menu the clicked block opens: `target` outlives the

@@ -216,7 +216,15 @@ const MERGED: [&str; 6] = ["slots", "text", "palette", "images", "terminalStyle"
 impl ScreenStyle {
     /// Loads `screens/<path>` from `screens`, the folder of the styles.
     pub fn load(screens: &Path, path: &str) -> Result<Self, String> {
-        let tree = merged(screens, path, &mut HashSet::new())?;
+        let tree = merged(&[screens], path, &mut HashSet::new())?;
+        Ok(Self::from_tree(&tree))
+    }
+
+    /// Loads a style of an addon: each file from the addon's folder of styles
+    /// if it is there (ExtendedAE ships `screens/ex_*.json`), else from AE2's,
+    /// where its includes usually are. In the jar they share AE2's namespace.
+    pub fn load_over(addon: &Path, screens: &Path, path: &str) -> Result<Self, String> {
+        let tree = merged(&[addon, screens], path, &mut HashSet::new())?;
         Ok(Self::from_tree(&tree))
     }
 
@@ -318,12 +326,14 @@ fn parse_color(text: &str) -> Option<u32> {
 
 /// `loadMergedJsonTree`: the document over its includes, which resolve
 /// relative to its own folder.
-fn merged(screens: &Path, path: &str, loaded: &mut HashSet<String>) -> Result<Map<String, Value>, String> {
+fn merged(screens: &[&Path], path: &str, loaded: &mut HashSet<String>) -> Result<Map<String, Value>, String> {
     let path = normalize(path);
     if !loaded.insert(path.clone()) {
         return Err(format!("recursive style includes at {path}"));
     }
-    let bytes = std::fs::read(screens.join(&path)).map_err(|e| format!("screens/{path}: {e}"))?;
+    let file = screens.iter().map(|folder| folder.join(&path)).find(|file| file.exists())
+        .ok_or_else(|| format!("screens/{path}: not found"))?;
+    let bytes = std::fs::read(file).map_err(|e| format!("screens/{path}: {e}"))?;
     let document: Map<String, Value> =
         serde_json::from_slice(&bytes).map_err(|e| format!("screens/{path}: {e}"))?;
     let Some(includes) = document.get("includes").and_then(Value::as_array) else {
@@ -452,6 +462,29 @@ mod tests {
         assert_eq!(terminal.slot(1, 2), (44, 36));
         let plain = ScreenStyle::load(&screens, "terminals/terminal.json").unwrap();
         assert_eq!(plain.terminal.as_ref().unwrap().possible_rows(270 - 50), 5);
+    }
+
+    #[test]
+    fn an_addons_style_comes_first_and_its_includes_from_ae2() {
+        let root = std::env::temp_dir().join(format!("ae2-style-over-{}", std::process::id()));
+        let (addon, screens) = (root.join("addon"), root.join("ae2"));
+        std::fs::create_dir_all(screens.join("common")).unwrap();
+        std::fs::create_dir_all(&addon).unwrap();
+        std::fs::write(screens.join("common/common.json"), r##"{"palette":{"DEFAULT_TEXT_COLOR":"#112233"}}"##).unwrap();
+        std::fs::write(
+            addon.join("ex_drive.json"),
+            r#"{"includes":["common/common.json"],"background":{"texture":"guis/ex_drive.png","srcRect":[0,0,176,201]},
+                "slots":{"STORAGE_CELL":{"left":34,"top":16,"grid":"BREAK_AFTER_2COLS"},"EX_1":{"left":109,"top":16,"grid":"BREAK_AFTER_2COLS"}}}"#,
+        )
+        .unwrap();
+        assert!(ScreenStyle::load(&screens, "ex_drive.json").is_err());
+        let style = ScreenStyle::load_over(&addon, &screens, "ex_drive.json").unwrap();
+        std::fs::remove_dir_all(&root).ok();
+        assert_eq!(style.size(), (176, 201));
+        assert_eq!(style.background.as_ref().unwrap().texture, "guis/ex_drive");
+        assert_eq!(style.color("DEFAULT_TEXT_COLOR"), 0xFF11_2233);
+        assert_eq!(style.slot("STORAGE_CELL", 9), Some((34 + 18, 16 + 4 * 18)));
+        assert_eq!(style.slot("EX_1", 9), Some((109 + 18, 16 + 4 * 18)));
     }
 
     #[test]

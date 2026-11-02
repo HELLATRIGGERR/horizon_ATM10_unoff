@@ -56,9 +56,7 @@ impl Game<'_> {
         #[cfg(feature = "ae2-lab")]
         let old_state = self.world.block(pos[0], pos[1], pos[2]);
         #[cfg(feature = "ae2-lab")]
-        let old_ae2 =
-            horizon_client::ae2_world::MachineKind::from_id(&self.res.facts().get(old_state).name)
-                .is_some();
+        let old_ae2 = horizon_client::ae2_world::is_machine_block(&self.res.facts().get(old_state).name);
         #[cfg(feature = "ae2-lab")]
         if self.world.block(pos[0], pos[1], pos[2]) == state
             && horizon_client::ae2_world::Machine::for_block(&name).is_some()

@@ -10,6 +10,19 @@ use std::collections::BTreeMap;
 pub(super) mod megacells;
 #[cfg(feature = "ae2-merequester")]
 pub(super) mod merequester;
+#[cfg(feature = "ae2-extendedae")]
+pub(super) mod extendedae;
+
+/// The base model an addon's cable part draws in place of AE2's (its status
+/// models are AE2's): none for AE2's own parts.
+pub(super) fn part_model(id: &str) -> Option<&'static str> {
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(model) = extendedae::part_model(id) {
+        return Some(model);
+    }
+    let _ = id;
+    None
+}
 
 /// What the addons keep while the game runs; nothing of it is saved.
 #[derive(Default)]
@@ -100,6 +113,17 @@ impl Game<'_> {
             return Some(self.ae2_requester_command(&words[1..]));
         }
         None
+    }
+
+    /// The held item used on block `pos`, side `face`, before AE2's own
+    /// item uses (`Item.useOn`): true when an addon's item acted.
+    pub(super) fn ae2x_use_on(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
+        let _ = (pos, face);
+        #[cfg(feature = "ae2-extendedae")]
+        if self.extendedae_kit_use(pos, face) {
+            return true;
+        }
+        false
     }
 
     /// A Memory Card used on an addon's block: true when an addon took it.

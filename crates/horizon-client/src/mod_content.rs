@@ -1225,7 +1225,7 @@ impl<'a> Plan<'a> {
         // content declaration inherits an iron block template. The world
         // engine uses this flag to run removal side effects on every path.
         #[cfg(feature = "ae2-lab")]
-        if crate::ae2_world::MachineKind::from_id(&b.decl.id).is_some() {
+        if crate::ae2_world::is_machine_block(&b.decl.id) {
             row.set("block_entity", J::Bool(true));
         }
         // These source blocks explicitly return two from getLightBlock.

@@ -14,8 +14,8 @@ fn physical_record_valid(part:&Tag)->bool {
     }
     if let Some(machine)=part.get("machine") {
         let id=match part.get("id") {Some(Tag::String(id))=>id.to_string_lossy(),_=>return false};
-        let upgrade_limit=if id=="ae2:cable_interface" {1} else {0};
-        let slot_limit=if id=="ae2:pattern_encoding_terminal" {2} else {9};
+        let upgrade_limit=if horizon_client::ae2_world::base_id(&id)=="ae2:cable_interface" {1} else {0};
+        let slot_limit=horizon_client::ae2_world::variant(&id).map_or(if id=="ae2:pattern_encoding_terminal" {2} else {9},|v|v.slots);
         if super::ae2_parts::strict_part_items(machine.get("slots"),slot_limit).is_err()
             || super::ae2_parts::strict_part_items(machine.get("upgrades"),upgrade_limit).is_err() {return false}
         if !valid_list(machine.get("config").and_then(|c|c.get("ae2_provider_return_items")),9){return false}

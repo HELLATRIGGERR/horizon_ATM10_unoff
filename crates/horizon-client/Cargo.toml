@@ -114,6 +114,8 @@ ae2-lab = ["horizon-client-render/ae2-lab", "dep:ae2-cell-core", "dep:ae2-networ
 ae2-megacells = ["ae2-lab"]
 # ME Requester 1.5.0 (ae2/addons/merequester).
 ae2-merequester = ["ae2-lab", "dep:ae2-merequester-core"]
+# ExtendedAE 1.21-2.2.42 (ae2/addons/extendedae).
+ae2-extendedae = ["ae2-lab"]
 default = ["audio", "controllers"]
 # Sound output. Without it (and `controllers`) the program links neither libasound nor libudev on
 # Linux: the server build (`--no-default-features`, released as horizon-engine; docs/server.md).

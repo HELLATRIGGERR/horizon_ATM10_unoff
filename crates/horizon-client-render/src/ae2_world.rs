@@ -222,10 +222,61 @@ impl MachineKind {
         }
     }
 }
+/// A block or part of an addon built in that is one of AE2's machines with
+/// other inventory sizes. Its behaviour is `kind`'s; only its ids and sizes
+/// differ (ExtendedAE's `TileExPatternProvider extends
+/// PatternProviderBlockEntity` and the like). The addons' rows install them
+/// ([`install_machine_variants`]), as they do [`ExtMachine`]s.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MachineVariant {
+    /// The block's id, which is also its block entity's, or the part's item id.
+    pub id: &'static str,
+    /// The AE2 block or part it behaves as, for code that goes by AE2's ids.
+    pub base: &'static str,
+    /// The block whose screen its menu shows (itself, for a block).
+    pub block: &'static str,
+    pub kind: MachineKind,
+    pub slots: usize,
+    pub upgrades: usize,
+    /// A part on a cable, not a block.
+    pub part: bool,
+}
+static MACHINE_VARIANTS: std::sync::OnceLock<Vec<MachineVariant>> = std::sync::OnceLock::new();
+/// The addon machine variants, installed once at start-up before any world
+/// loads; a second call keeps the first table.
+pub fn install_machine_variants(variants: Vec<MachineVariant>) {
+    let _ = MACHINE_VARIANTS.set(variants);
+}
+/// The installed machine variants (none before [`install_machine_variants`]).
+pub fn machine_variants() -> &'static [MachineVariant] {
+    MACHINE_VARIANTS.get().map_or(&[], Vec::as_slice)
+}
+/// The addon row of block or part `id`.
+pub fn variant(id: &str) -> Option<&'static MachineVariant> {
+    machine_variants().iter().find(|v| v.id == id)
+}
+/// The AE2 id that block or part `id` behaves as: its own for AE2's.
+pub fn base_id(id: &str) -> &str {
+    variant(id).map_or(id, |v| v.base)
+}
+/// Whether block `id` is an AE2 machine, AE2's own or an addon's.
+pub fn is_machine_block(id: &str) -> bool {
+    MachineKind::from_id(id).is_some() || variant(id).is_some_and(|v| !v.part)
+}
+/// How many patterns a Pattern Provider of any built-in size holds at most.
+pub fn max_provider_slots() -> usize {
+    machine_variants()
+        .iter()
+        .filter(|v| v.kind == MachineKind::PatternProvider)
+        .map(|v| v.slots)
+        .fold(MachineKind::PatternProvider.physical_slots(), usize::max)
+}
 /// `slots` are owned physical inventory only. Network contents must never be copied here.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Machine {
     pub kind: MachineKind,
+    /// The addon block or part this is, when it is not AE2's own.
+    pub variant: Option<&'static MachineVariant>,
     pub slots: Vec<Option<ItemStack>>,
     /// Real installed cards; never synthetic settings or virtual display slots.
     pub upgrades: Vec<Option<ItemStack>>,
@@ -242,6 +293,7 @@ impl Machine {
     pub fn new(kind: MachineKind) -> Self {
         Self {
             kind,
+            variant: None,
             slots: vec![None; kind.physical_slots()],
             upgrades: vec![None; kind.upgrade_slots()],
             energy: 0.0,
@@ -253,6 +305,26 @@ impl Machine {
             progress: 0.0,
             config: Compound::new(),
         }
+    }
+    /// The addon's machine of row `variant`.
+    pub fn of_variant(variant: &'static MachineVariant) -> Self {
+        let mut machine = Self::new(variant.kind);
+        machine.variant = Some(variant);
+        machine.slots = vec![None; variant.slots];
+        machine.upgrades = vec![None; variant.upgrades];
+        machine
+    }
+    /// The block entity's block id, or for a part its item's.
+    pub fn id(&self) -> &'static str {
+        self.variant.map_or_else(|| self.kind.id(), |v| v.id)
+    }
+    /// The size of `slots`, whatever the machine holds now.
+    pub fn physical_slots(&self) -> usize {
+        self.variant.map_or_else(|| self.kind.physical_slots(), |v| v.slots)
+    }
+    /// The size of `upgrades`.
+    pub fn upgrade_slots(&self) -> usize {
+        self.variant.map_or_else(|| self.kind.upgrade_slots(), |v| v.upgrades)
     }
     /// Private AEBasePoweredBlockEntity buffer maximum, fixed at construction.
     pub fn private_power_capacity(&self) -> Option<f64> {
@@ -385,6 +457,9 @@ impl Machine {
             .count()
     }
     pub fn for_block(id: &str) -> Option<Self> {
-        Some(Self::new(MachineKind::from_id(id)?))
+        if let Some(kind) = MachineKind::from_id(id) {
+            return Some(Self::new(kind));
+        }
+        variant(id).filter(|v| !v.part).map(Self::of_variant)
     }
 }

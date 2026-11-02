@@ -1986,6 +1986,10 @@ impl Game<'_> {
                     host.hub.send_inventory(gi);return;
                 }
                 #[cfg(feature = "ae2-lab")]
+                if host.hub.guests[gi].within_block_range(p.pos,0.0) && self.as_guest(host,conn,|g|g.with_hand(if p.hand==1{Hand::Off}else{Hand::Main},|g|g.ae2x_use_on(p.pos,direction(p.face)))).unwrap_or(false) {
+                    host.hub.send_inventory(gi);return;
+                }
+                #[cfg(feature = "ae2-lab")]
                 if self.lan_open_ae2_network_tool_at(host,conn,p.hand,(p.pos[0],p.pos[1],p.pos[2]),p.face) { return; }
                 #[cfg(feature = "ae2-lab")]
                 if host.hub.guests[gi].within_block_range(p.pos, 0.0) {

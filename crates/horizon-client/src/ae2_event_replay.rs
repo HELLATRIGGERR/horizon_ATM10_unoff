@@ -38,7 +38,7 @@ fn part_node(part: &Tag, host: u64) -> Result<Option<(NodeIdentity, Option<Chann
         return Ok(None);
     }
     if !matches!(
-        id.as_str(),
+        crate::ae2_world::base_id(id.as_str()),
         "ae2:quartz_fiber"
             | "ae2:me_p2p_tunnel"
             | "ae2:toggle_bus"

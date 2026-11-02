@@ -20,13 +20,14 @@ fn same_sent_owner(sent:Option<OwnerIdentity>,current:Option<OwnerIdentity>)->bo
     sent.is_some() && sent==current
 }
 #[derive(Clone,Debug,PartialEq)]
-enum DisplayLine { Header(Group,usize), Provider(Row) }
+enum DisplayLine { Header(Group,usize), Provider(Row,usize) }
 fn display_lines(rows:&[Row])->Vec<DisplayLine> {
     let mut lines=Vec::new();let mut i=0;
     while i<rows.len() {
         let mut end=i+1;while end<rows.len() && rows[end].group==rows[i].group {end+=1;}
         lines.push(DisplayLine::Header(rows[i].group.clone(),end-i));
-        lines.extend(rows[i..end].iter().cloned().map(DisplayLine::Provider));i=end;
+        // A provider takes a line per nine patterns, each with its first slot.
+        lines.extend(rows[i..end].iter().flat_map(|row|(0..row.slots.len()).step_by(9).map(|first|DisplayLine::Provider(row.clone(),first))));i=end;
     }
     lines
 }
@@ -110,7 +111,7 @@ impl Game<'_> {
         match owner {
             Owner::Block(p)=>match self.ae2_block_entity(p)? {BlockEntity::Ae2(m)=>Some((**m).clone()),_=>None},
             Owner::Part(p)=>self.ae2_part_machine(p).ok().flatten(),
-        }.filter(|m|m.kind==MachineKind::PatternProvider && m.slots.len()==9)
+        }.filter(|m|m.kind==MachineKind::PatternProvider && m.slots.len()==m.physical_slots())
     }
     fn access_name(&self,owner:Owner)->Option<String> {
         match owner {
@@ -132,7 +133,8 @@ impl Game<'_> {
     /// using sided capability presence even for empty handlers.
     fn access_group(&self,owner:Owner,component:usize,network:&ae2_network_core::Network,analysis:&ae2_network_core::Analysis)->Option<Group> {
         let host_icon=match owner {
-            Owner::Block(_) => ItemStack::new("ae2:pattern_provider",1),
+            // getTerminalIcon: the block it is, AE2's or an addon's.
+            Owner::Block(_) => ItemStack::new(self.access_machine(owner)?.id(),1),
             Owner::Part(p) => {
                 let BlockEntity::Ae2(host)=self.ae2_block_entity(p.host)? else{return None};
                 let Tag::List(parts)=host.config.get(&"parts".into())? else{return None};
@@ -340,9 +342,9 @@ impl Game<'_> {
         match slot {
             Some(slot @ 300..=353)=>{
                 let line=(slot-300)/9;let index=(slot-300)%9;
-                let owner=display_lines(&session.view.rows).get(session.view.page+line).and_then(|line|match line {DisplayLine::Provider(row)=>Some(row.owner),_=>None});
-                if let Some(owner)=owner.filter(|owner|same_sent_owner(session.view.owners.get(line).copied().flatten(),self.access_owner_identity(*owner))) {
-                    self.access_provider_action(owner,index,button,input);
+                let owner=display_lines(&session.view.rows).get(session.view.page+line).and_then(|line|match line {DisplayLine::Provider(row,first)=>Some((row.owner,*first)),_=>None});
+                if let Some((owner,first))=owner.filter(|(owner,_)|same_sent_owner(session.view.owners.get(line).copied().flatten(),self.access_owner_identity(*owner))) {
+                    self.access_provider_action(owner,first+index,button,input);
                 }
             },
             Some(index @ 0..=35) if input==Input::QuickMove=>self.access_quick_move_player(index,&session.view.rows),
@@ -377,7 +379,7 @@ impl Game<'_> {
         for (i,line) in lines.iter().skip(page).take(6).enumerate(){
             match line {
                 DisplayLine::Header(group,count)=>layout.push(serde_json::json!({"kind":"header","name":group.name,"count":count,"tooltip":group.tooltip,"icon":{"id":group.icon.item_id,"components":group.icon.components}})),
-                DisplayLine::Provider(row)=>{owners[i]=self.access_owner_identity(row.owner);items[i*9..i*9+9].clone_from_slice(&row.slots);layout.push(serde_json::json!({"kind":"provider","name":row.name}));}
+                DisplayLine::Provider(row,first)=>{owners[i]=self.access_owner_identity(row.owner);items[i*9..i*9+9].clone_from_slice(&row.slots[*first..*first+9]);layout.push(serde_json::json!({"kind":"provider","name":row.name}));}
             }
         }
         AccessView{rows,pinned:pins,page,items,layout,owners,max_scroll}
@@ -452,7 +454,7 @@ impl Game<'_> {
         let stale_target=(0..54).contains(&p.slot) && {
             let index=p.slot as usize/9;
             let old=s.sent_views.iter().rev().find(|(state,_)|*state==p.state).and_then(|(_,view)|view.get(index)).copied().flatten();
-            let current=display_lines(&rows).get(s.page+index).and_then(|line|match line {DisplayLine::Provider(row)=>self.access_owner_identity(row.owner),_=>None});
+            let current=display_lines(&rows).get(s.page+index).and_then(|line|match line {DisplayLine::Provider(row,_)=>self.access_owner_identity(row.owner),_=>None});
             !same_sent_owner(old,current)
         };
         if rows!=s.rows || stale_target {
@@ -461,8 +463,8 @@ impl Game<'_> {
         let input=super::lan_crafting::input(p.input);
         if (0..54).contains(&p.slot) {
             let lines=display_lines(&rows);let index=s.page+p.slot as usize/9;let slot=p.slot as usize%9;
-            if let Some(DisplayLine::Provider(row))=lines.get(index) {
-                self.as_guest(host,conn,|game|game.access_provider_action(row.owner,slot,i32::from(p.button),input));
+            if let Some(DisplayLine::Provider(row,first))=lines.get(index) {
+                self.as_guest(host,conn,|game|game.access_provider_action(row.owner,first+slot,i32::from(p.button),input));
             }
         } else if p.slot == -10 {s.page=s.page.saturating_sub(1);}
         else if p.slot == -11 {s.page=(s.page+1).min(display_lines(&rows).len().saturating_sub(6));}

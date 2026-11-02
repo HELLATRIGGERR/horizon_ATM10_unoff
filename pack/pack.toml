@@ -66,6 +66,15 @@ feature = "ae2-merequester"
 content = "merequester"
 configs = ["merequester-common.toml"]
 
+# ExtendedAE: the bigger Pattern Provider, Interface and Drive (slice 1;
+# ae2/addons/extendedae).
+[mods.extendedae]
+name = "ExtendedAE"
+enabled = true
+feature = "ae2-extendedae"
+content = "extendedae"
+configs = ["extendedae-common.toml"]
+
 # AE2 addon: FE stored in ME cells and the Flux Accessor.
 [mods.appflux]
 name = "Applied Flux"

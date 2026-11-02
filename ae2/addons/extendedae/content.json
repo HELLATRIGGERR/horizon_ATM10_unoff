@@ -1,0 +1,34 @@
+{
+  "namespace": "extendedae",
+  "name": "ExtendedAE",
+  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1).",
+  "authors": ["GlodBlock (ExtendedAE)"],
+  "slices": ["1: Extended Pattern Provider and Interface, block and part; ME Extended Drive; their upgrade kits"],
+  "items": {
+    "ex_pattern_provider_part": {},
+    "ex_interface_part": {},
+    "pattern_provider_upgrade": {},
+    "interface_upgrade": {},
+    "drive_upgrade": {}
+  },
+  "blocks": {
+    "ex_pattern_provider": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"push_direction": ["all", "down", "up", "north", "south", "west", "east"]},
+      "state_defaults": {"push_direction": "all"}
+    },
+    "ex_interface": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"}
+    },
+    "ex_drive": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"]},
+      "state_defaults": {"facing": "north", "spin": "0"},
+      "model": "extendedae:block/extended_drive/extended_me_drive_base"
+    }
+  },
+  "ae2_namespace": {
+    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json"],
+    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png"]
+  }
+}

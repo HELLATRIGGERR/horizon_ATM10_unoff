@@ -943,6 +943,8 @@ fn decode_mod_block_entity(id: String, tag: &Tag) -> Option<crate::containers::M
 #[cfg(feature = "ae2-lab")]
 fn ae2_reset_unsaved(m: &mut crate::ae2_world::Machine) {
     use crate::ae2_world::MachineKind;
+    // ExtendedAE's `IPage`: a device's page is not saved.
+    m.config.remove(&"ae2x_page".into());
     match m.kind {
         MachineKind::Inscriber => {
             m.progress = 0.0;
@@ -970,7 +972,7 @@ pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::contain
     let id = text(tag.get("id"))?;
     let pos = (int("x")?, int("y")?, int("z")?);
     #[cfg(feature = "ae2-lab")]
-    let ae2_machine = crate::ae2_world::MachineKind::from_id(&id).is_some();
+    let ae2_machine = crate::ae2_world::is_machine_block(&id);
     #[cfg(not(feature = "ae2-lab"))]
     let ae2_machine = false;
     if id.contains(':') && !id.starts_with("minecraft:") && !ae2_machine {
@@ -1043,8 +1045,8 @@ pub fn decode_block_entity(tag: &Tag) -> Option<((i32, i32, i32), crate::contain
     match &mut entity {
         #[cfg(feature = "ae2-lab")]
         BlockEntity::Ae2(m) => {
-            m.slots = decode_items(tag.get("Items"), m.kind.physical_slots());
-            m.upgrades = decode_items(tag.get("ae2_lab_upgrades"), m.kind.upgrade_slots());
+            m.slots = decode_items(tag.get("Items"), m.physical_slots());
+            m.upgrades = decode_items(tag.get("ae2_lab_upgrades"), m.upgrade_slots());
             let state = |key: &str, default: f64| -> Option<f64> {
                 match tag.get(key) {
                     None => Some(default),

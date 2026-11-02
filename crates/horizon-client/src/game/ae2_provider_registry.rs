@@ -74,7 +74,7 @@ fn decode_snapshot(snapshot: &Ae2ProviderSnapshot) -> Result<ProviderData, Strin
     };
     match snapshot {
         Ae2ProviderSnapshot::Block {slot_count,raw_slots,raw_priority} => {
-            if *slot_count != MachineKind::PatternProvider.physical_slots() {
+            if *slot_count != MachineKind::PatternProvider.physical_slots() && *slot_count != horizon_client::ae2_world::max_provider_slots() {
                 return Err("invalid provider block slot count".into());
             }
             Ok(ProviderData {slots:provider_items(Some(raw_slots),*slot_count)?,
@@ -91,8 +91,14 @@ fn decode_snapshot(snapshot: &Ae2ProviderSnapshot) -> Result<ProviderData, Strin
                 Some(Tag::Compound(config)) => Some(config),
                 Some(_) => return Err("malformed provider part config".into()),
             };
+            // A part's size goes with its item id, which the snapshot has not:
+            // AE2's nine unless a slot lies past them.
+            let plain=MachineKind::PatternProvider.physical_slots();
+            let past_plain=matches!(data.get(&"slots".into()),Some(Tag::List(entries)) if entries.iter()
+                .any(|entry|matches!(entry.get("Slot"),Some(Tag::Byte(slot)) if *slot as usize>=plain)));
+            let size=if past_plain {horizon_client::ae2_world::max_provider_slots()} else {plain};
             Ok(ProviderData {
-                slots:provider_items(data.get(&"slots".into()),MachineKind::PatternProvider.physical_slots())?,
+                slots:provider_items(data.get(&"slots".into()),size)?,
                 priority:priority(config.and_then(|config|config.get(&"priority".into())))?,
             })
         }
@@ -276,7 +282,7 @@ fn emitter_part(part: &Tag, host: u64) -> Result<Option<(NodeIdentity, u8)>, Str
 }
 
 fn provider_part(part: &Tag, host: u64) -> Result<Option<(NodeIdentity, u8, Ae2ProviderSnapshot)>, String> {
-    if !matches!(part.get("id"), Some(Tag::String(id)) if id.to_string_lossy() == "ae2:cable_pattern_provider") {
+    if !matches!(part.get("id"), Some(Tag::String(id)) if horizon_client::ae2_world::base_id(&id.to_string_lossy()) == "ae2:cable_pattern_provider") {
         return Ok(None);
     }
     let face = match part.get("face") {
@@ -929,7 +935,7 @@ impl Game<'_> {
                 let Some(Tag::List(parts)) = host.config.get(&"parts".into()) else { return Err("provider part list unavailable".into()); };
                 let mut matches = parts.iter().filter(|part|part.get("face")==Some(&Tag::String((*face_name).into())));
                 let part = matches.next().ok_or("provider part unavailable")?;
-                if matches.next().is_some() || part.get("id") != Some(&Tag::String("ae2:cable_pattern_provider".into())) {
+                if matches.next().is_some() || !matches!(part.get("id"),Some(Tag::String(id)) if horizon_client::ae2_world::base_id(&id.to_string_lossy())=="ae2:cable_pattern_provider") {
                     return Err("provider part changed or duplicated".into());
                 }
                 let identity = super::ae2_channels::part_identity(part).ok_or("provider part identity unavailable")?;

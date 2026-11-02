@@ -160,7 +160,7 @@ impl Game<'_> {
                 let Some(address)=super::ae2_global::GridAddress::from_network(*p) else {continue;};
                 if let Some(block)=self.ae2_grid_block(address) {
                     let id=self.res.facts().get(block).name.to_string();
-                    if id.starts_with("ae2:") {*groups.entry(id).or_default()+=1;}
+                    if id.starts_with("ae2:") || horizon_client::ae2_world::is_machine_block(&id) {*groups.entry(id).or_default()+=1;}
                 }
                 if let Some(BlockEntity::Ae2(machine))=self.ae2_block_entity(address) {
                     if let Some(Tag::List(parts))=machine.config.get(&"parts".into()) {

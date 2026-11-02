@@ -9,9 +9,14 @@ import { root, help } from './common';
 
 type Declared = { fire_resistant?: boolean; max_stack_size?: number };
 type Block = Declared & { template?: string; properties?: Record<string, unknown>;
-  state_properties?: Record<string, string[]>; state_defaults?: Record<string, string> };
+  state_properties?: Record<string, string[]>; state_defaults?: Record<string, string>;
+  /** The block model to draw when the jar's needs a custom loader (`extendedae:ex_drive`). */
+  model?: string };
 type Content = { namespace: string; name: string; description: string; authors: string[]; slices: string[];
-  items: Record<string, Declared>; blocks: Record<string, Block> };
+  items: Record<string, Declared>; blocks: Record<string, Block>;
+  /** Files the addon ships under AE2's namespace that the declared slices use, kept under `assets/<ns>/ae2/`
+   * (a content mod owns its namespace alone): screen styles and GUI textures. */
+  ae2_namespace?: { screens?: string[]; gui_textures?: string[] } };
 type Manifest = { addon: string; name: string; version: string; source: { url: string; tag: string; commit: string; license: string };
   assets_license: string; jar: { file: string; sha256: string } };
 
@@ -71,7 +76,10 @@ if (!help(usage)) {
   for (const [block, spec] of Object.entries(content.blocks)) {
     const state = join(assets, 'blockstates', block + '.json');
     if (!existsSync(state)) throw new Error(`${ns}:${block} has no blockstate in the jar`);
-    copy(state, join(out, 'assets', ns, 'blockstates', block + '.json'));
+    // AE2's own rotation key (`ae2:z`) is plain `z` to the port, as in content/ae2.
+    const variants = JSON.parse(readFileSync(state, 'utf8').replaceAll('"ae2:z"', '"z"'));
+    if (spec.model) for (const variant of Object.values<any>(variants.variants ?? {})) variant.model = spec.model;
+    put(join(out, 'assets', ns, 'blockstates', block + '.json'), variants);
     put(join(out, 'data', ns, 'horizon/block', block + '.json'), {
       template: spec.template ?? 'minecraft:iron_block', item: true,
       ...(spec.properties ? { properties: spec.properties } : {}),
@@ -98,7 +106,7 @@ if (!help(usage)) {
   const ids = (value: unknown, found: Set<string>): Set<string> => {
     if (typeof value === 'string') { if (value.startsWith(ns + ':')) found.add(value); }
     else if (Array.isArray(value)) value.forEach(v => ids(v, found));
-    else if (value && typeof value === 'object') for (const [key, v] of Object.entries(value)) if (key !== 'type') ids(v, found);
+    else if (value && typeof value === 'object') for (const [key, v] of Object.entries(value)) if (key !== 'type' && key !== 'tag') ids(v, found);
     return found;
   };
   const recipes = join(data, ns, 'recipe');
@@ -107,6 +115,7 @@ if (!help(usage)) {
     const recipe = read(file);
     const missing = [...ids(recipe, new Set())].filter(i => !items.has(i));
     if (recipe['neoforge:conditions']) report.recipes_left_out[name] = `conditions ${JSON.stringify(recipe['neoforge:conditions'])}`;
+    else if (String(recipe.type).startsWith(ns + ':')) report.recipes_left_out[name] = `recipe type ${recipe.type} comes with its machine's slice`;
     else if (missing.length) report.recipes_left_out[name] = `needs ${missing.join(', ')}`;
     else { copy(file, join(out, 'data', ns, 'recipe', relative(recipes, file))); report.recipes.push(name); }
   }
@@ -145,6 +154,10 @@ if (!help(usage)) {
     put(join(out, 'data', space, 'tags', relative(join(data, space, 'tags'), path)), { ...read(path), values });
     report.tags.push(`${kind}/${tag}`);
   }
+  // The addon's own files under AE2's namespace that the slices use: they
+  // stay under its namespace, the game looks there (`assets/<ns>/ae2/`).
+  for (const screen of content.ae2_namespace?.screens ?? []) copy(join(jarDir, 'assets/ae2/screens', screen), join(out, 'assets', ns, 'ae2/screens', screen));
+  for (const texture of content.ae2_namespace?.gui_textures ?? []) copy(join(jarDir, 'assets/ae2/textures/guis', texture), join(out, 'assets', ns, 'ae2/textures/guis', texture));
   // Files left for later slices: AE2's namespace (screens, GUI textures,
   // tags), which belong in content/ae2, the guide, data maps, advancements.
   const later = (label: string, dir: string) => { const n = walk(dir).length; if (n) report.deferred[label] = n; };

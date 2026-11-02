@@ -51,9 +51,10 @@ const suites = [
   'wireless-power-multiplier',
   'megacells-cells',
   'merequester-stock',
+  'extendedae-machines',
 ];
 // Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
-const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'merequester-stock': 'merequester' };
+const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae' };
 // Explicitly selectable before-cases, not part of the default passing checkpoint.
 const pending = new Set(['chest-fluid-gestures', 'crafting-idle-break', 'crafting-idle-inventory', 'formation-armor-stand', 'formation-quantum-dimensions', 'inframe-wireless-session', 'portable-fluid-gestures', 'portable-fluid-overflow', 'portable-menu-status', 'quantum-forced-ready', 'terminal-fluid-gestures', 'wireless-menu-lifecycle', 'wireless-menu-status', 'wireless-power-multiplier']);
 if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--content DIRECTORY] [--in-frame] [SUITE ...]\nRuns only hidden, isolated fixtures, sequentially under a host rendering lease.\nSuites: ' + suites.join(', '))) {

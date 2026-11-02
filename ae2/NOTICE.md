@@ -43,3 +43,11 @@ Code derived from [ME Requester](https://github.com/AlmostReliable/merequester)
 [addons/merequester/SOURCE_MANIFEST.json](addons/merequester/SOURCE_MANIFEST.json).
 Its assets, whose licence the mod does not state, are likewise generated
 locally from the player's jar and not distributed here.
+Code derived from [ExtendedAE](https://github.com/GlodBlock/ExtendedAE) 1.21-2.2.42
+by GlodBlock (commit `1f86f927552f02451236465c0c96a12a3de8f66c` on branch
+`1.21.1-neoforge`, which sets that version; it has no tag) is under its
+[LGPL 3.0](LICENSES/AE2-LGPL-3.0.txt); the files are listed in
+[addons/extendedae/SOURCE_MANIFEST.json](addons/extendedae/SOURCE_MANIFEST.json).
+ExtendedAE's assets (models and textures by Sea_Kerman and Ridanisaurus, licence not
+stated) are generated locally from the player's own jar by `scripts/prepare-addon.ts`
+and are not distributed here.

@@ -29,7 +29,7 @@ pub(super) fn placement(
     }
     // ME Requester's FacingWithVerticalSpin places as FacingWithSpinStrategy
     // does: a horizontal facing always has spin 0 there.
-    if !matches!(name, "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:crafting_monitor" | "merequester:requester") {
+    if !matches!(horizon_client::ae2_world::base_id(name), "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:crafting_monitor" | "merequester:requester") {
         return None;
     }
     let opposite = match horizontal {
@@ -120,7 +120,7 @@ impl Game<'_> {
         if !self.keys.contains(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_disassemble(s)){return false;}
         let key=(pos[0],pos[1],pos[2]);let old=self.world.block(pos[0],pos[1],pos[2]);
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&key) else{return false};
-        if matches!(machine.kind,MachineKind::CableBus|MachineKind::Paint) || self.res.items().get(machine.kind.id()).is_none() || self.res.facts().get(old).name.as_ref()!=machine.kind.id(){return false;}
+        if matches!(machine.kind,MachineKind::CableBus|MachineKind::Paint) || self.res.items().get(machine.id()).is_none() || self.res.facts().get(old).name.as_ref()!=machine.id(){return false;}
         let max=match machine.kind {MachineKind::EnergyCell=>Some(200_000.0),MachineKind::DenseEnergyCell=>Some(1_600_000.0),_=>None};
         if max.is_some_and(|max|!machine.energy.is_finite() || machine.energy<0.0 || machine.energy>max) {return true;}
         // A formed CPU must settle its physical job ownership while the old
@@ -129,7 +129,7 @@ impl Game<'_> {
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&key) else{return true};
         let machine=(**machine).clone();let name=self.world.block_names.get(&key).cloned();
         let held=self.held().cloned();let mut drops=self.block_loot_at(pos,old,held.as_ref());
-        if let Some(block)=drops.iter_mut().find(|item|item.item.as_ref()==machine.kind.id()) {
+        if let Some(block)=drops.iter_mut().find(|item|item.item.as_ref()==machine.id()) {
             block.set_custom_name_component(super::ae2_memory_host::machine_name_component(&machine,name.as_deref()));
             if matches!(machine.kind,MachineKind::EnergyCell|MachineKind::DenseEnergyCell) && machine.energy>0.0 {
                 block.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(machine.energy.to_bits())));
@@ -168,13 +168,13 @@ impl Game<'_> {
         if self.keys.contains(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_rotate(s)){return false;}
         let old=self.world.block(pos[0],pos[1],pos[2]);
         let Some(state)=self.pack.assets.registry.state(old) else{return false};
-        if state.name=="ae2:pattern_provider" {
+        if horizon_client::ae2_world::base_id(&state.name)=="ae2:pattern_provider" {
             let Some(next)=state.properties.get("push_direction").and_then(|v|provider_side(v,face)) else{return false};
             let mut props=state.properties.clone();props.insert("push_direction".into(),next.into());
             let Ok(id)=self.pack.assets.registry.resolve(&BlockState{name:state.name.clone(),properties:props}) else{return false};
             return self.level_set(pos,id).is_ok();
         }
-        if !matches!(state.name.as_str(),"ae2:drive"|"ae2:charger"|"ae2:inscriber"|"ae2:wireless_access_point"|"ae2:crystal_resonance_generator"|"ae2:sky_stone_chest"|"ae2:smooth_sky_stone_chest"|"ae2:growth_accelerator"|"ae2:vibration_chamber"|"ae2:io_port"|"ae2:spatial_io_port"|"ae2:cell_workbench"|"ae2:chest"|"ae2:spatial_anchor"|"ae2:crafting_monitor"){return false;}
+        if !matches!(horizon_client::ae2_world::base_id(&state.name),"ae2:drive"|"ae2:charger"|"ae2:inscriber"|"ae2:wireless_access_point"|"ae2:crystal_resonance_generator"|"ae2:sky_stone_chest"|"ae2:smooth_sky_stone_chest"|"ae2:growth_accelerator"|"ae2:vibration_chamber"|"ae2:io_port"|"ae2:spatial_io_port"|"ae2:cell_workbench"|"ae2:chest"|"ae2:spatial_anchor"|"ae2:crafting_monitor"){return false;}
         let Some(facing)=state.properties.get("facing") else{return false};
         let spin=state.properties.get("spin").and_then(|s|s.parse().ok()).unwrap_or(0);
         let Some((front,new_spin))=wrench_rotation(facing,spin,face) else{return false};

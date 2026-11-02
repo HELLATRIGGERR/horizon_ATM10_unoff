@@ -435,7 +435,7 @@ impl BlockEntity {
     pub fn id(&self) -> &str {
         match self {
             #[cfg(feature = "ae2-lab")]
-            Self::Ae2(m) => m.kind.id(),
+            Self::Ae2(m) => m.id(),
             Self::Chest(items) => match items.len() {
                 HOPPER_SLOTS => "minecraft:hopper",
                 9 => "minecraft:dispenser",

@@ -7,9 +7,12 @@ pub mod defs;
 pub mod megacells;
 #[cfg(feature = "ae2-merequester")]
 pub mod merequester;
+#[cfg(feature = "ae2-extendedae")]
+pub mod extendedae;
 
-/// Builds the registry, which installs the addon machines' block ids: call
-/// before any world or block entity loads.
+/// Builds the registry, which installs the addon machines' block ids and
+/// the variants of AE2's machines: call before any world or block entity
+/// loads.
 pub fn install() {
     let _ = defs::get();
 }

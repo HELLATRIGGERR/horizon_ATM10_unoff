@@ -74,7 +74,7 @@ pub(super) fn kind(m: &Machine) -> Option<DeviceKind> {
 impl Game<'_> {
     pub(super) fn ae2_try_attach_part(&mut self, pos: WorldPos, face: &str) -> bool {
         if !matches!(
-            self.held().map(|s| s.item.as_ref()),
+            self.held().map(|s| horizon_client::ae2_world::base_id(s.item.as_ref())),
             Some(
                 "ae2:terminal"
                     | "ae2:crafting_terminal"
@@ -296,7 +296,7 @@ impl Game<'_> {
                                     // CableAnchorPart has no node and blocks this face.
                                     continue;
                                 }
-                                let idle = match id.as_str() {
+                                let idle = match horizon_client::ae2_world::base_id(id.as_str()) {
                                     "ae2:terminal"
                                     | "ae2:crafting_terminal"
                                     | "ae2:pattern_encoding_terminal" => 0.5,
@@ -1343,7 +1343,7 @@ impl Game<'_> {
                 }
                 let held = self.held().cloned().ok_or("hold an AE2 part")?;
                 if !matches!(
-                    &*held.item,
+                    horizon_client::ae2_world::base_id(&held.item),
                     "ae2:terminal"
                         | "ae2:crafting_terminal"
                         | "ae2:pattern_encoding_terminal"

@@ -8,7 +8,7 @@
 //! then each addon's; the tables are built once, on first use, and do not
 //! change after. An addon whose content is not loaded leaves rows that no item
 //! reaches.
-use crate::ae2_world::ExtMachine;
+use crate::ae2_world::{ExtMachine, MachineVariant};
 use ae2_cell_core::{CellConfig, Channel, Tier};
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -59,6 +59,7 @@ pub struct Defs {
     upgrade_slots: HashMap<String, usize>,
     upgrades: HashMap<(String, String), usize>,
     machines: Vec<ExtMachine>,
+    variants: Vec<MachineVariant>,
     parts: HashMap<String, PartDef>,
 }
 impl Defs {
@@ -91,6 +92,14 @@ impl Defs {
     }
     pub fn machines(&self) -> &[ExtMachine] {
         &self.machines
+    }
+    /// An addon's block or part that is one of AE2's machines with other
+    /// sizes: AE2's kind, its own id (`ae2_world::variant`).
+    pub fn add_variant(&mut self, variant: MachineVariant) {
+        self.variants.push(variant);
+    }
+    pub fn variants(&self) -> &[MachineVariant] {
+        &self.variants
     }
     /// An addon's cable part.
     pub fn add_part(&mut self, part: PartDef) {
@@ -207,8 +216,12 @@ pub fn get() -> &'static Defs {
         super::megacells::register(&mut defs);
         #[cfg(feature = "ae2-merequester")]
         super::merequester::register(&mut defs);
-        // The addon machines' block ids, for `MachineKind::from_id`.
+        #[cfg(feature = "ae2-extendedae")]
+        super::extendedae::register(&mut defs);
+        // The addon machines' block ids, for `MachineKind::from_id`, and
+        // the variants of AE2's, for `Machine::for_block`.
         crate::ae2_world::install_ext_machines(defs.machines.clone());
+        crate::ae2_world::install_machine_variants(defs.variants.clone());
         defs
     });
     &DEFS

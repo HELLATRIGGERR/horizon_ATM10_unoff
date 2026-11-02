@@ -1,0 +1,9 @@
+[package]
+name = "ftbquests-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Reads FTB Quests' SNBT quest files and keeps a player's quest progress, for the pack's quest book"
+
+[dependencies]
+serde_json = "1"

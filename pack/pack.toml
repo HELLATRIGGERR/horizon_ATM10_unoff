@@ -13,6 +13,14 @@ enabled = true
 feature = "ae2-lab"
 configs = ["ae2-common.toml", "ae2-client.toml"]
 
+# The quest book: FTB Quests' screen and rules as a native bundle, over the player's
+# own quest files. `pack/scripts/ftbquests.ts` builds and tests it. Its files are read
+# in place from ATM10_DIR or copied with sync-atm10.ts.
+[mods.ftbquests]
+name = "FTB Quests"
+enabled = true
+bundle = "mods/ftbquests"
+
 # Energy first: the Basic and Creative Energy Cubes work, with Mekanism's screen
 # and side configuration (generators, universal cables and the other tiers are
 # planned). ATM10 runs Mekanism 10.7.19: energy

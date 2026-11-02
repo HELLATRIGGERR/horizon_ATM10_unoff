@@ -1,0 +1,10 @@
+[package]
+name = "ftbquests-content"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Copies FTB Quests' and FTB Library's GUI textures from the player's jars into a local content mod the quest book draws with"
+
+[dependencies]
+zip = { version = "9", default-features = false, features = ["deflate"] }

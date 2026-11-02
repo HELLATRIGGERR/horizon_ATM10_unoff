@@ -916,8 +916,9 @@ enum Screen {
     DialogWarning,
     /// WinScreen: the end poem and the credits (game/win.rs).
     Win,
-    /// AE2's Guide (game/ae2_guide.rs), on the screen the WebAssembly mods had.
-    #[cfg(feature = "ae2-lab")]
+    /// AE2's Guide (game/ae2_guide.rs), on the screen the WebAssembly mods had;
+    /// or a screen of a native mod's own (`native_mod_screen_open`), which draws
+    /// and takes its input through the screen hooks.
     Mod,
     /// DebugOptionsScreen, F3+F6 (game/debug_options.rs).
     DebugOptions,
@@ -2557,6 +2558,10 @@ struct Game<'a> {
     ae2_portable_drag: ae2_portable_ui::PortableDrag,
     #[cfg(feature = "ae2-lab")]
     ae2_wireless_power: Option<usize>,
+    /// The native mod whose own screen is open (`native_mod_screen_open`).
+    native_mod_screen: Option<String>,
+    /// The GLFW buttons held on it, by bit, for its drag hook.
+    native_mod_screen_held: u8,
     #[cfg(feature = "ae2-lab")]
     ae2_guide: Option<ae2_guide::GuideState>,
     #[cfg(feature = "ae2-lab")]
@@ -8579,11 +8584,12 @@ impl Game<'_> {
             self.screen
         };
         match screen {
-            #[cfg(feature = "ae2-lab")]
             Screen::Mod => {
+                #[cfg(feature = "ae2-lab")]
                 if self.ae2_guide_active() {
                     self.ae2_guide_draw(&mut batch);
                 }
+                self.draw_native_mod_screen(&mut batch);
             }
             Screen::Paused if self.pause_menu => self.draw_pause_menu(&mut batch),
             // PauseScreen(false): only its title, at the top.
@@ -15901,6 +15907,9 @@ impl Game<'_> {
     }
     /// A key press while a world is open (keyboard or control socket).
     fn key_pressed(&mut self, key: KeyCode) -> Result<()> {
+        if self.native_mod_screen().is_some() && !self.native_mod_screen_key(key) {
+            return Ok(());
+        }
         #[cfg(feature = "ae2-lab")]
         if self.ae2_guide_active() && key != KeyCode::Escape && self.ae2_guide_key(key) {
             return Ok(());
@@ -15962,8 +15971,11 @@ impl Game<'_> {
                 Screen::BlockEditor => self.close_block_editor(),
                 Screen::Chat => self.close_chat(chat::ChatExit::Intentional),
                 Screen::Win => self.close_win_screen()?,
-                #[cfg(feature = "ae2-lab")]
-                Screen::Mod => self.ae2_guide_close(),
+                Screen::Mod => {
+                    #[cfg(feature = "ae2-lab")]
+                    self.ae2_guide_close();
+                    self.close_native_mod_screen();
+                }
                 Screen::DebugOptions => self.close_debug_options(),
             },
             KeyCode::Digit1
@@ -16832,7 +16844,9 @@ impl Game<'_> {
                 WindowEvent::CursorMoved { position, .. } => {
                     if let Some(r) = &self.renderer {
                         let b = self.screen_batch([r.config.width, r.config.height]);
+                        let before = self.cursor;
                         self.cursor = (position.x as f32 / b.scale, position.y as f32 / b.scale);
+                        self.native_mod_screen_moved(before);
                         #[cfg(feature = "ae2-lab")]
                         if self.ae2_guide_active(){self.ae2_guide_pointer(self.cursor,self.ae2_guide_left_down,self.ae2_guide_right_down);}
                         if self.dialog_open() {
@@ -16948,6 +16962,9 @@ impl Game<'_> {
                     #[cfg(feature = "ae2-lab")]
                     if self.ae2_guide_active() && d != 0.0 {
                         self.ae2_guide_scroll(d);
+                    }
+                    if d != 0.0 {
+                        self.native_mod_screen_scroll(d);
                     }
                     // AbstractContainerScreen.mouseScrolled: a bundle under the
                     // cursor takes the wheel before the screen's own scrolling.
@@ -17231,13 +17248,16 @@ impl Game<'_> {
                             self.stats_click(size);
                         }
                         Screen::Stats if button == MouseButton::Left => self.stats_release(),
-                        #[cfg(feature = "ae2-lab")]
                         Screen::Mod => {
-                            if self.ae2_guide_active() {
-                                match button{MouseButton::Left=>self.ae2_guide_left_down=pressed,MouseButton::Right=>self.ae2_guide_right_down=pressed,_=>{}}
-                                if !pressed {self.ae2_guide_pointer(self.cursor,self.ae2_guide_left_down,self.ae2_guide_right_down);}
+                            #[cfg(feature = "ae2-lab")]
+                            {
+                                if self.ae2_guide_active() {
+                                    match button{MouseButton::Left=>self.ae2_guide_left_down=pressed,MouseButton::Right=>self.ae2_guide_right_down=pressed,_=>{}}
+                                    if !pressed {self.ae2_guide_pointer(self.cursor,self.ae2_guide_left_down,self.ae2_guide_right_down);}
+                                }
+                                if pressed && self.ae2_guide_active() {self.ae2_guide_click(button);}
                             }
-                            if pressed && self.ae2_guide_active() {self.ae2_guide_click(button);}
+                            self.native_mod_screen_mouse(button, pressed);
                         },
                         _ => {}
                     }
@@ -17503,6 +17523,12 @@ impl Game<'_> {
                     let PhysicalKey::Code(key) = event.physical_key else {
                         return Ok(());
                     };
+                    if self.native_mod_screen().is_some() {
+                        if event.state == ElementState::Pressed {
+                            self.key_pressed(key)?;
+                        }
+                        return Ok(());
+                    }
                     #[cfg(feature = "ae2-lab")]
                     if self.ae2_guide_active() && event.state==ElementState::Pressed {
                         if !self.ae2_guide_key(key) {self.key_pressed(key)?;}
@@ -18129,6 +18155,8 @@ impl<'a> Game<'a> {
             ae2_portable_drag: Default::default(),
             #[cfg(feature = "ae2-lab")]
             ae2_wireless_power: None,
+            native_mod_screen: None,
+            native_mod_screen_held: 0,
             #[cfg(feature = "ae2-lab")]
             ae2_guide: None,
             #[cfg(feature = "ae2-lab")]

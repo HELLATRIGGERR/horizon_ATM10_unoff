@@ -528,6 +528,8 @@ API 63 adds [Forge Energy](#forge-energy) on a mod block's block entity, by side
 `native_fe_storage`, `native_fe_receive` and `native_fe_extract` answer for your block entities, and the helpers `native_fe_info`, `native_fe_offer` and
 `native_fe_draw` reach any block with FE in any open level: other mods' and the game's own machines. Bundles that use them need "hooks": 63.
 
+API 64 adds a screen of a client mod's own: `native_mod_screen_open(mod_id)` opens one over the world (it doesn't pause a single-player game; it opens only on the window's own client, over the world with no other screen up), `native_mod_screen_close` and `native_mod_screen` close and name it, and Escape closes it. The screen hooks fire over it: `native_screen_render_post` draws it, `native_screen_mouse_button_pressed_pre`, `native_screen_mouse_button_released_pre`, `native_screen_mouse_dragged_pre`, `native_screen_mouse_scrolled_pre` and `native_screen_key_pressed_pre` take its input (setting `canceled` on Escape keeps the screen open). In this fork they fire only over a mod's own screen; every mod's has the `NativeScreenView.id` `mod`, so check `native_mod_screen()` is yours. They take `&self`: keep what must change the game for `native_frame`. Helpers for drawing: `native_sprite_tinted`, `native_quad`, `native_sprite_quad`, `native_text_styled`, `native_tooltip_box`, `native_stack_tooltip`, `native_translate`, `native_item_name`, `native_item_known`, `native_item_is_block`, `native_items_in_tag`, `native_give_stack`, `native_click_sound`. Bundles that use them need "hooks": 64.
+
 ## What the launcher does
 
 In the window: install a native mod from the Mods page, into the instance picked on the left ("Installs into

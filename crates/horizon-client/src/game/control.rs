@@ -1043,7 +1043,6 @@ impl Game<'_> {
         }
         match self.screen {
             Screen::Playing => "playing",
-            #[cfg(feature = "ae2-lab")]
             Screen::Mod => "mod",
             Screen::GameModeSwitcher => "gamemode-switcher",
             Screen::Paused => "paused",

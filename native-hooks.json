@@ -435,6 +435,36 @@
       "name": "fe_extract",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_fe_extract"
+    },
+    {
+      "name": "screen_render_post",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_render_post"
+    },
+    {
+      "name": "screen_mouse_button_pressed_pre",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_button_pressed_pre"
+    },
+    {
+      "name": "screen_mouse_button_released_pre",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_button_released_pre"
+    },
+    {
+      "name": "screen_mouse_dragged_pre",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_dragged_pre"
+    },
+    {
+      "name": "screen_mouse_scrolled_pre",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_mouse_scrolled_pre"
+    },
+    {
+      "name": "screen_key_pressed_pre",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_screen_key_pressed_pre"
     }
   ]
 }

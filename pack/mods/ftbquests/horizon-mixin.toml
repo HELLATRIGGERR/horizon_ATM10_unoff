@@ -1,0 +1,246 @@
+# The quest book of FTB Quests as a native mod of this fork (horizon-mixins bundle).
+# FTB Quests and FTB Library are by the FTB Team (All Rights Reserved): this code is
+# our own, written from the mod's behaviour and its public source. The quests come
+# from the player's own instance (config/ftbquests/quests), its textures from the
+# player's jars through `ftbquests-content`; none of either is kept here.
+#
+# It hooks only Horizon's named hook points, API 64 or later (the screen hooks), so
+# it pins no revision.
+[mod]
+id = "ftbquests"
+version = "0.1.0"
+priority = 100
+
+[[crate]]
+id = "core"
+path = "ftbquests-core"
+
+[[module]]
+id = "world"
+file = "crates/horizon-client/src/game.rs"
+name = "ftbq_world"
+source = "runtime/ftbq_world.rs"
+
+[[module]]
+id = "ui"
+file = "crates/horizon-client/src/game.rs"
+name = "ftbq_ui"
+source = "runtime/ftbq_ui.rs"
+
+[[injection]]
+id = "lifecycle"
+hook = "world_lifecycle"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/world_lifecycle.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+]
+
+[[injection]]
+id = "player-tick"
+hook = "player_tick"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "inventory-tick"
+hook = "inventory_tick"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/inventory_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "slot", ty = "i32", value = "slot" },
+]
+
+[[injection]]
+id = "use-item"
+hook = "use_item"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/use_item.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+]
+
+[[injection]]
+id = "net-from-client"
+hook = "net_from_client"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_client.rs"
+bindings = [
+  { name = "player", ty = "u128", value = "player" },
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "net-from-server"
+hook = "net_from_server"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_server.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "player-logged-out"
+hook = "player_logged_out"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_logged_out.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+]
+
+[[injection]]
+id = "register-commands"
+hook = "register_commands"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/register_commands.rs"
+bindings = [
+  { name = "commands", ty = "&mut Vec<crate::game::native_server::NativeCommand>", value = "&mut *commands" },
+]
+
+[[injection]]
+id = "perform-command"
+hook = "perform_command"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/perform_command.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "&crate::game::native_server::NativeServerPlayer", value = "player" },
+  { name = "command", ty = "&str", value = "command" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+
+[[injection]]
+id = "command"
+hook = "command"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/command.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "command", ty = "&str", value = "command" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+
+[[injection]]
+id = "frame"
+hook = "frame"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/frame.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "key"
+hook = "key"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/key.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "key", ty = "&str", value = "key" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+]
+
+[[injection]]
+id = "mods"
+hook = "mods"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/mods.rs"
+bindings = [
+  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+]
+
+[[injection]]
+id = "screen-render-post"
+hook = "screen_render_post"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_render_post.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "screen", ty = "&crate::game::native_hooks::NativeScreenView<'_>", value = "screen" },
+]
+
+[[injection]]
+id = "screen-pressed"
+hook = "screen_mouse_button_pressed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_pressed.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "screen", ty = "&crate::game::native_hooks::NativeScreenView<'_>", value = "screen" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "screen-released"
+hook = "screen_mouse_button_released_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_released.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "button", ty = "i32", value = "button" },
+]
+
+[[injection]]
+id = "screen-dragged"
+hook = "screen_mouse_dragged_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_dragged.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "delta", ty = "[f32; 2]", value = "delta" },
+]
+
+[[injection]]
+id = "screen-scrolled"
+hook = "screen_mouse_scrolled_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_scrolled.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "screen", ty = "&crate::game::native_hooks::NativeScreenView<'_>", value = "screen" },
+  { name = "scroll", ty = "[f64; 2]", value = "scroll" },
+]
+
+[[injection]]
+id = "screen-key"
+hook = "screen_key_pressed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_key.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "key", ty = "&str", value = "key" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]

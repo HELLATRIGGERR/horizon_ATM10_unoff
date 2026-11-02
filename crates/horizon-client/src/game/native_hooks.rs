@@ -273,7 +273,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 63;
+pub(crate) const NATIVE_HOOKS_API: u32 = 64;
 
 impl GameLevel<'_> {
     /// An authoritative server committed a changed state through `Level.setBlock`.
@@ -551,6 +551,20 @@ pub(crate) struct NativeFeInfo {
     pub can_receive: bool,
     /// `canExtract`: whether an extract may give anything.
     pub can_extract: bool,
+}
+
+/// A screen as a native mod's screen hooks see it. Over a mod's own screen
+/// `id` is `mod`, `menu` and `title` are none and `rect` is the whole window.
+pub struct NativeScreenView<'a> {
+    pub id: &'static str,
+    pub menu: Option<&'a str>,
+    pub title: Option<&'a Text>,
+    /// `[x, y, width, height]` in GUI pixels.
+    pub rect: [f32; 4],
+    pub slots: usize,
+    /// The pointer in GUI pixels.
+    pub mouse: [f32; 2],
+    pub partial_tick: f32,
 }
 
 /// The mod screen open on this client: the block it is for, the key its
@@ -933,6 +947,79 @@ impl Game<'_> {
     /// Wheel steps while playing: set `claimed` to keep them from the hotbar.
     pub(super) fn native_wheel(&mut self, steps: f32, claimed: &mut bool) {
         let _ = (steps, claimed);
+    }
+    /// A mod's own screen (`native_mod_screen_open`) is being drawn, over the
+    /// world and under nothing but the cursor: draw it with `native_fill`,
+    /// `native_sprite`, `native_text` and `native_item`. `screen.id` is `mod`:
+    /// check `native_mod_screen()` is yours. `&self`, so it reads and draws
+    /// only; keep what must change for `native_frame`. API 64.
+    pub(super) fn native_screen_render_post(
+        &self,
+        batch: &mut HudBatch,
+        screen: &NativeScreenView<'_>,
+    ) {
+        let _ = (batch, screen);
+    }
+    /// A mouse button went down over a mod's own screen: `screen.mouse` is
+    /// where, `button` the GLFW index (0 left, 1 right, 2 middle), `modifiers`
+    /// GLFW's bits (shift 1, control 2, alt 4, super 8). Set `canceled` when you
+    /// took it. API 64.
+    pub(super) fn native_screen_mouse_button_pressed_pre(
+        &self,
+        screen: &NativeScreenView<'_>,
+        button: i32,
+        modifiers: u32,
+        canceled: &mut bool,
+    ) {
+        let _ = (screen, button, modifiers, canceled);
+    }
+    /// A mouse button went up over a mod's own screen, as above. API 64.
+    pub(super) fn native_screen_mouse_button_released_pre(
+        &self,
+        screen: &NativeScreenView<'_>,
+        button: i32,
+        modifiers: u32,
+        canceled: &mut bool,
+    ) {
+        let _ = (screen, button, modifiers, canceled);
+    }
+    /// The pointer moved with a button held over a mod's own screen:
+    /// `screen.mouse` is where it is now, `delta` how far it moved, in GUI
+    /// pixels. API 64.
+    pub(super) fn native_screen_mouse_dragged_pre(
+        &self,
+        screen: &NativeScreenView<'_>,
+        button: i32,
+        delta: [f32; 2],
+        modifiers: u32,
+        canceled: &mut bool,
+    ) {
+        let _ = (screen, button, delta, modifiers, canceled);
+    }
+    /// The wheel turned over a mod's own screen: `scroll` in x and y, a notch
+    /// about one, positive up. API 64.
+    pub(super) fn native_screen_mouse_scrolled_pre(
+        &self,
+        screen: &NativeScreenView<'_>,
+        scroll: [f64; 2],
+        modifiers: u32,
+        canceled: &mut bool,
+    ) {
+        let _ = (screen, scroll, modifiers, canceled);
+    }
+    /// A key went down over a mod's own screen, by vanilla's name
+    /// (`key.keyboard.e`), auto-repeat too. Set `canceled` to take it: Escape
+    /// then doesn't close the screen. Other keys reach nothing else while one
+    /// is open. API 64.
+    pub(super) fn native_screen_key_pressed_pre(
+        &self,
+        screen: &NativeScreenView<'_>,
+        key: &str,
+        repeat: bool,
+        modifiers: u32,
+        canceled: &mut bool,
+    ) {
+        let _ = (screen, key, repeat, modifiers, canceled);
     }
     /// A command typed or clicked in chat, without its slash, before the
     /// server and Horizon's commands see it: set `ran` when the mod ran it.
@@ -2185,6 +2272,264 @@ impl Game<'_> {
         r.v1 = r.v0 + src[3] * dv;
         batch.rect_uv(dst[0], dst[1], dst[2], dst[3], r, u32::MAX);
         true
+    }
+    /// `native_sprite` in the colour `argb`, each pixel multiplied by it. API 64.
+    pub(super) fn native_sprite_tinted(
+        &self,
+        batch: &mut HudBatch,
+        name: &str,
+        src: [f32; 4],
+        dst: [f32; 4],
+        argb: u32,
+    ) -> bool {
+        let Some(mut r) = self.gui.atlas.sprites.get(name).copied() else {
+            return false;
+        };
+        let (du, dv) = ((r.u1 - r.u0) / r.w as f32, (r.v1 - r.v0) / r.h as f32);
+        r.u0 += src[0] * du;
+        r.v0 += src[1] * dv;
+        r.u1 = r.u0 + src[2] * du;
+        r.v1 = r.v0 + src[3] * dv;
+        let [a, red, g, b] = argb.to_be_bytes();
+        batch.rect_uv(dst[0], dst[1], dst[2], dst[3], r, rgba(red, g, b, a));
+        true
+    }
+    /// A quad of corners `points` (in order round it), `argb`: a slanted bar,
+    /// what `native_fill`'s rectangles can't draw. API 64.
+    pub(super) fn native_quad(&self, batch: &mut HudBatch, points: [[f32; 2]; 4], argb: u32) {
+        let [a, r, g, b] = argb.to_be_bytes();
+        batch.fill_quad(&self.gui.atlas, points, rgba(r, g, b, a));
+    }
+    /// `native_quad` drawing part of sprite `name`: `uv` is where each corner
+    /// falls in the sprite, 0 to 1. API 64.
+    pub(super) fn native_sprite_quad(
+        &self,
+        batch: &mut HudBatch,
+        name: &str,
+        points: [[f32; 2]; 4],
+        uv: [[f32; 2]; 4],
+        argb: u32,
+    ) -> bool {
+        let Some(r) = self.gui.atlas.sprites.get(name).copied() else {
+            return false;
+        };
+        let (du, dv) = (r.u1 - r.u0, r.v1 - r.v0);
+        let [a, red, g, b] = argb.to_be_bytes();
+        let uv = uv.map(|[u, v]| [r.u0 + u * du, r.v0 + v * dv]);
+        batch.quad(points, uv, rgba(red, g, b, a));
+        true
+    }
+    /// A line of styled text at `at`, as `native_text` draws plain text, `rgb`
+    /// where the text has no colour of its own. Returns its width. API 64.
+    pub(super) fn native_text_styled(
+        &self,
+        batch: &mut HudBatch,
+        text: &Text,
+        at: [f32; 2],
+        rgb: u32,
+        shadow: bool,
+    ) -> f32 {
+        let [_, r, g, b] = rgb.to_be_bytes();
+        batch.text_styled(&self.gui.atlas, text, at[0], at[1], rgba(r, g, b, 0xFF), shadow)
+    }
+    /// Tooltip lines at `at`, the game's own tooltip box. API 64.
+    pub(super) fn native_tooltip_box(&self, batch: &mut HudBatch, lines: &[(Text, u32)], at: [f32; 2]) {
+        self.draw_tooltip_lines(batch, lines, at[0], at[1]);
+    }
+    /// A stack's tooltip lines, as the game shows them for an item in a slot.
+    /// API 64.
+    pub(super) fn native_stack_tooltip(&self, stack: &ItemStack) -> Vec<(Text, u32)> {
+        self.stack_tooltip(stack)
+    }
+    /// A language key in the player's language, `fallback` when it has none
+    /// (`Component.translatable`). API 64.
+    pub(super) fn native_translate(&self, key: &str, fallback: &str) -> String {
+        self.translate(key, fallback)
+    }
+    /// The display name of item `item` (`getHoverName` of a plain stack). API 64.
+    pub(super) fn native_item_name(&self, item: &str) -> String {
+        self.stack_tooltip(&ItemStack::new(item, 1))
+            .first()
+            .map_or_else(|| item.to_owned(), |(line, _)| line.plain())
+    }
+    /// Whether item `item` is a block's item (`BlockItem`). API 64.
+    pub(super) fn native_item_is_block(&self, item: &str) -> bool {
+        self.pack.assets.registry.default_state(item).is_some()
+    }
+    /// Gives the acting player `count` of `stack`, in stacks of the item's own
+    /// size, and drops what doesn't fit at their feet
+    /// (`ItemHandlerHelper.giveItemToPlayer`). False for an unknown item. API 64.
+    pub(super) fn native_give_stack(&mut self, stack: &ItemStack, count: u32) -> bool {
+        let Some(max) = self.res.items().get(&stack.item).map(|i| i.max_stack) else {
+            return false;
+        };
+        let mut left = count;
+        while left > 0 {
+            let n = left.min(max.max(1));
+            let mut part = stack.clone();
+            part.count = n;
+            self.give_or_drop(part);
+            left -= n;
+        }
+        true
+    }
+    /// The items of item tag `tag` (`c:ingots`, no `#`), in the tag's order. API 64.
+    pub(super) fn native_items_in_tag(&self, tag: &str) -> Vec<String> {
+        self.res.items().item_tag_order.get(tag).cloned().unwrap_or_default()
+    }
+    /// Whether the game knows item `item`. API 64.
+    pub(super) fn native_item_known(&self, item: &str) -> bool {
+        self.res.items().get(item).is_some()
+    }
+    /// A button's click sound on this window. API 64.
+    pub(super) fn native_click_sound(&mut self) {
+        self.audio.play_button_click();
+    }
+    /// Opens a screen of mod `mod_id`'s own over the world, as AE2's guide is:
+    /// the screen hooks fire over it, the mouse is freed, and Escape closes it.
+    /// It doesn't pause a single-player game. True when it is open: false
+    /// while another screen is (or another mod's), over a book, a sign editor
+    /// or a prompt, while the world loads, and anywhere but the window's own
+    /// client. API 64.
+    pub(super) fn native_mod_screen_open(&mut self, mod_id: &str) -> bool {
+        if self.native_mod_screen().is_some_and(|id| id == mod_id) {
+            return true;
+        }
+        let blocked = !self.native_window()
+            || self.title.is_some()
+            || self.renderer.is_none()
+            || self.lan_acting.is_some()
+            || self.player.is_none()
+            || self.screen != Screen::Playing
+            || self.screen_over_playing()
+            || self.remote_loading();
+        if blocked {
+            return false;
+        }
+        self.native_mod_screen = Some(mod_id.to_owned());
+        self.native_mod_screen_held = 0;
+        self.screen = Screen::Mod;
+        self.keys.clear();
+        self.left = false;
+        self.right = false;
+        self.mining = None;
+        self.capture(false);
+        true
+    }
+    /// Closes mod `mod_id`'s own screen, if it is open. API 64.
+    pub(super) fn native_mod_screen_close(&mut self, mod_id: &str) {
+        if self.native_mod_screen().is_some_and(|id| id == mod_id) {
+            self.close_native_mod_screen();
+        }
+    }
+    /// The mod whose own screen is open, if one is (Escape, or another screen
+    /// replacing it, closes it). API 64.
+    pub(super) fn native_mod_screen(&self) -> Option<&str> {
+        self.native_mod_screen
+            .as_deref()
+            .filter(|_| self.screen == Screen::Mod)
+    }
+    /// Escape, or the mod, closes its own screen.
+    pub(super) fn close_native_mod_screen(&mut self) {
+        let open = self.native_mod_screen().is_some();
+        self.native_mod_screen = None;
+        self.native_mod_screen_held = 0;
+        if open {
+            self.screen = Screen::Playing;
+            self.capture(true);
+        }
+    }
+    /// The mod's own screen as its hooks see it.
+    fn native_screen_view(&self, width: f32, height: f32) -> NativeScreenView<'_> {
+        NativeScreenView {
+            id: "mod",
+            menu: None,
+            title: None,
+            rect: [0.0, 0.0, width, height],
+            slots: 0,
+            mouse: self.native_cursor(),
+            partial_tick: 0.0,
+        }
+    }
+    fn native_screen_view_now(&self) -> Option<NativeScreenView<'_>> {
+        self.native_mod_screen()?;
+        let r = self.renderer.as_ref()?;
+        let batch = self.screen_batch([r.config.width, r.config.height]);
+        Some(self.native_screen_view(batch.width, batch.height))
+    }
+    /// GLFW's bits for the modifiers held.
+    fn native_modifiers(&self) -> u32 {
+        u32::from(self.modifiers.shift_key())
+            | u32::from(self.modifiers.control_key()) << 1
+            | u32::from(self.modifiers.alt_key()) << 2
+            | u32::from(self.modifiers.super_key()) << 3
+    }
+    /// Draws a mod's own screen.
+    pub(super) fn draw_native_mod_screen(&self, batch: &mut HudBatch) {
+        if self.native_mod_screen().is_some() {
+            let view = self.native_screen_view(batch.width, batch.height);
+            self.native_screen_render_post(batch, &view);
+        }
+    }
+    /// A key over a mod's own screen: whether the game still acts on it
+    /// (Escape only, when the mod didn't take it).
+    pub(super) fn native_mod_screen_key(&mut self, key: KeyCode) -> bool {
+        let mut canceled = false;
+        if let (Some(name), Some(view)) = (keybinds::key_name(key), self.native_screen_view_now()) {
+            let modifiers = self.native_modifiers();
+            self.native_screen_key_pressed_pre(&view, name, false, modifiers, &mut canceled);
+        }
+        !canceled && key == KeyCode::Escape
+    }
+    /// A mouse button over a mod's own screen.
+    pub(super) fn native_mod_screen_mouse(&mut self, button: MouseButton, pressed: bool) {
+        let index = match button {
+            MouseButton::Left => 0,
+            MouseButton::Right => 1,
+            MouseButton::Middle => 2,
+            MouseButton::Back => 3,
+            MouseButton::Forward => 4,
+            _ => return,
+        };
+        let Some(view) = self.native_screen_view_now() else {
+            return;
+        };
+        let modifiers = self.native_modifiers();
+        let mut canceled = false;
+        if pressed {
+            self.native_screen_mouse_button_pressed_pre(&view, index, modifiers, &mut canceled);
+            self.native_mod_screen_held |= 1 << index;
+        } else {
+            self.native_screen_mouse_button_released_pre(&view, index, modifiers, &mut canceled);
+            self.native_mod_screen_held &= u8::MAX ^ (1 << index);
+        }
+    }
+    /// The pointer moved from `before`: a drag if a button is held.
+    pub(super) fn native_mod_screen_moved(&mut self, before: (f32, f32)) {
+        let held = self.native_mod_screen_held;
+        if held == 0 {
+            return;
+        }
+        let Some(view) = self.native_screen_view_now() else {
+            return;
+        };
+        let delta = [self.cursor.0 - before.0, self.cursor.1 - before.1];
+        let modifiers = self.native_modifiers();
+        for index in 0..5 {
+            if held & (1 << index) != 0 {
+                let mut canceled = false;
+                self.native_screen_mouse_dragged_pre(&view, index, delta, modifiers, &mut canceled);
+            }
+        }
+    }
+    /// The wheel over a mod's own screen.
+    pub(super) fn native_mod_screen_scroll(&mut self, steps: f32) {
+        let Some(view) = self.native_screen_view_now() else {
+            return;
+        };
+        let modifiers = self.native_modifiers();
+        let mut canceled = false;
+        self.native_screen_mouse_scrolled_pre(&view, [0.0, f64::from(steps)], modifiers, &mut canceled);
     }
     /// Item `item`'s icon (`mymod:machine`) with its top left at `at`,
     /// `size` GUI pixels square (16 in a slot); false for an unknown item.

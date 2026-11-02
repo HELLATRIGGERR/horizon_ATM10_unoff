@@ -37,8 +37,15 @@ fn cut(d: f64, places: i32) -> f64 {
 
 /// `getDisplayShort(value, unit)` with the unit's short symbol (`FE`, `J`).
 pub fn short(value: f64, symbol: &str) -> String {
+    short_spaced(value, symbol, true)
+}
+
+/// `getDisplayBase`, short: a space before the prefix for energy, none for
+/// temperatures (`1.88kK`).
+fn short_spaced(value: f64, symbol: &str, space: bool) -> String {
+    let gap = if space { " " } else { "" };
     if value == 0.0 {
-        return format!("0.0 {symbol}");
+        return format!("0.0{gap}{symbol}");
     }
     let (negative, value) = (value < 0.0, value.abs());
     let i = (0..UNITS.len())
@@ -51,7 +58,26 @@ pub fn short(value: f64, symbol: &str) -> String {
     let (prefix, size) = UNITS[i];
     let rounded = cut(value / size, 2);
     let sign = if negative { "-" } else { "" };
-    format!("{sign}{} {prefix}{symbol}", java_double(rounded))
+    format!("{sign}{}{gap}{prefix}{symbol}", java_double(rounded))
+}
+
+/// `MekanismUtils.getTemperatureDisplay(kelvin, KELVIN, ...)` in ATM10's
+/// unit (`temperatureUnit = "KELVIN"`): `1.88kK`, `300.0K`.
+pub fn temperature(kelvin: f64) -> String {
+    short_spaced(kelvin, "K", false)
+}
+
+/// `TextUtils.format(int)` in English: thousands with commas (`24,000`).
+pub fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// `EnergyDisplay.of(joules)`: the amount in the unit screens show.
@@ -113,5 +139,16 @@ mod tests {
         assert_eq!(fraction(3_996_000, 4_000_000, &fe), "1.59 MFE/1.6 MFE");
         assert_eq!(fraction(i64::MAX as u64, i64::MAX as u64, &fe), "Infinite");
         assert_eq!(short(-2_500.0, "J"), "-2.5 kJ");
+    }
+
+    #[test]
+    fn temperatures_and_millibuckets_read_as_in_mekanisms_screens() {
+        assert_eq!(temperature(1881.27), "1.88kK");
+        assert_eq!(temperature(300.0), "300.0K");
+        assert_eq!(temperature(0.0), "0.0K");
+        assert_eq!(temperature(0.0485), "48.5mK");
+        assert_eq!(thousands(24_000), "24,000");
+        assert_eq!(thousands(990), "990");
+        assert_eq!(thousands(1_234_567), "1,234,567");
     }
 }

@@ -1,0 +1,22 @@
+{
+  "template": "minecraft:beacon",
+  "properties": {
+    "hardness": 3.5,
+    "explosion_resistance": 16,
+    "requires_tool": true,
+    "sounds": "minecraft:iron_block",
+    "no_occlusion": true,
+    "light": 0,
+    "light_dampening": 0,
+    "skylight_down": true,
+    "redstone_conductor": false,
+    "suffocating": false
+  },
+  "outline_boxes": {
+    "*": [0.0, 0.0, 0.0, 1.0, 0.5, 1.0]
+  },
+  "collision_boxes": {
+    "*": [0.0, 0.0, 0.0, 1.0, 0.5, 1.0]
+  },
+  "components": { "minecraft:rarity": "common" }
+}

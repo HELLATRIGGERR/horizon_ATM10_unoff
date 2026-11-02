@@ -683,6 +683,8 @@ at that same point; otherwise its chunk is unloading, told at once, after the ch
 goes to disk) and the helper `native_block_entity_changed(pos)` (`setChanged` without touching the entity). A cable network kept in a mod's own state needs no ticking
 block entity with them. Closing a world tells nothing: use `native_world_lifecycle`. Bundles that use them need "hooks": 83.
 
+API 84 adds what a generator reads of the world around it, beside `native_light`, `native_weather` and `native_day_time`: the helper `native_biome(pos)` gives the biome `Level.getBiome` picks at a block (the zoomed noise cell, as vanilla) with its climate there, `NativeBiome { id, base_temperature, temperature, downfall, precipitation }`, where `temperature` is `Biome.getTemperature(pos)` (cooler above the sea level + 17) and `precipitation` none, rain or snow (`getPrecipitationAt`); and `native_dimension_type()` gives the type of the dimension in place, `NativeDimensionType { has_skylight, has_ceiling, ultra_warm }`. Both read the world this game holds, as `native_light` does. Bundles that use them need "hooks": 84.
+
 ## What the launcher does
 
 In the window: install a native mod from the Mods page, into the instance picked on the left ("Installs into

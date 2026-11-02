@@ -1,12 +1,16 @@
-// Builds and tests the pack's Mekanism port in a checkout of this fork: the content mod from the ATM10 carry
-// (mekanism-content), the game staged with the native bundle pack/mods/mekanism (horizon-mixins apply), its
-// build, the crates' unit tests and the world tests.
+// Builds and tests the pack's Mekanism port in a checkout of this fork: the content mods `mekanism` and
+// `mekanismgenerators` from the ATM10 carries (mekanism-content), the game staged with the native bundle
+// pack/mods/mekanism (horizon-mixins apply), its build, the crates' unit tests and the world tests.
 // Usage: bun run pack/scripts/mekanism.ts <step>... (steps: content, units, stage, build, world; all: every one)
 //
 // Paths default to this machine's layout beside the checkout (`<base>` = the checkout's parent folder) and can be
 // set in the environment:
 //   MEK_CARRY        the ATM10 carry of Mekanism      <base>/ports/atm10/mods/mekanism/carry
 //   MEK_CONTENT_DIR  the content mod it writes       <base>/.build/content/mekanism
+//   MEKGEN_CARRY     the carry of Mekanism Generators <base>/ports/atm10/mods/mekanismgenerators/carry
+//   MEKGEN_CONTENT_DIR  its content mod              <base>/.build/content/mekanismgenerators
+//   MEK_VANILLA      the game's client assets (lava for the heat generator's gauge)
+//                                                    .local/horizon-client/26.3 of this or the main checkout
 //   MEK_STAGE        the staged, modded source       <base>/stage-mek
 //   MEK_TARGET       the staged game's target dir    <base>/.build/target-mek-game
 //   MEK_TOOL_TARGET  target dir of the pack's crates <base>/.build/target-mek
@@ -24,12 +28,16 @@ const bundle = join(root, 'pack/mods/mekanism');
 const env = (name: string, fallback: string) => resolve(process.env[name] ?? fallback);
 const carry = env('MEK_CARRY', join(base, 'ports/atm10/mods/mekanism/carry'));
 const content = env('MEK_CONTENT_DIR', join(base, '.build/content/mekanism'));
+const genCarry = env('MEKGEN_CARRY', join(base, 'ports/atm10/mods/mekanismgenerators/carry'));
+const genContent = env('MEKGEN_CONTENT_DIR', join(base, '.build/content/mekanismgenerators'));
 const stage = env('MEK_STAGE', join(base, 'stage-mek'));
 const target = env('MEK_TARGET', join(base, '.build/target-mek-game'));
 const toolTarget = env('MEK_TOOL_TARGET', join(base, '.build/target-mek'));
 const mixins = env('HORIZON_MIXINS', join(base, `.build/target-mixins/debug/horizon-mixins${exe}`));
 const jobs = process.env.MEK_JOBS ?? '2';
 // Small, low-memory builds: no incremental caches, no debug info.
+/** A worktree has neither the prepared resources nor AE2's content: the main checkout's (`<base>/horizon`). */
+const prepared = (path: string) => existsSync(join(root, path)) ? join(root, path) : join(base, 'horizon', path);
 const cargoEnv = { ...process.env, CARGO_INCREMENTAL: '0', CARGO_PROFILE_DEV_DEBUG: '0', CARGO_PROFILE_TEST_DEBUG: '0', CARGO_PROFILE_FAST_DEBUG: '0', CARGO_PROFILE_FAST_INCREMENTAL: 'false' };
 
 async function run(command: string[], cwd = root, extra: Record<string, string | undefined> = cargoEnv): Promise<void> {
@@ -72,8 +80,11 @@ function syncStage(from: string, to: string): number {
 
 const steps: Record<string, () => Promise<void>> = {
   async content() {
-    await run(['cargo', 'run', '--offline', '-q', '-j', jobs, '--manifest-path', join(bundle, 'mekanism-content/Cargo.toml'), '--target-dir', toolTarget,
-      '--', '--carry', carry, '--overlay', join(bundle, 'content'), '--out', content]);
+    const vanilla = resolve(process.env.MEK_VANILLA ?? prepared('.local/horizon-client/26.3'));
+    for (const [from, to] of [[carry, content], [genCarry, genContent]]) {
+      await run(['cargo', 'run', '--offline', '-q', '-j', jobs, '--manifest-path', join(bundle, 'mekanism-content/Cargo.toml'), '--target-dir', toolTarget,
+        '--', '--carry', from, '--overlay', join(bundle, 'content'), '--out', to, '--vanilla', vanilla]);
+    }
   },
   async units() {
     try {
@@ -97,10 +108,8 @@ const steps: Record<string, () => Promise<void>> = {
   async world() {
     const binary = join(target, `fast/horizon-client${exe}`);
     if (!existsSync(binary)) throw new Error(`No staged build at ${binary}; run the build step.`);
-    // A worktree has neither the prepared resources nor AE2's content: the main checkout's (`<base>/horizon`).
-    const prepared = (path: string) => existsSync(join(root, path)) ? join(root, path) : join(base, 'horizon', path);
     const harness = {
-      ...process.env, AE2_TEST_BINARY: binary, MEK_CONTENT_DIR: content,
+      ...process.env, AE2_TEST_BINARY: binary, MEK_CONTENT_DIR: content, MEKGEN_CONTENT_DIR: genContent,
       AE2_RESOURCES: process.env.AE2_RESOURCES ?? prepared('.local/resources/26.3'),
       AE2_CONTENT_DIR: process.env.AE2_CONTENT_DIR ?? prepared('content/ae2'),
       AE2_TEST_STARTUP_MS: process.env.AE2_TEST_STARTUP_MS ?? '600000',

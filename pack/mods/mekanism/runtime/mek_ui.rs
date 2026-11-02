@@ -3,7 +3,9 @@
 // Mekanism's own GUI textures (`mekanism:gui/...`, which `mekanism-content`
 // copies from the carry): its panel, the wide energy gauge, the discharge (-)
 // and charge (+) slots, the side configuration and energy tabs, and the side
-// configuration (`GuiSideConfiguration`) with its energy and item pages.
+// configuration (`GuiSideConfiguration`) with its energy and item pages. The
+// Solar and Heat Generators' screens (`GuiSolarGenerator`, `GuiHeatGenerator`)
+// are drawn the same way, with Mekanism Generators' textures for the sun.
 //
 // Mekanism draws the side configuration as a floating 156x135 window; here
 // the game draws a screen's items over everything the mod draws, so it is a
@@ -21,7 +23,8 @@ use mekanism_energy::{
     config::{self, EnergyConfig},
     cube,
     display,
-    menu::{Button, Kind, View},
+    generator::GeneratorKind,
+    menu::{Button, GeneratorView, Kind, View},
     sides::{DataType, RelativeSide},
     tier::CubeTier,
 };
@@ -41,7 +44,7 @@ thread_local! {
     static SETTINGS: RefCell<Option<(EnergyConfig, Stamp, Instant)>> = const { RefCell::new(None) };
 }
 
-type Stamp = [Option<std::time::SystemTime>; 3];
+type Stamp = config::Stamp;
 
 /// The settings, read again when a file changed (looked at once a second).
 fn settings() -> EnergyConfig {
@@ -50,7 +53,7 @@ fn settings() -> EnergyConfig {
         let stale = s.as_ref().is_none_or(|(_, _, at)| at.elapsed() >= Duration::from_secs(1));
         if stale {
             let dir = Game::native_config_dir().ok();
-            let stamp = dir.as_deref().map_or([None; 3], config::stamp);
+            let stamp = dir.as_deref().map_or([None; 5], config::stamp);
             if s.as_ref().is_none_or(|(_, old, _)| *old != stamp) {
                 let fresh = dir.as_deref().map(EnergyConfig::load).unwrap_or_default();
                 *s = Some((fresh, stamp, Instant::now()));
@@ -65,7 +68,14 @@ fn settings() -> EnergyConfig {
 /// `native_screen`: `GuiEnergyCube`'s size, its two slots, and the labels it
 /// draws itself. A screen opening starts on the cube's page.
 pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
-    if screen.is_some() || CubeTier::of_block(block).is_none() {
+    if screen.is_some() {
+        return;
+    }
+    if let Some(kind) = GeneratorKind::of_block(block) {
+        *screen = Some(generator_screen(kind));
+        return;
+    }
+    if CubeTier::of_block(block).is_none() {
         return;
     }
     PAGE.with(|p| p.set(0));
@@ -224,6 +234,10 @@ fn side_name(side: RelativeSide) -> &'static str {
 
 /// `native_screen_tooltip`.
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    if let Some(kind) = GeneratorKind::of_block(block) {
+        lines.extend(generator_tip(kind, &generator_view(data), &settings(), at));
+        return;
+    }
     if CubeTier::of_block(block).is_none() {
         return;
     }
@@ -274,6 +288,14 @@ impl Pen<'_, '_> {
 
     fn whole(&mut self, name: &str, size: [f32; 2], dst: Rect) {
         self.sprite(name, [0.0, 0.0, size[0], size[1]], dst);
+    }
+
+    /// A sprite named in full (`mekanismgenerators:gui/...`); false when the
+    /// atlas has none.
+    fn sprite_from(&mut self, name: &str, src: Rect, dst: Rect) -> bool {
+        let [x, y, w, h] = dst;
+        let at = [self.origin[0] + x, self.origin[1] + y, w, h];
+        self.game.native_sprite(self.batch, name, src, at)
     }
 
     /// `blitNineSlicedSized`: the corners as they are, edges and middle
@@ -359,6 +381,13 @@ fn side_color(t: DataType) -> u32 {
 
 /// `native_screen_draw`.
 pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    if let Some(kind) = GeneratorKind::of_block(block) {
+        let cursor = game.native_cursor();
+        let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
+        let mut pen = Pen { game, batch, origin, cursor };
+        draw_generator(&mut pen, kind, &generator_view(data), &settings());
+        return;
+    }
     let Some(tier) = CubeTier::of_block(block) else {
         return;
     };
@@ -443,6 +472,136 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         pen.button(r, true);
         pen.fill([r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0], side_color(sides[side.index()]));
     }
+}
+
+// ---- Generators ---------------------------------------------------------------
+
+/// `GuiSolarGenerator` and `GuiHeatGenerator`: the energy tab, the vertical
+/// power bar on the right, and the energy slot; the solar generator's screen
+/// of its energy, production and output with the sun's state beside it; the
+/// heat generator's lava gauge, fuel slot and heat tab.
+const HEAT_TAB: Rect = [-26.0, 109.0, 26.0, 26.0];
+const POWER_BAR: Rect = [164.0, 15.0, 6.0, 54.0];
+const SOLAR_SCREEN: Rect = [40.0, 23.0, 96.0, 40.0];
+const SUN: Rect = [18.0, 35.0, 16.0, 16.0];
+/// Lava's colour where its texture is missing (`mekanism-content` copies it
+/// from the game's own when it is given the game's assets).
+const LAVA: u32 = 0xFFD4_5A12;
+
+fn generator_view(data: &[i32]) -> GeneratorView {
+    GeneratorView::unpack(data).unwrap_or_default()
+}
+
+/// `native_screen` for a generator: its slots where Mekanism puts them.
+fn generator_screen(kind: GeneratorKind) -> NativeScreen {
+    let slots = match kind {
+        GeneratorKind::Solar => vec![Some([143.0, 35.0]), None, None, None, None],
+        GeneratorKind::Heat => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
+    };
+    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true }
+}
+
+/// The tooltip of what is under `at` on a generator's screen.
+fn generator_tip(kind: GeneratorKind, view: &GeneratorView, settings: &EnergyConfig, at: [f32; 2]) -> Vec<String> {
+    let energy = |j: u64| display::energy(j, settings);
+    if inside(ENERGY_TAB, at) {
+        return vec![format!("Producing: {}/t", energy(view.produced)), format!("Max Output: {}/t", energy(view.max_output))];
+    }
+    if inside(POWER_BAR, at) {
+        return vec![display::fraction(view.stored, view.capacity, settings)];
+    }
+    if kind == GeneratorKind::Heat {
+        if inside(HEAT_TAB, at) {
+            return vec![
+                format!("Temperature: {}", display::temperature(view.temperature)),
+                format!("Transferred: {}/t", display::temperature(view.transfer_loss)),
+                format!("Dissipated: {}/t", display::temperature(view.environment_loss)),
+            ];
+        }
+        if inside(GAUGE, at) {
+            return vec![if view.lava == 0 { "Empty".to_owned() } else { format!("Lava: {} mB", display::thousands(u64::from(view.lava))) }];
+        }
+    }
+    Vec::new()
+}
+
+/// `text`, or when it is wider than `width`, `short` (Mekanism scales its
+/// screen's text to 0.8 and scrolls what still doesn't fit).
+fn fit(game: &Game<'_>, text: String, short: String, width: f32) -> String {
+    if game.native_text_width(&text) <= width { text } else { short }
+}
+
+/// Draws a generator's screen.
+fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorView, settings: &EnergyConfig) {
+    pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, 176.0, 166.0]);
+    let unit = if settings.show_fe { "fe" } else { "j" };
+    pen.whole(&format!("tabs/energy_info_{unit}"), [26.0, 26.0], ENERGY_TAB);
+    // GuiVerticalPowerBar: the bar's frame, then the energy from the bottom.
+    pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], POWER_BAR);
+    let level = if view.capacity == 0 { 0.0 } else { view.stored as f64 / view.capacity as f64 };
+    let filled = (level * 52.0) as i32;
+    if filled > 0 {
+        let h = filled as f32;
+        pen.sprite("bar/vertical_power", [0.0, 0.0, 4.0, h], [POWER_BAR[0] + 1.0, POWER_BAR[1] + POWER_BAR[3] - 1.0 - h, 4.0, h]);
+    }
+    // The energy slot charges items (`EnergyInventorySlot.drain`).
+    pen.slot("power", Some("overlay_power"), 142.0, 34.0);
+    match kind {
+        GeneratorKind::Solar => {
+            let [x, y, w, h] = SOLAR_SCREEN;
+            pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], SOLAR_SCREEN);
+            let width = w - 6.0;
+            let energy = |j: u64| display::energy(j, settings);
+            let lines = [
+                fit(pen.game, display::fraction(view.stored, view.capacity, settings), energy(view.stored), width),
+                fit(pen.game, format!("Producing: {}/t", energy(view.produced)), format!("{}/t", energy(view.produced)), width),
+                fit(pen.game, format!("Out: {}/t", energy(view.max_output)), format!("{}/t", energy(view.max_output)), width),
+            ];
+            // Three lines of 9 pixels 2 apart, centred in the screen's height.
+            let mut line_y = y + ((h - (11.0 * 3.0 - 2.0)) / 2.0).floor();
+            for line in lines {
+                pen.text(&line, [x + 3.0, line_y], SCREEN_TEXT);
+                line_y += 11.0;
+            }
+            // GuiStateTexture: the holder, then the sun or no sun.
+            pen.sprite_from("mekanismgenerators:gui/state_holder", [0.0, 0.0, 16.0, 16.0], SUN);
+            let icon = if view.sees_sun { "sees_sun" } else { "no_sun" };
+            pen.sprite_from(&format!("mekanismgenerators:gui/{icon}"), [0.0, 0.0, 12.0, 12.0], [SUN[0] + 2.0, SUN[1] + 2.0, 12.0, 12.0]);
+        }
+        GeneratorKind::Heat => {
+            pen.whole("tabs/heat_info_k", [26.0, 26.0], HEAT_TAB);
+            pen.slot("extra", None, 16.0, 34.0);
+            // GuiFluidGauge, wide: the frame, lava from the bottom, the scale.
+            pen.nine("gauge/normal", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], GAUGE);
+            let inner = GAUGE[3] - 2.0;
+            if view.lava > 0 && view.tank > 0 {
+                let scale = (view.lava as f32 / view.tank as f32 * inner).round().max(1.0);
+                let mut y = GAUGE[1] + 1.0 + inner;
+                let mut left = scale;
+                while left > 0.0 {
+                    let h = left.min(16.0);
+                    y -= h;
+                    for col in 0..4 {
+                        let x = GAUGE[0] + 1.0 + 16.0 * col as f32;
+                        if !pen.sprite_from("mekanismgenerators:gui/lava_fill", [0.0, 16.0 - h, 16.0, h], [x, y, 16.0, h]) {
+                            pen.fill([x, y, 16.0, h], LAVA);
+                        }
+                    }
+                    left -= h;
+                }
+            }
+            pen.whole("gauge/wide", [64.0, 48.0], [GAUGE[0] + 1.0, GAUGE[1] + 1.0, 64.0, 48.0]);
+        }
+    }
+    for row in 0..4 {
+        let y = if row == 3 { 141.0 } else { 83.0 + 18.0 * row as f32 };
+        for col in 0..9 {
+            pen.slot("normal", None, 7.0 + 18.0 * col as f32, y);
+        }
+    }
+    let title = pen.game.native_screen_title().unwrap_or_default();
+    pen.centered(&title, 0.0, 176.0, 6.0, TITLE);
+    pen.text("Inventory", [8.0, 72.0], TITLE);
 }
 
 // ---- Items ------------------------------------------------------------------

@@ -1,7 +1,10 @@
 // Mekanism's energy blocks in the game (support module `crate::game::mek_world`
 // of the `mekanism` native bundle). The rules are the bundle's crate
-// `mekanism_energy` (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025
-// Aidan C. Brady); this module is the glue: the cubes' block entities and
+// `mekanism_energy` (MIT, from Mekanism and Mekanism Generators 10.7.19,
+// Copyright (c) 2017-2025 Aidan C. Brady); this module is the glue: the
+// Solar and Heat Generators (what they read of the world: the sun, the weather,
+// the biome and its dimension through hook points API 84, lava beside them, the
+// fuel in their slot), the cubes' block entities and
 // their saved compound, the ejector's neighbours, Forge Energy at the cube's
 // edge (hook points API 81), universal cables and their networks (kept here,
 // per dimension, through the block entity lifecycle hook points API 83; each
@@ -32,12 +35,15 @@ use horizon_world::{
 };
 use mekanism_energy::{
     config::{self, EnergyConfig},
-    container::Automation,
+    container::{Automation, EnergyContainer},
     cube::{self, CubeState},
     fe::{self, Conversion, StrictEnergy},
-    menu::{Button, View},
+    generator::GeneratorKind,
+    heat::{self, Activity, Ambient, Fuel, HeatGenerator, SlotUse},
+    menu::{Button, GeneratorView, View},
     network::{self, Connection, Networks},
     sides::{self, DataType, Direction, RelativeSide},
+    solar::{self, SolarCheck, Sky},
     tier::{CableTier, CubeTier},
 };
 use std::{
@@ -51,7 +57,7 @@ use std::{
 struct Settings {
     energy: EnergyConfig,
     from_files: bool,
-    stamp: [Option<std::time::SystemTime>; 3],
+    stamp: config::Stamp,
 }
 
 thread_local! {
@@ -71,6 +77,18 @@ thread_local! {
     static ANSWERS: Cell<u64> = const { Cell::new(0) };
     /// Blocks set since the last level tick, for the cables beside them.
     static SET_BLOCKS: RefCell<Vec<[i32; 3]>> = const { RefCell::new(Vec::new()) };
+    /// What each generator read of its biome on its first tick since it was
+    /// placed or loaded (`SolarCheck`, `CachedAmbientTemperature`), by
+    /// dimension and position.
+    static GENERATORS: RefCell<HashMap<(String, [i32; 3]), Climate>> = RefCell::new(HashMap::new());
+}
+
+/// A generator's reading of its biome, kept until it unloads, as Mekanism
+/// keeps it in the block entity.
+#[derive(Clone, Copy)]
+enum Climate {
+    Solar(SolarCheck),
+    Heat(Ambient),
 }
 
 /// A dimension's cables.
@@ -118,7 +136,7 @@ fn read_settings() -> Settings {
         },
         Err(e) => {
             log::warn!("[mekanism] no config folder ({e}): Mekanism's defaults");
-            Settings { energy: EnergyConfig::default(), from_files: false, stamp: [None; 3] }
+            Settings { energy: EnergyConfig::default(), from_files: false, stamp: [None; 5] }
         }
     }
 }
@@ -142,6 +160,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     CABLES.with(|c| c.borrow_mut().clear());
     ANY_CABLES.set(false);
     SET_BLOCKS.with(|s| s.borrow_mut().clear());
+    GENERATORS.with(|g| g.borrow_mut().clear());
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -240,6 +259,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     if entity.is_some() {
         return;
     }
+    if GeneratorKind::of_block(block).is_some() {
+        *entity = Some((block.to_owned(), Compound::new()));
+        return;
+    }
     if CableTier::of_block(block).is_some() {
         let mut nbt = Compound::new();
         write_connections(&mut nbt, &[Connection::Normal; 6]);
@@ -254,9 +277,9 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     *entity = Some((block.to_owned(), nbt));
 }
 
-/// `native_block_entity_ticks`: cubes tick.
+/// `native_block_entity_ticks`: cubes and generators tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if CubeTier::of_block(block).is_some() {
+    if CubeTier::of_block(block).is_some() || GeneratorKind::of_block(block).is_some() {
         *ticks = true;
     }
 }
@@ -266,7 +289,14 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
 /// other three slots the screen leaves out. Every face reaches both; hoppers
 /// put into the charge slot and take from both.
 pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
-    if container.is_some() || CubeTier::of_block(block).is_none() {
+    if container.is_some() {
+        return;
+    }
+    if let Some(kind) = GeneratorKind::of_block(block) {
+        *container = Some(generator_container(kind));
+        return;
+    }
+    if CubeTier::of_block(block).is_none() {
         return;
     }
     *container = Some(ModContainer {
@@ -298,6 +328,9 @@ enum Target {
     Cube,
     /// A cable, whose network takes Joules.
     Cable,
+    /// A generator's energy face: it takes nothing from outside
+    /// (`BasicEnergyContainer.output`), but a cable connects to it.
+    Generator,
     /// Any other block with Forge Energy on the touching side, as Mekanism
     /// sees it through `ForgeStrictEnergyHandler`.
     Fe { can_receive: bool },
@@ -311,6 +344,15 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     let cable = with_cables(dimension, |d| d.nets.cable(at).map(|_| d.nets.exposed(at, Some(side as usize)).is_some()));
     if let Some(open) = cable {
         return open.then_some(Target::Cable);
+    }
+    let generator = game
+        .native_with_mod_block_entity(at, |m| {
+            let kind = GeneratorKind::of_block(&m.id)?;
+            Some(kind.energy_face(generator_facing(&m.nbt)) == side)
+        })
+        .flatten();
+    if let Some(exposed) = generator {
+        return exposed.then_some(Target::Generator);
     }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
@@ -366,6 +408,7 @@ fn hand_over(
     let at = beside(pos, face);
     match target {
         Target::Cube => offer(game, config, pos, face, amount, simulate),
+        Target::Generator => amount,
         Target::Cable => with_cables(dimension, |d| d.nets.insert_at(at, Some(face.opposite() as usize), amount, simulate)),
         Target::Fe { can_receive } => {
             let side = Some(engine_face(face.opposite()));
@@ -384,6 +427,10 @@ fn hand_over(
 /// Energy blocks alike; then the menu's data slots. Redstone control is
 /// IGNORED, the default; the slots hold no energy items yet.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
+    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+        tick_generator(game, pos, entity, kind);
+        return;
+    }
     let Some(tier) = CubeTier::of_block(&entity.id) else {
         return;
     };
@@ -392,18 +439,8 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     let mut cube = read_cube(&entity.nbt, tier, capacity);
     if cube.eject && cube.stored > 0 {
         let before = cube.stored;
-        let dimension = game.native_dimension();
-        let targets: Vec<(Direction, Target)> = cube
-            .output_faces()
-            .into_iter()
-            .filter_map(|face| Some((face, target_on(game, &config, dimension, pos, face)?)))
-            .collect();
-        let rate = Conversion(config.fe_conversion_rate);
         let mut container = cube.container(capacity, output);
-        cube::emit(&mut container, output, targets.len(), |i, amount, simulate| {
-            let (face, target) = targets[i];
-            hand_over(game, &config, rate, dimension, pos, face, target, amount, simulate)
-        });
+        eject(game, &config, pos, &cube.output_faces(), &mut container, output);
         cube.stored = container.stored;
         if cube.stored != before {
             write_energy(&mut entity.nbt, cube.stored);
@@ -411,6 +448,25 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     let input = RECEIVED.with(|r| r.borrow_mut().remove(&pos)).unwrap_or(0);
     entity.data = View::of(&cube, capacity, output, input).pack();
+}
+
+/// The ejector (`CableUtils.emit`): up to `max_output` out of `container`
+/// through `faces`, split among the neighbours that take energy there. What
+/// went out.
+fn eject(game: &mut Game<'_>, config: &EnergyConfig, pos: [i32; 3], faces: &[Direction], container: &mut EnergyContainer, max_output: u64) -> u64 {
+    if container.stored == 0 {
+        return 0;
+    }
+    let dimension = game.native_dimension();
+    let targets: Vec<(Direction, Target)> = faces
+        .iter()
+        .filter_map(|&face| Some((face, target_on(game, config, dimension, pos, face)?)))
+        .collect();
+    let rate = Conversion(config.fe_conversion_rate);
+    cube::emit(container, max_output, targets.len(), |i, amount, simulate| {
+        let (face, target) = targets[i];
+        hand_over(game, config, rate, dimension, pos, face, target, amount, simulate)
+    })
 }
 
 /// The Joules the cube last counted as taken in, from the menu's data slots.
@@ -502,6 +558,21 @@ pub(super) fn fe_storage(
         return;
     }
     let (config, _) = energy_config();
+    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+        let energy_face = kind.energy_face(generator_facing(&entity.nbt));
+        if config.blacklist_forge || face.is_some_and(|f| mek_direction(f) != energy_face) {
+            return;
+        }
+        let container = generator_store(&entity.nbt, kind, &config);
+        let rate = Conversion(config.fe_conversion_rate);
+        *info = Some(NativeFeInfo {
+            stored: i64::from(rate.to_fe_int(container.stored.min(i64::MAX as u64) as i64)),
+            capacity: i64::from(rate.to_fe_int(container.capacity.min(i64::MAX as u64) as i64)),
+            can_receive: true,
+            can_extract: true,
+        });
+        return;
+    }
     if CableTier::of_block(&entity.id).is_some() {
         if config.blacklist_forge {
             return;
@@ -548,6 +619,23 @@ pub(super) fn fe_transfer(
         return;
     }
     let (config, _) = energy_config();
+    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+        let energy_face = kind.energy_face(generator_facing(&entity.nbt));
+        if config.blacklist_forge || face.is_some_and(|f| mek_direction(f) != energy_face) {
+            return;
+        }
+        let container = generator_store(&entity.nbt, kind, &config);
+        let before = container.stored;
+        let mut side = GeneratorSide { container, open: face.is_some() };
+        let rate = Conversion(config.fe_conversion_rate);
+        let max = max.clamp(0, i64::from(i32::MAX)) as i32;
+        let fe = if extract { fe::extract_fe(&mut side, rate, max, simulate) } else { fe::receive_fe(&mut side, rate, max, simulate) };
+        if !simulate && side.container.stored != before {
+            write_energy(&mut entity.nbt, side.container.stored);
+        }
+        *moved = Some(i64::from(fe));
+        return;
+    }
     if CableTier::of_block(&entity.id).is_some() {
         if config.blacklist_forge {
             return;
@@ -636,8 +724,12 @@ fn write_connections(nbt: &mut Compound, connections: &[Connection; 6]) {
 /// the share it saved (`registerOrphanTransmitter`); the cables around a cube
 /// that came look at it again.
 pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity) {
+    if GeneratorKind::of_block(&entity.id).is_some() {
+        forget_climate(dimension, pos);
+    }
     let Some(tier) = CableTier::of_block(&entity.id) else {
-        if CubeTier::of_block(&entity.id).is_some() && ANY_CABLES.get() {
+        let energy = CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
+        if energy && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
@@ -655,8 +747,12 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
 /// Unloading, it takes what its save holds with it (`onChunkUnloaded`); broken,
 /// it takes nothing and the rest of the network keeps the energy.
 pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) {
+    if GeneratorKind::of_block(&entity.id).is_some() {
+        forget_climate(dimension, pos);
+    }
     if CableTier::of_block(&entity.id).is_none() {
-        if CubeTier::of_block(&entity.id).is_some() && ANY_CABLES.get() {
+        let energy = CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
+        if energy && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
@@ -723,6 +819,23 @@ fn refresh_cable(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, po
 fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 3], face: Direction, amount: u64, simulate: bool) -> u64 {
     let at = beside(pos, face);
     let side = face.opposite();
+    let generator = game
+        .native_with_mod_block_entity(at, |m| {
+            let kind = GeneratorKind::of_block(&m.id)?;
+            if kind.energy_face(generator_facing(&m.nbt)) != side {
+                return Some(0);
+            }
+            let mut container = generator_store(&m.nbt, kind, config);
+            let given = container.extract(amount, simulate, Automation::External);
+            if !simulate && given > 0 {
+                write_energy(&mut m.nbt, container.stored);
+            }
+            Some(given)
+        })
+        .flatten();
+    if let Some(given) = generator {
+        return given;
+    }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
             let tier = CubeTier::of_block(&m.id)?;
@@ -1063,6 +1176,383 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     });
 }
 
+// ---- Generators (Mekanism Generators) --------------------------------------
+
+/// `fluid_tanks`, `heat_capacitors`, `active_state` and `update_delay`, Mekanism's names.
+const LAVA: &str = "minecraft:lava";
+
+/// The face a generator's front is on: the heat generator's `facing`, which
+/// its tick copies from its block into its saved compound so the Forge Energy
+/// hook points (which see only the entity) know it; north until then.
+fn generator_facing(nbt: &Compound) -> Direction {
+    match nbt.get(&key("facing")) {
+        Some(Tag::String(s)) => Direction::from_name(&s.to_string_lossy()).unwrap_or(Direction::North),
+        _ => Direction::North,
+    }
+}
+
+/// A generator's store as its compound holds it.
+fn generator_store(nbt: &Compound, kind: GeneratorKind, config: &EnergyConfig) -> EnergyContainer {
+    let mut container = EnergyContainer::output(kind.capacity(&config.generators));
+    container.stored = saved_energy(nbt).unwrap_or(0).min(container.capacity);
+    container
+}
+
+/// `fluid_tanks: [{tank: 0b, stored: {id: "minecraft:lava", amount: 1000}}]`,
+/// left out when empty (`IExtendedFluidTank.serializeNBT`).
+fn saved_lava(nbt: &Compound) -> u32 {
+    let Some(Tag::List(list)) = nbt.get(&key("fluid_tanks")) else {
+        return 0;
+    };
+    list.iter()
+        .find_map(|entry| match entry {
+            Tag::Compound(c) if number(c.get(&key("tank"))).unwrap_or(0) == 0 => match c.get(&key("stored")) {
+                Some(Tag::Compound(fluid)) => Some(number(fluid.get(&key("amount"))).unwrap_or(0).clamp(0, i64::from(i32::MAX)) as u32),
+                _ => None,
+            },
+            _ => None,
+        })
+        .unwrap_or(0)
+}
+
+fn write_lava(nbt: &mut Compound, lava: u32) {
+    if lava == 0 {
+        nbt.remove(&key("fluid_tanks"));
+        return;
+    }
+    let mut fluid = Compound::new();
+    fluid.insert(key("id"), Tag::String(key(LAVA)));
+    fluid.insert(key("amount"), Tag::Int(lava.min(i32::MAX as u32) as i32));
+    let mut tank = Compound::new();
+    tank.insert(key("tank"), Tag::Byte(0));
+    tank.insert(key("stored"), Tag::Compound(fluid));
+    nbt.insert(key("fluid_tanks"), Tag::List(vec![Tag::Compound(tank)]));
+}
+
+/// `heat_capacitors: [{container: 0b, stored: 3000.0d, heat_capacity: 10.0d}]`.
+fn saved_heat(nbt: &Compound) -> Option<f64> {
+    let Some(Tag::List(list)) = nbt.get(&key("heat_capacitors")) else {
+        return None;
+    };
+    list.iter().find_map(|entry| match entry {
+        Tag::Compound(c) if number(c.get(&key("container"))).unwrap_or(0) == 0 => match c.get(&key("stored")) {
+            Some(Tag::Double(bits)) => Some(f64::from_bits(*bits)),
+            Some(Tag::Float(bits)) => Some(f64::from(f32::from_bits(*bits))),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+fn write_heat(nbt: &mut Compound, heat: f64) {
+    let mut capacitor = Compound::new();
+    capacitor.insert(key("container"), Tag::Byte(0));
+    capacitor.insert(key("stored"), Tag::Double(heat.to_bits()));
+    capacitor.insert(key("heat_capacity"), Tag::Double(heat::HEAT_CAPACITY.to_bits()));
+    nbt.insert(key("heat_capacitors"), Tag::List(vec![Tag::Compound(capacitor)]));
+}
+
+fn read_activity(nbt: &Compound) -> Activity {
+    Activity {
+        current: number(nbt.get(&key("active_state"))).unwrap_or(0) != 0,
+        delay: number(nbt.get(&key("update_delay"))).unwrap_or(0).clamp(0, 1200) as u32,
+    }
+}
+
+fn write_activity(nbt: &mut Compound, activity: Activity) {
+    nbt.insert(key("active_state"), Tag::Byte(i8::from(activity.current)));
+    nbt.insert(key("update_delay"), Tag::Int(activity.delay as i32));
+}
+
+/// A generator's slots in a hopper's five-slot menu, the screen showing its
+/// own: the solar generator's energy slot (0); the heat generator's fuel slot
+/// (0, which hoppers fill with what burns) and energy slot (1). Faces are a
+/// block's, not its front's, so every face reaches both; hoppers take only
+/// from the energy slot, as a fuel slot's coal must stay.
+fn generator_container(kind: GeneratorKind) -> ModContainer {
+    let (shown, inputs, outputs) = match kind {
+        GeneratorKind::Solar => (vec![0], vec![0], vec![0]),
+        GeneratorKind::Heat => (vec![0, 1], vec![0], vec![1]),
+    };
+    ModContainer {
+        slots: 5,
+        faces: std::array::from_fn(|_| shown.clone()),
+        inputs,
+        outputs,
+        menu: Some("minecraft:hopper".into()),
+    }
+}
+
+/// `native_block_entity_slot_accepts`: the heat generator's fuel slot takes
+/// what burns in a furnace, a lava bucket included (`fuelValue > 0`).
+pub(super) fn slot_accepts(block: &str, slot: usize, fuel: bool, accepts: &mut bool) {
+    if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {
+        *accepts = false;
+    }
+}
+
+/// The generator's reading of its biome, made on its first tick (`recheckSettings`,
+/// `CachedAmbientTemperature`) and kept until it unloads.
+fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind) -> Option<Climate> {
+    let id = (dimension.to_owned(), pos);
+    if let Some(found) = GENERATORS.with(|g| g.borrow().get(&id).copied()) {
+        return Some(found);
+    }
+    let made = match kind {
+        GeneratorKind::Solar => {
+            let biome = game.native_biome(pos)?;
+            let rain = biome.precipitation != super::native_hooks::NativePrecipitation::None;
+            Climate::Solar(SolarCheck::new(biome.temperature, biome.downfall, rain))
+        }
+        GeneratorKind::Heat => {
+            let air = |p: [i32; 3]| game.native_biome(p).map(|b| heat::ambient_temperature(b.temperature));
+            let own = air(pos)?;
+            let sides = Direction::ALL.map(|d| air(beside(pos, d)).unwrap_or(own));
+            Climate::Heat(Ambient { own, sides })
+        }
+    };
+    GENERATORS.with(|g| g.borrow_mut().insert(id, made));
+    Some(made)
+}
+
+fn forget_climate(dimension: &str, pos: [i32; 3]) {
+    GENERATORS.with(|g| g.borrow_mut().remove(&(dimension.to_owned(), pos)));
+}
+
+/// `native_block_entity_tick` of a generator (`TileEntityGenerator.onUpdateServer`
+/// and its kinds'): the ejector first, at up to the max output out of its
+/// energy face, then what it makes this tick, then the screen's data slots.
+/// Redstone control is IGNORED, the default; the energy slot charges nothing
+/// until items carry energy.
+fn tick_generator(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, kind: GeneratorKind) {
+    let (config, _) = energy_config();
+    let dimension = game.native_dimension();
+    match kind {
+        GeneratorKind::Solar => tick_solar(game, &config, dimension, pos, entity),
+        GeneratorKind::Heat => tick_heat(game, &config, dimension, pos, entity),
+    }
+}
+
+/// `TileEntitySolarGenerator.onUpdateServer`.
+fn tick_solar(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 3], entity: &mut ModBlockEntity) {
+    let generation = config.generators.solar_generation;
+    let mut container = generator_store(&entity.nbt, GeneratorKind::Solar, config);
+    let before = container.stored;
+    let known = GENERATORS.with(|g| g.borrow().get(&(dimension.to_owned(), pos)).copied());
+    let check = match known {
+        Some(Climate::Solar(c)) => Some(c),
+        _ => None,
+    };
+    // The first tick ejects at twice `solarGeneration`: the biome is read after.
+    eject(game, config, pos, &[Direction::Down], &mut container, solar::max_output(generation, check.as_ref()));
+    let check = match climate(game, dimension, pos, GeneratorKind::Solar) {
+        Some(Climate::Solar(c)) => Some(c),
+        _ => None,
+    };
+    let kind = game.native_dimension_type();
+    let (rain, thunder) = game.native_weather();
+    let sky = Sky { day_time: game.native_day_time(), rain, thunder, has_skylight: kind.has_skylight, has_ceiling: kind.has_ceiling };
+    let (_, sky_light) = game.native_light(pos);
+    let made = match &check {
+        Some(c) => solar::generate(&mut container, generation, c, &sky, sky_light),
+        None => solar::Made { sees_sun: false, active: false, produced: 0 },
+    };
+    if container.stored != before {
+        write_energy(&mut entity.nbt, container.stored);
+    }
+    entity.data = GeneratorView {
+        stored: container.stored,
+        capacity: container.capacity,
+        produced: made.produced,
+        max_output: solar::max_output(generation, check.as_ref()),
+        sees_sun: made.sees_sun,
+        ..GeneratorView::default()
+    }
+    .pack();
+}
+
+/// What the fuel slot holds, as `fill_or_burn` needs it.
+fn fuel_in(game: &Game<'_>, slot: Option<&ItemStack>) -> Option<Fuel> {
+    let stack = slot.filter(|s| s.count > 0)?;
+    Some(Fuel {
+        count: stack.count,
+        lava_bucket: &*stack.item == "minecraft:lava_bucket",
+        burn_time: game.native_burn_time(stack),
+        has_remainder: game.native_crafting_remainder(&stack.item).is_some(),
+    })
+}
+
+/// `TileEntityHeatGenerator.onUpdateServer`, with `tickServer`'s active state
+/// delay around it and the capacitor's update after it.
+fn tick_heat(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 3], entity: &mut ModBlockEntity) {
+    let generators = &config.generators;
+    let facing = game
+        .native_block_property(pos, "facing")
+        .and_then(|f| Direction::from_name(&f))
+        .unwrap_or(Direction::North);
+    if generator_facing(&entity.nbt) != facing || !entity.nbt.contains_key(&key("facing")) {
+        entity.nbt.insert(key("facing"), Tag::String(key(facing.name())));
+    }
+    let mut activity = read_activity(&entity.nbt);
+    let mut shown = game.native_block_property(pos, "active").as_deref() == Some("true");
+    let changed = activity.tick(shown);
+    show_active(game, pos, changed, &mut shown);
+    let mut generator = HeatGenerator {
+        energy: generator_store(&entity.nbt, GeneratorKind::Heat, config).stored,
+        lava: saved_lava(&entity.nbt).min(generators.heat_tank_capacity),
+        heat: saved_heat(&entity.nbt),
+    };
+    let before = generator;
+    // The ejector, out of the front.
+    let mut container = generator.container(generators);
+    eject(game, config, pos, &[GeneratorKind::Heat.energy_face(facing)], &mut container, heat::max_output(generators));
+    generator.energy = container.stored;
+    // The fuel slot: a lava bucket empties into the tank, fuel burns into lava.
+    let fuel = fuel_in(game, entity.items.first().and_then(Option::as_ref));
+    match heat::fill_or_burn(&mut generator.lava, generators.heat_tank_capacity, fuel) {
+        SlotUse::Kept => {}
+        SlotUse::Remainder => {
+            let item = entity.items.first().and_then(Option::as_ref).map(|s| s.item.clone());
+            let rest = item.and_then(|i| game.native_crafting_remainder(&i));
+            if let Some(slot) = entity.items.first_mut() {
+                *slot = rest;
+            }
+        }
+        SlotUse::ShrunkOne => {
+            if let Some(slot) = entity.items.first_mut() {
+                if let Some(stack) = slot.as_mut() {
+                    stack.count -= 1;
+                }
+                if slot.as_ref().is_some_and(|s| s.count == 0) {
+                    *slot = None;
+                }
+            }
+        }
+    }
+    let ambient = match climate(game, dimension, pos, GeneratorKind::Heat) {
+        Some(Climate::Heat(a)) => a,
+        _ => Ambient::uniform(heat::AMBIENT_TEMP),
+    };
+    // Lava on each face (`FluidTags.LAVA`: vanilla's lava, still or flowing).
+    let lava_sides = Direction::ALL.iter().filter(|&&d| game.native_block(beside(pos, d)) == LAVA).count() as u32;
+    let ultra_warm = game.native_dimension_type().ultra_warm;
+    let made = generator.heat_tick(generators, &ambient, lava_sides, ultra_warm);
+    let changed = activity.set(made.active, shown, config.deactivation_delay);
+    show_active(game, pos, changed, &mut shown);
+    if generator.energy != before.energy {
+        write_energy(&mut entity.nbt, generator.energy);
+    }
+    if generator.lava != before.lava {
+        write_lava(&mut entity.nbt, generator.lava);
+    }
+    if let Some(heat) = generator.heat
+        && Some(heat) != before.heat
+    {
+        write_heat(&mut entity.nbt, heat);
+    }
+    if activity != read_activity(&entity.nbt) || !entity.nbt.contains_key(&key("active_state")) {
+        write_activity(&mut entity.nbt, activity);
+    }
+    entity.data = GeneratorView {
+        stored: generator.energy,
+        capacity: generators.heat_storage,
+        produced: made.produced,
+        max_output: heat::max_output(generators),
+        sees_sun: false,
+        lava: generator.lava,
+        tank: generators.heat_tank_capacity,
+        temperature: generator.temperature(&ambient),
+        transfer_loss: made.transfer_loss,
+        environment_loss: made.environment_loss,
+    }
+    .pack();
+}
+
+/// Sets the block's `active` (`setBlockAndUpdate`), when `value` says to.
+fn show_active(game: &mut Game<'_>, pos: [i32; 3], value: Option<bool>, shown: &mut bool) {
+    if let Some(on) = value {
+        game.native_set_block_property_with(pos, "active", if on { "true" } else { "false" }, flags::UPDATE_ALL);
+        *shown = on;
+    }
+}
+
+/// What `/mek probe` answers for a generator.
+fn probe_generator(game: &Game<'_>, pos: [i32; 3], id: &str, kind: GeneratorKind, nbt: &Compound, data: &[i32]) -> serde_json::Value {
+    let (config, from_files) = energy_config();
+    let dimension = game.native_dimension();
+    let view = GeneratorView::unpack(data).unwrap_or_default();
+    let mut out = serde_json::json!({
+        "pos": pos,
+        "id": id,
+        "energy": saved_energy(nbt).unwrap_or(0),
+        "capacity": kind.capacity(&config.generators),
+        "produced": view.produced,
+        "max_output": view.max_output,
+        "energy_face": kind.energy_face(generator_facing(nbt)).name(),
+        "config": { "from_files": from_files, "solar_generation": config.generators.solar_generation,
+                    "heat_generation": config.generators.heat_generation },
+    });
+    let biome = game.native_biome(pos);
+    out["biome"] = biome.as_ref().map_or(serde_json::Value::Null, |b| {
+        serde_json::json!({ "id": b.id, "temperature": b.temperature, "downfall": b.downfall,
+                            "precipitation": format!("{:?}", b.precipitation) })
+    });
+    let climate = GENERATORS.with(|g| g.borrow().get(&(dimension.to_owned(), pos)).copied());
+    match kind {
+        GeneratorKind::Solar => {
+            let (_, sky_light) = game.native_light(pos);
+            let (rain, thunder) = game.native_weather();
+            out["sees_sun"] = view.sees_sun.into();
+            out["sky_light"] = sky_light.into();
+            out["weather"] = serde_json::json!({ "rain": rain, "thunder": thunder, "day_time": game.native_day_time() });
+            if let Some(Climate::Solar(c)) = climate {
+                out["peak"] = c.peak.into();
+                out["needs_rain_check"] = c.needs_rain_check.into();
+            }
+        }
+        GeneratorKind::Heat => {
+            let activity = read_activity(nbt);
+            out["lava"] = saved_lava(nbt).into();
+            out["tank"] = config.generators.heat_tank_capacity.into();
+            out["temperature"] = view.temperature.into();
+            out["heat"] = saved_heat(nbt).map_or(serde_json::Value::Null, Into::into);
+            out["environment_loss"] = view.environment_loss.into();
+            out["active"] = activity.current.into();
+            out["shown_active"] = (game.native_block_property(pos, "active").as_deref() == Some("true")).into();
+            out["facing"] = generator_facing(nbt).name().into();
+            out["lava_sides"] = Direction::ALL.iter().filter(|&&d| game.native_block(beside(pos, d)) == LAVA).count().into();
+            if let Some(Climate::Heat(a)) = climate {
+                out["ambient"] = a.own.into();
+            }
+        }
+    }
+    out
+}
+
+/// A generator's energy as one side reaches it: only its energy face, which
+/// gives and never takes (`BasicEnergyContainer.output` behind
+/// `ProxyStrictEnergyHandler`); the block itself (a null side) neither.
+struct GeneratorSide {
+    container: EnergyContainer,
+    open: bool,
+}
+
+impl StrictEnergy for GeneratorSide {
+    fn insert(&mut self, joules: i64, simulate: bool) -> i64 {
+        if !self.open || joules <= 0 {
+            return joules;
+        }
+        self.container.insert(joules as u64, simulate, Automation::External) as i64
+    }
+
+    fn extract(&mut self, joules: i64, simulate: bool) -> i64 {
+        if !self.open || joules <= 0 {
+            return 0;
+        }
+        self.container.extract(joules as u64, simulate, Automation::External) as i64
+    }
+}
+
 // ---- /mek probe -----------------------------------------------------------
 
 /// `native_register_commands`.
@@ -1116,12 +1606,15 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
 
 fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     let (config, from_files) = energy_config();
-    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone(), last_input(m)));
-    let Some((id, nbt, input)) = found else {
+    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone(), last_input(m), m.data.clone()));
+    let Some((id, nbt, input, data)) = found else {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };
     if let Some(tier) = CableTier::of_block(&id) {
         return probe_cable(game, pos, &id, tier);
+    }
+    if let Some(kind) = GeneratorKind::of_block(&id) {
+        return probe_generator(game, pos, &id, kind, &nbt, &data);
     }
     let Some(tier) = CubeTier::of_block(&id) else {
         return serde_json::json!({ "pos": pos, "id": id, "error": "not a Mekanism block" });

@@ -130,6 +130,70 @@ impl Button {
     }
 }
 
+/// A generator's screen (`GuiSolarGenerator`, `GuiHeatGenerator`): slots 0..4
+/// Joules stored, 4..8 capacity, 8..12 produced last tick, 12..16 max output,
+/// 16 whether it sees the sun, 17..19 lava (mB), 19..21 the tank, 21..25 the
+/// temperature (an `f64`'s bits), 25..29 heat to neighbours, 29..33 heat to
+/// the air (degrees a tick).
+pub const GENERATOR_SLOTS: usize = 33;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GeneratorView {
+    pub stored: u64,
+    pub capacity: u64,
+    pub produced: u64,
+    pub max_output: u64,
+    pub sees_sun: bool,
+    pub lava: u32,
+    pub tank: u32,
+    pub temperature: f64,
+    pub transfer_loss: f64,
+    pub environment_loss: f64,
+}
+
+fn push_bits(out: &mut Vec<i32>, value: u64, pieces: usize) {
+    out.extend((0..pieces).map(|i| ((value >> (16 * i)) & 0xFFFF) as i32));
+}
+
+fn read_bits(data: &[i32], at: usize, pieces: usize) -> u64 {
+    (0..pieces).fold(0u64, |v, i| v | (u64::from(data[at + i] as u16) << (16 * i)))
+}
+
+impl GeneratorView {
+    pub fn pack(&self) -> Vec<i32> {
+        let mut out = Vec::with_capacity(GENERATOR_SLOTS);
+        for value in [self.stored, self.capacity, self.produced, self.max_output] {
+            push_bits(&mut out, value, 4);
+        }
+        out.push(i32::from(self.sees_sun));
+        push_bits(&mut out, u64::from(self.lava), 2);
+        push_bits(&mut out, u64::from(self.tank), 2);
+        for value in [self.temperature, self.transfer_loss, self.environment_loss] {
+            push_bits(&mut out, value.to_bits(), 4);
+        }
+        out
+    }
+
+    /// The view in `data`; none until the server's values have arrived.
+    pub fn unpack(data: &[i32]) -> Option<Self> {
+        if data.len() < GENERATOR_SLOTS {
+            return None;
+        }
+        Some(Self {
+            stored: read_bits(data, 0, 4),
+            capacity: read_bits(data, 4, 4),
+            produced: read_bits(data, 8, 4),
+            max_output: read_bits(data, 12, 4),
+            sees_sun: data[16] != 0,
+            lava: read_bits(data, 17, 2) as u32,
+            tank: read_bits(data, 19, 2) as u32,
+            temperature: f64::from_bits(read_bits(data, 21, 4)),
+            transfer_loss: f64::from_bits(read_bits(data, 25, 4)),
+            environment_loss: f64::from_bits(read_bits(data, 29, 4)),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +230,25 @@ mod tests {
         assert_eq!(Button::Eject(Kind::Energy).id(), 30);
         assert_eq!(Button::from_id(0), None);
         assert_eq!(Button::from_id(41), None);
+    }
+
+    #[test]
+    fn a_generators_view_survives_the_wire() {
+        let view = GeneratorView {
+            stored: 96_000,
+            capacity: 96_000,
+            produced: 132,
+            max_output: 264,
+            sees_sun: true,
+            lava: 23_990,
+            tank: 24_000,
+            temperature: 1881.270_5,
+            transfer_loss: 0.0,
+            environment_loss: 0.937,
+        };
+        let wire: Vec<i32> = view.pack().iter().map(|&v| i32::from(v as i16)).collect();
+        assert_eq!(wire.len(), GENERATOR_SLOTS);
+        assert_eq!(GeneratorView::unpack(&wire), Some(view));
+        assert_eq!(GeneratorView::unpack(&wire[..20]), None);
     }
 }

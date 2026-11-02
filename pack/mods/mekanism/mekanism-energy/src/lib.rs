@@ -1,4 +1,5 @@
-//! Mekanism 10.7.19's energy, as All the Mods 10 runs it. Mekanism is MIT,
+//! Mekanism 10.7.19's energy, as All the Mods 10 runs it, with Mekanism
+//! Generators 10.7.19's Solar and Heat Generators. Mekanism is MIT,
 //! Copyright (c) 2017-2025 Aidan C. Brady.
 //!
 //! Energy is in Joules (`long`); Forge Energy is converted at the edges,
@@ -10,16 +11,22 @@
 //! by side, as their side configuration says (`sides`); an energy cube keeps
 //! its Joules and config and ejects out of its output faces (`cube`). Its
 //! screen reads data slots and sends buttons (`menu`), and writes energy as
-//! Mekanism's screens do (`display`).
+//! Mekanism's screens do (`display`). Mekanism Generators' Solar Generator
+//! (`solar`, over Minecraft 1.21.1's sun and weather in `sky`) and Heat
+//! Generator (`heat`) fill stores of their own and eject like a cube.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod config;
 pub mod container;
 pub mod cube;
 pub mod display;
 pub mod fe;
+pub mod generator;
+pub mod heat;
 pub mod menu;
 pub mod network;
 pub mod sides;
+pub mod sky;
+pub mod solar;
 pub mod split;
 pub mod tier;
 

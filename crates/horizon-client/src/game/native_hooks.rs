@@ -6,6 +6,10 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 84 adds what a generator reads of the world around it: the helpers `native_biome` (`Level.getBiome`
+//! and the biome's climate at a block: `getTemperature`, `getPrecipitationAt`, its downfall) and
+//! `native_dimension_type` (`hasSkyLight`, `hasCeiling`, `ultraWarm`).
+//!
 //! API 83 adds a mod block entity's lifecycle, as NeoForge's `BlockEntity.onLoad`, `setRemoved`,
 //! `onChunkUnloaded` and `saveAdditional`: `native_block_entity_load`, `native_block_entity_unload`,
 //! `native_block_entity_save`, and the helper `native_block_entity_changed` (`setChanged`).
@@ -349,7 +353,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 83;
+pub(crate) const NATIVE_HOOKS_API: u32 = 84;
 
 impl GameLevel<'_> {
     /// An authoritative server committed a changed state through `Level.setBlock`.
@@ -949,6 +953,88 @@ pub(crate) struct NativeClock {
     /// day. It keeps counting past 24000 (`/time add`, days going by), so take
     /// it modulo 24000 for the hour; `/time set` can make it negative.
     pub(crate) day_time: i64,
+}
+
+/// What falls in a biome when it rains (`Biome.Precipitation`). API 84.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativePrecipitation {
+    /// The biome has none (`hasPrecipitation` false: a desert, a savanna).
+    None,
+    Rain,
+    /// Too cold there: the temperature below 0.15.
+    Snow,
+}
+
+/// A biome and its climate at a block, as `native_biome` reads them. API 84.
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NativeBiome {
+    /// Its id, `minecraft:plains`.
+    pub(crate) id: String,
+    /// `Biome.getBaseTemperature`: the biome file's `temperature`.
+    pub(crate) base_temperature: f32,
+    /// `Biome.getTemperature(pos)`: the base (0.2 in a frozen ocean's cold
+    /// patches), cooler with height above the dimension's sea level + 17.
+    pub(crate) temperature: f32,
+    /// `ClimateSettings.downfall`.
+    pub(crate) downfall: f32,
+    /// `Biome.getPrecipitationAt(pos)`.
+    pub(crate) precipitation: NativePrecipitation,
+}
+
+/// What the type of the dimension in place says of its sky and air
+/// (`DimensionType`), as `native_dimension_type` reads it. API 84.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NativeDimensionType {
+    /// `hasSkyLight`: the overworld's, not the Nether's or the End's.
+    pub(crate) has_skylight: bool,
+    /// `hasCeiling`: the Nether's bedrock roof.
+    pub(crate) has_ceiling: bool,
+    /// `ultraWarm`: the Nether's (water evaporates, lava flows far).
+    pub(crate) ultra_warm: bool,
+}
+
+/// A biome's climate at `pos` (`native_biome`), from its climate settings:
+/// `Biome.getHeightAdjustedTemperature` with `sea_level` and
+/// `getPrecipitationAt`.
+fn native_biome_climate(
+    id: &str,
+    base_temperature: f32,
+    frozen: bool,
+    downfall: f32,
+    has_precipitation: bool,
+    pos: BlockPos,
+    sea_level: i32,
+) -> NativeBiome {
+    use horizon_world::worldgen::biome_temperature::{
+        BiomeTemperatureSettings, TemperatureModifier,
+    };
+    let settings = BiomeTemperatureSettings {
+        base_temperature,
+        modifier: if frozen {
+            TemperatureModifier::Frozen
+        } else {
+            TemperatureModifier::None
+        },
+        has_precipitation,
+        downfall,
+    };
+    let temperature = settings.height_adjusted(pos, sea_level);
+    let precipitation = if !has_precipitation {
+        NativePrecipitation::None
+    } else if temperature < 0.15 {
+        NativePrecipitation::Snow
+    } else {
+        NativePrecipitation::Rain
+    };
+    NativeBiome {
+        id: id.to_owned(),
+        base_temperature,
+        temperature,
+        downfall,
+        precipitation,
+    }
 }
 
 /// A native mod as Options > Mods lists it (`native_mods`).
@@ -3653,6 +3739,52 @@ impl Game<'_> {
     pub(super) fn native_world_height(&self) -> (i32, i32) {
         (self.world.shape.min_y, self.world.shape.height)
     }
+    /// The biome at `pos` in the world in place, as `Level.getBiome` picks
+    /// it (the noise cell `BiomeManager` zooms to, so a biome's edge is
+    /// ragged as in vanilla), and its climate at `pos`: the temperature there
+    /// (`Biome.getTemperature`), the downfall and what falls when it rains.
+    /// What a solar panel's peak or a heater's air follows. None in a chunk
+    /// that isn't loaded. Like the other reads here it reads the world this
+    /// game holds. API 84.
+    pub(super) fn native_biome(&self, pos: [i32; 3]) -> Option<NativeBiome> {
+        let at = BlockPos::new(pos[0], pos[1], pos[2]);
+        let [qx, qy, qz] = self.streaming.biome_zoom.quart_at_block(at);
+        let (x, y, z) = (qx << 2, qy << 2, qz << 2);
+        let chunk = self.world.chunks.get(&(x >> 4, z >> 4))?;
+        let biomes = match &self.world_biomes {
+            Some(biomes) => biomes,
+            None => self.res.biomes(),
+        };
+        let info = biomes.get(chunk.biome(x, y, z));
+        let sea_level = if self.dim == super::Dim::Nether {
+            32
+        } else if self.dim == super::Dim::End {
+            0
+        } else {
+            63
+        };
+        Some(native_biome_climate(
+            &info.name,
+            info.temperature,
+            info.frozen,
+            info.downfall,
+            info.precipitation,
+            at,
+            sea_level,
+        ))
+    }
+    /// What the type of the dimension in place says of its sky and air
+    /// (`Level.dimensionType()`): sky light (`hasSkyLight`), a ceiling
+    /// (`hasCeiling`) and `ultraWarm`. A solar panel needs sky light, a heater
+    /// runs hotter where it is ultra-warm. API 84.
+    pub(super) fn native_dimension_type(&self) -> NativeDimensionType {
+        let nether = self.dim == super::Dim::Nether;
+        NativeDimensionType {
+            has_skylight: self.world.shape.sky_light,
+            has_ceiling: nether,
+            ultra_warm: nether,
+        }
+    }
     /// The most of the item `item` one slot holds (`Item.getDefaultMaxStackSize`),
     /// or `None` for an unknown item: for a mod's container that fills or
     /// merges stacks itself. API @API:native_world_state@.
@@ -5920,6 +6052,51 @@ mod tests {
         assert_eq!(mod_menu("minecraft:furnace").map(|m| m.1), Some(3));
         assert_eq!(mod_menu("minecraft:brewing_stand"), None);
         assert_eq!(mod_menu("hopper"), None);
+    }
+
+    /// A biome's climate at a block (`native_biome`): its temperature cools
+    /// with height above the sea level + 17, and rain turns to snow below 0.15;
+    /// a biome without precipitation has none at any height.
+    #[test]
+    fn biome_climate_follows_height_and_precipitation() {
+        use super::{NativePrecipitation as P, native_biome_climate};
+        use horizon_core::position::BlockPos;
+        let plains = |y| {
+            native_biome_climate(
+                "minecraft:plains",
+                0.8,
+                false,
+                0.4,
+                true,
+                BlockPos::new(8, y, 8),
+                63,
+            )
+        };
+        let low = plains(64);
+        assert_eq!(
+            (low.temperature, low.downfall, low.precipitation),
+            (0.8, 0.4, P::Rain)
+        );
+        assert_eq!(plains(80).temperature, 0.8, "not above sea level + 17");
+        let high = plains(200);
+        assert!(
+            high.temperature < 0.7 && high.temperature > 0.6,
+            "{}",
+            high.temperature
+        );
+        assert_eq!(high.base_temperature, 0.8);
+        let at = BlockPos::new(0, 64, 0);
+        let peaks = native_biome_climate("minecraft:jagged_peaks", -0.7, false, 0.9, true, at, 63);
+        assert_eq!(peaks.precipitation, P::Snow);
+        let up = BlockPos::new(0, 300, 0);
+        let desert = native_biome_climate("minecraft:desert", 2.0, false, 0.0, false, up, 63);
+        assert_eq!(desert.precipitation, P::None);
+        assert_eq!(desert.id, "minecraft:desert");
+        // The Nether's sea level is 32: cooler from 50 up.
+        let roof = BlockPos::new(0, 70, 0);
+        let nether =
+            native_biome_climate("minecraft:nether_wastes", 2.0, false, 0.0, false, roof, 32);
+        assert!(nether.temperature < 2.0);
     }
 
     /// The config folder is `config/` beside `options.txt`, made when

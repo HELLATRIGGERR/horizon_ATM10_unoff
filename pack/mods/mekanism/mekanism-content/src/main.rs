@@ -1,11 +1,14 @@
-//! `mekanism-content --carry DIR --overlay DIR --out DIR`: builds the content
-//! mod `mekanism` that the game loads with `--dev-mod`, from the ATM10 carry
-//! (`ports/atm10/mods/mekanism/carry`, Mekanism 10.7.19's own data and
-//! assets, MIT, Copyright (c) 2017-2025 Aidan C. Brady) and the pack's own
-//! declarations (`pack/mods/mekanism/content`).
+//! `mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR]`:
+//! builds a content mod that the game loads with `--dev-mod` from an ATM10
+//! carry and the pack's own declarations (`pack/mods/mekanism/content`):
+//! `mekanism` from `ports/atm10/mods/mekanism/carry` (Mekanism 10.7.19's own
+//! data and assets) and `mekanismgenerators` from
+//! `ports/atm10/mods/mekanismgenerators/carry` (Mekanism Generators 10.7.19's),
+//! both MIT, Copyright (c) 2017-2025 Aidan C. Brady. The carry's mod id says
+//! which.
 //!
-//! - The carry is copied, then the overlay over it: its block declarations
-//!   replace the carried ones.
+//! - The carry is copied, then the overlay's files of that namespace over it:
+//!   its block declarations replace the carried ones.
 //! - Each energy cube the overlay declares with the six face properties
 //!   (`down` ... `east` = `none|input|output`) gets its model converted:
 //!   Mekanism's `mekanism:energy_cube` model loader becomes a multipart
@@ -17,10 +20,15 @@
 //! - Its loot table drops the cube without Mekanism's item components, which
 //!   the game refuses; its `mekanism:mek_data` recipe becomes
 //!   `minecraft:crafting_shaped`, so an upgrade keeps no energy.
-//! - Mekanism's GUI textures (`assets/mekanism/gui/`) are copied where the
-//!   game's GUI atlas takes a content mod's (`textures/gui/`, sprites
-//!   `mekanism:gui/...`), with the energy texture (`textures/liquid/energy`)
-//!   as `gui/energy_fill` for gauges.
+//! - Any other block the overlay declares (a generator) drops itself plain
+//!   too, and gets back its recipe when the carry left it outside (a block
+//!   the carry couldn't declare, as the heat generator).
+//! - The GUI textures (`assets/<id>/gui/`) are copied where the game's GUI
+//!   atlas takes a content mod's (`textures/gui/`, sprites `<id>:gui/...`),
+//!   with Mekanism's energy texture (`textures/liquid/energy`) as
+//!   `gui/energy_fill` for gauges, and, with `--vanilla` (the game's client
+//!   assets), vanilla's still lava as `mekanismgenerators:gui/lava_fill` for
+//!   the heat generator's gauge.
 //!
 //! The output is generated, never committed: Mekanism's files stay local.
 //! It may only replace a folder this tool made (`mekanism-content.json`).
@@ -49,14 +57,15 @@ type Result<T> = std::result::Result<T, String>;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let (mut carry, mut overlay, mut out) = (None, None, None);
+    let (mut carry, mut overlay, mut out, mut vanilla) = (None, None, None, None);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--carry" => carry = args.next().map(PathBuf::from),
             "--overlay" => overlay = args.next().map(PathBuf::from),
             "--out" => out = args.next().map(PathBuf::from),
+            "--vanilla" => vanilla = args.next().map(PathBuf::from),
             "-h" | "--help" => {
-                println!("Usage: mekanism-content --carry DIR --overlay DIR --out DIR");
+                println!("Usage: mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR]");
                 return;
             }
             other => fail(&format!("unknown argument {other}")),
@@ -65,7 +74,7 @@ fn main() {
     let (Some(carry), Some(overlay), Some(out)) = (carry, overlay, out) else {
         fail("needs --carry, --overlay and --out");
     };
-    match build(&carry, &overlay, &out) {
+    match build(&carry, &overlay, &out, vanilla.as_deref()) {
         Ok(report) => println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default()),
         Err(e) => fail(&e),
     }
@@ -76,24 +85,49 @@ fn fail(message: &str) -> ! {
     std::process::exit(1);
 }
 
-fn build(carry: &Path, overlay: &Path, out: &Path) -> Result<Value> {
+/// The `id` a carried mod's `horizon-mod.toml` names.
+fn mod_id(carry: &Path) -> Result<String> {
+    let path = carry.join("horizon-mod.toml");
+    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    text.lines()
+        .find_map(|line| {
+            let value = line.trim().strip_prefix("id")?.trim_start().strip_prefix('=')?.trim();
+            Some(value.trim_matches('"').to_owned())
+        })
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| format!("{} names no id", path.display()))
+}
+
+fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>) -> Result<Value> {
     if !carry.join("horizon-mod.toml").is_file() {
         return Err(format!("{} is not a carried content mod", carry.display()));
     }
-    if !overlay.join("data").is_dir() {
-        return Err(format!("{} has no data/", overlay.display()));
+    let id = mod_id(carry)?;
+    if !overlay.join("data").join(&id).is_dir() {
+        return Err(format!("{} has no data/{id}/", overlay.display()));
     }
     prepare(out)?;
     // Written again at the end; a failed build leaves a folder it may replace.
     write_json(&out.join(MARKER), &json!({ "incomplete": true }))?;
     let copied = copy_tree(carry, out)?;
-    let overlaid = copy_tree(overlay, out)?;
+    // Only this namespace's overlay: one namespace has one owner.
+    let mut overlaid = 0;
+    for root in ["data", "assets"] {
+        let from = overlay.join(root).join(&id);
+        if from.is_dir() {
+            let to = out.join(root).join(&id);
+            fs::create_dir_all(&to).map_err(|e| format!("{}: {e}", to.display()))?;
+            overlaid += copy_tree(&from, &to)?;
+        }
+    }
+    let outside = carry.parent().map(|p| p.join("outside"));
     let mut cubes = Vec::new();
     let mut loot = Vec::new();
     let mut recipes = Vec::new();
     let mut cables = Vec::new();
+    let mut others = Vec::new();
     let mut files = 0;
-    let blocks = overlay.join("data/mekanism/horizon/block");
+    let blocks = overlay.join("data").join(&id).join("horizon/block");
     let mut names: Vec<String> = match fs::read_dir(&blocks) {
         Ok(dir) => dir
             .filter_map(|e| e.ok()?.file_name().into_string().ok())
@@ -113,6 +147,24 @@ fn build(carry: &Path, overlay: &Path, out: &Path) -> Result<Value> {
             continue;
         }
         let Some(tier) = block.strip_suffix("_energy_cube") else {
+            // Another block (a generator): a plain drop, and its recipe back.
+            let loot_path = format!("data/{id}/loot_table/blocks/{block}.json");
+            if !overlay.join(&loot_path).exists()
+                && let Ok(table) = read_json(&carry.join(&loot_path))
+            {
+                write_json(&out.join(&loot_path), &plain_drop(&table))?;
+                loot.push(block.to_owned());
+            }
+            if let Some(outside) = &outside {
+                for (path, recipe) in recipes_for(&outside.join("data").join(&id).join("recipe"), &format!("{id}:{block}"))? {
+                    let target = out.join("data").join(&id).join("recipe").join(&path);
+                    if !target.exists() {
+                        write_json(&target, &recipe)?;
+                        recipes.push(block.to_owned());
+                    }
+                }
+            }
+            others.push(block.to_owned());
             continue;
         };
         let decl = read_json(&blocks.join(&name))?;
@@ -142,17 +194,26 @@ fn build(carry: &Path, overlay: &Path, out: &Path) -> Result<Value> {
             recipes.push(block.to_owned());
         }
     }
-    let gui = out.join("assets/mekanism/textures/gui");
-    let mut gui_sprites = copy_pngs(&carry.join("assets/mekanism/gui"), &gui)?;
+    let gui = out.join("assets").join(&id).join("textures/gui");
+    let mut gui_sprites = copy_pngs(&carry.join("assets").join(&id).join("gui"), &gui)?;
     let energy = carry.join("assets/mekanism/textures/liquid/energy.png");
-    if energy.is_file() {
+    if id == "mekanism" && energy.is_file() {
         fs::copy(&energy, gui.join("energy_fill.png")).map_err(|e| format!("{}: {e}", energy.display()))?;
         gui_sprites += 1;
     }
+    let lava = vanilla.map(|v| v.join("assets/minecraft/textures/block/lava_still.png"));
+    if others.iter().any(|b| b == "heat_generator")
+        && let Some(lava) = lava.filter(|l| l.is_file())
+    {
+        fs::create_dir_all(&gui).map_err(|e| format!("{}: {e}", gui.display()))?;
+        fs::copy(&lava, gui.join("lava_fill.png")).map_err(|e| format!("{}: {e}", lava.display()))?;
+        gui_sprites += 1;
+    }
     let report = json!({
-        "carry": carry, "overlay": overlay, "out": out,
+        "id": id, "carry": carry, "overlay": overlay, "out": out,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
-        "cubes": cubes, "cables": cables, "loot_tables": loot, "recipes": recipes, "gui_sprites": gui_sprites,
+        "cubes": cubes, "cables": cables, "blocks": others, "loot_tables": loot, "recipes": recipes,
+        "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;
     Ok(report)
@@ -461,6 +522,32 @@ fn plain_drop(table: &Value) -> Value {
     table
 }
 
+/// The recipes under `dir` (a carry's `outside/data/<id>/recipe`) whose
+/// result is `item`: (path under `recipe/`, JSON).
+fn recipes_for(dir: &Path, item: &str) -> Result<Vec<(PathBuf, Value)>> {
+    let mut found = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&at) else {
+            continue;
+        };
+        for entry in entries {
+            let path = entry.map_err(|e| e.to_string())?.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "json")
+                && let Ok(recipe) = read_json(&path)
+                && recipe["result"]["id"] == item
+                && let Ok(relative) = path.strip_prefix(dir)
+            {
+                found.push((relative.to_path_buf(), recipe));
+            }
+        }
+    }
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(found)
+}
+
 /// An ingredient as 26.3 writes it: an id, `#tag`, or a list of them.
 fn ingredient(value: &Value) -> Result<Value> {
     Ok(match value {
@@ -607,6 +694,29 @@ mod tests {
             typed["default_state"][f] = json!(if f == "north" { "output" } else { "input" });
         }
         assert_eq!(cube_defaults(&typed).unwrap()["north"], "output");
+    }
+
+    #[test]
+    fn the_carry_names_the_namespace_and_recipes_come_back_from_outside() {
+        let dir = std::env::temp_dir().join(format!("mekanism-content-{}", std::process::id()));
+        let carry = dir.join("mekanismgenerators/carry");
+        let outside = dir.join("mekanismgenerators/outside/data/mekanismgenerators/recipe/generator");
+        fs::create_dir_all(&carry).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(carry.join("horizon-mod.toml"), "# Carried
+id = \"mekanismgenerators\"
+name = \"x\"
+").unwrap();
+        assert_eq!(mod_id(&carry).unwrap(), "mekanismgenerators");
+        let heat = json!({"type": "minecraft:crafting_shaped", "result": {"count": 1, "id": "mekanismgenerators:heat_generator"}});
+        write_json(&outside.join("heat.json"), &heat).unwrap();
+        write_json(&outside.join("port.json"), &json!({"result": {"id": "mekanismgenerators:fission_reactor_port"}})).unwrap();
+        let found = recipes_for(&dir.join("mekanismgenerators/outside/data/mekanismgenerators/recipe"), "mekanismgenerators:heat_generator").unwrap();
+        assert_eq!(found, vec![(PathBuf::from("generator").join("heat.json"), heat)]);
+        fs::write(carry.join("horizon-mod.toml"), "name = \"x\"
+").unwrap();
+        assert!(mod_id(&carry).is_err());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

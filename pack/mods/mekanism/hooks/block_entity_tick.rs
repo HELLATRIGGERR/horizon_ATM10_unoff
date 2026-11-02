@@ -1,4 +1,4 @@
-// A server tick of a Mekanism block entity.
+// A server tick of a Mekanism block entity: a cube or a generator.
 fn mek_block_entity_tick(
     game: &mut crate::game::Game<'_>,
     pos: [i32; 3],

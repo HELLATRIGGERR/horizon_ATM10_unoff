@@ -13,12 +13,13 @@ enabled = true
 feature = "ae2-lab"
 configs = ["ae2-common.toml", "ae2-client.toml"]
 
-# Energy first: the Basic and Creative Energy Cubes work, with Mekanism's screen
-# and side configuration (generators, universal cables and the other tiers are
-# planned). ATM10 runs Mekanism 10.7.19: energy
-# in Joules, FE * feConversionRate = J (general.toml), tier sizes in tiers.toml.
-# A native bundle (`bundle`) over a content mod that `mekanism-content` builds
-# from the ATM10 carry; `pack/scripts/mekanism.ts` builds and tests both.
+# Energy first: the Energy Cubes of every tier and the Universal Cables work,
+# with Mekanism's screen and side configuration, and Mekanism Generators' Solar
+# and Heat Generators (the other machines are planned). ATM10 runs Mekanism
+# 10.7.19: energy in Joules, FE * feConversionRate = J (general.toml), tier
+# sizes in tiers.toml, generators in generators.toml and generator-storage.toml.
+# A native bundle (`bundle`) over two content mods that `mekanism-content`
+# builds from the ATM10 carries; `pack/scripts/mekanism.ts` builds and tests them.
 [mods.mekanism]
 name = "Mekanism"
 enabled = true

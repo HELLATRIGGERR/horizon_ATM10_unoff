@@ -3,7 +3,8 @@
 //! container takes and gives at any rate from outside (`EXTERNAL`) and at its
 //! tier's output from its own slots and its ejector (`INTERNAL`); a creative
 //! cube's inserts and extracts answer as if they acted and never change what
-//! it holds (`action.combine(!isCreative)`).
+//! it holds (`action.combine(!isCreative)`). A generator's store
+//! (`BasicEnergyContainer.output`) takes only from the block itself.
 
 /// `mekanism.api.AutomationType`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -27,6 +28,9 @@ pub struct EnergyContainer {
     pub internal_rate: Option<u64>,
     /// A creative cube: nothing it does changes `stored`.
     pub creative: bool,
+    /// Only `INTERNAL` inserts (`BasicEnergyContainer.output`, a
+    /// generator's): others take nothing.
+    pub output_only: bool,
 }
 
 const LONG_MAX: u64 = i64::MAX as u64;
@@ -40,7 +44,14 @@ impl EnergyContainer {
             capacity: capacity.min(LONG_MAX),
             internal_rate: None,
             creative: false,
+            output_only: false,
         }
+    }
+
+    /// `BasicEnergyContainer.output(maxEnergy, listener)`: a generator's, which
+    /// anything may draw from and only the generator fills.
+    pub fn output(capacity: u64) -> Self {
+        Self { output_only: true, ..Self::basic(capacity) }
     }
 
     /// `EnergyCubeEnergyContainer.create(tier, listener)` holding `stored`.
@@ -51,6 +62,7 @@ impl EnergyContainer {
             capacity,
             internal_rate: Some(output.min(LONG_MAX)),
             creative,
+            output_only: false,
         }
     }
 
@@ -70,6 +82,9 @@ impl EnergyContainer {
     pub fn insert(&mut self, amount: u64, simulate: bool, automation: Automation) -> u64 {
         if amount == 0 {
             return 0;
+        }
+        if self.output_only && automation != Automation::Internal {
+            return amount;
         }
         let needed = self.rate(automation).min(self.needed());
         if needed == 0 {

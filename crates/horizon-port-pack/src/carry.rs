@@ -331,6 +331,14 @@ pub fn upgrade_loot(v: &mut Value) {
     match v {
         Value::Array(a) => a.iter_mut().for_each(upgrade_loot),
         Value::Object(o) => {
+            // A tag entry names its tag in `name` in 1.21.1 and as `items: "#tag"` in 26.3.
+            let kind = o.get("type").and_then(Value::as_str).unwrap_or_default();
+            if matches!(kind, "minecraft:tag" | "tag")
+                && !o.contains_key("items")
+                && let Some(Value::String(tag)) = o.remove("name")
+            {
+                o.insert("items".to_owned(), json!(format!("#{}", tag.trim_start_matches('#'))));
+            }
             if let Some(Value::Array(pools)) = o.get_mut("pools") {
                 for pool in pools {
                     for key in ["rolls", "bonus_rolls"] {
@@ -741,6 +749,8 @@ pub fn carry(
     let _ = fs::remove_dir_all(&outside);
     let mut report = Report::default();
     let mut blockstates: BTreeMap<String, Value> = BTreeMap::new();
+    // Every blockstate file of the mod's own namespace, read or not.
+    let mut blockstate_files: BTreeSet<String> = BTreeSet::new();
     let mut item_models = BTreeSet::new();
     // Models another item model's `overrides` switch to (trim looks, a bow's pull): variants, not items.
     let mut model_overrides: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
@@ -922,6 +932,7 @@ pub fn carry(
                 .and_then(|b| b.strip_suffix(".json"))
                 .filter(|_| own)
             {
+                blockstate_files.insert(b.to_owned());
                 if let Ok(v) = serde_json::from_slice(&bytes) {
                     blockstates.insert(b.to_owned(), v);
                 }
@@ -1017,6 +1028,16 @@ pub fn carry(
             let Some(b) = full.strip_prefix(&prefix) else {
                 break;
             };
+            // Facts from a run of the whole pack hold what other mods register into this namespace for their own
+            // content (Bibliowoods' furniture in other mods' woods, Dyenamics and Friends' dyed blocks of other mods,
+            // Amendments' wall lanterns): this jar has no blockstate to draw them with. Declaring them would also cost
+            // about 270,000 states of the game's 2^20.
+            if !blockstate_files.contains(b) {
+                report
+                    .blocks_unknown
+                    .insert(b.to_owned(), "no blockstate in its jar: another mod registers it, or code draws it".into());
+                continue;
+            }
             // No vanilla block of its class with its states (Macaw's roofs are plain `Block`s with stair states):
             // a template with some of them, the rest declared (`state_properties`), the blockstate's guess first
             // among equals; failing that the guess alone, with the oracle's numbers.
@@ -1068,6 +1089,17 @@ pub fn carry(
                     .push(format!("its item is {}", block.item));
             } else {
                 declared.insert(full.clone());
+                let (components, differences) = facts.block_item_components(
+                    full,
+                    template_item.unwrap_or(choice.template.as_str()),
+                    &owned,
+                );
+                if !components.is_empty() {
+                    v["components"] = Value::Object(components);
+                }
+                if !differences.is_empty() {
+                    report.differences.entry(b.to_owned()).or_default().extend(differences);
+                }
                 let drop = (!block_loot.contains(b))
                     .then(|| block.drops_itself(full))
                     .flatten();
@@ -1114,11 +1146,14 @@ pub fn carry(
             if declared.contains(full) {
                 continue;
             }
+            // Its block left out, under its own name or another (Bibliocraft's seat backs place onto a seat).
+            let block_name = item.block.as_deref().and_then(|b| b.strip_prefix(&prefix));
             if item
                 .block
                 .as_ref()
                 .is_some_and(|b| facts.blocks.contains_key(b))
-                && report.blocks_unknown.contains_key(name)
+                && (report.blocks_unknown.contains_key(name)
+                    || block_name.is_some_and(|b| report.blocks_unknown.contains_key(b)))
             {
                 report
                     .items_unknown
@@ -1496,6 +1531,17 @@ mod tests {
         let mut again = chest.clone();
         upgrade_loot(&mut again);
         assert_eq!(again, chest);
+        // A tag entry: 1.21.1's `name`, 26.3's `items` (vanilla's creeper drops its discs so).
+        let mut discs = json!({"pools": [{"rolls": 1, "entries": [{"type": "minecraft:tag",
+            "name": "minecraft:creeper_drop_music_discs", "expand": true}]}]});
+        upgrade_loot(&mut discs);
+        assert_eq!(
+            discs["pools"][0]["entries"][0],
+            json!({"type": "minecraft:tag", "items": "#minecraft:creeper_drop_music_discs", "expand": true})
+        );
+        let mut again = discs.clone();
+        upgrade_loot(&mut again);
+        assert_eq!(again, discs);
     }
 
     #[test]
@@ -1963,6 +2009,15 @@ mod tests {
         .unwrap();
         zip.write_all(b"license = \"MIT\"\n[[mods]]\nmodId = \"m\"\nversion = \"1.0\"\n")
             .unwrap();
+        // A blockstate for each of the jar's blocks; `m:oak_shelf` is another mod's, registered in this namespace.
+        for b in ["wick", "rock"] {
+            zip.start_file(
+                format!("assets/m/blockstates/{b}.json"),
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.write_all(br#"{"variants": {"": {"model": "m:block/x"}}}"#).unwrap();
+        }
         zip.finish().unwrap();
         let info = crate::jar::read(&jar).unwrap();
         let pack = Pack {
@@ -1983,7 +2038,11 @@ mod tests {
             "minecraft:stone": block(&[plain], "minecraft:stone", "stone"),
             "m:wick": block(&["m.Wick", seagrass], "m:wick", "wet_grass"),
             "m:rock": block(&[plain], "m:rock", "stone"),
-        }, "items": {}}))
+            "m:oak_shelf": block(&[plain], "m:oak_shelf", "stone"),
+        }, "items": {
+            "m:oak_shelf_back": {"class": "m.ShelfBackItem", "max_stack_size": 64, "rarity": "common",
+                "block": "m:oak_shelf"},
+        }}))
         .unwrap();
         let out = dir.join("out");
         let report = carry(
@@ -2011,6 +2070,11 @@ mod tests {
             report.differences
         );
         assert_eq!(decl("rock").get("item"), None);
+        // A block this jar has no blockstate for is not this jar's to carry.
+        assert!(!out.join("carry/data/m/horizon/block/oak_shelf.json").exists());
+        assert!(report.blocks_unknown["oak_shelf"].contains("no blockstate in its jar"));
+        // Nor an item that places it under another name.
+        assert_eq!(report.items_unknown["oak_shelf_back"], "its block is left out");
         fs::remove_dir_all(&dir).unwrap();
     }
 

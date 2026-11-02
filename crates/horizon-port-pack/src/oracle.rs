@@ -7,7 +7,7 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     path::Path,
 };
 
@@ -20,6 +20,147 @@ pub struct Facts {
     /// The game's items' default components (`items.json`), so item ports leave out what their template has.
     #[serde(skip)]
     pub vanilla_items: BTreeMap<String, Value>,
+    /// What the whole pack's run says beyond these facts (`pack-facts.json`).
+    #[serde(skip)]
+    pub pack: PackFacts,
+}
+
+/// What `tools/neoforge_oracle.py pack` writes to `pack-facts.json`: what no vanilla table can say of an item or a
+/// block in the pack, read from the running game with every data map and script applied.
+#[derive(Debug, Default, Deserialize)]
+pub struct PackFacts {
+    #[serde(default)]
+    pub items: HashMap<String, PackItem>,
+    #[serde(default)]
+    pub blocks: HashMap<String, PackBlock>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct PackItem {
+    /// Ticks it burns for in a furnace; 0 when it is no fuel.
+    #[serde(default)]
+    pub burn: u32,
+    /// The chance of a composter layer.
+    #[serde(default)]
+    pub compost: Option<f64>,
+    /// The slot it is worn in (`Equipable`).
+    #[serde(default)]
+    pub worn: Option<String>,
+    /// Why the game could not say.
+    #[serde(default)]
+    pub failed: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct PackBlock {
+    /// Its default state's `PushReaction`.
+    #[serde(default)]
+    pub push: String,
+    #[serde(default)]
+    pub block_entity: bool,
+    #[serde(default)]
+    pub occludes: bool,
+    #[serde(default)]
+    pub dampening: u8,
+    #[serde(default)]
+    pub skylight_down: bool,
+    #[serde(default)]
+    pub failed: Option<String>,
+}
+
+impl PackFacts {
+    /// `pack-facts.json`, or none: without it templates' fuel and compost stand.
+    pub fn read(path: &Path) -> Result<PackFacts, String> {
+        if !path.exists() {
+            return Ok(PackFacts::default());
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))
+    }
+    fn item(&self, id: &str) -> Option<&PackItem> {
+        self.items.get(id).filter(|i| i.failed.is_none())
+    }
+    fn block(&self, id: &str) -> Option<&PackBlock> {
+        self.blocks.get(id).filter(|b| b.failed.is_none())
+    }
+}
+
+impl PackBlock {
+    /// The game's name for what a piston does with it. A piston moves no block entity, whatever its reaction says.
+    fn push_reaction(&self) -> &'static str {
+        if self.block_entity {
+            return "IMMOVEABLE";
+        }
+        match self.push.as_str() {
+            "DESTROY" => "POPPED",
+            "BLOCK" => "IMMOVEABLE",
+            "PUSH_ONLY" => "PUSH",
+            "IGNORE" => "IGNORE_ENTITY",
+            _ => "PUSH_PULL",
+        }
+    }
+}
+
+/// 26.3's named burn times (`data/minecraft/context_int_provider/cooking/`), which 1.21.1 has as plain ticks.
+const BURN_TIMES: &[(&str, u32)] = &[
+    ("minecraft:cooking/time_dry_plants", 100),
+    ("minecraft:cooking/time_wool_slabs", 50),
+    ("minecraft:cooking/time_bamboo", 50),
+    ("minecraft:cooking/time_wool_carpets", 67),
+    ("minecraft:cooking/time_wool", 100),
+    ("minecraft:cooking/time_wood_items_extra_small", 100),
+    ("minecraft:cooking/time_wood_slabs", 150),
+    ("minecraft:cooking/time_wood_items_large", 200),
+    ("minecraft:cooking/time_wood_blocks", 300),
+    ("minecraft:cooking/time_wood_items_small", 300),
+    ("minecraft:cooking/time_roots", 300),
+    ("minecraft:cooking/time_hanging_signs", 800),
+    ("minecraft:cooking/time_boats", 1200),
+    ("minecraft:cooking/time_coal", 1600),
+    ("minecraft:cooking/time_blaze_rod", 2400),
+    ("minecraft:cooking/time_dried_kelp_block", 4001),
+    ("minecraft:cooking/time_coal_block", 16000),
+    ("minecraft:cooking/time_lava_bucket", 20000),
+];
+
+/// The `cooking_fuel` of an item burning for `ticks`: the template's when it already burns that long, else 26.3's
+/// name for that time, else the same provider with the number in it.
+fn cooking_fuel(ticks: u32, base: Option<&Value>) -> Value {
+    if ticks == 0 {
+        return Value::Null;
+    }
+    let had = base.and_then(|b| b.get("minecraft:cooking_fuel"));
+    let had_ticks = had
+        .and_then(|f| f["burn_time"].as_str())
+        .and_then(|name| BURN_TIMES.iter().find(|(n, _)| *n == name))
+        .map(|(_, t)| *t);
+    if let Some(had) = had.filter(|_| had_ticks == Some(ticks)) {
+        return had.clone();
+    }
+    let burn_time = match BURN_TIMES.iter().find(|(_, t)| *t == ticks) {
+        Some((name, _)) => json!(name),
+        None => json!({"type": "minecraft:div", "left": ticks, "right": {
+            "type": "minecraft:conditional", "condition": "minecraft:block/fast_cooking",
+            "on_false": "minecraft:cooking/normal_burn_time_reduction_factor",
+            "on_true": "minecraft:cooking/fast_burn_time_reduction_factor"}}),
+    };
+    json!({"burn_time": burn_time, "speed_multiplier": "minecraft:cooking/speed_default"})
+}
+
+/// The `compostable` for a chance: 26.3's providers are vanilla's five, so the nearest of them.
+fn compostable(chance: f64) -> Value {
+    const LAYERS: [(&str, f64); 5] = [
+        ("low", 0.3),
+        ("low_medium", 0.5),
+        ("medium", 0.65),
+        ("medium_high", 0.85),
+        ("always_add_one", 1.0),
+    ];
+    let nearest = LAYERS
+        .iter()
+        .min_by(|a, b| (a.1 - chance).abs().total_cmp(&(b.1 - chance).abs()))
+        .map_or("low", |l| l.0);
+    json!({"layers": format!("minecraft:compostable/{nearest}")})
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -46,6 +187,10 @@ pub struct Block {
     #[serde(default)]
     pub wood_type: Option<String>,
     pub states: BTreeMap<String, State>,
+    /// Where its item put it with no player (`up`: on a floor clicked from above, `north`: on a wall clicked from
+    /// the south): a state key, or none when placing needs a player.
+    #[serde(default)]
+    pub placement: BTreeMap<String, Option<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +297,21 @@ impl Armor {
         }
         Some((json!({"layers": kinds}), copies))
     }
+}
+
+/// What differs from the template's item, as a data component patch: Null in `want` means it has none.
+fn component_patch(want: Map<String, Value>, base: Option<&Value>) -> Map<String, Value> {
+    let mut patch = Map::new();
+    for (key, value) in want {
+        let had = base.and_then(|b| b.get(&key));
+        match (value, had) {
+            (Value::Null, None) => {}
+            (Value::Null, Some(_)) => _ = patch.insert(format!("!{key}"), json!({})),
+            (v, Some(h)) if same(&v, h) => {}
+            (v, _) => _ = patch.insert(key, v),
+        }
+    }
+    patch
 }
 
 /// The vanilla item standing in for an item of a vanilla class, for the behaviour the class gives.
@@ -391,7 +551,8 @@ const GENERAL_CLASSES: &[&str] = &[
 ];
 
 /// Templates whose behaviour any block can have: placed by their properties, and no menu or ticking. The ones not
-/// a full cube are for blocks of about their shape: a pressure plate falls off without a floor.
+/// a full cube are for blocks of about their shape: a pressure plate falls off without a floor. The redstone lamp is
+/// for what calls itself a lamp ([`behaviour_fits`]).
 const PLAIN: &[&str] = &[
     "minecraft:stone",
     "minecraft:carved_pumpkin",
@@ -413,6 +574,16 @@ const PLAIN: &[&str] = &[
 
 /// The most entries a selector map gets: the game tries each per state.
 const MAX_SELECTORS: usize = 128;
+
+/// 1 when `template` is the activator rail and the block's name doesn't say it is one: 1.21.1 builds the activator
+/// rail from `PoweredRailBlock` too, so a mod's booster rail ties between the two, and it boosts.
+fn rail_kind(id: &str, template: &str) -> i64 {
+    (template == "minecraft:activator_rail" && !id.contains("activator")) as i64
+}
+
+/// A box the game's collision can't meet, for a state with no shape among states with one: under `COLLISION_EPSILON`
+/// (1e-7) on every axis, in a corner. `collision_boxes` and `outline_boxes` hold boxes, and refuse a flat one.
+const NOTHING: [f64; 6] = [0.0, 0.0, 0.0, 1e-8, 1e-8, 1e-8];
 
 fn full_cube(outline: &Value) -> bool {
     same(outline, &json!([[0, 0, 0, 1, 1, 1]]))
@@ -460,23 +631,82 @@ fn shapes_fitting(block: &Block, t: &Block) -> usize {
         .count()
 }
 
+/// One of a block's states as `property=value` pairs.
+type LiveState<'a> = (BTreeMap<&'a str, &'a str>, &'a State);
+
+/// The states a block can be in here: a property neither its template has nor it declares stays at its default.
+fn live_states<'a>(block: &'a Block, t: &Block, names: &[&str]) -> Vec<LiveState<'a>> {
+    let default = block.default_pairs();
+    block
+        .states
+        .iter()
+        .filter_map(|(key, s)| {
+            let pairs: BTreeMap<&str, &str> = key.split(',').filter_map(|p| p.split_once('=')).collect();
+            pairs
+                .iter()
+                .all(|(k, v)| {
+                    t.properties.contains_key(*k)
+                        || names.contains(k)
+                        || default.get(*k).is_some_and(|d| d == v)
+                })
+                .then_some((pairs, s))
+        })
+        .collect()
+}
+
+/// `t`'s state with the same values of its properties.
+fn state_of<'a>(
+    pairs: &BTreeMap<&str, &str>,
+    t: &Block,
+    theirs: &BTreeMap<String, &'a State>,
+) -> Option<&'a State> {
+    let key = pairs
+        .iter()
+        .filter(|(k, _)| t.properties.contains_key(**k))
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    theirs.get(&key).copied()
+}
+
+/// Whether a block should have the behaviour a template brings when its class doesn't say so. Redstone switches a
+/// lamp on and off and a furnace has a menu and burns things: that fits what calls itself one, not every block with
+/// `lit`. A lamp also has to start off, as placing one does, in the template's light: selectors can't name `lit` on it.
+fn behaviour_fits(template: &str, id: &str, block: &Block, t: &Block) -> bool {
+    let says = |word: &str| {
+        id.split(':').nth(1).is_some_and(|path| path.contains(word))
+            || block
+                .class
+                .iter()
+                .filter(|c| !c.starts_with(VANILLA_PACKAGE))
+                .filter_map(|c| c.rsplit('.').next())
+                .any(|class| class.to_ascii_lowercase().contains(word))
+    };
+    match template {
+        "minecraft:redstone_lamp" => {
+            let off = block.default_pairs().get("lit").is_some_and(|l| l == "false");
+            let theirs = t.by_key();
+            let same_light = block.states.iter().all(|(key, s)| {
+                let pairs = key.split(',').filter_map(|p| p.split_once('=')).collect();
+                state_of(&pairs, t, &theirs).is_some_and(|v| v.emission == s.emission)
+            });
+            says("lamp") && off && same_light
+        }
+        "minecraft:furnace" => says("furnace"),
+        _ => true,
+    }
+}
+
 /// The fewest of `names` a value of each state depends on, as a selector map: the commonest value under `*`, and
 /// a selector for each combination with another. `None` when they don't determine it, or it takes too many.
 fn selectors<V: Clone + Ord>(
-    block: &Block,
+    live: &[LiveState],
     names: &[&str],
     value: impl Fn(&State) -> V,
 ) -> Option<BTreeMap<String, V>> {
-    let states: Vec<(BTreeMap<&str, &str>, V)> = block
-        .states
-        .iter()
-        .map(|(key, s)| {
-            let pairs = key.split(',').filter_map(|p| p.split_once('=')).collect();
-            (pairs, value(s))
-        })
-        .collect();
+    let values: Vec<V> = live.iter().map(|(_, s)| value(s)).collect();
     let mut counts: BTreeMap<&V, usize> = BTreeMap::new();
-    for (_, v) in &states {
+    for v in &values {
         *counts.entry(v).or_default() += 1;
     }
     let common = counts.iter().max_by_key(|(_, n)| **n).map(|(v, _)| (*v).clone())?;
@@ -491,7 +721,7 @@ fn selectors<V: Clone + Ord>(
         let picked: Vec<&str> =
             names.iter().enumerate().filter(|(i, _)| mask >> i & 1 == 1).map(|(_, n)| *n).collect();
         let mut map: BTreeMap<String, V> = BTreeMap::new();
-        for (pairs, v) in &states {
+        for ((pairs, _), v) in live.iter().zip(&values) {
             let selector = picked
                 .iter()
                 .map(|n| format!("{n}={}", pairs.get(n).copied().unwrap_or("")))
@@ -512,9 +742,88 @@ fn selectors<V: Clone + Ord>(
     None
 }
 
+/// `shapes`, the outline and the collision both by one of the template's properties, when they follow that alone.
+fn shapes_by_template(live: &[LiveState], t: &Block) -> Option<Value> {
+    t.properties.keys().find_map(|p| {
+        let mut values: BTreeMap<&str, &Value> = BTreeMap::new();
+        for (pairs, s) in live {
+            let v = *pairs.get(p.as_str())?;
+            if !same(&s.outline, &s.collision) || values.get(v).is_some_and(|o| !same(o, &s.outline)) {
+                return None;
+            }
+            values.insert(v, &s.outline);
+        }
+        shapes_of(p, values)
+    })
+}
+
+/// `shapes` when a block's shapes follow more than the template's properties: by the one of them that moves the
+/// outline most, every other property at its default. A machine's facing, whatever it is doing.
+fn shapes_at_defaults(block: &Block, live: &[LiveState], t: &Block) -> Option<Value> {
+    let default = block.default_pairs();
+    let mut best: Option<(usize, &str, BTreeMap<&str, &Value>)> = None;
+    for p in t.properties.keys() {
+        let mut values: BTreeMap<&str, &Value> = BTreeMap::new();
+        for (pairs, s) in live {
+            let others_default = pairs
+                .iter()
+                .all(|(k, v)| *k == p.as_str() || default.get(*k).is_some_and(|d| d == v));
+            if let (true, Some(v)) = (others_default, pairs.get(p.as_str())) {
+                values.insert(v, &s.outline);
+            }
+        }
+        let distinct = values.values().map(|v| v.to_string()).collect::<BTreeSet<_>>().len();
+        if distinct > 1 && best.as_ref().is_none_or(|(d, _, _)| distinct > *d) {
+            best = Some((distinct, p, values));
+        }
+    }
+    let (_, p, values) = best?;
+    (values.len() == t.properties[p].len()).then(|| shapes_of(p, values)).flatten()
+}
+
+/// The `shapes` value: a property's values and their boxes, at most 16 of them as the game reads them.
+fn shapes_of(property: &str, values: BTreeMap<&str, &Value>) -> Option<Value> {
+    let values: Option<Map<String, Value>> = values
+        .into_iter()
+        .map(|(v, shape)| {
+            let list = shape.as_array()?;
+            if list.len() <= 16 {
+                return Some((v.to_owned(), shape.clone()));
+            }
+            Some((v.to_owned(), json!([bounding_box(shape)?])))
+        })
+        .collect();
+    Some(json!({"property": property, "values": values?}))
+}
+
+/// The game's placement rule (`placement` in a block file) a property of the block follows, from where Java's
+/// `getStateForPlacement` put it with no player: then `UseOnContext.getHorizontalDirection` is north, so a block
+/// facing away from the player faces south, one facing it north; the clicked face is up, then north. Only rules
+/// whose values the property has, and only where the two placements tell the rule from the default state.
+fn placement_rule(block: &Block, name: &str) -> Option<&'static str> {
+    let values = block.properties.get(name)?;
+    let default = block.default_pairs().remove(name)?;
+    let at = |face: &str| -> Option<&str> {
+        let key = block.placement.get(face)?.as_deref()?;
+        key.split(',').filter_map(|p| p.split_once('=')).find(|(k, _)| *k == name).map(|(_, v)| v)
+    };
+    let (up, north) = (at("up")?, at("north")?);
+    const HORIZONTAL: &[&str] = &["north", "east", "south", "west"];
+    const DIRECTIONS: &[&str] = &["down", "up", "north", "south", "west", "east"];
+    let (rule, needs): (&'static str, &[&str]) = match (up, north) {
+        ("south", "south") => ("horizontal_look_opposite", HORIZONTAL),
+        ("north", "north") => ("horizontal_look", HORIZONTAL),
+        ("up", "north") => ("clicked_face", DIRECTIONS),
+        ("y", "z") => ("clicked_axis", &["x", "y", "z"]),
+        _ => return None,
+    };
+    let has_all = needs.iter().all(|v| values.iter().any(|w| w == v));
+    (has_all && (up != default || north != default)).then_some(rule)
+}
+
 /// Puts `names` (the block's properties the template lacks) into the declaration with their values and defaults,
 /// and what the template's states then get wrong: their shapes and light.
-fn declare_states(block: &Block, t: &Block, names: &[&str], choice: &mut Choice) {
+fn declare_states(block: &Block, t: &Block, names: &[&str], pack: Option<&PackBlock>, choice: &mut Choice) {
     let default = block.default_pairs();
     let mut combos = 1usize;
     let mut declared = Map::new();
@@ -535,67 +844,106 @@ fn declare_states(block: &Block, t: &Block, names: &[&str], choice: &mut Choice)
             choice.declared.insert("state_defaults".into(), Value::Object(defaults));
         }
     }
-    // Light by the declared properties: a machine's `lit`.
-    let light = selectors(block, names, |s| s.emission);
-    if let Some(light) = light.filter(|l| l.len() > 1) {
-        choice.declared.insert("light_emission".into(), json!(light));
+    // How a player's placement sets them, where Java's own placement shows it.
+    let rules: Map<String, Value> = names
+        .iter()
+        .filter_map(|name| Some(((*name).to_owned(), json!(placement_rule(block, name)?))))
+        .collect();
+    if !rules.is_empty() {
+        choice.declared.insert("placement".into(), Value::Object(rules));
     }
-    if shapes_fitting(block, t) == block.states.len() {
+    let live = live_states(block, t, names);
+    // Light by the declared properties: a machine's `lit`. By the template's it can only be the template's.
+    let theirs = t.by_key();
+    match selectors(&live, names, |s| s.emission) {
+        Some(light) if light.len() > 1 => {
+            choice.declared.insert("light_emission".into(), json!(light));
+        }
+        Some(light) => {
+            choice.properties.insert("light".into(), json!(light.get("*").copied().unwrap_or(0)));
+        }
+        None if !live.iter().all(|(pairs, s)| {
+            state_of(pairs, t, &theirs).is_some_and(|v| v.emission == s.emission)
+        }) =>
+        {
+            choice
+                .differences
+                .push("its light follows the template's properties, at other levels than the template's".into());
+        }
+        None => {}
+    }
+    // Under water a state that lets light through takes one off (`getLightBlock`).
+    let lets_light_through = pack.map(|p| p.dampening == 0);
+    let under_water = |choice: &mut Choice| {
+        if names.contains(&"waterlogged") {
+            choice
+                .declared
+                .insert("light_dampening_states".into(), json!({"waterlogged=true": 1}));
+        }
+    };
+    if lets_light_through == Some(true) {
+        under_water(choice);
+    }
+    if live.iter().all(|(pairs, s)| {
+        state_of(pairs, t, &theirs)
+            .is_some_and(|v| same(&v.outline, &s.outline) && same(&v.collision, &s.collision))
+    }) {
         return;
     }
-    let any_outline = block.states.values().any(|s| bounding_box(&s.outline).is_some());
-    let any_collision = block.states.values().any(|s| bounding_box(&s.collision).is_some());
-    if block.states.values().any(|s| !full_cube(&s.outline)) {
+    let any_outline = live.iter().any(|(_, s)| bounding_box(&s.outline).is_some());
+    let any_collision = live.iter().any(|(_, s)| bounding_box(&s.collision).is_some());
+    if live.iter().any(|(_, s)| !full_cube(&s.outline)) {
         choice.properties.insert("no_occlusion".into(), json!(true));
-    }
-    // By one of the template's properties, boxes and all: `shapes` is the outline and the collision both.
-    let by_template = t.properties.keys().find_map(|p| {
-        let mut values: BTreeMap<&str, &Value> = BTreeMap::new();
-        for (key, s) in &block.states {
-            let v = key.split(',').filter_map(|x| x.split_once('=')).find(|(k, _)| k == p)?.1;
-            if !same(&s.outline, &s.collision) || values.get(v).is_some_and(|o| !same(o, &s.outline)) {
-                return None;
-            }
-            values.insert(v, &s.outline);
+        // Without the pack's run: what `BlockBehaviour` works out of a shape that isn't a full block.
+        if lets_light_through.is_none() && t.default_state().is_some_and(|s| full_cube(&s.outline)) {
+            choice.properties.insert("light_dampening".into(), json!(0));
+            choice.properties.insert("skylight_down".into(), json!(true));
+            under_water(choice);
         }
-        let values: Option<Map<String, Value>> = values
-            .into_iter()
-            .map(|(v, shape)| {
-                let list = shape.as_array()?;
-                if list.len() <= 16 {
-                    return Some((v.to_owned(), shape.clone()));
-                }
-                Some((v.to_owned(), json!([bounding_box(shape)?])))
-            })
-            .collect();
-        Some(json!({"property": p, "values": values?}))
-    });
-    if let Some(shapes) = by_template {
+    }
+    if let Some(shapes) = shapes_by_template(&live, t) {
         choice.declared.insert("shapes".into(), shapes);
         return;
     }
-    let boxes = |of: &dyn Fn(&State) -> &Value| -> Option<Value> {
-        let map = selectors(block, names, |s| bounding_box(of(s)).map(|b| b.map(|v| (v * 1e6) as i64)))?;
+    let boxes = |of: &dyn Fn(&State) -> &Value| {
+        selectors(&live, names, |s| bounding_box(of(s)).map(|b| b.map(|v| (v * 1e6) as i64)))
+    };
+    let (outline, collision) = (boxes(&|s| &s.outline), boxes(&|s| &s.collision));
+    if (any_outline && outline.is_none()) || (any_collision && collision.is_none()) {
+        if let Some(shapes) = shapes_at_defaults(block, &live, t) {
+            choice.declared.insert("shapes".into(), shapes);
+            if !any_collision {
+                choice.properties.insert("no_collision".into(), json!(true));
+            }
+            choice
+                .differences
+                .push("its shapes follow more than one property: by the template's, the rest at their defaults".into());
+            return;
+        }
+    }
+    // A state with no shape where the others have one takes a box too small to meet: the game has no way to say
+    // none for one state, and the template's cube would stand. Failing selectors, the default state's for all.
+    let default_state = block.default_state();
+    let mut declare = |key: &str, empty_key: &str, any: bool, map: Option<BTreeMap<String, Option<[i64; 6]>>>, of: &dyn Fn(&State) -> &Value| {
+        if !any {
+            choice.properties.insert(empty_key.into(), json!(true));
+            return;
+        }
+        let map = map.unwrap_or_else(|| {
+            choice.differences.push(format!(
+                "its {key} follow properties it can't select on: the default state's for all"
+            ));
+            let shape = default_state.and_then(|s| bounding_box(of(s))).map(|b| b.map(|v| (v * 1e6) as i64));
+            BTreeMap::from([("*".to_owned(), shape)])
+        });
         let map: BTreeMap<String, [f64; 6]> = map
             .into_iter()
-            .filter_map(|(k, v)| Some((k, v?.map(|n| n as f64 / 1e6))))
+            .map(|(k, v)| (k, v.map_or(NOTHING, |b| b.map(|n| n as f64 / 1e6))))
             .collect();
-        (!map.is_empty()).then(|| json!(map))
+        choice.declared.insert(key.into(), json!(map));
     };
-    if !any_outline {
-        choice.properties.insert("outline_empty".into(), json!(true));
-    } else if let Some(o) = boxes(&|s| &s.outline) {
-        choice.declared.insert("outline_boxes".into(), o);
-    } else {
-        choice.differences.push("its outlines follow the template's properties and its own: not declared".into());
-    }
-    if !any_collision {
-        choice.properties.insert("no_collision".into(), json!(true));
-    } else if let Some(c) = boxes(&|s| &s.collision) {
-        choice.declared.insert("collision_boxes".into(), c);
-    } else {
-        choice.differences.push("its collisions follow the template's properties and its own: not declared".into());
-    }
+    declare("outline_boxes", "outline_empty", any_outline, outline, &|s| &s.outline);
+    declare("collision_boxes", "no_collision", any_collision, collision, &|s| &s.collision);
 }
 
 impl Facts {
@@ -647,20 +995,21 @@ impl Facts {
                 + same_set * 10
                 + (block.wood_type.is_some() && block.wood_type == v.wood_type) as i64 * 20
                 + (td.hardness == ours.hardness) as i64 * 5
-                + (td.map_color_id == ours.map_color_id) as i64;
+                + (td.map_color_id == ours.map_color_id) as i64
+                - rail_kind(id, name) * 3;
             if best.is_none_or(|(s, n, _)| score > s || (score == s && name.as_str() < n)) {
                 best = Some((score, name, v));
             }
         }
         let (_, template, t) = best?;
-        Some(self.choice(block, template, t, allowed))
+        Some(self.choice(id, block, template, t, allowed))
     }
 
     /// `template`, a vanilla block guessed from the blockstate as carry does without the oracle, standing in
     /// for `id` when no vanilla block has its class and states, with the mod's numbers over it.
     pub fn guessed(&self, id: &str, template: &str, allowed: &dyn Fn(&str) -> bool) -> Option<Choice> {
         let (block, t) = (self.blocks.get(id)?, self.blocks.get(template)?);
-        let mut choice = self.choice(block, template, t, allowed);
+        let mut choice = self.choice(id, block, template, t, allowed);
         choice.differences.insert(
             0,
             format!(
@@ -673,6 +1022,7 @@ impl Facts {
 
     fn choice(
         &self,
+        id: &str,
         block: &Block,
         template: &str,
         t: &Block,
@@ -687,10 +1037,18 @@ impl Facts {
                 "explosion_resistance".into(),
                 json!(block.explosion_resistance),
             );
-            properties.insert("light".into(), json!(s.emission));
+            // `light` is every state's: one that changes (a lamp's `lit`) keeps the template's per state, or
+            // gets `light_emission`.
+            if block.states.values().all(|o| o.emission == s.emission) {
+                properties.insert("light".into(), json!(s.emission));
+            }
             properties.insert("requires_tool".into(), json!(s.requires_tool));
             properties.insert("friction".into(), json!(block.friction));
-            properties.insert("map_color".into(), json!(s.map_color_id));
+            // Vanilla's colours are 0 to 61; a mod may add its own past them (Mekanism's fluids), which the game
+            // refuses: the template's then stands.
+            if s.map_color_id <= 61 {
+                properties.insert("map_color".into(), json!(s.map_color_id));
+            }
             if theirs.is_none_or(|t| t.sound != s.sound) {
                 match self.sound_block(&s.sound, allowed) {
                     Some(b) => {
@@ -734,6 +1092,22 @@ impl Facts {
                 block.class[0],
                 block.vanilla_class()
             ));
+        }
+        // From Java's own blocks, where the template's differ: what a piston does to it (a carved pumpkin pops, a
+        // machine doesn't move) and what it does to light.
+        if let (Some(ours), Some(theirs)) = (self.pack.block(id), self.pack.block(template)) {
+            if ours.push_reaction() != theirs.push_reaction() {
+                properties.insert("push_reaction".into(), json!(ours.push_reaction()));
+            }
+            if ours.dampening != theirs.dampening {
+                properties.insert("light_dampening".into(), json!(ours.dampening));
+            }
+            if ours.skylight_down != theirs.skylight_down {
+                properties.insert("skylight_down".into(), json!(ours.skylight_down));
+            }
+            if !ours.occludes && theirs.occludes {
+                properties.insert("no_occlusion".into(), json!(true));
+            }
         }
         // Where the mod's default differs on a property the template has.
         let mut declared = Map::new();
@@ -795,10 +1169,15 @@ impl Facts {
             let plain_class = v.vanilla_class().rsplit('.').next() == Some("Block");
             let kin = chain.contains(v.vanilla_class());
             let below = !says_nothing && v.class.iter().any(|c| c == first);
-            let guessed = guess == Some(name.as_str());
             let fits = shapes_fitting(block, v);
             let cube = v.default_state().is_some_and(|s| full_cube(&s.outline));
-            let plain = PLAIN.contains(&name.as_str()) && (cube || fits * 2 >= block.states.len());
+            // A template with a shape of its own brings what goes with it: a pressure plate falls off without a
+            // floor, a button has no collision. So only for a block of about that shape, even if its blockstate
+            // names the same properties.
+            let shape_ok = cube || fits * 2 >= block.states.len();
+            let fitting = shape_ok && behaviour_fits(name, id, block, v);
+            let guessed = guess == Some(name.as_str()) && fitting;
+            let plain = PLAIN.contains(&name.as_str()) && fitting;
             if !(kin || below || guessed || plain) {
                 continue;
             }
@@ -816,13 +1195,14 @@ impl Facts {
                 + (block.wood_type.is_some() && block.wood_type == v.wood_type) as i64 * 20
                 + (td.hardness == ours.hardness) as i64 * 5
                 + (td.map_color_id == ours.map_color_id) as i64
+                - rail_kind(id, name) * 3
                 - (no_item as i64) * 100_000;
             if best.is_none_or(|(s, n, _)| score > s || (score == s && name.as_str() < n)) {
                 best = Some((score, name, v));
             }
         }
         let (_, template, t) = best?;
-        let mut choice = self.choice(block, template, t, allowed);
+        let mut choice = self.choice(id, block, template, t, allowed);
         let (names, unread): (Vec<&str>, Vec<&str>) = block
             .properties
             .keys()
@@ -840,7 +1220,7 @@ impl Facts {
         if !unread.is_empty() {
             choice.differences.insert(1, format!("no model reads [{}]: not declared", unread.join(", ")));
         }
-        declare_states(block, t, &names, &mut choice);
+        declare_states(block, t, &names, self.pack.block(id), &mut choice);
         Some(choice)
     }
 
@@ -872,8 +1252,14 @@ impl Facts {
         }
         let template = item_template(item);
         let mut decl = json!({"template": template});
-        if item.max_stack_size != 64 {
-            decl["max_stack_size"] = json!(item.max_stack_size);
+        // Against the template's own stack, where the game's tables say it (a sword's is 1).
+        let had_stack = self
+            .vanilla_items
+            .get(template)
+            .and_then(|b| b["minecraft:max_stack_size"].as_u64())
+            .unwrap_or(64);
+        if u64::from(item.max_stack_size) != had_stack {
+            decl["max_stack_size"] = json!(item.max_stack_size.clamp(1, 99));
         }
         // NeoForge lets mods add rarities (`aether:loot`); the game has vanilla's four, and refuses the item.
         match item.rarity.as_str() {
@@ -889,11 +1275,43 @@ impl Facts {
                 armor.material
             ));
         }
-        let components = self.item_components(item, template, owned);
+        let components = self.item_components(id, item, template, owned);
         if !components.is_empty() {
             decl["components"] = Value::Object(components);
         }
         Ok((decl, differences))
+    }
+
+    /// The component patch of a declared block's item over its template's item: what Java's item says, not what
+    /// the template's happens to have (a carved pumpkin's head slot, a coal block's burn time). A block file has no
+    /// `max_stack_size` or `rarity` keys, so they go here.
+    pub fn block_item_components(
+        &self,
+        id: &str,
+        template_item: &str,
+        owned: &[&str],
+    ) -> (Map<String, Value>, Vec<String>) {
+        let Some(item) = self.items.get(id) else {
+            return (Map::new(), Vec::new());
+        };
+        let mut patch = self.item_components(id, item, template_item, owned);
+        let mut differences = Vec::new();
+        let base = self.vanilla_items.get(template_item);
+        let had_stack = base.and_then(|b| b["minecraft:max_stack_size"].as_u64());
+        let stack = u64::from(item.max_stack_size).clamp(1, 99);
+        if had_stack.is_some_and(|h| h != stack) {
+            patch.insert("minecraft:max_stack_size".into(), json!(stack));
+        }
+        let had_rarity = base.and_then(|b| b["minecraft:rarity"].as_str());
+        match item.rarity.as_str() {
+            "common" | "uncommon" | "rare" | "epic" => {
+                if had_rarity.is_some_and(|h| h != item.rarity) {
+                    patch.insert("minecraft:rarity".into(), json!(item.rarity));
+                }
+            }
+            other => differences.push(format!("rarity {other} (the template's stays)")),
+        }
+        (patch, differences)
     }
 
     /// The item's numbers as a 26.3 component patch over `template`'s, leaving out what already matches.
@@ -904,12 +1322,27 @@ impl Facts {
             })
     }
 
-    fn item_components(&self, item: &Item, template: &str, owned: &[&str]) -> Map<String, Value> {
-        if item.components.is_empty() {
-            return Map::new();
-        }
+    fn item_components(&self, id: &str, item: &Item, template: &str, owned: &[&str]) -> Map<String, Value> {
         let base = self.vanilla_items.get(template);
         let mut want = Map::new();
+        // Fuel, compost and the slot it is worn in are components in 26.3, and data maps or code in 1.21.1.
+        if let Some(pack) = self.pack.item(id) {
+            want.insert("minecraft:cooking_fuel".into(), cooking_fuel(pack.burn, base));
+            want.insert(
+                "minecraft:compostable".into(),
+                pack.compost.map_or(Value::Null, compostable),
+            );
+            let had_slot = base.and_then(|b| b["minecraft:equippable"]["slot"].as_str());
+            // Armour with a material gets its slot below; one without (a jetpack, mage robes) still goes on.
+            let armour_below = item.armor.as_ref().is_some_and(|a| !a.material.is_empty());
+            if !armour_below && had_slot != pack.worn.as_deref() {
+                let worn = pack.worn.as_ref().map(|slot| json!({"slot": slot}));
+                want.insert("minecraft:equippable".into(), worn.unwrap_or(Value::Null));
+            }
+        }
+        if item.components.is_empty() {
+            return component_patch(want, base);
+        }
         want.insert(
             "minecraft:max_damage".into(),
             item.components
@@ -917,9 +1350,37 @@ impl Facts {
                 .cloned()
                 .unwrap_or(Value::Null),
         );
-        if let Some(m) = &item.attribute_modifiers {
-            want.insert("minecraft:attribute_modifiers".into(), modifiers_26_3(m));
+        match &item.attribute_modifiers {
+            Some(m) => _ = want.insert("minecraft:attribute_modifiers".into(), modifiers_26_3(m)),
+            // None is none: a carved pumpkin's head modifier is no block's.
+            None if base.is_some_and(|b| {
+                b["minecraft:attribute_modifiers"].as_array().is_some_and(|m| !m.is_empty())
+            }) =>
+            {
+                want.insert("minecraft:attribute_modifiers".into(), json!([]));
+            }
+            None => {}
         }
+        // 1.21.1's fire resistance is 26.3's resistance to one damage tag.
+        let fireproof = item.components.contains_key("minecraft:fire_resistant");
+        want.insert(
+            "minecraft:damage_resistant".into(),
+            if fireproof { json!({"types": "#minecraft:is_fire"}) } else { Value::Null },
+        );
+        // What a template's block entity keeps in its item, where Java's item has no such thing.
+        for key in [
+            "minecraft:container",
+            "minecraft:banner_patterns",
+            "minecraft:bees",
+            "minecraft:block_state",
+            "minecraft:pot_decorations",
+        ] {
+            if !item.components.contains_key(key) {
+                want.insert(key.into(), Value::Null);
+            }
+        }
+        // A creeper head's: 1.21.1 tests vanilla's ids for this, so no mod's head has it.
+        want.insert("minecraft:mob_visibility".into(), Value::Null);
         // The mod's rules as they are; what 1.21.1 kept in the class (can_destroy_blocks_in_creative) stays the template's.
         let tool = item.components.get("minecraft:tool").map(|t| {
             let mut tool = base
@@ -943,7 +1404,10 @@ impl Facts {
             want.insert("minecraft:use_remainder".into(), remainder);
         }
         if let Some(value) = item.enchantment_value {
-            let enchantable = (value > 0).then(|| json!({"value": value}));
+            // 1.21.1 enchants only a stack of one (`Item.isEnchantable`), whatever the value says: in the pack's run
+            // Apothic Enchanting gives every item at least 1, and a block item stacking to 64 must not gain it.
+            let enchantable =
+                (value > 0 && item.max_stack_size == 1).then(|| json!({"value": value}));
             want.insert(
                 "minecraft:enchantable".into(),
                 enchantable.unwrap_or(Value::Null),
@@ -962,6 +1426,9 @@ impl Facts {
             if self.armor_asset_exists(armor, owned) {
                 equippable.get_or_insert_with(|| json!({"slot": armor.slot}))["asset_id"] =
                     json!(armor.material);
+            } else if equippable.is_none() && base.is_some() {
+                // On a template that isn't worn (a jetpack on a stick): worn all the same, drawn with no asset.
+                equippable = Some(json!({"slot": armor.slot}));
             }
             if let Some(mut equippable) = equippable {
                 if let Some(sound) = &armor.equip_sound {
@@ -970,17 +1437,7 @@ impl Facts {
                 want.insert("minecraft:equippable".into(), equippable);
             }
         }
-        let mut patch = Map::new();
-        for (key, value) in want {
-            let had = base.and_then(|b| b.get(&key));
-            match (value, had) {
-                (Value::Null, None) => {}
-                (Value::Null, Some(_)) => _ = patch.insert(format!("!{key}"), json!({})),
-                (v, Some(h)) if same(&v, h) => {}
-                (v, _) => _ = patch.insert(key, v),
-            }
-        }
-        patch
+        component_patch(want, base)
     }
 
     /// A tag's members the content mod may name: vanilla's and its own.
@@ -1380,6 +1837,10 @@ mod tests {
             "minecraft:powered_rail": with_props(&[powered, rail, BLOCK],
                 &[("powered", BOOL), rail_shape, ("waterlogged", BOOL)],
                 "powered=false,shape=north_south,waterlogged=false", &low),
+            // 1.21.1 builds it from `PoweredRailBlock` too.
+            "minecraft:activator_rail": with_props(&[powered, rail, BLOCK],
+                &[("powered", BOOL), rail_shape, ("waterlogged", BOOL)],
+                "powered=false,shape=north_south,waterlogged=false", &low),
             "minecraft:oak_leaves": with_props(&[leaves, BLOCK],
                 &[("distance", &["1", "2"]), ("persistent", BOOL), ("waterlogged", BOOL)],
                 "distance=2,persistent=false,waterlogged=false", &cube),
@@ -1417,6 +1878,31 @@ mod tests {
     }
 
     #[test]
+    fn declared_properties_place_as_java_placed_them() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let dir: (&str, &[&str]) = ("direction", &["north", "east", "south", "west"]);
+        let side: (&str, &[&str]) = ("side", &["down", "up", "north", "south", "west", "east"]);
+        let placed = |default: &str, up: &str, north: &str| {
+            let mut b = with_props(&["m.Chair", "net.minecraft.world.level.block.BaseEntityBlock", BLOCK], &[dir, side],
+                default, &cube);
+            b["placement"] = json!({"up": up, "north": north});
+            b
+        };
+        let facts = family(json!({
+            // Faces the player, and sticks to the face clicked.
+            "m:chair": placed("direction=south,side=down", "direction=north,side=up", "direction=north,side=north"),
+            // Where the default state is what it gives: nothing to tell.
+            "m:stool": placed("direction=north,side=up", "direction=north,side=up", "direction=north,side=north"),
+            "m:bench": placed("direction=north,side=down", "direction=south,side=down", "direction=south,side=down"),
+        }));
+        let any = |_: &str| true;
+        let rules = |id: &str| facts.extended(id, None, None, &any).unwrap().declared.get("placement").cloned();
+        assert_eq!(rules("m:chair"), Some(json!({"direction": "horizontal_look", "side": "clicked_face"})));
+        assert_eq!(rules("m:stool"), Some(json!({"side": "clicked_face"})));
+        assert_eq!(rules("m:bench"), Some(json!({"direction": "horizontal_look_opposite"})));
+    }
+
+    #[test]
     fn a_template_gives_the_properties_it_has() {
         let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
         let props: &[(&str, &[&str])] = &[FACING, ("lit", BOOL)];
@@ -1445,12 +1931,19 @@ mod tests {
             "m:leaf": with_props(&["m.Leaf", leaves, BLOCK],
                 &[("age", &["0", "1"]), ("distance", &["1", "2"]), ("persistent", BOOL), ("waterlogged", BOOL)],
                 "age=0,distance=2,persistent=false,waterlogged=false", &cube),
+            "m:activator_rail": with_props(&["m.Rail", rail, BLOCK],
+                &[("powered", BOOL), ("shape", &["north_south", "east_west"]), ("waterlogged", BOOL), ("speed", &["1", "2"])],
+                "powered=false,shape=north_south,speed=1,waterlogged=false", &low),
             "m:wired": with_props(&["m.Wired", BLOCK], &[("powered", BOOL)], "powered=false", &cube),
+            "m:mat": with_props(&["m.Mat", BLOCK], &[("powered", BOOL)], "powered=false", &low),
         }));
         let any = |_: &str| true;
         let rail = facts.extended("m:rail", None, None, &any).unwrap();
         assert_eq!(rail.template, "minecraft:powered_rail");
         assert_eq!(rail.declared["state_properties"], json!({"speed": ["1", "2"]}));
+        // A rail of the powered rail's class boosts, unless its name says it activates.
+        let activator = facts.extended("m:activator_rail", None, None, &any).unwrap();
+        assert_eq!(activator.template, "minecraft:activator_rail");
         // A guess of wheat from its `age` loses to the leaves its class is.
         let leaf = facts.extended("m:leaf", Some("minecraft:wheat"), None, &any).unwrap();
         assert_eq!(leaf.template, "minecraft:oak_leaves");
@@ -1458,6 +1951,12 @@ mod tests {
         // A cube with `powered` is no pressure plate, which would fall off without a floor.
         let wired = facts.extended("m:wired", None, None, &any).unwrap();
         assert_eq!(wired.template, "minecraft:stone");
+        // Not when its blockstate says `powered` either; a plate-shaped block may be one.
+        let plate = Some("minecraft:oak_pressure_plate");
+        let wired = facts.extended("m:wired", plate, None, &any).unwrap();
+        assert_eq!(wired.template, "minecraft:stone");
+        let mat = facts.extended("m:mat", plate, None, &any).unwrap();
+        assert_eq!(mat.template, "minecraft:oak_pressure_plate");
         // A game without the template: the next that fits.
         let stoneless = facts.extended("m:wired", None, None, &|n: &str| n != "minecraft:stone");
         assert_eq!(stoneless, None);
@@ -1497,8 +1996,11 @@ mod tests {
         assert_eq!(c.declared["shapes"]["values"]["south"], json!([[0, 0, 0.5, 1, 1, 1]]));
         assert_eq!(c.declared["shapes"]["values"].as_object().unwrap().len(), 4);
         let c = facts.extended("m:odd", None, None, &any).unwrap();
-        // The flat state has no box of its own: it takes the others'.
-        assert_eq!(c.declared["outline_boxes"], json!({"*": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]}));
+        // The flat state has no shape, and says so.
+        assert_eq!(
+            c.declared["outline_boxes"],
+            json!({"*": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0], "tall=false": NOTHING})
+        );
         let c = facts.extended("m:ghost", None, None, &any).unwrap();
         assert_eq!(c.properties["outline_empty"], json!(true));
         assert_eq!(c.properties["no_collision"], json!(true));
@@ -1515,6 +2017,324 @@ mod tests {
         assert_eq!(c.template, "minecraft:carved_pumpkin");
         assert_eq!(Value::Object(c.declared), json!({"default_state": {"facing": "west"}}));
         assert_eq!(c.states, 4);
+    }
+
+    /// A block on a carved pumpkin, a block on a coal block and a plain item, with the game's items as they are.
+    fn items_facts(pack: Value) -> Facts {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let carved: &[&str] = &["net.minecraft.world.level.block.CarvedPumpkinBlock", BLOCK];
+        let item = |class: &str, stack: u8, rarity: &str| {
+            json!({"class": class, "max_stack_size": stack, "rarity": rarity, "components": {"minecraft:max_stack_size": stack},
+                "attribute_modifiers": {"modifiers": []}, "enchantment_value": 0})
+        };
+        let block_item = "net.minecraft.world.item.BlockItem";
+        let mut facts: Facts = serde_json::from_value(json!({
+            "blocks": {
+                "minecraft:carved_pumpkin": with_props(carved, &[FACING], "facing=north", &cube),
+                "m:machine": with_props(&["m.Machine", BLOCK], &[FACING, ("lit", BOOL)], "facing=north,lit=false", &cube),
+            },
+            "items": {
+                "m:machine": item(block_item, 64, "common"),
+                "m:coal": item(block_item, 16, "rare"),
+                "m:gem": item("net.minecraft.world.item.Item", 64, "common"),
+                "m:sawdust": item("net.minecraft.world.item.Item", 64, "common"),
+                "m:hat": item(block_item, 64, "common"),
+                "m:relic": item(block_item, 64, "m:relic"),
+                "m:safe": {"class": block_item, "max_stack_size": 64, "rarity": "common",
+                    "components": {"minecraft:fire_resistant": {}}},
+            }
+        }))
+        .unwrap();
+        facts.vanilla_items = serde_json::from_value(json!({
+            "minecraft:carved_pumpkin": {"minecraft:max_stack_size": 64, "minecraft:rarity": "common",
+                "minecraft:attribute_modifiers": [{"type": "minecraft:waypoint_transmit_range", "slot": "head"}],
+                "minecraft:compostable": {"layers": "minecraft:compostable/medium"},
+                "minecraft:equippable": {"camera_overlay": "minecraft:misc/pumpkinblur", "slot": "head", "swappable": false}},
+            "minecraft:coal_block": {"minecraft:max_stack_size": 64, "minecraft:rarity": "common",
+                "minecraft:attribute_modifiers": [],
+                "minecraft:cooking_fuel": {"burn_time": "minecraft:cooking/time_coal_block",
+                    "speed_multiplier": "minecraft:cooking/speed_default"}},
+            "minecraft:stick": {"minecraft:max_stack_size": 64, "minecraft:rarity": "common",
+                "minecraft:attribute_modifiers": [],
+                "minecraft:cooking_fuel": {"burn_time": "minecraft:cooking/time_dry_plants",
+                    "speed_multiplier": "minecraft:cooking/speed_default"}},
+            "minecraft:netherite_block": {"minecraft:max_stack_size": 64, "minecraft:rarity": "common",
+                "minecraft:attribute_modifiers": [],
+                "minecraft:damage_resistant": {"types": "#minecraft:is_fire"}},
+        }))
+        .unwrap();
+        facts.pack = serde_json::from_value(pack).unwrap();
+        facts
+    }
+
+    #[test]
+    fn a_block_item_carries_javas_facts_over_its_templates() {
+        let facts = items_facts(json!({"items": {
+            "m:machine": {"burn": 0},
+            "m:coal": {"burn": 16000},
+            "m:hat": {"burn": 0, "compost": 0.65, "worn": "head"},
+            "m:relic": {"burn": 0},
+            "m:safe": {"burn": 0},
+        }}));
+        // Nothing of a carved pumpkin's item stays on a machine: not the head slot, its modifier or its compost.
+        let (patch, differences) = facts.block_item_components("m:machine", "minecraft:carved_pumpkin", &["m"]);
+        assert_eq!(
+            Value::Object(patch),
+            json!({"!minecraft:equippable": {}, "!minecraft:compostable": {}, "minecraft:attribute_modifiers": []})
+        );
+        assert!(differences.is_empty());
+        // A block that is worn and composts keeps what it shares with the template.
+        let (patch, _) = facts.block_item_components("m:hat", "minecraft:carved_pumpkin", &["m"]);
+        assert_eq!(Value::Object(patch), json!({"minecraft:attribute_modifiers": []}));
+        // No fuel unless Java says so; the same time keeps the template's; stack size and rarity go in the patch.
+        let (patch, _) = facts.block_item_components("m:machine", "minecraft:coal_block", &["m"]);
+        assert_eq!(Value::Object(patch), json!({"!minecraft:cooking_fuel": {}}));
+        let (patch, _) = facts.block_item_components("m:coal", "minecraft:coal_block", &["m"]);
+        assert_eq!(
+            Value::Object(patch),
+            json!({"minecraft:max_stack_size": 16, "minecraft:rarity": "rare"})
+        );
+        // A rarity the game hasn't is left and said.
+        let (patch, differences) = facts.block_item_components("m:relic", "minecraft:coal_block", &["m"]);
+        assert_eq!(Value::Object(patch), json!({"!minecraft:cooking_fuel": {}}));
+        assert_eq!(differences, ["rarity m:relic (the template's stays)"]);
+        // Fire resistance goes by Java's item.
+        let (patch, _) = facts.block_item_components("m:safe", "minecraft:netherite_block", &["m"]);
+        assert_eq!(Value::Object(patch), json!({}));
+        let (patch, _) = facts.block_item_components("m:machine", "minecraft:netherite_block", &["m"]);
+        assert_eq!(Value::Object(patch), json!({"!minecraft:damage_resistant": {}}));
+        // An enchantment value on a stack of 64 (Apothic Enchanting gives every item one) enchants nothing.
+        let mut facts = facts;
+        facts.items.get_mut("m:machine").unwrap().enchantment_value = Some(1);
+        let (patch, _) = facts.block_item_components("m:machine", "minecraft:netherite_block", &["m"]);
+        assert_eq!(Value::Object(patch), json!({"!minecraft:damage_resistant": {}}));
+    }
+
+    #[test]
+    fn an_item_burns_and_composts_as_java_says() {
+        let facts = items_facts(json!({"items": {
+            "m:gem": {"burn": 0},
+            "m:sawdust": {"burn": 450, "compost": 0.35},
+            "m:hat": {"burn": 1600, "worn": "chest"},
+        }}));
+        // A stick burns; a gem on a stick doesn't.
+        let (gem, _) = facts.item("m:gem", &["m"]).unwrap();
+        assert_eq!(gem["components"], json!({"!minecraft:cooking_fuel": {}}));
+        // A stack of one on a stick's 64 (a pen, a bucket): the declaration's own key.
+        let mut facts = facts;
+        facts.items.get_mut("m:gem").unwrap().max_stack_size = 1;
+        let (gem, _) = facts.item("m:gem", &["m"]).unwrap();
+        assert_eq!(gem["max_stack_size"], json!(1));
+        // A time 26.3 has no name for is the same provider with the number in it, the chance the nearest of five.
+        let (dust, _) = facts.item("m:sawdust", &["m"]).unwrap();
+        assert_eq!(dust["components"]["minecraft:cooking_fuel"]["burn_time"]["left"], json!(450));
+        assert_eq!(
+            dust["components"]["minecraft:cooking_fuel"]["burn_time"]["right"]["on_true"],
+            json!("minecraft:cooking/fast_burn_time_reduction_factor")
+        );
+        assert_eq!(
+            dust["components"]["minecraft:compostable"],
+            json!({"layers": "minecraft:compostable/low"})
+        );
+        let (patch, _) = facts.block_item_components("m:hat", "minecraft:coal_block", &["m"]);
+        assert_eq!(
+            patch["minecraft:cooking_fuel"]["burn_time"],
+            json!("minecraft:cooking/time_coal")
+        );
+        assert_eq!(patch["minecraft:equippable"], json!({"slot": "chest"}));
+        // Armour whose material names no asset (a jetpack) still goes on its slot.
+        let mut facts = facts;
+        facts.items.get_mut("m:hat").unwrap().armor =
+            Some(serde_json::from_value(json!({"slot": "chest"})).unwrap());
+        let (patch, _) = facts.block_item_components("m:hat", "minecraft:coal_block", &["m"]);
+        assert_eq!(patch["minecraft:equippable"], json!({"slot": "chest"}));
+        // So does armour whose material has no asset to draw it with.
+        facts.items.get_mut("m:hat").unwrap().armor =
+            Some(serde_json::from_value(json!({"slot": "chest", "material": "other:jet"})).unwrap());
+        let (patch, _) = facts.block_item_components("m:hat", "minecraft:coal_block", &["m"]);
+        assert_eq!(patch["minecraft:equippable"], json!({"slot": "chest"}));
+        // Without the pack's run the template's stand, as before.
+        let bare = items_facts(json!({}));
+        let (gem, _) = bare.item("m:gem", &["m"]).unwrap();
+        assert!(gem.get("components").is_none());
+    }
+
+    #[test]
+    fn pistons_do_with_a_block_what_java_does() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let mut facts = family(json!({
+            "m:machine": with_props(&["m.Machine", BLOCK], &[FACING], "facing=north", &cube),
+            "m:plain": with_props(&["m.Plain", BLOCK], &[FACING], "facing=north", &cube),
+            "m:pop": with_props(&["m.Pop", BLOCK], &[FACING], "facing=north", &cube),
+        }));
+        facts.pack = serde_json::from_value(json!({"blocks": {
+            "minecraft:carved_pumpkin": {"push": "DESTROY"},
+            "m:machine": {"push": "NORMAL", "block_entity": true},
+            "m:plain": {"push": "NORMAL"},
+            "m:pop": {"push": "DESTROY"},
+        }}))
+        .unwrap();
+        let reaction = |id: &str| {
+            let c = facts.extended(id, None, None, &|_| true).unwrap();
+            assert_eq!(c.template, "minecraft:carved_pumpkin");
+            c.properties.get("push_reaction").cloned()
+        };
+        assert_eq!(reaction("m:machine"), Some(json!("IMMOVEABLE")));
+        assert_eq!(reaction("m:plain"), Some(json!("PUSH_PULL")));
+        assert_eq!(reaction("m:pop"), None);
+    }
+
+    #[test]
+    fn a_state_with_no_collision_has_none() {
+        // As a pile of gold: one layer is walked through, in Java and here, and it is the default.
+        let outline = |k: &str| {
+            let n: f64 = k.trim_start_matches("layers=").parse().unwrap();
+            json!([[0, 0, 0, 1, n / 8.0, 1]])
+        };
+        let mut pile = with_props(&["m.Pile", BLOCK], &[("layers", &["1", "2", "3"])], "layers=1", &outline);
+        pile["states"]["layers=1"]["collision"] = json!([]);
+        pile["states"]["layers=3"]["collision"] = json!([[0, 0, 0, 1, 0.25, 1]]);
+        pile["states"]["layers=2"]["collision"] = json!([[0, 0, 0, 1, 0.125, 1]]);
+        let facts = family(json!({"m:pile": pile}));
+        let c = facts.extended("m:pile", None, None, &|_| true).unwrap();
+        let boxes = &c.declared["collision_boxes"];
+        assert_eq!(selected(boxes, "layers=1"), json!(NOTHING));
+        assert_eq!(selected(boxes, "layers=2"), json!([0.0, 0.0, 0.0, 1.0, 0.125, 1.0]));
+        assert_eq!(selected(boxes, "layers=3"), json!([0.0, 0.0, 0.0, 1.0, 0.25, 1.0]));
+    }
+
+    /// What the game takes for `key=value`: its selector, else `*`.
+    fn selected(boxes: &Value, state: &str) -> Value {
+        boxes.get(state).unwrap_or(&boxes["*"]).clone()
+    }
+
+    #[test]
+    fn a_shape_that_cant_be_selected_is_still_the_blocks() {
+        // As a pipe whose sides no model reads: not declared, so the core stands for all, not the template's cube.
+        let sides: &[&str] = &["none", "normal"];
+        let pipe = |k: &str| {
+            if k.contains("normal") {
+                json!([[0.3, 0.3, 0.3, 0.7, 0.7, 0.7], [0.3, 0.7, 0.3, 0.7, 1, 0.7]])
+            } else {
+                json!([[0.3, 0.3, 0.3, 0.7, 0.7, 0.7]])
+            }
+        };
+        let core = json!([0.3, 0.3, 0.3, 0.7, 0.7, 0.7]);
+        let props: &[(&str, &[&str])] = &[("down", sides), ("up", sides)];
+        let facts = family(json!({
+            "m:pipe": with_props(&["m.Pipe", BLOCK], props, "down=none,up=none", &pipe),
+            // Its shape follows its facing and what it is doing: by facing, and the shape it has when idle.
+            "m:press": with_props(&["m.Press", BLOCK], &[FACING, ("on", BOOL)], "facing=north,on=false", &|k: &str| {
+                let y = if k.contains("on=true") { 1.0 } else { 0.5 };
+                if k.contains("facing=north") { json!([[0, 0, 0, 1, y, 0.5]]) } else { json!([[0, 0, 0.5, 1, y, 1]]) }
+            }),
+        }));
+        let none = BTreeSet::new();
+        let c = facts.extended("m:pipe", None, Some(&none), &|_| true).unwrap();
+        assert_eq!(c.template, "minecraft:stone");
+        assert_eq!(c.states, 1);
+        // With its sides at their defaults its one state has one shape, and it fits no selector: the core.
+        assert_eq!(c.declared["outline_boxes"], json!({"*": core}));
+        assert_eq!(c.declared["collision_boxes"], json!({"*": core}));
+        assert_eq!(c.properties["no_occlusion"], json!(true));
+        // Declaring only `on`, the template's facing moves it too.
+        let named = BTreeSet::from(["on".to_owned()]);
+        let c = facts.extended("m:press", None, Some(&named), &|_| true).unwrap();
+        assert_eq!(c.template, "minecraft:carved_pumpkin");
+        assert_eq!(c.declared["shapes"]["property"], json!("facing"));
+        assert_eq!(c.declared["shapes"]["values"]["north"], json!([[0, 0, 0, 1, 0.5, 0.5]]));
+        assert_eq!(c.declared["shapes"]["values"]["east"], json!([[0, 0, 0.5, 1, 0.5, 1]]));
+        assert!(c.differences.iter().any(|d| d.starts_with("its shapes follow more than one")));
+    }
+
+    #[test]
+    fn light_follows_each_state() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let lit: (&str, &[&str]) = ("lit", BOOL);
+        let lamp = "net.minecraft.world.level.block.RedstoneLampBlock";
+        let furnace = "net.minecraft.world.level.block.FurnaceBlock";
+        let mut dark = with_props(&["m.Dark", lamp, BLOCK], &[lit], "lit=false", &cube);
+        dark["states"]["lit=true"]["emission"] = json!(0);
+        let mut bright = with_props(&["m.BrightLamp", BLOCK], &[lit], "lit=false", &cube);
+        bright["states"]["lit=true"]["emission"] = json!(7);
+        let facts = family(json!({
+            "minecraft:redstone_lamp": with_props(&[lamp, BLOCK], &[lit], "lit=false", &cube),
+            "minecraft:furnace": with_props(&[furnace, BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+            "m:real_lamp": with_props(&["m.RealLamp", lamp, BLOCK], &[lit], "lit=false", &cube),
+            "m:dark": dark,
+            "m:wall_lamp": with_props(&["m.WallLampBlock", BLOCK], &[lit], "lit=false", &cube),
+            "m:bright": bright,
+            "m:on_lamp": with_props(&["m.OnLamp", BLOCK], &[lit], "lit=true", &cube),
+            "m:fan": with_props(&["m.CeilingFan", BLOCK], &[lit], "lit=false", &cube),
+            "m:trap": with_props(&["m.DartTrap", BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+            "m:iron_furnace": with_props(&["m.Base", BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+        }));
+        let any = |_: &str| true;
+        // Of its class, with the template's per-state light: no flat `light` to put it out.
+        let c = facts.template("m:real_lamp", &any).unwrap();
+        assert_eq!(c.template, "minecraft:redstone_lamp");
+        assert!(!c.properties.contains_key("light"));
+        // Java's own numbers: this lamp's class gives no light in either state, so it says that.
+        let c = facts.template("m:dark", &any).unwrap();
+        assert_eq!(c.properties["light"], json!(0));
+        // A lamp by its name, starting off, in the template's light: redstone switches it, as in Java.
+        let lamp_template = Some("minecraft:redstone_lamp");
+        let c = facts.extended("m:wall_lamp", lamp_template, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:redstone_lamp");
+        assert!(!c.properties.contains_key("light") && !c.declared.contains_key("light_emission"));
+        // Another light, or starting on: `lit` is its own, its light right in each state, and redstone leaves it.
+        for id in ["m:bright", "m:on_lamp", "m:fan"] {
+            let c = facts.extended(id, lamp_template, None, &any).unwrap();
+            assert_eq!(c.template, "minecraft:stone", "{id}");
+            assert!(c.declared["state_properties"].get("lit").is_some(), "{id}");
+            assert!(c.declared.contains_key("light_emission"), "{id}");
+            assert!(!c.properties.contains_key("light"), "{id}");
+        }
+        // A blockstate's `facing` and `lit` make no trap a furnace; what calls itself one may stand on it.
+        let furnace_template = Some("minecraft:furnace");
+        let c = facts.extended("m:trap", furnace_template, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:carved_pumpkin");
+        let c = facts.extended("m:iron_furnace", furnace_template, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:furnace");
+    }
+
+    #[test]
+    fn a_block_that_lets_light_through_does_so_on_a_solid_template() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let thin = |_: &str| json!([[0.25, 0, 0.25, 0.75, 1, 0.75]]);
+        let water: (&str, &[&str]) = ("waterlogged", BOOL);
+        let mut facts = family(json!({
+            "m:relay": with_props(&["m.Relay", BLOCK], &[("side", &["a", "b"])], "side=a", &thin),
+            "m:wet": with_props(&["m.Wet", BLOCK], &[water], "waterlogged=false", &thin),
+            "m:pane": with_props(&["m.Pane", BLOCK], &[], "", &cube),
+        }));
+        let any = |_: &str| true;
+        // Without the pack's run it follows from the shape.
+        let c = facts.extended("m:relay", None, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:stone");
+        assert_eq!(c.properties["no_occlusion"], json!(true));
+        assert_eq!(c.properties["light_dampening"], json!(0));
+        assert_eq!(c.properties["skylight_down"], json!(true));
+        let c = facts.extended("m:wet", None, None, &any).unwrap();
+        assert_eq!(c.declared["light_dampening_states"], json!({"waterlogged=true": 1}));
+        facts.pack = serde_json::from_value(json!({"blocks": {
+            "minecraft:stone": {"push": "NORMAL", "occludes": true, "dampening": 15},
+            "m:relay": {"push": "NORMAL", "occludes": true, "dampening": 0, "skylight_down": true},
+            "m:wet": {"push": "NORMAL", "occludes": false, "dampening": 0, "skylight_down": true},
+            "m:pane": {"push": "NORMAL", "occludes": false, "dampening": 1},
+        }}))
+        .unwrap();
+        // With it Java's numbers say, for any block: a full cube that doesn't occlude, on a template that does.
+        let c = facts.extended("m:relay", None, None, &any).unwrap();
+        assert_eq!(c.properties["light_dampening"], json!(0));
+        assert_eq!(c.properties["skylight_down"], json!(true));
+        let c = facts.extended("m:wet", None, None, &any).unwrap();
+        assert_eq!(c.declared["light_dampening_states"], json!({"waterlogged=true": 1}));
+        let c = facts.template("m:pane", &any).unwrap();
+        assert_eq!(c.template, "minecraft:stone");
+        assert_eq!(c.properties["no_occlusion"], json!(true));
+        assert_eq!(c.properties["light_dampening"], json!(1));
+        assert!(!c.properties.contains_key("skylight_down"));
     }
 
     #[test]

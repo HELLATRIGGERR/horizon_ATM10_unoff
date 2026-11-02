@@ -2,7 +2,7 @@
 """Dev-only NeoForge oracle for Horizon's mod-port harnesses (docs/modpacks.md).
 
     neoforge_oracle.py export --jars DIR [--deps DIR] [--namespaces a,b] --out FACTS.json
-    neoforge_oracle.py pack --instance DIR --run DIR --out DIR [--leave-out FILE] [--namespaces a,b]
+    neoforge_oracle.py pack --instance DIR --run DIR --out DIR [--leave-out FILE] [--namespaces a,b] [--batches FILE]
 
 installs a NeoForge server under .local/neoforge-oracle (once), builds the exporter mod in
 mods/horizon/src/neoforge-oracle, starts the server headless with the given mod jars, and writes every
@@ -12,7 +12,8 @@ FACTS.json. The jars are the user's own; nothing here is shipped or committed.
 `pack` starts a whole modpack instance the same way: every jar of its mods/ (but the client-only ones in --leave-out),
 with its config, KubeJS scripts and global data packs copied to the run folder (the instance is only read), and writes
 the final recipes, tags and loot tables to --out as JSON lines (FactsExporter's PackDump), plus the facts of
---namespaces. KubeJS and Almost Unified have then had their say, so the result stands in for both. KubeJS scripts may be
+--namespaces, and with --batches (lines of `<name> <namespace>,...`) the facts of each batch in <out>/facts-<name>.json:
+a whole pack's facts in one file are too big for `horizon-port-pack carry` to read at once. KubeJS and Almost Unified have then had their say, so the result stands in for both. KubeJS scripts may be
 All Rights Reserved: the output stays local.
 
 Environment: HORIZON_NEOFORGE_HOME, a NeoForge server already installed (its libraries/ and args files), used
@@ -34,8 +35,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL = ROOT / '.local' / 'neoforge-oracle'
 SOURCE = ROOT / 'mods' / 'horizon' / 'src' / 'neoforge-oracle'
-# ATM10 8.x: Minecraft 1.21.1 on NeoForge 21.1.259 (docs/modpacks.md).
-NEOFORGE = os.environ.get('HORIZON_NEOFORGE', '21.1.259')
+# ATM10 8.4: Minecraft 1.21.1 on NeoForge 21.1.265 (docs/modpacks.md); HORIZON_NEOFORGE follows another instance.
+NEOFORGE = os.environ.get('HORIZON_NEOFORGE', '21.1.265')
 MAVEN = 'https://maven.neoforged.net/releases/net/neoforged/neoforge'
 HOME = os.environ.get('HORIZON_NEOFORGE_HOME')
 JAVA = os.environ.get('HORIZON_ORACLE_JAVA', 'java')
@@ -274,14 +275,6 @@ def export(args):
 PACK_FOLDERS = ('config', 'defaultconfigs', 'kubejs', 'datapacks', 'moonlight-global-datapacks', 'local', 'moddata')
 
 
-def hard_link(source, target):
-    """A hard link where the disk allows it, so a 1.4 GB mods folder costs nothing; else a copy."""
-    try:
-        os.link(source, target)
-    except OSError:
-        shutil.copyfile(source, target)
-
-
 def pack(args):
     instance_dir, run, dump = Path(args.instance), Path(args.run).resolve(), Path(args.out).resolve()
     leave_out = set()
@@ -304,7 +297,8 @@ def pack(args):
         if jar.name in leave_out or any(i in leave_out for i in ids):
             left += 1
             continue
-        hard_link(jar, run / 'mods' / jar.name)
+        # Copied, not linked: the instance is only read, and nothing may write through a link into it.
+        shutil.copyfile(jar, run / 'mods' / jar.name)
         used += 1
     shutil.copyfile(exporter, run / 'mods' / exporter.name)
     for folder in PACK_FOLDERS:
@@ -315,9 +309,12 @@ def pack(args):
     for old in (out, dump / 'summary.json'):
         old.unlink(missing_ok=True)
     print(f'{used} mods, {left} left out; server starting with -Xmx{XMX}', flush=True)
-    seconds, log = start(home, run, {'horizon.oracle.out': out, 'horizon.oracle.dump': dump,
-                                     'horizon.oracle.namespaces': args.namespaces or ''},
-                         timeout=args.timeout)
+    props = {'horizon.oracle.out': out, 'horizon.oracle.dump': dump, 'horizon.oracle.namespaces': args.namespaces or ''}
+    if args.batches:
+        props['horizon.oracle.batches'] = Path(args.batches).resolve()
+        for old in dump.glob('facts-*.json'):
+            old.unlink()
+    seconds, log = start(home, run, props, timeout=args.timeout)
     if not (dump / 'summary.json').exists():
         tail = '\n'.join(log.splitlines()[-40:])
         sys.exit(f'the oracle wrote no summary; the end of {run / "server.log"}:\n{tail}')
@@ -338,6 +335,7 @@ def main():
     p.add_argument('--out', required=True, help='the folder for recipes.jsonl, tags.jsonl, loot_tables.jsonl...')
     p.add_argument('--leave-out', help='a file of jar names or mod ids not to load (client-only), one a line')
     p.add_argument('--namespaces', help='comma-separated: also write these namespaces\' facts to <out>/facts.json')
+    p.add_argument('--batches', help='a file of `<name> <namespace>,...` lines: facts of each into <out>/facts-<name>.json')
     p.add_argument('--timeout', type=int, default=1500, help='seconds before the server is stopped')
     args = parser.parse_args()
     {'export': export, 'pack': pack}[args.command](args)

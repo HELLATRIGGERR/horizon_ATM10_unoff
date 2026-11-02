@@ -306,6 +306,10 @@ fn instance(dir: &Path) -> Result<Pack, String> {
                 _ => {}
             }
         }
+    } else if let Ok(text) = fs::read_to_string(dir.join("minecraftinstance.json")) {
+        let v: Value =
+            serde_json::from_str(&text).map_err(|e| format!("minecraftinstance.json: {e}"))?;
+        curseforge_instance(&v, &mut pack);
     }
     let game = game_dir(dir)?;
     let mods = if game.join("mods").is_dir() {
@@ -339,6 +343,19 @@ fn instance(dir: &Path) -> Result<Pack, String> {
         }
     }
     Ok(pack)
+}
+
+/// A CurseForge app instance's `minecraftinstance.json`: the game version, the loader
+/// (`baseModLoader.name`, such as `neoforge-21.1.265`) and the instance's name.
+fn curseforge_instance(v: &Value, pack: &mut Pack) {
+    pack.minecraft = str_of(v, "gameVersion");
+    let loader = v["baseModLoader"]["name"].as_str().unwrap_or("");
+    if let Some((name, version)) = loader.split_once('-') {
+        (pack.loader, pack.loader_version) = (name.to_owned(), version.to_owned());
+    }
+    if let Some(name) = v["name"].as_str().filter(|n| !n.is_empty()) {
+        pack.name = name.to_owned();
+    }
 }
 
 /// Resolve the game root for both mod and resource-pack instance imports.
@@ -410,6 +427,26 @@ mod tests {
             p.overrides,
             BTreeMap::from([("config".into(), 2), ("kubejs".into(), 1)])
         );
+    }
+
+    #[test]
+    fn reads_a_curseforge_app_instance() {
+        let dir = std::env::temp_dir().join(format!("horizon-cf-instance-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("mods")).unwrap();
+        fs::write(dir.join("mods/mcw-doors-1.1.2.jar"), b"jar").unwrap();
+        let instance = json!({"name": "All the Mods 10 - ATM10", "gameVersion": "1.21.1",
+            "baseModLoader": {"name": "neoforge-21.1.265"}, "manifest": {"version": "8.4"}});
+        fs::write(dir.join("minecraftinstance.json"), instance.to_string()).unwrap();
+        let p = import(&dir).unwrap();
+        assert_eq!(
+            (p.minecraft.as_str(), p.loader.as_str(), p.loader_version.as_str()),
+            ("1.21.1", "neoforge", "21.1.265")
+        );
+        assert_eq!(p.name, "All the Mods 10 - ATM10");
+        assert_eq!(p.files.len(), 1);
+        assert_eq!(p.files[0].path, "mods/mcw-doors-1.1.2.jar");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

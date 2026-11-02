@@ -105,6 +105,31 @@ pub fn instance_mods(instance: &Path) -> BTreeSet<String> {
     out
 }
 
+/// The pack's version, as the CurseForge app's `minecraftinstance.json` states it (`manifest.version`); `0` when the
+/// instance doesn't say.
+fn pack_version(instance: Option<&Path>) -> String {
+    instance
+        .and_then(|dir| fs::read(dir.join("minecraftinstance.json")).ok())
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .and_then(|v| v["manifest"]["version"].as_str().map(str::to_owned))
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| "0".to_owned())
+}
+
+/// A language file laid over another: every key of both, the upper one's where they share one (Java's
+/// `ClientLanguage` reads each pack's file in turn). Either file not being an object keeps the other whole.
+fn merged_lang(under: &[u8], over: &[u8]) -> Vec<u8> {
+    let object = |bytes: &[u8]| serde_json::from_slice::<Map<String, Value>>(bytes).ok();
+    match (object(under), object(over)) {
+        (Some(mut keys), Some(more)) => {
+            keys.extend(more);
+            serde_json::to_vec_pretty(&keys).unwrap_or_else(|_| over.to_owned())
+        }
+        (Some(_), None) => under.to_owned(),
+        _ => over.to_owned(),
+    }
+}
+
 /// Writes files, making each directory once.
 struct Sink {
     made: HashSet<PathBuf>,
@@ -296,24 +321,71 @@ fn manifest_of(dir: &Path) -> Option<horizon_mods::Manifest> {
     horizon_mods::Manifest::parse(&text).ok()
 }
 
-/// A mod's recipes and its tags other than worldgen's: the dump's replace them.
-fn clear_replaced(carry: &Path) {
+/// A mod's recipes, and its tags of the registries the dump holds: the dump's replace them. Function tags (`load`,
+/// `tick`) are no registry's, so the dump has none and they stay, as worldgen's do.
+fn clear_replaced(carry: &Path, tag_dirs: &BTreeSet<String>) {
     for ns in fs::read_dir(carry.join("data")).into_iter().flatten().flatten() {
         let _ = fs::remove_dir_all(ns.path().join("recipe"));
-        for kind in fs::read_dir(ns.path().join("tags")).into_iter().flatten().flatten() {
-            if kind.file_name() != "worldgen" {
-                let path = kind.path();
-                if path.is_dir() {
-                    let _ = fs::remove_dir_all(path);
-                } else {
-                    let _ = fs::remove_file(path);
-                }
-            }
+        for dir in tag_dirs {
+            let _ = fs::remove_dir_all(ns.path().join("tags").join(dir));
         }
     }
 }
 
+/// Reads the dump through before anything is touched: a wrong folder or a server that died mid-write must not cost
+/// the carries their recipes and tags. `summary.json` is written last, and counts what the files should hold. The
+/// folders under `tags/` it replaces.
+fn check_dump(dump: &Path) -> Result<BTreeSet<String>, String> {
+    let not_a_dump = |why: String| format!("{}: not a whole pack dump: {why}", dump.display());
+    let summary = dump.join("summary.json");
+    let summary: Value = fs::read(&summary)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| serde_json::from_slice(&bytes).map_err(|e| e.to_string()))
+        .map_err(|e| not_a_dump(format!("summary.json: {e}")))?;
+    let counted = |name: &str, each: &mut dyn FnMut(&Value)| -> Result<u64, String> {
+        let mut n = 0;
+        lines(&dump.join(name), |row| {
+            if !row["id"].is_string() {
+                return Err(format!("{name}: a row with no id"));
+            }
+            each(&row);
+            n += 1;
+            Ok(())
+        })
+        .map_err(&not_a_dump)?;
+        if n == 0 {
+            return Err(not_a_dump(format!("{name} has no rows")));
+        }
+        Ok(n)
+    };
+    let total = |of: &str, keys: &[&str]| -> u64 {
+        keys.iter().filter_map(|k| summary[of][k].as_u64()).sum()
+    };
+    let recipes = counted("recipes.jsonl", &mut |_| {})?;
+    if recipes != total("recipes", &["encoded", "from_file", "failed"]) {
+        return Err(not_a_dump(format!("recipes.jsonl has {recipes} rows, against its summary")));
+    }
+    let loot = counted("loot_tables.jsonl", &mut |_| {})?;
+    if loot != total("loot_tables", &["encoded", "failed"]) {
+        return Err(not_a_dump(format!("loot_tables.jsonl has {loot} rows, against its summary")));
+    }
+    let mut tag_dirs = BTreeSet::new();
+    let mut tags = 0;
+    counted("tags.jsonl", &mut |row| {
+        tags += 1;
+        if let Some(registry) = row["registry"].as_str().filter(|r| !r.starts_with("minecraft:worldgen/")) {
+            tag_dirs.insert(tag_dir(registry));
+        }
+    })?;
+    let summed: u64 = summary["tags"].as_object().map_or(0, |o| o.values().filter_map(Value::as_u64).sum());
+    if tags != summed {
+        return Err(not_a_dump(format!("tags.jsonl has {tags} rows, against its summary")));
+    }
+    Ok(tag_dirs)
+}
+
 pub fn apply(o: &Options) -> Result<Summary, String> {
+    let tag_dirs = check_dump(o.dump)?;
     let mut s = Summary::default();
     let pack = o.carries.join(PACK_FOLDER);
     let outside = o.carries.with_file_name(format!(
@@ -340,7 +412,7 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         for ns in m.owned_namespaces() {
             owner.insert(ns.to_owned(), dir.clone());
         }
-        clear_replaced(&dir);
+        clear_replaced(&dir, &tag_dirs);
     }
     let mut also_owned: HashSet<String> = HashSet::new();
     for dir in o.also {
@@ -437,7 +509,14 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
                         continue;
                     }
                     let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-                    sink.write(&root.join(&rel), &bytes)?;
+                    let to = root.join(&rel);
+                    // Packs add to a language, key by key; every other asset replaces the file.
+                    let merges = rel.contains("/lang/") && rel.ends_with(".json");
+                    let bytes = match fs::read(&to).ok().filter(|_| merges) {
+                        Some(under) => merged_lang(&under, &bytes),
+                        None => bytes,
+                    };
+                    sink.write(&to, &bytes)?;
                     s.kubejs_assets += 1;
                 }
             }
@@ -449,6 +528,7 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         let mut facts = Facts::read(&facts_path)?;
         facts.vanilla_items = serde_json::from_slice(&fs::read(o.resources.join("items.json")).unwrap_or_default())
             .unwrap_or_default();
+        facts.pack = crate::oracle::PackFacts::read(&o.dump.join("pack-facts.json"))?;
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;
         claimed.insert(PACK_ID.to_owned());
     }
@@ -536,8 +616,9 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
     let namespaces: Vec<String> = claimed.iter().map(|n| format!("{n:?}")).collect();
     let manifest = format!(
         "# Generated from the player's ATM10 instance by horizon-port-pack final-data, for local use only. Never commit.\n\
-         id = {PACK_ID:?}\nname = \"atm10-pack\"\nversion = \"8.3\"\napi = \"0.2\"\nside = \"both\"\n\
+         id = {PACK_ID:?}\nname = \"atm10-pack\"\nversion = {:?}\napi = \"0.2\"\nside = \"both\"\n\
          capabilities = [\"registries\"]\nnamespaces = [{}]\n",
+        pack_version(o.instance),
         namespaces.join(", ")
     );
     sink.write(&pack.join(horizon_mods::manifest::MANIFEST), manifest.as_bytes())?;
@@ -579,6 +660,11 @@ fn kubejs_content(
         if !has_item {
             v["item"] = json!(false);
         } else {
+            let template_item = facts.blocks.get(&choice.template).map_or(choice.template.as_str(), |t| t.item.as_str());
+            let (components, _) = facts.block_item_components(full, template_item, &[PACK_ID]);
+            if !components.is_empty() {
+                v["components"] = Value::Object(components);
+            }
             declared.insert(full.clone());
             known.insert(full.clone());
         }
@@ -708,6 +794,17 @@ mod tests {
     }
 
     #[test]
+    fn language_files_merge_key_by_key() {
+        let merged = |a: &str, b: &str| {
+            serde_json::from_slice::<Value>(&merged_lang(a.as_bytes(), b.as_bytes())).unwrap()
+        };
+        assert_eq!(merged(r#"{"a": "1", "b": "2"}"#, r#"{"b": "3"}"#), json!({"a": "1", "b": "3"}));
+        // One that can't be read leaves the other whole, rather than losing a mod's names.
+        assert_eq!(merged(r#"{"a": "1"}"#, "not json"), json!({"a": "1"}));
+        assert_eq!(merged("not json", r#"{"a": "1"}"#), json!({"a": "1"}));
+    }
+
+    #[test]
     fn tag_folders_follow_the_registry() {
         assert_eq!(tag_dir("minecraft:item"), "item");
         assert_eq!(tag_dir("minecraft:worldgen/biome"), "worldgen/biome");
@@ -741,6 +838,8 @@ mod tests {
         fs::write(m.join("data/m/tags/item/old.json"), r#"{"values": []}"#).unwrap();
         fs::create_dir_all(m.join("data/m/tags/worldgen/biome")).unwrap();
         fs::write(m.join("data/m/tags/worldgen/biome/keep.json"), r#"{"values": []}"#).unwrap();
+        fs::create_dir_all(m.join("data/m/tags/function")).unwrap();
+        fs::write(m.join("data/m/tags/function/load.json"), r#"{"values": ["m:start"]}"#).unwrap();
         fs::create_dir_all(m.join("data/m/loot_table/blocks")).unwrap();
         fs::write(m.join("data/m/loot_table/blocks/code_drop.json"), "{}").unwrap();
         fs::write(also.join("horizon-mod.toml"), manifest("ae2", "")).unwrap();
@@ -775,11 +874,14 @@ mod tests {
         let loot = |id: &str| json!({"id": id, "json": {"type": "minecraft:block", "pools": []}}).to_string();
         let tables = [loot("m:blocks/gem"), loot("minecraft:blocks/stone"), loot("powah:blocks/cable"), loot("kubejs:blocks/x")];
         fs::write(dump.join("loot_tables.jsonl"), tables.join("\n")).unwrap();
+        let m_lang = m.join("assets/m/lang/en_us.json");
+        fs::create_dir_all(m_lang.parent().unwrap()).unwrap();
+        fs::write(&m_lang, r#"{"item.m.gem": "Gem", "block.m.ore": "Ore"}"#).unwrap();
         let inst = dir.join("inst");
         for (file, text) in [
             ("kubejs/assets/kubejs/textures/item/gem.png", "png"),
             ("kubejs/assets/kubejs/lang/en_us.json", r#"{"item.kubejs.gem": "Gem"}"#),
-            ("kubejs/assets/m/lang/en_us.json", "{}"),
+            ("kubejs/assets/m/lang/en_us.json", r#"{"item.m.gem": "Pack's gem", "item.m.added": "Added"}"#),
             ("kubejs/assets/powah/lang/en_us.json", "{}"),
             ("kubejs/assets/atm/lang/en_us.json", "{}"),
         ] {
@@ -809,6 +911,37 @@ mod tests {
         .unwrap();
         fs::write(dump.join("names.json"), r#"{"kubejs:essence": "Essence", "kubejs:gem": "item.kubejs.gem"}"#).unwrap();
         let mods = BTreeSet::from(["m".to_owned(), "powah".to_owned(), "ae2".to_owned(), "kubejs".to_owned()]);
+        // A dump cut short, or no dump at all, costs the carries nothing.
+        let options = |dump: PathBuf| {
+            let (carries, res, inst, mods, also) = (&carries, &res, &inst, &mods, &also);
+            move || {
+                apply(&Options {
+                    carries,
+                    dump: &dump,
+                    resources: res,
+                    instance: Some(inst),
+                    mods,
+                    also: std::slice::from_ref(also),
+                })
+            }
+        };
+        let nowhere = options(dir.join("no_dump"))();
+        assert!(nowhere.unwrap_err().contains("not a whole pack dump"));
+        fs::write(
+            dump.join("summary.json"),
+            json!({"recipes": {"encoded": 9, "from_file": 0, "failed": 0},
+                "loot_tables": {"encoded": 4, "failed": 0}, "tags": {"minecraft:item": 3, "minecraft:block": 1,
+                "minecraft:worldgen/biome": 1}})
+            .to_string(),
+        )
+        .unwrap();
+        let cut = options(dump.clone());
+        fs::write(dump.join("loot_tables.jsonl"), tables[..3].join("\n")).unwrap();
+        assert!(cut().unwrap_err().contains("loot_tables.jsonl has 3 rows"));
+        assert!(m.join("data/m/recipe/removed_by_a_script.json").exists());
+        assert!(m.join("data/m/tags/item/old.json").exists());
+        assert!(!carries.join(PACK_FOLDER).exists());
+        fs::write(dump.join("loot_tables.jsonl"), tables.join("\n")).unwrap();
         let s = apply(&Options {
             carries: &carries,
             dump: &dump,
@@ -830,6 +963,7 @@ mod tests {
         assert!(!m.join("data/m/tags/item/old.json").exists());
         assert!(m.join("data/m/tags/item/gems.json").exists());
         assert!(m.join("data/m/tags/worldgen/biome/keep.json").exists());
+        assert!(m.join("data/m/tags/function/load.json").exists());
         // A table the jar's carry made for a drop in code stays; the dump's join it.
         assert!(m.join("data/m/loot_table/blocks/code_drop.json").exists());
         assert!(m.join("data/m/loot_table/blocks/gem.json").exists());
@@ -853,7 +987,12 @@ mod tests {
         assert!(pack.join("assets/kubejs/models/item/gem.json").exists());
         assert!(pack.join("assets/kubejs/blockstates/essence.json").exists());
         assert!(pack.join("assets/atm/lang/en_us.json").exists());
-        assert!(m.join("assets/m/lang/en_us.json").exists());
+        // KubeJS's language adds to the carry's and wins where they share a key, and a second run changes nothing.
+        let lang: Value = serde_json::from_slice(&fs::read(&m_lang).unwrap()).unwrap();
+        assert_eq!(
+            lang,
+            json!({"item.m.gem": "Pack's gem", "item.m.added": "Added", "block.m.ore": "Ore"})
+        );
         assert!(!pack.join("assets/powah").exists());
         let lang: Value =
             serde_json::from_slice(&fs::read(pack.join("assets/kubejs/lang/en_us.json")).unwrap()).unwrap();

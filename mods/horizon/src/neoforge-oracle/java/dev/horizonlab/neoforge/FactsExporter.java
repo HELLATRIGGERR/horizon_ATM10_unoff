@@ -88,6 +88,29 @@ public final class FactsExporter {
                 Runtime.getRuntime().halt(3);
             }
         }
+        String batches = System.getProperty("horizon.oracle.batches");
+        if (batches != null) {
+            // More facts files from the same run, one a line of `<name> <namespace>,...`: facts-<name>.json beside
+            // the main one. A whole pack's facts in one file would be too big to read back at once.
+            try {
+                for (String line : Files.readAllLines(Path.of(batches), StandardCharsets.UTF_8)) {
+                    String[] parts = line.trim().split("\\s+", 2);
+                    if (parts.length < 2) continue;
+                    Set<String> batch = new TreeSet<>(Arrays.asList(parts[1].split(",")));
+                    batch.remove("");
+                    Path file = out.resolveSibling("facts-" + parts[0] + ".json");
+                    long began = System.nanoTime();
+                    try (Writer w = Files.newBufferedWriter(file, StandardCharsets.UTF_8);
+                            JsonWriter json = new JsonWriter(w)) {
+                        new Export(server, batch, json).run();
+                    }
+                    System.out.printf("horizon-oracle: wrote %s in %.1f s%n", file, (System.nanoTime() - began) / 1e9);
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(3);
+            }
+        }
         try (Writer w = Files.newBufferedWriter(out, StandardCharsets.UTF_8);
                 JsonWriter json = new JsonWriter(w)) {
             new Export(server, namespaces, json).run();

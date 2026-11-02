@@ -113,6 +113,7 @@ pub fn carry(
                 .inspect_err(|e| log(format!("items patched without the game's tables: {e}")))
                 .unwrap_or_default();
         }
+        f.pack = oracle::PackFacts::read(&work.join("oracle/pack-facts.json"))?;
         log(format!(
             "oracle facts: {} blocks, {} items",
             f.blocks.len(),

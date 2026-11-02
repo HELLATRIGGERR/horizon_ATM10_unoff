@@ -28,7 +28,8 @@ import net.minecraft.world.level.storage.loot.LootTable;
 /**
  * The pack's final data as the running server holds it, once every data pack, KubeJS script and Almost Unified
  * replacement has had its say: {@code recipes.jsonl}, {@code loot_tables.jsonl}, {@code tags.jsonl} (one JSON object
- * a line), {@code registries.json} (every id of every registry) and {@code summary.json}. Everything goes through
+ * a line), {@code registries.json} (every id of every registry), {@code pack-facts.json} (what no 26.3 table can say
+ * of an item or a block in the pack: fuel, compost, pistons, light) and {@code summary.json}. Everything goes through
  * the game's own codecs; a recipe no codec can write falls back to its data pack file, and failing that is listed.
  */
 final class PackDump {
@@ -50,6 +51,7 @@ final class PackDump {
         tags();
         registries();
         names();
+        packFacts();
         Files.writeString(dir.resolve("summary.json"), summary.toString(), StandardCharsets.UTF_8);
         System.out.println("horizon-oracle: dumped " + summary);
     }
@@ -250,6 +252,51 @@ final class PackDump {
             }
         }
         Files.writeString(dir.resolve("names.json"), names.toString(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * For every item, what it burns for and composts as (data maps and code, so KubeJS's changes count) and what it
+     * is worn on; for every block's default state, what a piston does to it and what it does to light. Carry-over
+     * copies a vanilla template, and these say where the copy must differ.
+     */
+    private void packFacts() throws IOException {
+        JsonObject items = new JsonObject();
+        for (var item : BuiltInRegistries.ITEM) {
+            JsonObject row = new JsonObject();
+            try {
+                var stack = new net.minecraft.world.item.ItemStack(item);
+                row.addProperty("burn", stack.getBurnTime(net.minecraft.world.item.crafting.RecipeType.SMELTING));
+                var compost = item.builtInRegistryHolder().getData(
+                        net.neoforged.neoforge.registries.datamaps.builtin.NeoForgeDataMaps.COMPOSTABLES);
+                if (compost != null) row.addProperty("compost", compost.chance());
+                var worn = net.minecraft.world.item.Equipable.get(stack);
+                if (worn != null) row.addProperty("worn", worn.getEquipmentSlot().getName());
+            } catch (Throwable t) {
+                row.addProperty("failed", reason(t));
+            }
+            items.add(BuiltInRegistries.ITEM.getKey(item).toString(), row);
+        }
+        JsonObject blocks = new JsonObject();
+        var nowhere = net.minecraft.world.level.EmptyBlockGetter.INSTANCE;
+        var pos = net.minecraft.core.BlockPos.ZERO;
+        for (var block : BuiltInRegistries.BLOCK) {
+            JsonObject row = new JsonObject();
+            try {
+                var state = block.defaultBlockState();
+                row.addProperty("push", state.getPistonPushReaction().name());
+                row.addProperty("block_entity", state.hasBlockEntity());
+                row.addProperty("occludes", state.canOcclude());
+                row.addProperty("dampening", state.getLightBlock(nowhere, pos));
+                row.addProperty("skylight_down", state.propagatesSkylightDown(nowhere, pos));
+            } catch (Throwable t) {
+                row.addProperty("failed", reason(t));
+            }
+            blocks.add(BuiltInRegistries.BLOCK.getKey(block).toString(), row);
+        }
+        JsonObject all = new JsonObject();
+        all.add("items", items);
+        all.add("blocks", blocks);
+        Files.writeString(dir.resolve("pack-facts.json"), all.toString(), StandardCharsets.UTF_8);
     }
 
     private void registries() throws IOException {

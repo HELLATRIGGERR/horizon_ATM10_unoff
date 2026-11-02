@@ -167,8 +167,55 @@ fn item_template(item: &Item) -> &'static str {
         (Some("ArmorItem"), Some("chest")) => "minecraft:iron_chestplate",
         (Some("ArmorItem"), Some("legs")) => "minecraft:iron_leggings",
         (Some("ArmorItem"), Some("feet")) => "minecraft:iron_boots",
+        _ if item.food.is_some() => FOOD_TEMPLATE,
         _ => "minecraft:stick",
     }
+}
+
+/// The vanilla food standing in for a mod's food: nothing but `food` and an empty `consumable`, so the mod's
+/// numbers, eating time, effects and leftover are the whole patch.
+const FOOD_TEMPLATE: &str = "minecraft:cooked_beef";
+
+/// 1.21.1's `food` component as 26.3's `food`, `consumable` (over `consumable`, the template's) and
+/// `use_remainder` (null for none), and the effects left out: only effects in vanilla's namespace are kept,
+/// since the game runs only effects it has.
+fn food_26_3(food: &Value, consumable: Option<&Value>) -> (Value, Value, Value, Vec<String>) {
+    let mut food_26 = json!({
+        "nutrition": food["nutrition"].as_u64().unwrap_or(0),
+        "saturation": food["saturation"].as_f64().unwrap_or(0.0),
+    });
+    if food["can_always_eat"].as_bool() == Some(true) {
+        food_26["can_always_eat"] = json!(true);
+    }
+    let mut consumable = consumable.cloned().unwrap_or_else(|| json!({}));
+    if let Some(seconds) = food["eat_seconds"].as_f64().filter(|s| (s - 1.6).abs() > 1e-6) {
+        consumable["consume_seconds"] = json!(seconds);
+    }
+    let (mut effects, mut dropped) = (Vec::new(), Vec::new());
+    for entry in food["effects"].as_array().into_iter().flatten() {
+        let effect = &entry["effect"];
+        let id = effect["id"].as_str().unwrap_or_default();
+        if !id.starts_with("minecraft:") {
+            dropped.push(format!("eating gives {id}, which is not carried"));
+            continue;
+        }
+        let mut instance = json!({"id": id});
+        for key in ["amplifier", "duration", "ambient", "show_particles", "show_icon"] {
+            if let Some(v) = effect.get(key) {
+                instance[key] = v.clone();
+            }
+        }
+        let mut apply = json!({"type": "minecraft:apply_effects", "effects": [instance]});
+        if let Some(p) = entry["probability"].as_f64().filter(|p| *p < 1.0) {
+            apply["probability"] = json!(p);
+        }
+        effects.push(apply);
+    }
+    if !effects.is_empty() {
+        consumable["on_consume_effects"] = Value::Array(effects);
+    }
+    let remainder = food.get("using_converts_to").cloned().unwrap_or(Value::Null);
+    (food_26, consumable, remainder, dropped)
 }
 
 /// 1.21.1's `{"modifiers": [...]}` as 26.3's list, with attribute ids' `generic.` and `player.` dropped.
@@ -282,6 +329,22 @@ impl Block {
     fn by_key(&self) -> BTreeMap<String, &State> {
         self.states.iter().map(|(k, s)| (state_key(k), s)).collect()
     }
+    /// Every property of this block is one of `other`'s, with the same values.
+    fn properties_within(&self, other: &Block) -> bool {
+        self.properties.iter().all(|(k, v)| {
+            other.properties.get(k).is_some_and(|w| {
+                v.iter().collect::<BTreeSet<_>>() == w.iter().collect::<BTreeSet<_>>()
+            })
+        })
+    }
+    /// The `property=value` pairs of its default state.
+    fn default_pairs(&self) -> BTreeMap<String, String> {
+        self.default
+            .split(',')
+            .filter_map(|p| p.split_once('='))
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect()
+    }
 }
 
 /// The template carry-over gives a mod block.
@@ -292,6 +355,11 @@ pub struct Choice {
     pub properties: Map<String, Value>,
     /// What the template does not reproduce, for the report.
     pub differences: Vec<String>,
+    /// The declaration's other keys: `state_properties`, their `state_defaults`, the `default_state` on the
+    /// template's own, and the shapes and light of the block's states where the template's do not stand in.
+    pub declared: Map<String, Value>,
+    /// How many states the block has in the game: the template's times the declared combinations.
+    pub states: usize,
 }
 
 /// Equal JSON, numbers compared as f64 (the oracle writes `6.0` where the game's table has `6`).
@@ -305,6 +373,228 @@ fn same(a: &Value, b: &Value) -> bool {
             x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same(v, w)))
         }
         _ => a == b,
+    }
+}
+
+/// A block's first vanilla class that says nothing of how it behaves: a template of a class below it would bring
+/// behaviour the block may not have (a loom's menu under `HorizontalDirectionalBlock`).
+const GENERAL_CLASSES: &[&str] = &[
+    "Block",
+    "BaseEntityBlock",
+    "HorizontalDirectionalBlock",
+    "DirectionalBlock",
+    "FaceAttachedHorizontalDirectionalBlock",
+    "TransparentBlock",
+    "HalfTransparentBlock",
+    "FallingBlock",
+    "RotatedPillarBlock",
+];
+
+/// Templates whose behaviour any block can have: placed by their properties, and no menu or ticking. The ones not
+/// a full cube are for blocks of about their shape: a pressure plate falls off without a floor.
+const PLAIN: &[&str] = &[
+    "minecraft:stone",
+    "minecraft:carved_pumpkin",
+    "minecraft:oak_log",
+    "minecraft:redstone_lamp",
+    "minecraft:oak_slab",
+    "minecraft:oak_stairs",
+    "minecraft:oak_door",
+    "minecraft:oak_trapdoor",
+    "minecraft:oak_fence",
+    "minecraft:oak_fence_gate",
+    "minecraft:glass_pane",
+    "minecraft:cobblestone_wall",
+    "minecraft:oak_button",
+    "minecraft:oak_pressure_plate",
+    "minecraft:chain",
+    "minecraft:end_rod",
+];
+
+/// The most entries a selector map gets: the game tries each per state.
+const MAX_SELECTORS: usize = 128;
+
+fn full_cube(outline: &Value) -> bool {
+    same(outline, &json!([[0, 0, 0, 1, 1, 1]]))
+}
+
+/// A shape's bounding box, inside the block space and not flat, as `collision_boxes` needs it.
+fn bounding_box(shape: &Value) -> Option<[f64; 6]> {
+    let mut out: Option<[f64; 6]> = None;
+    for b in shape.as_array()? {
+        let n: Vec<f64> = b.as_array()?.iter().filter_map(Value::as_f64).collect();
+        let [a, c, e, x, y, z] = n[..] else {
+            return None;
+        };
+        let o = out.get_or_insert([a, c, e, x, y, z]);
+        for (i, v) in [a, c, e].into_iter().enumerate() {
+            o[i] = o[i].min(v);
+        }
+        for (i, v) in [x, y, z].into_iter().enumerate() {
+            o[i + 3] = o[i + 3].max(v);
+        }
+    }
+    let mut o = out?;
+    for v in &mut o {
+        *v = v.clamp(0.0, 1.0);
+    }
+    (0..3).all(|i| o[i] < o[i + 3]).then_some(o)
+}
+
+/// How many of a block's states have the shapes of `t`'s state with the same values of `t`'s properties.
+fn shapes_fitting(block: &Block, t: &Block) -> usize {
+    let theirs = t.by_key();
+    block
+        .states
+        .iter()
+        .filter(|(key, s)| {
+            let mut parts: Vec<&str> = key
+                .split(',')
+                .filter(|p| p.split_once('=').is_some_and(|(k, _)| t.properties.contains_key(k)))
+                .collect();
+            parts.sort_unstable();
+            theirs
+                .get(&parts.join(","))
+                .is_some_and(|v| same(&v.outline, &s.outline) && same(&v.collision, &s.collision))
+        })
+        .count()
+}
+
+/// The fewest of `names` a value of each state depends on, as a selector map: the commonest value under `*`, and
+/// a selector for each combination with another. `None` when they don't determine it, or it takes too many.
+fn selectors<V: Clone + Ord>(
+    block: &Block,
+    names: &[&str],
+    value: impl Fn(&State) -> V,
+) -> Option<BTreeMap<String, V>> {
+    let states: Vec<(BTreeMap<&str, &str>, V)> = block
+        .states
+        .iter()
+        .map(|(key, s)| {
+            let pairs = key.split(',').filter_map(|p| p.split_once('=')).collect();
+            (pairs, value(s))
+        })
+        .collect();
+    let mut counts: BTreeMap<&V, usize> = BTreeMap::new();
+    for (_, v) in &states {
+        *counts.entry(v).or_default() += 1;
+    }
+    let common = counts.iter().max_by_key(|(_, n)| **n).map(|(v, _)| (*v).clone())?;
+    if counts.len() == 1 {
+        return Some(BTreeMap::from([("*".to_owned(), common)]));
+    }
+    let size = names.len();
+    let mut masks: Vec<u32> = (1..1u32.checked_shl(size as u32).unwrap_or(0)).collect();
+    masks.retain(|m| m.count_ones() <= 3 || m.count_ones() as usize == size);
+    masks.sort_by_key(|m| m.count_ones());
+    'subset: for mask in masks {
+        let picked: Vec<&str> =
+            names.iter().enumerate().filter(|(i, _)| mask >> i & 1 == 1).map(|(_, n)| *n).collect();
+        let mut map: BTreeMap<String, V> = BTreeMap::new();
+        for (pairs, v) in &states {
+            let selector = picked
+                .iter()
+                .map(|n| format!("{n}={}", pairs.get(n).copied().unwrap_or("")))
+                .collect::<Vec<_>>()
+                .join(",");
+            match map.get(&selector) {
+                Some(seen) if seen != v => continue 'subset,
+                _ => _ = map.insert(selector, v.clone()),
+            }
+        }
+        map.retain(|_, v| *v != common);
+        if map.len() >= MAX_SELECTORS {
+            return None;
+        }
+        map.insert("*".to_owned(), common);
+        return Some(map);
+    }
+    None
+}
+
+/// Puts `names` (the block's properties the template lacks) into the declaration with their values and defaults,
+/// and what the template's states then get wrong: their shapes and light.
+fn declare_states(block: &Block, t: &Block, names: &[&str], choice: &mut Choice) {
+    let default = block.default_pairs();
+    let mut combos = 1usize;
+    let mut declared = Map::new();
+    let mut defaults = Map::new();
+    for name in names {
+        let values = &block.properties[*name];
+        combos = combos.saturating_mul(values.len());
+        // The list spelling and `state_defaults`: every version of the engine reads those.
+        declared.insert((*name).to_owned(), json!(values));
+        if let Some(v) = default.get(*name) {
+            defaults.insert((*name).to_owned(), json!(v));
+        }
+    }
+    choice.states = t.states.len().saturating_mul(combos);
+    if !declared.is_empty() {
+        choice.declared.insert("state_properties".into(), Value::Object(declared));
+        if !defaults.is_empty() {
+            choice.declared.insert("state_defaults".into(), Value::Object(defaults));
+        }
+    }
+    // Light by the declared properties: a machine's `lit`.
+    let light = selectors(block, names, |s| s.emission);
+    if let Some(light) = light.filter(|l| l.len() > 1) {
+        choice.declared.insert("light_emission".into(), json!(light));
+    }
+    if shapes_fitting(block, t) == block.states.len() {
+        return;
+    }
+    let any_outline = block.states.values().any(|s| bounding_box(&s.outline).is_some());
+    let any_collision = block.states.values().any(|s| bounding_box(&s.collision).is_some());
+    if block.states.values().any(|s| !full_cube(&s.outline)) {
+        choice.properties.insert("no_occlusion".into(), json!(true));
+    }
+    // By one of the template's properties, boxes and all: `shapes` is the outline and the collision both.
+    let by_template = t.properties.keys().find_map(|p| {
+        let mut values: BTreeMap<&str, &Value> = BTreeMap::new();
+        for (key, s) in &block.states {
+            let v = key.split(',').filter_map(|x| x.split_once('=')).find(|(k, _)| k == p)?.1;
+            if !same(&s.outline, &s.collision) || values.get(v).is_some_and(|o| !same(o, &s.outline)) {
+                return None;
+            }
+            values.insert(v, &s.outline);
+        }
+        let values: Option<Map<String, Value>> = values
+            .into_iter()
+            .map(|(v, shape)| {
+                let list = shape.as_array()?;
+                if list.len() <= 16 {
+                    return Some((v.to_owned(), shape.clone()));
+                }
+                Some((v.to_owned(), json!([bounding_box(shape)?])))
+            })
+            .collect();
+        Some(json!({"property": p, "values": values?}))
+    });
+    if let Some(shapes) = by_template {
+        choice.declared.insert("shapes".into(), shapes);
+        return;
+    }
+    let boxes = |of: &dyn Fn(&State) -> &Value| -> Option<Value> {
+        let map = selectors(block, names, |s| bounding_box(of(s)).map(|b| b.map(|v| (v * 1e6) as i64)))?;
+        let map: BTreeMap<String, [f64; 6]> = map
+            .into_iter()
+            .filter_map(|(k, v)| Some((k, v?.map(|n| n as f64 / 1e6))))
+            .collect();
+        (!map.is_empty()).then(|| json!(map))
+    };
+    if !any_outline {
+        choice.properties.insert("outline_empty".into(), json!(true));
+    } else if let Some(o) = boxes(&|s| &s.outline) {
+        choice.declared.insert("outline_boxes".into(), o);
+    } else {
+        choice.differences.push("its outlines follow the template's properties and its own: not declared".into());
+    }
+    if !any_collision {
+        choice.properties.insert("no_collision".into(), json!(true));
+    } else if let Some(c) = boxes(&|s| &s.collision) {
+        choice.declared.insert("collision_boxes".into(), c);
+    } else {
+        choice.differences.push("its collisions follow the template's properties and its own: not declared".into());
     }
 }
 
@@ -364,6 +654,21 @@ impl Facts {
         }
         let (_, template, t) = best?;
         Some(self.choice(block, template, t, allowed))
+    }
+
+    /// `template`, a vanilla block guessed from the blockstate as carry does without the oracle, standing in
+    /// for `id` when no vanilla block has its class and states, with the mod's numbers over it.
+    pub fn guessed(&self, id: &str, template: &str, allowed: &dyn Fn(&str) -> bool) -> Option<Choice> {
+        let (block, t) = (self.blocks.get(id)?, self.blocks.get(template)?);
+        let mut choice = self.choice(block, template, t, allowed);
+        choice.differences.insert(
+            0,
+            format!(
+                "no vanilla {} has its states: {template} guessed from its blockstate",
+                block.vanilla_class().rsplit('.').next().unwrap_or("")
+            ),
+        );
+        Some(choice)
     }
 
     fn choice(
@@ -430,11 +735,113 @@ impl Facts {
                 block.vanilla_class()
             ));
         }
+        // Where the mod's default differs on a property the template has.
+        let mut declared = Map::new();
+        let theirs_default = t.default_pairs();
+        let default_state: Map<String, Value> = block
+            .default_pairs()
+            .into_iter()
+            .filter(|(k, v)| theirs_default.get(k).is_some_and(|w| w != v))
+            .map(|(k, v)| (k, json!(v)))
+            .collect();
+        if !default_state.is_empty() {
+            declared.insert("default_state".into(), Value::Object(default_state));
+        }
         Choice {
             template: template.to_owned(),
             properties,
             differences,
+            declared,
+            states: t.states.len(),
         }
+    }
+
+    /// The vanilla block for `id` when none has its class and states: one whose properties are all among its own
+    /// with the same values, so the rest can be declared. Of those a block of a class in its own chain, one of a
+    /// class below its first vanilla class (a rail on a powered rail) unless that says nothing (`Block`), `guess`
+    /// (from its blockstate), or one of the [`PLAIN`] templates that fits; the most properties shared, then the
+    /// class, then the most states with the same shapes, sounds and numbers. Plain `Block`s have no properties, so
+    /// every block has one.
+    ///
+    /// `modelled` holds the properties its blockstate names, when only those are to be declared: the game holds 2^20
+    /// states in all, ATM10's blocks have more in Java, and until a port reads it a property no model reads does
+    /// nothing but multiply a block's states.
+    pub fn extended(
+        &self,
+        id: &str,
+        guess: Option<&str>,
+        modelled: Option<&BTreeSet<String>>,
+        allowed: &dyn Fn(&str) -> bool,
+    ) -> Option<Choice> {
+        let block = self.blocks.get(id)?;
+        let first = block.vanilla_class();
+        let chain: BTreeSet<&str> = block
+            .class
+            .iter()
+            .filter(|c| c.starts_with(VANILLA_PACKAGE))
+            .map(String::as_str)
+            .collect();
+        let says_nothing = GENERAL_CLASSES.contains(&first.rsplit('.').next().unwrap_or(""));
+        let ours = block.default_state()?;
+        let mut best: Option<(i64, &str, &Block)> = None;
+        for (name, v) in &self.blocks {
+            if !name.starts_with("minecraft:")
+                || v.custom_class()
+                || !v.properties_within(block)
+                || !allowed(name)
+            {
+                continue;
+            }
+            let plain_class = v.vanilla_class().rsplit('.').next() == Some("Block");
+            let kin = chain.contains(v.vanilla_class());
+            let below = !says_nothing && v.class.iter().any(|c| c == first);
+            let guessed = guess == Some(name.as_str());
+            let fits = shapes_fitting(block, v);
+            let cube = v.default_state().is_some_and(|s| full_cube(&s.outline));
+            let plain = PLAIN.contains(&name.as_str()) && (cube || fits * 2 >= block.states.len());
+            if !(kin || below || guessed || plain) {
+                continue;
+            }
+            let Some(td) = v.default_state() else {
+                continue;
+            };
+            // A template without an item costs the block its own.
+            let no_item = v.item == "minecraft:air" && block.item != "minecraft:air";
+            let score = v.properties.len() as i64 * 1000
+                + ((kin && !plain_class) as i64) * 800
+                + (below as i64) * 600
+                + (guessed as i64) * 300
+                + (fits * 500 / block.states.len().max(1)) as i64
+                + (td.sound == ours.sound) as i64 * 100
+                + (block.wood_type.is_some() && block.wood_type == v.wood_type) as i64 * 20
+                + (td.hardness == ours.hardness) as i64 * 5
+                + (td.map_color_id == ours.map_color_id) as i64
+                - (no_item as i64) * 100_000;
+            if best.is_none_or(|(s, n, _)| score > s || (score == s && name.as_str() < n)) {
+                best = Some((score, name, v));
+            }
+        }
+        let (_, template, t) = best?;
+        let mut choice = self.choice(block, template, t, allowed);
+        let (names, unread): (Vec<&str>, Vec<&str>) = block
+            .properties
+            .keys()
+            .filter(|k| !t.properties.contains_key(*k))
+            .map(String::as_str)
+            .partition(|k| modelled.is_none_or(|m| m.contains(*k)));
+        choice.differences.insert(
+            0,
+            format!(
+                "no vanilla {} has its states: {template}, declaring [{}]",
+                first.rsplit('.').next().unwrap_or(""),
+                names.join(", ")
+            ),
+        );
+        if !unread.is_empty() {
+            choice.differences.insert(1, format!("no model reads [{}]: not declared", unread.join(", ")));
+        }
+        declare_states(block, t, &names, &mut choice);
+        Some(choice)
     }
 
     /// A vanilla block whose default state has these sounds.
@@ -451,23 +858,28 @@ impl Facts {
     /// and what it does not reproduce.
     pub fn item(&self, id: &str, owned: &[&str]) -> Result<(Value, Vec<String>), String> {
         let item = self.items.get(id).ok_or("not in the oracle")?;
-        if item.block.is_some() {
-            return Err("a block item without a block".into());
-        }
         let mut differences = Vec::new();
+        // The item of a block with another id (Pam's seeds plant `<name>crop`): an item that does not place
+        // it, as carry declares it without the oracle.
+        if let Some(block) = &item.block {
+            differences.push(format!("places {block}, which the template does not"));
+        }
         if !item.class.starts_with(VANILLA_PACKAGE) {
             differences.push(format!("class {} (behaviour beyond Item)", item.class));
         }
-        if item.food.is_some() {
-            return Err("food (no food template yet)".into());
+        if let Some(food) = item.components.get("minecraft:food") {
+            differences.extend(food_26_3(food, None).3);
         }
         let template = item_template(item);
         let mut decl = json!({"template": template});
         if item.max_stack_size != 64 {
             decl["max_stack_size"] = json!(item.max_stack_size);
         }
-        if item.rarity != "common" {
-            decl["rarity"] = json!(item.rarity);
+        // NeoForge lets mods add rarities (`aether:loot`); the game has vanilla's four, and refuses the item.
+        match item.rarity.as_str() {
+            "common" => {}
+            "uncommon" | "rare" | "epic" => decl["rarity"] = json!(item.rarity),
+            other => differences.push(format!("rarity {other} (the template's stays)")),
         }
         if let Some(armor) = item.armor.as_ref().filter(|a| !a.material.is_empty())
             && !self.armor_asset_exists(armor, owned)
@@ -523,6 +935,13 @@ impl Facts {
             tool
         });
         want.insert("minecraft:tool".into(), tool.unwrap_or(Value::Null));
+        if let Some(food) = item.components.get("minecraft:food") {
+            let (food, consumable, remainder, _) =
+                food_26_3(food, base.and_then(|b| b.get("minecraft:consumable")));
+            want.insert("minecraft:food".into(), food);
+            want.insert("minecraft:consumable".into(), consumable);
+            want.insert("minecraft:use_remainder".into(), remainder);
+        }
         if let Some(value) = item.enchantment_value {
             let enchantable = (value > 0).then(|| json!({"value": value}));
             want.insert(
@@ -643,6 +1062,13 @@ mod tests {
             path.differences
         );
         assert_eq!(facts.template("m:gadget", &any), None);
+        // Without one of its class, a guess from the blockstate takes the mod's numbers all the same.
+        let gadget = facts.guessed("m:gadget", "minecraft:stone", &any).unwrap();
+        assert_eq!(gadget.properties["hardness"], json!(1.0));
+        assert_eq!(
+            gadget.differences[0],
+            "no vanilla Block has its states: minecraft:stone guessed from its blockstate"
+        );
         let tile = facts
             .template("m:wood_tile", &|n: &str| n != "minecraft:oak_planks")
             .unwrap();
@@ -843,8 +1269,252 @@ mod tests {
         assert!(decl["components"].get("minecraft:equippable").is_none());
     }
 
+    #[test]
+    fn foods_take_a_food_template_and_their_numbers() {
+        let food = |components: Value| {
+            json!({"class": "net.minecraft.world.item.Item", "max_stack_size": 64, "rarity": "common",
+                "food": {}, "components": {"minecraft:food": components}})
+        };
+        let mut facts: Facts = serde_json::from_value(json!({"blocks": {}, "items": {
+            "m:pie": food(json!({"nutrition": 9, "saturation": 21.6})),
+            "m:stew": food(json!({"nutrition": 6, "saturation": 7.2, "eat_seconds": 0.8,
+                "using_converts_to": {"id": "minecraft:bowl", "count": 1},
+                "effects": [{"effect": {"id": "minecraft:regeneration", "amplifier": 1, "duration": 100,
+                    "neoforge:cures": ["milk"]}, "probability": 0.5},
+                    {"effect": {"id": "m:sour", "duration": 20}}]})),
+            "m:seed": {"class": "net.minecraft.world.item.ItemNameBlockItem", "max_stack_size": 64,
+                "rarity": "common", "block": "m:crop"},
+            "m:relic": {"class": "net.minecraft.world.item.Item", "max_stack_size": 1, "rarity": "m:relic"}}}))
+        .unwrap();
+        facts.vanilla_items = serde_json::from_value(json!({"minecraft:cooked_beef": {
+            "minecraft:consumable": {}, "minecraft:food": {"nutrition": 8, "saturation": 12.8}}}))
+        .unwrap();
+        let (pie, differences) = facts.item("m:pie", &["m"]).unwrap();
+        assert_eq!(pie["template"], "minecraft:cooked_beef");
+        assert_eq!(
+            pie["components"],
+            json!({"minecraft:food": {"nutrition": 9, "saturation": 21.6}})
+        );
+        assert!(differences.is_empty());
+        let (stew, differences) = facts.item("m:stew", &["m"]).unwrap();
+        let c = &stew["components"];
+        assert_eq!(c["minecraft:use_remainder"], json!({"id": "minecraft:bowl", "count": 1}));
+        assert_eq!(
+            c["minecraft:consumable"],
+            json!({"consume_seconds": 0.8, "on_consume_effects": [{"type": "minecraft:apply_effects",
+                "effects": [{"id": "minecraft:regeneration", "amplifier": 1, "duration": 100}],
+                "probability": 0.5}]})
+        );
+        assert_eq!(differences, ["eating gives m:sour, which is not carried"]);
+        // An item placing a block under another id stays an item, as without the oracle.
+        let (seed, differences) = facts.item("m:seed", &["m"]).unwrap();
+        assert_eq!(seed, json!({"template": "minecraft:stick"}));
+        assert_eq!(differences[0], "places m:crop, which the template does not");
+        // A rarity a mod added is no rarity the game knows.
+        let (relic, differences) = facts.item("m:relic", &["m"]).unwrap();
+        assert_eq!(relic, json!({"template": "minecraft:stick", "max_stack_size": 1}));
+        assert_eq!(differences, ["rarity m:relic (the template's stays)"]);
+    }
+
     fn armor_json() -> Value {
         json!({"slot": "legs", "material": "m:ruby", "equip_sound": "minecraft:item.armor.equip_diamond"})
+    }
+
+    /// A family of blocks for [`Facts::extended`]: vanilla's plain ones and the mod's, with every state cubic
+    /// unless `outline` says otherwise.
+    fn states_of(props: &[(&str, &[&str])], shape: &dyn Fn(&str) -> Value) -> Value {
+        let mut keys = vec![String::new()];
+        for (name, values) in props {
+            let mut next = Vec::new();
+            for k in &keys {
+                for v in *values {
+                    let sep = if k.is_empty() { "" } else { "," };
+                    next.push(format!("{k}{sep}{name}={v}"));
+                }
+            }
+            keys = next;
+        }
+        let mut out = Map::new();
+        for k in keys {
+            let mut s = state(1.5, "stone", shape(&k));
+            s["emission"] = json!(if k.contains("lit=true") { 13 } else { 0 });
+            out.insert(k, s);
+        }
+        Value::Object(out)
+    }
+
+    fn with_props(class: &[&str], props: &[(&str, &[&str])], default: &str, shape: &dyn Fn(&str) -> Value) -> Value {
+        let map: Map<String, Value> =
+            props.iter().map(|(k, v)| ((*k).to_owned(), json!(v))).collect();
+        let mut b = block(class, Value::Object(map), states_of(props, shape));
+        b["default"] = json!(default);
+        b["item"] = json!("some:item");
+        b
+    }
+
+    const BLOCK: &str = "net.minecraft.world.level.block.Block";
+    const FACING: (&str, &[&str]) = ("facing", &["north", "east", "south", "west"]);
+    const BOOL: &[&str] = &["true", "false"];
+
+    fn family(mods: Value) -> Facts {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let low = |_: &str| json!([[0, 0, 0, 1, 0.0625, 1]]);
+        let rail = "net.minecraft.world.level.block.BaseRailBlock";
+        let powered = "net.minecraft.world.level.block.PoweredRailBlock";
+        let leaves = "net.minecraft.world.level.block.LeavesBlock";
+        let rail_shape: (&str, &[&str]) = ("shape", &["north_south", "east_west"]);
+        let mut blocks = json!({
+            "minecraft:stone": with_props(&[BLOCK], &[], "", &cube),
+            "minecraft:carved_pumpkin": with_props(
+                &["net.minecraft.world.level.block.EquipableCarvedPumpkinBlock",
+                  "net.minecraft.world.level.block.CarvedPumpkinBlock",
+                  "net.minecraft.world.level.block.HorizontalDirectionalBlock", BLOCK],
+                &[FACING], "facing=north", &cube),
+            "minecraft:oak_pressure_plate": with_props(
+                &["net.minecraft.world.level.block.PressurePlateBlock", BLOCK],
+                &[("powered", BOOL)], "powered=false", &low),
+            "minecraft:loom": with_props(
+                &["net.minecraft.world.level.block.LoomBlock",
+                  "net.minecraft.world.level.block.HorizontalDirectionalBlock", BLOCK],
+                &[FACING], "facing=north", &cube),
+            "minecraft:powered_rail": with_props(&[powered, rail, BLOCK],
+                &[("powered", BOOL), rail_shape, ("waterlogged", BOOL)],
+                "powered=false,shape=north_south,waterlogged=false", &low),
+            "minecraft:oak_leaves": with_props(&[leaves, BLOCK],
+                &[("distance", &["1", "2"]), ("persistent", BOOL), ("waterlogged", BOOL)],
+                "distance=2,persistent=false,waterlogged=false", &cube),
+            "minecraft:wheat": with_props(&["net.minecraft.world.level.block.CropBlock", BLOCK],
+                &[("age", &["0", "1"])], "age=0", &low),
+        });
+        blocks.as_object_mut().unwrap().extend(mods.as_object().unwrap().clone());
+        serde_json::from_value(json!({"blocks": blocks, "items": {}})).unwrap()
+    }
+
+    #[test]
+    fn a_block_no_template_fits_declares_its_properties() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let props: &[(&str, &[&str])] = &[("active", BOOL), ("direction", &["up", "down", "left"])];
+        let facts = family(json!({"m:machine": with_props(
+            &["m.Machine", "net.minecraft.world.level.block.BaseEntityBlock", BLOCK],
+            props, "active=false,direction=left", &cube)}));
+        let any = |_: &str| true;
+        assert_eq!(facts.template("m:machine", &any), None);
+        let c = facts.extended("m:machine", None, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:stone");
+        assert_eq!(
+            Value::Object(c.declared),
+            json!({"state_properties": {"active": ["true", "false"], "direction": ["up", "down", "left"]},
+                "state_defaults": {"active": "false", "direction": "left"}})
+        );
+        assert_eq!(c.states, 6);
+        assert_eq!(c.differences[0], "no vanilla BaseEntityBlock has its states: minecraft:stone, declaring [active, direction]");
+        // Only what its blockstate names, when that is what's asked: the rest would only multiply its states.
+        let named = BTreeSet::from(["direction".to_owned()]);
+        let c = facts.extended("m:machine", None, Some(&named), &any).unwrap();
+        assert_eq!(c.declared["state_properties"], json!({"direction": ["up", "down", "left"]}));
+        assert_eq!(c.states, 3);
+        assert_eq!(c.differences[1], "no model reads [active]: not declared");
+    }
+
+    #[test]
+    fn a_template_gives_the_properties_it_has() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let props: &[(&str, &[&str])] = &[FACING, ("lit", BOOL)];
+        let facts = family(json!({"m:oven": with_props(&["m.Oven", BLOCK], props, "facing=east,lit=false", &cube)}));
+        let c = facts.extended("m:oven", None, None, &|_| true).unwrap();
+        // Placed by its facing, never on the loom, whose menu it does not have.
+        assert_eq!(c.template, "minecraft:carved_pumpkin");
+        assert_eq!(
+            Value::Object(c.declared),
+            json!({"default_state": {"facing": "east"}, "state_properties": {"lit": ["true", "false"]},
+                "state_defaults": {"lit": "false"}, "light_emission": {"*": 13, "lit=false": 0}})
+        );
+        assert_eq!(c.states, 8);
+    }
+
+    #[test]
+    fn a_class_finds_its_kin_and_a_flat_template_only_its_shape() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let low = |_: &str| json!([[0, 0, 0, 1, 0.0625, 1]]);
+        let rail = "net.minecraft.world.level.block.BaseRailBlock";
+        let leaves = "net.minecraft.world.level.block.LeavesBlock";
+        let facts = family(json!({
+            "m:rail": with_props(&["m.Rail", rail, BLOCK],
+                &[("powered", BOOL), ("shape", &["north_south", "east_west"]), ("waterlogged", BOOL), ("speed", &["1", "2"])],
+                "powered=false,shape=north_south,speed=1,waterlogged=false", &low),
+            "m:leaf": with_props(&["m.Leaf", leaves, BLOCK],
+                &[("age", &["0", "1"]), ("distance", &["1", "2"]), ("persistent", BOOL), ("waterlogged", BOOL)],
+                "age=0,distance=2,persistent=false,waterlogged=false", &cube),
+            "m:wired": with_props(&["m.Wired", BLOCK], &[("powered", BOOL)], "powered=false", &cube),
+        }));
+        let any = |_: &str| true;
+        let rail = facts.extended("m:rail", None, None, &any).unwrap();
+        assert_eq!(rail.template, "minecraft:powered_rail");
+        assert_eq!(rail.declared["state_properties"], json!({"speed": ["1", "2"]}));
+        // A guess of wheat from its `age` loses to the leaves its class is.
+        let leaf = facts.extended("m:leaf", Some("minecraft:wheat"), None, &any).unwrap();
+        assert_eq!(leaf.template, "minecraft:oak_leaves");
+        assert_eq!(leaf.declared["state_properties"], json!({"age": ["0", "1"]}));
+        // A cube with `powered` is no pressure plate, which would fall off without a floor.
+        let wired = facts.extended("m:wired", None, None, &any).unwrap();
+        assert_eq!(wired.template, "minecraft:stone");
+        // A game without the template: the next that fits.
+        let stoneless = facts.extended("m:wired", None, None, &|n: &str| n != "minecraft:stone");
+        assert_eq!(stoneless, None);
+    }
+
+    #[test]
+    fn a_declared_block_says_how_its_shapes_differ() {
+        let half = |k: &str| {
+            if k.contains("tall=true") { json!([[0, 0, 0, 1, 1, 1]]) } else { json!([[0, 0, 0, 1, 0.5, 1]]) }
+        };
+        let facing = |k: &str| {
+            if k.contains("facing=north") { json!([[0, 0, 0, 1, 1, 0.5]]) } else { json!([[0, 0, 0.5, 1, 1, 1]]) }
+        };
+        let tall_shape = |k: &str| {
+            // Past the block's top, and a flat state: the game takes boxes inside the block and not flat.
+            if k.contains("tall=true") { json!([[0, 0, 0, 1, 1.5, 1]]) } else { json!([[0, 0, 0, 0, 0, 0]]) }
+        };
+        let empty = |_: &str| json!([]);
+        let tall: (&str, &[&str]) = ("tall", BOOL);
+        let facts = family(json!({
+            "m:half": with_props(&["m.Half", BLOCK], &[tall], "tall=false", &half),
+            "m:panel": with_props(&["m.Panel", BLOCK], &[FACING, tall], "facing=north,tall=false", &facing),
+            "m:odd": with_props(&["m.Odd", BLOCK], &[tall], "tall=false", &tall_shape),
+            "m:ghost": with_props(&["m.Ghost", BLOCK], &[tall], "tall=false", &empty),
+        }));
+        let any = |_: &str| true;
+        let c = facts.extended("m:half", None, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:stone");
+        assert_eq!(c.properties["no_occlusion"], json!(true));
+        let half_box = json!([0.0, 0.0, 0.0, 1.0, 0.5, 1.0]);
+        assert_eq!(c.declared["outline_boxes"]["tall=false"], half_box);
+        assert_eq!(c.declared["collision_boxes"]["*"], json!([0.0, 0.0, 0.0, 1.0, 1.0, 1.0]));
+        // On a template's property: boxes per value of it.
+        let c = facts.extended("m:panel", None, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:carved_pumpkin");
+        assert_eq!(c.declared["shapes"]["property"], json!("facing"));
+        assert_eq!(c.declared["shapes"]["values"]["south"], json!([[0, 0, 0.5, 1, 1, 1]]));
+        assert_eq!(c.declared["shapes"]["values"].as_object().unwrap().len(), 4);
+        let c = facts.extended("m:odd", None, None, &any).unwrap();
+        // The flat state has no box of its own: it takes the others'.
+        assert_eq!(c.declared["outline_boxes"], json!({"*": [0.0, 0.0, 0.0, 1.0, 1.0, 1.0]}));
+        let c = facts.extended("m:ghost", None, None, &any).unwrap();
+        assert_eq!(c.properties["outline_empty"], json!(true));
+        assert_eq!(c.properties["no_collision"], json!(true));
+        assert!(!c.declared.contains_key("outline_boxes"));
+    }
+
+    #[test]
+    fn a_block_with_all_its_templates_states_only_moves_the_default() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let pumpkin = "net.minecraft.world.level.block.CarvedPumpkinBlock";
+        let facts = family(json!({"m:head": with_props(&[pumpkin, BLOCK], &[FACING], "facing=west", &cube)}));
+        let any = |_: &str| true;
+        let c = facts.extended("m:head", None, None, &any).unwrap();
+        assert_eq!(c.template, "minecraft:carved_pumpkin");
+        assert_eq!(Value::Object(c.declared), json!({"default_state": {"facing": "west"}}));
+        assert_eq!(c.states, 4);
     }
 
     #[test]

@@ -88,7 +88,7 @@ pub fn inventory(work: &Path, offline: bool, log: Log) -> Result<Vec<inventory::
 }
 
 /// The vanilla blocks a prepared resource root has (`facts.json`'s defaults).
-fn vanilla_blocks(resources: &Path) -> Result<BTreeSet<String>, String> {
+pub(crate) fn vanilla_blocks(resources: &Path) -> Result<BTreeSet<String>, String> {
     let facts: serde_json::Value = read_json(&resources.join("facts.json"))?;
     let defaults = facts["defaults"]
         .as_object()

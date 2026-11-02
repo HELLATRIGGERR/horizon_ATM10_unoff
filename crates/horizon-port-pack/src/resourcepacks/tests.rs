@@ -226,6 +226,7 @@ fn symlinks_at_source_and_destination_are_rejected() {
 
 #[cfg(unix)]
 #[test]
+#[cfg(unix)]
 fn a_home_behind_a_link_takes_its_packs() {
     use std::os::unix::fs::symlink;
     let t = Temp::new();
@@ -250,6 +251,7 @@ fn a_home_behind_a_link_takes_its_packs() {
 
 #[cfg(unix)]
 #[test]
+#[cfg(unix)]
 fn a_link_below_the_base_is_refused() {
     use std::os::unix::fs::symlink;
     let t = Temp::new();

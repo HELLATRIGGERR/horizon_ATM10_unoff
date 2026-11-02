@@ -25,6 +25,9 @@
 //!   `<out>/check.json`.
 //! - `port <pack> <work> [--from <folder>] [--resources <prepared>]`: every
 //!   step for the portable mods, as the launcher's "Import modpack" runs it.
+//! - `final-data <carries> --dump <dir> --work <work> --resources <prepared> [--instance <dir>] [--also <mod>...]`:
+//!   a pack's final recipes, tags and loot tables (`tools/neoforge_oracle.py pack`) over its carried folders, and the
+//!   rest in one more folder, `atm10-pack`. Counts in `<work>/final-data.json`.
 //! - `upgrade-datapack <pack> <out> | --world <world>`: a 26.2 data pack
 //!   (zip or folder) with its world generation rewritten in 26.3's formats
 //!   (`docs/datapack-upgrade.md`), into the folder `<out>`, or into
@@ -46,6 +49,13 @@ fn main() -> ExitCode {
         let from = option(&mut args, "--from")?;
         let resources = option(&mut args, "--resources")?;
         let world = option(&mut args, "--world")?;
+        let dump = option(&mut args, "--dump")?;
+        let work = option(&mut args, "--work")?;
+        let instance = option(&mut args, "--instance")?;
+        let mut also = Vec::new();
+        while let Some(dir) = option(&mut args, "--also")? {
+            also.push(dir);
+        }
         let offline = take_flag(&mut args, "--offline");
         let path = |i: usize| args.get(i).map(Path::new).ok_or(USAGE.to_owned());
         let rest = || args.get(2..).unwrap_or_default().to_vec();
@@ -68,6 +78,34 @@ fn main() -> ExitCode {
             }
             Some("carry") => {
                 pipeline::carry(path(1)?, resources.as_deref(), &rest(), log).map(drop)
+            }
+            Some("final-data") => {
+                // final-data <carries dir> --dump DIR --work DIR --resources DIR [--instance DIR] [--also DIR]
+                let carries = path(1)?;
+                let work = work.as_deref().ok_or(USAGE)?;
+                let records: Vec<horizon_port_pack::inventory::Record> = serde_json::from_slice(
+                    &std::fs::read(work.join("inventory.json")).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+                let mut mods: std::collections::BTreeSet<String> = records
+                    .iter()
+                    .filter_map(|r| Some(r.info.as_ref()?.mod_id.clone()))
+                    .collect();
+                if let Some(instance) = &instance {
+                    mods.extend(horizon_port_pack::final_data::instance_mods(instance));
+                }
+                let summary = horizon_port_pack::final_data::apply(&horizon_port_pack::final_data::Options {
+                    carries,
+                    dump: dump.as_deref().ok_or(USAGE)?,
+                    resources: resources.as_deref().ok_or(USAGE)?,
+                    instance: instance.as_deref(),
+                    mods: &mods,
+                    also: &also,
+                })?;
+                let text = serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?;
+                std::fs::write(work.join("final-data.json"), &text).map_err(|e| e.to_string())?;
+                println!("{text}");
+                Ok(())
             }
             Some("report") => {
                 let work = path(1)?;

@@ -51,6 +51,10 @@ pub struct Report {
     pub differences: BTreeMap<String, Vec<String>>,
     /// Blocks left out, and why.
     pub blocks_unknown: BTreeMap<String, String>,
+    /// The declared blocks' states in the game (oracle only): the game holds 2^20 in all.
+    pub states: usize,
+    /// Declared blocks with `state_properties` of their own (oracle only).
+    pub blocks_declaring_states: usize,
     pub items: usize,
     /// Equipment assets written from 1.21.1 armour materials.
     pub equipment: usize,
@@ -1013,7 +1017,19 @@ pub fn carry(
             let Some(b) = full.strip_prefix(&prefix) else {
                 break;
             };
-            let Some(choice) = facts.template(full, allowed) else {
+            // No vanilla block of its class with its states (Macaw's roofs are plain `Block`s with stair states):
+            // a template with some of them, the rest declared (`state_properties`), the blockstate's guess first
+            // among equals; failing that the guess alone, with the oracle's numbers.
+            let guess = blockstates
+                .get(b)
+                .and_then(|state| block_template(b, state))
+                .filter(|t| allowed(t));
+            let modelled = blockstates.get(b).map(properties).unwrap_or_default();
+            let choice = facts
+                .template(full, allowed)
+                .or_else(|| facts.extended(full, guess, Some(&modelled), allowed))
+                .or_else(|| facts.guessed(full, guess?, allowed));
+            let Some(choice) = choice else {
                 let props: Vec<&str> = block.properties.keys().map(String::as_str).collect();
                 let why = format!(
                     "no vanilla {} with properties [{}]",
@@ -1024,8 +1040,25 @@ pub fn carry(
                 continue;
             };
             let mut v = json!({"template": choice.template, "properties": choice.properties});
+            for (key, value) in &choice.declared {
+                v[key] = value.clone();
+            }
+            report.states += choice.states;
+            if choice.declared.contains_key("state_properties") {
+                report.blocks_declaring_states += 1;
+            }
+            // The game makes a block's item from its template's, and refuses every mod's content when the
+            // template has none (Eternal Starlight's wick grass on tall seagrass, fluids on lava).
+            let template_item = facts.blocks.get(&choice.template).map(|t| t.item.as_str());
             if block.item == "minecraft:air" {
                 v["item"] = json!(false);
+            } else if template_item == Some("minecraft:air") {
+                v["item"] = json!(false);
+                report
+                    .differences
+                    .entry(b.to_owned())
+                    .or_default()
+                    .push(format!("its item {}: {} has none to stand in", block.item, choice.template));
             } else if block.item != *full {
                 v["item"] = json!(false);
                 report
@@ -1198,7 +1231,7 @@ pub fn carry(
 }
 
 /// The item a recipe makes: `result.id` (1.21 and later), `result.item` or a bare id.
-fn recipe_result(recipe: &Value) -> Option<&str> {
+pub(crate) fn recipe_result(recipe: &Value) -> Option<&str> {
     let r = &recipe["result"];
     r.as_str()
         .or_else(|| r["id"].as_str())
@@ -1909,6 +1942,75 @@ mod tests {
         assert!(!defined(&out, "look"));
         assert!(!defined(&out, "shard"));
         assert!(defined(&out, "left") && defined(&out, "right"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The game gives a block its template's item: a block whose template
+    /// has none (Eternal Starlight's wick grass on tall seagrass) is declared
+    /// without one, or the game would refuse every mod's content.
+    #[test]
+    fn a_template_without_an_item_gives_none() {
+        let dir =
+            std::env::temp_dir().join(format!("horizon-port-pack-noitem-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let jar = dir.join("m-1.0.jar");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&jar).unwrap());
+        zip.start_file(
+            "META-INF/neoforge.mods.toml",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        zip.write_all(b"license = \"MIT\"\n[[mods]]\nmodId = \"m\"\nversion = \"1.0\"\n")
+            .unwrap();
+        zip.finish().unwrap();
+        let info = crate::jar::read(&jar).unwrap();
+        let pack = Pack {
+            loaded: &|_| true,
+            mods: &|_| false,
+        };
+        let block = |class: &[&str], item: &str, sound: &str| {
+            let shape = json!([[0, 0, 0, 1, 1, 1]]);
+            json!({"class": class, "properties": {}, "default": "", "item": item,
+                "explosion_resistance": 0.0, "friction": 0.6, "speed_factor": 1.0, "jump_factor": 1.0,
+                "states": {"": {"hardness": 0.0, "emission": 0, "requires_tool": false, "map_color_id": 12,
+                    "sound": {"break": sound}, "outline": shape, "collision": shape}}})
+        };
+        let seagrass = "net.minecraft.world.level.block.TallSeagrassBlock";
+        let plain = "net.minecraft.world.level.block.Block";
+        let facts: Facts = serde_json::from_value(json!({"blocks": {
+            "minecraft:tall_seagrass": block(&[seagrass], "minecraft:air", "wet_grass"),
+            "minecraft:stone": block(&[plain], "minecraft:stone", "stone"),
+            "m:wick": block(&["m.Wick", seagrass], "m:wick", "wet_grass"),
+            "m:rock": block(&[plain], "m:rock", "stone"),
+        }, "items": {}}))
+        .unwrap();
+        let out = dir.join("out");
+        let report = carry(
+            &jar,
+            &info,
+            &out,
+            Some(&facts),
+            &|_| true,
+            &pack,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let decl = |b: &str| -> Value {
+            let path = out.join(format!("carry/data/m/horizon/block/{b}.json"));
+            serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+        };
+        let wick = decl("wick");
+        assert_eq!(wick["template"], json!("minecraft:tall_seagrass"));
+        assert_eq!(wick["item"], json!(false));
+        assert!(
+            report.differences["wick"]
+                .iter()
+                .any(|d| d.contains("minecraft:tall_seagrass has none to stand in")),
+            "{:?}",
+            report.differences
+        );
+        assert_eq!(decl("rock").get("item"), None);
         fs::remove_dir_all(&dir).unwrap();
     }
 

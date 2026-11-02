@@ -2,11 +2,23 @@
 """Dev-only NeoForge oracle for Horizon's mod-port harnesses (docs/modpacks.md).
 
     neoforge_oracle.py export --jars DIR [--deps DIR] [--namespaces a,b] --out FACTS.json
+    neoforge_oracle.py pack --instance DIR --run DIR --out DIR [--leave-out FILE] [--namespaces a,b]
 
 installs a NeoForge server under .local/neoforge-oracle (once), builds the exporter mod in
 mods/horizon/src/neoforge-oracle, starts the server headless with the given mod jars, and writes every
 block, item, recipe and tag of the mods' namespaces (and the vanilla blocks, for templates) to
 FACTS.json. The jars are the user's own; nothing here is shipped or committed.
+
+`pack` starts a whole modpack instance the same way: every jar of its mods/ (but the client-only ones in --leave-out),
+with its config, KubeJS scripts and global data packs copied to the run folder (the instance is only read), and writes
+the final recipes, tags and loot tables to --out as JSON lines (FactsExporter's PackDump), plus the facts of
+--namespaces. KubeJS and Almost Unified have then had their say, so the result stands in for both. KubeJS scripts may be
+All Rights Reserved: the output stays local.
+
+Environment: HORIZON_NEOFORGE_HOME, a NeoForge server already installed (its libraries/ and args files), used
+instead of installing one; HORIZON_ORACLE_JAVA, the Java that runs NeoForge (1.21.1 wants Java 21; default
+`java`); HORIZON_ORACLE_XMX, the server's heap (default 4G); HORIZON_ORACLE_JVM, more Java options. On Windows the server reads win_args.txt, and a run
+folder gets a junction to libraries/ and copies of the jars: symbolic links need Developer Mode there.
 """
 import argparse
 import json
@@ -25,14 +37,21 @@ SOURCE = ROOT / 'mods' / 'horizon' / 'src' / 'neoforge-oracle'
 # ATM10 8.x: Minecraft 1.21.1 on NeoForge 21.1.259 (docs/modpacks.md).
 NEOFORGE = os.environ.get('HORIZON_NEOFORGE', '21.1.259')
 MAVEN = 'https://maven.neoforged.net/releases/net/neoforged/neoforge'
+HOME = os.environ.get('HORIZON_NEOFORGE_HOME')
+JAVA = os.environ.get('HORIZON_ORACLE_JAVA', 'java')
+XMX = os.environ.get('HORIZON_ORACLE_XMX', '4G')
+# unix_args.txt separates its module path with `:`, which Java on Windows refuses.
+ARGS = 'win_args.txt' if os.name == 'nt' else 'unix_args.txt'
 
 
 def install():
-    """The NeoForge server, installed once per version."""
-    home = LOCAL / NEOFORGE
-    args = home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/unix_args.txt'
+    """The NeoForge server, installed once per version (or the one HORIZON_NEOFORGE_HOME names)."""
+    home = Path(HOME) if HOME else LOCAL / NEOFORGE
+    args = home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/{ARGS}'
     if args.exists():
         return home
+    if HOME:
+        sys.exit(f'HORIZON_NEOFORGE_HOME: {args} does not exist')
     home.mkdir(parents=True, exist_ok=True)
     installer = LOCAL / f'neoforge-{NEOFORGE}-installer.jar'
     if not installer.exists():
@@ -40,7 +59,7 @@ def install():
         with urllib.request.urlopen(url, timeout=120) as r:
             installer.write_bytes(r.read())
     with (LOCAL / f'install-{NEOFORGE}.log').open('w') as log:
-        subprocess.run(['java', '-jar', str(installer), '--installServer', str(home)],
+        subprocess.run([JAVA, '-jar', str(installer), '--installServer', str(home)],
                        cwd=LOCAL, stdout=log, stderr=subprocess.STDOUT, check=True)
     return home
 
@@ -168,24 +187,47 @@ spawn-animals=false
 """
 
 
+def link(path, target, directory=False):
+    """A symbolic link to `target`. Windows makes those only in Developer Mode, so there a directory gets a
+    junction and a file a copy."""
+    if os.name != 'nt':
+        path.symlink_to(target, target_is_directory=directory)
+    elif directory:
+        import _winapi
+        _winapi.CreateJunction(str(target), str(path))
+    else:
+        shutil.copyfile(target, path)
+
+
+def remove_run(run):
+    """Deletes a run folder; its libraries/ link or junction goes first, so the install is never touched."""
+    libraries = run / 'libraries'
+    if libraries.is_symlink():
+        libraries.unlink()
+    elif libraries.is_junction():
+        os.rmdir(libraries)
+    shutil.rmtree(run, ignore_errors=True)
+
+
 def instance(name, jars, extra=()):
     """A server folder with `jars` (and the exporter) in mods/."""
     home = install()
     run = LOCAL / 'runs' / name
-    shutil.rmtree(run, ignore_errors=True)
+    remove_run(run)
     (run / 'mods').mkdir(parents=True)
-    (run / 'libraries').symlink_to(home / 'libraries')
+    link(run / 'libraries', home / 'libraries', directory=True)
     (run / 'eula.txt').write_text('eula=true\n')
     (run / 'server.properties').write_text(SERVER_PROPERTIES)
     for jar in [*jars, *extra]:
-        (run / 'mods' / Path(jar).name).symlink_to(Path(jar).resolve())
+        link(run / 'mods' / Path(jar).name, Path(jar).resolve())
     return home, run
 
 
 def start(home, run, props, log_name='server.log', timeout=900):
     """Runs the server to its end; returns (seconds, the log)."""
-    args = home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/unix_args.txt'
-    command = ['java', '-Xmx4G', *[f'-D{k}={v}' for k, v in props.items()], f'@{args}', 'nogui']
+    args = home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/{ARGS}'
+    extra = os.environ.get('HORIZON_ORACLE_JVM', '').split()
+    command = [JAVA, f'-Xmx{XMX}', *extra, *[f'-D{k}={v}' for k, v in props.items()], f'@{args}', 'nogui']
     began = time.monotonic()
     with (run / log_name).open('w') as log:
         subprocess.run(command, cwd=run, stdin=subprocess.DEVNULL, stdout=log,
@@ -221,10 +263,65 @@ def export(args):
     if not out.exists():
         tail = '\n'.join(log.splitlines()[-40:])
         sys.exit(f'the oracle wrote nothing; the end of {run / "server.log"}:\n{tail}')
-    facts = json.loads(out.read_text())
+    facts = json.loads(out.read_text(encoding='utf-8'))
     mods = sum(1 for b in facts['blocks'] if not b.startswith('minecraft:'))
+    skipped = facts.get('skipped', [])
     print(f'{out}: {mods} mod blocks, {len(facts["items"])} items, {len(facts["recipes"])} recipes '
-          f'({namespaces}); server ran {seconds:.1f} s')
+          f'({namespaces}); {len(skipped)} left out because their facts threw; server ran {seconds:.1f} s')
+
+
+# What a server folder takes from a modpack instance, besides mods/.
+PACK_FOLDERS = ('config', 'defaultconfigs', 'kubejs', 'datapacks', 'moonlight-global-datapacks', 'local', 'moddata')
+
+
+def hard_link(source, target):
+    """A hard link where the disk allows it, so a 1.4 GB mods folder costs nothing; else a copy."""
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copyfile(source, target)
+
+
+def pack(args):
+    instance_dir, run, dump = Path(args.instance), Path(args.run).resolve(), Path(args.out).resolve()
+    leave_out = set()
+    if args.leave_out:
+        for text in Path(args.leave_out).read_text(encoding='utf-8').splitlines():
+            text = text.split('#')[0].strip()
+            if text:
+                leave_out.add(text)
+    home = install()
+    exporter = build(home)
+    remove_run(run)
+    (run / 'mods').mkdir(parents=True)
+    link(run / 'libraries', home / 'libraries', directory=True)
+    (run / 'eula.txt').write_text('eula=true\n')
+    # The dump runs before the first tick, over the watchdog's minute.
+    (run / 'server.properties').write_text(SERVER_PROPERTIES + 'max-tick-time=-1\n')
+    used = left = 0
+    for jar in sorted((instance_dir / 'mods').glob('*.jar')):
+        ids = mod_ids(jar)
+        if jar.name in leave_out or any(i in leave_out for i in ids):
+            left += 1
+            continue
+        hard_link(jar, run / 'mods' / jar.name)
+        used += 1
+    shutil.copyfile(exporter, run / 'mods' / exporter.name)
+    for folder in PACK_FOLDERS:
+        if (instance_dir / folder).is_dir():
+            shutil.copytree(instance_dir / folder, run / folder)
+    dump.mkdir(parents=True, exist_ok=True)
+    out = dump / 'facts.json'
+    for old in (out, dump / 'summary.json'):
+        old.unlink(missing_ok=True)
+    print(f'{used} mods, {left} left out; server starting with -Xmx{XMX}', flush=True)
+    seconds, log = start(home, run, {'horizon.oracle.out': out, 'horizon.oracle.dump': dump,
+                                     'horizon.oracle.namespaces': args.namespaces or ''},
+                         timeout=args.timeout)
+    if not (dump / 'summary.json').exists():
+        tail = '\n'.join(log.splitlines()[-40:])
+        sys.exit(f'the oracle wrote no summary; the end of {run / "server.log"}:\n{tail}')
+    print(f'{dump}: server ran {seconds:.1f} s: {(dump / "summary.json").read_text(encoding="utf-8")[:400]}')
 
 
 def main():
@@ -235,8 +332,15 @@ def main():
     e.add_argument('--deps', help='their required libraries (loaded, not exported)')
     e.add_argument('--namespaces', help='comma-separated; default: the jars\' mod ids')
     e.add_argument('--out', required=True)
+    p = sub.add_parser('pack', help='write the final recipes, tags and loot tables of a whole modpack instance')
+    p.add_argument('--instance', required=True, help='the modpack folder (mods/, config/, kubejs/...); only read')
+    p.add_argument('--run', required=True, help='the server folder to make; deleted first')
+    p.add_argument('--out', required=True, help='the folder for recipes.jsonl, tags.jsonl, loot_tables.jsonl...')
+    p.add_argument('--leave-out', help='a file of jar names or mod ids not to load (client-only), one a line')
+    p.add_argument('--namespaces', help='comma-separated: also write these namespaces\' facts to <out>/facts.json')
+    p.add_argument('--timeout', type=int, default=1500, help='seconds before the server is stopped')
     args = parser.parse_args()
-    {'export': export}[args.command](args)
+    {'export': export, 'pack': pack}[args.command](args)
 
 
 if __name__ == '__main__':

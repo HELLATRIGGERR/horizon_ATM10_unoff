@@ -10,6 +10,7 @@ pub mod check;
 pub mod classes;
 pub mod classify;
 pub mod fetch;
+pub mod final_data;
 pub mod import;
 pub mod inventory;
 pub mod jar;

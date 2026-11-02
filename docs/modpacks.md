@@ -412,12 +412,23 @@ whose shapes, sounds, set type and wood type match best, with the mod's own hard
 resistance, light, tool need, friction, map colour and sounds as overrides. `--resources
 <prepared>` limits templates to blocks Horizon's tables have. `carry-report.json` lists, per
 block, what the template does not reproduce (other shapes, sounds no vanilla block has, a class
-of its own), and the blocks left out: those whose vanilla class has no vanilla block with the
-same states (Macaw's garage doors, multi-part gates). An item of a vanilla tool or armour class
+of its own). A block whose vanilla class has no vanilla block with the same states takes a template
+with some of its properties, and declares the others its blockstate names as `state_properties`
+(a property no model reads is left out, since a world holds 2^20 states in all and only a port would
+read it): a template of a class in its own chain, or below its first vanilla class when that says
+something (a rail on a powered rail), the blockstate's guess, or a plain template of about its shape
+(a carved pumpkin for `facing`, stone for none). Where the template's states have other shapes it also
+gets `no_occlusion`, and `shapes` by one of the template's properties or `outline_boxes` and
+`collision_boxes` by its own, and `light_emission` when its own properties move its light. Every block
+of ATM10 gets a declaration this way. An item of a vanilla tool or armour class
 (`SwordItem`, `PickaxeItem`, `ArmorItem`, ...) gets the iron item of that class and slot as its
 template, and the oracle's durability, attribute modifiers, tool rules, enchantability and repair
 items as a component patch over it, minus what the template already has (`--resources` gives the
-template's components); other items keep `minecraft:stick`. Armour of the mod's own material gets a
+template's components). A food gets `minecraft:cooked_beef` (plain `food` and `consumable`) with
+the mod's nutrition, saturation, eating time, vanilla effects and leftover (a stew's bowl) as its
+patch; on ATM10's Pam's mods that makes 1,532 items edible. An item placing a block under another
+id (Pam's seeds and their `...crop`) stays an item that does not place it, as without the oracle.
+Other items keep `minecraft:stick`. Armour of the mod's own material gets a
 26.3 equipment asset (`assets/<ns>/equipment/<material>.json`) made from its 1.21.1 layers, their
 `textures/models/armor/<name>_layer_1.png` and `_layer_2.png` copied to
 `textures/entity/equipment/humanoid/` and `humanoid_leggings/`, and its `equippable` names that
@@ -429,6 +440,18 @@ include them with the fewest left over (models often ignore `powered` or `waterl
 block's name breaking ties (`_pane`, `_gate`, `_trapdoor`). Walls and vines have the same
 property names; sides tested as `true` / `false` make a vine (Chipped's 11 vines, which the game
 refused as walls: their blockstates did not load).
+
+A pack's scripts and unification are not ported: their result is read from the running game.
+`tools/neoforge_oracle.py pack --instance <dir> --run <dir> --out <dir>` starts the whole instance on a
+NeoForge server (client-only mods left out with `--leave-out`), and once every data pack, KubeJS script and
+Almost Unified replacement has had its say writes the final recipes, tags and loot tables as JSON lines.
+`horizon-port-pack final-data <carries> --dump <dir> --work <work> --resources <prepared>` puts them over the
+carried folders: a namespace's data goes to the carry that owns it, replacing its recipes and its tags other
+than worldgen's, so a recipe a script removed is gone and conditions no longer matter. What no carry may hold
+goes in one more folder, `atm10-pack`, with the id `kubejs` so the items its startup scripts register keep
+their ids. It holds `c` and `minecraft` tags, the namespaces no mod has, and as `atm10_pack:<namespace>/<path>`
+the recipes of mods in the pack that are not carried. Vanilla's own recipes and loot tables stay the game's.
+This output comes from the player's instance and is never committed; a pack's scripts may be All Rights Reserved.
 
 ### 1. Import
 
@@ -827,6 +850,10 @@ python3 tools/mod_port_harness.py --work <work>      # or --jars/--deps to expor
   modifiers, enchantability and repair items; armour's slot, defense, toughness, knockback resistance,
   equip sound and texture layers), recipes (type, result, count, resolved ingredients) and tags. One run
   with the seven mods below takes about 30 s.
+  `HORIZON_NEOFORGE_HOME` uses a server already installed, `HORIZON_ORACLE_JAVA` the Java 21 that runs it
+  and `HORIZON_ORACLE_XMX` its heap (4G by default). On Windows it reads `win_args.txt`, and a run
+  folder gets a junction to `libraries/` and copies of the jars, since symbolic links need
+  Developer Mode there.
 - `crates/horizon-client/examples/mod_port_probe.rs` builds the content root from the carried
   mods and dumps what Horizon's loaders make of the same blocks, drops, recipes and tags.
 - `tools/mod_port_harness.py` compares them per mod (blocks, properties, sounds, shapes, drops,

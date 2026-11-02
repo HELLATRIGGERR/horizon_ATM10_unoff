@@ -1,0 +1,1 @@
+Scripts that turn the ATM10 instance into carries and run the full pack: see docs/atm10-port.md. They were written for one machine: E:\PROJECTS\horizon-ae2 holds the checkout and toolchain, C:\horizon-work the generated data. Change those paths in your copy. They only read the instance.

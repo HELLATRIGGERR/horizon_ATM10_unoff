@@ -1,25 +1,24 @@
-#!/bin/sh
-# carry-with-facts.sh <batch>...: re-carries each oracle batch's mods (oracle/<batch>.txt) with that batch's facts
-# (oracle/facts-<batch>.json.gz unpacked to oracle/facts.json; one file for all would be ~0.5 GB to load), then the
-# mods that share a namespace no pack mod owns (quark, thermal, xycraft) together, with their batches' facts
-# merged, so the namespace stays with none of them as in one full run. Logs: carry-facts-<batch>.log.
-PP='E:\PROJECTS\horizon-ae2\.build\target-portpack\release\horizon-port-pack.exe'
-# ATM10_WORK: another work folder (with inventory.json, oracle/, tools/merge-facts.py, mods/<key>/carry), so a re-carry
-# need not touch this one.
-W="${ATM10_WORK:-E:\PROJECTS\horizon-ae2\ports\atm10}"
-R='E:\PROJECTS\horizon-ae2\horizon\.local\resources\26.3'
-SHARED="amendments create farmingforblockheads supplementaries dyenamics xycraft_world xycraft_machines"
-cd "$(cygpath -u "$W")"
-for b in "$@"; do
-  keys=$(for k in $(cat oracle/$b.txt); do case " $SHARED " in *" $k "*) ;; *) case $k in +*) ;; *) echo $k ;; esac ;; esac; done)
-  gzip -dc oracle/facts-$b.json.gz > oracle/facts.json
+#!/bin/bash
+# carry-with-facts.sh [batch...]: carries each oracle batch's mods ($ATM10_WORK/oracle/<batch>.txt, from batches.py)
+# with that batch's facts from the pack run ($ATM10_DATA/dump/facts-<batch>.json, copied to oracle/facts.json; one
+# file for all would be ~1.5 GB to load) and the pack's own facts (dump/pack-facts.json: fuel, compost, pistons, light).
+# Every key of all-keys.txt gets its mods/<key>/carry folder first, so each batch sees all the others as ported (the
+# conditions of worldgen modifiers). The mods sharing a namespace no pack mod owns are one batch (`shared`), so one
+# run sees all their claims and leaves the namespace to none of them. Logs: carry-<batch>.log.
+# Settings: ATM10_WORK, ATM10_DATA, HORIZON_PORT_PACK (the tool's exe), HORIZON_RESOURCES (prepared 26.3).
+: "${ATM10_WORK:?}" "${ATM10_DATA:?}" "${HORIZON_PORT_PACK:?}" "${HORIZON_RESOURCES:?}"
+cd "$ATM10_WORK" || exit 1
+cp "$ATM10_DATA/dump/pack-facts.json" oracle/pack-facts.json || exit 1
+# Lists written on Windows may end their lines with CR.
+keys() { tr -d '\015' < "$1"; }
+for k in $(keys all-keys.txt); do mkdir -p "mods/$k/carry"; done
+batches="$*"
+[ -z "$batches" ] && batches="$(cd oracle && ls b??.txt | sed 's/[.]txt$//') shared"
+for b in $batches; do
+  cp "$ATM10_DATA/dump/facts-$b.json" oracle/facts.json || exit 1
   s=$(date +%s)
-  "$PP" carry "$W" --resources "$R" $keys > carry-facts-$b.log 2>&1
-  echo "$b: exit $? in $(( $(date +%s) - s )) s: $(tail -1 carry-facts-$b.log | cut -c1-60)"
+  "$HORIZON_PORT_PACK" carry "$ATM10_WORK" --resources "$HORIZON_RESOURCES" $(keys "oracle/$b.txt") > "carry-$b.log" 2>&1
+  echo "$b: exit $? in $(( $(date +%s) - s )) s: $(tail -1 "carry-$b.log" | cut -c1-80)"
 done
-for b in n1 n2 n3 n4 n8; do gzip -dc oracle/facts-$b.json.gz > oracle/facts-$b.json; done
-python tools/merge-facts.py facts-n1.json facts-n2.json facts-n3.json facts-n4.json facts-n8.json > /dev/null
-rm -f oracle/facts-n?.json
-"$PP" carry "$W" --resources "$R" $SHARED > carry-facts-shared.log 2>&1
-echo "shared: exit $?: $(grep -c 'claimed by' carry-facts-shared.log) namespaces left to none"
 rm -f oracle/facts.json
+echo "namespaces left to none: $(grep -h 'claimed by' carry-*.log | wc -l)"

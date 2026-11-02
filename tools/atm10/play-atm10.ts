@@ -23,8 +23,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-const here = resolve(import.meta.dir, '..');
-const repo = resolve(here, '../../horizon');
+// ATM10_WORK: the port-pack work folder (mods/<id>/carry, leave-out.txt, play/); HORIZON_REPO: the checkout whose
+// target/fast/horizon-client.exe, .local/resources/26.3 and content/ae2 are the defaults below.
+const here = resolve(process.env.ATM10_WORK ?? resolve(import.meta.dir, '..'));
+const repo = resolve(process.env.HORIZON_REPO ?? resolve(import.meta.dir, '../..'));
 const args = process.argv.slice(2);
 const take = (flag: string): string[] | undefined => {
   const i = args.indexOf(flag);

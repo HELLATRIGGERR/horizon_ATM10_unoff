@@ -1,9 +1,10 @@
 """carry-table.py [--keys FILE] [--md]: one row per carried mod from <work>/mods/<id>/carry-report.json and
 <work>/inventory.json (version, class, tier, licence), plus totals. With --md, a Markdown table."""
+import os
 import json, sys
 from pathlib import Path
 
-work = Path(__file__).resolve().parents[1]
+work = Path(os.environ.get("ATM10_WORK") or Path(__file__).resolve().parents[1])
 recs = {}
 for r in json.loads((work / 'inventory.json').read_text(encoding='utf-8')):
     if r.get('jar'):

@@ -7,6 +7,6 @@ publish = false
 # Reads content mods the way the game's content_root does (horizon-mods' Package::read,
 # Content::read, content::clash), without building the game.
 [dependencies]
-horizon-mods = { path = "../../../../horizon/crates/horizon-mods", default-features = false }
+horizon-mods = { path = "../../../crates/horizon-mods", default-features = false }
 
 [workspace]

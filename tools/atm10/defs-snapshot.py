@@ -1,10 +1,11 @@
 """defs-snapshot.py <out.json> <mod key>...: each carried mod's block and item definitions
 (data/<ns>/horizon/{block,item}/*.json) and its carry-report counts, to compare a carry before and after the
 oracle's facts."""
+import os
 import json, sys
 from pathlib import Path
 
-work = Path(__file__).resolve().parents[1]
+work = Path(os.environ.get("ATM10_WORK") or Path(__file__).resolve().parents[1])
 out = {}
 for key in sys.argv[2:]:
     carry = work / 'mods' / key / 'carry'

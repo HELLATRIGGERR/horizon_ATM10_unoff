@@ -1,13 +1,14 @@
 r"""pack-leave-out.py <instance> > oracle/pack-leave-out.txt: the jars a server cannot load, for `neoforge_oracle.py
 pack --leave-out`: mods Modrinth marks as unsupported on a server (inventory.json), plus the ones named below, except
 those another mod needs on a server (its mods.toml dependency with side BOTH or SERVER and type required)."""
+import os
 import json
 import sys
 import tomllib
 import zipfile
 from pathlib import Path
 
-here = Path(__file__).resolve().parents[1]
+here = Path(os.environ.get("ATM10_WORK") or Path(__file__).resolve().parents[1])
 instance = Path(sys.argv[1])
 # Client-only by what they are, which Modrinth doesn't say for CurseForge-only mods.
 CLIENT_ONLY = """drippyloadingscreen fancymenu konkrete melody enchdesc extremesoundmuffler overloadedarmorbar toastcontrol

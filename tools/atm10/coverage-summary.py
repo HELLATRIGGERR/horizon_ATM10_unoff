@@ -9,11 +9,12 @@ rewrites the file; a section from an earlier run is replaced). It sorts every ro
   (no content to carry: client, library and performance mods);
 with per-group totals from each carry-report.json.
 """
+import os
 import collections
 import json
 from pathlib import Path
 
-work = Path(__file__).resolve().parents[1]
+work = Path(os.environ.get("ATM10_WORK") or Path(__file__).resolve().parents[1])
 MARK = '\n## Carry-over status'
 rows = json.loads((work / 'coverage.json').read_text(encoding='utf-8'))
 carried = set((work / 'all-keys.txt').read_text().split())

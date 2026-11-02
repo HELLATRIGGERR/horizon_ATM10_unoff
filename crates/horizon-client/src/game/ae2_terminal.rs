@@ -2122,7 +2122,9 @@ impl Game<'_> {
         };
         let locale=host.hub.guests.iter().find(|guest|guest.conn==conn).map(|guest|search_language_code(&guest.info.language)).unwrap_or("en_us");
         let search_language=Arc::new(horizon_client::lang::Language::load(&[&self.options.resources],locale));
-        host.play.entry(conn).or_default().ae2_terminal = Some(GuestTerminal {
+        let play=host.play.entry(conn).or_default();
+        let pinned=play.ae2_pins.clone();
+        play.ae2_terminal = Some(GuestTerminal {
             window,
             state: 0,
             pos,
@@ -2175,7 +2177,7 @@ impl Game<'_> {
             search_mod_name: false,
             search_language,
             search_edit: false,
-            pinned: Vec::new(),
+            pinned,
             fluid_amount: 1000,
             fluid_inputs: vec![None; 81],
             fluid_outputs: vec![None; 27],
@@ -2240,12 +2242,15 @@ impl Game<'_> {
             let Some(key)=value.as_str().and_then(super::ae2_job_ui::parse_key) else{return};
             if !pins.contains(&key){pins.push(key);}
         }
+        if window<0 {host.play.entry(conn).or_default().ae2_pins=pins;return;}
         if !host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|i64::from(t.window)==window && t.owner_dim==self.dim.id()) {return;}
         let include_mod=value.get("search_mod_name").and_then(|v|v.as_bool()).unwrap_or(false);
         let locale=value.get("language").and_then(|v|v.as_str()).map(search_language_code).map(str::to_owned);
         let language=locale.as_deref().filter(|code|host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.search_language.code!=*code))
             .map(|code|Arc::new(horizon_client::lang::Language::load(&[&self.options.resources],code)));
-        let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut())
+        let Some(play)=host.play.get_mut(&conn) else{return};
+        play.ae2_pins=pins.clone();
+        let Some(t)=play.ae2_terminal.as_mut()
             .filter(|t|i64::from(t.window)==window && t.owner_dim==self.dim.id()) else{return};
         if t.pinned==pins && t.search_mod_name==include_mod && language.is_none(){return;}
         t.pinned=pins;t.search_mod_name=include_mod;if let Some(language)=language {t.search_language=language;}t.page=0;

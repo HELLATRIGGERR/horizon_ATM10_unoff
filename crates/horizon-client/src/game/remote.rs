@@ -9477,9 +9477,11 @@ impl Game<'_> {
         self.remote_close_local();
     }
     #[cfg(feature = "ae2-lab")]
+    /// The pins go to the server whenever they change, a terminal open or not
+    /// (window -1): it lays the next terminal out with them from its first view.
     pub(super) fn ae2_sync_job_pins(&mut self) {
-        let Some(window)=self.remote.as_ref().filter(|r|r.ae2_terminal_screen)
-            .and_then(|r|r.menu.as_ref().map(|m|m.0)) else{return;};
+        let Some(remote)=self.remote.as_ref() else{return;};
+        let window=remote.menu.as_ref().filter(|_|remote.ae2_terminal_screen).map_or(-1,|m|m.0);
         let Ok(data)=serde_json::to_vec(&serde_json::json!({"window":window,"pins":self.ae2_job_ui.wires(),"language":self.settings.language.clone(),"search_mod_name":super::ae2_client_config::settings().search_mod_name_in_tooltips})) else{return;};
         self.send(S::CustomPayload(horizon_protocol::packets::configuration::CustomPayload {
             channel:"ae2:pinned_keys".into(),data,

@@ -109,6 +109,10 @@ pub(super) struct GuestPlay {
     pub(super) ae2_pattern_access: Option<super::ae2_pattern_access::GuestPatternAccess>,
     #[cfg(feature = "ae2-lab")]
     pub(super) ae2_bus: Option<super::ae2_bus_ui::GuestBus>,
+    /// The keys the guest's terminals pin: AE2's `PinnedKeys` lives on the
+    /// client for the whole game, so a reopened terminal lays them out at once.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_pins: Vec<ae2_cell_core::ItemKey>,
     /// What the guest's body was given for its effects and enchantments.
     potions: super::potions::BodyPotions,
     /// `ServerPlayer.getStats` and the inventory `inventory_changed` last saw.

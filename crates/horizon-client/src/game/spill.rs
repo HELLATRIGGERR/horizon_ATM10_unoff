@@ -281,9 +281,37 @@ impl Pending {
         block: &str,
         name: Option<String>,
     ) {
+        self.record_breaking(pos, entity, block, name, false);
+    }
+    /// The same for a block a player's tool is breaking (`Block.playerDestroy`).
+    pub(super) fn record_by_player(
+        &mut self,
+        pos: [i32; 3],
+        entity: &BlockEntity,
+        block: &str,
+        name: Option<String>,
+    ) {
+        self.record_breaking(pos, entity, block, name, true);
+    }
+    fn record_breaking(
+        &mut self,
+        pos: [i32; 3],
+        entity: &BlockEntity,
+        block: &str,
+        name: Option<String>,
+        by_player: bool,
+    ) {
         if let BlockEntity::Banner(banner) = entity {
             self.banner.insert(pos, banner.clone());
             return;
+        }
+        // What a mod's block entity gives its own item (API 64).
+        if let BlockEntity::Mod(m) = entity {
+            let mut patch = Compound::new();
+            super::Game::native_block_entity_drop(block, m, by_player, &mut patch);
+            if !patch.is_empty() {
+                self.copied.insert(pos, (block.to_owned(), patch));
+            }
         }
         if let Some(name) = name {
             self.names.insert(pos, (block.to_owned(), name));

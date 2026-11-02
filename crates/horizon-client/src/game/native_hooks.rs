@@ -6,6 +6,12 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 82 adds what a machine's item and slots need: `native_block_entity_drop` (what a broken block's
+//! entity gives its dropped item, `copy_components` in vanilla's block loot tables),
+//! `native_block_entity_slot_accepts` (`Container.canPlaceItem` and `Slot.mayPlace` of a mod's slot) and
+//! the helpers `native_burn_time` (a stack's furnace fuel ticks, `ItemStack.getBurnTime`) and
+//! `native_crafting_remainder` (what a used-up item leaves, `Item.getCraftingRemainder`).
+//!
 //! API 81 adds Forge Energy on a mod block's block entity, by side, as NeoForge's `IEnergyStorage` capability:
 //! the hook points `native_fe_storage`, `native_fe_receive`, `native_fe_extract`, and the helpers
 //! `native_fe_info`, `native_fe_offer`, `native_fe_draw` in `machines/native_energy.rs`, which reach mod blocks
@@ -339,7 +345,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 81;
+pub(crate) const NATIVE_HOOKS_API: u32 = 82;
 
 impl GameLevel<'_> {
     /// An authoritative server committed a changed state through `Level.setBlock`.
@@ -1625,6 +1631,38 @@ impl Game<'_> {
         container: &mut Option<ModContainer>,
     ) {
         let _ = (block, container);
+    }
+    /// Slot `slot` of block `block`'s container is offered `stack`, by a
+    /// hopper or a click in its menu (`Container.canPlaceItem`, `Slot.mayPlace`):
+    /// clear `accepts` when the block is yours and refuses it. `fuel`: the
+    /// stack burns in a furnace. It only narrows what the container's `inputs`
+    /// let through, and asks neither for what a mod's own tick does nor for
+    /// the stacks already in a slot. Asked often, from any thread's menu or
+    /// hopper: answer from the arguments alone. API 64.
+    pub(super) fn native_block_entity_slot_accepts(
+        block: &str,
+        slot: usize,
+        stack: &ItemStack,
+        fuel: bool,
+        accepts: &mut bool,
+    ) {
+        let _ = (block, slot, stack, fuel, accepts);
+    }
+    /// Block `block`'s block entity is breaking, and drops the block's loot:
+    /// put into `components` what the item it drops keeps (`copy_components`
+    /// from a block entity in vanilla's block loot tables), as a component
+    /// patch (`mymod:energy`). `by_player`: a player's tool breaks it
+    /// (`Block.playerDestroy`), not an explosion, a command or a piston. A
+    /// dropped stack of the block's own item takes them, unless the block is
+    /// broken without drops. `native_place_block` hears the item placed again.
+    /// Read `entity` alone: it runs from a level's own pass. API 64.
+    pub(super) fn native_block_entity_drop(
+        block: &str,
+        entity: &ModBlockEntity,
+        by_player: bool,
+        components: &mut Compound,
+    ) {
+        let _ = (block, entity, by_player, components);
     }
     /// Block `block`'s block entity has fluid tanks: set `fluids` when the
     /// block is yours, in the container's shape — each tank's capacity in
@@ -4011,6 +4049,18 @@ impl Game<'_> {
         stack: ItemStack,
     ) -> Option<ItemStack> {
         self.insert_stack_through(pos, face, stack)
+    }
+    /// How many ticks `stack` burns in a furnace, 0 when it is no fuel
+    /// (`AbstractFurnaceBlockEntity`'s fuel values, `ItemStack.getBurnTime`).
+    /// API 64.
+    pub(super) fn native_burn_time(&self, stack: &ItemStack) -> i32 {
+        self.res.providers().burn_time(self.res.items(), stack, false)
+    }
+    /// What a used-up `item` leaves behind, a lava bucket its empty bucket
+    /// (`Item.getCraftingRemainder`); none for most items. API 64.
+    pub(super) fn native_crafting_remainder(&self, item: &str) -> Option<ItemStack> {
+        let rest = self.res.items().get(item)?.crafting_remainder.as_deref()?;
+        Some(ItemStack::new(rest, 1))
     }
     /// Where the mouse is, in GUI pixels. API 20.
     pub(super) fn native_cursor(&self) -> [f32; 2] {

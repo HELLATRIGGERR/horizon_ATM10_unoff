@@ -1,0 +1,10 @@
+[package]
+name = "powah-content"
+version = "0.1.0"
+edition = "2024"
+license = "LGPL-3.0-or-later"
+publish = false
+description = "Builds the pack's Powah content mod from the carry of the player's own jar"
+
+[dependencies]
+serde_json = "1"

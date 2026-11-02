@@ -675,6 +675,8 @@ API 81 adds [Forge Energy](#forge-energy) on a mod block's block entity, by side
 `native_fe_storage`, `native_fe_receive` and `native_fe_extract` answer for your block entities, and the helpers `native_fe_info`, `native_fe_offer` and
 `native_fe_draw` reach any block with FE in any open level: other mods' and the game's own machines. Bundles that use them need "hooks": 81.
 
+API 82 adds what a machine's item and slots need: `native_block_entity_drop` puts components on the item a broken block drops (`copy_components` from a block entity in vanilla's block loot tables, or only when `by_player`, as a mod's `Block.playerDestroy` would; `native_place_block` hears the item placed again), `native_block_entity_slot_accepts` narrows what a hopper or a menu click puts into a mod's slot (`Container.canPlaceItem`, `Slot.mayPlace`), and the helpers `native_burn_time(stack)` and `native_crafting_remainder(item)` read a stack's furnace fuel ticks (`ItemStack.getBurnTime`) and what a used-up item leaves (`Item.getCraftingRemainder`). Bundles that use them need "hooks": 64.
+
 ## What the launcher does
 
 In the window: install a native mod from the Mods page, into the instance picked on the left ("Installs into

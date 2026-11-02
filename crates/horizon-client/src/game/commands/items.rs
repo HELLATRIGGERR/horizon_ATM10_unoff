@@ -103,6 +103,11 @@ impl Game<'_> {
                     Some(horizon_client::containers::BlockEntity::Ae2(machine)) => {
                         machine.slots.len()
                     }
+                    // A mod's container, as big as it says.
+                    Some(horizon_client::containers::BlockEntity::Mod(_)) => {
+                        let state = self.world.block(p[0], p[1], p[2]).0;
+                        self.world.block_entities.mod_container(state).map_or(0, |c| c.slots)
+                    }
                     _ => 0,
                 };
                 for i in 0..size {
@@ -240,6 +245,9 @@ impl Game<'_> {
                 Some(horizon_client::containers::BlockEntity::Ae2(machine)) => {
                     machine.slots.get(*i).cloned().flatten()
                 }
+                Some(horizon_client::containers::BlockEntity::Mod(m)) => {
+                    m.items.get(*i).cloned().flatten()
+                }
                 _ => None,
             },
         }
@@ -357,6 +365,15 @@ impl Game<'_> {
                     } else {
                         false
                     }
+                }
+                // `slots_named` bounds `i` by the container; its slots grow as a menu's do.
+                Some(horizon_client::containers::BlockEntity::Mod(m)) => {
+                    if m.items.len() <= *i {
+                        m.items.resize(*i + 1, None);
+                    }
+                    m.items[*i] = stack;
+                    self.world.modified.insert((p[0] >> 4, p[2] >> 4));
+                    true
                 }
                 _ => false,
             },

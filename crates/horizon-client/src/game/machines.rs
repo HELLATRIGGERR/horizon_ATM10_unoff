@@ -338,7 +338,20 @@ impl Containers<'_> {
             return accepts;
         }
         if let Some(c) = &view.container {
-            return c.inputs.contains(&slot);
+            if !c.inputs.contains(&slot) {
+                return false;
+            }
+            let Some(&(pos, _)) = view.parts.first() else {
+                return true;
+            };
+            let state = self.world.block(pos.0, pos.1, pos.2);
+            let Some(block) = self.registry.state(state) else {
+                return true;
+            };
+            let mut accepts = true;
+            let fuel = self.items.get(&stack.item).is_some_and(|i| i.fuel.is_some());
+            super::Game::native_block_entity_slot_accepts(&block.name, slot, stack, fuel, &mut accepts);
+            return accepts;
         }
         // ShulkerBoxBlockEntity.canPlaceItemThroughFace
         if view.kind == Kind::Shulker {

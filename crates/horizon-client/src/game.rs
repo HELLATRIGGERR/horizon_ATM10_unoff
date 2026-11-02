@@ -6025,7 +6025,7 @@ impl Game<'_> {
         self.ae2_prepare_cpu_removal(key).map_err(|e| -> Box<dyn std::error::Error> {e.into()})?;
         if let Some(entity) = self.world.block_entities.get(&key).cloned() {
             let name = self.world.block_names.get(&key).cloned();
-            self.pending.record(pos, &entity, &facts.name, name);
+            self.pending.record_by_player(pos, &entity, &facts.name, name);
         } else if let Some(tag) = spill::saved_entity(&self.world, pos) {
             self.pending.record_saved(pos, &tag);
         }

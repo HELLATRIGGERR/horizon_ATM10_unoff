@@ -566,6 +566,16 @@
       "name": "fe_extract",
       "version": 1,
       "target": "horizon_client::game::native_hooks::Game<'_>::native_fe_extract"
+    },
+    {
+      "name": "block_entity_slot_accepts",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_slot_accepts"
+    },
+    {
+      "name": "block_entity_drop",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_block_entity_drop"
     }
   ]
 }

@@ -258,8 +258,19 @@ impl GuestPlay {
     }
 }
 
-struct ItemRules<'a>(&'a horizon_client::items::Items);
+/// The game's items, and the block of the open menu when a mod's container
+/// holds its slots.
+struct ItemRules<'a>(&'a horizon_client::items::Items, Option<String>);
 impl Rules for ItemRules<'_> {
+    fn slot_accepts(&self, slot: usize, stack: &ItemStack) -> bool {
+        let Some(block) = &self.1 else {
+            return true;
+        };
+        let mut accepts = true;
+        let fuel = self.0.get(&stack.item).is_some_and(|i| i.fuel.is_some());
+        Game::native_block_entity_slot_accepts(block, slot, stack, fuel, &mut accepts);
+        accepts
+    }
     fn items(&self) -> &horizon_client::items::Items {
         self.0
     }
@@ -2595,12 +2606,22 @@ impl Game<'_> {
                 }
             }
             S::ContainerClick(p) => {
-                let rules = ItemRules(world_items!(self));
                 let slots = host.hub.guests[gi]
                     .menu
                     .as_ref()
                     .filter(|m| m.window == p.container)
                     .map(|m| m.slots);
+                let mod_block = match slots {
+                    Some(Slots::Block(key)) => {
+                        let state = self.world.block(key.0, key.1, key.2);
+                        self.world
+                            .block_entities
+                            .mod_container(state.0)
+                            .map(|_| self.res.facts().get(state).name.to_string())
+                    }
+                    _ => None,
+                };
+                let rules = ItemRules(world_items!(self), mod_block);
                 let before = slots.and_then(|s| s.read(&self.world, &host.hub.guests[gi]));
                 let drops = host.hub.container_click(conn, &p, &mut self.world, &rules);
                 // A click that changed the container's slots: BlockEntity.setChanged,

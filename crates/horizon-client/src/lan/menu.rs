@@ -17,6 +17,12 @@ pub trait Rules {
     fn max_stack(&self, item: &str) -> u32;
     /// The armor slot (0 head .. 3 feet) an item can be worn in.
     fn armor_index(&self, item: &str) -> Option<usize>;
+    /// Whether the open menu, a mod's, lets `stack` into its container slot
+    /// `slot` (`Slot.mayPlace`).
+    fn slot_accepts(&self, slot: usize, stack: &ItemStack) -> bool {
+        let _ = (slot, stack);
+        true
+    }
 }
 
 /// An open block container.
@@ -256,6 +262,9 @@ impl View<'_> {
             && self.container.as_ref().is_some_and(|c| i < c.len())
             && !crate::menu::fits_inside_container_items(stack)
         {
+            return false;
+        }
+        if self.container.as_ref().is_some_and(|c| i < c.len()) && !rules.slot_accepts(i, stack) {
             return false;
         }
         self.enabled(i)
@@ -1041,6 +1050,61 @@ mod tests {
         // Nothing leaves a hidden slot either.
         click(&mut view, &mut drag, 2, 0, input::QUICK_MOVE, &rules);
         assert_eq!(view.get(2).map(|s| s.item), Some("minecraft:stone".into()));
+    }
+
+    /// A mod's menu: its slot 1 takes coal, its other slots nothing.
+    struct FuelSlotRules(ItemRules);
+    impl Rules for FuelSlotRules {
+        fn slot_accepts(&self, slot: usize, stack: &ItemStack) -> bool {
+            slot == 1 && &*stack.item == "minecraft:coal"
+        }
+        fn items(&self) -> &Items {
+            self.0.items()
+        }
+        fn max_stack(&self, item: &str) -> u32 {
+            self.0.max_stack(item)
+        }
+        fn armor_index(&self, item: &str) -> Option<usize> {
+            self.0.armor_index(item)
+        }
+    }
+
+    #[test]
+    fn a_mods_slot_refuses_by_click_and_by_quick_move_and_still_gives_back() {
+        let Some(rules) = rules().map(FuelSlotRules) else {
+            return;
+        };
+        let mut g = guest();
+        let mut container = vec![None; 2];
+        g.inventory[0] = Some(ItemStack::new("minecraft:dirt", 3));
+        g.inventory[1] = Some(ItemStack::new("minecraft:coal", 3));
+        let mut drag = None;
+        let mut view = View {
+            guest: &mut g,
+            container: Some(&mut container),
+            shulker: false,
+            hidden: &[],
+        };
+        // The hotbar's first slots are menu slots 2 + 27 and 2 + 28.
+        let (dirt, coal) = (2 + 27, 2 + 28);
+        click(&mut view, &mut drag, dirt, 0, input::QUICK_MOVE, &rules);
+        assert!(view.get(0).is_none() && view.get(1).is_none(), "quick move takes no dirt in");
+        click(&mut view, &mut drag, dirt, 0, input::PICKUP, &rules);
+        click(&mut view, &mut drag, 1, 0, input::PICKUP, &rules);
+        click(&mut view, &mut drag, 0, 0, input::PICKUP, &rules);
+        assert!(view.get(0).is_none() && view.get(1).is_none(), "clicks put no dirt in");
+        assert_eq!(view.guest.carried.as_ref().map(|s| s.count), Some(3), "the dirt stays on the cursor");
+        click(&mut view, &mut drag, dirt, 0, input::PICKUP, &rules);
+        assert!(view.guest.carried.is_none());
+        // Coal: not into slot 0; quick move finds slot 1; and it comes back out.
+        click(&mut view, &mut drag, coal, 0, input::PICKUP, &rules);
+        click(&mut view, &mut drag, 0, 0, input::PICKUP, &rules);
+        assert!(view.get(0).is_none(), "slot 0 takes no coal");
+        click(&mut view, &mut drag, coal, 0, input::PICKUP, &rules);
+        click(&mut view, &mut drag, coal, 0, input::QUICK_MOVE, &rules);
+        assert_eq!(view.get(1).map(|s| s.count), Some(3), "quick move puts coal in slot 1");
+        click(&mut view, &mut drag, 1, 0, input::QUICK_MOVE, &rules);
+        assert!(view.get(1).is_none(), "and takes it back out");
     }
 
     struct SwapRules;

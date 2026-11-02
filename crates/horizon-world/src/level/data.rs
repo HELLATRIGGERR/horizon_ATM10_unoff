@@ -691,10 +691,13 @@ fn build_with_behaviour_json(
     root: &Path,
     behaviour: &Value,
 ) -> io::Result<Behaviours> {
-    let gameplay = read_json(&root.join("gameplay-facts.json"))?;
-    let gameplay_states = gameplay["states"]
-        .as_array()
-        .ok_or_else(|| fail("missing gameplay states"))?;
+    // Only the fields the tables read, streamed: ATM10's file is 1.3 GB, and its whole JSON tree
+    // took gigabytes beside every other loader of a world's first start.
+    let file = File::open(root.join("gameplay-facts.json"))?;
+    let gameplay: GameplayFile =
+        serde_json::from_reader(io::BufReader::with_capacity(1 << 20, file))
+            .map_err(|e| invalid(format!("gameplay-facts.json: {e}")))?;
+    let gameplay_states = &gameplay.states;
     build_with_gameplay(registry, root, behaviour, gameplay_states)
 }
 
@@ -1202,6 +1205,112 @@ fn instrument_index(name: &str) -> u8 {
         .map_or(0, |i| i as u8)
 }
 
+/// `gameplay-facts.json` with each state's fields [`build_with_gameplay`] reads and nothing else; a
+/// field missing or null reads as the `Value` source reads it.
+#[derive(serde::Deserialize)]
+struct GameplayFile {
+    states: Vec<GameplayState>,
+}
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct GameplayState {
+    replaceable: Option<bool>,
+    random_ticks: Option<bool>,
+    solid_render: Option<bool>,
+    liquid: Option<bool>,
+    block_entity: Option<bool>,
+    ignited_by_lava: Option<bool>,
+    can_occlude: Option<bool>,
+    full_collision: Option<bool>,
+    skylight_down: Option<bool>,
+    requires_tool: Option<bool>,
+    shape_occlusion: Option<bool>,
+    emission: Option<f64>,
+    dampening: Option<f64>,
+    hardness: Option<f64>,
+    push: Option<String>,
+    sound: Option<GameplaySound>,
+}
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct GameplaySound {
+    volume: Option<f64>,
+    pitch: Option<f64>,
+    place: Option<SoundName>,
+    #[serde(rename = "break")]
+    break_: Option<SoundName>,
+    fall: Option<SoundName>,
+}
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct SoundName {
+    id: Option<String>,
+}
+impl GameplayStateSource for GameplayState {
+    fn flag(&self, name: &str) -> bool {
+        match name {
+            "replaceable" => self.replaceable,
+            "random_ticks" => self.random_ticks,
+            "solid_render" => self.solid_render,
+            "liquid" => self.liquid,
+            "block_entity" => self.block_entity,
+            "ignited_by_lava" => self.ignited_by_lava,
+            "can_occlude" => self.can_occlude,
+            "full_collision" => self.full_collision,
+            "skylight_down" => self.skylight_down,
+            "requires_tool" => self.requires_tool,
+            "shape_occlusion" => self.shape_occlusion,
+            _ => None,
+        }
+        .unwrap_or(false)
+    }
+    fn unsigned(&self, name: &str) -> u64 {
+        // As `Value::as_u64`: a whole number from 0, else 0.
+        let whole = |v: Option<f64>| v.filter(|v| *v >= 0.0 && v.fract() == 0.0).map_or(0, |v| v as u64);
+        match name {
+            "emission" => whole(self.emission),
+            "dampening" => whole(self.dampening),
+            _ => 0,
+        }
+    }
+    fn number(&self, name: &str) -> f64 {
+        match name {
+            "hardness" => self.hardness,
+            "emission" => self.emission,
+            "dampening" => self.dampening,
+            _ => None,
+        }
+        .unwrap_or(0.0)
+    }
+    fn text(&self, name: &str) -> &str {
+        match name {
+            "push" => self.push.as_deref(),
+            _ => None,
+        }
+        .unwrap_or("")
+    }
+    fn sound_number(&self, name: &str) -> f64 {
+        let sound = self.sound.as_ref();
+        match name {
+            "volume" => sound.and_then(|s| s.volume),
+            "pitch" => sound.and_then(|s| s.pitch),
+            _ => None,
+        }
+        .unwrap_or(1.0)
+    }
+    fn sound_id(&self, name: &str) -> &str {
+        let sound = self.sound.as_ref();
+        match name {
+            "place" => sound.and_then(|s| s.place.as_ref()),
+            "break" => sound.and_then(|s| s.break_.as_ref()),
+            "fall" => sound.and_then(|s| s.fall.as_ref()),
+            _ => None,
+        }
+        .and_then(|s| s.id.as_deref())
+        .unwrap_or("")
+    }
+}
+
 impl GameplayStateSource for Value {
     fn flag(&self, name: &str) -> bool {
         self.get(name).and_then(Value::as_bool).unwrap_or(false)
@@ -1227,5 +1336,48 @@ impl GameplayStateSource for Value {
             .and_then(|s| s.get("id"))
             .and_then(Value::as_str)
             .unwrap_or("")
+    }
+}
+
+#[cfg(test)]
+mod gameplay_state_tests {
+    use super::{GameplayFile, GameplayStateSource};
+    use serde_json::{Value, json};
+
+    /// The streamed state reads every field as the JSON tree does, missing and null ones too.
+    #[test]
+    fn a_streamed_state_reads_as_its_json_tree() {
+        let file = json!({"version": 1, "states": [
+            {"replaceable": true, "random_ticks": false, "solid_render": true, "liquid": false,
+             "block_entity": true, "ignited_by_lava": true, "can_occlude": true, "full_collision": false,
+             "skylight_down": true, "requires_tool": true, "shape_occlusion": false, "emission": 14,
+             "dampening": 15, "hardness": -1.0, "push": "BLOCK", "outline": [[0, 0, 0, 1, 1, 1]],
+             "sound": {"volume": 0.8, "pitch": 1.2, "place": {"id": "minecraft:block.stone.place"},
+                       "break": {"id": "minecraft:block.stone.break"}, "fall": null}},
+            {"push": null, "sound": null, "emission": null},
+            {}
+        ]});
+        let typed: GameplayFile = serde_json::from_value(file.clone()).unwrap();
+        let tree = file["states"].as_array().unwrap();
+        let flags = [
+            "replaceable", "random_ticks", "solid_render", "liquid", "block_entity", "ignited_by_lava",
+            "can_occlude", "full_collision", "skylight_down", "requires_tool", "shape_occlusion",
+        ];
+        for (t, v) in typed.states.iter().zip(tree) {
+            for f in flags {
+                assert_eq!(t.flag(f), v.flag(f), "{f}");
+            }
+            for n in ["emission", "dampening"] {
+                assert_eq!(t.unsigned(n), <Value as GameplayStateSource>::unsigned(v, n), "{n}");
+            }
+            assert_eq!(t.number("hardness"), v.number("hardness"));
+            assert_eq!(t.text("push"), v.text("push"));
+            for n in ["volume", "pitch"] {
+                assert_eq!(t.sound_number(n), v.sound_number(n), "{n}");
+            }
+            for n in ["place", "break", "fall"] {
+                assert_eq!(t.sound_id(n), v.sound_id(n), "{n}");
+            }
+        }
     }
 }

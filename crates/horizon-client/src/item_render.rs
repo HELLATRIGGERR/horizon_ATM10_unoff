@@ -651,13 +651,15 @@ fn load_definitions(root: &Path) -> BTreeMap<String, ClientItem> {
             continue;
         };
         let namespace = ns.file_name().to_string_lossy().into_owned();
-        for file in &folder.files {
-            if let Some(item) = file
-                .bytes()
+        // Parsed on every thread: ATM10 has about 20,000 definitions.
+        let parsed = horizon_client_render::par::par_map(&folder.files, |file| {
+            file.bytes()
                 .ok()
                 .and_then(|b| std::str::from_utf8(b).ok())
                 .and_then(|t| ClientItem::from_json(t).ok())
-            {
+        });
+        for (file, item) in folder.files.iter().zip(parsed) {
+            if let Some(item) = item {
                 out.insert(format!("{namespace}:{}", file.name), item);
             }
         }

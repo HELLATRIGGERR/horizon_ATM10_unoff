@@ -361,7 +361,7 @@ mod tests {
                 let layer = if round % 3 == 0 {
                     OPAQUE_LAYER
                 } else {
-                    (next() % 2) as u16 * OPAQUE_LAYER
+                    (next() % 2) as u32 * OPAQUE_LAYER
                 };
                 let faces = cube(origin, layer);
                 let face = (next() % 6) as usize;
@@ -378,13 +378,13 @@ mod tests {
         }
     }
 
-    fn quad(corners: [[f32; 3]; 4], layer: u16) -> [TerrainVertex; 4] {
+    fn quad(corners: [[f32; 3]; 4], layer: u32) -> [TerrainVertex; 4] {
         corners.map(|p| TerrainVertex::new(p, [0.0; 2], layer, 0, 0))
     }
 
     /// A unit block's six faces at `origin`, wound counter-clockwise seen
     /// from outside, as block models are.
-    fn cube(origin: [f32; 3], layer: u16) -> Vec<TerrainVertex> {
+    fn cube(origin: [f32; 3], layer: u32) -> Vec<TerrainVertex> {
         let [x, y, z] = origin;
         let (a, b, c) = (x + 1.0, y + 1.0, z + 1.0);
         [
@@ -413,7 +413,7 @@ mod tests {
     }
 
     /// The quads of `solid` whose triangles face `eye`, by their layer.
-    fn front_facing(solid: &[TerrainVertex], eye: [f32; 3]) -> Vec<u16> {
+    fn front_facing(solid: &[TerrainVertex], eye: [f32; 3]) -> Vec<u32> {
         let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
         solid
             .as_chunks::<4>()
@@ -439,11 +439,11 @@ mod tests {
     fn cube_faces_go_to_their_buckets_in_order() {
         let mut solid = cube([3.0, 4.0, 5.0], 0);
         for (i, v) in solid.iter_mut().enumerate() {
-            v.layer = (i / 4) as u16;
+            v.layer = (i / 4) as u32;
         }
         let sides = sort(&mut solid);
         assert_eq!(bucket_ends(&sides), [1, 2, 2, 3, 4, 5, 6]);
-        let layers: Vec<u16> = solid.iter().step_by(4).map(|v| v.layer).collect();
+        let layers: Vec<u32> = solid.iter().step_by(4).map(|v| v.layer).collect();
         // +X, +Z, +Y, -Z, -X, -Y.
         assert_eq!(layers, [0, 4, 2, 5, 1, 3]);
         assert_eq!(sides.planes[0], 4.0); // +X at x = 4
@@ -677,7 +677,7 @@ mod tests {
             })
             .collect();
         sort(&mut solid);
-        let layers: Vec<u16> = solid
+        let layers: Vec<u32> = solid
             .as_chunks::<4>()
             .0
             .iter()
@@ -698,7 +698,7 @@ mod tests {
             })
             .collect();
         sort(&mut solid);
-        let layers: Vec<u16> = solid
+        let layers: Vec<u32> = solid
             .as_chunks::<4>()
             .0
             .iter()

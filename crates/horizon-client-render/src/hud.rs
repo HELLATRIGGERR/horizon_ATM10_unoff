@@ -874,9 +874,14 @@ impl HudAtlas {
     /// room: a pack of thousands of mixed sizes (server packs with custom
     /// items) fits where the shelves' ragged ends would not.
     fn layout(images: &[PackedImage], max: u32) -> Result<(u32, Vec<(u32, u32)>, u32)> {
+        let sizes: Vec<(u32, u32)> = images.iter().map(|i| (i.1, i.2)).collect();
+        Self::layout_sizes(&sizes, max)
+    }
+    /// [`Self::layout`] over the images' sizes alone.
+    fn layout_sizes(images: &[(u32, u32)], max: u32) -> Result<(u32, Vec<(u32, u32)>, u32)> {
         let mut width = 4096.min(max);
         loop {
-            let wide_enough = images.iter().all(|i| i.1 < width);
+            let wide_enough = images.iter().all(|i| i.0 < width);
             if wide_enough {
                 for first_fit in [false, true] {
                     let (placements, glyph_region) = Self::shelves(images, width, first_fit);
@@ -886,7 +891,7 @@ impl HudAtlas {
                 }
             }
             if width >= max {
-                let texels: u64 = images.iter().map(|i| u64::from(i.1) * u64::from(i.2)).sum();
+                let texels: u64 = images.iter().map(|i| u64::from(i.0) * u64::from(i.1)).sum();
                 return Err(format!(
                     "the textures ({} images, {texels} texels) do not fit a {max}x{max} atlas",
                     images.len()
@@ -899,11 +904,11 @@ impl HudAtlas {
     /// `layout`'s shelves at one width: the placements and the first row below
     /// them. `first_fit` puts an image in the first shelf that is tall enough
     /// and has room, instead of only the last one.
-    fn shelves(images: &[PackedImage], width: u32, first_fit: bool) -> (Vec<(u32, u32)>, u32) {
+    fn shelves(images: &[(u32, u32)], width: u32, first_fit: bool) -> (Vec<(u32, u32)>, u32) {
         // Each shelf: its top row, its height (its first image's) and the next free column.
         let mut shelves: Vec<(u32, u32, u32)> = Vec::new();
         let mut placements = Vec::with_capacity(images.len());
-        for (_, w, h, _) in images {
+        for (w, h) in images {
             let open = if first_fit {
                 shelves.iter().position(|s| s.1 >= *h && s.2 + w < width)
             } else {
@@ -922,6 +927,36 @@ impl HudAtlas {
         }
         let glyph_region = shelves.last().map_or(1, |s| s.0 + s.1 + 1);
         (placements, glyph_region)
+    }
+    /// How many of `optional` (in their order) join `images` in the atlas: as many as fit it and the texture
+    /// budget (`budget` texels). Java binds a mod's GUI and entity textures one by one, when something first
+    /// draws them; here one atlas holds every sprite, and ATM10's alone (about 210 million texels) are more than
+    /// a 16384x16384 atlas. Without this the whole resource load failed, and every content mod with it.
+    fn optional_that_fit(images: &[PackedImage], optional: &[PackedImage], budget: u64, max: u32) -> usize {
+        let mut spent = 0u64;
+        let within = optional
+            .iter()
+            .take_while(|i| {
+                spent += u64::from(i.1) * u64::from(i.2);
+                spent <= budget
+            })
+            .count();
+        let fits = |n: usize| {
+            let mut sizes: Vec<(u32, u32)> =
+                images.iter().chain(&optional[..n]).map(|i| (i.1, i.2)).collect();
+            sizes.sort_by(|a, b| b.1.cmp(&a.1).then(b.0.cmp(&a.0)));
+            Self::layout_sizes(&sizes, max).is_ok()
+        };
+        if fits(within) {
+            return within;
+        }
+        // The most that fit: none may not either, and then the required textures' own error stands.
+        let (mut lo, mut hi) = (0, within);
+        while lo < hi {
+            let mid = (lo + hi).div_ceil(2);
+            if fits(mid) { lo = mid } else { hi = mid - 1 }
+        }
+        lo
     }
     /// Pack the textures under these folders of `textures/`, and for the
     /// `full` atlas the generated sprites and the run-time slots too.
@@ -942,15 +977,23 @@ impl HudAtlas {
         // Content mods' entity textures: their equipment assets name them as
         // `<ns>:<path>`, and native mods draw their block entities with them
         // (`native_draw_quad`: `<ns>:entity/...`); and their mob effects'
-        // icons, `<ns>:mob_effect/<path>`.
+        // icons, `<ns>:mob_effect/<path>`. Only the equipment layers are sure
+        // to be drawn: the rest, like the GUI textures below, are `optional`.
         let namespaces = horizon_items::content_namespaces::namespaces(root);
+        let mut optional = Vec::new();
         for folder in ["entity", "mob_effect"] {
             if folders.contains(&folder) {
                 for namespace in &namespaces {
-                    walk(
-                        &root.join(format!("assets/{namespace}/textures/{folder}")),
-                        &mut files,
-                    );
+                    let dir = root.join(format!("assets/{namespace}/textures/{folder}"));
+                    if folder == "entity" {
+                        walk(&dir.join("equipment"), &mut files);
+                        let mut rest = Vec::new();
+                        walk(&dir, &mut rest);
+                        let equipment = dir.join("equipment");
+                        optional.extend(rest.into_iter().filter(|p| !p.starts_with(&equipment)));
+                    } else {
+                        walk(&dir, &mut files);
+                    }
                 }
             }
         }
@@ -967,17 +1010,23 @@ impl HudAtlas {
             }
         }
         // Content mods' GUI textures, for their screens: `<namespace>:gui/...`.
+        // Only a native mod's code draws them, so they are optional too, and
+        // go in before the entity textures.
         if full && let Ok(namespaces) = fs::read_dir(&assets) {
+            let mut gui = Vec::new();
             for ns in namespaces.flatten() {
                 if ns.file_name() != "minecraft" {
-                    walk(&ns.path().join("textures/gui"), &mut files);
+                    walk(&ns.path().join("textures/gui"), &mut gui);
                 }
             }
+            optional.splice(0..0, gui);
         }
-        files.retain(|p| {
+        let shown = |p: &PathBuf| {
             let s = p.to_string_lossy();
             !s.contains("title/background") && !s.contains("realms") && !s.contains("presets")
-        });
+        };
+        files.retain(shown);
+        optional.retain(shown);
         // OptiFine random entity variants, under the names their scan gives them (those
         // outside `textures/` are `<ns>:optifine/random/...`).
         let random_textures = if folders.contains(&"entity") {
@@ -1042,7 +1091,7 @@ impl HudAtlas {
                 .collect();
             files.retain(|p| (!named.contains_key(p) || kept.contains(p)) && !orphans.contains(p));
             // Those beside their texture are walked already.
-            let walked: HashSet<&PathBuf> = files.iter().collect();
+            let walked: HashSet<&PathBuf> = files.iter().chain(&optional).collect();
             let mut extra: Vec<PathBuf> = kept
                 .iter()
                 .filter(|p| !walked.contains(p))
@@ -1106,24 +1155,27 @@ impl HudAtlas {
             ))
         };
         let threads = std::thread::available_parallelism().map_or(2, |n| n.get());
-        let chunk = files.len().div_ceil(threads).max(1);
-        let decoded: Vec<_> = std::thread::scope(|scope| {
-            let handles: Vec<_> = files
-                .chunks(chunk)
-                .map(|part| {
-                    scope.spawn(move || part.iter().filter_map(decode_one).collect::<Vec<_>>())
-                })
-                .collect();
-            handles
-                .into_iter()
-                .flat_map(|h| h.join().unwrap_or_default())
-                .collect()
-        });
+        let decode_all = |files: &[PathBuf]| -> Vec<Decoded> {
+            let chunk = files.len().div_ceil(threads).max(1);
+            std::thread::scope(|scope| {
+                let handles: Vec<_> = files
+                    .chunks(chunk)
+                    .map(|part| {
+                        scope.spawn(move || part.iter().filter_map(decode_one).collect::<Vec<_>>())
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .flat_map(|h| h.join().unwrap_or_default())
+                    .collect()
+            })
+        };
+        let decoded = decode_all(&files);
         let mut flags = HashMap::new();
         let mut gui_sizes = HashMap::new();
         let mut animated: Vec<String> = Vec::new();
         let mut images: Vec<PackedImage> = Vec::with_capacity(decoded.len());
-        for (image, image_flags, gui_size, is_animated) in decoded {
+        let mut keep = |(image, image_flags, gui_size, is_animated): Decoded, into: &mut Vec<PackedImage>| {
             if let Some(f) = image_flags {
                 flags.insert(image.0.clone(), f);
             }
@@ -1133,7 +1185,14 @@ impl HudAtlas {
             if is_animated {
                 animated.push(image.0.clone());
             }
-            images.push(image);
+            into.push(image);
+        };
+        for d in decoded {
+            keep(d, &mut images);
+        }
+        let mut optional_images = Vec::new();
+        for d in decode_all(&optional) {
+            keep(d, &mut optional_images);
         }
         let mut cit_names = HashSet::new();
         if full {
@@ -1266,12 +1325,31 @@ impl HudAtlas {
         // border wrapped from their own edges keeps the filter off their
         // neighbours, as repeat addressing of their own texture would.
         let mut bordered = std::collections::HashSet::new();
-        for image in &mut images {
+        for image in images.iter_mut().chain(&mut optional_images) {
             if flags.get(&image.0).is_some_and(|f: &TextureFlags| f.blur) {
                 *image = wrap_border(image);
                 bordered.insert(image.0.clone());
             }
         }
+        // The optional textures, GUI ones before entity ones and the small before the large of each: when not all
+        // fit, most of what a native mod's screen may draw stays.
+        let area = |i: &PackedImage| u64::from(i.1) * u64::from(i.2);
+        optional_images.sort_by_key(|i| (i.0.contains(":entity/"), area(i)));
+        let budget = crate::sprites::texture_budget() / 4;
+        let kept = Self::optional_that_fit(&images, &optional_images, budget, MAX_ATLAS_SIZE);
+        if kept < optional_images.len() {
+            let left: u64 = optional_images[kept..].iter().map(area).sum();
+            log::warn!(
+                "Horizon: {} of the content mods' {} GUI and entity textures ({left} texels) left out of the GUI \
+                 atlas: past the texture budget ({} MiB) or the atlas's {MAX_ATLAS_SIZE}x{MAX_ATLAS_SIZE}; a native \
+                 mod that draws one gets none",
+                optional_images.len() - kept,
+                optional_images.len(),
+                budget * 4 >> 20,
+            );
+        }
+        optional_images.truncate(kept);
+        images.extend(optional_images);
         images.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
         let (width, placements, glyph_region) =
             Self::layout_leaving_out(&mut images, &mut animated, &cit_names, MAX_ATLAS_SIZE)?;
@@ -3645,6 +3723,25 @@ texture=wide",
         assert!(error.to_string().contains("do not fit a 16384x16384 atlas"));
         // One image wider than the largest atlas.
         assert!(HudAtlas::layout(&sized(1, 2048, 16), 2048).is_err());
+    }
+    #[test]
+    fn optional_textures_take_the_room_left_and_never_fail_the_atlas() {
+        // ATM10's mods' GUI and entity textures overflow the atlas the rest fit in.
+        let images = sized(100, 1024, 512);
+        let optional = sized(300, 1024, 1024);
+        let unlimited = u64::MAX;
+        let kept = HudAtlas::optional_that_fit(&images, &optional, unlimited, MAX_ATLAS_SIZE);
+        assert!(kept > 0 && kept < optional.len(), "{kept}");
+        let mut all: Vec<PackedImage> = images.iter().chain(&optional[..kept]).cloned().collect();
+        all.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
+        assert!(HudAtlas::layout(&all, MAX_ATLAS_SIZE).is_ok());
+        all.extend(optional[kept..kept + 1].iter().cloned());
+        all.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)));
+        assert!(HudAtlas::layout(&all, MAX_ATLAS_SIZE).is_err());
+        // The texture budget stops them sooner: two of 1024x1024 in 2.5 Mi texels.
+        assert_eq!(HudAtlas::optional_that_fit(&images, &optional, 5 << 19, MAX_ATLAS_SIZE), 2);
+        // All of them when they fit.
+        assert_eq!(HudAtlas::optional_that_fit(&images, &optional[..3], unlimited, MAX_ATLAS_SIZE), 3);
     }
 
     #[test]

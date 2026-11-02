@@ -326,7 +326,7 @@ pub(super) fn tesselate(
     };
     let mut sprite_layers = Vec::new();
     let mut quad = |v: [([f32; 3], [f32; 2]); 4],
-                    layer: u16,
+                    layer: u32,
                     color: u32,
                     light: u16,
                     back: bool,

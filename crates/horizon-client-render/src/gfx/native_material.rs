@@ -134,8 +134,8 @@ fn horizon_block_sample(uv: vec2<f32>, layer: u32, lod: f32) -> vec4<f32> {
     }
 }
 fn horizon_material_color(in: HorizonMaterialOut, translucent: bool) -> vec4<f32> {
-    let albedo = horizon_terrain_sprite(in.uv, in.layer & 0x7fffu);
-    horizon_block_layer = in.layer & 0x7fffu;
+    let albedo = horizon_terrain_sprite(in.uv, in.layer & 0x7fffffffu);
+    horizon_block_layer = in.layer & 0x7fffffffu;
     // The mip level of this point in the texture: its texels, as the sampler would pick.
     let texels = in.uv * horizon_block_size();
     let footprint = max(dot(dpdx(texels), dpdx(texels)), dot(dpdy(texels), dpdy(texels)));
@@ -147,8 +147,8 @@ fn horizon_material_color(in: HorizonMaterialOut, translucent: bool) -> vec4<f32
     horizon_surface = vec4<f32>(0.0);
     let tangent = horizon_material_tangent(in.position, in.uv, normal);
     return material(MaterialInput(albedo, in.tint, in.light, in.lightmap, in.position, in.uv,
-        translucent, horizon_sprite_tags(in.layer & 0x7fffu),
-        horizon_sprite_material(in.layer & 0x7fffu), in.clip.xy / frame.resolution,
+        translucent, horizon_sprite_tags(in.layer & 0x7fffffffu),
+        horizon_sprite_material(in.layer & 0x7fffffffu), in.clip.xy / frame.resolution,
         in.face, fluid, in.emission, normal, tangent,
         horizon_terrain_native_colored_light(in.position))).color;
 }
@@ -165,7 +165,7 @@ fn horizon_material_mark(in: HorizonMaterialOut, texel: vec4<f32>) -> f32 {
     if in.hdr_code > 0u {
         let whole = in.hdr_code > 4u;
         let tier = select(in.hdr_code, in.hdr_code - 4u, whole);
-        let l = in.layer & 0x7fffu;
+        let l = in.layer & 0x7fffffffu;
         let t = textureLoad(horizon_terrain_emission_thresholds,
             vec2(i32(l % horizon_terrain_SPRITE_SPLIT), i32(l / horizon_terrain_SPRITE_SPLIT)), 0);
         let y = horizon_terrain_brightness(texel.rgb);
@@ -177,9 +177,9 @@ fn horizon_material_mark(in: HorizonMaterialOut, texel: vec4<f32>) -> f32 {
 }
 @fragment fn horizon_material_fs_solid(in: HorizonMaterialOut) -> HorizonMaterialSolid {
     let color = horizon_material_color(in, false);
-    let texel = horizon_terrain_sprite(in.uv, in.layer & 0x7fffu);
+    let texel = horizon_terrain_sprite(in.uv, in.layer & 0x7fffffffu);
     // Bit 15 of the layer marks opaque leaves (forceOpaque): no alpha cutout.
-    if color.a < 0.5 && (in.layer & 0x8000u) == 0u { discard; }
+    if color.a < 0.5 && (in.layer & 0x80000000u) == 0u { discard; }
     if horizon_surface.w == 0.0 {
         set_surface(horizon_material_face_normal, 0.0, 0.0);
     }
@@ -274,7 +274,7 @@ fn horizon_material_displace(pos: vec3<f32>, uv: vec2<f32>, layer: u32, color: v
     let high = flags >> 4u;
     let fluid = high >= 8u && (high & 7u) < 6u;
     let lit = min(vec2(f32(light.y), f32(light.x)) / 240.0, vec2(1.0));
-    return vertex(VertexInput(pos, uv, horizon_sprite_material(layer & 0x7fffu), lit,
+    return vertex(VertexInput(pos, uv, horizon_sprite_material(layer & 0x7fffffffu), lit,
         vec4(color.rgb, 1.0), select(0u, high & 7u, fluid), u32(fluid)));
 }
 ";

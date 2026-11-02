@@ -69,12 +69,15 @@ pub struct TerrainVertex {
     /// UV within the sprite, `UV_STEPS` per unit (`TerrainVertex::new`,
     /// `terrain.wgsl`'s `terrain_uv`).
     pub(crate) uv: [u16; 2],
-    /// Sprite array layer, with `OPAQUE_LAYER` for opaque leaves and quads over opaque texels.
-    pub layer: u16,
-    /// Smooth light, 16x fixed point: sky in the low byte, block in the high one.
-    pub light: u16,
+    /// Sprite array layer, with `OPAQUE_LAYER` for opaque leaves and quads over opaque texels. 32
+    /// bits: ATM10's block textures (33,000 after duplicates) are past the 32,767 a u16 beside the
+    /// flag indexed.
+    pub layer: u32,
     /// RGBA8: tint multiplied by directional shade and ambient occlusion.
     pub color: u32,
+    /// Smooth light, 16x fixed point: sky in the low byte, block in the high one.
+    pub light: u16,
+    pub(crate) pad: u16,
 }
 /// `v.round().clamp(0.0, 65535.0) as u16`, without the `roundf` call x86-64's
 /// baseline instruction set makes of `f32::round`: clamped first (the same
@@ -91,24 +94,26 @@ pub const UV_STEPS: f32 = 32768.0;
 /// which span `[0, 2048)`: merged faces repeat their sprite once per block.
 pub const TILED_UV_STEPS: f32 = 32.0;
 impl TerrainVertex {
-    pub fn new(pos: [f32; 3], uv: [f32; 2], layer: u16, color: u32, light: u16) -> Self {
+    pub fn new(pos: [f32; 3], uv: [f32; 2], layer: u32, color: u32, light: u16) -> Self {
         Self {
             pos,
             uv: uv.map(|v| round_to_u16(v * UV_STEPS)),
             layer,
-            light,
             color,
+            light,
+            pad: 0,
         }
     }
     /// A vertex of a merged distant-terrain face, its UV in blocks from the
     /// face's corner. Drawn with an instance UV scale of `1 / TILED_UV_STEPS`.
-    pub fn tiled(pos: [f32; 3], uv: [f32; 2], layer: u16, color: u32, light: u16) -> Self {
+    pub fn tiled(pos: [f32; 3], uv: [f32; 2], layer: u32, color: u32, light: u16) -> Self {
         Self {
             pos,
             uv: uv.map(|v| round_to_u16(v * TILED_UV_STEPS)),
             layer,
-            light,
             color,
+            light,
+            pad: 0,
         }
     }
     /// The UV the GPU samples.
@@ -277,7 +282,7 @@ pub struct SectionMesh {
     pub lights: Vec<([i32; 3], u32)>,
     /// Sprite layers emitted while building this mesh. Kept distinct before
     /// upload so the renderer does not rescan every terrain vertex.
-    pub sprite_layers: Vec<u16>,
+    pub sprite_layers: Vec<u32>,
     /// Axis-aligned bounding box [min, max] of actual terrain mesh vertices in section-local space [0, 16].
     pub bounds: Option<[glam::Vec3; 2]>,
     /// A far mesh was clipped around finer tiles or resident chunks. Keep
@@ -302,7 +307,7 @@ impl Default for SectionMesh {
 impl SectionMesh {
     /// Record a sprite layer used by a quad. Opaque is a vertex-only flag and
     /// is removed here so the renderer can compare the actual atlas layer.
-    pub fn note_sprite_layer(&mut self, layer: u16) {
+    pub fn note_sprite_layer(&mut self, layer: u32) {
         let layer = layer & !crate::mesher::OPAQUE_LAYER;
         if !self.sprite_layers.contains(&layer) {
             self.sprite_layers.push(layer);
@@ -335,7 +340,7 @@ impl SectionMesh {
             + self.translucent.capacity() * std::mem::size_of::<TerrainVertex>()
             + self.block_entities.capacity() * std::mem::size_of::<([i32; 3], u32)>()
             + self.lights.capacity() * std::mem::size_of::<([i32; 3], u32)>()
-            + self.sprite_layers.capacity() * std::mem::size_of::<u16>()
+            + self.sprite_layers.capacity() * std::mem::size_of::<u32>()
     }
     /// Sorts the solid quads by the side they face, for the renderer to
     /// leave out those facing away from the eye (`sides`).
@@ -567,11 +572,11 @@ pub struct MeshTables {
     /// full block (`Info::face` 1): a face looking at it never shows.
     full_faces: Vec<u8>,
     pub visibility: FaceVisibility,
-    water_still: u16,
-    water_flow: u16,
-    water_overlay: u16,
-    lava_still: u16,
-    lava_flow: u16,
+    water_still: u32,
+    water_flow: u32,
+    water_overlay: u32,
+    lava_still: u32,
+    lava_flow: u32,
     animated_layers: Vec<bool>,
 }
 fn stem_color(age: u8) -> u32 {
@@ -593,18 +598,16 @@ impl MeshTables {
         facts: &BlockFacts,
         visibility: FaceVisibility,
     ) -> crate::Result<Self> {
-        // Terrain vertices keep the sprite layer below `OPAQUE_LAYER`.
+        // Connected textures' tables and the mesher's tiles keep a sprite layer in 16 bits.
         let layers = render.sprite_layers.values().max().map_or(0, |l| l + 1);
-        if layers > u32::from(OPAQUE_LAYER) {
-            return Err(
-                format!("{layers} block sprites, terrain vertices index {OPAQUE_LAYER}").into(),
-            );
+        if layers > u32::from(u16::MAX) + 1 {
+            return Err(format!("{layers} block sprites, terrain tiles index 65,536").into());
         }
-        let layer = |name: &str| -> crate::Result<u16> {
+        let layer = |name: &str| -> crate::Result<u32> {
             render
                 .sprite_layers
                 .get(name)
-                .map(|&l| l as u16)
+                .copied()
                 .ok_or_else(|| format!("missing fluid sprite {name}").into())
         };
         let max_animated = render.animations.iter().map(|a| a.layer).max().unwrap_or(0);
@@ -750,7 +753,7 @@ impl MeshTables {
         })
     }
     /// Whether a terrain sprite layer has an animated clip.
-    pub fn is_animated(&self, layer: u16) -> bool {
+    pub fn is_animated(&self, layer: u32) -> bool {
         self.animated_layers
             .get(layer as usize)
             .copied()
@@ -1044,7 +1047,7 @@ mod reuse_tests;
 #[cfg(test)]
 mod tint_tests;
 /// Set on a terrain vertex's sprite layer when its texture alpha must be ignored.
-pub const OPAQUE_LAYER: u16 = 1 << 15;
+pub const OPAQUE_LAYER: u32 = 1 << 31;
 /// The bits of `TerrainVertex::color`'s alpha byte that hold how brightly its face shines
 /// in HDR output (`gfx/hdr.rs`): 15 minus the tier, plus 4 for one that shines all over
 /// (`WHOLE`), so the usual 0xFF means none. The byte's high nibble carries the fluid face
@@ -1826,8 +1829,8 @@ impl Mesher<'_> {
         else {
             return;
         };
-        if self.tables.is_animated(layer) {
-            out.note_sprite_layer(layer);
+        if self.tables.is_animated(u32::from(layer)) {
+            out.note_sprite_layer(u32::from(layer));
         }
         let translucent = if by_sprite {
             self.translucent(tile)
@@ -1837,9 +1840,9 @@ impl Mesher<'_> {
         // Quads over opaque texels draw in the solid layer: no alpha cutout (a dirt path's side
         // skips its clear top row). All four vertices share the layer.
         let layer = if opaque && !translucent || solid_leaves {
-            layer | OPAQUE_LAYER
+            u32::from(layer) | OPAQUE_LAYER
         } else {
-            layer
+            u32::from(layer)
         };
         let target = if translucent {
             &mut out.translucent

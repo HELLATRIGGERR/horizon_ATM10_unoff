@@ -101,7 +101,7 @@ pub fn menu_types(mods: &[ContentMod]) -> Vec<&MenuType> {
 
 /// JSON with its object keys in file order, so a rewritten table differs
 /// from the original only by what was added.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum J {
     Null,
     Bool(bool),
@@ -2765,8 +2765,12 @@ fn merge_tag(text: Option<&str>, more: &[J], what: &str) -> Result<String> {
     let Some(J::Arr(values)) = doc.get_mut("values") else {
         return Err(format!("{what}: no values").into());
     };
+    // A set, not `values.contains`: ATM10's big tags (`minecraft:mineable/pickaxe`, `c:...`) hold
+    // thousands of entries from hundreds of mods, and the scan made the merge quadratic (about 40 s of
+    // the content root's build).
+    let mut seen: std::collections::HashSet<J> = values.iter().cloned().collect();
     for v in more {
-        if !values.contains(v) {
+        if seen.insert(v.clone()) {
             values.push(v.clone());
         }
     }

@@ -52,15 +52,7 @@ pub fn read(dir: &Path) -> io::Result<Arc<Folder>> {
     }
     let files = match prepared(dir) {
         Some(files) => files,
-        None => list(dir)?
-            .into_iter()
-            .map(|(name, path)| {
-                let bytes = fs::read(&path)
-                    .map(Vec::into_boxed_slice)
-                    .map_err(|e| (e.kind(), e.to_string()));
-                File { name, path, bytes }
-            })
-            .collect(),
+        None => read_all(list(dir)?),
     };
     let folder = Arc::new(Folder { files });
     let mut open = OPEN.lock().unwrap_or_else(|e| e.into_inner());
@@ -71,6 +63,40 @@ pub fn read(dir: &Path) -> io::Result<Arc<Folder>> {
     open.retain(|(_, f)| f.strong_count() > 0);
     open.push((dir.to_owned(), Arc::downgrade(&folder)));
     Ok(folder)
+}
+
+/// The listed files' bytes, in their order. A large folder is read on several threads: a
+/// modpack's folders hold tens of thousands of small files, and each open waits on the disk and
+/// the virus scanner.
+fn read_all(listed: Vec<(String, PathBuf)>) -> Vec<File> {
+    fn read_one((name, path): (String, PathBuf)) -> File {
+        let bytes = fs::read(&path)
+            .map(Vec::into_boxed_slice)
+            .map_err(|e| (e.kind(), e.to_string()));
+        File { name, path, bytes }
+    }
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get().min(8));
+    if listed.len() < 256 || threads < 2 {
+        return listed.into_iter().map(read_one).collect();
+    }
+    let chunk = listed.len().div_ceil(threads);
+    let mut parts: Vec<Vec<(String, PathBuf)>> = Vec::with_capacity(threads);
+    let mut rest = listed;
+    while !rest.is_empty() {
+        let tail = rest.split_off(chunk.min(rest.len()));
+        parts.push(rest);
+        rest = tail;
+    }
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = parts
+            .into_iter()
+            .map(|part| scope.spawn(move || part.into_iter().map(read_one).collect::<Vec<_>>()))
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
+            .collect()
+    })
 }
 
 /// `dir`'s `.json` files from its prepared root's `horizon-data.bin`, when
@@ -116,7 +142,13 @@ pub fn list(dir: &Path) -> io::Result<Vec<(String, PathBuf)>> {
                 }
             };
             let path = entry.path();
-            if path.is_dir() {
+            // The listing's own type: a metadata call for every file costs as much as opening
+            // it. A link (a content root's) is followed.
+            let is_dir = match entry.file_type() {
+                Ok(kind) if !kind.is_symlink() => kind.is_dir(),
+                _ => path.is_dir(),
+            };
+            if is_dir {
                 match fs::read_dir(&path) {
                     Ok(list) => stack.push(list),
                     Err(e) => log::warn!("Horizon: failed to list {}: {e}", path.display()),

@@ -29,7 +29,7 @@ enum Tint {
 }
 #[derive(Clone, Copy)]
 struct Style {
-    layer: u16,
+    layer: u32,
     tint: Tint,
     translucent: bool,
 }
@@ -41,7 +41,7 @@ struct Styles {
 }
 #[derive(Clone, Copy)]
 struct Paint {
-    layer: u16,
+    layer: u32,
     light: u16,
     color: u32,
     translucent: bool,
@@ -112,7 +112,7 @@ impl Mesher {
                         .get(sprite)
                         .or_else(|| render.sprite_layers.get(&format!("minecraft:{sprite}")))
                         .copied()
-                        .unwrap_or(0) as u16;
+                        .unwrap_or(0);
                     return Styles {
                         faces: [
                             Some(Style {
@@ -162,7 +162,7 @@ impl Mesher {
                     *slot = Some(Style {
                         // As the mesher marks them: opaque leaves and faces over opaque
                         // texels skip the cutout and draw in the opaque pass.
-                        layer: face.layer as u16
+                        layer: face.layer
                             | if leaves || face.opaque {
                                 OPAQUE_LAYER
                             } else {
@@ -249,7 +249,7 @@ struct FaceKey {
     direction: Direction,
     plane: u32,
     overlay: u8,
-    layer: u16,
+    layer: u32,
     light: u16,
     color: u32,
     translucent: bool,
@@ -1159,7 +1159,7 @@ mod tests {
         Material {
             faces: [
                 Some(Paint {
-                    layer: span.state.0 as u16,
+                    layer: span.state.0 as u32,
                     light: span.light,
                     color: u32::MAX,
                     translucent: water,

@@ -260,7 +260,7 @@ impl SpriteAnimator {
     }
 
     /// Whether the sprite layer has an animation.
-    pub fn is_animated(&self, layer: u16) -> bool {
+    pub fn is_animated(&self, layer: u32) -> bool {
         self.is_animated
             .get(layer as usize)
             .copied()

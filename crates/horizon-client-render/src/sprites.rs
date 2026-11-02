@@ -87,10 +87,15 @@ pub struct Sprites {
     pub normals: Vec<u8>,
     pub specular: Vec<u8>,
     pub pbr_size: u32,
-    /// Still textures by their pixels, their LabPBR maps and mip settings: mods copy vanilla's
-    /// textures under their own names, and one layer serves them all (the GPU's array may
-    /// hold as few as 2048).
+    /// Textures by their pixels (every frame), their animation, LabPBR maps and mip settings:
+    /// mods copy vanilla's textures under their own names, and one layer serves them all (the
+    /// GPU's array may hold as few as 2048, and terrain vertices index 32,767).
     still: std::collections::HashMap<(Vec<u8>, u64, u32, [u32; 2], [bool; 4]), u32>,
+    /// The missing texture's layer, which every texture that does not load shares, and how many
+    /// names have it: ATM10's models name about a thousand textures their mods don't ship, and
+    /// a layer each took terrain vertices past the 32,767 layers they can index.
+    missing: Option<u32>,
+    pub missing_names: usize,
     /// Decoded textures kept on disk between launches ([`Sprites::with_disk_cache`]).
     disk: Option<crate::sprite_cache::SpriteCache>,
     /// Textures [`Sprites::prefetch`] decoded ahead of their insert, by sprite name or
@@ -113,6 +118,11 @@ pub fn set_texture_budget(mib: u32) {
         mib => u64::from(mib) << 20,
     };
     TEXTURE_BUDGET.store(bytes, std::sync::atomic::Ordering::Relaxed);
+}
+/// The texture budget in bytes resource loads keep to (`set_texture_budget`): the block sprites',
+/// and the GUI atlas's for content mods' optional textures (hud.rs).
+pub fn texture_budget() -> u64 {
+    TEXTURE_BUDGET.load(std::sync::atomic::Ordering::Relaxed)
 }
 /// Whether resource loads read the resource packs' LabPBR maps (`set_labpbr_maps`).
 static LABPBR_MAPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -248,8 +258,10 @@ impl Sprites {
         let size = side_within(largest, layers, budget);
         if pixels {
             log::info!(
-                "Horizon: block sprites: {layers} layers at {size} px (largest {largest} px, budget {} MiB)",
-                budget >> 20
+                "Horizon: block sprites: {layers} layers at {size} px (largest {largest} px, budget {} MiB); \
+                 {} names with the missing texture",
+                budget >> 20,
+                self.missing_names
             );
         }
         if !pixels {
@@ -319,6 +331,11 @@ impl Sprites {
                 if name != "minecraft:missingno" {
                     log::warn!("Horizon: using the missing texture for {name}: {e}");
                 }
+                self.missing_names += 1;
+                if let Some(layer) = self.missing {
+                    self.layers.insert(name.to_owned(), layer);
+                    return Ok(layer);
+                }
                 // MissingTextureAtlasSprite.generateMissingImage: 16x16,
                 // magenta and black quarters.
                 let frame: Vec<u8> = (0..SPRITE_SIZE * SPRITE_SIZE)
@@ -338,6 +355,7 @@ impl Sprites {
                 self.mips.push(crate::mipmap::Settings::default());
                 self.layers.insert(name.to_owned(), layer);
                 self.native.push((SPRITE_SIZE, Arc::new(vec![frame]), 0));
+                self.missing = Some(layer);
                 Ok(layer)
             }
         }
@@ -645,12 +663,15 @@ impl Sprites {
                     .is_some_and(|(_, p)| p.starts_with("item/")),
             dither_cutouts: crate::mipmap::dither_cutouts(),
         };
-        let still = (animation.is_none() && frames.len() == 1).then(|| {
+        // Animated ones too, by every frame and their `.mcmeta`: mods ship vanilla's water, lava
+        // and fire strips under their own names.
+        let same = {
             use std::hash::{Hash, Hasher};
             let mut maps = std::collections::hash_map::DefaultHasher::new();
             pbr.hash(&mut maps);
+            animation_text.hash(&mut maps);
             (
-                frames[0].clone(),
+                frames.concat(),
                 maps.finish(),
                 side,
                 [
@@ -659,14 +680,12 @@ impl Sprites {
                 ],
                 [settings.has_transparent, settings.item, opaque, translucent],
             )
-        });
-        if let Some(&same) = still.as_ref().and_then(|k| self.still.get(k)) {
+        };
+        if let Some(&same) = self.still.get(&same) {
             self.layers.insert(name.to_owned(), same);
             return Ok(same);
         }
-        if let Some(key) = still {
-            self.still.insert(key, layer);
-        }
+        self.still.insert(same, layer);
         let frames = Arc::new(frames);
         let mut initial = 0;
         if let Some(clip) = animation
@@ -831,6 +850,16 @@ mod tests {
         assert_eq!(sprites.normals[16 * 16 * 4..][..4], FLAT_NORMAL);
         assert_eq!(sprites.specular[..4], NO_SPECULAR);
         assert_eq!(sprites.specular.len(), 2 * 16 * 16 * 4);
+    }
+    #[test]
+    fn textures_that_do_not_load_share_the_missing_layer() {
+        let root = std::env::temp_dir().join(format!("horizon-missing-sprites-{}", std::process::id()));
+        let mut sprites = Sprites::default();
+        let a = sprites.insert(&root, "m:block/gone").unwrap();
+        let b = sprites.insert(&root, "other:block/gone_too").unwrap();
+        assert_eq!(a, b);
+        assert_eq!((sprites.count(), sprites.missing_names), (1, 2));
+        assert_eq!(sprites.layers["other:block/gone_too"], a);
     }
     #[test]
     fn textures_without_labpbr_maps_keep_none() {

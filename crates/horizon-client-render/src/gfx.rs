@@ -28,7 +28,7 @@ const CRUMBLING_BLEND: wgpu::BlendState = wgpu::BlendState {
 };
 /// `TerrainVertex` for `vs_terrain`: position, UV, layer, light, colour.
 const TERRAIN_ATTRIBUTES: [wgpu::VertexAttribute; 5] =
-    wgpu::vertex_attr_array![0=>Float32x3,1=>Uint16x2,2=>Uint16,4=>Uint8x2,3=>Unorm8x4];
+    wgpu::vertex_attr_array![0=>Float32x3,1=>Uint16x2,2=>Uint32,3=>Unorm8x4,4=>Uint8x2];
 
 /// entity.wgsl after the OverlayTexture constants it reads.
 fn entity_shader() -> String {
@@ -393,14 +393,14 @@ struct SectionGpu {
     /// stays behind it (`Renderer::leave_section`); released once it has.
     leaving: Option<std::time::Instant>,
     /// Animated sprite layers present in this section.
-    animated_layers: Box<[u16]>,
+    animated_layers: Box<[u32]>,
 }
 /// Extracts the animated sprite layers present in a section mesh. Meshing
 /// records the distinct layers, so uploading does not rescan every vertex.
 pub(crate) fn collect_animated_layers(
     mesh: &SectionMesh,
-    is_animated: impl Fn(u16) -> bool,
-) -> Box<[u16]> {
+    is_animated: impl Fn(u32) -> bool,
+) -> Box<[u32]> {
     mesh.sprite_layers
         .iter()
         .copied()
@@ -10287,11 +10287,11 @@ mod tests {
                 (0, offset_of!(TerrainVertex, pos)),
                 (1, offset_of!(TerrainVertex, uv)),
                 (2, offset_of!(TerrainVertex, layer)),
-                (4, offset_of!(TerrainVertex, light)),
                 (3, offset_of!(TerrainVertex, color)),
+                (4, offset_of!(TerrainVertex, light)),
             ]
         );
-        assert_eq!(std::mem::size_of::<TerrainVertex>(), 24);
+        assert_eq!(std::mem::size_of::<TerrainVertex>(), 28);
     }
     #[test]
     fn cracks_multiply_instead_of_covering_the_block() {

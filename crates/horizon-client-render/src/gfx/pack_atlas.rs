@@ -116,23 +116,23 @@ impl PackAtlas {
     }
 }
 
-/// A `TerrainVertex` of flat draws' arena page (`hz_vertices`, six words each) into the vertex
-/// inputs, for vertex `hz_vertex_index`.
-pub const PULL: &str = "        uint hz_pw = hz_vertex_index * 6u;\n        \
+/// A `TerrainVertex` of flat draws' arena page (`hz_vertices`, seven words each: position, UV,
+/// layer, colour, light) into the vertex inputs, for vertex `hz_vertex_index`.
+pub const PULL: &str = "        uint hz_pw = hz_vertex_index * 7u;\n        \
     hz_v_pos = uintBitsToFloat(uvec3(hz_vertices[hz_pw], hz_vertices[hz_pw + 1u], hz_vertices[hz_pw + 2u]));\n        \
     hz_v_uv = uvec2(hz_vertices[hz_pw + 3u] & 65535u, hz_vertices[hz_pw + 3u] >> 16u);\n        \
-    hz_v_layer = hz_vertices[hz_pw + 4u] & 65535u;\n        \
-    uint hz_pl = hz_vertices[hz_pw + 4u] >> 16u;\n        \
-    hz_v_light = uvec2(hz_pl & 255u, hz_pl >> 8u);\n        \
-    hz_v_color = unpackUnorm4x8(hz_vertices[hz_pw + 5u]);\n";
+    hz_v_layer = hz_vertices[hz_pw + 4u];\n        \
+    hz_v_color = unpackUnorm4x8(hz_vertices[hz_pw + 5u]);\n        \
+    uint hz_pl = hz_vertices[hz_pw + 6u] & 65535u;\n        \
+    hz_v_light = uvec2(hz_pl & 255u, hz_pl >> 8u);\n";
 
 /// GLSL: the face normal and tangent of a flat-drawn vertex, from its quad's first three corners
-/// (quads are four consecutive vertices of the page; position words 0-2, UV word 3).
-const FACE: &str = "    uint hz_q = (uint(gl_VertexIndex) & ~3u) * 6u;\n    \
+/// (quads are four consecutive vertices of the page, seven words each; position words 0-2, UV word 3).
+const FACE: &str = "    uint hz_q = (uint(gl_VertexIndex) & ~3u) * 7u;\n    \
     vec3 hz_p0 = uintBitsToFloat(uvec3(hz_vertices[hz_q], hz_vertices[hz_q + 1u], hz_vertices[hz_q + 2u]));\n    \
-    vec3 hz_p1 = uintBitsToFloat(uvec3(hz_vertices[hz_q + 6u], hz_vertices[hz_q + 7u], hz_vertices[hz_q + 8u]));\n    \
-    vec3 hz_p2 = uintBitsToFloat(uvec3(hz_vertices[hz_q + 12u], hz_vertices[hz_q + 13u], hz_vertices[hz_q + 14u]));\n    \
-    uvec3 hz_w = uvec3(hz_vertices[hz_q + 3u], hz_vertices[hz_q + 9u], hz_vertices[hz_q + 15u]);\n    \
+    vec3 hz_p1 = uintBitsToFloat(uvec3(hz_vertices[hz_q + 7u], hz_vertices[hz_q + 8u], hz_vertices[hz_q + 9u]));\n    \
+    vec3 hz_p2 = uintBitsToFloat(uvec3(hz_vertices[hz_q + 14u], hz_vertices[hz_q + 15u], hz_vertices[hz_q + 16u]));\n    \
+    uvec3 hz_w = uvec3(hz_vertices[hz_q + 3u], hz_vertices[hz_q + 10u], hz_vertices[hz_q + 17u]);\n    \
     vec2 hz_t0 = vec2(hz_w.x & 65535u, hz_w.x >> 16u);\n    \
     vec2 hz_d1 = vec2(hz_w.y & 65535u, hz_w.y >> 16u) - hz_t0;\n    \
     vec2 hz_d2 = vec2(hz_w.z & 65535u, hz_w.z >> 16u) - hz_t0;\n    \
@@ -165,7 +165,7 @@ impl PackAtlas {
                  layout(set = 1, binding = 1) readonly buffer HzSlotOrigins { vec4 hz_slot_origins[]; };\n",
             );
             // `mc_Entity` of each sprite layer: id, then 1 for fluids or -1 (the game's table),
-            // and the arena page's vertices (`TerrainVertex`, six words each).
+            // and the arena page's vertices (`TerrainVertex`, seven words each).
             declarations.push_str(
                 "layout(set = 3, binding = 0) readonly buffer HzBlockIds { int hz_block_ids[]; };\n\
                  layout(set = 3, binding = 1) readonly buffer HzVertices { uint hz_vertices[]; };\n",
@@ -190,7 +190,7 @@ impl PackAtlas {
         };
         let body = format!(
             "    vec4 hz_origin = {origin};\n    \
-             uint hz_layer = hz_v_layer & 32767u;\n    \
+             uint hz_layer = hz_v_layer & 2147483647u;\n    \
              hz_cell = vec2(float(hz_layer % {columns}u), float(hz_layer / {columns}u));\n    \
              hz_scale = vec2({:?}, {:?});\n    \
              hz_Vertex = vec4(hz_v_pos + hz_origin.xyz, 1.0);\n    \

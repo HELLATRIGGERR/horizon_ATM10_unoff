@@ -79,7 +79,29 @@ fn merge_mod_damage(
             if !exhaustion.is_finite() {
                 return Err("invalid damage exhaustion".into());
             }
-            types.push(serde_json::json!({"id":id,"message_id":source["message_id"].as_str().ok_or("missing damage message_id")?,"exhaustion":format!("{:08x}",exhaustion.to_bits()),"scaling":source["scaling"].as_str().ok_or("missing damage scaling")?,"effects":source["effects"].as_str().unwrap_or("hurt"),"death_message_type":source["death_message_type"].as_str().unwrap_or("default")}));
+            // NeoForge lets mods add effects and death message types (Productive Metalworks'
+            // `productivemetalworks:foundry`), drawn by their own code: here they hurt and read
+            // as vanilla's defaults, rather than the whole catalog failing and the game with it.
+            let known_or = |key: &str, vanilla: &[&str], default: &'static str| {
+                let value = source[key].as_str().unwrap_or(default);
+                if vanilla.contains(&value) {
+                    value.to_owned()
+                } else {
+                    log::warn!("Horizon: damage type {id}: {key} {value:?} is a mod's own; {default} instead");
+                    default.to_owned()
+                }
+            };
+            let effects = known_or(
+                "effects",
+                &["hurt", "thorns", "drowning", "burning", "poking", "freezing"],
+                "hurt",
+            );
+            let death = known_or(
+                "death_message_type",
+                &["default", "fall_variants", "intentional_game_design"],
+                "default",
+            );
+            types.push(serde_json::json!({"id":id,"message_id":source["message_id"].as_str().ok_or("missing damage message_id")?,"exhaustion":format!("{:08x}",exhaustion.to_bits()),"scaling":source["scaling"].as_str().ok_or("missing damage scaling")?,"effects":effects,"death_message_type":death}));
         }
     }
     let resources = tags.as_object_mut().ok_or("invalid damage tag resources")?;
@@ -116,6 +138,42 @@ fn merge_mod_damage(
                     serde_json::json!({"replace":false,"values":values}).to_string(),
                 ),
             );
+        }
+    }
+    // Mods name damage types and tags of mods that aren't here (an addon's, a mod not carried).
+    // Java fails such a tag whole; here the references go, said once each, and the tag keeps the
+    // rest, rather than the catalog failing and the game with it.
+    let tag_ids: std::collections::BTreeSet<String> = resources.keys().cloned().collect();
+    for (id, text) in resources.iter_mut() {
+        let Some(mut tag) = text
+            .as_str()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
+        else {
+            continue;
+        };
+        let Some(values) = tag["values"].as_array_mut() else {
+            continue;
+        };
+        let before = values.len();
+        values.retain(|v| {
+            let (name, required) = match v {
+                serde_json::Value::Object(o) => (
+                    o.get("id").and_then(|i| i.as_str()).unwrap_or_default(),
+                    o.get("required").and_then(|r| r.as_bool()).unwrap_or(true),
+                ),
+                other => (other.as_str().unwrap_or_default(), true),
+            };
+            let found = match name.strip_prefix('#') {
+                Some(tag) => tag_ids.contains(tag),
+                None => known.contains(name),
+            };
+            if !found && required {
+                log::warn!("Horizon: damage type tag {id}: {name} is not here; left out");
+            }
+            found
+        });
+        if values.len() != before {
+            *text = serde_json::Value::String(tag.to_string());
         }
     }
     Ok(())
@@ -1053,9 +1111,12 @@ mod tests {
         std::fs::create_dir_all(root.join("data/minecraft/tags/damage_type")).unwrap();
         std::fs::write(root.join("horizon-mod-content.json"), r#"["ae2"]"#).unwrap();
         std::fs::write(root.join("data/ae2/damage_type/matter_cannon.json"),r#"{"exhaustion":0.1,"message_id":"matter_cannon","scaling":"when_caused_by_living_non_player"}"#).unwrap();
+        // NeoForge's extensible enums: a mod's own death message type and effects.
+        std::fs::write(root.join("data/ae2/damage_type/foundry.json"),r#"{"exhaustion":0.1,"message_id":"foundry","scaling":"never","effects":"ae2:melting","death_message_type":"ae2:foundry"}"#).unwrap();
         std::fs::write(
             root.join("data/minecraft/tags/damage_type/test.json"),
-            r#"{"values":["ae2:matter_cannon"]}"#,
+            // A mod not here, and a tag nobody has: left out, not the whole catalog.
+            r##"{"values":["ae2:matter_cannon","powah:zap",{"id":"#c:none","required":false}]}"##,
         )
         .unwrap();
         let mut catalog = serde_json::json!({"data_version":horizon_world::DATA_VERSION,"types":[{"id":"minecraft:generic","message_id":"generic","exhaustion":"00000000","scaling":"never","effects":"hurt","death_message_type":"default"}]});
@@ -1072,6 +1133,8 @@ mod tests {
             horizon_world::damage_source::Scaling::LivingNonPlayer
         );
         assert!(c.in_tag(vanilla, "minecraft:test") && c.in_tag(ae2, "minecraft:test"));
+        let foundry = c.definition(c.id("ae2:foundry").unwrap()).unwrap();
+        assert_eq!((foundry.effects.as_str(), foundry.death_message_type.as_str()), ("hurt", "default"));
         let _ = std::fs::remove_dir_all(root);
     }
     #[test]

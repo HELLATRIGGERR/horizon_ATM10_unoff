@@ -185,8 +185,8 @@ fn real_packs_read() {
                         ),
                         ..terrain
                     },
-                    pull: "        hz_v_pos = uintBitsToFloat(uvec3(hz_vertices[hz_vertex_index * 6u], \
-                           hz_vertices[hz_vertex_index * 6u + 1u], hz_vertices[hz_vertex_index * 6u + 2u]));\n"
+                    pull: "        hz_v_pos = uintBitsToFloat(uvec3(hz_vertices[hz_vertex_index * 7u], \
+                           hz_vertices[hz_vertex_index * 7u + 1u], hz_vertices[hz_vertex_index * 7u + 2u]));\n"
                         .into(),
                     index: "uint(@)".into(),
                 }),

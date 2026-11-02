@@ -323,7 +323,7 @@ fn fade_code(w: f32) -> u32 {
 // all the terrain it drew. A quad the pass leaves out is decided before any of the
 // vertex's work and lies outside the clip volume: it makes no pixel.
 fn opaque_quad(layer: u32, w: f32) -> bool {
-    return (layer & 0x8000u) != 0u && fade_code(w) == 0u;
+    return (layer & 0x80000000u) != 0u && fade_code(w) == 0u;
 }
 fn left_out() -> TerrainOut {
     var out: TerrainOut;
@@ -392,7 +392,7 @@ fn terrain_vertex(position: vec3<f32>, uv: vec2<f32>, layer: u32, color: vec4<f3
     out.layer = layer;
     out.emissive_layer = 0xffffffffu;
     // The pairs are sorted by base layer: stop at the first past this one.
-    let sprite_layer = layer & 0x7fffu;
+    let sprite_layer = layer & 0x7fffffffu;
     for (var i = 0u; i < min(globals.emissive_count.x, 128u); i++) {
         let pair = globals.emissive_layers[i];
         if pair.x == sprite_layer {
@@ -449,7 +449,7 @@ fn hdr_mark(tier: u32, y: f32) -> f32 {
 // `fs_solid` for the opaque pass (`opaque_quad`): no fade, no cutout, no discard.
 @fragment fn fs_opaque(in: TerrainOut) -> @location(0) vec4<f32> {
     hdr_normal = normalize(cross(dpdy(in.local), dpdx(in.local)));
-    let texel = sprite(in.uv, in.layer & 0x7fffu);
+    let texel = sprite(in.uv, in.layer & 0x7fffffffu);
     var color = texel * in.color;
     color = mix(globals.fog_color * vec4(1.0, 1.0, 1.0, color.a), color, in.visibility);
     return solid_finish(in, texel, color);
@@ -466,11 +466,11 @@ fn solid_color(in: TerrainOut) -> vec4<f32> {
     hdr_normal = normalize(cross(dy, dx));
     if faded(in.fade, in.local, dx, dy) { discard; }
     // Bit 15 of the layer marks opaque leaves (forceOpaque): no alpha cutout.
-    let texel = sprite(in.uv, in.layer & 0x7fffu);
+    let texel = sprite(in.uv, in.layer & 0x7fffffffu);
     var color = texel * in.color;
     // terrain.fsh: the fade-in mixes toward the fog colour.
     color = mix(globals.fog_color * vec4(1.0, 1.0, 1.0, color.a), color, in.visibility);
-    if color.a < 0.5 && (in.layer & 0x8000u) == 0u { discard; }
+    if color.a < 0.5 && (in.layer & 0x80000000u) == 0u { discard; }
     return solid_finish(in, texel, color);
 }
 // The rest of a solid pixel's colour once it is kept: emission and fog.
@@ -491,7 +491,7 @@ fn solid_finish(in: TerrainOut, texel: vec4<f32>, color: vec4<f32>) -> vec4<f32>
         emissive = 1.0;
         let whole = in.emission > 4u;
         let tier = select(in.emission, in.emission - 4u, whole);
-        let l = in.layer & 0x7fffu;
+        let l = in.layer & 0x7fffffffu;
         let t = textureLoad(emission_thresholds, vec2(i32(l % SPRITE_SPLIT), i32(l / SPRITE_SPLIT)), 0);
         let y = brightness(texel.rgb);
         // All over means all over: the sprite's range is one frame's, and an animated sprite's
@@ -517,7 +517,7 @@ fn solid_finish(in: TerrainOut, texel: vec4<f32>, color: vec4<f32>) -> vec4<f32>
     let dx = dpdx(in.local);
     let dy = dpdy(in.local);
     hdr_normal = normalize(cross(dy, dx));
-    if sprite(in.uv, in.layer & 0x7fffu).a < 0.6 { discard; }
+    if sprite(in.uv, in.layer & 0x7fffffffu).a < 0.6 { discard; }
     let fogged = max(linear_fog(in.spherical, globals.fog.x, globals.fog.y),
         linear_fog(in.cylindrical, globals.fog.z, globals.fog.w)) * globals.fog_color.a;
     let scene = mix(hdr_scene(in.scene.x, in.scene.y, hdr_facing()), globals.hdr_light.y, fogged);
@@ -527,7 +527,7 @@ fn solid_finish(in: TerrainOut, texel: vec4<f32>, color: vec4<f32>) -> vec4<f32>
 // layer drawn first in front (gfx.rs's water tiers): dithered, the faded-out
 // pixels showed the layer behind through the one in front, twice the water.
 @fragment fn fs_translucent(in: TerrainOut) -> @location(0) vec4<f32> {
-    var color = sprite(in.uv, in.layer & 0x7fffu) * in.color;
+    var color = sprite(in.uv, in.layer & 0x7fffffffu) * in.color;
     color = mix(globals.fog_color * vec4(1.0, 1.0, 1.0, color.a), color, in.visibility);
     if color.a < 0.01 { discard; }
     return apply_fog(color, in.spherical, in.cylindrical);

@@ -2,6 +2,7 @@
 use super::{
     Behaviours, GameplayStateSource,
     classes::{Class, ClassSet, Interface},
+    place::Placement,
     states::{BlockId, PropKey, StateTable},
 };
 use crate::{
@@ -216,6 +217,12 @@ pub struct BlockData {
     pub sounds: Arc<Sounds>,
     pub item: Arc<str>,
     pub dynamic_shape: bool,
+    /// A content mod's block: the vanilla block it copies, which it stands
+    /// for where vanilla tests a block by identity (`Behaviours::behaves_as`).
+    pub template: Option<BlockId>,
+    /// A content mod's block: how a player's placement sets the properties
+    /// it declares, over its template's `getStateForPlacement`.
+    pub placement: Box<[(PropKey, Placement)]>,
 }
 impl BlockData {
     pub fn is(&self, class: Class) -> bool {
@@ -303,6 +310,8 @@ named_blocks! {
     sticky_piston = "sticky_piston",
     piston_head = "piston_head",
     moving_piston = "moving_piston",
+    powered_rail = "powered_rail",
+    activator_rail = "activator_rail",
     tnt = "tnt",
     magma_block = "magma_block",
     soul_sand = "soul_sand",
@@ -1031,6 +1040,17 @@ fn build_with_gameplay<G: GameplayStateSource>(
                 json["item"].as_str().unwrap_or("minecraft:air"),
             ),
             dynamic_shape: json["dynamic_shape"].as_bool().unwrap_or(false),
+            template: json["template"]
+                .as_str()
+                .and_then(|n| table.block_by_name(n)),
+            placement: json["placement"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(name, rule)| {
+                    Some((table.key_of(name)?, Placement::from_name(rule.as_str()?)?))
+                })
+                .collect(),
         });
     }
 

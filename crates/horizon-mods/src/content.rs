@@ -158,6 +158,75 @@ impl StateProperty {
     }
 }
 
+/// How a player's placement sets a block's own state property: the rule its
+/// Java `getStateForPlacement` follows. A block file names one per declared
+/// property in `placement`; a property without one follows [`Block::placement`].
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+    /// Toward the player: the opposite of their horizontal look
+    /// (`getHorizontalDirection().getOpposite()`, a furnace).
+    HorizontalLookOpposite,
+    /// The player's horizontal look (`getHorizontalDirection()`, a bed).
+    HorizontalLook,
+    /// Toward the player: the opposite of the nearest direction they look in
+    /// (`getNearestLookingDirection().getOpposite()`, a dispenser).
+    LookOpposite,
+    /// The nearest direction the player looks in (an observer).
+    Look,
+    /// The face clicked (`getClickedFace()`, an end rod).
+    ClickedFace,
+    /// The clicked face's axis (`getClickedFace().getAxis()`, a log).
+    ClickedAxis,
+    /// `true` in a water source (`getFluidState(pos).getType() == WATER`).
+    Water,
+    /// The declared default, wherever the player looks.
+    Default,
+}
+
+const HORIZONTAL: [&str; 4] = ["north", "south", "west", "east"];
+const DIRECTIONS: [&str; 6] = ["down", "up", "north", "south", "west", "east"];
+
+impl Placement {
+    /// Its name in a block file, and in the game's block behaviours.
+    pub fn name(self) -> &'static str {
+        match self {
+            Placement::HorizontalLookOpposite => "horizontal_look_opposite",
+            Placement::HorizontalLook => "horizontal_look",
+            Placement::LookOpposite => "look_opposite",
+            Placement::Look => "look",
+            Placement::ClickedFace => "clicked_face",
+            Placement::ClickedAxis => "clicked_axis",
+            Placement::Water => "water",
+            Placement::Default => "default",
+        }
+    }
+    /// The values it can set, which the property it is named for must have.
+    fn values(self) -> &'static [&'static str] {
+        match self {
+            Placement::HorizontalLookOpposite | Placement::HorizontalLook => &HORIZONTAL,
+            Placement::LookOpposite | Placement::Look | Placement::ClickedFace => &DIRECTIONS,
+            Placement::ClickedAxis => &["x", "y", "z"],
+            Placement::Water => &["false", "true"],
+            Placement::Default => &[],
+        }
+    }
+    /// What Java's blocks most often do with a property of this name and
+    /// exactly these values: `facing` and `direction` turn to the player,
+    /// `axis` follows the clicked face, `waterlogged` fills in water.
+    fn implied(name: &str, values: &[&str]) -> Option<Self> {
+        let exactly =
+            |set: &[&str]| values.len() == set.len() && set.iter().all(|v| values.contains(v));
+        Some(match name {
+            "facing" | "direction" if exactly(&HORIZONTAL) => Placement::HorizontalLookOpposite,
+            "facing" | "direction" if exactly(&DIRECTIONS) => Placement::LookOpposite,
+            "axis" if exactly(&["x", "y", "z"]) => Placement::ClickedAxis,
+            "waterlogged" if exactly(&["false", "true"]) => Placement::Water,
+            _ => return None,
+        })
+    }
+}
+
 /// A vanilla state property's name, and a value's: lower case, digits and
 /// underscores (`minecraft:oak_log` is `axis`, a repeater is `delay`).
 fn state_name(s: &str) -> bool {
@@ -188,6 +257,8 @@ struct BlockFile {
     state_properties: BTreeMap<String, StateProperty>,
     #[serde(default)]
     default_state: BTreeMap<String, String>,
+    #[serde(default)]
+    placement: BTreeMap<String, Placement>,
     #[serde(default)]
     connects_to: Option<String>,
     #[serde(default)]
@@ -222,6 +293,9 @@ pub struct Block {
     /// State properties overlaid on the template default, and the defaults
     /// of the ones it declares (`state_defaults` too).
     pub default_state: BTreeMap<String, String>,
+    /// The placement rules the file names for declared properties
+    /// ([`Block::placement`] has every declared property's).
+    pub placement: BTreeMap<String, Placement>,
     /// Also add a block item with the same id.
     pub item: bool,
     /// Its item's component patch, as an [`Item`]'s.
@@ -233,6 +307,23 @@ pub struct Block {
     /// A connecting block's width in pixels (2 to 14): its shapes, the
     /// chorus plant's (10) when unset.
     pub thickness: Option<f32>,
+}
+impl Block {
+    /// The rule each declared property follows when a player places the
+    /// block: the one its file names, else the one its name and values imply
+    /// ([`Placement`]). Properties left at their default are not listed.
+    pub fn placement(&self) -> BTreeMap<&str, Placement> {
+        self.state_properties
+            .iter()
+            .filter_map(|(name, property)| {
+                let rule = match self.placement.get(name) {
+                    Some(rule) => *rule,
+                    None => Placement::implied(name, &property.values())?,
+                };
+                (rule != Placement::Default).then_some((name.as_str(), rule))
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -588,6 +679,7 @@ impl Content {
                 shapes: file.shapes,
                 state_properties: file.state_properties,
                 default_state,
+                placement: file.placement,
                 item: file.item,
                 components: file.components,
                 connects_to: file
@@ -845,6 +937,20 @@ fn check_block(file: &BlockFile) -> Result<(), String> {
             ));
         }
     }
+    for (name, rule) in &file.placement {
+        let Some(property) = file.state_properties.get(name) else {
+            return Err(format!(
+                "placement {name:?} names no declared state property"
+            ));
+        };
+        let values = property.values();
+        if let Some(missing) = rule.values().iter().find(|v| !values.contains(v)) {
+            return Err(format!(
+                "placement {name:?}: {} sets {missing:?}, which the property lacks",
+                rule.name()
+            ));
+        }
+    }
     let p = &file.properties;
     if p.light_dampening.is_some_and(|v| v > 15) { return Err("light_dampening must be 0..15".into()); }
     if p.push_reaction.as_deref().is_some_and(|v| !matches!(v,"PUSH_PULL"|"PUSH"|"POPPED"|"IMMOVEABLE"|"IGNORE_ENTITY")) {
@@ -1004,6 +1110,7 @@ capabilities = ["registries"]
                 shapes: None,
                 state_properties: BTreeMap::new(),
                 default_state: BTreeMap::new(),
+                placement: BTreeMap::new(),
                 properties: BlockProperties {
                     hardness: Some(4.0),
                     light: Some(3),
@@ -1300,6 +1407,78 @@ capabilities = ["registries"]
             let e = block(&json).unwrap_err();
             assert!(e.contains("block tag"), "{tag}: {e}");
         }
+    }
+
+    /// Declared properties follow a placement rule: the one the file names,
+    /// else the one Java's blocks give their name and values; a rule that
+    /// sets a value the property lacks, or names no declared property, is
+    /// refused.
+    #[test]
+    fn declared_properties_follow_a_placement_rule() {
+        let block = |json: &str| {
+            let files: &[(&str, &[u8])] =
+                &[("data/ruby/horizon/block/machine.json", json.as_bytes())];
+            hmod("placement", MANIFEST_TEXT, files).map(|c| c.blocks[0].clone())
+        };
+        let machine = block(
+            r#"{"template": "minecraft:stone", "state_properties": {
+                "facing": ["north", "east", "south", "west"],
+                "direction": ["up", "down", "north", "south", "west", "east"],
+                "axis": ["x", "y", "z"], "waterlogged": {"type": "boolean"},
+                "lit": {"type": "boolean"}, "side": ["north", "east", "south", "west"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            machine.placement(),
+            BTreeMap::from([
+                ("axis", Placement::ClickedAxis),
+                ("direction", Placement::LookOpposite),
+                ("facing", Placement::HorizontalLookOpposite),
+                ("waterlogged", Placement::Water),
+            ])
+        );
+        // Named rules win, `default` takes a property out, and a horizontal
+        // facing with a fifth value implies nothing.
+        let named = block(
+            r#"{"template": "minecraft:stone", "state_properties": {
+                "facing": ["north", "east", "south", "west"],
+                "direction": ["north", "east", "south", "west"],
+                "side": ["north", "east", "south", "west", "up", "down"],
+                "level": ["north", "east", "south", "west", "none"]},
+                "placement": {"facing": "horizontal_look", "direction": "default", "side": "clicked_face"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            named.placement(),
+            BTreeMap::from([
+                ("facing", Placement::HorizontalLook),
+                ("side", Placement::ClickedFace),
+            ])
+        );
+        for (json, error) in [
+            (
+                r#""state_properties": {"facing": ["north", "east", "south", "west"]},
+                "placement": {"facing": "look"}"#,
+                "\"down\"",
+            ),
+            (
+                r#""state_properties": {"lit": {"type": "boolean"}}, "placement": {"lit": "clicked_axis"}"#,
+                "\"x\"",
+            ),
+            (
+                r#""placement": {"facing": "horizontal_look"}"#,
+                "no declared",
+            ),
+        ] {
+            let e = block(&format!(r#"{{"template": "minecraft:stone", {json}}}"#)).unwrap_err();
+            assert!(e.contains(error), "{json}: {e}");
+        }
+        let e = block(
+            r#"{"template": "minecraft:stone", "state_properties": {"facing": ["north", "south"]},
+            "placement": {"facing": "sideways"}}"#,
+        )
+        .unwrap_err();
+        assert!(e.contains("unknown variant"), "{e}");
     }
 
     /// A creative tab: a title, an icon and its items, all item ids.

@@ -2431,6 +2431,151 @@ fn connecting_blocks_join_themselves_and_their_tag() {
     fs::remove_dir_all(&scratch).unwrap();
 }
 
+/// A block's own `facing` or `direction` is set as the player places it, by
+/// the rule its file names or its name and values imply, over what its
+/// template sets; a declared `waterlogged` fills in water. A mod's rail in
+/// `#minecraft:rails` is a rail to a cart, and its copy of the powered or
+/// activator rail rides as that rail; one outside the tag is none.
+#[test]
+#[ignore = "full content root: CI and pr_ready run it"]
+fn declared_properties_place_and_mod_rails_ride() {
+    use horizon_core::{geometry::Vec3, position::BlockPos, random::LegacyRandom};
+    use horizon_world::level::{Behaviours, LevelAccess, PlaceContext, RailKind, Ticks};
+    use std::collections::HashMap;
+
+    let Some(_) = prepared() else {
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-place-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let horizontal = r#"["north", "east", "south", "west"]"#;
+    let all = r#"["down", "up", "north", "south", "west", "east"]"#;
+    let blocks = [
+        (
+            "cabinet",
+            format!(
+                r#"{{"template": "minecraft:stone", "state_properties": {{"direction": {horizontal}}}}}"#
+            ),
+        ),
+        (
+            "press",
+            format!(
+                r#"{{"template": "minecraft:stone", "state_properties": {{"facing": {all}, "waterlogged": {{"type": "boolean"}}}}}}"#
+            ),
+        ),
+        (
+            "bed",
+            format!(
+                r#"{{"template": "minecraft:stone", "state_properties": {{"facing": {horizontal}}}, "placement": {{"facing": "horizontal_look"}}}}"#
+            ),
+        ),
+        (
+            "fast_rail",
+            r#"{"template": "minecraft:powered_rail"}"#.into(),
+        ),
+        (
+            "trigger_rail",
+            r#"{"template": "minecraft:activator_rail"}"#.into(),
+        ),
+        ("track", r#"{"template": "minecraft:rail"}"#.into()),
+        ("loose_track", r#"{"template": "minecraft:rail"}"#.into()),
+    ];
+    let mut files: Vec<(String, String)> = blocks
+        .iter()
+        .map(|(name, json)| (format!("data/deco/horizon/block/{name}.json"), json.clone()))
+        .collect();
+    files.push(("horizon-mod.toml".into(), manifest("deco", "")));
+    files.push((
+        "data/minecraft/tags/block/rails.json".into(),
+        r#"{"values": ["deco:fast_rail", "deco:trigger_rail", "deco:track"]}"#.into(),
+    ));
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let m = folder_mod(&scratch.join("deco"), &files);
+    let relative = Path::new("../../.local/horizon-client/26.3");
+    let root = resource_root(relative, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let assets = Assets::load(&root).unwrap();
+    let registry = assets.registry;
+    let b = Behaviours::load(registry, &root).unwrap();
+
+    struct Level {
+        blocks: HashMap<BlockPos, BlockStateId>,
+        air: BlockStateId,
+        random: LegacyRandom,
+    }
+    impl LevelAccess for Level {
+        fn block_state(&self, pos: BlockPos) -> BlockStateId {
+            self.blocks.get(&pos).copied().unwrap_or(self.air)
+        }
+        fn set_raw(&mut self, pos: BlockPos, state: BlockStateId) -> Option<BlockStateId> {
+            Some(self.blocks.insert(pos, state).unwrap_or(self.air))
+        }
+        fn is_loaded(&self, _pos: BlockPos) -> bool {
+            true
+        }
+        fn random(&mut self) -> &mut LegacyRandom {
+            &mut self.random
+        }
+        fn game_time(&self) -> i64 {
+            0
+        }
+    }
+    let state = |name: &str| registry.default_state(name).unwrap();
+    let floor = BlockPos::new(0, 63, 0);
+    let mut level = Level {
+        blocks: HashMap::from([(floor, state("minecraft:stone"))]),
+        air: state("minecraft:air"),
+        random: LegacyRandom::new(1),
+    };
+    let mut ticks = Ticks::new(0);
+    ticks
+        .add_empty_chunk(horizon_core::position::ChunkPos::new(0, 0))
+        .unwrap();
+    // The value `property` takes when `item` is placed on the floor's top by
+    // a player looking at `yaw` and `pitch`.
+    let mut placed = |level: &mut Level, item: &str, yaw: f32, pitch: f32, property: &str| {
+        let ctx = PlaceContext {
+            clicked_pos: floor,
+            face: horizon_core::geometry::Direction::Up,
+            hit: Vec3::new(0.5, 64.0, 0.5),
+            inside: false,
+            yaw,
+            pitch,
+            sneaking: false,
+            item: item.into(),
+            can_use_game_master_blocks: false,
+        };
+        let (_, state) = b.placement_state(level, &mut ticks, &ctx).unwrap();
+        registry.state(state).unwrap().properties[property].clone()
+    };
+    // Yaw 90 looks west, -90 east, 180 north; a pitch of 90 looks down.
+    let l = &mut level;
+    assert_eq!(placed(l, "deco:cabinet", 90.0, 0.0, "direction"), "east");
+    assert_eq!(placed(l, "deco:cabinet", -90.0, 0.0, "direction"), "west");
+    assert_eq!(placed(l, "deco:cabinet", 180.0, 0.0, "direction"), "south");
+    assert_eq!(placed(l, "deco:press", 90.0, 0.0, "facing"), "east");
+    assert_eq!(placed(l, "deco:press", 0.0, 90.0, "facing"), "up");
+    assert_eq!(placed(l, "deco:press", 0.0, 90.0, "waterlogged"), "false");
+    assert_eq!(placed(l, "deco:bed", 90.0, 0.0, "facing"), "west");
+    assert_eq!(placed(l, "deco:bed", 180.0, 0.0, "facing"), "north");
+    l.blocks
+        .insert(BlockPos::new(0, 64, 0), state("minecraft:water"));
+    assert_eq!(placed(l, "deco:press", 0.0, 90.0, "waterlogged"), "true");
+
+    let rail = |name: &str| b.rail_kind(state(name));
+    assert_eq!(rail("deco:fast_rail"), Some(RailKind::Powered));
+    assert_eq!(rail("deco:trigger_rail"), Some(RailKind::Activator));
+    assert_eq!(rail("deco:track"), Some(RailKind::Plain));
+    assert_eq!(rail("deco:loose_track"), None);
+    assert_eq!(rail("minecraft:powered_rail"), Some(RailKind::Powered));
+    assert_eq!(rail("minecraft:activator_rail"), Some(RailKind::Activator));
+    assert_eq!(rail("minecraft:detector_rail"), Some(RailKind::Plain));
+    assert_eq!(rail("minecraft:stone"), None);
+    fs::remove_dir_all(&scratch).unwrap();
+}
+
 /// An old chunk's saved jigsaw start comes back with its pieces (`StructureStart.loadStaticStart`):
 /// a village this seed makes, saved as an older version would have, is loaded from its `Children`
 /// and has the same pieces, boxes and positions, so the neighbours can place what crosses into

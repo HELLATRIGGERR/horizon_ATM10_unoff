@@ -65,6 +65,12 @@ impl Behaviours {
     pub(crate) fn is_block(&self, state: BlockStateId, block: BlockId) -> bool {
         self.table.is(state, block)
     }
+    /// Whether `state` is `block`'s, or a content mod's block's that copies
+    /// it: where vanilla tests a block by identity (`state.is(Blocks.X)`),
+    /// a mod's copy of it behaves as it does.
+    pub fn behaves_as(&self, state: BlockStateId, block: BlockId) -> bool {
+        self.table.is(state, block) || self.data(state).template == Some(block)
+    }
     pub(crate) fn instance_of(&self, state: BlockStateId, class: Class) -> bool {
         self.data(state).is(class)
     }

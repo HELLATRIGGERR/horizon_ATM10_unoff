@@ -365,6 +365,28 @@ impl LootTables {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    /// The tables a nested loot table entry names (`NestedLootTable.value`, a
+    /// `HolderSet<LootTable>`): an id, an inline table or a list of them, each
+    /// with the name `getRandomItemsRaw`'s loop check knows it by. No loot
+    /// table tags are loaded, so a `#tag` names none.
+    pub fn nested<'v>(&'v self, value: &'v Value) -> Vec<(String, &'v Value)> {
+        let one = |v: &'v Value| match v {
+            Value::String(id) => {
+                let id = if id.contains(':') {
+                    id.clone()
+                } else {
+                    format!("minecraft:{id}")
+                };
+                self.get(&id).map(|table| (id, table))
+            }
+            Value::Object(_) => Some((format!("<inline {v:p}>"), v)),
+            _ => None,
+        };
+        match value {
+            Value::Array(list) => list.iter().filter_map(one).collect(),
+            value => one(value).into_iter().collect(),
+        }
+    }
 }
 /// Each table kept as its JSON, the last of an id winning as in a map.
 impl FromIterator<(String, Value)> for LootTables {
@@ -1665,15 +1687,17 @@ impl<R: RandomSource> Context<'_, R> {
             return false;
         }
         let children = || entry["children"].as_array().into_iter().flatten();
-        match entry["type"].as_str().unwrap_or("") {
-            "minecraft:alternatives" => children().any(|c| self.expand(c, out)),
-            "minecraft:group" => {
+        let weighted = int_value(&entry["weight"]).unwrap_or(1) > 0;
+        let expanded = entry["expand"].as_bool().unwrap_or(false);
+        match entry_type(entry) {
+            "alternatives" => children().any(|c| self.expand(c, out)),
+            "group" => {
                 for c in children() {
                     self.expand(c, out);
                 }
                 true
             }
-            "minecraft:sequence" => {
+            "sequence" => {
                 for c in children() {
                     if !self.expand(c, out) {
                         return false;
@@ -1681,32 +1705,44 @@ impl<R: RandomSource> Context<'_, R> {
                 }
                 true
             }
-            "minecraft:item" | "minecraft:empty" | "minecraft:loot_table" => {
-                if int_value(&entry["weight"]).unwrap_or(1) > 0 {
-                    out.push(Choice { entry, item: None });
+            "item" | "empty" | "dynamic" => {
+                if weighted {
+                    out.push(Choice::of(entry));
                 }
                 true
             }
-            // TagEntry: one choice per item when expanded, else one for all.
-            "minecraft:tag" => {
-                if entry["expand"].as_bool().unwrap_or(false) {
-                    let items = self.data.holder_set("item", &entry["items"]);
-                    for item in items {
-                        if int_value(&entry["weight"]).unwrap_or(1) > 0 {
-                            out.push(Choice {
-                                entry,
-                                item: Some(item),
-                            });
-                        }
+            // TagEntry and NestedLootTable (`ExpandableContainerBase`): one
+            // choice per item or table when expanded, else one for all.
+            "tag" if expanded => {
+                if weighted {
+                    for item in self.data.holder_set("item", &entry["items"]) {
+                        out.push(Choice {
+                            item: Some(item),
+                            ..Choice::of(entry)
+                        });
                     }
-                    true
-                } else {
-                    if int_value(&entry["weight"]).unwrap_or(1) > 0 {
-                        out.push(Choice { entry, item: None });
-                    }
-                    true
                 }
+                true
             }
+            "loot_table" if expanded => {
+                if weighted {
+                    for index in 0..self.data.tables.nested(&entry["value"]).len() {
+                        out.push(Choice {
+                            table: Some(index),
+                            ..Choice::of(entry)
+                        });
+                    }
+                }
+                true
+            }
+            "tag" | "loot_table" => {
+                if weighted {
+                    out.push(Choice::of(entry));
+                }
+                true
+            }
+            // A mod's own type: its code is not here, so it gives nothing and
+            // an `alternatives` goes on to its next child.
             _ => false,
         }
     }
@@ -1718,12 +1754,12 @@ impl<R: RandomSource> Context<'_, R> {
             let stack = c.modify(modifier, stack);
             sink(c, stack);
         };
-        match entry["type"].as_str().unwrap_or("") {
-            "minecraft:item" => {
+        match entry_type(entry) {
+            "item" => {
                 let stack = LootStack::new(entry["name"].as_str().unwrap_or("minecraft:air"));
                 out(self, stack);
             }
-            "minecraft:tag" => match &choice.item {
+            "tag" => match &choice.item {
                 Some(item) => out(self, LootStack::new(item)),
                 None => {
                     for item in self.data.holder_set("item", &entry["items"]) {
@@ -1731,23 +1767,44 @@ impl<R: RandomSource> Context<'_, R> {
                     }
                 }
             },
-            "minecraft:loot_table" => match &entry["value"] {
-                Value::String(name) => {
-                    if let Some(table) = self.data.tables.get(name) {
-                        self.table_raw(name, table, &mut out);
+            "loot_table" => {
+                let data = self.data;
+                for (at, (name, table)) in
+                    data.tables.nested(&entry["value"]).into_iter().enumerate()
+                {
+                    if choice.table.is_none_or(|index| index == at) {
+                        self.table_raw(&name, table, &mut out);
                     }
                 }
-                inline @ Value::Object(_) => self.table_raw("<inline>", inline, &mut out),
-                _ => {}
-            },
+            }
+            // `DynamicLoot`: what the block entity adds (`LootParams.withDynamicDrop`),
+            // which no chest, mob or fishing roll has.
             _ => {}
         }
     }
 }
-/// A pool entry that can be chosen (an expanded tag entry names its item).
+/// A pool entry that can be chosen (an expanded entry names its item, or
+/// its table by its place in `value`).
 struct Choice<'v> {
     entry: &'v Value,
     item: Option<String>,
+    table: Option<usize>,
+}
+impl<'v> Choice<'v> {
+    fn of(entry: &'v Value) -> Self {
+        Self {
+            entry,
+            item: None,
+            table: None,
+        }
+    }
+}
+/// A loot pool entry's type as the registry reads it: an id without a
+/// namespace is vanilla's (`Identifier.parse`: `item` is `minecraft:item`),
+/// and vanilla's come back without it (`item`); a mod's keep theirs.
+pub fn entry_type(entry: &Value) -> &str {
+    let kind = entry["type"].as_str().unwrap_or("");
+    kind.strip_prefix("minecraft:").unwrap_or(kind)
 }
 fn enchant(stack: &mut LootStack, name: &str, level: i32) {
     match stack.enchantments.iter_mut().find(|(n, _)| n == name) {
@@ -1870,6 +1927,83 @@ mod namespace_tests {
         let filled = data.fill("kaisyn:village/forest/house", 1, 27, None);
         let count: i32 = filled.iter().flatten().map(|s| s.count).sum();
         assert_eq!(count, 3);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// The entry types vanilla 26.3 knows, as its registry reads them: an id
+    /// without a namespace is vanilla's, a nested table's `value` is an id,
+    /// an inline table or a list of them (expanded: one is drawn), and a
+    /// `dynamic` entry is a choice that makes nothing here, so the
+    /// `alternatives` it leads stops at it. A mod's type falls through.
+    #[test]
+    fn every_vanilla_entry_type_rolls() {
+        let root =
+            std::env::temp_dir().join(format!("horizon-loot-entries-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let files = [
+            (
+                "items.json",
+                r#"{"minecraft:bread": {}, "minecraft:apple": {}}"#,
+            ),
+            (
+                "data/minecraft/loot_table/chests/bread.json",
+                r#"{"pools": [{"rolls": 1, "entries": [{"type": "minecraft:item", "name": "minecraft:bread"}]}]}"#,
+            ),
+        ];
+        for (name, text) in files {
+            let path = root.join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        }
+        for (name, entries) in [
+            ("bare", r#"[{"type": "item", "name": "minecraft:apple"}]"#),
+            (
+                "nested",
+                r#"[{"type": "minecraft:loot_table", "value": "chests/bread"}]"#,
+            ),
+            (
+                "list",
+                r#"[{"type": "minecraft:loot_table", "value": ["minecraft:chests/bread",
+                    {"pools": [{"rolls": 1, "entries": [{"type": "minecraft:item", "name": "minecraft:apple"}]}]}]}]"#,
+            ),
+            (
+                "expanded",
+                r#"[{"type": "minecraft:loot_table", "expand": true, "value": ["minecraft:chests/bread",
+                    {"pools": [{"rolls": 1, "entries": [{"type": "minecraft:item", "name": "minecraft:apple"}]}]}]}]"#,
+            ),
+            (
+                "dynamic",
+                r#"[{"type": "minecraft:alternatives", "children": [{"type": "minecraft:dynamic",
+                    "name": "minecraft:sherds"}, {"type": "minecraft:item", "name": "minecraft:apple"}]}]"#,
+            ),
+            (
+                "modded",
+                r#"[{"type": "minecraft:alternatives", "children": [{"type": "railcraft:mystery"},
+                    {"type": "minecraft:item", "name": "minecraft:apple"}]}]"#,
+            ),
+        ] {
+            let table = format!(r#"{{"pools": [{{"rolls": 1, "entries": {entries}}}]}}"#);
+            let path = root.join(format!("data/test/loot_table/{name}.json"));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, table).unwrap();
+        }
+        let data = LootData::load(&root, &PackOverlay::NONE).unwrap();
+        let roll = |name: &str| {
+            let rolled = data.roll(
+                &format!("test:{name}"),
+                &mut LegacyRandom::new(3),
+                0.0,
+                None,
+                None,
+            );
+            rolled.into_iter().map(|s| s.item).collect::<Vec<_>>()
+        };
+        assert_eq!(roll("bare"), ["minecraft:apple"]);
+        assert_eq!(roll("nested"), ["minecraft:bread"]);
+        assert_eq!(roll("list"), ["minecraft:bread", "minecraft:apple"]);
+        assert_eq!(roll("expanded").len(), 1);
+        assert!(roll("dynamic").is_empty(), "{:?}", roll("dynamic"));
+        assert_eq!(roll("modded"), ["minecraft:apple"]);
         let _ = fs::remove_dir_all(&root);
     }
 

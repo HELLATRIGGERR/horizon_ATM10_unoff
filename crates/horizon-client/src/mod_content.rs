@@ -1390,6 +1390,19 @@ impl<'a> Plan<'a> {
                         if !b.decl.item {
                             v.set("item", J::Str("minecraft:air".into()));
                         }
+                        // The block it copies, for vanilla's tests of a block
+                        // by identity (a cart on a powered rail), and how a
+                        // player's placement sets its declared properties.
+                        v.set("template", J::Str(b.decl.template.clone()));
+                        let placement: Vec<_> = b
+                            .decl
+                            .placement()
+                            .into_iter()
+                            .map(|(name, rule)| (name.to_owned(), J::Str(rule.name().into())))
+                            .collect();
+                        if !placement.is_empty() {
+                            v.set("placement", J::Obj(placement));
+                        }
                         if b.decl.state_properties.contains_key("waterlogged") {
                             if let Some(J::Arr(interfaces)) = v.get_mut("interfaces") {
                                 interfaces.push(J::Str("SimpleWaterloggedBlock".into()));

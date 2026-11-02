@@ -1,7 +1,7 @@
 //! Rails (`BaseRailBlock`, `RailState`, powered/activator rails) and
 //! tripwires (`TripWireBlock`, `TripWireHookBlock`).
 use super::{
-    LevelAccess, LevelEvent, Sim,
+    Behaviours, LevelAccess, LevelEvent, Sim,
     classes::Class,
     states::BlockId,
     update::{above, below, rel},
@@ -71,12 +71,46 @@ struct Rail {
     connections: Vec<BlockPos>,
 }
 
+/// A rail as a minecart rides it: the rails its code tests by identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RailKind {
+    /// Any other rail: `rail`, `detector_rail`, a content mod's copy of one.
+    Plain,
+    /// `Blocks.POWERED_RAIL`: speeds a cart up while powered, halts it while not.
+    Powered,
+    /// `Blocks.ACTIVATOR_RAIL`: activates the cart on it.
+    Activator,
+}
+
+impl Behaviours {
+    /// `BaseRailBlock.isRail`: in `#minecraft:rails` and a `BaseRailBlock`,
+    /// a content mod's rail as much as vanilla's.
+    pub fn is_rail(&self, state: BlockStateId) -> bool {
+        self.in_set(state, &self.tags.rails) && self.instance_of(state, Class::BaseRail)
+    }
+    /// What a minecart rides on `state`, if it is a rail ([`Self::is_rail`]).
+    /// A content mod's copy of the powered or activator rail rides as it.
+    pub fn rail_kind(&self, state: BlockStateId) -> Option<RailKind> {
+        if !self.is_rail(state) {
+            return None;
+        }
+        let n = &self.named;
+        Some(if self.behaves_as(state, n.powered_rail) {
+            RailKind::Powered
+        } else if self.behaves_as(state, n.activator_rail) {
+            RailKind::Activator
+        } else {
+            RailKind::Plain
+        })
+    }
+}
+
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     pub(crate) fn rail_shape(&self, state: BlockStateId) -> &str {
         self.b.table.text(state, self.b.props.shape)
     }
     fn is_rail(&self, state: BlockStateId) -> bool {
-        self.b.in_set(state, &self.b.tags.rails) && self.b.instance_of(state, Class::BaseRail)
+        self.b.is_rail(state)
     }
     fn is_rail_at(&self, pos: BlockPos) -> bool {
         self.is_rail(self.state(pos))

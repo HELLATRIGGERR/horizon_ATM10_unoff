@@ -1655,8 +1655,11 @@ impl LevelAccess for GameLevel<'_> {
         state: BlockStateId,
         direction: Direction,
     ) -> i32 {
-        if let Some(s) = self.registry.state(state)
-            && s.name == "minecraft:detector_rail"
+        if self
+            .behaviours
+            .data(state)
+            .is(horizon_world::level::classes::Class::DetectorRail)
+            && let Some(s) = self.registry.state(state)
         {
             return self.detector_rail_signal(
                 pos,

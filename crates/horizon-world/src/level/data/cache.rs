@@ -124,6 +124,8 @@ struct Block {
     sounds: SoundsSnapshot,
     item: String,
     dynamic_shape: bool,
+    template: Option<u16>,
+    placement: Vec<(u16, u8)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -472,6 +474,12 @@ impl Snapshot {
                 sounds: SoundsSnapshot::from(block.sounds.as_ref()),
                 item: block.item.to_string(),
                 dynamic_shape: block.dynamic_shape,
+                template: block.template.map(|v| v.0),
+                placement: block
+                    .placement
+                    .iter()
+                    .map(|(key, rule)| (key.0, *rule as u8))
+                    .collect(),
             })
             .collect();
         let items = behaviours
@@ -605,11 +613,19 @@ impl Snapshot {
                     classes.insert(*class);
                 }
                 let class = chain.first().copied().unwrap_or(Class::Block);
-                for link in [wire.link, wire.link2].into_iter().flatten() {
+                for link in [wire.link, wire.link2, wire.template].into_iter().flatten() {
                     if link as usize >= table.block_count() {
                         return Err(invalid("cached block link out of range"));
                     }
                 }
+                let placement = wire
+                    .placement
+                    .into_iter()
+                    .map(|(key, rule)| match Placement::ALL.get(usize::from(rule)) {
+                        Some(rule) => Ok((PropKey(key), *rule)),
+                        None => Err(invalid("cached placement rule out of range")),
+                    })
+                    .collect::<io::Result<_>>()?;
                 Ok(BlockData {
                     class,
                     chain,
@@ -636,6 +652,8 @@ impl Snapshot {
                     sounds: Arc::new(Sounds::from(wire.sounds)),
                     item: Arc::from(wire.item),
                     dynamic_shape: wire.dynamic_shape,
+                    template: wire.template.map(BlockId),
+                    placement,
                 })
             })
             .collect::<io::Result<Vec<_>>>()?;

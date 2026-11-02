@@ -20,8 +20,8 @@ use horizon_core::{
     geometry::{Aabb, Vec3, trig},
     random::RandomSource,
 };
-use horizon_world::registry::BlockStateId;
-use std::{collections::HashMap, sync::Arc};
+use horizon_world::{level::RailKind, registry::BlockStateId};
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum CartKind {
@@ -235,7 +235,7 @@ impl Shape {
     }
 }
 pub(super) struct Rail {
-    name: Arc<str>,
+    kind: RailKind,
     pub(super) shape: Shape,
     powered: bool,
 }
@@ -321,23 +321,16 @@ impl CartModels {
     }
 }
 impl Game<'_> {
+    /// The rail at a position (`BaseRailBlock.isRail`: a content mod's rails
+    /// too), with its shape and power.
     pub(super) fn rail(&self, x: i32, y: i32, z: i32) -> Option<Rail> {
         let state = self.world.block(x, y, z);
-        let name = self.res.facts().get(state).name.clone();
-        if !matches!(
-            &*name,
-            "minecraft:rail"
-                | "minecraft:powered_rail"
-                | "minecraft:detector_rail"
-                | "minecraft:activator_rail"
-        ) {
-            return None;
-        }
+        let kind = self.res.behaviours().rail_kind(state)?;
         let s = self.pack.assets.registry.state(state)?;
         let shape = Shape::parse(s.properties.get("shape").map_or("", String::as_str));
         let powered = s.properties.get("powered").is_some_and(|v| v == "true");
         Some(Rail {
-            name,
+            kind,
             shape,
             powered,
         })
@@ -551,7 +544,7 @@ impl Game<'_> {
         let old = self.rail_pos(x, c.position.y, z);
         let mut y = f64::from(pos[1]);
         let (mut power, mut halt) = (false, false);
-        if &*rail.name == "minecraft:powered_rail" {
+        if rail.kind == RailKind::Powered {
             power = rail.powered;
             halt = !power;
         }
@@ -761,7 +754,7 @@ impl Game<'_> {
                 halted = true;
             }
             // calculateHaltTrackSpeed (until the input halted).
-            if !halted && &*rail.name == "minecraft:powered_rail" && !rail.powered {
+            if !halted && rail.kind == RailKind::Powered && !rail.powered {
                 let before = v.x.hypot(v.z);
                 if before < 0.03 {
                     v = Vec3::ZERO;
@@ -780,7 +773,7 @@ impl Game<'_> {
                 }
             }
             // calculateBoostTrackSpeed (once per tick).
-            if !boosted && &*rail.name == "minecraft:powered_rail" && rail.powered {
+            if !boosted && rail.kind == RailKind::Powered && rail.powered {
                 let len = v.x.hypot(v.z);
                 if len > 0.01 {
                     v = Vec3::new(v.x / len * (len + 0.06), v.y, v.z / len * (len + 0.06));
@@ -931,7 +924,7 @@ impl Game<'_> {
             } else {
                 self.move_along_track(c, pos, &rail, intent);
             }
-            if &*rail.name == "minecraft:activator_rail" {
+            if rail.kind == RailKind::Activator {
                 self.activate_cart(c, rail.powered);
             }
         } else {

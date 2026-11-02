@@ -362,7 +362,10 @@ fn registry_order(root: &Path, order: &[Arc<str>]) -> Vec<Arc<str>> {
 }
 /// Item ids standing for a loot table's `minecraft:dynamic` entries.
 const DYNAMIC: &str = "#dynamic:";
+/// A chosen tag entry's items, and a nested table entry's tables (all, or the
+/// one at the index after it), until the entry makes them.
 const LOOT_TAG: &str = "#loot-tag:";
+const NESTED: &str = "#loot-table:";
 pub struct Items {
     pub items: HashMap<Arc<str>, ItemInfo>,
     pub order: Vec<Arc<str>>,
@@ -1399,8 +1402,22 @@ impl Items {
 const BLOCK_STATE: &str = "minecraft:block_state";
 impl LootContext<'_> {
     fn evaluate<R: RandomSource>(&self, table: &Value, random: &mut R) -> Vec<ItemStack> {
+        self.table_raw(table, random, &mut Vec::new())
+    }
+    /// `LootTable.getRandomItemsRaw`; a table already being rolled (one that
+    /// nests itself) gives nothing, as vanilla's loop check has it.
+    fn table_raw<R: RandomSource>(
+        &self,
+        table: &Value,
+        random: &mut R,
+        visited: &mut Vec<*const Value>,
+    ) -> Vec<ItemStack> {
         let ctx = self;
         let mut out = Vec::new();
+        if visited.contains(&std::ptr::from_ref(table)) {
+            return out;
+        }
+        visited.push(table);
         for pool in table["pools"].as_array().into_iter().flatten() {
             if !ctx.conditions(pool, random) {
                 continue;
@@ -1413,6 +1430,7 @@ impl LootContext<'_> {
                     pool["entries"].as_array().map_or(&[][..], Vec::as_slice),
                     random,
                     &mut produced,
+                    visited,
                 );
                 for mut stack in produced {
                     ctx.modifiers(Self::functions(pool), &mut stack, random);
@@ -1423,6 +1441,7 @@ impl LootContext<'_> {
                 }
             }
         }
+        visited.pop();
         out
     }
 }
@@ -1634,131 +1653,128 @@ impl LootContext<'_> {
             .flatten()
             .all(|c| self.condition(c, random))
     }
-    /// Expand entries; returns whether an entry succeeded (for alternatives).
-    fn expand<R: RandomSource>(
+    /// `LootPoolEntryContainer.expand`: the entries that can be chosen, with
+    /// their weights; whether it succeeded (for alternatives and sequences).
+    fn expand<'v, R: RandomSource>(
         &self,
-        e: &Value,
+        e: &'v Value,
         random: &mut R,
-        out: &mut Vec<(i32, ItemStack, Value)>,
+        out: &mut Vec<(i32, ItemStack, &'v Value)>,
     ) -> bool {
         if !self.conditions(e, random) {
             return false;
         }
-        match e["type"].as_str().unwrap_or("") {
-            "minecraft:item" => {
-                out.push((
-                    e["weight"].as_i64().unwrap_or(1) as i32,
-                    ItemStack {
-                        item: Arc::from(e["name"].as_str().unwrap_or("minecraft:air")),
-                        count: 1,
-                        damage: 0,
-                        extra: None,
-                    },
-                    Self::functions(e).clone(),
-                ));
+        let weight = e["weight"].as_i64().unwrap_or(1) as i32;
+        let expanded = e["expand"].as_bool().unwrap_or(false);
+        let children = || e["children"].as_array().into_iter().flatten();
+        match horizon_world::loot::entry_type(e) {
+            "item" => {
+                let item = e["name"].as_str().unwrap_or("minecraft:air");
+                out.push((weight, ItemStack::new(item, 1), e));
                 true
             }
-            "minecraft:tag" => {
-                let tag = e["name"]
-                    .as_str()
-                    .or_else(|| e["items"].as_str())
-                    .unwrap_or("");
-                let Some(values) = self.items.item_tags.get(tag) else {
-                    return false;
-                };
-                let mut values: Vec<_> = values.iter().collect();
-                values.sort();
-                if e["expand"].as_bool().unwrap_or(false) {
-                    for value in values {
-                        out.push((
-                            e["weight"].as_i64().unwrap_or(1) as i32,
-                            ItemStack::new(value, 1),
-                            Self::functions(e).clone(),
-                        ));
-                    }
-                } else {
-                    out.push((
-                        e["weight"].as_i64().unwrap_or(1) as i32,
-                        ItemStack::new(&format!("{LOOT_TAG}{tag}"), 1),
-                        Self::functions(e).clone(),
-                    ));
+            // TagEntry and NestedLootTable (`ExpandableContainerBase`): one
+            // choice per item or table when expanded, else one for all.
+            "tag" if expanded => {
+                for item in self.tag_items(e) {
+                    out.push((weight, ItemStack::new(&item, 1), e));
                 }
                 true
             }
-            "minecraft:alternatives" => {
-                for child in e["children"].as_array().into_iter().flatten() {
-                    if self.expand(child, random, out) {
-                        return true;
-                    }
+            "loot_table" if expanded => {
+                for index in 0..self.items.loot.nested(&e["value"]).len() {
+                    out.push((weight, ItemStack::new(&format!("{NESTED}{index}"), 1), e));
                 }
-                false
+                true
             }
-            "minecraft:group" => {
-                for child in e["children"].as_array().into_iter().flatten() {
+            "tag" => {
+                out.push((weight, ItemStack::new(LOOT_TAG, 1), e));
+                true
+            }
+            "loot_table" => {
+                out.push((weight, ItemStack::new(NESTED, 1), e));
+                true
+            }
+            "alternatives" => children().any(|child| self.expand(child, random, out)),
+            "group" => {
+                for child in children() {
                     self.expand(child, random, out);
                 }
                 true
             }
-            "minecraft:sequence" => {
-                for child in e["children"].as_array().into_iter().flatten() {
-                    if !self.expand(child, random, out) {
-                        break;
-                    }
-                }
-                true
-            }
+            "sequence" => children().all(|child| self.expand(child, random, out)),
             // DynamicLoot: what the block entity adds (a cracked decorated
             // pot's sherds), filled in by `block_drops_with`.
-            "minecraft:dynamic" => {
-                out.push((
-                    e["weight"].as_i64().unwrap_or(1) as i32,
-                    ItemStack {
-                        item: Arc::from(format!("{DYNAMIC}{}", e["name"].as_str().unwrap_or(""))),
-                        count: 1,
-                        damage: 0,
-                        extra: None,
-                    },
-                    Value::Null,
-                ));
+            "dynamic" => {
+                let name = e["name"].as_str().unwrap_or("");
+                out.push((weight, ItemStack::new(&format!("{DYNAMIC}{name}"), 1), e));
                 true
             }
-            "minecraft:empty" => {
-                out.push((
-                    e["weight"].as_i64().unwrap_or(1) as i32,
-                    ItemStack {
-                        item: Arc::from("minecraft:air"),
-                        count: 0,
-                        damage: 0,
-                        extra: None,
-                    },
-                    Value::Null,
-                ));
+            "empty" => {
+                out.push((weight, ItemStack::new("minecraft:air", 0), e));
                 true
             }
+            // A mod's own type: its code is not here, so it gives nothing and
+            // an `alternatives` goes on to its next child.
             _ => false,
         }
     }
+    /// A tag entry's items, sorted (`TagEntry.tag`): 26.3's `items`, a `#tag`,
+    /// an id or a list, or 1.21.1's `name`, a tag. A tag no data has is empty.
+    fn tag_items(&self, e: &Value) -> Vec<String> {
+        let tag = |name: &str| {
+            let mut items: Vec<String> = self
+                .items
+                .item_tags
+                .get(name)
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect();
+            items.sort();
+            items
+        };
+        if let Some(name) = e["name"].as_str() {
+            return tag(name);
+        }
+        match &e["items"] {
+            Value::String(s) => match s.strip_prefix('#') {
+                Some(name) => tag(name),
+                None => vec![s.clone()],
+            },
+            Value::Array(list) => list
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        }
+    }
+    /// `LootPool.addRandomItem`: one of the entries of positive weight, by
+    /// weight, made into its stacks with the entry's modifiers.
     fn choose<R: RandomSource>(
         &self,
         entries: &[Value],
         random: &mut R,
         produced: &mut Vec<ItemStack>,
+        visited: &mut Vec<*const Value>,
     ) {
         let mut candidates = Vec::new();
         for e in entries {
             self.expand(e, random, &mut candidates);
         }
+        candidates.retain(|c| c.0 > 0);
         if candidates.is_empty() {
             return;
         }
         let pick = if candidates.len() == 1 {
             0
         } else {
-            let total: i32 = candidates.iter().map(|c| c.0.max(0)).sum();
-            let mut r = random.next_int_bound(total.max(1)).unwrap_or(0);
+            let total: i32 = candidates.iter().map(|c| c.0).sum();
+            let mut r = random.next_int_bound(total).unwrap_or(0);
             let mut chosen = 0;
             for (i, c) in candidates.iter().enumerate() {
-                r -= c.0.max(0);
+                r -= c.0;
                 if r < 0 {
                     chosen = i;
                     break;
@@ -1766,20 +1782,38 @@ impl LootContext<'_> {
             }
             chosen
         };
-        let (_, mut stack, modifiers) = candidates.swap_remove(pick);
-        if let Some(tag) = stack.item.strip_prefix(LOOT_TAG) {
-            if let Some(values) = self.items.item_tags.get(tag) {
-                let mut values: Vec<_> = values.iter().collect();
-                values.sort();
-                for id in values {
-                    let mut item = ItemStack::new(id, 1);
-                    self.modifiers(&modifiers, &mut item, random);
-                    produced.push(item);
+        let (_, mut stack, entry) = candidates.swap_remove(pick);
+        let modifiers = Self::functions(entry);
+        let made: Vec<ItemStack> = if stack.item.starts_with(DYNAMIC) {
+            // Replaced by the block entity's drops as they are.
+            produced.push(stack);
+            return;
+        } else if stack.count == 0 {
+            // EmptyLootItem makes nothing.
+            return;
+        } else if &*stack.item == LOOT_TAG {
+            self.tag_items(entry)
+                .iter()
+                .map(|id| ItemStack::new(id, 1))
+                .collect()
+        } else if let Some(which) = stack.item.strip_prefix(NESTED) {
+            // NestedLootTable: the tables' items (`getRandomItemsRaw`).
+            let tables = self.items.loot.nested(&entry["value"]);
+            let mut made = Vec::new();
+            for (at, (_, table)) in tables.into_iter().enumerate() {
+                if which.is_empty() || which.parse() == Ok(at) {
+                    made.extend(self.table_raw(table, random, visited));
                 }
             }
+            made
         } else {
-            self.modifiers(&modifiers, &mut stack, random);
+            self.modifiers(modifiers, &mut stack, random);
             produced.push(stack);
+            return;
+        };
+        for mut item in made {
+            self.modifiers(modifiers, &mut item, random);
+            produced.push(item);
         }
     }
     /// An enchantment function's `options` (`HolderSet`): a tag, a list or
@@ -2267,6 +2301,80 @@ mod tests {
         plain.enchant("minecraft:silk_touch",1);
         let drops=ctx(&items,Some(&plain),&props,"ae2:mysterious_cube").evaluate(&table,&mut random);
         assert_eq!(drops.len(),1);assert_eq!(drops[0].item.as_ref(),"ae2:mysterious_cube");
+    }
+
+    /// The names of what a one-pool block table with `entries` drops.
+    fn block_drops(items: &Items, entries: serde_json::Value) -> Vec<String> {
+        let props = horizon_world::chunk::BlockProperties::new();
+        let table = json!({"pools": [{"rolls": 1, "entries": entries}]});
+        let mut random = LegacyRandom::new(42);
+        let drops = ctx(items, None, &props, "m:machine").evaluate(&table, &mut random);
+        drops
+            .iter()
+            .map(|s| format!("{}x{}", s.item, s.count))
+            .collect()
+    }
+
+    /// Every entry type vanilla 26.3 knows: a nested table (by id, inline or
+    /// a list, expanded or not, its entry's modifiers on its items and its
+    /// own loop check), a tag by 26.3's `items`, an id without a namespace,
+    /// a sequence that fails as a whole, and no draw among weightless
+    /// entries. A mod's own type still falls through an `alternatives`.
+    #[test]
+    fn every_vanilla_entry_type_drops() {
+        let mut items = Items::for_tests(HashMap::from([(
+            "m:gems".into(),
+            HashSet::from(["m:ruby".into(), "m:sapphire".into()]),
+        )]));
+        items.loot = Arc::new(horizon_world::loot::LootTables::from_iter([
+            (
+                "m:blocks/shared".to_owned(),
+                json!({"pools": [{"rolls": 1, "entries": [{"type": "minecraft:item", "name": "m:dust"}]}]}),
+            ),
+            (
+                "m:blocks/loop".to_owned(),
+                json!({"pools": [{"rolls": 1, "entries": [{"type": "minecraft:item", "name": "m:dust"}]},
+                    {"rolls": 1, "entries": [{"type": "minecraft:loot_table", "value": "m:blocks/loop"}]}]}),
+            ),
+        ]));
+        let nested = json!([{"type": "minecraft:loot_table", "value": "m:blocks/shared",
+            "modifier": [{"type": "minecraft:set_count", "count": 3}]}]);
+        assert_eq!(block_drops(&items, nested), ["m:dustx3"]);
+        let inline = json!([{"type": "minecraft:loot_table", "value": {"pools": [{"rolls": 1,
+            "entries": [{"type": "minecraft:item", "name": "m:gear"}]}]}}]);
+        assert_eq!(block_drops(&items, inline), ["m:gearx1"]);
+        let both = json!([{"type": "minecraft:loot_table", "value": ["m:blocks/shared",
+            {"pools": [{"rolls": 1, "entries": [{"type": "minecraft:item", "name": "m:gear"}]}]}]}]);
+        assert_eq!(block_drops(&items, both.clone()), ["m:dustx1", "m:gearx1"]);
+        let mut one = both;
+        one[0]["expand"] = json!(true);
+        assert_eq!(block_drops(&items, one).len(), 1);
+        let looping = items.loot.get("m:blocks/loop").unwrap();
+        let props = horizon_world::chunk::BlockProperties::new();
+        let drops =
+            ctx(&items, None, &props, "m:machine").evaluate(looping, &mut LegacyRandom::new(1));
+        assert_eq!(drops.len(), 1, "{drops:?}");
+
+        let tag = json!([{"type": "minecraft:tag", "items": "#m:gems"}]);
+        assert_eq!(block_drops(&items, tag), ["m:rubyx1", "m:sapphirex1"]);
+        assert_eq!(
+            block_drops(&items, json!([{"type": "item", "name": "m:dust"}])),
+            ["m:dustx1"]
+        );
+        // SequentialEntry fails with its first failing child, so the
+        // alternatives go on to the next.
+        let sequence = json!([{"type": "minecraft:alternatives", "children": [
+            {"type": "minecraft:sequence", "children": [{"type": "minecraft:item", "name": "m:gear",
+                "condition": {"type": "minecraft:killed_by_player"}}]},
+            {"type": "minecraft:item", "name": "m:dust"}]}]);
+        assert_eq!(block_drops(&items, sequence), ["m:dustx1"]);
+        let weightless = json!([{"type": "minecraft:item", "name": "m:dust", "weight": 0}]);
+        assert!(block_drops(&items, weightless).is_empty());
+        let empty = json!([{"type": "minecraft:empty", "modifier": [{"type": "minecraft:set_count", "count": 2}]}]);
+        assert!(block_drops(&items, empty).is_empty());
+        let modded = json!([{"type": "minecraft:alternatives", "children": [
+            {"type": "immersiveengineering:tile_drop"}, {"type": "minecraft:item", "name": "m:dust"}]}]);
+        assert_eq!(block_drops(&items, modded), ["m:dustx1"]);
     }
 
     #[test]

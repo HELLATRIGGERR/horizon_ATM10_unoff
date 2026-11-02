@@ -6,7 +6,7 @@ use super::{
     classes::Class,
     data::ItemKind,
     query::{axis_of, clockwise, counter_clockwise, is_horizontal},
-    states::BlockId,
+    states::{BlockId, axis_name},
     update::{HORIZONTAL, above, below, rel},
 };
 use crate::{fluid::FluidState, registry::BlockStateId};
@@ -87,6 +87,51 @@ pub struct PlacementContext {
     pub replace_clicked: bool,
     /// AE2 PlaneDirectionalPlaceContext override; ordinary players use None.
     pub plane_look: Option<Direction>,
+}
+
+/// How a player's placement sets a property a content mod's block declares
+/// of its own (its block file's `placement`, docs/mods.md): the rule its
+/// Java `getStateForPlacement` follows, applied over its template's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Placement {
+    /// `getHorizontalDirection().getOpposite()` (a furnace).
+    HorizontalLookOpposite,
+    /// `getHorizontalDirection()` (a bed).
+    HorizontalLook,
+    /// `getNearestLookingDirection().getOpposite()` (a dispenser).
+    LookOpposite,
+    /// `getNearestLookingDirection()` (an observer).
+    Look,
+    /// `getClickedFace()` (an end rod).
+    ClickedFace,
+    /// `getClickedFace().getAxis()` (a log).
+    ClickedAxis,
+    /// Waterlogged in a water source.
+    Water,
+}
+impl Placement {
+    pub const ALL: [Self; 7] = [
+        Self::HorizontalLookOpposite,
+        Self::HorizontalLook,
+        Self::LookOpposite,
+        Self::Look,
+        Self::ClickedFace,
+        Self::ClickedAxis,
+        Self::Water,
+    ];
+    /// The rule a block file's `placement` names (`horizontal_look_opposite`).
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name {
+            "horizontal_look_opposite" => Self::HorizontalLookOpposite,
+            "horizontal_look" => Self::HorizontalLook,
+            "look_opposite" => Self::LookOpposite,
+            "look" => Self::Look,
+            "clicked_face" => Self::ClickedFace,
+            "clicked_axis" => Self::ClickedAxis,
+            "water" => Self::Water,
+            _ => return None,
+        })
+    }
 }
 
 /// `Direction.orderedByNearest(entity)`.
@@ -356,7 +401,36 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             Some(None) => return None,
             _ => {}
         }
-        self.placement_at(block, 0, ctx)
+        let state = self.placement_at(block, 0, ctx)?;
+        Some(self.declared_placement(block, state, ctx))
+    }
+
+    /// The properties a content mod's block declares of its own, set by
+    /// their [`Placement`] rules: its template's classes know nothing of them
+    /// and leave them at their defaults.
+    fn declared_placement(
+        &self,
+        block: BlockId,
+        mut state: BlockStateId,
+        ctx: &PlacementContext,
+    ) -> BlockStateId {
+        let table = &self.b.table;
+        for &(key, rule) in &self.b.block_data(block).placement {
+            state = match rule {
+                Placement::HorizontalLookOpposite => {
+                    table.set_dir(state, key, ctx.horizontal_direction().opposite())
+                }
+                Placement::HorizontalLook => table.set_dir(state, key, ctx.horizontal_direction()),
+                Placement::LookOpposite => {
+                    table.set_dir(state, key, ctx.nearest_looking_direction().opposite())
+                }
+                Placement::Look => table.set_dir(state, key, ctx.nearest_looking_direction()),
+                Placement::ClickedFace => table.set_dir(state, key, ctx.face),
+                Placement::ClickedAxis => table.set_text(state, key, axis_name(axis_of(ctx.face))),
+                Placement::Water => table.set_bool(state, key, self.fluid_is_water_source(ctx.pos)),
+            };
+        }
+        state
     }
 
     fn placement_at(

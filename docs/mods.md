@@ -106,6 +106,34 @@ takes one value per declared property too, so a block's default is exactly one
 state of its own. Every combination has to fit in the states a world holds
 (2^20), so a declaration that would not is refused when the mods load.
 
+When a player places the block, its template sets the template's properties
+and `placement` says how each declared one is set, by one of these rules:
+
+```json
+{ "template": "minecraft:stone",
+  "state_properties": { "facing": ["north", "south", "east", "west"] },
+  "placement": { "facing": "horizontal_look" } }
+```
+
+| Rule | The value placed | As vanilla's |
+|---|---|---|
+| `horizontal_look_opposite` | toward the player, level: the opposite of where they look | furnace |
+| `horizontal_look` | where the player looks, level | bed |
+| `look_opposite` | toward the player: the opposite of the nearest of the six directions they look in | dispenser |
+| `look` | the nearest of the six directions the player looks in | observer |
+| `clicked_face` | the face clicked | end rod |
+| `clicked_axis` | the clicked face's axis | log |
+| `water` | `true` in a water source | any waterlogged block |
+| `default` | the declared default | |
+
+A property has every value its rule can set (the four level directions, all
+six, `x` `y` `z`, or `false` `true`), or the block is refused. A declared
+property `placement` leaves out takes the rule most Java blocks give it:
+`horizontal_look_opposite` for a `facing` or `direction` of exactly the four
+level directions, `look_opposite` for one of all six, `clicked_axis` for an
+`axis` of `x`, `y` and `z`, and `water` for a boolean `waterlogged`. Any other
+keeps its default.
+
 An item copies its template's data components, with `max_stack_size` and
 `rarity` changed, and any other 26.3 component set or removed in
 `components`, written as a data component patch is: `minecraft:<type>` sets
@@ -167,6 +195,11 @@ the tag, on placement and whenever that neighbour changes. Its shapes are the
 chorus plant's (10 pixels across) unless it sets `"thickness"`, 2 to 14
 pixels: its outline and collision are then built as `PipeBlock` builds its
 own, a core and an arm to each joined side.
+
+A copy of one of vanilla's rails carries minecarts when the mod adds it to
+`#minecraft:rails`, as vanilla asks of any rail (`BaseRailBlock.isRail`). A copy
+of `minecraft:powered_rail` speeds carts up and stops them as that rail does,
+and a copy of `minecraft:activator_rail` activates them.
 
 A mod's creative inventory tabs are `data/<id>/horizon/creative_tab/*.json`:
 a title, the item on the tab's button, and its items in order (items the game

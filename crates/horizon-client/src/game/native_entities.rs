@@ -272,7 +272,7 @@ impl Game<'_> {
     /// of a server (which tells nothing).
     pub(super) fn native_joins_flush(&mut self, loaded_from_disk: bool, watch: u32) -> bool {
         use super::entity::Entity;
-        if self.remote.is_some() || crate::mod_api::mods().is_empty() {
+        if self.remote.is_some() || !self.entity_level_heard() {
             return true;
         }
         for t in &mut self.tnts {

@@ -18,15 +18,17 @@ try {
     await until(()=>fixture.raw('screen'),v=>v.screen==='container' && slot(v,301) && slot(v,302),'access point menu');};
   const link=async()=>{await fixture.raw('click-slot 0');await fixture.raw('click-slot 301');
     await until(()=>fixture.raw('screen'),v=>slot(v,302)?.item==='ae2:wireless_terminal' && String(slot(v,302)?.components??'').includes('ae2:wireless_link_target') && !v.carried,'linked output owns the physical terminal');};
+  // The server's answer takes a tick: single player has no in-frame path any more.
+  const returned=(label:string)=>until(()=>fixture.raw('inventory'),v=>v.counts?.['ae2:wireless_terminal']===1 && !v.carried,label);
   await open();await link();await fixture.raw('close');
-  let inv=await fixture.raw('inventory');assert.equal(inv.counts?.['ae2:wireless_terminal'],1);assert(!inv.carried);
+  await returned('close returns the linked terminal');
   assert.match(chat(await fixture.command('data get entity @s Inventory')),/ae2:wireless_link_target/);
   await fixture.restart();await fixture.select(0,'ae2:wireless_terminal');
   assert.match(chat(await fixture.command('data get entity @s SelectedItem')),/ae2:wireless_link_target/);
   fixture.mark('close returns the linked terminal and its source component survives restart');
   await open();await link();await fixture.command(`setblock ${access} minecraft:stone`);
   await until(()=>fixture.raw('screen'),v=>v.screen==='playing','replacing access point closes the original session');
-  inv=await fixture.raw('inventory');assert.equal(inv.counts?.['ae2:wireless_terminal'],1);assert(!inv.carried);
+  await returned('replacement returns the linked terminal');
   fixture.assertHidden(await fixture.raw('status'));fixture.mark('replacement returns the exact pending linked terminal');fixture.report('passed');
 } catch(error){fixture.report('failed',error);throw error;}
 finally{await fixture.close();}

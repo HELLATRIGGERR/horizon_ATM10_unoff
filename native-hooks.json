@@ -2294,6 +2294,16 @@
         "contract": "collect",
         "out": "nbt"
       }
+    },
+    {
+      "name": "entity_level_listened",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_entity_level_listened",
+      "side": "server",
+      "mod_api": {
+        "contract": "collect",
+        "out": "listened"
+      }
     }
   ]
 }

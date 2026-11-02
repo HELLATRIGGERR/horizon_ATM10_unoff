@@ -351,8 +351,12 @@ try {
   await until(() => fixture.ae(`power ${lone} north`), s => s.energy_service?.members > 0, 'the lone acceptor is a grid', 30000);
   await fixture.command(`setblock ${pointC} fluxnetworks:flux_point`);
   await fixture.command(`setblock ${pointD} fluxnetworks:flux_point`);
+  // Both join in one tick: a point alone gets the lone acceptor's whole room from the plug
+  // on the next tick, and the one joining after it finds none to ask for.
+  await fixture.hold();
   await fixture.command(`data merge block ${pointC} {network_id:${network}}`);
   await fixture.command(`data merge block ${pointD} {network_id:${network}}`);
+  await fixture.hold(false);
   const pointBuffers = async () => ({ c: await buffer(pointC), d: await buffer(pointD) });
   const held = await until(pointBuffers, v => v.c + v.d > 0, 'a point keeps what the acceptor had no more room for', 20000);
   log.point_buffers = held;
@@ -380,9 +384,15 @@ try {
   await until(() => fixture.raw(`block ${holder}`), v => v.block === 'fluxnetworks:flux_point', 'the point reaches the client');
   await fixture.raw(`break ${holder}`);
   await until(() => fixture.raw(`block ${holder}`), v => v.block === 'minecraft:air', 'the player breaks the point');
-  await fixture.command(`tp @s ${holderX + 0.5} ${y - 1} ${z + 0.5}`);
+  // To the item itself, wherever the ground under this spot of the world lets it fall.
+  const walkToDrop = async () => {
+    const near = await fixture.raw('entities 16 minecraft:item');
+    const drop = near.entities?.find((e: any) => e.item?.item === 'fluxnetworks:flux_point');
+    if (drop) await fixture.command(`tp @s ${drop.pos[0]} ${drop.pos[1]} ${drop.pos[2]}`);
+    return fixture.raw('inventory');
+  };
   const stacks = (v: any): any[] => [...(v.hotbar ?? []), ...(v.main ?? [])];
-  const inHand = await until(() => fixture.raw('inventory'), v => stacks(v).some(s => s?.item === 'fluxnetworks:flux_point'), 'the player picks the item up');
+  const inHand = await until(walkToDrop, v => stacks(v).some(s => s?.item === 'fluxnetworks:flux_point'), 'the player picks the item up');
   const picked = stacks(inHand).find(s => s?.item === 'fluxnetworks:flux_point');
   log.picked_point = picked;
   const kept = String(picked.components);

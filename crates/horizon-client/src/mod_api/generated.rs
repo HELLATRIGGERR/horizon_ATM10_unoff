@@ -2563,6 +2563,18 @@ pub trait Hooks: Send + Sync {
         let _ = host;
         let _ = event;
     }
+    /// Whether a mixin bundle listens to `native_entity_join_level` or
+    /// `native_entity_leave_level`: one that hooks them hooks this one too and
+    /// sets `listened` (HEAD, `*listened = true`). A trait mod needs not: any
+    /// counts. Without either the game walks no entity list to tell them. Asked
+    /// each tick and around each pass that removes entities: keep it short.
+    /// Server-side. API 158.
+    ///
+    /// Every mod gets `event.listened` in order and may add, change or remove listened.
+    fn entity_level_listened(&self, host: &dyn Host, event: &mut EntityLevelListenedEvent) {
+        let _ = host;
+        let _ = event;
+    }
     /// An anvil at `pos` took damage, changing its block from `from` to `to`.
     /// `to` is air when the anvil broke. Server-side.
     /// @API:anvil_damaged@.
@@ -9187,6 +9199,24 @@ pub fn dispatch_block_entity_save(
     for mod_hook in super::entered(mods, "block_entity_save") {
         mod_hook.block_entity_save(host, &mut event);
     }
+}
+/// What [`Hooks::entity_level_listened`] is told. Fields may be added: the struct is `#[non_exhaustive]`.
+#[non_exhaustive]
+pub struct EntityLevelListenedEvent {
+    pub listened: bool,
+}
+pub fn dispatch_entity_level_listened(
+    host: &dyn Host,
+    mods: &[Box<dyn Hooks>],
+    listened: &mut bool,
+) {
+    let mut event = EntityLevelListenedEvent {
+        listened: *listened,
+    };
+    for mod_hook in super::entered(mods, "entity_level_listened") {
+        mod_hook.entity_level_listened(host, &mut event);
+    }
+    *listened = event.listened;
 }
 /// What [`Hooks::anvil_damaged`] is told. Fields may be added: the struct is `#[non_exhaustive]`.
 #[non_exhaustive]

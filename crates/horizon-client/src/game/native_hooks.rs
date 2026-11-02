@@ -6,6 +6,8 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 158 adds a mixin bundle saying it listens to entities joining and leaving a level (`native_entity_level_listened`).
+//!
 //! API 157 adds what a generator reads of the world around it: the helpers `native_biome` (`Level.getBiome`
 //! and the biome's climate at a block: `getTemperature`, `getPrecipitationAt`, its downfall) and
 //! `native_dimension_type` (`hasSkyLight`, `hasCeiling`, `ultraWarm`).
@@ -549,7 +551,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 157;
+pub(crate) const NATIVE_HOOKS_API: u32 = 158;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -6225,6 +6227,15 @@ impl Game<'_> {
             canceled,
         );
     }
+    /// Whether a mixin bundle listens to `native_entity_join_level` or
+    /// `native_entity_leave_level`: one that hooks them hooks this one too and
+    /// sets `listened` (HEAD, `*listened = true`). A trait mod needs not: any
+    /// counts. Without either the game walks no entity list to tell them. Asked
+    /// each tick and around each pass that removes entities: keep it short.
+    /// Server-side. API 158.
+    pub(super) fn native_entity_level_listened(&self, listened: &mut bool) {
+        mod_api::dispatch_entity_level_listened(self, mod_api::mods(), listened);
+    }
     /// Whether a mod listens to `native_entity_tick_pre` and `native_entity_tick_post`: a mod
     /// that hooks them hooks this one too and sets `listened` (HEAD, `*listened = true`).
     /// Without it the game tells no entity's tick, and keeps no list of them. Asked once for
@@ -8311,17 +8322,27 @@ impl Game<'_> {
             self.native_entity_leave_level(dimension, entity, kind);
         }
     }
+    /// Whether anything hears entities joining and leaving: a trait mod, or a
+    /// mixin bundle that says so (`native_entity_level_listened`).
+    pub(super) fn entity_level_heard(&self) -> bool {
+        if !mod_api::mods().is_empty() {
+            return true;
+        }
+        let mut listened = false;
+        self.native_entity_level_listened(&mut listened);
+        listened
+    }
     /// The IDs of the level's item entities, for `native_items_left_since`
     /// (none on a client of a server, which tells nothing).
     pub(super) fn dropped_ids(&self) -> Vec<u32> {
-        if self.remote.is_some() || mod_api::mods().is_empty() {
+        if self.remote.is_some() || !self.entity_level_heard() {
             return Vec::new();
         }
         self.dropped.iter().map(|e| e.id).collect()
     }
     /// The IDs of the level's experience orbs, for `native_orbs_left_since`.
     pub(super) fn orb_ids(&self) -> Vec<u32> {
-        if self.remote.is_some() || mod_api::mods().is_empty() {
+        if self.remote.is_some() || !self.entity_level_heard() {
             return Vec::new();
         }
         self.orbs.iter().map(|o| o.id).collect()
@@ -8329,7 +8350,7 @@ impl Game<'_> {
     /// The (id, kind) of the level's mobs, for `native_mobs_left_since` (none
     /// on a client of a server, which tells nothing).
     pub(super) fn mob_ids(&self) -> Vec<(u32, String)> {
-        if self.remote.is_some() || mod_api::mods().is_empty() {
+        if self.remote.is_some() || !self.entity_level_heard() {
             return Vec::new();
         }
         self.mobs.iter().map(|m| (m.id, mob_kind(m))).collect()
@@ -8903,7 +8924,12 @@ impl Game<'_> {
                 && !m.id.is_empty()
             {
                 let fields: &mut horizon_client::containers::ModBlockEntityFields = &mut **m;
-                self.native_block_entity_save(dimension, [p.0, p.1, p.2], &fields.id, &mut fields.nbt);
+                self.native_block_entity_save(
+                    dimension,
+                    [p.0, p.1, p.2],
+                    &fields.id,
+                    &mut fields.nbt,
+                );
             }
         }
     }

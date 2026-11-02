@@ -142,9 +142,11 @@ parse and 295 need items we lack, so about 35,900 can be crafted today.
   no `cfg` or macros outside tests. A new hook is added in upstream's style: its `native_*` function with the placeholder
   body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract, `python3 tools/stamp_native_hooks.py`
   run with only the fork's fragment there (upstream's pending ones moved aside, then put back), and
-  `cargo run -p xtask -- mod-api`, which writes its `Hooks` trait method and dispatch. The fork's hooks are APIs 154-157
+  `cargo run -p xtask -- mod-api`, which writes its `Hooks` trait method and dispatch. The fork's hooks are APIs 154-158
   since the merge of upstream 6e1635c1e (whose latest was 153): Forge Energy 154, a machine's item and slots 155, the
-  block entity lifecycle 156, biome and dimension type 157. Upstream stamps its pending fragments after 153 too, so
+  block entity lifecycle 156, biome and dimension type 157, a bundle's opt-in to entity joins and leaves 158. Upstream
+  gates a growing list of hooks on `mod_api::mods()`, which holds trait mods only: a bundle's mixin on such a hook never
+  runs unless the gate also asks it (`native_entity_level_listened` is the fork's first). Upstream stamps its pending fragments after 153 too, so
   at each merge the fork's take the numbers after upstream's latest again. `wip/quests` still says 64.
 - Compare behaviour with the Java mod, run on NeoForge where a number matters (`tools/neoforge_oracle.py`), and don't trust
   an assertion that can't fail.

@@ -56,7 +56,10 @@ const suites = [
 // Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
 const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae' };
 // Explicitly selectable before-cases, not part of the default passing checkpoint.
-const pending = new Set(['chest-fluid-gestures', 'crafting-idle-break', 'crafting-idle-inventory', 'formation-armor-stand', 'formation-quantum-dimensions', 'inframe-wireless-session', 'portable-fluid-gestures', 'portable-fluid-overflow', 'portable-menu-status', 'quantum-forced-ready', 'terminal-fluid-gestures', 'wireless-menu-lifecycle', 'wireless-menu-status', 'wireless-power-multiplier']);
+// inframe-bus-menu and inframe-machine-menus drive the in-frame menus' slot numbering, which went with upstream's in-frame
+// single player (23f8bd4fe). The nearest suites on the server thread, not compared assertion by assertion: part-screens,
+// fake-slot-drag-machines, machine-screens, machine-menu-identity, interface-stock-editor.
+const pending = new Set(['inframe-bus-menu', 'inframe-machine-menus', 'chest-fluid-gestures', 'crafting-idle-break', 'crafting-idle-inventory', 'formation-armor-stand', 'formation-quantum-dimensions', 'inframe-wireless-session', 'portable-fluid-gestures', 'portable-fluid-overflow', 'portable-menu-status', 'quantum-forced-ready', 'terminal-fluid-gestures', 'wireless-menu-lifecycle', 'wireless-menu-status', 'wireless-power-multiplier']);
 if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--content DIRECTORY] [--in-frame] [SUITE ...]\nRuns only hidden, isolated fixtures, sequentially under a host rendering lease.\nSuites: ' + suites.join(', '))) {
   const args = process.argv.slice(2), selected: string[] = [], env = { ...process.env };
   let inFrame = false;

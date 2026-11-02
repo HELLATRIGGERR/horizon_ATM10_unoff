@@ -974,6 +974,8 @@ API 156 adds a block entity's lifecycle, as NeoForge's `BlockEntity.onLoad`, `se
 
 API 157 adds what a generator reads of the world around it, beside `native_light`, `native_weather` and `native_day_time`: the helper `native_biome(pos)` gives the biome `Level.getBiome` picks at a block (the zoomed noise cell, as vanilla) with its climate there, `NativeBiome { id, base_temperature, temperature, downfall, precipitation }`, where `temperature` is `Biome.getTemperature(pos)` (cooler above the sea level + 17) and `precipitation` none, rain or snow (`getPrecipitationAt`); and `native_dimension_type()` gives the type of the dimension in place, `NativeDimensionType { has_skylight, has_ceiling, ultra_warm }`. Both read the world this game holds, as `native_light` does. Bundles that use them need "hooks": 157.
 
+API 158 adds a mixin bundle saying it listens to entities joining and leaving a level: the game walks its entity lists for `native_entity_join_level` and `native_entity_leave_level` only while something hears them, and a mixin isn't in the trait mods' list, so a bundle that hooks them hooks `native_entity_level_listened(listened)` too and sets `listened`. Trait mods need not. Bundles need "hooks": 158.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's

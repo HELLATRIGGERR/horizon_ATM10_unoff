@@ -75,8 +75,8 @@ emitter-memory-components export-bus-crafting-schedule interface-stock-editor
 Build for those with `--features ae2-lab,ae2-megacells,ae2-merequester`. Then the native mods, each with its own game build:
 
 ```sh
-ATM10_DIR=... bun run pack/scripts/powah.ts units stage build world         # see pack/mods/powah/NOTES.md
-ATM10_DIR=... bun run pack/scripts/fluxnetworks.ts units stage build world  # see pack/mods/fluxnetworks/NOTES.md
+ATM10_DIR=... bun run pack/scripts/powah.ts carry content units stage build world         # see pack/mods/powah/NOTES.md
+ATM10_DIR=... bun run pack/scripts/fluxnetworks.ts content units stage build world  # see pack/mods/fluxnetworks/NOTES.md
 ```
 
 Also run `cargo test -p horizon-client --no-default-features --features ae2-lab --bin horizon-client` and `--lib`,

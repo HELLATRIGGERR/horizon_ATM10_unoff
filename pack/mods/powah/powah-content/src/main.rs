@@ -139,10 +139,17 @@ fn furnator(out: &Path, tier: &str) -> Result<()> {
 
 /// The furnace template: `facing`, `lit`, a block entity and a menu, with what
 /// the carry knew of the block. Lit or not, it gives no light, as in Java,
-/// whose lit face is only drawn.
+/// whose lit face is only drawn. A carry with the oracle's facts declares
+/// Powah's own `facing` on a template without one; the game refuses a declared
+/// property its template has, so the furnace's replaces it.
 fn furnator_declaration(carried: &Value) -> Value {
     let mut decl = carried.clone();
     decl["template"] = json!("minecraft:furnace");
+    if let Some(fields) = decl.as_object_mut() {
+        for field in ["state_properties", "state_defaults", "default_state", "placement"] {
+            fields.remove(field);
+        }
+    }
     let mut properties = carried["properties"].as_object().cloned().unwrap_or_default();
     properties.insert("light".into(), json!(0));
     decl["properties"] = Value::Object(properties);
@@ -263,6 +270,23 @@ mod tests {
         assert_eq!(decl["properties"]["hardness"], 2.0);
         assert_eq!(decl["properties"]["sounds"], "minecraft:stone");
         assert_eq!(decl["properties"]["light"], 0);
+    }
+
+    #[test]
+    fn a_furnator_declares_nothing_the_furnace_template_has() {
+        let decl = furnator_declaration(&json!({
+            "template": "minecraft:iron_block",
+            "components": { "minecraft:max_stack_size": 1 },
+            "placement": { "facing": "horizontal_look_opposite" },
+            "properties": { "hardness": 2.0 },
+            "state_defaults": { "facing": "north" },
+            "state_properties": { "facing": ["north", "east", "south", "west", "up", "down"] },
+        }));
+        assert_eq!(decl["template"], "minecraft:furnace");
+        assert_eq!(decl["components"]["minecraft:max_stack_size"], 1);
+        for field in ["state_properties", "state_defaults", "placement"] {
+            assert!(decl.get(field).is_none(), "{field}");
+        }
     }
 
     #[test]

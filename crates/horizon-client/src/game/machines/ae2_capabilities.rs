@@ -21,7 +21,7 @@ fn native_sided_slot_limit(kind: Kind, slot: usize, item: &str, occupied: bool, 
 }
 /// `BlockOrientation.getSide(TOP)` of a block with `facing` and `spin`
 /// (`OrientationStrategies.full`).
-pub(super) fn orientation_up(facing: &str, spin: usize) -> Option<Direction> {
+pub(in crate::game) fn orientation_up(facing: &str, spin: usize) -> Option<Direction> {
     match facing {
         "down"=>[Direction::North,Direction::West,Direction::South,Direction::East],
         "up"=>[Direction::North,Direction::East,Direction::South,Direction::West],
@@ -42,6 +42,7 @@ pub(super) fn ae2_slot_insert(kind: MachineKind, index: usize, stack: &ItemStack
         MachineKind::Drive => Some((cell(stack), 1)),
         // IOPortBlockEntity: inputCellsExt is INSERT_ONLY, outputCellsExt EXTRACT_ONLY.
         MachineKind::IoPort => Some((index < 6 && cell(stack), 1)),
+        MachineKind::Ext(_) => crate::game::ae2x::slot_insert(kind, index).map(|ok| (ok, 64)),
         _ => None,
     }
 }
@@ -49,7 +50,10 @@ pub(super) fn ae2_slot_insert(kind: MachineKind, index: usize, stack: &ItemStack
 /// leaves the plain container rules.
 pub(super) fn ae2_slot_extract(kind: MachineKind, index: usize) -> Option<bool> {
     // IOPortBlockEntity: only the output cells come out.
-    (kind == MachineKind::IoPort).then_some(index >= 6)
+    if kind == MachineKind::IoPort {
+        return Some(index >= 6);
+    }
+    crate::game::ae2x::slot_extract(kind, index)
 }
 
 #[derive(Clone)]
@@ -112,7 +116,7 @@ impl Game<'_> {
                     | MachineKind::SmoothSkyStoneChest
                     | MachineKind::IoPort
                     | MachineKind::QuantumLink
-            ) {
+            ) && crate::game::ae2x::slot_insert(m.kind, 0).is_none() {
                 return None;
             }
         }

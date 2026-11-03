@@ -880,6 +880,7 @@ fn addon_layout(block: &str) -> Option<&'static Layout> {
 fn layout_of(m: &Machine) -> Option<&'static Layout> {
     match m.variant {
         Some(variant) => addon_layout(variant.block),
+        None if matches!(m.kind, MachineKind::Ext(_)) => addon_layout(m.id()),
         None => layout(m.kind),
     }
 }
@@ -955,6 +956,13 @@ impl Game<'_> {
                 data.extend(wide(required));
             }
             MachineKind::IoPort => data.resize(4, 0),
+            // An addon machine's ProgressBar (`IProgressProvider`).
+            MachineKind::Ext(_) => {
+                if let Some((current, max)) = super::ae2x::machine_progress(m) {
+                    data.extend(wide(current));
+                    data.extend(wide(max));
+                }
+            }
             // PatternProviderMenu: the settings, then whether crafting is
             // locked now and why (`craftingLockedReason`): 1 until a pulse,
             // 2 by a signal, 3 by its lack, 4 until a result returns.

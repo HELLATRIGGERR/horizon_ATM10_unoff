@@ -5990,7 +5990,8 @@ impl Game<'_> {
     }
     pub(super) fn ae2_has_machine_menu(&self, pos: (i32, i32, i32)) -> bool {
         use horizon_client::{ae2_world::MachineKind as K, containers::BlockEntity};
-        matches!(self.world.block_entities.get(&pos),Some(BlockEntity::Ae2(m)) if matches!(m.kind,K::Drive|K::Chest|K::VibrationChamber|K::Inscriber|K::Interface|K::PatternProvider|K::MolecularAssembler|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|K::IoPort|K::Condenser|K::WirelessAccessPoint))
+        matches!(self.world.block_entities.get(&pos),Some(BlockEntity::Ae2(m)) if matches!(m.kind,K::Drive|K::Chest|K::VibrationChamber|K::Inscriber|K::Interface|K::PatternProvider|K::MolecularAssembler|K::CellWorkbench|K::QuantumLink|K::SpatialIoPort|K::IoPort|K::Condenser|K::WirelessAccessPoint)
+            || matches!(m.kind,K::Ext(_)) && super::ae2x::machine_menu(m))
     }
     fn ae2_machine_slots(&self, pos: (i32, i32, i32)) -> Option<Vec<Option<ItemStack>>> {
         use horizon_client::containers::BlockEntity;
@@ -6164,6 +6165,7 @@ impl Game<'_> {
                 slot == 1 && horizon_client::ae2x::defs::get().component(&item.item).is_some()
             }
             K::WirelessAccessPoint => slot == 0 && item.item.as_ref() == "ae2:wireless_booster",
+            K::Ext(_) => super::ae2x::machine_may_place(m, slot).unwrap_or(false),
             K::PatternProvider => super::ae2_pattern_access::encoded_pattern_item(item),
             K::Interface => true,
             K::MolecularAssembler => match slot {
@@ -6539,6 +6541,7 @@ impl Game<'_> {
             if shape.page.is_some() {
                 return super::ae2_machine_ui::paged_interface_items(&machine,shape);
             }
+            super::ae2x::machine_menu_items(&machine,&mut items);
             if machine.kind == horizon_client::ae2_world::MachineKind::Inscriber {
                 let value=|key:&str,default:&str|match machine.config.get(&key.into()) {Some(Tag::String(s))=>s.to_string().unwrap_or_else(|_|default.to_owned()),_=>default.to_owned()};
                 items[24]=Some(navigation(&format!("Auto export: {}; click to change",value("auto_export","NO"))));
@@ -7402,6 +7405,7 @@ impl Game<'_> {
         }
     }
     fn ae2_machine_click(&mut self,pos:(i32,i32,i32),slot:Option<usize>,button:i32,input:Input) {
+        if slot.is_some_and(|slot|self.ae2x_machine_click(pos,slot,button,input)) {return;}
         if matches!(slot,Some(324|325|326)) && input==Input::Pickup && (0..=1).contains(&button)
             && self.ae2_inscriber_setting(pos,slot.unwrap(),button==1) {return;}
         if matches!(slot,Some(324|325|326)) && input==Input::Pickup && (0..=1).contains(&button)

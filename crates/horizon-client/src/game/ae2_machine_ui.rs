@@ -217,9 +217,13 @@ mod menu_shape_tests {
         assert_eq!(items.iter().flatten().count(), 1);
     }
 }
-fn max_card(kind: MachineKind, id: &str) -> usize {
+fn max_card(m: &Machine, id: &str) -> usize {
     use MachineKind::*;
-    match (kind, id) {
+    // An addon's machine takes the cards its rows give it (`Upgrades.add`).
+    if m.variant.is_some() || m.kind.ext().is_some() {
+        return horizon_client::ae2x::defs::get().upgrade_limit(id, m.id());
+    }
+    match (m.kind, id) {
         (MolecularAssembler, "ae2:speed_card") => 5,
         (Inscriber, "ae2:speed_card") => 4,
         (VibrationChamber, "ae2:speed_card" | "ae2:energy_card") => 3,
@@ -235,7 +239,7 @@ pub(super) fn machine_upgrade_allowed(m: &Machine, slot: usize, item: &ItemStack
     if slot >= m.upgrades.len() || item.count == 0 {
         return false;
     }
-    let max = max_card(m.kind, &item.item);
+    let max = max_card(m, &item.item);
     if max == 0 {
         return false;
     }

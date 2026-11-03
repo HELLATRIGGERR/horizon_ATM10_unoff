@@ -1,11 +1,30 @@
 //! ExtendedAE's machine screens on the AE2 layout system (`GuiExPatternProvider`,
-//! `GuiExInterface`, `GuiExDrive` with `ContainerExPatternProvider`,
-//! `ContainerExInterface`, `ContainerExDrive`, and their `screens/ex_*.json`).
+//! `GuiExInterface`, `GuiExDrive`, `GuiExIOPort`, `GuiCrystalAssembler`,
+//! `GuiCircuitCutter` with their containers, and their `screens/*.json`).
 //! Derived from ExtendedAE 1.21-2.2.42, https://github.com/GlodBlock/ExtendedAE
 //! commit 1f86f927552f02451236465c0c96a12a3de8f66c, LGPL-3.0; see
 //! `ae2/addons/extendedae/`.
 //! The window entries are `ae2_machine_ui::MenuShape`'s.
-use super::{Layout, MachineKind, Stored, Toggle, icon};
+use super::{Layout, MachineKind, Progress, Stored, Toggle, icon};
+
+/// The kind of a layout of the mod's own machines, which go by their id.
+const OWN: MachineKind = MachineKind::Ext(u16::MAX);
+/// `ServerSettingToggleButton<>(Settings.AUTO_EXPORT, YesNo.NO)` on the entry
+/// the game takes as its press (`extendedae::AUTO_EXPORT_ENTRY`).
+const AUTO_EXPORT: Toggle = Toggle {
+    entry: 24,
+    key: "auto_export",
+    stored: Stored::Text,
+    default: 0,
+    data: 4,
+    title: "gui.tooltips.ae2.AutoExport",
+    values: &[
+        (NO_YES[0], icon::AUTO_EXPORT_OFF, "gui.tooltips.ae2.AutoExportOff"),
+        (NO_YES[1], icon::AUTO_EXPORT_ON, "gui.tooltips.ae2.AutoExportOn"),
+    ],
+    place: None,
+    shown_by: None,
+};
 
 const NO_YES: [&str; 2] = ["NO", "YES"];
 
@@ -175,6 +194,118 @@ const LAYOUTS: &[(&str, Layout)] = &[
         toggles: &[],
         progress: None,
         priority: Some(26),
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // ContainerExIOPort: AE2's IO Port menu with five cards; GuiExIOPort's
+    // toolbar as GuiIOPort's (fullness, redstone with a card), the
+    // operation mode in its place on the screen.
+    ("extendedae:ex_io_port", Layout {
+        kind: MachineKind::IoPort,
+        style: "ex_io_port.json",
+        slots: &[
+            (0, "MACHINE_INPUT"), (1, "MACHINE_INPUT"), (2, "MACHINE_INPUT"), (3, "MACHINE_INPUT"), (4, "MACHINE_INPUT"), (5, "MACHINE_INPUT"),
+            (6, "MACHINE_OUTPUT"), (7, "MACHINE_OUTPUT"), (8, "MACHINE_OUTPUT"), (9, "MACHINE_OUTPUT"), (10, "MACHINE_OUTPUT"), (11, "MACHINE_OUTPUT"),
+        ],
+        icons: &[
+            (0, icon::BACKGROUND_STORAGE_CELL), (1, icon::BACKGROUND_STORAGE_CELL), (2, icon::BACKGROUND_STORAGE_CELL), (3, icon::BACKGROUND_STORAGE_CELL),
+            (4, icon::BACKGROUND_STORAGE_CELL), (5, icon::BACKGROUND_STORAGE_CELL), (6, icon::BACKGROUND_STORAGE_CELL), (7, icon::BACKGROUND_STORAGE_CELL),
+            (8, icon::BACKGROUND_STORAGE_CELL), (9, icon::BACKGROUND_STORAGE_CELL), (10, icon::BACKGROUND_STORAGE_CELL), (11, icon::BACKGROUND_STORAGE_CELL),
+        ],
+        upgrades: 12..17,
+        toggles: &[
+            Toggle {
+                entry: 24,
+                key: "io_fullness",
+                stored: Stored::Text,
+                default: 0,
+                data: 0,
+                title: "gui.tooltips.ae2.OperationMode",
+                values: &[
+                    ("empty", icon::FULLNESS_EMPTY, "gui.tooltips.ae2.MoveWhenEmpty"),
+                    ("half", icon::FULLNESS_HALF, "gui.tooltips.ae2.MoveWhenWorkIsDone"),
+                    ("full", icon::FULLNESS_FULL, "gui.tooltips.ae2.MoveWhenFull"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 25,
+                key: "io_redstone",
+                stored: Stored::Text,
+                default: 0,
+                data: 1,
+                title: "gui.tooltips.ae2.RedstoneMode",
+                values: &[
+                    ("ignore", icon::REDSTONE_IGNORE, "gui.tooltips.ae2.AlwaysActive"),
+                    ("low", icon::REDSTONE_LOW, "gui.tooltips.ae2.ActiveWithoutSignal"),
+                    ("high", icon::REDSTONE_HIGH, "gui.tooltips.ae2.ActiveWithSignal"),
+                ],
+                place: None,
+                shown_by: Some(3),
+            },
+            Toggle {
+                entry: 26,
+                key: "io_operation",
+                stored: Stored::Text,
+                default: 1,
+                data: 2,
+                title: "gui.tooltips.ae2.TransferDirection",
+                values: &[
+                    ("fill", icon::ARROW_LEFT, "gui.tooltips.ae2.TransferToStorageCell"),
+                    ("empty", icon::ARROW_RIGHT, "gui.tooltips.ae2.TransferToNetwork"),
+                ],
+                place: Some((80, 17)),
+                shown_by: None,
+            },
+        ],
+        progress: None,
+        priority: None,
+        // drawBG: a 1k cell and a drive, where GuiIOPort draws them.
+        decorations: &[("ae2:item_storage_cell_1k", (58, 17)), ("ae2:drive", (102, 17))],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // ContainerCrystalAssembler: nine inputs (BREAK_AFTER_3COLS), the tank as
+    // a STORAGE slot, the output; four cards; GuiCrystalAssembler's vertical
+    // progress bar and AUTO_EXPORT toggle. Its output side screen
+    // (OutputSideConfig) is not drawn: the sides are the entries 14 to 19.
+    ("extendedae:crystal_assembler", Layout {
+        kind: OWN,
+        style: "crystal_assembler.json",
+        slots: &[
+            (0, "MACHINE_INPUT"), (1, "MACHINE_INPUT"), (2, "MACHINE_INPUT"), (3, "MACHINE_INPUT"), (4, "MACHINE_INPUT"), (5, "MACHINE_INPUT"),
+            (6, "MACHINE_INPUT"), (7, "MACHINE_INPUT"), (8, "MACHINE_INPUT"), (9, "MACHINE_OUTPUT"), (20, "STORAGE"),
+        ],
+        icons: &[],
+        upgrades: 10..14,
+        toggles: &[AUTO_EXPORT],
+        progress: Some(Progress { name: "progressBar", current: 0, max: 2 }),
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // ContainerCircuitCutter: one input, the output, four cards; as the assembler's.
+    ("extendedae:circuit_cutter", Layout {
+        kind: OWN,
+        style: "circuit_cutter.json",
+        slots: &[(0, "MACHINE_INPUT"), (1, "MACHINE_OUTPUT")],
+        icons: &[],
+        upgrades: 2..6,
+        toggles: &[AUTO_EXPORT],
+        progress: Some(Progress { name: "progressBar", current: 0, max: 2 }),
+        priority: None,
         decorations: &[],
         grid: None,
         cogs: &[],

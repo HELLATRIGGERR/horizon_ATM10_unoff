@@ -36,8 +36,8 @@ there first (`ScreenStyle::load_over`), and the GUI atlas names those textures `
 
 Differences, known:
 
-- The devices themselves come from Crystal Assembler recipes (`assembler/ex_*.json`), which wait for that machine
-  in slice 2 (with the Concurrent Processor). Until then they come from commands or a creative player.
+- The devices themselves come from Crystal Assembler recipes (`assembler/ex_*.json`), carried with that machine
+  in slice 2 (below).
 - Memory Cards do nothing on these devices yet: a card's settings go with AE2's nine slots.
 - A part's Interface page is kept across a restart (it lives in the part's record); a block's resets, as in the mod.
 - No in-frame window for them: `--in-frame` is deprecated, and AE2's Pattern Provider has none either.
@@ -53,10 +53,51 @@ the recipes, all through a restart, and broken (`setblock ... destroy`) each dev
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-machines
 ```
 
+## Slice 2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port
+
+| ExtendedAE | Port |
+|---|---|
+| `TileCrystalAssembler`: nine inputs, one output, a fluid tank of 16,000 mB (`GenericStackInv`, fluids, no extraction), four speed cards, 8,000 AE of its own; connects and takes Forge Energy on every side but its top; no channel, no idle draw | an `ExtMachine` row (`ae2x/extendedae.rs`, `OWN_MACHINES`); its tick, recipe search and push-out in `game/ae2x/extendedae/machines.rs` |
+| `CrystalAssemblerRecipe` (`extendedae:crystal_assembler`): `input_items` of `{ingredient, amount}`, an optional `input_fluid`, `output`; `testRecipe` lets each ingredient take, in turn, from copies of the inputs in slot order and then the tank | `machines::Recipe`, `test`, `run`; the jar's recipes the slices can use, and those with the mod's own `extendedae:config` condition, which `prepare-addon.ts` answers from ATM10's config (`enable_crystal_assembler_inscribe_processors = true`) |
+| `RecipeExecutor` with `FCUtil.speedCardMap`: 2, 3, 5, 10 or 50 progress a step for 0 to 4 cards, ten AE a progress point, from its own buffer first, then the grid; 200 to finish; the Inscriber's tick rates | `machines::execute`; a craft costs 2,000 AE (2,010 with one card: 67 steps of 3) |
+| Glodium's `RecipeSearchContext`: the last recipe tried first, `stuck` after a search that found nothing twice, `onInvChange` on any slot or the tank | `machines::Ctx`, kept by block entity and not saved: `load` reads the ids from the outer tag, so a reloaded machine has no recipe, and its progress, not saved either, starts over |
+| `pushOutResult` (`FCUtil.ejectInv`): with AUTO_EXPORT, up to 64 of the output to the first output side, in `Direction` order, whose block entity takes any (another of the same machine is passed over) | `extendedae_push_out`; the output sides are saved (`output_side`), all six until set |
+| `ContainerCrystalAssembler`, `GuiCrystalAssembler`, `screens/crystal_assembler.json`: the inputs in threes, the tank as a STORAGE slot, a vertical progress bar, AUTO_EXPORT on the toolbar; a bucket emptied on the tank slot fills it | a `MenuShape` window of 27: inputs 0..9, output 9, cards 10..14, the tank 20, AUTO_EXPORT 24, the output sides 14..20 (`screens.rs`) |
+| `TileCircuitCutter` (the Circuit Slicer, `extendedae:circuit_cutter`): the same with one input and no tank; connects on all but its front and back | the same code (`machines::Kind::Cutter`) |
+| `TileCrystalFixer` (`extendedae:crystal_fixer`): one fuel slot, refuelled by a use of the block (an empty hand takes it back); 2 or 3 progress a step at 50 AE a point, 100 to finish, at 2 to 10 ticks; at the end the fuel is burnt and, with the recipe's chance in 10,000, the block in front becomes the output's default state; connects only at its back; progress saved | `machines::Kind::Fixer`, `FixerRecipe`; refuelling by `ae2x_block_use` |
+| `TileExIOPort`: AE2's IO Port with five cards, 2,048 items a tick doubled by each speed card (AE2's: 256, three cards) | a `MachineVariant` on `MachineKind::IoPort`; `ae2x::io_port_budget` |
+| `EAERegistryHandler.registerUpgrades` | `Defs::add_upgrade` rows for each device, which `ae2_machine_ui::machine_upgrade_allowed` now reads for every addon machine |
+| materials: the concurrent processor, its print and press, the machine frame, entro crystal, dust and ingot, entro and silicon blocks | plain items and blocks of `content.json`, with their crafting, inscriber and transform recipes |
+
+Checked locally against ATM10's final recipes (a NeoForge run of the whole pack): each Crystal Assembler, Circuit
+Slicer and Crystal Fixer recipe this port carries is there under its id, identical in every field. The pack's
+other recipes of these types need devices of later slices or come from other mods; the full pack's carries
+bring those.
+
+Differences, known:
+
+- The output side screen (`OutputSideConfig`) is not drawn; the sides are kept and set by the window's entries 14
+  to 19, and a Memory Card does not copy them (`EXTRA_SETTING`).
+- A recipe search goes in the recipes' load order; Java's in its recipe manager's hash order. Only inputs that
+  two recipes both accept can tell.
+- The tank fills from water and lava buckets in the window only: the port has no fluid pipes, and AE2's export bus
+  and pattern provider do not push fluids into it yet.
+- The Extended Import and Export Buses, Inscriber, Charger and Molecular Assembler are not carried yet (their
+  Crystal Assembler recipes wait with them). The buses' card rows and part models are in place.
+- Entro's budding blocks, clusters and seeds (and the fixer's entro recipes) come with a later slice.
+
+Tests: `horizon-client` (the rows, sizes, cards and IO budget in `ae2x::extendedae`; recipe matching, the search
+context, the executor's steps and energy, fixer recipes and output sides in `game::ae2x::extendedae::machines`)
+and the world test `extendedae-crystal`:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-crystal
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
-2. Extended IO Port and buses (x8 in ATM10), Inscriber, Charger, Molecular Assembler; Crystal Assembler, Circuit
-   Slicer, Crystal Fixer and their recipe types; Entro.
+2. (the rest) Extended Import and Export Buses (x8 in ATM10), Inscriber, Charger, Molecular Assembler; Entro's
+   budding blocks, clusters and seeds.
 3. Assembler Matrix (max size 6 in ATM10).
 4. Wireless Connector and Hub (range 1,000).
 5. Special buses, emitters and planes.

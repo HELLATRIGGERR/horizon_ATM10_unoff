@@ -1,15 +1,24 @@
 {
   "namespace": "extendedae",
   "name": "ExtendedAE",
-  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1).",
+  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, and the materials of their recipes (slice 2).",
   "authors": ["GlodBlock (ExtendedAE)"],
-  "slices": ["1: Extended Pattern Provider and Interface, block and part; ME Extended Drive; their upgrade kits"],
+  "slices": [
+    "1: Extended Pattern Provider and Interface, block and part; ME Extended Drive; their upgrade kits",
+    "2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port; concurrent processors, machine frame, entro materials"
+  ],
   "items": {
     "ex_pattern_provider_part": {},
     "ex_interface_part": {},
     "pattern_provider_upgrade": {},
     "interface_upgrade": {},
-    "drive_upgrade": {}
+    "drive_upgrade": {},
+    "concurrent_processor": {},
+    "concurrent_processor_print": {},
+    "concurrent_processor_press": {},
+    "entro_crystal": {},
+    "entro_dust": {},
+    "entro_ingot": {}
   },
   "blocks": {
     "ex_pattern_provider": {
@@ -25,10 +34,41 @@
       "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"]},
       "state_defaults": {"facing": "north", "spin": "0"},
       "model": "extendedae:block/extended_drive/extended_me_drive_base"
+    },
+    "crystal_assembler": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"], "working": ["false", "true"]},
+      "state_defaults": {"facing": "north", "spin": "0", "working": "false"}
+    },
+    "circuit_cutter": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block", "no_occlusion": true, "light_dampening": 1},
+      "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"], "working": ["false", "true"]},
+      "state_defaults": {"facing": "north", "spin": "0", "working": "false"}
+    },
+    "crystal_fixer": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block", "no_occlusion": true, "light_dampening": 2},
+      "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"]},
+      "state_defaults": {"facing": "north"}
+    },
+    "ex_io_port": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"], "powered": ["false", "true"]},
+      "state_defaults": {"facing": "north", "spin": "0", "powered": "false"}
+    },
+    "machine_frame": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": true, "sounds": "minecraft:iron_block"}
+    },
+    "entro_block": {
+      "properties": {"hardness": 3, "explosion_resistance": 8, "requires_tool": true, "sounds": "minecraft:stone"}
+    },
+    "silicon_block": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": true, "sounds": "minecraft:iron_block"}
     }
   },
+  "recipe_types": ["extendedae:crystal_assembler", "extendedae:circuit_cutter", "extendedae:crystal_fixer"],
+  "config_conditions": {"assembler_circuit": {"file": "extendedae-common.toml", "key": "device.enable_crystal_assembler_inscribe_processors", "default": true}},
   "ae2_namespace": {
-    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json"],
-    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png"]
+    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json"],
+    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png", "crystal_assembler.png", "circuit_cutter.png"]
   }
 }

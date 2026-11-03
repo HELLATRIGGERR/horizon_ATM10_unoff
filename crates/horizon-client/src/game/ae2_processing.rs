@@ -65,6 +65,7 @@ pub(super) fn ae2_private_power_face(
     match kind {
         MachineKind::Inscriber | MachineKind::Charger => face != facing,
         MachineKind::GrowthAccelerator => face == facing || face == facing.opposite(),
+        MachineKind::Ext(_) => super::ae2x::private_power_face(kind, state, face),
         _ => false,
     }
 }

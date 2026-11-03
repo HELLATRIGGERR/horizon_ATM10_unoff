@@ -20,6 +20,7 @@
   "requires": ["ae2 19.2.18"],
   "derived_files": [
     "crates/horizon-client/src/ae2x/extendedae.rs",
+    "crates/horizon-client/src/game/ae2x/extendedae/machines.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/mod.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/screens.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/upgrade.rs"

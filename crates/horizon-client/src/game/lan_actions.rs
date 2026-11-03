@@ -2241,7 +2241,7 @@ impl Game<'_> {
                             g.with_hand(hand, |g| {
                                 let bypass = g.keys.contains(&KeyCode::ShiftLeft)
                                     && (g.inventory[g.selected].is_some() || g.offhand.is_some());
-                                (!bypass && (g.ae2_try_crank_use(pos) || g.ae2_try_charger_use(pos)))
+                                (!bypass && (g.ae2_try_crank_use(pos) || g.ae2_try_charger_use(pos) || g.ae2x_block_use(pos)))
                                     || g.ae2_try_tank_interaction(pos)
                             })
                         })

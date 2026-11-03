@@ -82,6 +82,7 @@ pub fn register(defs: &mut Defs) {
         physical_slots: 0,
         upgrade_slots: 0,
         key_drops: Some(key_drops),
+        power_capacity: None,
     });
     // AbstractDisplayPart: 0.5 AE/t, and it needs a channel.
     defs.add_part(PartDef { id: TERMINAL.into(), idle_power: 0.5, requires_channel: true });

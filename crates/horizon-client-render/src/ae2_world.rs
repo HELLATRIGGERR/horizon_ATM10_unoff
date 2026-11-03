@@ -66,6 +66,9 @@ pub struct ExtMachine {
     /// Owned keys kept in the machine's `config` that a break drops: one
     /// item of each and its amount (AE2's `AEKey.addDrops` splits them).
     pub key_drops: Option<fn(&Machine) -> Vec<(ItemStack, u64)>>,
+    /// `AEBasePoweredBlockEntity.setInternalMaxPower`: the AE of its own
+    /// buffer, filled by Forge Energy on its power sides; none without one.
+    pub power_capacity: Option<f64>,
 }
 static EXT_MACHINES: std::sync::OnceLock<Vec<ExtMachine>> = std::sync::OnceLock::new();
 /// The addon machines, installed once at start-up before any world loads;
@@ -331,6 +334,7 @@ impl Machine {
         match self.kind {
             MachineKind::Inscriber | MachineKind::Charger | MachineKind::GrowthAccelerator => Some(1600.0),
             MachineKind::Chest => self.chest_power_capacity,
+            MachineKind::Ext(_) => self.kind.ext().and_then(|m| m.power_capacity),
             _ => None,
         }
     }

@@ -339,6 +339,8 @@ impl Game<'_> {
             .any(|s| &*s.item == "ae2:redstone_card");
         let rs = text(&machine.config, "io_redstone").unwrap_or_else(|| "ignore".into());
         let speed = machine.installed_speed_cards().min(3);
+        // ExtendedAE's port moves more (`TileExIOPort.tickingRequest`).
+        let budget = super::ae2x::io_port_budget(machine).unwrap_or(256u64 * (1u64 << speed));
         if redstone_card {
             let at = horizon_core::position::BlockPos::new(pos.0, pos.1, pos.2);
             let powered =
@@ -354,7 +356,7 @@ impl Game<'_> {
         }
         io_port_slots(
             self,
-            256u64 * (1u64 << speed),
+            budget,
             |g: &mut Self, slot| {
                 let Some(BlockEntity::Ae2(m)) = g.world.block_entities.get(&pos) else {
                     return Err("I/O port disappeared".into());

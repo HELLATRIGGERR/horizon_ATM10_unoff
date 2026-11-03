@@ -954,6 +954,8 @@ fn ae2_reset_unsaved(m: &mut crate::ae2_world::Machine) {
             m.progress = 0.0;
             m.config.remove(&"ae2_smash".into());
         }
+        #[cfg(feature = "ae2-extendedae")]
+        MachineKind::Ext(_) => crate::ae2x::extendedae::reset_unsaved(m),
         MachineKind::MolecularAssembler => m.progress = 0.0,
         MachineKind::VibrationChamber => {
             let config = crate::ae2_common_config::processing();

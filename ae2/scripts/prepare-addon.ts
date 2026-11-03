@@ -14,6 +14,10 @@ type Block = Declared & { template?: string; properties?: Record<string, unknown
   model?: string };
 type Content = { namespace: string; name: string; description: string; authors: string[]; slices: string[];
   items: Record<string, Declared>; blocks: Record<string, Block>;
+  /** The addon's own recipe types whose machines the slices carry: their recipes are kept. */
+  recipe_types?: string[];
+  /** The addon's own recipe condition (`<ns>:config`, by `config_id`): the setting of its ATM10 config it reads. */
+  config_conditions?: Record<string, { file: string; key: string; default: boolean }>;
   /** Files the addon ships under AE2's namespace that the declared slices use, kept under `assets/<ns>/ae2/`
    * (a content mod owns its namespace alone): screen styles and GUI textures. */
   ae2_namespace?: { screens?: string[]; gui_textures?: string[] } };
@@ -102,21 +106,49 @@ if (!help(usage)) {
 
   // Recipes: those of the declared items only, in their 1.21.1 form, which
   // the port reads (AE2's own are kept so too). A recipe naming an item of
-  // the addon not declared yet, or with NeoForge conditions, waits for its slice.
+  // the addon not declared yet, or of a recipe type of the addon's whose
+  // machine is not declared, waits for its slice; one the addon's config
+  // conditions turn off in ATM10 is left out.
   const ids = (value: unknown, found: Set<string>): Set<string> => {
     if (typeof value === 'string') { if (value.startsWith(ns + ':')) found.add(value); }
     else if (Array.isArray(value)) value.forEach(v => ids(v, found));
     else if (value && typeof value === 'object') for (const [key, v] of Object.entries(value)) if (key !== 'type' && key !== 'tag') ids(v, found);
     return found;
   };
+  // The addon's own conditions are answered from ATM10's config; NeoForge's
+  // (`mod_loaded` and the like) stay for the game to answer.
+  const setting = (id: string): boolean | undefined => {
+    const spec = content.config_conditions?.[id];
+    if (!spec) return undefined;
+    const path = join(atm10, 'config', spec.file);
+    let value: unknown = existsSync(path) ? Bun.TOML.parse(readFileSync(path, 'utf8')) : undefined;
+    for (const part of spec.key.split('.')) value = (value as any)?.[part];
+    return typeof value === 'boolean' ? value : spec.default;
+  };
+  const answer = (conditions: any[]): any[] | undefined => {
+    const rest = [];
+    for (const condition of conditions) {
+      if (condition?.type !== `${ns}:config`) { rest.push(condition); continue; }
+      if (setting(condition.config_id) !== true) return undefined;
+    }
+    return rest;
+  };
   const recipes = join(data, ns, 'recipe');
   for (const file of walk(recipes).filter(p => p.endsWith('.json'))) {
     const name = `${ns}:${relative(recipes, file).replaceAll('\\', '/').slice(0, -5)}`;
     const recipe = read(file);
     const missing = [...ids(recipe, new Set())].filter(i => !items.has(i));
-    if (recipe['neoforge:conditions']) report.recipes_left_out[name] = `conditions ${JSON.stringify(recipe['neoforge:conditions'])}`;
-    else if (String(recipe.type).startsWith(ns + ':')) report.recipes_left_out[name] = `recipe type ${recipe.type} comes with its machine's slice`;
+    const declared = recipe['neoforge:conditions'] as any[] | undefined;
+    const conditions = declared ? answer(declared) : [];
+    if (!conditions) report.recipes_left_out[name] = `the config says no: ${JSON.stringify(declared)}`;
+    else if (String(recipe.type).startsWith(ns + ':') && !(content.recipe_types ?? []).includes(recipe.type)) report.recipes_left_out[name] = `recipe type ${recipe.type} comes with its machine's slice`;
     else if (missing.length) report.recipes_left_out[name] = `needs ${missing.join(', ')}`;
+    else if (declared) {
+      // The config's conditions met: the recipe with NeoForge's left for the game.
+      const { ['neoforge:conditions']: _, ...rest } = recipe;
+      put(join(out, 'data', ns, 'recipe', relative(recipes, file)), conditions.length ? { ...rest, 'neoforge:conditions': conditions } : rest);
+      report.recipes.push(name);
+    }
     else { copy(file, join(out, 'data', ns, 'recipe', relative(recipes, file))); report.recipes.push(name); }
   }
   for (const block of Object.keys(content.blocks)) {

@@ -12,13 +12,14 @@
 // chunks changed), the settings from `config/Mekanism/`, the menu's
 // data slots and buttons (its screen is `mek_ui`), placing a cube (facing the
 // player, with its item's energy and config) and the drop that keeps them, and
-// `/mek probe` for tests. Server hooks run on the thread of the `Game` that
+// `/mek probe` for tests; the processing machines are `mek_machines`, reached
+// from these hooks. Server hooks run on the thread of the `Game` that
 // simulates the world, so the settings are kept per thread, read when a world
 // opens and dropped when it closes. No borrow of that state is held across a
 // call into the game.
 
 use super::{
-    Game,
+    Game, mek_machines,
     native_hooks::NativeFeInfo,
     native_lifecycle::WorldPhase,
     native_server::{NativeCommand, NativeServerPlayer},
@@ -136,13 +137,13 @@ fn read_settings() -> Settings {
         },
         Err(e) => {
             log::warn!("[mekanism] no config folder ({e}): Mekanism's defaults");
-            Settings { energy: EnergyConfig::default(), from_files: false, stamp: [None; 5] }
+            Settings { energy: EnergyConfig::default(), from_files: false, stamp: [None; config::FILES.len()] }
         }
     }
 }
 
 /// The energy settings, read on first use if the world's opening didn't.
-fn energy_config() -> (EnergyConfig, bool) {
+pub(super) fn energy_config() -> (EnergyConfig, bool) {
     SETTINGS.with(|s| {
         let mut s = s.borrow_mut();
         let s = s.get_or_insert_with(read_settings);
@@ -161,19 +162,20 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     ANY_CABLES.set(false);
     SET_BLOCKS.with(|s| s.borrow_mut().clear());
     GENERATORS.with(|g| g.borrow_mut().clear());
+    mek_machines::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
 
 /// `TransmissionType` ordinals in `component_config`.
-const ENERGY: u8 = 0;
-const ITEM: u8 = 3;
+pub(super) const ENERGY: u8 = 0;
+pub(super) const ITEM: u8 = 3;
 
-fn key(name: &str) -> JavaString {
+pub(super) fn key(name: &str) -> JavaString {
     JavaString::from(name)
 }
 
-fn number(tag: Option<&Tag>) -> Option<i64> {
+pub(super) fn number(tag: Option<&Tag>) -> Option<i64> {
     match tag? {
         Tag::Byte(v) => Some(i64::from(*v)),
         Tag::Short(v) => Some(i64::from(*v)),
@@ -199,7 +201,7 @@ pub(super) fn saved_energy(nbt: &Compound) -> Option<u64> {
     })
 }
 
-fn write_energy(nbt: &mut Compound, stored: u64) {
+pub(super) fn write_energy(nbt: &mut Compound, stored: u64) {
     if stored == 0 {
         nbt.remove(&key("energy_containers"));
         return;
@@ -210,7 +212,7 @@ fn write_energy(nbt: &mut Compound, stored: u64) {
     nbt.insert(key("energy_containers"), Tag::List(vec![Tag::Compound(container)]));
 }
 
-fn sides_of(config: &Compound, kind: u8, into: &mut [DataType; 6]) {
+pub(super) fn sides_of(config: &Compound, kind: u8, into: &mut [DataType; 6]) {
     if let Some(Tag::IntArray(ids)) = config.get(&key(&format!("config{kind}"))) {
         for (side, id) in into.iter_mut().zip(ids) {
             *side = DataType::by_id(*id);
@@ -263,6 +265,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some((block.to_owned(), Compound::new()));
         return;
     }
+    if let Some(kind) = mek_machines::kind_of(block) {
+        *entity = Some(mek_machines::new_entity(kind));
+        return;
+    }
     if CableTier::of_block(block).is_some() {
         let mut nbt = Compound::new();
         write_connections(&mut nbt, &[Connection::Normal; 6]);
@@ -277,9 +283,9 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     *entity = Some((block.to_owned(), nbt));
 }
 
-/// `native_block_entity_ticks`: cubes and generators tick.
+/// `native_block_entity_ticks`: cubes, generators and machines tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if CubeTier::of_block(block).is_some() || GeneratorKind::of_block(block).is_some() {
+    if CubeTier::of_block(block).is_some() || GeneratorKind::of_block(block).is_some() || mek_machines::kind_of(block).is_some() {
         *ticks = true;
     }
 }
@@ -296,6 +302,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
         *container = Some(generator_container(kind));
         return;
     }
+    if let Some(kind) = mek_machines::kind_of(block) {
+        *container = Some(mek_machines::container(kind));
+        return;
+    }
     if CubeTier::of_block(block).is_none() {
         return;
     }
@@ -308,17 +318,22 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     });
 }
 
-fn beside(pos: [i32; 3], face: Direction) -> [i32; 3] {
+pub(super) fn beside(pos: [i32; 3], face: Direction) -> [i32; 3] {
     let [dx, dy, dz] = face.offset();
     [pos[0] + dx, pos[1] + dy, pos[2] + dz]
 }
 
-fn add_received(pos: [i32; 3], joules: u64) {
+pub(super) fn add_received(pos: [i32; 3], joules: u64) {
     RECEIVED.with(|r| {
         let mut r = r.borrow_mut();
         let sum = r.entry(pos).or_default();
         *sum = sum.saturating_add(joules);
     });
+}
+
+/// The Joules the block at `pos` took in since its last tick, which starts over.
+pub(super) fn take_received(pos: [i32; 3]) -> u64 {
+    RECEIVED.with(|r| r.borrow_mut().remove(&pos)).unwrap_or(0)
 }
 
 /// What takes energy on an output face.
@@ -331,6 +346,8 @@ enum Target {
     /// A generator's energy face: it takes nothing from outside
     /// (`BasicEnergyContainer.output`), but a cable connects to it.
     Generator,
+    /// A processing machine's face that takes energy.
+    Machine,
     /// Any other block with Forge Energy on the touching side, as Mekanism
     /// sees it through `ForgeStrictEnergyHandler`.
     Fe { can_receive: bool },
@@ -353,6 +370,9 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
         .flatten();
     if let Some(exposed) = generator {
         return exposed.then_some(Target::Generator);
+    }
+    if let Some(open) = game.native_with_mod_block_entity(at, |m| mek_machines::takes_energy(m, side)).flatten() {
+        return open.then_some(Target::Machine);
     }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
@@ -409,6 +429,16 @@ fn hand_over(
     match target {
         Target::Cube => offer(game, config, pos, face, amount, simulate),
         Target::Generator => amount,
+        Target::Machine => {
+            let rest = game
+                .native_with_mod_block_entity(at, |m| mek_machines::offer(m, config, face.opposite(), amount, simulate))
+                .flatten()
+                .unwrap_or(amount);
+            if !simulate && rest < amount {
+                add_received(at, amount - rest);
+            }
+            rest
+        }
         Target::Cable => with_cables(dimension, |d| d.nets.insert_at(at, Some(face.opposite() as usize), amount, simulate)),
         Target::Fe { can_receive } => {
             let side = Some(engine_face(face.opposite()));
@@ -429,6 +459,10 @@ fn hand_over(
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         tick_generator(game, pos, entity, kind);
+        return;
+    }
+    if let Some(kind) = mek_machines::kind_of(&entity.id) {
+        mek_machines::tick(game, pos, entity, kind);
         return;
     }
     let Some(tier) = CubeTier::of_block(&entity.id) else {
@@ -476,11 +510,11 @@ fn last_input(entity: &ModBlockEntity) -> u64 {
 
 // ---- Forge Energy (hook points API 154) -------------------------------------
 
-fn mek_direction(face: Face) -> Direction {
+pub(super) fn mek_direction(face: Face) -> Direction {
     Direction::ALL[face as usize]
 }
 
-fn engine_face(direction: Direction) -> Face {
+pub(super) fn engine_face(direction: Direction) -> Face {
     Face::ALL[direction as usize]
 }
 
@@ -558,6 +592,10 @@ pub(super) fn fe_storage(
         return;
     }
     let (config, _) = energy_config();
+    if mek_machines::kind_of(&entity.id).is_some() {
+        mek_machines::fe_storage(entity, face, &config, info);
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         let energy_face = kind.energy_face(generator_facing(&entity.nbt));
         if config.blacklist_forge || face.is_some_and(|f| mek_direction(f) != energy_face) {
@@ -619,6 +657,10 @@ pub(super) fn fe_transfer(
         return;
     }
     let (config, _) = energy_config();
+    if mek_machines::kind_of(&entity.id).is_some() {
+        mek_machines::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         let energy_face = kind.energy_face(generator_facing(&entity.nbt));
         if config.blacklist_forge || face.is_some_and(|f| mek_direction(f) != energy_face) {
@@ -727,8 +769,9 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
+    let machine = mek_machines::kind_of(&entity.id).is_some();
     let Some(tier) = CableTier::of_block(&entity.id) else {
-        let energy = CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
+        let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
         if energy && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
@@ -750,8 +793,12 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
+    let machine = mek_machines::kind_of(&entity.id).is_some();
+    if machine && !removed {
+        mek_machines::forget(dimension, pos);
+    }
     if CableTier::of_block(&entity.id).is_none() {
-        let energy = CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
+        let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
         if energy && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
@@ -835,6 +882,9 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
         .flatten();
     if let Some(given) = generator {
         return given;
+    }
+    if game.native_with_mod_block_entity(at, |m| mek_machines::kind_of(&m.id).is_some()) == Some(true) {
+        return 0;
     }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
@@ -1020,6 +1070,10 @@ fn probe_cable(game: &mut Game<'_>, pos: [i32; 3], id: &str, tier: CableTier) ->
 /// (`mek_ui`). A changed energy side shows on the block at once: the face's
 /// property is set with `UPDATE_CLIENTS`, as Mekanism updates its model.
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
+    if mek_machines::kind_of(&entity.id).is_some() {
+        mek_machines::button(game, pos, entity, id);
+        return;
+    }
     let (Some(tier), Some(button)) = (CubeTier::of_block(&entity.id), Button::from_id(id)) else {
         return;
     };
@@ -1184,7 +1238,7 @@ const LAVA: &str = "minecraft:lava";
 /// The face a generator's front is on: the heat generator's `facing`, which
 /// its tick copies from its block into its saved compound so the Forge Energy
 /// hook points (which see only the entity) know it; north until then.
-fn generator_facing(nbt: &Compound) -> Direction {
+pub(super) fn generator_facing(nbt: &Compound) -> Direction {
     match nbt.get(&key("facing")) {
         Some(Tag::String(s)) => Direction::from_name(&s.to_string_lossy()).unwrap_or(Direction::North),
         _ => Direction::North,
@@ -1252,14 +1306,14 @@ fn write_heat(nbt: &mut Compound, heat: f64) {
     nbt.insert(key("heat_capacitors"), Tag::List(vec![Tag::Compound(capacitor)]));
 }
 
-fn read_activity(nbt: &Compound) -> Activity {
+pub(super) fn read_activity(nbt: &Compound) -> Activity {
     Activity {
         current: number(nbt.get(&key("active_state"))).unwrap_or(0) != 0,
         delay: number(nbt.get(&key("update_delay"))).unwrap_or(0).clamp(0, 1200) as u32,
     }
 }
 
-fn write_activity(nbt: &mut Compound, activity: Activity) {
+pub(super) fn write_activity(nbt: &mut Compound, activity: Activity) {
     nbt.insert(key("active_state"), Tag::Byte(i8::from(activity.current)));
     nbt.insert(key("update_delay"), Tag::Int(activity.delay as i32));
 }
@@ -1284,8 +1338,13 @@ fn generator_container(kind: GeneratorKind) -> ModContainer {
 }
 
 /// `native_block_entity_slot_accepts`: the heat generator's fuel slot takes
-/// what burns in a furnace, a lava bucket included (`fuelValue > 0`).
-pub(super) fn slot_accepts(block: &str, slot: usize, fuel: bool, accepts: &mut bool) {
+/// what burns in a furnace, a lava bucket included (`fuelValue > 0`); a
+/// machine's slots take what they work with (`mek_machines::slot_accepts`).
+pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bool, accepts: &mut bool) {
+    if let Some(kind) = mek_machines::kind_of(block) {
+        mek_machines::slot_accepts(kind, slot, stack, accepts);
+        return;
+    }
     if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {
         *accepts = false;
     }
@@ -1469,7 +1528,7 @@ fn tick_heat(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
 }
 
 /// Sets the block's `active` (`setBlockAndUpdate`), when `value` says to.
-fn show_active(game: &mut Game<'_>, pos: [i32; 3], value: Option<bool>, shown: &mut bool) {
+pub(super) fn show_active(game: &mut Game<'_>, pos: [i32; 3], value: Option<bool>, shown: &mut bool) {
     if let Some(on) = value {
         game.native_set_block_property_with(pos, "active", if on { "true" } else { "false" }, flags::UPDATE_ALL);
         *shown = on;
@@ -1606,10 +1665,13 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
 
 fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     let (config, from_files) = energy_config();
-    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone(), last_input(m), m.data.clone()));
-    let Some((id, nbt, input, data)) = found else {
+    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone(), last_input(m), m.data.clone(), m.items.clone()));
+    let Some((id, nbt, input, data, items)) = found else {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };
+    if mek_machines::kind_of(&id).is_some() {
+        return mek_machines::probe(game, pos, &id, &nbt, &data, &items);
+    }
     if let Some(tier) = CableTier::of_block(&id) {
         return probe_cable(game, pos, &id, tier);
     }

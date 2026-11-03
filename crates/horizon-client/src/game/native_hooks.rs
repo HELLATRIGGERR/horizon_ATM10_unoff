@@ -6,6 +6,8 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 159 adds the world's furnace, blast furnace, smoker and campfire recipes for a mod's machines (`native_cooking_recipes`).
+//!
 //! API 158 adds a mixin bundle saying it listens to entities joining and leaving a level (`native_entity_level_listened`).
 //!
 //! API 157 adds what a generator reads of the world around it: the helpers `native_biome` (`Level.getBiome`
@@ -503,7 +505,7 @@ use horizon_client::{
         BlockEntity, MOD_MENUS, ModBlockEntity, ModBlockEntityFields, ModContainer,
         ModEnergyBuffer, ModFluidTanks,
     },
-    crafting::{CustomRecipe, Ingredient, recipe_result},
+    crafting::{Cooking, CustomRecipe, Ingredient, recipe_result},
     extras::Corner,
     extras_hud::Corners,
     fast_hash::FxHashMap,
@@ -551,7 +553,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 158;
+pub(crate) const NATIVE_HOOKS_API: u32 = 159;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -8083,6 +8085,20 @@ impl Game<'_> {
             return &[];
         }
         self.recipes().custom.get(kind).map_or(&[], Vec::as_slice)
+    }
+    /// Every furnace, blast furnace, smoker and campfire recipe of the world's
+    /// tables, in file order: each one's `kind` (`minecraft:smelting`...), its
+    /// ingredient's items, its result, cooking time and experience. A mod's
+    /// electric furnace smelts with them (Mekanism's Energized Smelter takes
+    /// `RecipeType.SMELTING`'s, one in and the result out). The slice stays
+    /// the same until the tables change (`/reload`), so a mod can index it once
+    /// per slice. Empty outside a world; like `native_recipes_of_type`, the
+    /// server's table on the server thread. API 159.
+    pub(super) fn native_cooking_recipes(&self) -> &[Cooking] {
+        if self.outside_world() {
+            return &[];
+        }
+        &self.recipes().cooking
     }
     /// An ingredient as a recipe's JSON names it: an item, a `#tag`, or a list
     /// of them, a bare id as `minecraft:` (as vanilla reads it); `test` says

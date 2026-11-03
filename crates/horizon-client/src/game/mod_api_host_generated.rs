@@ -523,6 +523,9 @@ impl Host for super::Game<'_> {
     fn dimension_type(&self) -> NativeDimensionType {
         self.native_dimension_type()
     }
+    fn cooking_recipes(&self) -> &[Cooking] {
+        self.native_cooking_recipes()
+    }
     fn hide_player(&mut self, uuid: u128, level: Option<u8>) -> bool {
         self.native_hide_player(uuid, level)
     }

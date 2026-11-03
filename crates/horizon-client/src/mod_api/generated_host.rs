@@ -1258,6 +1258,17 @@ pub trait Host {
     fn dimension_type(&self) -> NativeDimensionType {
         unimplemented!("Host::dimension_type")
     }
+    /// Every furnace, blast furnace, smoker and campfire recipe of the world's
+    /// tables, in file order: each one's `kind` (`minecraft:smelting`...), its
+    /// ingredient's items, its result, cooking time and experience. A mod's
+    /// electric furnace smelts with them (Mekanism's Energized Smelter takes
+    /// `RecipeType.SMELTING`'s, one in and the result out). The slice stays
+    /// the same until the tables change (`/reload`), so a mod can index it once
+    /// per slice. Empty outside a world; like `native_recipes_of_type`, the
+    /// server's table on the server thread. API 159.
+    fn cooking_recipes(&self) -> &[Cooking] {
+        unimplemented!("Host::cooking_recipes")
+    }
     /// Hides that player (a vanish) from the players below permission
     /// `level`, or shows them again (None): from the next tick those players
     /// lose them from the Tab list and the world (their client stops

@@ -14,8 +14,15 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   the helpers `native_biome` and `native_dimension_type`; light, weather and the day time were there (`native_light`,
   `native_weather`, `native_day_time`), and lava beside a block is `native_block`. World tests `solar-generator`,
   `heat-generator`.
+- S12 (the Enrichment Chamber, Crusher, Energized Smelter and Metallurgic Infuser): on `feat/mekanism-machines`, with
+  hook points API 159 (`native_cooking_recipes`, the world's smelting recipes for the smelter). World tests
+  `electric-machines` and `metallurgic-infuser`; their numbers were measured on a NeoForge 1.21.1 server with only
+  Mekanism 10.7.19 and ATM10's configs, driven over RCON (`/tick freeze`, `/tick step`, `data get block`; the scripts
+  and logs stay in the local work folder).
 - Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), mod fluids for the heat generator's
-  tank, S11's Configurator in place of `/mek connection`.
+  tank, S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
+  Combiner, Purification Chamber) on the same `machine` crate module, energy items charging machines, chemicals as a
+  capability for the infuser's tank.
 
 ## How to run
 
@@ -26,5 +33,7 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
 
 The carries come from the player's jars: `horizon-port-pack carry <work> --resources <prepared 26.3> mekanism
 mekanismgenerators` on a work folder imported from the ATM10 instance (see `pack/scripts/mekanism.ts` for the paths it
-reads). `mekanism-content` also takes the game's client assets (`MEK_VANILLA`) for the heat generator's lava gauge.
+reads). The machines want the full pack's carries (`MEK_CARRY`, `MEKGEN_CARRY` from `final-data`, with ATM10's final
+recipes) and its `atm10-pack` carry beside them (`MEK_PACK`), whose `minecraft:` and `c:` tags name Mekanism's blocks
+and items: without them a survival pickaxe drops no cube. `mekanism-content` also takes the game's client assets (`MEK_VANILLA`) for the heat generator's lava gauge.
 `chat-log` in a world test gives the newest line first.

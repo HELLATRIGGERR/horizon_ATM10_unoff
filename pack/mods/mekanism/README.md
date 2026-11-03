@@ -1,7 +1,7 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks and Mekanism Generators' Solar and Heat Generators for All the Mods 10, as a native mod of
-this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+Mekanism's energy blocks, its first processing machines and Mekanism Generators' Solar and Heat Generators for All the
+Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -12,7 +12,8 @@ Mekanism and Mekanism Generators are MIT licensed, Copyright (c) 2017-2025 Aidan
 
 No file of Mekanism is committed. Models, textures, recipes and loot tables are generated locally from the player's own
 jars by `mekanism-content`, with our block declarations in `content/` over them: two content mods, `mekanism` and
-`mekanismgenerators`. The heat generator's gauge draws the game's own lava texture, copied from the player's client
+`mekanismgenerators`. Built from the full pack's carries (`horizon-port-pack final-data`), they hold ATM10's final
+recipes, after KubeJS and Almost Unified, and the pack's tags of their own blocks and items; that is local too. The heat generator's gauge draws the game's own lava texture, copied from the player's client
 assets when `mekanism-content` is given them.
 
 ## What there is
@@ -37,6 +38,26 @@ assets when `mekanism-content` is given them.
   `blockDeactivationDelay`.
 - Both generators: Forge Energy on their energy face, cables connecting there, a screen like Mekanism's
   (`GuiSolarGenerator`, `GuiHeatGenerator`), and `/mek probe` answers for tests.
+- The Enrichment Chamber, the Crusher and the Energized Smelter (`TileEntityElectricMachine`) and the Metallurgic
+  Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
+  (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and
+  `mekanism:metallurgic_infusing` recipes (`native_recipes_of_type`, from the carries the content mods come from) and
+  the world's smelting recipes (`native_cooking_recipes`, hook points API 159), item, tag, compound and intersection
+  ingredients; 200 ticks of energy a tick a recipe (`CachedRecipe.process`: short of a tick's energy it waits, an input
+  that no longer fits starts it over, a full output waits), the progress saved.
+- Their upgrades: speed and energy (and muffling) from the upgrade slot, in on the 21st tick
+  (`TileComponentUpgrade`); ticks, Joules a tick and the store as `MekanismUtils.getTicks`, `getEnergyPerTick` and
+  `getMaxEnergy` work them out (8 speed: 12 ticks of 12 800 J; 8 energy: 4 J a tick and 320 000 J; both: 800 J a
+  tick); the upgrade window uninstalls them into the upgrade output slot.
+- Their energy slot turns redstone into Joules (`mekanism:energy_conversion`) when it all fits; the infuser's infusion
+  slot turns items into its infuse type (`mekanism:chemical_conversion`: carbon, redstone, diamond, refined obsidian,
+  bio, fungi, gold, tin), one item a tick, into a 1000 mB tank of one type, used when an operation ends.
+- Their side configuration (energy, items, the infuser's chemicals), as the cubes': energy in on the faces that take
+  it, from cables, cubes and Forge Energy; the item ejector puts the output into the blocks on the faces whose type
+  outputs, every 11 ticks (`TileComponentEjector`); hoppers fill the input with what a recipe takes.
+- `facing` from placement and `active` (light 8) in their blocks, `active` going off after `blockDeactivationDelay`;
+  their screens like Mekanism's (`GuiElectricMachine`, `GuiMetallurgicInfuser`) with the side configuration and upgrade
+  windows.
 
 ## Differences from Mekanism
 
@@ -60,3 +81,18 @@ assets when `mekanism-content` is given them.
 - Hoppers take nothing out of the heat generator's fuel slot (an empty bucket stays until a player takes it): a hook
   point for what a slot gives is missing, and coal must stay. Its energy slots charge nothing until items carry energy.
 - Generators drop plain: their energy, lava and heat stay behind, as the cube did before its items kept energy.
+- Machines drop plain too: their energy, upgrades and items in the slots stay behind (Java's item keeps them).
+- A machine's container faces are its block's, not its facing's: hoppers reach its input and energy slots (and the
+  infuser's infusion slot) and its output from every face, where Java's item side config says which face reaches
+  which slot. The item side config drives the ejector only. Its upgrade slots are in a holder beside the screen
+  (Mekanism shows them only in its upgrade window), and right click uninstalls all of an upgrade (Mekanism: shift).
+- Mekanism pauses a recipe on an error until its slots or energy change; this port checks again every tick, which
+  comes to the same. Redstone control stays IGNORED; energy items (batteries, cubes) don't charge a machine yet.
+- A machine placed with `/setblock` has its item's side config here; Java's has every side `NONE` until set.
+- Item slots are saved in the game's `Items` list, not Mekanism's `items`, and the upgrade slots there too.
+- The infuser's infusion bar is the infuse type's colour, where Mekanism tints its texture; chemical tanks and
+  chemical items (other than conversions) wait for chemicals as a capability. Per-tick infusing (`per_tick_usage`),
+  which ATM10's recipes don't use, isn't ported.
+- A tag-based recipe takes what the tag holds in the world: with only Mekanism's content mods, the pack's `c:` and
+  `minecraft:` tags (in ATM10's `atm10-pack` carry) hold just Mekanism's own items, which `mekanism-content --pack`
+  copies in, so a recipe on another mod's items does nothing there.

@@ -185,8 +185,9 @@ impl RelativeSide {
 }
 
 /// `DataType`, by Mekanism's ordinals.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum DataType {
+    #[default]
     None,
     Input,
     Input1,

@@ -201,9 +201,10 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   no `cfg` or macros outside tests. A new hook is added in upstream's style: its `native_*` function with the placeholder
   body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract, `python3 tools/stamp_native_hooks.py`
   run with only the fork's fragment there (upstream's pending ones moved aside, then put back), and
-  `cargo run -p xtask -- mod-api`, which writes its `Hooks` trait method and dispatch. The fork's hooks are APIs 154-158
+  `cargo run -p xtask -- mod-api`, which writes its `Hooks` trait method and dispatch. The fork's hooks are APIs 154-159
   since the merge of upstream 6e1635c1e (whose latest was 153): Forge Energy 154, a machine's item and slots 155, the
-  block entity lifecycle 156, biome and dimension type 157, a bundle's opt-in to entity joins and leaves 158. Upstream
+  block entity lifecycle 156, biome and dimension type 157, a bundle's opt-in to entity joins and leaves 158, the
+  world's cooking recipes for a mod's machines 159. Upstream
   gates a growing list of hooks on `mod_api::mods()`, which holds trait mods only: a bundle's mixin on such a hook never
   runs unless the gate also asks it (`native_entity_level_listened` is the fork's first). Upstream stamps its pending fragments after 153 too, so
   at each merge the fork's take the numbers after upstream's latest again. `wip/quests` still says 64.
@@ -218,7 +219,8 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
    the 319 placed features that can't run. A first start still dips to 0.2 GB free on a 16 GB PC.
 2. Open a world through the title screen (every run so far used `--world`), with sound on.
 3. Fix the engine defects in the table above.
-4. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`); Mekanism's processing machines; bring `wip/quests` onto the head.
+4. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`); Mekanism's next machines (its first four are on
+   `feat/mekanism-machines`, see `pack/mods/mekanism/NOTES.md`); bring `wip/quests` onto the head.
 5. Then, as the roadmap in the handoff folder lays out: data maps and biome modifiers, a shared GUI kit and machine recipe
    matcher, the small required machines, mod fluids, custom dimensions and mob types as data. Measure against the Java
    baseline as you go.

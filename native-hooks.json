@@ -467,6 +467,10 @@
     {
       "name": "dimension_type",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_dimension_type"
+    },
+    {
+      "name": "cooking_recipes",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_cooking_recipes"
     }
   ],
   "hooks": [

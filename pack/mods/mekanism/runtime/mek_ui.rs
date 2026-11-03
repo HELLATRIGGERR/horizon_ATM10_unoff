@@ -5,7 +5,14 @@
 // and charge (+) slots, the side configuration and energy tabs, and the side
 // configuration (`GuiSideConfiguration`) with its energy and item pages. The
 // Solar and Heat Generators' screens (`GuiSolarGenerator`, `GuiHeatGenerator`)
-// are drawn the same way, with Mekanism Generators' textures for the sun.
+// are drawn the same way, with Mekanism Generators' textures for the sun, and
+// so are the processing machines' (`GuiElectricMachine`,
+// `GuiMetallurgicInfuser`): their slots, progress, power bar, the infuser's
+// infusion bar and dump button, the side configuration with energy, item and
+// chemical pages, and the upgrade window. A machine's slots fill its panel,
+// so its windows open beside it, on the left, and the upgrade component's
+// two slots sit in a holder on the right, under the upgrade tab (Mekanism
+// shows them only in its upgrade window).
 //
 // Mekanism draws the side configuration as a floating 156x135 window; here
 // the game draws a screen's items over everything the mod draws, so it is a
@@ -24,7 +31,8 @@ use mekanism_energy::{
     cube,
     display,
     generator::GeneratorKind,
-    menu::{Button, GeneratorView, Kind, View},
+    machine::{self, MachineKind, Upgrade},
+    menu::{Button, GeneratorView, Kind, MachineButton, MachineView, View},
     sides::{DataType, RelativeSide},
     tier::CubeTier,
 };
@@ -53,7 +61,7 @@ fn settings() -> EnergyConfig {
         let stale = s.as_ref().is_none_or(|(_, _, at)| at.elapsed() >= Duration::from_secs(1));
         if stale {
             let dir = Game::native_config_dir().ok();
-            let stamp = dir.as_deref().map_or([None; 5], config::stamp);
+            let stamp = dir.as_deref().map_or([None; config::FILES.len()], config::stamp);
             if s.as_ref().is_none_or(|(_, old, _)| *old != stamp) {
                 let fresh = dir.as_deref().map(EnergyConfig::load).unwrap_or_default();
                 *s = Some((fresh, stamp, Instant::now()));
@@ -73,6 +81,11 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
         *screen = Some(generator_screen(kind));
+        return;
+    }
+    if let Some(kind) = MachineKind::of_block(block) {
+        PAGE.with(|p| p.set(0));
+        *screen = Some(machine_screen(kind));
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -196,7 +209,14 @@ fn view_of(data: &[i32]) -> View {
 
 /// `native_screen_click`.
 pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
-    if button.is_some() || CubeTier::of_block(block).is_none() {
+    if button.is_some() {
+        return;
+    }
+    if let Some(kind) = MachineKind::of_block(block) {
+        machine_click(kind, data, at, right, button);
+        return;
+    }
+    if CubeTier::of_block(block).is_none() {
         return;
     }
     let page = PAGE.with(Cell::get);
@@ -218,6 +238,8 @@ fn type_name(t: DataType) -> &'static str {
         DataType::Input => "§cInput",
         DataType::Output => "§9Output",
         DataType::InputOutput => "§5Input/Output",
+        DataType::Energy => "§2Energy",
+        DataType::Extra => "§eExtra",
         _ => "§7None",
     }
 }
@@ -237,6 +259,10 @@ fn side_name(side: RelativeSide) -> &'static str {
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
     if let Some(kind) = GeneratorKind::of_block(block) {
         lines.extend(generator_tip(kind, &generator_view(data), &settings(), at));
+        return;
+    }
+    if let Some(kind) = MachineKind::of_block(block) {
+        lines.extend(machine_tip(kind, &MachineView::unpack(data).unwrap_or_default(), &settings(), at));
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -376,6 +402,8 @@ fn side_color(t: DataType) -> u32 {
         DataType::Input => 0x80D51A30,
         DataType::Output => 0x804A7FE0,
         DataType::InputOutput => 0x80B576EE,
+        DataType::Energy => 0x8040B040,
+        DataType::Extra => 0x80FFD24A,
         _ => 0x60E6E6E6,
     }
 }
@@ -387,6 +415,13 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
         let mut pen = Pen { game, batch, origin, cursor };
         draw_generator(&mut pen, kind, &generator_view(data), &settings());
+        return;
+    }
+    if let Some(kind) = MachineKind::of_block(block) {
+        let cursor = game.native_cursor();
+        let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
+        let mut pen = Pen { game, batch, origin, cursor };
+        draw_machine(&mut pen, kind, &MachineView::unpack(data).unwrap_or_default(), &settings());
         return;
     }
     let Some(tier) = CubeTier::of_block(block) else {
@@ -448,7 +483,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     let kind = kind_of(page);
     let (sides, eject) = match kind {
         Kind::Energy => (view.energy, Some(view.eject)),
-        Kind::Items => (view.items, None),
+        Kind::Items | Kind::Chemicals => (view.items, None),
     };
     let [wx, wy, ww, wh] = WINDOW;
     pen.nine("shadow", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [wx - 3.0, wy - 3.0, ww + 6.0, wh + 6.0]);
@@ -603,6 +638,428 @@ fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorVi
     let title = pen.game.native_screen_title().unwrap_or_default();
     pen.centered(&title, 0.0, 176.0, 6.0, TITLE);
     pen.text("Inventory", [8.0, 72.0], TITLE);
+}
+
+// ---- Machines ---------------------------------------------------------------
+
+/// `GuiUpgradeWindowTab` (right, top) and the holder of the upgrade
+/// component's slots under it.
+const UPGRADE_TAB: Rect = [176.0, 6.0, 26.0, 26.0];
+const UPGRADE_BUTTON: Rect = [180.0, 10.0, 18.0, 18.0];
+const UPGRADE_HOLDER: Rect = [176.0, 34.0, 26.0, 48.0];
+/// The upgrade component's input and output slots, where the game puts their items.
+const UPGRADE_SLOTS: [[f32; 2]; 2] = [[181.0, 39.0], [181.0, 61.0]];
+/// The side configuration and upgrade windows, left of the panel.
+const MACHINE_WINDOW: Rect = [-134.0, 2.0, 104.0, 81.0];
+/// The infuser's dump button (`GuiDumpButton`).
+const DUMP: Rect = [16.0, 59.0, 21.0, 10.0];
+/// `GuiVerticalPowerBar` of each: the electric machines' at y 16, the infuser's at 15.
+fn machine_power_bar(kind: MachineKind) -> Rect {
+    if kind.infuses() { [164.0, 15.0, 6.0, 54.0] } else { [164.0, 16.0, 6.0, 54.0] }
+}
+/// `GuiProgress`: `BAR` at (86, 38), the infuser's `RIGHT` at (72, 47).
+fn machine_progress(kind: MachineKind) -> Rect {
+    if kind.infuses() { [72.0, 47.0, 32.0, 8.0] } else { [86.0, 38.0, 25.0, 9.0] }
+}
+/// `GuiChemicalBar` of the infuser's tank: its frame (the bar inside is 4x52).
+const INFUSE_BAR: Rect = [7.0, 15.0, 6.0, 54.0];
+
+/// Where Mekanism puts a machine's slots (the item's top left), then the
+/// upgrade component's two.
+fn machine_slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
+    let mut slots: Vec<Option<[f32; 2]>> = if kind.infuses() {
+        vec![Some([17.0, 35.0]), Some([51.0, 43.0]), Some([109.0, 43.0]), Some([143.0, 35.0])]
+    } else {
+        vec![Some([64.0, 17.0]), Some([116.0, 35.0]), Some([64.0, 53.0])]
+    };
+    slots.extend(UPGRADE_SLOTS.map(Some));
+    slots.resize(9, None);
+    slots
+}
+
+fn machine_screen(kind: MachineKind) -> NativeScreen {
+    NativeScreen {
+        width: 176.0,
+        height: 166.0,
+        slots: machine_slots(kind),
+        inventory_y: 84.0,
+        inventory_x: 8.0,
+        own_labels: true,
+        own_background: false,
+    }
+}
+
+/// The side window's kinds: energy and items, and the infuser's chemicals.
+fn machine_kinds(view: &MachineView) -> Vec<Kind> {
+    let mut kinds = vec![Kind::Energy, Kind::Items];
+    if view.chemicals.is_some() {
+        kinds.push(Kind::Chemicals);
+    }
+    kinds
+}
+
+fn machine_window(view: &MachineView) -> Rect {
+    let [x, y, w, h] = MACHINE_WINDOW;
+    [x, y, w, h + if view.chemicals.is_some() { 21.0 } else { 0.0 }]
+}
+
+/// A rectangle of the side window, relative to its top left (the cube's
+/// `WINDOW` layout, which starts at (36, 2)).
+fn at_window(window: Rect, r: Rect) -> Rect {
+    [window[0] + r[0], window[1] + r[1], r[2], r[3]]
+}
+
+fn side_button_in(window: Rect, side: RelativeSide) -> Rect {
+    let r = side_button(side);
+    [r[0] - 36.0 + window[0], r[1] - 2.0 + window[1], r[2], r[3]]
+}
+
+fn page_kind(page: u8) -> Option<Kind> {
+    match page {
+        1 => Some(Kind::Energy),
+        2 => Some(Kind::Items),
+        3 => Some(Kind::Chemicals),
+        _ => None,
+    }
+}
+
+fn kind_page(kind: Kind) -> u8 {
+    match kind {
+        Kind::Energy => 1,
+        Kind::Items => 2,
+        Kind::Chemicals => 3,
+    }
+}
+
+fn sides_of_kind(view: &MachineView, kind: Kind) -> [DataType; 6] {
+    match kind {
+        Kind::Energy => view.energy,
+        Kind::Items => view.items,
+        Kind::Chemicals => view.chemicals.unwrap_or([DataType::None; 6]),
+    }
+}
+
+/// The upgrade window's rows: each upgrade the machine takes.
+fn upgrade_row(window: Rect, i: usize) -> Rect {
+    [window[0] + 4.0, window[1] + 16.0 + 21.0 * i as f32, window[2] - 8.0, 20.0]
+}
+
+fn uninstall_button(window: Rect, i: usize) -> Rect {
+    let row = upgrade_row(window, i);
+    [row[0] + row[2] - 15.0, row[1] + 4.0, 14.0, 12.0]
+}
+
+enum MachineHit {
+    Press(MachineButton),
+    Tip(Vec<String>),
+}
+
+fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &EnergyConfig, at: [f32; 2], right: bool) -> Option<MachineHit> {
+    let press = |b: Button| Some(MachineHit::Press(MachineButton::Config(b)));
+    let window = machine_window(view);
+    if let Some(side_kind) = page_kind(page) {
+        for side in RelativeSide::ALL {
+            if inside(side_button_in(window, side), at) {
+                return press(Button::Side { kind: side_kind, side: side.index(), forward: !right });
+            }
+        }
+        if inside(at_window(window, [4.0, 4.0, 8.0, 8.0]), at) {
+            return press(Button::Page(0));
+        }
+        if inside(at_window(window, [86.0, 14.0, 14.0, 14.0]), at) && side_kind == Kind::Items {
+            return if right { Some(MachineHit::Tip(vec!["Auto-eject".into()])) } else { press(Button::Eject(side_kind)) };
+        }
+        if inside(at_window(window, [86.0, 63.0, 14.0, 14.0]), at) {
+            return press(Button::Clear { kind: side_kind, forward: !right });
+        }
+        for (i, k) in machine_kinds(view).into_iter().enumerate() {
+            if inside(at_window(window, [4.0, 31.0 + 21.0 * i as f32, 18.0, 18.0]), at) {
+                return press(Button::Page(kind_page(k)));
+            }
+        }
+        if inside(window, at) {
+            return None;
+        }
+    }
+    if page == 4 {
+        for (i, upgrade) in machine::MACHINE_UPGRADES.into_iter().enumerate() {
+            if inside(uninstall_button(window, i), at) {
+                return Some(MachineHit::Press(MachineButton::Remove { upgrade, all: right }));
+            }
+        }
+        if inside(at_window(window, [4.0, 4.0, 8.0, 8.0]), at) {
+            return press(Button::Page(0));
+        }
+        if inside(window, at) {
+            return None;
+        }
+    }
+    if inside(CONFIG_BUTTON, at) {
+        return press(Button::Page(if page_kind(page).is_some() { 0 } else { 1 }));
+    }
+    if inside(UPGRADE_BUTTON, at) {
+        return press(Button::Page(if page == 4 { 0 } else { 4 }));
+    }
+    if kind.infuses() && inside(DUMP, at) {
+        return Some(MachineHit::Press(MachineButton::Dump));
+    }
+    let energy = |j: u64| display::energy(j, settings);
+    if inside(ENERGY_TAB, at) {
+        let using = if view.active { view.per_tick } else { 0 };
+        return Some(MachineHit::Tip(vec![
+            format!("Using: {}/t", energy(using)),
+            format!("Needed: {}", energy(view.capacity.saturating_sub(view.stored))),
+        ]));
+    }
+    if inside(machine_power_bar(kind), at) {
+        return Some(MachineHit::Tip(vec![display::fraction(view.stored, view.capacity, settings)]));
+    }
+    if inside(machine_progress(kind), at) {
+        let share = if view.required == 0 { 0.0 } else { f64::from(view.progress) / f64::from(view.required) };
+        return Some(MachineHit::Tip(vec![format!("Progress: {}%", (share * 100.0).floor())]));
+    }
+    if kind.infuses() && inside(INFUSE_BAR, at) {
+        let line = match machine::infuse_of_number(view.infuse) {
+            _ if view.infused == 0 => "Empty".to_owned(),
+            Some((id, _)) => format!("{}: {} mB", infuse_name(id), display::thousands(view.infused)),
+            None => format!("{} mB", display::thousands(view.infused)),
+        };
+        return Some(MachineHit::Tip(vec![line]));
+    }
+    None
+}
+
+/// An infuse type's name (`chemical.mekanism.<name>`).
+fn infuse_name(id: &str) -> &'static str {
+    match id {
+        "mekanism:carbon" => "Carbon",
+        "mekanism:redstone" => "Redstone",
+        "mekanism:diamond" => "Diamond",
+        "mekanism:refined_obsidian" => "Refined Obsidian",
+        "mekanism:bio" => "Biomass",
+        "mekanism:fungi" => "Fungi",
+        "mekanism:gold" => "Gold",
+        "mekanism:tin" => "Tin",
+        _ => "Chemical",
+    }
+}
+
+fn upgrade_name(upgrade: Upgrade) -> &'static str {
+    match upgrade {
+        Upgrade::Speed => "Speed",
+        Upgrade::Energy => "Energy",
+        Upgrade::Filter => "Filter",
+        Upgrade::Chemical => "Chemical",
+        Upgrade::Muffling => "Muffling",
+        Upgrade::Anchor => "Anchor",
+        Upgrade::StoneGenerator => "Stone Generator",
+    }
+}
+
+/// `UpgradeUtils.getMultScaledInfo`: `Effect: <multiplier ^ (installed/max), to the hundredth>x`.
+fn upgrade_effect(upgrade: Upgrade, installed: u32, settings: &EnergyConfig) -> Option<String> {
+    if upgrade.max() <= 1 {
+        return None;
+    }
+    let effect = settings.machines.max_upgrade_multiplier.powf(f64::from(installed) / f64::from(upgrade.max()));
+    let shown = ((effect * 100.0).round() / 100.0) as f32;
+    Some(if shown.fract() == 0.0 { format!("Effect: {shown:.1}x") } else { format!("Effect: {shown}x") })
+}
+
+fn machine_click(kind: MachineKind, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    let view = MachineView::unpack(data).unwrap_or_default();
+    let page = PAGE.with(Cell::get);
+    let Some(MachineHit::Press(pressed)) = machine_hit(kind, page, &view, &settings(), at, right) else {
+        return;
+    };
+    if let MachineButton::Config(Button::Page(p)) = pressed {
+        PAGE.with(|c| c.set(p));
+    }
+    *button = Some(pressed.id());
+}
+
+fn machine_tip(kind: MachineKind, view: &MachineView, settings: &EnergyConfig, at: [f32; 2]) -> Vec<String> {
+    let page = PAGE.with(Cell::get);
+    if inside(CONFIG_BUTTON, at) {
+        return vec!["Side Configuration".into()];
+    }
+    if inside(UPGRADE_BUTTON, at) {
+        return vec!["Upgrades".into()];
+    }
+    match machine_hit(kind, page, view, settings, at, false) {
+        Some(MachineHit::Tip(tip)) => tip,
+        Some(MachineHit::Press(MachineButton::Config(Button::Side { kind: k, side, .. }))) => {
+            let side = RelativeSide::ALL[side];
+            vec![side_name(side).into(), type_name(sides_of_kind(view, k)[side.index()]).into()]
+        }
+        Some(MachineHit::Press(b)) => vec![
+            match b {
+                MachineButton::Dump => "Dump",
+                MachineButton::Remove { .. } => "Uninstall (right click: all)",
+                MachineButton::Config(Button::Page(0)) => "Close",
+                MachineButton::Config(Button::Page(1)) => "Energy",
+                MachineButton::Config(Button::Page(2)) => "Items",
+                MachineButton::Config(Button::Page(3)) => "Chemicals",
+                MachineButton::Config(Button::Page(_)) => "Upgrades",
+                MachineButton::Config(Button::Eject(_)) => "Auto-eject",
+                MachineButton::Config(Button::Clear { .. }) => "Clear Sides",
+                MachineButton::Config(Button::Side { .. }) => "",
+            }
+            .into(),
+        ],
+        None => Vec::new(),
+    }
+}
+
+/// `GuiElectricMachine` / `GuiMetallurgicInfuser` and their windows.
+fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, settings: &EnergyConfig) {
+    let page = PAGE.with(Cell::get);
+    pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, 176.0, 166.0]);
+    // The tabs: side configuration (left), energy (left, bottom), upgrades (right).
+    pen.holder(CONFIG_TAB, true);
+    pen.image_button("configuration", 18.0, CONFIG_BUTTON, true);
+    let unit = if settings.show_fe { "fe" } else { "j" };
+    pen.whole(&format!("tabs/energy_info_{unit}"), [26.0, 26.0], ENERGY_TAB);
+    pen.holder(UPGRADE_TAB, false);
+    pen.image_button("upgrade", 18.0, UPGRADE_BUTTON, true);
+    pen.holder(UPGRADE_HOLDER, false);
+    pen.slot("normal", Some("overlay_upgrade"), UPGRADE_SLOTS[0][0] - 1.0, UPGRADE_SLOTS[0][1] - 1.0);
+    pen.slot("normal", None, UPGRADE_SLOTS[1][0] - 1.0, UPGRADE_SLOTS[1][1] - 1.0);
+    // The upgrade going in: `ProgressType.INSTALLING`'s arrow down between the two.
+    let installing = view.upgrade_ticks as f32 / machine::UPGRADE_TICKS as f32;
+    if installing > 0.0 {
+        pen.fill([180.0, 57.5, 18.0 * installing.min(1.0), 2.0], 0xFF3CFE9A);
+    }
+
+    // The slots: Mekanism's, coloured by what their side type is (`SlotType.get`).
+    let s = kind.slots();
+    for (i, at) in machine_slots(kind).into_iter().take(s.count - 2).enumerate() {
+        let Some([x, y]) = at else { continue };
+        let (frame, overlay) = if i == s.output {
+            ("output", None)
+        } else if i == s.energy {
+            ("power", Some("overlay_power"))
+        } else if Some(i) == s.infusion {
+            ("extra", None)
+        } else {
+            ("input", None)
+        };
+        pen.slot(frame, overlay, x - 1.0, y - 1.0);
+    }
+
+    // The power bar (`GuiVerticalPowerBar`): the energy from the bottom.
+    let bar = machine_power_bar(kind);
+    pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], bar);
+    let level = if view.capacity == 0 { 0.0 } else { view.stored as f64 / view.capacity as f64 };
+    let filled = (level * 52.0) as i32;
+    if filled > 0 {
+        let h = filled as f32;
+        pen.sprite("bar/vertical_power", [0.0, 0.0, 4.0, h], [bar[0] + 1.0, bar[1] + bar[3] - 1.0 - h, 4.0, h]);
+    }
+
+    // The progress (`GuiProgress`): the background, then the part done.
+    let progress = machine_progress(kind);
+    let share = if view.required == 0 { 0.0 } else { (f64::from(view.progress) / f64::from(view.required)).min(1.0) };
+    let [px, py, pw, ph] = progress;
+    if kind.infuses() {
+        pen.sprite("progress/right", [0.0, 0.0, pw, ph], progress);
+        let done = (share * f64::from(pw)) as i32 as f32;
+        if done > 0.0 {
+            pen.sprite("progress/right", [0.0, ph, done, ph], [px, py, done, ph]);
+        }
+    } else {
+        pen.whole("up_arrow", [8.0, 10.0], [68.0, 38.0, 8.0, 10.0]);
+        pen.sprite("progress/bar", [0.0, 0.0, pw, ph], progress);
+        let done = (share * f64::from(pw - 2.0)) as i32 as f32;
+        if done > 0.0 {
+            pen.sprite("progress/bar", [1.0, ph, done, ph], [px + 1.0, py, done, ph]);
+        }
+    }
+
+    if kind.infuses() {
+        // The infusion bar (`GuiChemicalBar`): the infuse type's colour from
+        // the bottom (Mekanism tints its texture with it), and the dump button.
+        pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], INFUSE_BAR);
+        let level = (view.infused as f64 / machine::INFUSE_TANK as f64).min(1.0);
+        let h = (level * 52.0) as i32 as f32;
+        if h > 0.0 {
+            let tint = machine::infuse_of_number(view.infuse).map_or(0x808080, |(_, tint)| tint);
+            pen.fill([INFUSE_BAR[0] + 1.0, INFUSE_BAR[1] + 53.0 - h, 4.0, h], 0xFF00_0000 | tint);
+        }
+        pen.sprite("dump", [0.0, 0.0, 21.0, 10.0], DUMP);
+    }
+
+    for row in 0..4 {
+        let y = if row == 3 { 141.0 } else { 83.0 + 18.0 * row as f32 };
+        for col in 0..9 {
+            pen.slot("normal", None, 7.0 + 18.0 * col as f32, y);
+        }
+    }
+    let title = pen.game.native_screen_title().unwrap_or_default();
+    pen.centered(&title, 0.0, 176.0, 6.0, TITLE);
+    pen.text("Inventory", [8.0, 72.0], TITLE);
+
+    let window = machine_window(view);
+    let [wx, wy, ww, wh] = window;
+    if let Some(side_kind) = page_kind(page) {
+        // `GuiSideConfiguration`, as the cube's.
+        pen.nine("shadow", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [wx - 3.0, wy - 3.0, ww + 6.0, wh + 6.0]);
+        pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], window);
+        pen.image_button("button/close", 12.0, at_window(window, [4.0, 4.0, 8.0, 8.0]), true);
+        let name = match side_kind {
+            Kind::Energy => "Energy Config",
+            Kind::Items => "Items Config",
+            Kind::Chemicals => "Chemicals Config",
+        };
+        pen.centered(name, wx, ww, wy + 4.0, TITLE);
+        let screen = at_window(window, [4.0, 15.0, 78.0, 12.0]);
+        pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], screen);
+        let eject = (side_kind == Kind::Items).then_some(view.items_eject);
+        let state = match eject {
+            Some(on) => format!("Eject: {}", if on { "On" } else { "Off" }),
+            None => "Can't Eject".to_owned(),
+        };
+        pen.centered(&state, screen[0], screen[2], screen[1] + 2.0, SCREEN_TEXT);
+        pen.image_button("button/auto_eject", 14.0, at_window(window, [86.0, 14.0, 14.0, 14.0]), eject.is_some());
+        pen.image_button("button/clear_sides", 14.0, at_window(window, [86.0, 63.0, 14.0, 14.0]), true);
+        for (i, k) in machine_kinds(view).into_iter().enumerate() {
+            let r = at_window(window, [4.0, 31.0 + 21.0 * i as f32, 18.0, 18.0]);
+            pen.button(r, k != side_kind);
+            let icon = match k {
+                Kind::Energy => "energy",
+                Kind::Items => "items",
+                Kind::Chemicals => "chemicals",
+            };
+            pen.whole(icon, [18.0, 18.0], r);
+        }
+        let sides = sides_of_kind(view, side_kind);
+        for side in RelativeSide::ALL {
+            let r = side_button_in(window, side);
+            pen.button(r, true);
+            pen.fill([r[0] + 1.0, r[1] + 1.0, r[2] - 2.0, r[3] - 2.0], side_color(sides[side.index()]));
+        }
+    } else if page == 4 {
+        // `GuiUpgradeWindow`: each upgrade the machine takes, how many are
+        // in, what they do, and its uninstall button.
+        pen.nine("shadow", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [wx - 3.0, wy - 3.0, ww + 6.0, wh + 6.0]);
+        pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], window);
+        pen.image_button("button/close", 12.0, at_window(window, [4.0, 4.0, 8.0, 8.0]), true);
+        pen.centered("Upgrades", wx, ww, wy + 4.0, TITLE);
+        for (i, upgrade) in machine::MACHINE_UPGRADES.into_iter().enumerate() {
+            let row = upgrade_row(window, i);
+            pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], row);
+            let at = [pen.origin[0] + row[0] + 2.0, pen.origin[1] + row[1] + 2.0];
+            pen.game.native_item(pen.batch, &upgrade.item(), at, 16.0);
+            let installed = view.upgrades.get(upgrade);
+            pen.text(&format!("{} {}/{}", upgrade_name(upgrade), installed, upgrade.max()), [row[0] + 20.0, row[1] + 2.0], SCREEN_TEXT);
+            if let Some(effect) = upgrade_effect(upgrade, installed, settings) {
+                pen.text(&effect, [row[0] + 20.0, row[1] + 11.0], SCREEN_TEXT);
+            }
+            let r = uninstall_button(window, i);
+            pen.button(r, installed > 0);
+            pen.centered("-", r[0], r[2], r[1] + 2.0, 0xE0E0E0);
+        }
+    }
 }
 
 // ---- Items ------------------------------------------------------------------

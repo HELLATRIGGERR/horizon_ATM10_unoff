@@ -1,4 +1,4 @@
-//! `mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR]`:
+//! `mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR] [--pack DIR]`:
 //! builds a content mod that the game loads with `--dev-mod` from an ATM10
 //! carry and the pack's own declarations (`pack/mods/mekanism/content`):
 //! `mekanism` from `ports/atm10/mods/mekanism/carry` (Mekanism 10.7.19's own
@@ -30,6 +30,14 @@
 //!   assets), vanilla's still lava as `mekanismgenerators:gui/lava_fill` for
 //!   the heat generator's gauge.
 //!
+//! - With `--pack` (the full pack's own carry, `atm10-pack`, which holds the
+//!   final tags of the namespaces no mod owns), the entries of its vanilla and
+//!   convention (`minecraft`, `c`) block and item tags that name this mod's
+//!   blocks and items are added to the content mod's tags of the same names
+//!   (the only other namespaces a content mod may add to), so a world
+//!   with only this content mod mines its blocks with the right tool and
+//!   finds its items by tag (`c:dusts/osmium`), as the whole pack does.
+//!
 //! The output is generated, never committed: Mekanism's files stay local.
 //! It may only replace a folder this tool made (`mekanism-content.json`).
 mod transmitter;
@@ -57,15 +65,16 @@ type Result<T> = std::result::Result<T, String>;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let (mut carry, mut overlay, mut out, mut vanilla) = (None, None, None, None);
+    let (mut carry, mut overlay, mut out, mut vanilla, mut pack) = (None, None, None, None, None);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--carry" => carry = args.next().map(PathBuf::from),
             "--overlay" => overlay = args.next().map(PathBuf::from),
             "--out" => out = args.next().map(PathBuf::from),
             "--vanilla" => vanilla = args.next().map(PathBuf::from),
+            "--pack" => pack = args.next().map(PathBuf::from),
             "-h" | "--help" => {
-                println!("Usage: mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR]");
+                println!("Usage: mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR] [--pack DIR]");
                 return;
             }
             other => fail(&format!("unknown argument {other}")),
@@ -74,7 +83,7 @@ fn main() {
     let (Some(carry), Some(overlay), Some(out)) = (carry, overlay, out) else {
         fail("needs --carry, --overlay and --out");
     };
-    match build(&carry, &overlay, &out, vanilla.as_deref()) {
+    match build(&carry, &overlay, &out, vanilla.as_deref(), pack.as_deref()) {
         Ok(report) => println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default()),
         Err(e) => fail(&e),
     }
@@ -98,7 +107,7 @@ fn mod_id(carry: &Path) -> Result<String> {
         .ok_or_else(|| format!("{} names no id", path.display()))
 }
 
-fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>) -> Result<Value> {
+fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack: Option<&Path>) -> Result<Value> {
     if !carry.join("horizon-mod.toml").is_file() {
         return Err(format!("{} is not a carried content mod", carry.display()));
     }
@@ -209,14 +218,74 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>) -> Re
         fs::copy(&lava, gui.join("lava_fill.png")).map_err(|e| format!("{}: {e}", lava.display()))?;
         gui_sprites += 1;
     }
+    let pack_tags = match pack {
+        Some(pack) => pack_tags(&pack.join("data"), &out.join("data"), &id)?,
+        None => 0,
+    };
     let report = json!({
-        "id": id, "carry": carry, "overlay": overlay, "out": out,
+        "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
         "cubes": cubes, "cables": cables, "blocks": others, "loot_tables": loot, "recipes": recipes,
         "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;
     Ok(report)
+}
+
+/// The vanilla and convention block and item tags of `pack` (a `data/`
+/// folder), cut to the entries that name `id`'s own blocks and items, added to
+/// those of the same name under `out` (`data/`): how many tag files took
+/// entries.
+fn pack_tags(pack: &Path, out: &Path, id: &str) -> Result<usize> {
+    let prefix = format!("{id}:");
+    let mut written = 0;
+    for namespace in ["minecraft", "c"] {
+        for kind in ["block", "item"] {
+            let dir = pack.join(namespace).join("tags").join(kind);
+            let mut files = Vec::new();
+            json_files(&dir, &mut files);
+            for file in files {
+                let Ok(tag) = read_json(&file) else { continue };
+                let own: Vec<Value> = tag["values"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|v| v.as_str().or_else(|| v["id"].as_str()).is_some_and(|i| i.starts_with(&prefix)))
+                    .cloned()
+                    .collect();
+                if own.is_empty() {
+                    continue;
+                }
+                let relative = file.strip_prefix(pack).map_err(|e| e.to_string())?;
+                let target = out.join(relative);
+                let mut values: Vec<Value> = read_json(&target)
+                    .ok()
+                    .and_then(|t| t["values"].as_array().cloned())
+                    .unwrap_or_default();
+                for v in own {
+                    if !values.contains(&v) {
+                        values.push(v);
+                    }
+                }
+                write_json(&target, &json!({ "replace": false, "values": values }))?;
+                written += 1;
+            }
+        }
+    }
+    Ok(written)
+}
+
+/// Every `.json` file under `dir`.
+fn json_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_dir() {
+            json_files(&path, out);
+        } else if path.extension().is_some_and(|e| e == "json") {
+            out.push(path);
+        }
+    }
 }
 
 /// Empties `out` when this tool made it; refuses any other folder.
@@ -589,6 +658,30 @@ fn shaped_recipe(recipe: &Value) -> Result<Option<Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pack_tags_bring_the_mods_own_entries() {
+        let root = std::env::temp_dir().join(format!("mekanism-content-pack-{}", std::process::id()));
+        let pack = root.join("pack/data");
+        let out = root.join("out/data");
+        let _ = fs::remove_dir_all(&root);
+        write_json(
+            &pack.join("minecraft/tags/block/mineable/pickaxe.json"),
+            &json!({ "values": ["minecraft:stone", "mekanism:steel_casing", { "id": "mekanism:crusher", "required": false }, "#c:ores"] }),
+        )
+        .unwrap();
+        write_json(&pack.join("c/tags/item/dusts/iron.json"), &json!({ "values": ["alltheores:iron_dust"] })).unwrap();
+        write_json(&pack.join("mekanism/tags/item/own.json"), &json!({ "values": ["mekanism:x"] })).unwrap();
+        write_json(&pack.join("almostunified/tags/item/hide.json"), &json!({ "values": ["mekanism:ingot_tin"] })).unwrap();
+        write_json(&out.join("minecraft/tags/block/mineable/pickaxe.json"), &json!({ "values": ["mekanism:steel_casing"] })).unwrap();
+        assert_eq!(pack_tags(&pack, &out, "mekanism").unwrap(), 1);
+        let merged = read_json(&out.join("minecraft/tags/block/mineable/pickaxe.json")).unwrap();
+        assert_eq!(merged["values"], json!(["mekanism:steel_casing", { "id": "mekanism:crusher", "required": false }]));
+        assert!(!out.join("c/tags/item/dusts/iron.json").exists(), "nothing of the mod's: no file");
+        assert!(!out.join("mekanism/tags/item/own.json").exists(), "its own namespace is the carry's");
+        assert!(!out.join("almostunified/tags/item/hide.json").exists(), "a content mod adds only to vanilla and convention tags");
+        fs::remove_dir_all(&root).unwrap();
+    }
 
     fn element(name: &str, from: [f64; 3], to: [f64; 3], texture: &str) -> Value {
         json!({ "name": name, "from": from, "to": to,

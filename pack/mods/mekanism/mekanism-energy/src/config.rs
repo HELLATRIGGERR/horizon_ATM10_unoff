@@ -3,9 +3,12 @@
 //! `blockDeactivationDelay`) and `tiers.toml` (`[energy_cubes]`,
 //! `[transmitters.energy]`), the unit screens show from `common.toml`
 //! (`energyType`), and Mekanism Generators' `generators.toml`
-//! (`[solar_generator]`, `[heat_generator]`) and `generator-storage.toml`. A
+//! (`[solar_generator]`, `[heat_generator]`) and `generator-storage.toml`, and
+//! the machines' Joules a tick and store (`machine-usage.toml`,
+//! `machine-storage.toml`, with `general.toml`'s `maxUpgradeMultiplier`). A
 //! missing file, key or a value out of the mod's range keeps the default, as
 //! NeoForge's config spec corrects it.
+use crate::machine::MachineKind;
 use crate::tier::{CableTier, CubeTier};
 use std::path::Path;
 
@@ -27,6 +30,8 @@ pub struct EnergyConfig {
     pub deactivation_delay: u32,
     /// Mekanism Generators' settings.
     pub generators: GeneratorsConfig,
+    /// The processing machines' settings.
+    pub machines: MachinesConfig,
 }
 
 impl Default for EnergyConfig {
@@ -39,7 +44,63 @@ impl Default for EnergyConfig {
             show_fe: true,
             deactivation_delay: 60,
             generators: GeneratorsConfig::default(),
+            machines: MachinesConfig::default(),
         }
+    }
+}
+
+/// `machine-usage.toml` and `machine-storage.toml` (`UsageConfig`,
+/// `StorageConfig`, whose keys sit at the top level) for the machines this
+/// port has, and `general.toml`'s `maxUpgradeMultiplier`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MachinesConfig {
+    /// Joules a tick of each machine, in `MachineKind::ALL` order, 0 or more.
+    pub usage: [u64; 4],
+    /// Joules each machine holds, 1 or more.
+    pub storage: [u64; 4],
+    /// `maxUpgradeMultiplier`: how far eight upgrades of a kind go, more than 1.
+    pub max_upgrade_multiplier: f64,
+}
+
+impl Default for MachinesConfig {
+    fn default() -> Self {
+        Self {
+            usage: MachineKind::ALL.map(MachineKind::default_usage),
+            storage: MachineKind::ALL.map(MachineKind::default_storage),
+            max_upgrade_multiplier: 10.0,
+        }
+    }
+}
+
+impl MachinesConfig {
+    pub fn from_tables(general: Option<&toml::Table>, usage: Option<&toml::Table>, storage: Option<&toml::Table>) -> Self {
+        let mut config = Self::default();
+        if let Some(v) = general.and_then(|g| g.get("maxUpgradeMultiplier")).and_then(toml::Value::as_integer)
+            && v > 1
+        {
+            config.max_upgrade_multiplier = v as f64;
+        }
+        for (i, kind) in MachineKind::ALL.into_iter().enumerate() {
+            if let Some(v) = usage.and_then(|t| t.get(kind.config_key())).and_then(toml::Value::as_integer)
+                && v >= 0
+            {
+                config.usage[i] = v as u64;
+            }
+            if let Some(v) = storage.and_then(|t| positive(t, kind.config_key())) {
+                config.storage[i] = v;
+            }
+        }
+        config
+    }
+
+    fn index(kind: MachineKind) -> usize {
+        MachineKind::ALL.iter().position(|k| *k == kind).unwrap_or(0)
+    }
+
+    /// The machine's base Joules a tick and store.
+    pub fn of(&self, kind: MachineKind) -> (u64, u64) {
+        let i = Self::index(kind);
+        (self.usage[i], self.storage[i])
     }
 }
 
@@ -129,10 +190,18 @@ impl GeneratorsConfig {
 }
 
 /// The files `EnergyConfig::load` reads, under `<config>/Mekanism/`.
-pub const FILES: [&str; 5] = ["general.toml", "tiers.toml", "common.toml", "generators.toml", "generator-storage.toml"];
+pub const FILES: [&str; 7] = [
+    "general.toml",
+    "tiers.toml",
+    "common.toml",
+    "generators.toml",
+    "generator-storage.toml",
+    "machine-usage.toml",
+    "machine-storage.toml",
+];
 
 /// When each of `FILES` last changed (none: missing).
-pub type Stamp = [Option<std::time::SystemTime>; 5];
+pub type Stamp = [Option<std::time::SystemTime>; FILES.len()];
 
 /// When each of `FILES` last changed: Mekanism's configs reload live
 /// (NeoForge's file watcher), so a holder of the settings reads them again
@@ -153,6 +222,11 @@ impl EnergyConfig {
         config.show_fe = shows_fe(read("common.toml").as_ref());
         config.generators =
             GeneratorsConfig::from_tables(read("generators.toml").as_ref(), read("generator-storage.toml").as_ref());
+        config.machines = MachinesConfig::from_tables(
+            read("general.toml").as_ref(),
+            read("machine-usage.toml").as_ref(),
+            read("machine-storage.toml").as_ref(),
+        );
         config
     }
 
@@ -233,7 +307,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("mekanism-energy-config-{}", std::process::id()));
         let mek = dir.join("Mekanism");
         std::fs::create_dir_all(&mek).unwrap();
-        assert_eq!(stamp(&dir), [None; 5]);
+        assert_eq!(stamp(&dir), [None; FILES.len()]);
         assert_eq!(EnergyConfig::load(&dir), EnergyConfig::default());
         std::fs::write(mek.join("tiers.toml"), "[energy_cubes]\nbasicOutput = 5000\n").unwrap();
         let written = stamp(&dir);
@@ -272,6 +346,34 @@ mod tests {
         let fe: toml::Table = "energyType = \"FORGE_ENERGY\"\n".parse().unwrap();
         assert!(!shows_fe(Some(&joules)));
         assert!(shows_fe(Some(&fe)) && shows_fe(None));
+    }
+
+    #[test]
+    fn atm10_machine_files_override_the_defaults() {
+        // ATM10 8.4's general.toml, machine-usage.toml and machine-storage.toml, the keys this port reads.
+        let general: toml::Table = "maxUpgradeMultiplier = 16
+".parse().unwrap();
+        let usage: toml::Table = "enrichmentChamber = 50
+crusher = 50
+metallurgicInfuser = 50
+energizedSmelter = 50
+".parse().unwrap();
+        let storage: toml::Table = "enrichmentChamber = 20000
+crusher = 20000
+metallurgicInfuser = 20000
+energizedSmelter = 20000
+".parse().unwrap();
+        let m = MachinesConfig::from_tables(Some(&general), Some(&usage), Some(&storage));
+        assert_eq!(m.max_upgrade_multiplier, 16.0);
+        assert_eq!(m.of(MachineKind::Crusher), (50, 20_000));
+        assert_eq!(MachinesConfig::from_tables(None, None, None).max_upgrade_multiplier, 10.0, "Mekanism's own default");
+        let odd: toml::Table = "crusher = 0
+".parse().unwrap();
+        let free = MachinesConfig::from_tables(None, Some(&odd), Some(&odd));
+        assert_eq!(free.of(MachineKind::Crusher), (0, 20_000), "usage may be 0, storage may not");
+        let one: toml::Table = "maxUpgradeMultiplier = 1
+".parse().unwrap();
+        assert_eq!(MachinesConfig::from_tables(Some(&one), None, None).max_upgrade_multiplier, 10.0);
     }
 
     #[test]

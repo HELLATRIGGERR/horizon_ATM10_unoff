@@ -14,6 +14,9 @@
 //! Mekanism's screens do (`display`). Mekanism Generators' Solar Generator
 //! (`solar`, over Minecraft 1.21.1's sun and weather in `sky`) and Heat
 //! Generator (`heat`) fill stores of their own and eject like a cube.
+//! Mekanism's first processing machines (`machine`: the Enrichment Chamber,
+//! Crusher, Energized Smelter and Metallurgic Infuser) run recipes on their
+//! Joules at the pace their upgrades set.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod config;
 pub mod container;
@@ -22,6 +25,7 @@ pub mod display;
 pub mod fe;
 pub mod generator;
 pub mod heat;
+pub mod machine;
 pub mod menu;
 pub mod network;
 pub mod sides;

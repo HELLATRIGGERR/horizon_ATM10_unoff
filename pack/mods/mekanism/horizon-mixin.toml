@@ -1,18 +1,18 @@
-# Mekanism's energy and Mekanism Generators' Solar and Heat Generators as a
-# native mod of this fork (horizon-mixins bundle). Mekanism is MIT, Copyright
-# (c) 2017-2025 Aidan C. Brady; the rules are ported from its source in the
-# crate `mekanism-energy`.
+# Mekanism's energy, its first processing machines and Mekanism Generators'
+# Solar and Heat Generators as a native mod of this fork (horizon-mixins
+# bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
+# are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12, 14-20, 23, 26,
 # 42, 47, 60, 154-156 and 158) and calls the helpers of API 157 (`native_biome`,
-# `native_dimension_type`), so it builds on any Horizon with hooks API 158 or
-# later: it pins no revision (horizon-mixins refuses any other commit than a
-# pinned one). Its blocks, models and recipes are two content mods,
+# `native_dimension_type`) and 159 (`native_cooking_recipes`), so it builds on
+# any Horizon with hooks API 159 or later: it pins no revision (horizon-mixins
+# refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.
 [mod]
 id = "mekanism"
-version = "0.7.0"
+version = "0.8.0"
 priority = 100
 
 [[crate]]
@@ -24,6 +24,12 @@ id = "world"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_world"
 source = "runtime/mek_world.rs"
+
+[[module]]
+id = "machines"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_machines"
+source = "runtime/mek_machines.rs"
 
 [[module]]
 id = "ui"
@@ -83,6 +89,7 @@ helper = "hooks/block_entity_slot_accepts.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
   { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
   { name = "fuel", ty = "bool", value = "fuel" },
   { name = "accepts", ty = "&mut bool", value = "&mut *accepts" },
 ]

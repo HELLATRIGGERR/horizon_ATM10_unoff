@@ -976,6 +976,8 @@ API 157 adds what a generator reads of the world around it, beside `native_light
 
 API 158 adds a mixin bundle saying it listens to entities joining and leaving a level: the game walks its entity lists for `native_entity_join_level` and `native_entity_leave_level` only while something hears them, and a mixin isn't in the trait mods' list, so a bundle that hooks them hooks `native_entity_level_listened(listened)` too and sets `listened`. Trait mods need not. Bundles need "hooks": 158.
 
+API 159 adds the helper `native_cooking_recipes()`: every furnace, blast furnace, smoker and campfire recipe of the world's tables in file order, each with its `kind` (`minecraft:smelting`...), its ingredient's items, its result, cooking time and experience, so a mod's electric furnace smelts what a furnace does (Mekanism's Energized Smelter). The slice stays the same until the tables change (`/reload`), so a mod can index it once per slice. It is empty outside a world and, like `native_recipes_of_type`, the server's table on the server thread. Bundles that use it need "hooks": 159.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's

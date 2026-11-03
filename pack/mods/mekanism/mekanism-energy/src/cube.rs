@@ -103,6 +103,7 @@ impl CubeState {
             Button::Side { kind, .. } | Button::Eject(kind) | Button::Clear { kind, .. } => match kind {
                 Kind::Energy => (&mut self.energy, Some(&mut self.eject)),
                 Kind::Items => (&mut self.items, None),
+                Kind::Chemicals => return false,
             },
         };
         let before = *sides;

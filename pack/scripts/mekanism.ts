@@ -11,6 +11,8 @@
 //   MEKGEN_CONTENT_DIR  its content mod              <base>/.build/content/mekanismgenerators
 //   MEK_VANILLA      the game's client assets (lava for the heat generator's gauge)
 //                                                    .local/horizon-client/26.3 of this or the main checkout
+//   MEK_PACK         the full pack's own carry, whose tags of `minecraft`, `c`... name Mekanism's blocks and items
+//                                                    `atm10-pack` beside MEK_CARRY, if there is one
 //   MEK_STAGE        the staged, modded source       <base>/stage-mek
 //   MEK_TARGET       the staged game's target dir    <base>/.build/target-mek-game
 //   MEK_TOOL_TARGET  target dir of the pack's crates <base>/.build/target-mek
@@ -81,9 +83,12 @@ function syncStage(from: string, to: string): number {
 const steps: Record<string, () => Promise<void>> = {
   async content() {
     const vanilla = resolve(process.env.MEK_VANILLA ?? prepared('.local/horizon-client/26.3'));
+    // A full pack's carries keep the tags of the namespaces no mod owns in the pack's own carry.
+    const pack = env('MEK_PACK', join(dirname(carry), 'atm10-pack'));
+    const packArgs = existsSync(join(pack, 'data')) ? ['--pack', pack] : [];
     for (const [from, to] of [[carry, content], [genCarry, genContent]]) {
       await run(['cargo', 'run', '--offline', '-q', '-j', jobs, '--manifest-path', join(bundle, 'mekanism-content/Cargo.toml'), '--target-dir', toolTarget,
-        '--', '--carry', from, '--overlay', join(bundle, 'content'), '--out', to, '--vanilla', vanilla]);
+        '--', '--carry', from, '--overlay', join(bundle, 'content'), '--out', to, '--vanilla', vanilla, ...packArgs]);
     }
   },
   async units() {

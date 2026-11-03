@@ -9,7 +9,7 @@ pub use crate::biome::BiomeColors;
 pub use crate::camera::CameraEntity;
 pub use crate::command::Suggestion;
 pub use crate::containers::{ModBlockEntity, ModContainer, ModEnergyBuffer, ModFluidTanks};
-pub use crate::crafting::{CustomRecipe, Ingredient};
+pub use crate::crafting::{Cooking, CustomRecipe, Ingredient};
 pub use crate::extras::Corner;
 pub use crate::extras_hud::Corners;
 pub use crate::first_person::Hand;

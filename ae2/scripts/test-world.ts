@@ -53,9 +53,10 @@ const suites = [
   'merequester-stock',
   'extendedae-machines',
   'extendedae-crystal',
+  'extendedae-buses',
 ];
 // Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
-const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae', 'extendedae-crystal': 'extendedae' };
+const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae', 'extendedae-crystal': 'extendedae', 'extendedae-buses': 'extendedae' };
 // Explicitly selectable before-cases, not part of the default passing checkpoint.
 // inframe-bus-menu and inframe-machine-menus drive the in-frame menus' slot numbering, which went with upstream's in-frame
 // single player (23f8bd4fe). The nearest suites on the server thread, not compared assertion by assertion: part-screens,

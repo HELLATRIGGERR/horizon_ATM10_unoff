@@ -1,5 +1,5 @@
 //! ExtendedAE's upgrade kits (`ItemUpgrade` and its `ItemPatternProviderUpgrade`,
-//! `ItemInterfaceUpgrade`, `ItemDriveUpgrade`), derived from ExtendedAE
+//! `ItemInterfaceUpgrade`, `ItemDriveUpgrade`, `ItemIOBusUpgrade`), derived from ExtendedAE
 //! 1.21-2.2.42, https://github.com/GlodBlock/ExtendedAE commit
 //! 1f86f927552f02451236465c0c96a12a3de8f66c, LGPL-3.0; see `ae2/addons/extendedae/`.
 //!
@@ -17,26 +17,32 @@ use horizon_world::registry::BlockStateId;
 use horizon_world::chunk::BlockState;
 use horizon_world::nbt::Tag;
 
-/// A kit: the item, the device it replaces, and the cable part it replaces.
-/// `ItemUpgrade` matches by the exact class, so an extended device takes none.
+/// A kit: the item, the device it replaces, and the cable parts it replaces
+/// (`addBlock`, `addPart`). `ItemUpgrade` matches by the exact class, so an
+/// extended device takes none.
 pub(in crate::game) struct Kit {
     pub item: &'static str,
-    pub block: (&'static str, &'static str),
-    pub part: Option<(&'static str, &'static str)>,
+    pub block: Option<(&'static str, &'static str)>,
+    pub parts: &'static [(&'static str, &'static str)],
 }
 
 pub(in crate::game) const KITS: &[Kit] = &[
     Kit {
         item: "extendedae:pattern_provider_upgrade",
-        block: ("ae2:pattern_provider", "extendedae:ex_pattern_provider"),
-        part: Some(("ae2:cable_pattern_provider", "extendedae:ex_pattern_provider_part")),
+        block: Some(("ae2:pattern_provider", "extendedae:ex_pattern_provider")),
+        parts: &[("ae2:cable_pattern_provider", "extendedae:ex_pattern_provider_part")],
     },
     Kit {
         item: "extendedae:interface_upgrade",
-        block: ("ae2:interface", "extendedae:ex_interface"),
-        part: Some(("ae2:cable_interface", "extendedae:ex_interface_part")),
+        block: Some(("ae2:interface", "extendedae:ex_interface")),
+        parts: &[("ae2:cable_interface", "extendedae:ex_interface_part")],
     },
-    Kit { item: "extendedae:drive_upgrade", block: ("ae2:drive", "extendedae:ex_drive"), part: None },
+    Kit { item: "extendedae:drive_upgrade", block: Some(("ae2:drive", "extendedae:ex_drive")), parts: &[] },
+    Kit {
+        item: "extendedae:io_bus_upgrade",
+        block: None,
+        parts: &[("ae2:export_bus", "extendedae:ex_export_bus_part"), ("ae2:import_bus", "extendedae:ex_import_bus_part")],
+    },
 ];
 
 fn kit(item: &str) -> Option<&'static Kit> {
@@ -99,21 +105,24 @@ impl Game<'_> {
     }
 
     fn extendedae_block_kit(&mut self, kit: &Kit, pos: [i32; 3]) -> bool {
+        let Some(block) = kit.block else {
+            return false;
+        };
         let key = (pos[0], pos[1], pos[2]);
         let old = self.world.block(pos[0], pos[1], pos[2]);
         let Some(BlockEntity::Ae2(machine)) = self.world.block_entities.get(&key) else {
             return false;
         };
         if machine.variant.is_some()
-            || machine.id() != kit.block.0
-            || self.res.facts().get(old).name.as_ref() != kit.block.0
+            || machine.id() != block.0
+            || self.res.facts().get(old).name.as_ref() != block.0
         {
             return false;
         }
-        let Some(next_machine) = upgraded(machine, kit.block.1) else {
+        let Some(next_machine) = upgraded(machine, block.1) else {
             return false;
         };
-        let Some(next) = self.extendedae_state_like(old, kit.block.1) else {
+        let Some(next) = self.extendedae_state_like(old, block.1) else {
             return false;
         };
         let name = self.world.block_names.get(&key).cloned();
@@ -167,9 +176,6 @@ impl Game<'_> {
     }
 
     fn extendedae_part_kit(&mut self, kit: &Kit, key: (i32, i32, i32), face: [i32; 3]) -> bool {
-        let Some((from, to)) = kit.part else {
-            return false;
-        };
         let side = match face {
             [0, -1, 0] => "down",
             [0, 1, 0] => "up",
@@ -188,8 +194,11 @@ impl Game<'_> {
         let Some(Tag::List(parts)) = machine.config.get_mut(&"parts".into()) else {
             return false;
         };
-        let Some(index) = parts.iter().position(|part| {
-            part.get("face") == Some(&Tag::String(side.into())) && part.get("id") == Some(&Tag::String(from.into()))
+        let Some((index, (from, to))) = parts.iter().enumerate().find_map(|(i, part)| {
+            if part.get("face") != Some(&Tag::String(side.into())) {
+                return None;
+            }
+            kit.parts.iter().find(|(from, _)| part.get("id") == Some(&Tag::String((*from).into()))).map(|pair| (i, *pair))
         }) else {
             return false;
         };
@@ -217,14 +226,18 @@ mod tests {
     fn kits_name_the_mods_devices() {
         horizon_client::ae2x::install();
         for kit in KITS {
-            assert_eq!(variant(kit.block.1).unwrap().base, kit.block.0);
-            if let Some((from, to)) = kit.part {
+            if let Some((from, to)) = kit.block {
                 assert_eq!(variant(to).unwrap().base, from);
             }
+            for (from, to) in kit.parts {
+                assert_eq!(variant(to).unwrap().base, *from);
+            }
         }
-        // ItemDriveUpgrade has no part.
-        assert!(super::kit("extendedae:drive_upgrade").unwrap().part.is_none());
-        assert!(super::kit("extendedae:io_bus_upgrade").is_none());
+        // ItemDriveUpgrade has no part, ItemIOBusUpgrade no block.
+        assert!(super::kit("extendedae:drive_upgrade").unwrap().parts.is_empty());
+        let buses = super::kit("extendedae:io_bus_upgrade").unwrap();
+        assert!(buses.block.is_none());
+        assert_eq!(buses.parts.len(), 2);
     }
 
     #[test]

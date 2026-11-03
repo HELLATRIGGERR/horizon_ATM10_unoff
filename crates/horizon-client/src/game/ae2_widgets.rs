@@ -147,6 +147,20 @@ impl Game<'_> {
         })
     }
 
+    /// An addon's style: its own file under its namespace (`<ns>/ae2/screens`),
+    /// its includes from AE2's (`ScreenStyle::load_over`).
+    pub(super) fn ae2_addon_style(&self, namespace: &'static str, path: &'static str) -> Option<&'static ScreenStyle> {
+        static STYLES: OnceLock<Mutex<HashMap<(&'static str, &'static str), Option<&'static ScreenStyle>>>> = OnceLock::new();
+        let mut styles = STYLES.get_or_init(Default::default).lock().ok()?;
+        *styles.entry((namespace, path)).or_insert_with(|| {
+            let assets = self.options.resources.join("assets");
+            ScreenStyle::load_over(&assets.join(namespace).join("ae2/screens"), &assets.join("ae2/screens"), path)
+                .map_err(|error| log::warn!("{namespace} screen style {path}: {error}"))
+                .ok()
+                .map(|style| &*Box::leak(Box::new(style)))
+        })
+    }
+
     /// The style's background at the screen's origin.
     pub(super) fn ae2_draw_background(&self, batch: &mut HudBatch, ox: f32, oy: f32, style: &ScreenStyle) {
         if let Some(background) = style.background.as_ref() {

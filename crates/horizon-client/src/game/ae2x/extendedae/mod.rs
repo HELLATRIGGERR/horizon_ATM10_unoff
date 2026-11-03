@@ -30,6 +30,16 @@ pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
     }
 }
 
+/// `PartExImportBus` and `PartExExportBus` open `ContainerExIOBus` with the
+/// styles `ex_import_bus.json` and `ex_export_bus.json` (over AE2's `io_bus.json`).
+pub(in crate::game) fn part_style(id: &str) -> Option<(&'static str, &'static str)> {
+    match id {
+        "extendedae:ex_import_bus_part" => Some(("extendedae", "ex_import_bus.json")),
+        "extendedae:ex_export_bus_part" => Some(("extendedae", "ex_export_bus.json")),
+        _ => None,
+    }
+}
+
 /// The orientation strategy of the mod's own blocks: `full()` for the
 /// Crystal Assembler and Circuit Cutter, `facing()` for the Crystal Fixer.
 pub(in crate::game) fn orientation(block: &str) -> Option<super::Orientation> {

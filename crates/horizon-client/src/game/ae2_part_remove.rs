@@ -9,7 +9,7 @@ fn valid_list(tag:Option<&Tag>,limit:usize)->bool {
 fn physical_record_valid(part:&Tag)->bool {
     match part.get("upgrades") {
         None=>{},
-        Some(Tag::List(entries)) if horizon_client::ae2_upgrade_inventory::decode(entries,5).is_ok()=>{},
+        Some(Tag::List(entries)) if horizon_client::ae2_upgrade_inventory::decode(entries,part.get("id").and_then(|id|match id {Tag::String(id)=>id.to_string().ok(),_=>None}).map_or(5,|id|horizon_client::ae2_world::bus_card_slots(&id))).is_ok()=>{},
         _=>return false,
     }
     if let Some(machine)=part.get("machine") {

@@ -22,13 +22,9 @@ added to `game/ae2x/mod.rs`: `orientation` (placement and the wrench), `machine_
 `machine_menu_items`, `io_port_budget`, `ae2x_block_use`, `ae2x_machine_click`; in the library
 `ae2x::extendedae::reset_unsaved` (from `save::ae2_reset_unsaved`), and `ExtMachine::power_capacity`.
 
-Next: the Extended Import and Export Buses. They are AE2's buses with `getOperationsPerTick() * busSpeed` (8 in
-ATM10, `Config::bus_speed`), eight card slots and their own screen styles (`ex_import_bus.json` over `io_bus.json`).
-The port's buses go by the part's id in about twenty places (`ae2_buses`, `ae2_bus_ui`, `ae2_part_screens`,
-`ae2_grid`, `ae2_memory_bus`, `spill`, `remote`, `ae2_render`); a part `MachineVariant` with base `ae2:import_bus`
-would give `base_id` to all of them, if `ae2_parts::part_machine` leaves bus variants out. The bus window's
-cards are entries 36..41 and its settings 41..54: three more cards need entries 45..48. `BusState::operations`
-needs the multiplier (not saved: `#[serde(skip)]`).
+The Extended Import and Export Buses are part variants of kind `CableBus` (`base_id` for the bus code through
+`ae2_buses::part_kind`, `ae2_world::bus_card_slots`, `BusState::multiplier`); their window's three more cards are
+entries 45..48. Next: the Extended Inscriber, Charger and Molecular Assembler; a Memory Card on the extended buses.
 
 Facts checked for slice 2, at the source and in Glodium 2.2's classes (`javap`):
 
@@ -37,6 +33,9 @@ Facts checked for slice 2, at the source and in Glodium 2.2's classes (`javap`):
 - `RecipeExecutor` with `mainNode != null` always takes the grid branch (`ifPresent`): the machine's own buffer
   first, then the grid's energy service; the offline branch is never reached for these machines.
 - `AEFluidKey.addDrops` drops nothing: a broken assembler loses its tank.
+- AE2's export bus moves its whole budget into an item handler, stack by stack (`ItemHandlerFacade.insert`); the
+  port's took one grid stack a key, so any bus past 64 operations (an Extended one at 8 and more) stopped at 64.
+  Fixed in `ae2_buses` (the export host's `transfer_atomic`). The import side already went slot by slot.
 
 Facts checked at the source and in the jar:
 

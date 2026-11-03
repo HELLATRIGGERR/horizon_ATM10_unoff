@@ -601,7 +601,8 @@ fn part_machine_kind(id: &str) -> Option<MachineKind> {
 }
 /// The machine of part item `id`, empty: AE2's, or an addon's of other sizes.
 pub(super) fn part_machine(id: &str) -> Option<Machine> {
-    if let Some(variant) = horizon_client::ae2_world::variant(id).filter(|v| v.part) {
+    // A bus variant (CableBus) is a part but no machine.
+    if let Some(variant) = horizon_client::ae2_world::variant(id).filter(|v| v.part && v.kind != MachineKind::CableBus) {
         return Some(Machine::of_variant(variant));
     }
     Some(Machine::new(part_machine_kind(id)?))

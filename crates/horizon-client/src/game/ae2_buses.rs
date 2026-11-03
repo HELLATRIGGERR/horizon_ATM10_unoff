@@ -131,10 +131,20 @@ fn target(pos: (i32, i32, i32), face: &str) -> Option<(i32, i32, i32)> {
         _ => return None,
     })
 }
+/// The part's kind: its id, or for an addon's bus the AE2 bus it behaves as
+/// (`ae2_world::base_id`). What the bus code dispatches on.
+pub(super) fn part_kind(part: &Compound) -> Option<String> {
+    str_field(part, "id").map(|id| horizon_client::ae2_world::base_id(&id).to_owned())
+}
+/// How many cards the bus holds: five, or an addon bus's own.
+pub(super) fn bus_card_count(part: &Compound) -> usize {
+    str_field(part, "id").map_or(5, |id| horizon_client::ae2_world::bus_card_slots(&id))
+}
 pub(super) fn bus_upgrade_slots(part: &Compound) -> Result<Vec<Option<ItemStack>>, String> {
+    let n = bus_card_count(part);
     match part.get(&"upgrades".into()) {
-        None => Ok(vec![None; 5]),
-        Some(Tag::List(entries)) => horizon_client::ae2_upgrade_inventory::decode(entries, 5),
+        None => Ok(vec![None; n]),
+        Some(Tag::List(entries)) => horizon_client::ae2_upgrade_inventory::decode(entries, n),
         _ => Err("invalid bus upgrades".into()),
     }
 }
@@ -142,7 +152,7 @@ pub(super) fn store_bus_upgrade_slots(
     part: &mut Compound,
     slots: &[Option<ItemStack>],
 ) -> Result<(), String> {
-    if slots.len() != 5 {
+    if slots.len() != bus_card_count(part) {
         return Err("invalid bus upgrade slot count".into());
     }
     part.insert(
@@ -168,7 +178,10 @@ pub(super) fn bus_state(part: &Compound) -> Result<BusState, String> {
     if bus.channel != Channel::Item || bus.config.len() > 63 {
         return Err("unsupported bus channel or invalid filter state".into());
     }
-    let id = str_field(part, "id").ok_or("missing bus part id")?;
+    let own = str_field(part, "id").ok_or("missing bus part id")?;
+    // An addon's bus moves more a tick (ExtendedAE's `getOperationsPerTick`).
+    bus.multiplier = super::ae2x::bus_multiplier(&own);
+    let id = horizon_client::ae2_world::base_id(&own).to_owned();
     let upgrades = bus_upgrade_slots(part)?;
     let mut speed = 0u8;
     let mut capacity = 0u8;
@@ -537,23 +550,30 @@ impl TransferHost for Host<'_, '_> {
                         Some(n) => n,
                         None => self.game.ae2_native_item_insert_staged(address, self.face, &offered, offered.count, true, &mut formation),
                     };
-                    if room == 0 {
-                        return Ok(0);
+                    // ItemHandlerFacade.insert takes the whole amount, stack by
+                    // stack: a grid extraction gives one stack at most, so take
+                    // them in turn (a bus of 96 operations or more moves past 64).
+                    let mut moved = 0u64;
+                    while moved < u64::from(room) {
+                        let Some(extracted) =
+                            self.game
+                                .ae2_grid_extract_staged(self.cable, &item_key, u64::from(room) - moved, &mut formation)?
+                        else {
+                            break;
+                        };
+                        if extracted.count == 0 {
+                            break;
+                        }
+                        let inserted = match self.game.ae2_item_p2p_insert_staged(address, self.face, &extracted, false, &mut formation) {
+                            Some(n) => n,
+                            None => self.game.ae2_native_item_insert_staged(address, self.face, &extracted, extracted.count, false, &mut formation),
+                        };
+                        if inserted != extracted.count {
+                            return Err("bus target changed after preview".into());
+                        }
+                        moved += u64::from(inserted);
                     }
-                    let Some(extracted) =
-                        self.game
-                            .ae2_grid_extract_staged(self.cable, &item_key, u64::from(room), &mut formation)?
-                    else {
-                        return Ok(0);
-                    };
-                    let inserted = match self.game.ae2_item_p2p_insert_staged(address, self.face, &extracted, false, &mut formation) {
-                        Some(n) => n,
-                        None => self.game.ae2_native_item_insert_staged(address, self.face, &extracted, extracted.count, false, &mut formation),
-                    };
-                    if inserted != extracted.count {
-                        return Err("bus target changed after preview".into());
-                    }
-                    Ok(u64::from(inserted))
+                    Ok(moved)
                 }
             }
         })();
@@ -954,7 +974,7 @@ impl Game<'_> {
         let Tag::Compound(data) = matches.next()? else {
             return None;
         };
-        if matches.next().is_some() || str_field(data, "id").as_deref() != Some("ae2:export_bus") {
+        if matches.next().is_some() || part_kind(data).as_deref() != Some("ae2:export_bus") {
             return None;
         }
         Some(data.clone())
@@ -981,7 +1001,7 @@ impl Game<'_> {
             .map(|(i, _)| i)
             .collect();
         if matches.len() != 1
-            || parts[matches[0]].get("id") != Some(&Tag::String("ae2:export_bus".into()))
+            || !matches!(&parts[matches[0]], Tag::Compound(data) if part_kind(data).as_deref() == Some("ae2:export_bus"))
         {
             return Err("export bus changed".into());
         }
@@ -1228,7 +1248,7 @@ impl Game<'_> {
             };
             for part in parts {
                 let Tag::Compound(data) = part else { continue };
-                if str_field(data, "id").as_deref() != Some("ae2:storage_bus") {
+                if part_kind(data).as_deref() != Some("ae2:storage_bus") {
                     continue;
                 }
                 let Some(face) = str_field(data, "face") else {
@@ -1504,7 +1524,7 @@ impl Game<'_> {
         let mut result = Vec::new();
         for part in parts {
             let Tag::Compound(data) = part else { continue };
-            if str_field(data, "id").as_deref() != Some("ae2:storage_bus") {
+            if part_kind(data).as_deref() != Some("ae2:storage_bus") {
                 continue;
             }
             let Some(face) = str_field(data, "face") else {
@@ -1578,7 +1598,7 @@ impl Game<'_> {
             return Err("invalid part data".into());
         };
         let mut state = bus_state(data)?;
-        let id = str_field(data, "id").ok_or("part missing id")?;
+        let id = part_kind(data).ok_or("part missing id")?;
         match args[0] {
             "status" if args.len() == 5 => {
                 return Ok(
@@ -1790,7 +1810,7 @@ impl Game<'_> {
             let mut craft_requests = Vec::new();
             for part in &mut updated {
                 let Tag::Compound(data) = part else { continue };
-                let Some(id) = str_field(data, "id") else {
+                let Some(id) = part_kind(data) else {
                     continue;
                 };
                 if frozen && !matches!(id.as_str(), "ae2:import_bus" | "ae2:export_bus" | "ae2:annihilation_plane" | "ae2:energy_level_emitter") { continue; }
@@ -2624,7 +2644,7 @@ impl Game<'_> {
             };
             for part in parts {
                 let Tag::Compound(data) = part else { continue };
-                if str_field(data, "id").as_deref() != Some("ae2:formation_plane") {
+                if part_kind(data).as_deref() != Some("ae2:formation_plane") {
                     continue;
                 }
                 let Some(face) = str_field(data, "face") else {
@@ -2689,7 +2709,7 @@ impl Game<'_> {
             };
             for part in parts {
                 let Tag::Compound(data) = part else { continue };
-                if str_field(data, "id").as_deref() != Some("ae2:formation_plane") {
+                if part_kind(data).as_deref() != Some("ae2:formation_plane") {
                     continue;
                 }
                 let plane_priority = match data.get(&"priority".into()) {

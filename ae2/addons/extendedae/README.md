@@ -53,7 +53,7 @@ the recipes, all through a restart, and broken (`setblock ... destroy`) each dev
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-machines
 ```
 
-## Slice 2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port
+## Slice 2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port, Import and Export Buses
 
 | ExtendedAE | Port |
 |---|---|
@@ -66,6 +66,8 @@ AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-machines
 | `TileCircuitCutter` (the Circuit Slicer, `extendedae:circuit_cutter`): the same with one input and no tank; connects on all but its front and back | the same code (`machines::Kind::Cutter`) |
 | `TileCrystalFixer` (`extendedae:crystal_fixer`): one fuel slot, refuelled by a use of the block (an empty hand takes it back); 2 or 3 progress a step at 50 AE a point, 100 to finish, at 2 to 10 ticks; at the end the fuel is burnt and, with the recipe's chance in 10,000, the block in front becomes the output's default state; connects only at its back; progress saved | `machines::Kind::Fixer`, `FixerRecipe`; refuelling by `ae2x_block_use` |
 | `TileExIOPort`: AE2's IO Port with five cards, 2,048 items a tick doubled by each speed card (AE2's: 256, three cards) | a `MachineVariant` on `MachineKind::IoPort`; `ae2x::io_port_budget` |
+| `PartExImportBus`, `PartExExportBus`: AE2's buses with eight cards (`getUpgradeSlots`) and `getOperationsPerTick() * busSpeed`, ATM10's `extended_io_bus_multiplier` = 8: 8 items a tick with no card, 768 with four speed cards (96 x 8); the same card limits; `ContainerExIOBus` is AE2's IO bus menu with their styles (`ex_import_bus.json`, `ex_export_bus.json` over `io_bus.json`); their base models over AE2's status ones | part `MachineVariant`s of kind `CableBus` (a part, no machine): `base_id` gives the bus code AE2's id (`ae2_buses::part_kind`), `ae2_world::bus_card_slots` their eight cards, `BusState::multiplier` the factor (not saved; `ae2x::bus_multiplier` from `Config::bus_speed`). The bus window keeps AE2's five card entries 36..41 and puts the three more at 45..48 (`ae2_bus_ui::bus_card`) |
+| `ItemIOBusUpgrade` (`extendedae:io_bus_upgrade`): sneak-used on AE2's Import or Export Bus, the extended one in its place with all it held | a `Kit` with parts and no block (`upgrade.rs`) |
 | `EAERegistryHandler.registerUpgrades` | `Defs::add_upgrade` rows for each device, which `ae2_machine_ui::machine_upgrade_allowed` now reads for every addon machine |
 | materials: the concurrent processor, its print and press, the machine frame, entro crystal, dust and ingot, entro and silicon blocks | plain items and blocks of `content.json`, with their crafting, inscriber and transform recipes |
 
@@ -82,22 +84,23 @@ Differences, known:
   two recipes both accept can tell.
 - The tank fills from water and lava buckets in the window only: the port has no fluid pipes, and AE2's export bus
   and pattern provider do not push fluids into it yet.
-- The Extended Import and Export Buses, Inscriber, Charger and Molecular Assembler are not carried yet (their
-  Crystal Assembler recipes wait with them). The buses' card rows and part models are in place.
+- The Extended Inscriber, Charger and Molecular Assembler are not carried yet (their Crystal Assembler recipes
+  wait with them).
+- A Memory Card does not take an Extended Import or Export Bus's settings yet.
 - Entro's budding blocks, clusters and seeds (and the fixer's entro recipes) come with a later slice.
 
 Tests: `horizon-client` (the rows, sizes, cards and IO budget in `ae2x::extendedae`; recipe matching, the search
 context, the executor's steps and energy, fixer recipes and output sides in `game::ae2x::extendedae::machines`)
-and the world test `extendedae-crystal`:
+and the world tests `extendedae-crystal` and `extendedae-buses` (tick-by-tick transfers with no card and four
+speed cards, the filter, eight cards on the screen, the kit, the bus's recipe, a restart, the drops):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-crystal
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-crystal extendedae-buses
 ```
 
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
-2. (the rest) Extended Import and Export Buses (x8 in ATM10), Inscriber, Charger, Molecular Assembler; Entro's
-   budding blocks, clusters and seeds.
+2. (the rest) Extended Inscriber, Charger, Molecular Assembler; Entro's budding blocks, clusters and seeds.
 3. Assembler Matrix (max size 6 in ATM10).
 4. Wireless Connector and Hub (range 1,000).
 5. Special buses, emitters and planes.

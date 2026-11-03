@@ -117,6 +117,13 @@ pub struct BusState {
     pub fuzzy: bool,
     pub schedule: Schedule,
     pub next_slot: usize,
+    /// The bus's own factor on its operations (an addon's faster bus); not
+    /// saved, its host sets it from the part.
+    #[serde(skip, default = "one")]
+    pub multiplier: u64,
+}
+fn one() -> u64 {
+    1
 }
 impl BusState {
     pub fn new(channel: Channel) -> Self {
@@ -133,6 +140,7 @@ impl BusState {
             fuzzy: false,
             schedule: Schedule::Default,
             next_slot: 0,
+            multiplier: 1,
         }
     }
     pub fn slots(&self) -> usize {
@@ -141,13 +149,14 @@ impl BusState {
             .min(self.config.len())
     }
     pub fn operations(&self) -> u64 {
-        match self.speed_cards {
-            1 => 8,
-            2 => 32,
-            3 => 64,
-            4 => 96,
-            _ => 1,
-        }
+        self.multiplier.max(1)
+            * match self.speed_cards {
+                1 => 8,
+                2 => 32,
+                3 => 64,
+                4 => 96,
+                _ => 1,
+            }
     }
     pub fn observe_redstone(&mut self, powered: bool) {
         if self.redstone == Redstone::Pulse && powered && !self.last_redstone {

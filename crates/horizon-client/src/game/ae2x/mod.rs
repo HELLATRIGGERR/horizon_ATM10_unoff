@@ -92,6 +92,25 @@ pub(super) fn machine_menu_items(machine: &Machine, items: &mut [Option<horizon_
     #[cfg(feature = "ae2-extendedae")]
     extendedae::menu_items(machine, items);
 }
+/// The factor on an addon bus's operations (`getOperationsPerTick`): 1 for AE2's.
+pub(super) fn bus_multiplier(id: &str) -> u64 {
+    let _ = id;
+    #[cfg(feature = "ae2-extendedae")]
+    if let n @ 2.. = horizon_client::ae2x::extendedae::bus_operations_multiplier(id) {
+        return n;
+    }
+    1
+}
+/// The screen style of an addon's part (its namespace, where its files under
+/// AE2's are, and the file), when it has one of its own.
+pub(super) fn part_style(id: &str) -> Option<(&'static str, &'static str)> {
+    let _ = id;
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(found) = extendedae::part_style(id) {
+        return Some(found);
+    }
+    None
+}
 /// The items an AE2 IO Port of an addon moves a tick, by its speed cards.
 pub(super) fn io_port_budget(machine: &Machine) -> Option<u64> {
     let _ = machine;

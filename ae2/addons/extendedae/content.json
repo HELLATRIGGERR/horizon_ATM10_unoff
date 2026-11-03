@@ -1,11 +1,11 @@
 {
   "namespace": "extendedae",
   "name": "ExtendedAE",
-  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, and the materials of their recipes (slice 2).",
+  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, Import and Export Buses and their kit, and the materials of their recipes (slice 2).",
   "authors": ["GlodBlock (ExtendedAE)"],
   "slices": [
     "1: Extended Pattern Provider and Interface, block and part; ME Extended Drive; their upgrade kits",
-    "2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port; concurrent processors, machine frame, entro materials"
+    "2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port, Import and Export Buses and the IO bus kit; concurrent processors, machine frame, entro materials"
   ],
   "items": {
     "ex_pattern_provider_part": {},
@@ -13,6 +13,9 @@
     "pattern_provider_upgrade": {},
     "interface_upgrade": {},
     "drive_upgrade": {},
+    "io_bus_upgrade": {},
+    "ex_import_bus_part": {},
+    "ex_export_bus_part": {},
     "concurrent_processor": {},
     "concurrent_processor_print": {},
     "concurrent_processor_press": {},
@@ -68,7 +71,7 @@
   "recipe_types": ["extendedae:crystal_assembler", "extendedae:circuit_cutter", "extendedae:crystal_fixer"],
   "config_conditions": {"assembler_circuit": {"file": "extendedae-common.toml", "key": "device.enable_crystal_assembler_inscribe_processors", "default": true}},
   "ae2_namespace": {
-    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json"],
+    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json", "ex_import_bus.json", "ex_export_bus.json"],
     "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png", "crystal_assembler.png", "circuit_cutter.png"]
   }
 }

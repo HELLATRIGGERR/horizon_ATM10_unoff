@@ -116,6 +116,27 @@ pub const MACHINES: &[MachineVariant] = &[
         upgrades: 0,
         part: false,
     },
+    // PartExImportBus and PartExExportBus: AE2's buses with eight cards
+    // (getUpgradeSlots) and busSpeed times the operations. A bus is no
+    // machine of its own: the kind CableBus says so (`bus_card_slots`).
+    MachineVariant {
+        id: EX_IMPORT_BUS,
+        base: "ae2:import_bus",
+        block: EX_IMPORT_BUS,
+        kind: MachineKind::CableBus,
+        slots: 0,
+        upgrades: 8,
+        part: true,
+    },
+    MachineVariant {
+        id: EX_EXPORT_BUS,
+        base: "ae2:export_bus",
+        block: EX_EXPORT_BUS,
+        kind: MachineKind::CableBus,
+        slots: 0,
+        upgrades: 8,
+        part: true,
+    },
     // IOPortBlockEntity's six cells in, six out; UpgradeInventories.forMachine(EX_IO_PORT, 5).
     MachineVariant {
         id: EX_IO_PORT,
@@ -127,6 +148,12 @@ pub const MACHINES: &[MachineVariant] = &[
         part: false,
     },
 ];
+
+/// `PartExImportBus` and `PartExExportBus.getOperationsPerTick`: AE2's times
+/// `extended_io_bus_multiplier`; 1 for any other bus.
+pub fn bus_operations_multiplier(id: &str) -> u64 {
+    if matches!(id, EX_IMPORT_BUS | EX_EXPORT_BUS) { Config::get().bus_speed } else { 1 }
+}
 
 /// `TileExIOPort.tickingRequest`: 2,048 items a tick, doubled by each speed
 /// card up to five (AE2's own port moves 256, doubled up to three).
@@ -219,6 +246,14 @@ mod tests {
         let port = Machine::for_block(super::EX_IO_PORT).unwrap();
         assert_eq!((port.kind, port.slots.len(), port.upgrades.len()), (MachineKind::IoPort, 12, 5));
         assert_eq!(base_id(super::EX_IO_PORT), "ae2:io_port");
+        // The buses are parts and no machines, with eight cards.
+        for (id, base) in [(super::EX_IMPORT_BUS, "ae2:import_bus"), (super::EX_EXPORT_BUS, "ae2:export_bus")] {
+            assert_eq!(base_id(id), base);
+            assert_eq!(crate::ae2_world::bus_card_slots(id), 8);
+            assert!(Machine::for_block(id).is_none() && !is_machine_block(id));
+        }
+        assert_eq!(crate::ae2_world::bus_card_slots("ae2:import_bus"), 5);
+        assert_eq!(crate::ae2_world::bus_card_slots("extendedae:ex_interface_part"), 5);
     }
 
     #[test]

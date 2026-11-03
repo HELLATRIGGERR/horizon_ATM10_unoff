@@ -262,6 +262,12 @@ pub fn variant(id: &str) -> Option<&'static MachineVariant> {
 pub fn base_id(id: &str) -> &str {
     variant(id).map_or(id, |v| v.base)
 }
+/// The upgrade cards bus part `id` holds in its record: AE2's five
+/// (`IOBusPart.getUpgradeSlots`), or an addon bus's own (a part variant of
+/// `MachineKind::CableBus`, which is no machine of its own).
+pub fn bus_card_slots(id: &str) -> usize {
+    variant(id).filter(|v| v.part && v.kind == MachineKind::CableBus).map_or(5, |v| v.upgrades)
+}
 /// Whether block `id` is an AE2 machine, AE2's own or an addon's.
 pub fn is_machine_block(id: &str) -> bool {
     MachineKind::from_id(id).is_some() || variant(id).is_some_and(|v| !v.part)

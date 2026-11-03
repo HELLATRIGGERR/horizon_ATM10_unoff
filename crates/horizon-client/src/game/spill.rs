@@ -224,7 +224,7 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
             }
             // Bus upgrades are real cards, distinct from state_json filters.
             if !matches!(base,"ae2:cable_interface"|"ae2:cable_pattern_provider"|"ae2:crafting_terminal"|"ae2:pattern_encoding_terminal") && let Some(Tag::List(upgrades)) = part.get("upgrades") {
-                if let Ok(slots)=horizon_client::ae2_upgrade_inventory::decode(upgrades,5) {
+                if let Ok(slots)=horizon_client::ae2_upgrade_inventory::decode(upgrades,horizon_client::ae2_world::bus_card_slots(id.as_str())) {
                     additional.extend(slots.into_iter().flatten());
                 }
             }

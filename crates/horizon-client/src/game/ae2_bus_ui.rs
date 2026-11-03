@@ -49,6 +49,19 @@ fn field(data: &Compound, name: &str) -> Option<String> {
         _ => None,
     }
 }
+/// The card of bus window entry `entry`: AE2's five at 36..41, an addon
+/// bus's further ones (ExtendedAE's eight) at 45..48, which no setting uses.
+pub(super) fn bus_card(entry: usize) -> Option<usize> {
+    match entry {
+        36..41 => Some(entry - 36),
+        45..48 => Some(entry - 40),
+        _ => None,
+    }
+}
+/// The window entry of card `card`.
+pub(super) fn bus_card_entry(card: usize) -> usize {
+    if card < 5 { 36 + card } else { 40 + card }
+}
 fn icon(text: String) -> Option<ItemStack> {
     let mut s = ItemStack::new("minecraft:paper", 1);
     s.data_mut().custom_name = Some(horizon_client::item_data::text_name(text));
@@ -56,12 +69,12 @@ fn icon(text: String) -> Option<ItemStack> {
 }
 fn stable(data: &Compound) -> Option<Tag> {
     let mut copy = data.clone();
-    match field(data,"id").as_deref() {
+    match super::ae2_buses::part_kind(data).as_deref() {
         Some("ae2:level_emitter") => {super::ae2_emitter::emitter_read(data).ok()?;},
         Some("ae2:energy_level_emitter") => {super::ae2_emitter::energy_emitter_read(data).ok()?;},
         _ => {}
     }
-    if matches!(field(data,"id").as_deref(),Some("ae2:level_emitter"|"ae2:energy_level_emitter")) {
+    if matches!(super::ae2_buses::part_kind(data).as_deref(),Some("ae2:level_emitter"|"ae2:energy_level_emitter")) {
         copy.remove(&"emitter_count".into());copy.remove(&"emitter_active".into());
         return Some(Tag::Compound(copy));
     }
@@ -94,13 +107,13 @@ impl Game<'_> {
         };
         if matches.next().is_some()
             || !matches!(
-                field(data, "id")?.as_str(),
+                super::ae2_buses::part_kind(data)?.as_str(),
                 "ae2:import_bus" | "ae2:export_bus" | "ae2:storage_bus" | "ae2:formation_plane" | "ae2:level_emitter" | "ae2:energy_level_emitter"
             )
         {
             return None;
         }
-        match field(data,"id").as_deref() {
+        match super::ae2_buses::part_kind(data).as_deref() {
             Some("ae2:level_emitter") => {super::ae2_emitter::emitter_read(data).ok()?;},
             Some("ae2:energy_level_emitter") => {super::ae2_emitter::energy_emitter_read(data).ok()?;},
             _ => {super::ae2_buses::bus_state(data).ok()?;}
@@ -174,7 +187,7 @@ impl Game<'_> {
         if let Some(mut field)=self.ae2_local_energy.clone(){field.x=ox+48.0;field.y=oy+55.0;field.width=66.0;field.height=12.0;field.draw(batch,&self.gui.atlas,None);}
     }
     pub(super) fn ae2_local_bus_title(&self)->&'static str {
-        match self.ae2_local_bus.as_ref().and_then(|s|self.bus_ui_read(s.pos,s.face)).and_then(|data|field(&data,"id")).as_deref() {
+        match self.ae2_local_bus.as_ref().and_then(|s|self.bus_ui_read(s.pos,s.face)).and_then(|data|super::ae2_buses::part_kind(&data)).as_deref() {
             Some("ae2:level_emitter")=>"AE2 Level Emitter",Some("ae2:energy_level_emitter")=>"AE2 Energy Level Emitter",_=>"AE2 Bus"
         }
     }
@@ -182,7 +195,7 @@ impl Game<'_> {
     /// persistent native Menu used by the server, committing effects only
     /// after the face-owned upgrade inventory is accepted.
     fn ae2_local_emitter_physical(&mut self,session:&mut GuestBus,mut data:Compound,slot:Option<usize>,button:i32,input:Input)->bool {
-        let storage=field(&data,"id").as_deref()==Some("ae2:level_emitter");
+        let storage=super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:level_emitter");
         let mut state=if storage {super::ae2_emitter::emitter_read(&data).ok()}else{None};
         if storage && state.is_none(){return false;}
         let before_random=self.world.random.clone();
@@ -228,7 +241,7 @@ impl Game<'_> {
         if self.remote.is_some(){return false;}
         let face=match face {[1,0,0]=>0,[-1,0,0]=>1,[0,1,0]=>2,[0,-1,0]=>3,[0,0,1]=>4,[0,0,-1]=>5,_=>return false};
         let Some(data)=self.bus_ui_read(pos,face) else{return false};
-        let kind=field(&data,"id").unwrap_or_default();let energy=kind=="ae2:energy_level_emitter";
+        let kind=super::ae2_buses::part_kind(&data).unwrap_or_default();let energy=kind=="ae2:energy_level_emitter";
         let emitter=energy || kind=="ae2:level_emitter";
         let Some(signature)=stable(&data) else{return false};let Some(owner_identity)=self.bus_ui_identity(pos,&data) else{return false};
         let energy_edit=if energy {let Ok(state)=super::ae2_emitter::energy_emitter_read(&data) else{return false};
@@ -253,7 +266,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_local_bus_slot_view(&self,slot:usize)->Option<ItemStack> {
         if !self.ae2_local_bus_valid(){return None;}let session=self.ae2_local_bus.as_ref()?;let data=self.bus_ui_read(session.pos,session.face)?;
-        let items=match field(&data,"id").as_deref() {
+        let items=match super::ae2_buses::part_kind(&data).as_deref() {
             Some("ae2:level_emitter")=>self.ae2_emitter_menu_items(&data,session.emitter_edit.as_deref()),
             Some("ae2:energy_level_emitter")=>self.ae2_energy_emitter_menu_items(&data,session.emitter_edit.as_deref()),
             _=>self.ae2_bus_menu_items(&data,session.page),
@@ -262,7 +275,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_local_bus_fake_slot(&self,slot:usize)->bool {
         if !self.ae2_local_bus_valid() || !(300..336).contains(&slot){return false;}
-        self.ae2_local_bus.as_ref().and_then(|s|self.bus_ui_read(s.pos,s.face).and_then(|data|match field(&data,"id").as_deref() {
+        self.ae2_local_bus.as_ref().and_then(|s|self.bus_ui_read(s.pos,s.face).and_then(|data|match super::ae2_buses::part_kind(&data).as_deref() {
             Some("ae2:level_emitter")=>Some(slot==300 && s.emitter_edit.is_none()),
             Some("ae2:energy_level_emitter")=>Some(false),
             _=>super::ae2_buses::bus_state(&data).ok().map(|state|s.page*36+slot-300<state.slots()),
@@ -283,7 +296,7 @@ impl Game<'_> {
         }else{(button,input)};
         let Some(mut session)=self.ae2_local_bus.take() else{return};let Some(data)=self.bus_ui_read(session.pos,session.face) else{return};
         let wire=match slot {Some(slot @ 300..=353)=>Some(slot-300),Some(slot @ 0..=8)=>Some(81+slot),Some(slot @ 9..=35)=>Some(54+slot-9),_=>None};
-        match field(&data,"id").as_deref() {
+        match super::ae2_buses::part_kind(&data).as_deref() {
             Some("ae2:level_emitter")=>if !self.ae2_emitter_config_action(&mut session,data.clone(),wire,button,input) {
                 self.ae2_local_emitter_physical(&mut session,data,wire,button,input);
             },
@@ -309,8 +322,8 @@ impl Game<'_> {
         let Some(signature) = stable(&data) else {
             return false;
         };
-        let energy=field(&data,"id").as_deref()==Some("ae2:energy_level_emitter");
-        let emitter=energy || field(&data,"id").as_deref()==Some("ae2:level_emitter");
+        let energy=super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:energy_level_emitter");
+        let emitter=energy || super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:level_emitter");
         let Some(owner_identity)=self.bus_ui_identity(pos,&data) else{return false};
         let emitter_identity=if emitter {Some(owner_identity)}else{None};
         let energy_edit=if emitter {
@@ -378,10 +391,10 @@ impl Game<'_> {
         }
         if let Ok(cards) = super::ae2_buses::bus_upgrade_slots(&data) {
             for (i, card) in cards.into_iter().enumerate() {
-                items[36 + i] = card;
+                items[bus_card_entry(i)] = card;
             }
         }
-        let kind = field(&data, "id").unwrap_or_default();
+        let kind = super::ae2_buses::part_kind(&data).unwrap_or_default();
         items[41] = icon(format!("Filter page {}/2", page + 1));
         if matches!(kind.as_str(), "ae2:import_bus" | "ae2:export_bus") {
             items[42] = icon(format!("Redstone: {:?}", state.redstone));
@@ -452,8 +465,8 @@ impl Game<'_> {
         host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:part_view".into(),data:bytes}));
     }
     fn ae2_part_view_of(&self,window:i32,pos:Pos,face:u8,data:&Compound)->Option<super::ae2_part_screens::PartView> {
-        let kind=field(data,"id")?;
-        let mut view=super::ae2_part_screens::PartView{window,kind:kind.clone(),..Default::default()};
+        let kind=super::ae2_buses::part_kind(data)?;
+        let mut view=super::ae2_part_screens::PartView{window,kind:kind.clone(),id:field(data,"id").unwrap_or_default(),..Default::default()};
         match kind.as_str() {
             "ae2:level_emitter" => {
                 let state=super::ae2_emitter::emitter_read(data).ok()?;
@@ -477,7 +490,7 @@ impl Game<'_> {
                     stack.map_or_else(String::new,|stack|horizon_client::item_data::canon_stack(Some(&stack)))
                 }).collect();
                 view.enabled=state.slots();
-                view.upgrades=5;
+                view.upgrades=super::ae2_buses::bus_card_count(data);
                 view.redstone=format!("{:?}",state.redstone);
                 view.schedule=format!("{:?}",state.schedule);
                 view.fuzzy=field(data,"fuzzy_mode").unwrap_or_else(||"ignore_all".into());
@@ -507,7 +520,7 @@ impl Game<'_> {
     pub(super) fn ae2_part_priority(&self,pos:Pos,face:u8,identity:(u64,[i32;4]))->Option<i32> {
         let data=self.bus_ui_read(pos,face)?;
         if self.bus_ui_identity(pos,&data)!=Some(identity) {return None;}
-        if !matches!(field(&data,"id").as_deref(),Some("ae2:storage_bus"|"ae2:formation_plane")) {return None;}
+        if !matches!(super::ae2_buses::part_kind(&data).as_deref(),Some("ae2:storage_bus"|"ae2:formation_plane")) {return None;}
         Some(match data.get(&"priority".into()) {Some(Tag::Int(n))=>*n,_=>0})
     }
     pub(super) fn ae2_part_set_priority(&mut self,pos:Pos,face:u8,identity:(u64,[i32;4]),value:i32)->bool {
@@ -519,7 +532,7 @@ impl Game<'_> {
     /// A part screen's press on what the placeholder menu has no place for.
     fn ae2_part_place(&mut self,session:&mut GuestBus,mut data:Compound,place:usize,button:i32) {
         use super::ae2_part_screens::{CLEAR_PLACE,CONFIG_PLACE,CONFIG_PLACES,KEY_TYPES_PLACE,PARTITION_PLACE};
-        let kind=field(&data,"id").unwrap_or_default();
+        let kind=super::ae2_buses::part_kind(&data).unwrap_or_default();
         if (CONFIG_PLACE..CONFIG_PLACE+CONFIG_PLACES).contains(&place) {
             let (index,page)=(place-CONFIG_PLACE,session.page);
             session.page=index/36;
@@ -565,8 +578,8 @@ impl Game<'_> {
             );
             return;
         };
-        if field(&data,"id").as_deref()==Some("ae2:energy_level_emitter") {self.lan_send_ae2_energy_emitter(host,conn);return;}
-        if field(&data,"id").as_deref()==Some("ae2:level_emitter") {self.lan_send_ae2_emitter(host,conn);return;}
+        if super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:energy_level_emitter") {self.lan_send_ae2_energy_emitter(host,conn);return;}
+        if super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:level_emitter") {self.lan_send_ae2_emitter(host,conn);return;}
         let Ok(state) = super::ae2_buses::bus_state(&data) else {
             return;
         };
@@ -602,9 +615,9 @@ impl Game<'_> {
     /// Shared source bus ghost/config action. The actor's carried stack is
     /// authoritative in both the server and in-frame paths.
     fn ae2_bus_config_action(&mut self,session:&mut GuestBus,mut data:Compound,slot:usize,button:i32,input:Input)->bool {
-        if !(slot<36 || (41..54).contains(&slot)) {return false;}
+        if bus_card(slot).is_some() || !(slot<36 || (41..54).contains(&slot)) {return false;}
         if input!=Input::Pickup || (!(0..=1).contains(&button) && !(matches!(button,2|3) && slot<36 && self.carried.is_some())) {return true;}
-        let kind=field(&data,"id").unwrap_or_default();
+        let kind=super::ae2_buses::part_kind(&data).unwrap_or_default();
         let before=self.carried.clone();
         let Ok(mut state)=super::ae2_buses::bus_state(&data) else{return true;};
         let mut changed=false;
@@ -754,12 +767,12 @@ impl Game<'_> {
                 1 => {
                     if let Some(drag) = session.drag.as_mut() {
                         if drag.mode == mode
-                            && (36..41).contains(&slot)
-                            && !drag.slots.contains(&(slot - 36))
+                            && bus_card(slot).is_some()
+                            && !drag.slots.contains(&(bus_card(slot).unwrap_or(usize::MAX)))
                             && self.carried.as_ref() == Some(&drag.carried)
                             && (mode == 2 || drag.slots.len() < drag.carried.count as usize)
                         {
-                            drag.slots.push(slot - 36);
+                            drag.slots.push(bus_card(slot).unwrap_or(usize::MAX));
                         }
                     }
                 }
@@ -824,10 +837,10 @@ impl Game<'_> {
             let index=if slot<81 {slot-54+9}else{slot-81};
             self.ae2_machine_player_menu_click(index,button,input);return true;
         }
-        if input==Input::Throw && (36..41).contains(&slot) && (0..=1).contains(&button) && self.carried.is_none() {
+        if input==Input::Throw && bus_card(slot).is_some() && (0..=1).contains(&button) && self.carried.is_none() {
             if self.eye_position().is_none(){return true;}
             let mut cards=super::ae2_buses::bus_upgrade_slots(&data).unwrap_or_default();
-            if let Some(item)=cards.get_mut(slot-36).and_then(Option::take) {
+            if let Some(item)=cards.get_mut(bus_card(slot).unwrap_or(usize::MAX)).and_then(Option::take) {
                 if super::ae2_buses::store_bus_upgrade_slots(&mut data,&cards).is_ok() {
                     if item.item.as_ref()=="ae2:crafting_card" {super::ae2_buses::mark_export_card_removed(&mut data);}
                     data.insert("bus_next_tick".into(),Tag::Long(0));
@@ -844,8 +857,8 @@ impl Game<'_> {
                 .flatten()
                 .any(|v| v.item.as_ref() == "ae2:crafting_card");
             let mut changed = false;
-            if input == Input::QuickMove && (36..41).contains(&slot) {
-                let index = slot - 36;
+            if input == Input::QuickMove && bus_card(slot).is_some() {
+                let index = bus_card(slot).unwrap_or(usize::MAX);
                 if let Some(item) = cards.get(index).and_then(Clone::clone) {
                     if self.give(item).is_none()
                     {
@@ -876,10 +889,10 @@ impl Game<'_> {
                     }
                 }
             } else if input == Input::Swap
-                && (36..41).contains(&slot)
+                && bus_card(slot).is_some()
                 && ((0..=8).contains(&button) || button==40)
             {
-                let index = slot - 36;
+                let index = bus_card(slot).unwrap_or(usize::MAX);
                 let incoming=if button==40 {self.offhand.clone()}else{self.inventory[button as usize].clone()};
                 if index < cards.len() && incoming.as_ref().is_none_or(|v| v.count == 1) {
                     let existing = cards[index].clone();
@@ -918,8 +931,8 @@ impl Game<'_> {
         let Ok(state)=super::ae2_buses::bus_state(&data) else{return true;};
         let mut changed=false;
         if self.ae2_bus_config_action(session,data.clone(),slot,button,input) {return true;}
-        if (36..41).contains(&slot) {
-            let index = slot - 36;
+        if bus_card(slot).is_some() {
+            let index = bus_card(slot).unwrap_or(usize::MAX);
             let mut cards = super::ae2_buses::bus_upgrade_slots(&data).unwrap_or_default();
             let held = self.carried.clone();
             if index < cards.len() {
@@ -1046,7 +1059,7 @@ impl Game<'_> {
             return true;
         }
         if session.emitter_identity.is_some() {
-            if field(&data,"id").as_deref()==Some("ae2:energy_level_emitter") {return self.lan_ae2_energy_emitter_click(host,conn,gi,p,session,data);}
+            if super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:energy_level_emitter") {return self.lan_ae2_energy_emitter_click(host,conn,gi,p,session,data);}
             let handled=self.lan_ae2_emitter_click(host,conn,gi,p,session,data);
             if matches!(p.slot,0|1|45..=48) {self.lan_ae2_emitter_echo(host,conn);}
             return handled;
@@ -1141,7 +1154,7 @@ impl Game<'_> {
 // Staged additions to game/ae2_bus_ui.rs. Requires emitter-specific GuestBus
 // fields, Menu restrictions, and the shared ae2_emitter state module.
 fn emitter_session_menu(data:&Compound)->Menu {
-    if field(data,"id").as_deref()==Some("ae2:energy_level_emitter") {Menu::new(Kind::Chest(6))} else {emitter_menu()}
+    if super::ae2_buses::part_kind(data).as_deref()==Some("ae2:energy_level_emitter") {Menu::new(Kind::Chest(6))} else {emitter_menu()}
 }
 fn emitter_menu() -> Menu {
     let mut menu=Menu::new(Kind::Chest(6));
@@ -1460,7 +1473,7 @@ pub(super) fn energy_confirmable(text:&str)->bool {
 fn energy_entry_text(value:i64)->String {value.max(0).to_string().chars().take(16).collect()}
 /// The number entry's text for an emitter's threshold: a fluid's is in buckets.
 fn emitter_entry_text(data:&Compound)->Option<String> {
-    if field(data,"id").as_deref()==Some("ae2:energy_level_emitter") {
+    if super::ae2_buses::part_kind(data).as_deref()==Some("ae2:energy_level_emitter") {
         return Some(energy_entry_text(super::ae2_emitter::energy_emitter_read(data).ok()?.threshold));
     }
     let state=super::ae2_emitter::emitter_read(data).ok()?;
@@ -1490,13 +1503,13 @@ impl Game<'_> {
         let valid=host.hub.here(&host.hub.guests[gi]) && !host.hub.guests[gi].spectator()
             && host.hub.guests[gi].within_block_range([session.pos.0,session.pos.1,session.pos.2],4.0)
             && session.dim==self.dim.id() && data.as_ref().is_some_and(|data|
-                matches!(field(data,"id").as_deref(),Some("ae2:energy_level_emitter"|"ae2:level_emitter")) && self.bus_ui_identity(session.pos,data)==session.emitter_identity);
+                matches!(super::ae2_buses::part_kind(data).as_deref(),Some("ae2:energy_level_emitter"|"ae2:level_emitter")) && self.bus_ui_identity(session.pos,data)==session.emitter_identity);
         if !valid {
             let window=session.window;host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_ae2_bus_closed(host,conn,None);
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;
         }
         let mut data=data.unwrap();
-        if field(&data,"id").as_deref()==Some("ae2:level_emitter") {
+        if super::ae2_buses::part_kind(&data).as_deref()==Some("ae2:level_emitter") {
             let text=text.chars().take(19).collect::<String>();
             if stable(&data).as_ref()==Some(&session.signature) && let Ok(mut state)=super::ae2_emitter::emitter_read(&data) {
                 let unit=if matches!(state.filter,Some(super::ae2_emitter::EmitterFilter::Fluid(_))) {1000} else {1};

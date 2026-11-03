@@ -80,7 +80,11 @@ mod more_icon {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub(super) struct PartView {
     pub(super) window: i32,
+    /// What the part behaves as (`ae2_buses::part_kind`).
     pub(super) kind: String,
+    /// The part's own id: an addon's bus has its own style.
+    #[serde(default)]
+    pub(super) id: String,
     /// Per filter, its stack's canonical text; empty when unset.
     pub(super) config: Vec<String>,
     /// How many filters the capacity cards open.
@@ -255,7 +259,11 @@ impl Game<'_> {
     }
 
     fn ae2_part_style(&self) -> Option<&'static ScreenStyle> {
-        self.ae2_style(match self.ae2_part_view()?.kind.as_str() {
+        let view = self.ae2_part_view()?;
+        if let Some((namespace, file)) = super::ae2x::part_style(&view.id) {
+            return self.ae2_addon_style(namespace, file);
+        }
+        self.ae2_style(match view.kind.as_str() {
             "ae2:storage_bus" => "storage_bus.json",
             "ae2:import_bus" => "import_bus.json",
             "ae2:export_bus" => "export_bus.json",
@@ -385,8 +393,8 @@ impl Game<'_> {
             0..=8 => place(style.slot("PLAYER_HOTBAR", i)),
             9..=35 => place(style.slot("PLAYER_INVENTORY", i - 9)),
             300 if v.kind == "ae2:level_emitter" => place(style.slot("CONFIG", 0)),
-            336..=343 => {
-                let k = i - 336;
+            336..=340 | 345..=347 => {
+                let k = super::ae2_bus_ui::bus_card(i - 300).unwrap_or(usize::MAX);
                 if k >= v.upgrades {
                     return Some(hidden);
                 }
@@ -566,7 +574,7 @@ impl Game<'_> {
             self.ae2_draw_upgrades(batch, ox, oy, panel, v.upgrades as i32);
             // Empty upgrade slots' icon.
             for k in 0..v.upgrades {
-                if self.container_kind().is_none_or(|e| e.slots().get(36 + k).is_none_or(Option::is_none)) {
+                if self.container_kind().is_none_or(|e| e.slots().get(super::ae2_bus_ui::bus_card_entry(k)).is_none_or(Option::is_none)) {
                     self.ae2_icon(batch, icon::BACKGROUND_UPGRADE, (16, 16), ox + (panel.0 + 1) as f32, oy + (panel.1 + 6 + k as i32 * 18) as f32);
                 }
             }
@@ -694,6 +702,7 @@ impl Game<'_> {
         });
         Some(serde_json::json!({
             "kind": v.kind,
+            "id": v.id,
             "key_types": key_types,
             "help": rect(toolbar_button(style, 0)),
             "tools": tools,

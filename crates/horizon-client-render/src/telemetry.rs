@@ -43,6 +43,12 @@ pub fn mark_start() {
     STARTED.get_or_init(Instant::now);
 }
 
+static WORLD_SHOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Whether a world's first frame has been drawn in this process.
+pub fn world_shown() -> bool {
+    WORLD_SHOWN.load(Ordering::Relaxed)
+}
+
 pub fn mark_core_ready() {
     mark_ready(&CORE_READY_MS);
 }
@@ -268,6 +274,7 @@ impl Session {
         }
         if let Some(opening) = self.opening.take() {
             crate::spans::startup::mark("world.first_frame");
+            WORLD_SHOWN.store(true, Ordering::Relaxed);
             if self.to_world_ms.is_none() {
                 self.to_world_ms = Some(opening.elapsed().as_millis() as u32);
             }

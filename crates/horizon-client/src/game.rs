@@ -21069,9 +21069,9 @@ fn load_resources(
                     "Horizon: rest-ready after {} ms",
                     started.elapsed().as_millis()
                 );
-                write_prepared_files(vanilla_root);
+                write_prepared_files(vanilla_root, false);
                 if let Some(content_root) = content_root {
-                    write_prepared_files(content_root);
+                    write_prepared_files(content_root, true);
                 }
                 if let Some(folder) = late_preload {
                     world_loading::preload_launch_world(
@@ -21103,7 +21103,7 @@ fn load_resources(
             .set(rest)
             .map_err(|_| "world resources already loaded")?;
         if root != vanilla_root {
-            write_prepared_files(root.clone());
+            write_prepared_files(root.clone(), true);
         }
         None
     };
@@ -21154,7 +21154,7 @@ fn load_resources(
 /// can use: on a thread of its own, at idle priority, once the start is done.
 /// This start has just read the folder's files (they are in the disk cache);
 /// the next starts read them from one file (#1961).
-fn write_prepared_files(root: PathBuf) {
+fn write_prepared_files(root: PathBuf, after_world: bool) {
     use horizon_core::prepared_files;
     if prepared_files::open(&root).is_some() || !root.join("horizon-resources.json").is_file() {
         return;
@@ -21163,6 +21163,20 @@ fn write_prepared_files(root: PathBuf) {
         .name("Prepared data file".into())
         .spawn(move || {
             horizon_threads::idle_current();
+            // A content root's file reads every one of its files: not beside a world's opening,
+            // which reads them too and needs the memory the system keeps for each. Once a world
+            // is in view and settled, or after five minutes without one.
+            if after_world {
+                let waited = Instant::now();
+                while !horizon_client::telemetry::world_shown()
+                    && waited.elapsed() < std::time::Duration::from_secs(300)
+                {
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+                if horizon_client::telemetry::world_shown() {
+                    std::thread::sleep(std::time::Duration::from_secs(30));
+                }
+            }
             let started = Instant::now();
             match prepared_files::write(&root) {
                 Ok(()) => log::info!(

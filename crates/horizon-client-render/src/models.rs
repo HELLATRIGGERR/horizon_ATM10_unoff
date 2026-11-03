@@ -2,7 +2,7 @@
 pub mod catalog;
 mod cube;
 use crate::{Result, sprites::Sprites};
-pub use catalog::StateModels;
+pub use catalog::{LAZY_MODELS_FROM, StateModels};
 use catalog::descriptor;
 pub use cube::CubeStyle;
 use horizon_core::position::BlockPos;
@@ -84,6 +84,7 @@ pub fn prepare(
         registry,
         sprites,
         &crate::model_library::ParsedModels::default(),
+        false,
     )
 }
 pub(crate) fn prepare_with_models(
@@ -91,6 +92,7 @@ pub(crate) fn prepare_with_models(
     registry: &BlockRegistry,
     sprites: &mut Sprites,
     models: &crate::model_library::ParsedModels,
+    lazy: bool,
 ) -> Result<PreparedModels> {
     // Each block's entry stays text until its block is reached: a large pack's file is 70 MB,
     // ten times that as a tree.
@@ -102,7 +104,7 @@ pub(crate) fn prepare_with_models(
         .map(|name| name.strip_prefix("minecraft:").unwrap_or(name))
         .collect();
     let mut catalog =
-        StateModels::from_facts_with_models(root, registry, &blocks, sprites, &facts, models)?;
+        StateModels::from_facts_with_models(root, registry, &blocks, sprites, &facts, models, lazy)?;
     catalog.bake_standalone(root, sprites, models, standalone())?;
     let mut placements = Vec::new();
     let mut states = Vec::new();

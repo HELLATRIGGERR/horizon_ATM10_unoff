@@ -20,9 +20,10 @@ use horizon_world::{
 };
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fs,
     path::Path,
+    sync::{Arc, OnceLock},
 };
 
 pub struct BakedFace {
@@ -44,6 +45,88 @@ pub struct BakedModel {
     pub faces: Vec<BakedFace>,
     pub cube: Option<[super::cube::CubeStyle; 6]>,
 }
+impl BakedModel {
+    /// No faces: what a model that didn't bake draws.
+    fn empty() -> Self {
+        Self {
+            ambient_occlusion: true,
+            particle: None,
+            faces: Vec::new(),
+            cube: None,
+        }
+    }
+}
+/// The block states from which models bake when a chunk first draws them ([`StateModels`]'s
+/// lazy load): All the Mods 10's 276,297 baked variants held 6.26 million faces, 1.25 GB.
+pub const LAZY_MODELS_FROM: usize = 200_000;
+/// What a model not baked at the load bakes from: its resolved library and the laid-out sprites.
+struct LazyBake {
+    library: Arc<horizon_assets::resolve::ModelLibrary>,
+    sprites: crate::sprites::SpriteLookup,
+}
+impl LazyBake {
+    /// `bake_resolved` from the laid-out sprites, without the sprite names.
+    fn bake(&self, variant: &Variant) -> Result<BakedModel> {
+        let model = self.library.resolve(&variant.model)?;
+        let sprites = &self.sprites;
+        let particle = model
+            .material("particle")?
+            .map(|material| sprites.layer(&material.sprite));
+        let transform = BlockModelTransform::new(variant.rotations, variant.uv_lock);
+        let faces: Vec<BakedFace> = bake_block_model(&model, transform)?
+            .into_iter()
+            .map(|mut quad| {
+                let layer = sprites.layer(&quad.material.sprite);
+                quad.material.sprite = String::new();
+                BakedFace {
+                    translucent: quad.material.force_translucent || sprites.translucent(layer),
+                    opaque: sprites.region_opaque(layer, &quad.uv),
+                    quad,
+                    layer,
+                    fusion: None,
+                }
+            })
+            .collect();
+        let cube = super::cube::cube_styles(&faces);
+        Ok(BakedModel {
+            ambient_occlusion: model.ambient_occlusion,
+            particle,
+            faces,
+            cube,
+        })
+    }
+}
+/// The sprites `bake_resolved` places for `model`, in its order (the particle, then each face's),
+/// without keeping the bake: the layers its faces draw, and the first face's layer on each side.
+fn place_sprites(
+    root: &Path,
+    sprites: &mut Sprites,
+    model: &horizon_assets::resolve::ResolvedCuboidModel,
+    turns: [u8; 3],
+    lock: bool,
+) -> Result<(Box<[u32]>, Sides)> {
+    if let Some(material) = model.material("particle")? {
+        sprites.insert(root, &material.sprite)?;
+    }
+    let (mut layers, mut sides) = (Vec::new(), [None; 6]);
+    for quad in bake_block_model(model, BlockModelTransform::new(turns, lock))? {
+        let layer = sprites.insert(root, &quad.material.sprite)?;
+        let side = &mut sides[side_index(quad.facing)];
+        side.get_or_insert(layer);
+        layers.push(layer);
+    }
+    layers.sort_unstable();
+    layers.dedup();
+    Ok((layers.into(), sides))
+}
+/// A model's first face layer on each side, in [`horizon_assets::model::Direction::ALL`]'s order.
+type Sides = [Option<u32>; 6];
+fn side_index(side: horizon_assets::model::Direction) -> usize {
+    horizon_assets::model::Direction::ALL
+        .iter()
+        .position(|d| *d == side)
+        .unwrap_or(0)
+}
 type VariantKey = (String, [u8; 3], bool);
 /// Empty by default: no state has a model (a dedicated server, which draws
 /// nothing).
@@ -53,10 +136,20 @@ pub struct StateModels {
     choices: Vec<CompiledChoices<u32>>,
     /// By state id: its definition in `choices` and the models it selects.
     states: Vec<Option<(usize, SelectedModels)>>,
-    /// Every transformed model once, with the variant it was baked from.
-    baked: Vec<(Variant, BakedModel)>,
+    /// Every transformed model once, with the variant it was baked from: at the load, or for a
+    /// large pack when first drawn ([`LAZY_MODELS_FROM`], [`Self::finish_loading`]).
+    baked: Vec<(Variant, OnceLock<BakedModel>)>,
     /// Standalone models by id: their index in `baked`.
     standalone: BTreeMap<String, u32>,
+    /// A lazy load's models, until [`Self::finish_loading`]: they resolve from here.
+    library: Option<Arc<horizon_assets::resolve::ModelLibrary>>,
+    /// A lazy load's layers each variant's faces draw, until [`Self::finish_loading`].
+    variant_layers: Vec<Box<[u32]>>,
+    /// A lazy load's first face layer on each side of each variant: what [`Self::side_layer`]
+    /// answers for a model not baked yet.
+    variant_sides: Vec<Sides>,
+    /// What the models not baked yet bake from, once the load is finished.
+    lazy: Option<Arc<LazyBake>>,
 }
 fn key(variant: &Variant) -> VariantKey {
     (variant.model.clone(), variant.rotations, variant.uv_lock)
@@ -176,6 +269,7 @@ impl StateModels {
             sprites,
             facts,
             &crate::model_library::ParsedModels::default(),
+            false,
         )
     }
     pub(crate) fn from_facts_with_models(
@@ -185,6 +279,7 @@ impl StateModels {
         sprites: &mut Sprites,
         facts: &impl ModelStateFacts,
         models: &crate::model_library::ParsedModels,
+        lazy: bool,
     ) -> Result<Self> {
         let mut choices = Vec::new();
         let mut states = vec![None; registry.len()];
@@ -350,9 +445,20 @@ impl StateModels {
                 .map(|material| material.sprite.as_str()),
         );
         let mut baked = Vec::with_capacity(variants.len());
+        let mut variant_layers = Vec::new();
+        let mut variant_sides = Vec::new();
         let mut index = BTreeMap::new();
         for ((name, turns, lock), model) in variants.into_iter().zip(resolved) {
-            let model = bake_resolved(root, sprites, &model?, turns, lock)?;
+            let model = model?;
+            let model = if lazy {
+                // Its sprites placed as the bake would, so the layers come out the same.
+                let (layers, sides) = place_sprites(root, sprites, &model, turns, lock)?;
+                variant_layers.push(layers);
+                variant_sides.push(sides);
+                OnceLock::new()
+            } else {
+                OnceLock::from(bake_resolved(root, sprites, &model, turns, lock)?)
+            };
             index.insert((name.clone(), turns, lock), baked.len() as u32);
             let variant = Variant {
                 model: name,
@@ -361,14 +467,111 @@ impl StateModels {
             };
             baked.push((variant, model));
         }
-        // Every variant of every definition was baked above.
+        // Every variant of every definition was baked or placed above.
         let choices = choices.iter().map(|c| c.map(|v| index[&key(v)])).collect();
         Ok(Self {
             choices,
             states,
             baked,
             standalone: BTreeMap::new(),
+            library: lazy.then(|| Arc::new(library)),
+            variant_layers,
+            variant_sides,
+            lazy: None,
         })
+    }
+    /// The layer of the first face on `side` of the models a state draws at `position` (connected
+    /// textures' tile rules): from the faces, or a model not baked yet from its placed sprites.
+    pub fn side_layer(
+        &self,
+        state: BlockStateId,
+        position: BlockPos,
+        side: horizon_assets::model::Direction,
+    ) -> Option<u32> {
+        let (choice, selected) = self.state(state)?;
+        let mut random = LegacyRandom::new(position_seed(position));
+        let mut found = None;
+        self.choices[*choice]
+            .for_each(selected, &mut random, |&model| {
+                if found.is_some() {
+                    return;
+                }
+                let model = model as usize;
+                found = match self.baked[model].1.get() {
+                    Some(baked) => baked
+                        .faces
+                        .iter()
+                        .find(|f| f.quad.facing == side)
+                        .map(|f| f.layer),
+                    None => self
+                        .variant_sides
+                        .get(model)
+                        .and_then(|sides| sides[side_index(side)]),
+                };
+            })
+            .ok()?;
+        found
+    }
+    /// The model at `index`, baked now if it waited ([`LAZY_MODELS_FROM`]).
+    fn model(&self, index: usize) -> (&Variant, &BakedModel) {
+        let (variant, baked) = &self.baked[index];
+        // Asked for during the load (the gallery wants only the variants): nothing yet, and
+        // nothing kept, so it bakes once the sprites are laid out.
+        let Some(lazy) = self.lazy.as_ref().filter(|_| baked.get().is_none()) else {
+            static NONE: OnceLock<BakedModel> = OnceLock::new();
+            return (variant, baked.get().unwrap_or_else(|| NONE.get_or_init(BakedModel::empty)));
+        };
+        let model = baked.get_or_init(|| {
+            lazy.bake(variant).unwrap_or_else(|e| {
+                log::warn!("Horizon: block model {} not baked: {e}", variant.model);
+                BakedModel::empty()
+            })
+        });
+        (variant, model)
+    }
+    /// A lazy load bakes now, with their sprite names, the models whose faces draw one of
+    /// `layers`: Fusion matches their faces by sprite name ([`crate::fusion`]). The others have
+    /// none of its rules, and bake when drawn.
+    pub(crate) fn bake_showing(&mut self, root: &Path, sprites: &mut Sprites, layers: &HashSet<u32>) {
+        let Some(library) = self.library.clone() else {
+            return;
+        };
+        let wanted: Vec<usize> = self
+            .variant_layers
+            .iter()
+            .enumerate()
+            .filter(|(i, drawn)| {
+                self.baked[*i].1.get().is_none() && drawn.iter().any(|l| layers.contains(l))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for i in wanted {
+            let (variant, slot) = &self.baked[i];
+            let baked = library
+                .resolve(&variant.model)
+                .map_err(Into::into)
+                .and_then(|model| {
+                    bake_resolved(root, sprites, &model, variant.rotations, variant.uv_lock)
+                });
+            match baked {
+                Ok(model) => {
+                    let _ = slot.set(model);
+                }
+                Err(e) => log::warn!("Horizon: block model {} not baked: {e}", variant.model),
+            }
+        }
+    }
+    /// The sprites are placed: the faces baked so far let go of their names, and a lazy load's
+    /// other models bake from `sprites`' layout when first drawn.
+    pub(crate) fn finish_loading(&mut self, sprites: &Sprites) {
+        self.forget_sprite_names();
+        self.variant_layers = Vec::new();
+        if let Some(library) = self.library.take() {
+            self.lazy = Some(Arc::new(LazyBake {
+                library,
+                sprites: sprites.lookup(),
+            }));
+        }
     }
     /// Bakes `names`, models no blockstate needs to name (vanilla's
     /// standalone models, NeoForge's `ModelEvent.RegisterStandalone`), as
@@ -407,7 +610,7 @@ impl StateModels {
                         rotations: [0; 3],
                         uv_lock: false,
                     };
-                    self.baked.push((variant, model));
+                    self.baked.push((variant, OnceLock::from(model)));
                 }
                 Err(e) => log::warn!("Horizon: standalone model {name} not loaded: {e}"),
             }
@@ -417,7 +620,8 @@ impl StateModels {
     /// Baked models, their faces, the states with a model and how many multipart
     /// selections those states hold: what the catalog's memory goes by.
     pub fn counts(&self) -> (usize, usize, usize, usize) {
-        let faces = self.baked.iter().map(|(_, model)| model.faces.len()).sum();
+        let baked = self.baked.iter().filter_map(|(_, model)| model.get());
+        let faces = baked.clone().map(|model| model.faces.len()).sum();
         let states = self.states.iter().flatten();
         let parts = states
             .clone()
@@ -426,27 +630,27 @@ impl StateModels {
                 SelectedModels::Variant(_) => 0,
             })
             .sum();
-        (self.baked.len(), faces, states.count(), parts)
+        (baked.count(), faces, states.count(), parts)
     }
     /// Lets go of each face's sprite name, once whatever matches faces by name has run: `layer` says
     /// which sprite a face draws. A large pack has millions of faces, each with its own string.
     pub(crate) fn forget_sprite_names(&mut self) {
-        for (_, model) in &mut self.baked {
+        for model in self.baked.iter_mut().filter_map(|(_, model)| model.get_mut()) {
             for face in &mut model.faces {
                 face.quad.material.sprite = String::new();
             }
         }
     }
-    /// Every baked model with the variant it was baked from, to change its faces.
+    /// Every model baked so far with the variant it was baked from, to change its faces.
     pub fn models_mut(&mut self) -> impl Iterator<Item = (&Variant, &mut BakedModel)> {
         self.baked
             .iter_mut()
-            .map(|(variant, model)| (&*variant, model))
+            .filter_map(|(variant, model)| Some((&*variant, model.get_mut()?)))
     }
     /// A model baked by [`Self::bake_standalone`], by id (`mymod:block/shaft_half`).
     pub fn standalone(&self, name: &str) -> Option<&BakedModel> {
         let &i = self.standalone.get(name)?;
-        Some(&self.baked[i as usize].1)
+        Some(self.model(i as usize).1)
     }
     pub fn collect(
         &self,
@@ -461,7 +665,7 @@ impl StateModels {
     pub fn particle(&self, state: BlockStateId) -> Option<u32> {
         let (choice, selected) = self.state(state)?;
         let model = self.choices[*choice].particle_variant(selected)?;
-        self.baked[*model as usize].1.particle
+        self.model(*model as usize).1.particle
     }
     pub fn collect_seeded(
         &self,
@@ -469,9 +673,7 @@ impl StateModels {
         seed: i64,
     ) -> Result<Vec<(&Variant, &BakedModel)>> {
         let mut models = Vec::new();
-        self.each_seeded(state, seed, |(variant, model)| {
-            models.push((variant, model))
-        })?;
+        self.each_seeded(state, seed, |variant, model| models.push((variant, model)))?;
         Ok(models)
     }
     /// The models a block draws at `position`, into `out` (cleared first):
@@ -483,18 +685,19 @@ impl StateModels {
         out: &mut Vec<&'a BakedModel>,
     ) -> Result<()> {
         out.clear();
-        self.each_seeded(state, position_seed(position), |(_, model)| out.push(model))
+        self.each_seeded(state, position_seed(position), |_, model| out.push(model))
     }
     fn each_seeded<'a>(
         &'a self,
         state: BlockStateId,
         seed: i64,
-        mut f: impl FnMut(&'a (Variant, BakedModel)),
+        mut f: impl FnMut(&'a Variant, &'a BakedModel),
     ) -> Result<()> {
         let (choice, selected) = self.state(state).ok_or("unbound gallery block state")?;
         let mut random = LegacyRandom::new(seed);
         self.choices[*choice].for_each(selected, &mut random, |&model| {
-            f(&self.baked[model as usize]);
+            let (variant, model) = self.model(model as usize);
+            f(variant, model);
         })?;
         Ok(())
     }
@@ -656,8 +859,8 @@ mod tests {
             faces: Vec::new(),
             cube: None,
         };
-        models.baked.push((variant([0, 90, 0]), empty()));
-        models.baked.push((variant([0; 3]), empty()));
+        models.baked.push((variant([0, 90, 0]), OnceLock::from(empty())));
+        models.baked.push((variant([0; 3]), OnceLock::from(empty())));
         let names = vec!["lanef:block/shared".to_owned()];
         let root = std::env::temp_dir().join("horizon-standalone-none");
         models.bake_standalone(
@@ -668,6 +871,90 @@ mod tests {
         )?;
         assert_eq!(models.baked.len(), 2);
         assert_eq!(models.standalone.get("lanef:block/shared"), Some(&1));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod lazy_tests {
+    use super::*;
+    use crate::model_library::ParsedModels;
+
+    /// Over vanilla's prepared resources: the same sprite layers, and every state's models the
+    /// same, face by face, baked at the load or when first asked for.
+    #[test]
+    fn a_lazy_load_bakes_what_an_eager_one_does() -> Result<()> {
+        let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
+        if !root.join("model-states.json").exists() {
+            return Ok(());
+        }
+        let registry = horizon_world::level::data::load_registry(&root)?;
+        let parsed = ParsedModels::load(&root);
+        let load = |lazy| -> Result<(Sprites, StateModels)> {
+            let mut sprites = Sprites::default();
+            let mut catalog =
+                crate::models::prepare_with_models(&root, &registry, &mut sprites, &parsed, lazy)?
+                    .catalog;
+            catalog.finish_loading(&sprites);
+            Ok((sprites, catalog))
+        };
+        let (eager_sprites, eager) = load(false)?;
+        let (lazy_sprites, lazy) = load(true)?;
+        // A second lazy load, asked for sides before anything bakes.
+        let (_, lazy_sides) = load(true)?;
+        assert_eq!(eager_sprites.layers, lazy_sprites.layers);
+        assert!(lazy.counts().0 < eager.counts().0, "nothing waited");
+        let face = |f: &BakedFace| {
+            format!(
+                "{} {} {} {:?} {:?} {:?} {:?} {:?} {} {:?} {} {}",
+                f.layer,
+                f.opaque,
+                f.translucent,
+                f.fusion,
+                f.quad.positions,
+                f.quad.uv,
+                f.quad.facing,
+                f.quad.cull,
+                f.quad.tint_index,
+                f.quad.shade_direction_override,
+                f.quad.light_emission,
+                f.quad.material.force_translucent,
+            )
+        };
+        let model = |m: &BakedModel| {
+            (
+                m.ambient_occlusion,
+                m.particle,
+                m.faces.iter().map(face).collect::<Vec<_>>(),
+                format!("{:?}", m.cube),
+            )
+        };
+        let mut compared = 0;
+        for id in 0..registry.len() as u32 {
+            let state = BlockStateId(id);
+            let at = BlockPos::new(id as i32 % 7, 64, id as i32 % 13);
+            let (Ok(a), Ok(b)) = (eager.collect(state, at), lazy.collect(state, at)) else {
+                assert_eq!(eager.collect(state, at).is_ok(), lazy.collect(state, at).is_ok());
+                continue;
+            };
+            assert_eq!(a.len(), b.len(), "state {id}");
+            for ((va, ma), (vb, mb)) in a.iter().zip(&b) {
+                assert_eq!(va, vb, "state {id}");
+                assert_eq!(model(ma), model(mb), "state {id}, {}", va.model);
+                compared += 1;
+            }
+            assert_eq!(eager.particle(state), lazy.particle(state), "state {id}");
+            for side in horizon_assets::model::Direction::ALL {
+                assert_eq!(
+                    eager.side_layer(state, at, side),
+                    lazy_sides.side_layer(state, at, side),
+                    "state {id} {side:?}"
+                );
+            }
+        }
+        assert!(compared > 10_000, "{compared}");
         Ok(())
     }
 }

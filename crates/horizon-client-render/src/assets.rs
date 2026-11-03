@@ -229,8 +229,9 @@ impl RenderAssets {
             crate::model_library::ParsedModels::default()
         };
         let mut models = if draws {
+            let lazy = registry.len() >= crate::models::LAZY_MODELS_FROM;
             crate::spans::startup::time("assets.state_models", || {
-                crate::models::prepare_with_models(root, registry, &mut sprites, &parsed)
+                crate::models::prepare_with_models(root, registry, &mut sprites, &parsed, lazy)
             })?
         } else {
             crate::models::PreparedModels::default()
@@ -258,30 +259,22 @@ impl RenderAssets {
         } else {
             Default::default()
         };
+        // Fusion has seen the faces' names: the models are done with them, and a large pack's
+        // others bake from the sprites as laid out from here (connected textures look some up).
+        models.catalog.finish_loading(&sprites);
         let mut emissive = Vec::new();
         let connected = if draws {
             crate::native_emissive::load(root, &mut sprites);
             // A side's sprite, for rules that connect by tile: the first quad facing it.
             let catalog = &models.catalog;
-            let mut found = Vec::new();
             crate::connected::ConnectedTextures::load(
                 root,
                 registry,
                 &mut sprites,
                 |state, face| {
                     let side = horizon_assets::model::Direction::ALL[face as usize];
-                    catalog
-                        .models_at(
-                            state,
-                            horizon_core::position::BlockPos::new(0, 0, 0),
-                            &mut found,
-                        )
-                        .ok()?;
-                    found
-                        .iter()
-                        .flat_map(|m| &m.faces)
-                        .find(|f| f.quad.facing == side)
-                        .map(|f| f.layer)
+                    // Without baking: connected textures ask this of every state.
+                    catalog.side_layer(state, horizon_core::position::BlockPos::new(0, 0, 0), side)
                 },
             )
         } else {
@@ -292,7 +285,6 @@ impl RenderAssets {
         if draws {
             emissive = crate::native_emissive::load_optifine(root, &mut sprites);
         }
-        models.catalog.forget_sprite_names();
         sprites.save_disk_cache();
         let _finish = crate::spans::startup::step("assets.sprites_finish");
         if draws {

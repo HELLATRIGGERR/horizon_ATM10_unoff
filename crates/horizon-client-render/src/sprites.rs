@@ -124,6 +124,49 @@ pub fn set_texture_budget(mib: u32) {
 pub fn texture_budget() -> u64 {
     TEXTURE_BUDGET.load(std::sync::atomic::Ordering::Relaxed)
 }
+/// [`Sprites::lookup`]: the laid-out sprites as a model baked after the load reads them.
+pub(crate) struct SpriteLookup {
+    layers: std::collections::HashMap<String, u32>,
+    translucent: Vec<bool>,
+    opaque: Vec<bool>,
+    /// By layer: its native side, and a bit per texel opaque in every frame (empty when the
+    /// whole layer is).
+    masks: Vec<(u32, Box<[u64]>)>,
+    missing: u32,
+}
+impl SpriteLookup {
+    /// A sprite's layer; the missing texture's for one the load didn't place.
+    pub fn layer(&self, name: &str) -> u32 {
+        self.layers.get(name).copied().unwrap_or(self.missing)
+    }
+    pub fn translucent(&self, layer: u32) -> bool {
+        self.translucent.get(layer as usize).copied().unwrap_or(false)
+    }
+    /// [`Sprites::region_opaque`] from the masks.
+    pub fn region_opaque(&self, layer: u32, uv: &[[f32; 2]; 4]) -> bool {
+        if self.opaque.get(layer as usize).copied().unwrap_or(false) {
+            return true;
+        }
+        let Some((side, bits)) = self.masks.get(layer as usize) else {
+            return false;
+        };
+        let side = *side as usize;
+        let range = |axis: usize| {
+            let lo = uv.iter().map(|p| p[axis]).fold(f32::INFINITY, f32::min);
+            let hi = uv.iter().map(|p| p[axis]).fold(f32::NEG_INFINITY, f32::max);
+            let clamp = |v: f32| (v.max(0.0) as usize).min(side);
+            clamp((lo * side as f32).floor())..clamp((hi * side as f32).ceil())
+        };
+        let (columns, rows) = (range(0), range(1));
+        rows.clone().all(|y| {
+            columns.clone().all(|x| {
+                let texel = y * side + x;
+                bits.get(texel / 64).is_some_and(|word| word & (1 << (texel % 64)) != 0)
+            })
+        })
+    }
+}
+
 /// Whether resource loads read the resource packs' LabPBR maps (`set_labpbr_maps`).
 static LABPBR_MAPS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// Whether resource loads from now on read the resource packs' LabPBR maps beside their block
@@ -215,6 +258,35 @@ impl Sprites {
     }
     /// `SpriteContents.computeTransparency(u0, v0, u1, v1)` is NONE: every texel under
     /// the quad's UV box is fully opaque in every frame, so the quad needs no alpha test.
+    /// What baking a model later reads of the sprites: names to layers, translucency, and which
+    /// texels are opaque in every frame, for [`SpriteLookup::region_opaque`].
+    pub(crate) fn lookup(&self) -> SpriteLookup {
+        let masks = self
+            .native
+            .iter()
+            .zip(&self.opaque)
+            .map(|((side, frames, _), &opaque)| {
+                if opaque {
+                    return (*side, Box::default());
+                }
+                let texels = (*side * *side) as usize;
+                let mut bits = vec![0u64; texels.div_ceil(64)];
+                for texel in 0..texels {
+                    if frames.iter().all(|frame| frame.get(texel * 4 + 3) == Some(&255)) {
+                        bits[texel / 64] |= 1 << (texel % 64);
+                    }
+                }
+                (*side, bits.into_boxed_slice())
+            })
+            .collect();
+        SpriteLookup {
+            layers: self.layers.iter().map(|(k, v)| (k.clone(), *v)).collect(),
+            translucent: self.translucent.clone(),
+            opaque: self.opaque.clone(),
+            masks,
+            missing: self.missing.unwrap_or(0),
+        }
+    }
     pub fn region_opaque(&self, layer: u32, uv: &[[f32; 2]; 4]) -> bool {
         if self.opaque[layer as usize] {
             return true;

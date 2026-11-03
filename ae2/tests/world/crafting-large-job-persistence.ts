@@ -15,8 +15,9 @@ try {
   const at = (dx: number, dy = 0) => `${x + dx} ${y + dy} ${z}`;
   await fixture.command(`tp @s ${x + 2.5} ${y + 1} ${z + 0.5}`);
   for (const dx of [-2, 5]) for (const dz of [-2, 2]) await until(() => fixture.command(`execute if loaded ${x + dx} ${y} ${z + dz}`), reply => reply.chat?.some((line: string) => line.includes('Test passed')), 'loaded build corner', 30000);
-  await fixture.command(`fill ${x - 2} ${y} ${z - 2} ${x + 5} ${y + 4} ${z + 2} minecraft:air`);
-  await fixture.command(`fill ${x - 2} ${y - 1} ${z - 2} ${x + 5} ${y - 1} ${z + 2} minecraft:stone`);
+  // The floor reaches where the player stands to use the terminal (z - 2.5), or it may fall into what the terrain has there.
+  await fixture.command(`fill ${x - 2} ${y} ${z - 3} ${x + 5} ${y + 4} ${z + 2} minecraft:air`);
+  await fixture.command(`fill ${x - 2} ${y - 1} ${z - 3} ${x + 5} ${y - 1} ${z + 2} minecraft:stone`);
   const drive = at(1), terminal = at(2), cpu = at(2, 1), provider = at(3);
   for (const [pos, id] of [[at(0), 'creative_energy_cell'], [drive, 'drive'], [terminal, 'cable_bus'], [cpu, '1k_crafting_storage'], [provider, 'pattern_provider']]) await fixture.command(`setblock ${pos} ae2:${id}`);
   await fixture.command('clear @s'); await fixture.command(`item replace block ${drive} container.0 with ${cell}`);
@@ -29,7 +30,11 @@ try {
   await fixture.command(`tp @s ${x + 5.5} ${y} ${z + 0.5}`); await fixture.raw(`interact ${provider} east`);
   const menu = await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot < 36 && slot.item === 'ae2:processing_pattern'), 'physical pattern');
   await fixture.raw(`click-slot ${menu.slots.find((slot: any) => slot.slot < 36 && slot.item === 'ae2:processing_pattern').slot} shift`); await fixture.raw('close');
-  const open = async () => { await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 2.5}`); await fixture.raw(`interact ${terminal} north`); };
+  // The terminal's window, laid out: a click sent before it is there goes nowhere.
+  const open = async () => {
+    await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 2.5}`); await fixture.raw(`interact ${terminal} north`);
+    await until(() => fixture.raw('screen'), view => view.screen === 'container' && view.ae2_terminal, 'terminal open', 30000);
+  };
   await open(); const screen = await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:diamond'), 'processing recipe visible');
   await fixture.raw(`click-slot ${screen.slots.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:diamond').slot} middle`);
   await until(() => fixture.raw('screen'), view => JSON.stringify(view.title).includes('AE2 Craft Amount'), 'amount'); await fixture.raw('click-slot 302');
@@ -44,7 +49,9 @@ try {
   };
   await checkPayload(); await fixture.restart(); await checkPayload();
   assert.equal(count(await stock()), 0, 'the ingredient remains in physical escrow after reload');
-  await open(); await fixture.raw('click-slot 349'); await until(() => fixture.raw('screen'), view => JSON.stringify(view.title).includes('AE2 Crafting Status'), 'CPU status');
+  // After the restart the job's button comes with the terminal's first view of the CPUs.
+  await open(); await until(() => fixture.raw('screen'), view => view.slots?.some((slot: any) => slot.slot === 349 && slot.item), 'job button');
+  await fixture.raw('click-slot 349'); await until(() => fixture.raw('screen'), view => JSON.stringify(view.title).includes('AE2 Crafting Status'), 'CPU status');
   await fixture.raw('click-slot 303'); await fixture.raw('close');
   await until(stock, view => count(view) === 1, 'cancellation returns exact ingredient', 90000);
   await fixture.restart(); await until(stock, view => view.online && view.powered && count(view) === 1, 'returned exact ingredient survives restart', 30000);

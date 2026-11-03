@@ -72,9 +72,21 @@ export class WorldFixture {
   }
 
   async raw(line: string): Promise<any> {
-    // The client hears of a setup's blocks a little after the server changed them: until then the
-    // block to use may not be there, or old terrain may stand before it.
-    if (!/^(interact|look-at block) /.test(line)) return this.send(line);
+    // A use carries neither the look nor the teleport's acknowledgement: like a player, the client
+    // looks at the block first, and two of its ticks send what it knows before the use goes out.
+    if (line.startsWith('interact ')) {
+      const words = line.split(/\s+/).slice(1);
+      const at = words.slice(0, /^(up|down|north|south|east|west)$/.test(words[3] ?? '') ? 4 : 3).join(' ');
+      await this.visible(`look-at block ${at}`);
+      const ticks = (await this.send('status')).ticks;
+      await until(() => this.send('status'), view => view.ticks >= ticks + 2, 'look sent before the use');
+      return this.visible(line);
+    }
+    return line.startsWith('look-at block ') ? this.visible(line) : this.send(line);
+  }
+  /** `line` once the client can see its block: it hears of a setup's blocks a little after the
+   * server changed them, and until then the block may not be there, or old terrain may stand before it. */
+  private async visible(line: string): Promise<any> {
     const end = awakeNowMs() + 15000;
     for (;;) {
       try { return await this.send(line); }
@@ -193,18 +205,11 @@ export class WorldFixture {
       await this.raw(`click-at ${x + w / 2} ${y + h / 2}`);
     } else await this.raw(`click-slot ${300 + entry}`);
   }
-  /** `interact ARGS` once what the client sends with its tick has reached the server: the look
-   * towards the block (a use carries none, and the server places by the last look it heard of)
-   * and, `sneak`ing, the sneak (`ServerboundPlayerInputPacket`). A use sent before that tick
-   * reaches the server with the old look, unsneaking. */
+  /** `interact ARGS`, `sneak`ing: the sneak (`ServerboundPlayerInputPacket`) goes out with the
+   * client's ticks that `raw` waits for before the use. */
   async aimedInteract(args: string, sneak = false): Promise<void> {
-    await this.raw(`look-at block ${args}`);
     if (sneak) await this.raw('key shift down');
-    try {
-      const ticks = (await this.raw('status')).ticks;
-      await until(() => this.raw('status'), view => view.ticks >= ticks + 2, 'look and sneak sent');
-      await this.raw(`interact ${args}`);
-    } finally { if (sneak) await this.raw('key shift up'); }
+    try { await this.raw(`interact ${args}`); } finally { if (sneak) await this.raw('key shift up'); }
   }
   async sneakInteract(args: string): Promise<void> { await this.aimedInteract(args, true); }
   async hold(held = true): Promise<void> { await this.raw(`server-hold ${held ? 'on' : 'off'}`); }

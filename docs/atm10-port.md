@@ -214,14 +214,18 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 
 ## What to do next
 
-1. With the session unlocked: frame rate at spawn against Java's. Then what is still loaded for nothing: baked models on
+1. A flake to find first: an `interact` with a block's menu right after a `tp` sometimes never opens it (about 1 run in 6
+   of `crafting-large-job-persistence`, `provider-condenser-fluid`, `terminal-craft-gestures`; the screen stays
+   `playing`). In the failed transcripts the player drifts after the `tp`, faster each tick. Check that a teleport
+   resets the motion as Java's does, and what the server's `may_reach_block` sees.
+2. With the session unlocked: frame rate at spawn against Java's. Then what is still loaded for nothing: baked models on
    demand (about 1 GB, and `assets.state_models`' 25 s on a first start), lazy GUI/entity textures (640 MB of GPU memory),
    the 319 placed features that can't run. A first start still dips to 0.2 GB free on a 16 GB PC.
-2. Open a world through the title screen (every run so far used `--world`), with sound on.
-3. Fix the engine defects in the table above.
-4. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`); Mekanism's next machines (its first four are on
+3. Open a world through the title screen (every run so far used `--world`), with sound on.
+4. Fix the engine defects in the table above.
+5. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`); Mekanism's next machines (its first four are on
    `feat/mekanism-machines`, see `pack/mods/mekanism/NOTES.md`); bring `wip/quests` onto the head.
-5. Then, as the roadmap in the handoff folder lays out: data maps and biome modifiers, a shared GUI kit and machine recipe
+6. Then, as the roadmap in the handoff folder lays out: data maps and biome modifiers, a shared GUI kit and machine recipe
    matcher, the small required machines, mod fluids, custom dimensions and mob types as data. Measure against the Java
    baseline as you go.
 

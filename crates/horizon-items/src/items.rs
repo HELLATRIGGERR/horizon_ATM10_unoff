@@ -510,10 +510,14 @@ pub fn load_tags(
     kind: &str,
     overlay: &PackOverlay,
 ) -> Result<HashMap<String, HashSet<String>>> {
-    Ok(load_tag_lists(root, kind, overlay)?
-        .into_iter()
-        .map(|(k, v)| (k, v.into_iter().collect()))
-        .collect())
+    Ok(tag_sets(&load_tag_lists(root, kind, overlay)?))
+}
+/// [`load_tags`] from lists already loaded.
+fn tag_sets(lists: &HashMap<String, Vec<String>>) -> HashMap<String, HashSet<String>> {
+    lists
+        .iter()
+        .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
+        .collect()
 }
 /// Every tag's contents in `TagLoader.tryBuildTag` order (a `LinkedHashSet`).
 /// `overlay` adds a world's data packs over the game's own tag files.
@@ -568,25 +572,42 @@ pub(crate) fn load_tag_lists(
             );
         }
     }
-    fn resolve(name: &str, raw: &HashMap<String, Vec<String>>, out: &mut Vec<String>, depth: u32) {
-        if depth > 32 {
-            return;
+    // Each tag resolved once, its own entries then its tags' in file order, each id at its first
+    // place: a tag a thousand others name was walked a thousand times, each id looked up in a list.
+    // A tag naming itself through others gets what was resolved when the loop closed.
+    fn resolve<'a>(
+        name: &'a str,
+        raw: &'a HashMap<String, Vec<String>>,
+        done: &mut HashMap<&'a str, Vec<String>>,
+        open: &mut HashSet<&'a str>,
+        depth: u32,
+    ) -> Vec<String> {
+        if let Some(list) = done.get(name) {
+            return list.clone();
         }
+        if depth > 32 || !open.insert(name) {
+            return Vec::new();
+        }
+        let (mut list, mut seen) = (Vec::new(), HashSet::new());
         for v in raw.get(name).into_iter().flatten() {
             if let Some(tag) = v.strip_prefix('#') {
-                resolve(tag, raw, out, depth + 1);
-            } else if !out.contains(v) {
-                out.push(v.clone());
+                for id in resolve(tag, raw, done, open, depth + 1) {
+                    if seen.insert(id.clone()) {
+                        list.push(id);
+                    }
+                }
+            } else if seen.insert(v.clone()) {
+                list.push(v.clone());
             }
         }
+        open.remove(name);
+        done.insert(name, list.clone());
+        list
     }
+    let (mut done, mut open) = (HashMap::new(), HashSet::new());
     Ok(raw
         .keys()
-        .map(|k| {
-            let mut list = Vec::new();
-            resolve(k, &raw, &mut list, 0);
-            (k.clone(), list)
-        })
+        .map(|k| (k.clone(), resolve(k, &raw, &mut done, &mut open, 0)))
         .collect())
 }
 /// An entity type id or `#tag` as the set of entity type ids it names.
@@ -954,14 +975,15 @@ impl Items {
         // game's own: one map with the loot data of the same root and packs.
         let loot = horizon_world::loot::shared_tables(root, overlay)?;
         let registry_order = registry_order(root, &order);
+        let item_tag_order = load_tag_lists(root, "item", overlay)?;
         Ok(Self {
             items,
             order,
             registry_order,
             block_tags: load_tags(root, "block", overlay)?,
-            item_tags: load_tags(root, "item", overlay)?,
+            item_tags: tag_sets(&item_tag_order),
             facade_items: HashSet::new(),
-            item_tag_order: load_tag_lists(root, "item", overlay)?,
+            item_tag_order,
             loot,
             songs: load_songs(root),
             instruments: load_instruments(root),
@@ -985,14 +1007,15 @@ impl Items {
     /// station rules and loot functions are built from), for tools that need
     /// tag membership.
     pub fn tags_only(root: &Path, overlay: &PackOverlay) -> Result<Self> {
+        let item_tag_order = load_tag_lists(root, "item", overlay)?;
         Ok(Self {
             items: HashMap::new(),
             order: Vec::new(),
             registry_order: Vec::new(),
             block_tags: load_tags(root, "block", overlay)?,
-            item_tags: load_tags(root, "item", overlay)?,
+            item_tags: tag_sets(&item_tag_order),
             facade_items: HashSet::new(),
-            item_tag_order: load_tag_lists(root, "item", overlay)?,
+            item_tag_order,
             loot: Default::default(),
             songs: HashMap::new(),
             instruments: HashMap::new(),
@@ -2941,5 +2964,39 @@ mod ae2_drop_identity_tests {
         assert!(!retained.tracks(&remainder));
         assert!(slot.is_none());
         assert_eq!(retained.read().count, 0);
+    }
+}
+
+#[cfg(test)]
+mod tag_list_tests {
+    use super::*;
+
+    /// Entries in file order with nested tags in place, each id once at its first place, as
+    /// `TagLoader.tryBuildTag`'s set; a loop closes without looping.
+    #[test]
+    fn tags_resolve_in_order_once_each() {
+        let root = std::env::temp_dir().join(format!("horizon-tag-lists-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("data/minecraft/tags/item");
+        fs::create_dir_all(&dir).unwrap();
+        let tag = |name: &str, values: &str| {
+            fs::write(dir.join(format!("{name}.json")), format!(r#"{{"values": [{values}]}}"#)).unwrap()
+        };
+        tag("a", r##""minecraft:x", "#minecraft:b", "minecraft:y", "#minecraft:c""##);
+        tag("b", r##""minecraft:y", {"id": "minecraft:z"}, "#minecraft:c""##);
+        tag("c", r##""minecraft:w", "minecraft:x""##);
+        tag("loop", r##""minecraft:l", "#minecraft:back""##);
+        tag("back", r##""#minecraft:loop", "minecraft:m""##);
+        let lists = load_tag_lists(&root, "item", &PackOverlay::NONE).unwrap();
+        let ids = |name: &str| lists[name].iter().map(|s| &s[10..]).collect::<Vec<_>>();
+        assert_eq!(ids("minecraft:a"), ["x", "y", "z", "w"]);
+        assert_eq!(ids("minecraft:b"), ["y", "z", "w", "x"]);
+        assert_eq!(ids("minecraft:c"), ["w", "x"]);
+        assert!(ids("minecraft:loop").contains(&"m") || ids("minecraft:back").contains(&"l"));
+        assert_eq!(
+            load_tags(&root, "item", &PackOverlay::NONE).unwrap()["minecraft:a"].len(),
+            4
+        );
+        let _ = fs::remove_dir_all(&root);
     }
 }

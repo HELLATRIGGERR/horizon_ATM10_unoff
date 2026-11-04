@@ -4,6 +4,7 @@
 pub(in crate::game) mod bulk;
 pub(in crate::game) mod cell_dock;
 pub(in crate::game) mod compression;
+pub(in crate::game) mod decompression;
 pub(in crate::game) mod lava;
 pub(in crate::game) mod portable_workbench;
 
@@ -19,6 +20,8 @@ pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
         rows::MEGA_INTERFACE_PART => Some("megacells:part/mega_interface"),
         // CellDockPart.MODEL, its static model; the cell is drawn on it.
         rows::CELL_DOCK => Some("megacells:part/cell_dock"),
+        // DecompressionModulePart.MODEL.
+        rows::DECOMPRESSION_MODULE => Some("megacells:part/decompression_module"),
         _ => None,
     }
 }

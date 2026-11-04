@@ -1,8 +1,11 @@
 /** MEGA Cells slice 7: the MEGA Bulk Item Cell (`BulkCellItem`, its own `ICellHandler`, `BulkCellInventory`): one
  * filtered item type in a count of units with no limit, mounted by the Drive, the ME Chest, the Cell Dock and the IO
  * Port; its 5 AE/t, its LED (`getStatus`: empty, not empty, full on a mismatched filter) and its count through a
- * restart; one filter and one card slot in the Cell Workbench; MEGA's two recipes. Needs content/megacells
- * (ae2/scripts/prepare-addon.ts megacells) and a client built with ae2-megacells. */
+ * restart; one filter and one card slot in the Cell Workbench. The Compression Card: the cell compresses the chain
+ * `CompressionService` gathers from the recipes and the `compression_overrides` data map, listed at a cutoff the Cell
+ * Workbench's and Portable Cell Workbench's button moves. The Decompression Module: autocrafting gets the chains'
+ * patterns (`DecompressionService`), and the module opens the grid's pattern priority. MEGA's four recipes. Needs
+ * content/megacells (ae2/scripts/prepare-addon.ts megacells) and a client built with ae2-megacells. */
 import assert from 'node:assert/strict';
 import { WorldFixture, until, type Mode } from './harness';
 
@@ -236,7 +239,81 @@ try {
   await fixture.raw('close');
   fixture.mark('the Portable Cell Workbench shows the cutoff button and a right press wraps it from the block to the nugget');
 
-  // MEGA's recipes: crafting/bulk_cell_component, cells/standard/bulk_item_cell and crafting/compression_card.
+  // The Decompression Module. A CPU over the Drive, a terminal on the cable, and in the ME Chest, at priority 100, an
+  // empty 1k cell, which takes what the grid stores before the iron bulk cell would take it back. Without a module
+  // nothing makes an iron block: the bulk cell lists 9 ingots and 3 nuggets at its ingot cutoff, no block.
+  const cpu = at(1, 3);
+  await fixture.command(`setblock ${cpu} ae2:1k_crafting_storage`);
+  await fixture.command(`item replace block ${chest} container.0 with ae2:item_storage_cell_1k`);
+  await fixture.command(`data merge block ${chest} {ae2_lab_config:{priority:100}}`);
+  await fixture.command('clear @s');
+  await fixture.replace('hotbar.0', 'ae2:terminal'); await fixture.select(0, 'ae2:terminal');
+  assert.equal((await fixture.ae(`grid part ${bus} north`)).attached, true);
+  await fixture.replace('hotbar.8', 'minecraft:blaze_rod'); await fixture.select(8, 'minecraft:blaze_rod');
+  const terminal = async (label: string, test: (view: any) => boolean) => {
+    await fixture.command(`tp @s ${x + 2.5} ${y} ${z - 1.5} 0 0`);
+    await fixture.raw(`interact ${bus} north`);
+    return until(() => fixture.raw('screen'), v => JSON.stringify(v.title ?? '').includes('AE2 ME Terminal') && test(v), label, 30000);
+  };
+  const listed = (view: any, item: string) => view.slots?.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === item);
+  let term = await terminal('the terminal lists the iron', v => !!listed(v, 'minecraft:iron_ingot'));
+  assert(!listed(term, 'minecraft:iron_block'), 'no iron block, stored or craftable, without a module');
+  await fixture.raw('close');
+  const before = await drain();
+  // DecompressionModulePart: 10 AE/t and a channel; the grid's patterns appear (compression of 9 ingots into a block
+  // from the ingot cutoff up, decompression of an ingot into 9 nuggets under it).
+  await fixture.replace('hotbar.0', 'megacells:decompression_module'); await fixture.select(0, 'megacells:decompression_module');
+  assert.equal((await fixture.ae(`grid part ${bus} south`)).attached, true);
+  const module = async () => (await fixture.raw(`block ${bus}`)).ae2?.parts?.find((p: any) => p.face === 'south');
+  await until(module, p => p?.id === 'megacells:decompression_module' && p.online, 'the module online', 30000);
+  const after = await drain();
+  assert(after - before >= 200 - 1e-6 && after - before < 210, `the module draws 10 AE/t: ${after - before} AE in 20 ticks`);
+  await fixture.select(8, 'minecraft:blaze_rod');
+  term = await terminal('the iron block craftable', v => !!listed(v, 'minecraft:iron_block'));
+  fixture.mark('the Decompression Module draws 10 AE/t and makes the iron block craftable from the bulk cell\'s ingots');
+
+  // A terminal request for one iron block: the CPU takes 9 ingots (81 units) and pushes the pattern to the grid's
+  // DecompressionService, whose output, the next tick, goes into storage through the waiting CPU, then into the
+  // chest's 1k cell.
+  await fixture.raw(`click-slot ${listed(term, 'minecraft:iron_block').slot} middle`);
+  await until(() => fixture.raw('screen'), v => JSON.stringify(v.title ?? '').includes('AE2 Craft Amount'), 'craft amount');
+  await fixture.raw('ui-key right'); await fixture.raw('ui-key backspace'); await fixture.raw('type 1'); await fixture.raw('wait 5');
+  await fixture.raw('click-slot 302');
+  const confirm = await until(() => fixture.raw('screen'), v => JSON.stringify(v.title ?? '').includes('AE2 Craft Confirm') && /bytes|Missing materials|craft planning:/.test(JSON.stringify(v)), 'craft confirmation');
+  assert.doesNotMatch(JSON.stringify(confirm), /Missing materials/);
+  assert.match(JSON.stringify(confirm), /Planned 1 x minecraft:iron_block/);
+  await fixture.raw('click-slot 302');
+  await fixture.raw('close');
+  view = await until(status, v => count(v, 'minecraft:iron_block') === 1 && count(v, 'minecraft:iron_ingot') === 0, 'the crafted block in storage', 60000);
+  assert.equal(count(view, 'minecraft:iron_nugget'), 3, 'the 3 nuggets stay');
+  assert(units(await driveData()).includes('3'), 'the bulk cell down to 3 units');
+  assert(!/ae2_recursive_job/.test(JSON.stringify(await fixture.command(`data get block ${cpu}`))), 'the CPU is free again');
+  assert.match(JSON.stringify(await fixture.command(`data get block ${chest}`)), /minecraft:iron_block/, "the block in the chest's cell");
+  fixture.mark("a request for an iron block runs the compression pattern: 81 units out of the bulk cell, the block into the chest's cell");
+
+  // The module's use opens AE2's PriorityMenu alone (its back closes it): the grid's pattern priority, saved on the
+  // module as `dcp` (DecompressionService.saveNodeData).
+  await fixture.command(`tp @s ${x + 2.5} ${y} ${z + 2.5} 180 0`);
+  await fixture.raw(`interact ${bus} south`);
+  let priority = (await until(() => fixture.raw('screen'), v => v.ae2_priority, 'the module\'s priority', 15000)).ae2_priority;
+  assert.equal(priority.text, '0');
+  await fixture.raw(`click-at ${centre(priority.buttons.find((b: any) => b.entry === 2).rect)}`);
+  priority = (await until(() => fixture.raw('screen'), v => v.ae2_priority?.text === '100', 'priority 100', 15000)).ae2_priority;
+  await fixture.raw(`click-at ${centre(priority.back)}`);
+  await until(() => fixture.raw('screen'), v => !v.ae2_priority && !v.ae2_screen, 'back closes the menu', 15000);
+  assert.match(JSON.stringify(await fixture.command(`data get block ${bus}`)), /dcp: ?100/);
+  await fixture.restart();
+  await until(status, v => v.online && count(v, 'minecraft:iron_block') === 1, 'the grid after restart', 60000);
+  await fixture.command(`tp @s ${x + 2.5} ${y} ${z + 2.5} 180 0`);
+  await fixture.replace('hotbar.8', 'minecraft:blaze_rod'); await fixture.select(8, 'minecraft:blaze_rod');
+  await fixture.raw(`interact ${bus} south`);
+  priority = (await until(() => fixture.raw('screen'), v => v.ae2_priority, 'the priority after restart', 15000)).ae2_priority;
+  assert.equal(priority.text, '100');
+  await fixture.raw('close');
+  fixture.mark('the module opens the grid\'s pattern priority alone, sets it to 100, closes on back, and keeps it through a restart');
+
+  // MEGA's recipes: crafting/bulk_cell_component, cells/standard/bulk_item_cell, crafting/compression_card and
+  // crafting/decompression_module.
   await fixture.command('clear @s');
   await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 4.5}`);
   await fixture.command('gamemode survival @s');
@@ -261,8 +338,10 @@ try {
   await craft([dust, 'ae2:spatial_cell_component_2', dust, 'megacells:accumulation_processor', glass, 'megacells:accumulation_processor', dust, 'megacells:cell_component_1m', dust], 'megacells:bulk_cell_component');
   await craft([glass, dust, glass, dust, 'megacells:bulk_cell_component', dust, 'minecraft:netherite_ingot', 'minecraft:netherite_ingot', 'minecraft:netherite_ingot'], BULK);
   await craft(['ae2:advanced_card', 'ae2:matter_ball', '', '', '', '', '', '', ''], 'megacells:compression_card');
+  const iron = 'minecraft:iron_ingot';
+  await craft([iron, 'megacells:accumulation_processor', iron, 'ae2:calculation_processor', 'megacells:compression_card', 'ae2:engineering_processor', iron, 'ae2:logic_processor', iron], 'megacells:decompression_module');
   await fixture.command('gamemode creative @s');
-  fixture.mark('MEGA\'s recipes make the Bulk Storage Component, the Bulk Item Cell and the Compression Card');
+  fixture.mark('MEGA\'s recipes make the Bulk Storage Component, the Bulk Item Cell, the Compression Card and the Decompression Module');
   fixture.assertHidden(await fixture.raw('status')); fixture.report('passed');
 } catch (error) { fixture.report('failed', error); throw error; }
 finally { await fixture.close(); }

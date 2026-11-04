@@ -141,7 +141,6 @@ Differences, known:
 
 - No LED or housing colour on the portable cells' items (`PortableCellItem.getColor`, tint indexes 1 and 2), for AE2's either; no
   cell tooltip, and no tooltip image of the workbench's filters and cell (`PortableCellWorkbenchTooltipComponent`).
-- The workbench's compression cutoff button (`mega$nextCompressionLimit`) waits for the Bulk Item Cell (slice 7).
 - A shift-click of a card from the inventory does not go into the held cell's card slots, as on the port's Cell Workbench block.
 - The item's empty `minecraft:container` is left out where Java writes an empty list.
 - The port's AE2 creative catalog still lists AE2's items only: no charged MEGA portable cell (`addToMainCreativeTab`).
@@ -249,9 +248,79 @@ dock and its cell; MEGA's recipe makes it:
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-cell-dock
 ```
 
+## Slice 7: Bulk Item Cell, Compression Card, Decompression Module
+
+The bulk logic without the game is `crates/ae2-megacells-core` (`BulkCell`, `CompressionChain`, `load_recipes`, and
+`Big`, the non-negative part of `java.math.BigInteger` the cell counts in).
+
+| MEGA | Port |
+|---|---|
+| `MEGAItems.BULK_ITEM_CELL`: `BulkCellItem` (`stacksTo(1)`), a cell of MEGA's own `ICellHandler` (`isCell`: the item), not an `IBasicCellItem`; `getConfigInventory`: `CellConfig.create(items, is, 1)`; `getUpgrades`: `UpgradeInventories.forItem(is, 1)`; `BulkCellInventory.getIdleDrain` 5 | a handler cell row of the registry (`Defs::add_handler_cell`, `ae2x/megacells.rs`): the codec's `is_cell`, `idle_drain` and `config_slots` (1), one card slot, its drive model; `StorageCells.isCellHandled` (`is_valid_storage_cell`) takes it in the Drive, the ME Chest, the Cell Dock, the IO Port and the workbenches |
+| `BulkCellInventory`: one item type, the filter's, in a `BigInteger` count of units, each item `unitFactor` units (the product of the chain's counts up to it, 1 with no chain); `insert` takes all of the filter's item (any variant of its chain with a card) and nothing without a filter; `extract` gives what the units make, a request past them taking every unit, the trace units with them; `getAvailableStacks` the item at most 2^42 (`STACK_LIMIT`), and with a card the chain's stacks at the cutoff (`initStacks`); `isPreferredStorageFor` its item, filter or chain | `ae2_megacells_core::BulkCell`, the same order and arithmetic; the game reaches it through `game/ae2x`'s `HandlerCell`: the grid's listing (zeros left out, as the terminal drops them), insertion and extraction by priority with its preference (`ae2_cell_storage_change`, `ae2_cell_preferred`), the ME Chest's own terminal, the IO Port (`ae2_io_transfer_handler`, `matchesFullnessMode` on `getStatus`) |
+| `MEGAComponents`: `bulk_item` (`AEKey.CODEC`), `bulk_unit_count` and `bulk_unit_factor` (`BIG_INTEGER_CODEC`, decimal text), `compression_cutoff` (int); the constructor rescales a count recorded at another factor and drops the cutoff of an empty, unfiltered cell; `persist` removes all three once empty | the same components on the stack (`megacells:*` in `ae2_components`, so saves, `/give` and the wire keep them) |
+| `getStatus`: EMPTY without an item or units, FULL while the filter mismatches (a filter of another variant of the chain takes the stored item over), NOT_EMPTY else; `canFitInsideCell` only empty and unfiltered | the LED (`handler_cell_state`) on Drives and Cell Docks; `can_store_item` |
+| `appendHoverText` (contains, quantity or "A lot.", partition or mismatch, compression, trace units, cutoff) and `getTooltipImage` (the card, the item and quantity or the filter at 0) | `megacells_bulk_hover_lines` (`Tooltips.getAmount`, `NUMBER_TEXT`), the cell preview lines |
+| `initStorageCellModels`: `megacells:block/drive/cells/bulk_item_cell` | `Defs::drive_model` for any cell |
+| `MEGAItems.COMPRESSION_CARD`: `UpgradeCardItem`; `initUpgrades`: one on the bulk cell | the upgrade row |
+| `CompressionService.loadRecipes` at `ServerStartedEvent` and a `/reload`: crafting recipes with one result of one repeated ingredient (compression) or one ingredient (decompression), those no recipe of the other way reverses with the same counts dropped unless `megacells:compression_overrides` names the result as the input's variant (`"NONE"` keeps an item out); sorted (stably) by the first ingredient's item count; a chain around each compression recipe left, smallest first | `ae2_megacells_core::load_recipes`, fed by the server's crafting table in its order and the data map (MEGA's file from the content, then the world's packs; tags resolved, `neoforge:mod_loaded` conditions read); built the first time a server needs them and again when its recipe table changes |
+| `SyncCompressionChainsPacket` (`megacells:get_compression_chain`) to a player joining and to all after a reload; chains are a static list, which a single player world's server and client share | the same channel, once per client and generation (`lan_megacells_sync_chains`), into the same kind of static (`ae2x::megacells::chains`) |
+| `CellWorkbenchScreenMixin`, `PortableCellWorkbenchScreen`: `CompressionCutoffButton` last on the toolbar, shown over a bulk cell with a chain and a card, drawn with the cutoff item; a press `mega$nextCompressionLimit(false)` one variant down, a right press up (`switchCompressionCutoff`, Java's `%`: -1 is read as the largest) | the workbench view's `cutoff`, the button at window place 99 for the block's and the portable workbench's menu |
+| `MEGAItems.DECOMPRESSION_MODULE`: `DecompressionModulePart`: `REQUIRE_CHANNEL`, 10 AE/t, the Cell Dock's boxes, `MODEL` `megacells:part/decompression_module`; `onUseWithoutItem` opens AE2's `PriorityMenu` alone, its back closing it | a part row with a part machine of its own kind and no slots; the machine menu opens straight into the priority editor, whose back closes the window |
+| `DecompressionService`, a grid service and global crafting provider: while the grid has a module (`installedModules`, any module node), the patterns of every bulk cell its cell hosts hold (`getDecompressionPatterns`: decompression under the cutoff, compression from it up; none without filter, card or chain, or with a mismatch); `pushPattern` spends the inputs and adds the output to `patternOutputs`, inserted into storage at the next tick start; never busy | `megacells_decompression_patterns` (equal patterns once), registered by the recursive planner as processing patterns of a global provider (`Spec.global`); the CPU's dispatch spends the inputs and queues the outputs, which go in from the next tick and reach the waiting CPU as processing results |
+| the pattern priority: grid-wide, set from any module (`setPatternPriority`), read back by `addNode` from the first module that saved `dcp`, saved on every module (`saveNodeData`) | `dcp` in every module's part machine config of the grid; the first module's value is the grid's |
+| `cells/standard/bulk_item_cell`, `crafting/bulk_cell_component`, `crafting/compression_card`, `crafting/decompression_module`; `data_maps/item/compression_overrides` | MEGA's recipes and data map, as they are (`content.json`'s `data_maps`) |
+
+With ATM10's recipes (`fullpack/dump/recipes.jsonl`, 44,761 shaped and shapeless crafting recipes) the same
+gathering gives about 650 chains where vanilla's give a handful: AllTheCompressed's 1x to 9x blocks extend
+them to twelve variants (iron: nugget, ingot, block, `allthecompressed:iron_block_1x` to `_9x`, the 9x block
+9^11 units), other mods' nuggets become the smallest variant (Silent Gear's diamond shard under the diamond,
+AllTheOres' copper nugget, Immersive Engineering's netherite nugget, Modern Industrialization's tiny redstone
+dust), and cobblestone and dirt chain into their compressed blocks. ATM10 adds no compression overrides.
+
+Differences, known:
+
+- `RecipeManager` hands MEGA its recipes in a `HashMap`'s order; the port gathers in its own table's (file)
+  order. Which recipe wins a tie depends on it, and so does a quirk of `getNextVariant`: an override's larger
+  stack is taken as it is, one of it, so a chain built up through an override (ice to packed ice to blue ice,
+  when packed ice's recipe comes first) gets its top variant at 1 and leaves a one-variant chain behind.
+- The port's planner does not order patterns by provider priority; the decompression priority is kept,
+  shown and saved, and the decompression patterns come after the machines' in the plan.
+- `getStatus`, the tooltip and `isFilterMismatched` move a stored item to its filter's variant on the cell in
+  Java right away (`saveChanges`); the port writes it with the cell's next change.
+- The workbench's partition button takes the cell's first listed key; Java takes the first of a `KeyCounter`,
+  in hash order.
+- MEGA's `DecompressionService` gathers patterns from every cell host node of the grid; the port from the
+  online ones. Its `patternOutputs` are lost on unload, as in Java.
+- The decompression pattern's definition item (a Sky Steel Ingot with `encoded_decompression_pattern`) is not
+  made: a job keeps the pattern as its own spec.
+- `SyncCompressionChainsPacket` goes as the port's own payload (canonical stacks and counts), not
+  `ItemStack.STREAM_CODEC`; NeoForge data map conditions other than `mod_loaded` drop the entry.
+- No tint on the bulk cell's item (`BasicStorageCell.getColor`), as for every cell; the tooltip image is text
+  lines, as AE2's cells' are.
+
+Tests: `ae2-megacells-core` (the `BigInteger` arithmetic against `u128` and 9^30; vanilla's iron chain whatever
+the recipe order, irreversible recipes left out, the data map's overrides and `NONE`, the override quirk; patterns
+and stacks at each cutoff; a bulk cell's one type without limit past a long, compression's units, the cutoff's
+wrap, a mismatched filter, a rescaled count), `horizon-client` (the components through a save and the command
+codec, the handler cell row, LED states and nesting, the tooltip's lines and colours, `Tooltips.getAmount`, the
+sync packet, the data map's values, the cutoff button's place and presses, the module's row and boxes) and the
+world test `megacells-bulk`: two bulk cells draw 10 AE/t; a partitioned cell takes 64 cobblestone before an AE2
+cell, an unpartitioned one nothing, their LEDs; the IO Port empties a bulk cell and moves it out; 4 × (2^63 - 1)
+cobblestone listed at 2^42, 64 more taken and given back exactly; a Cell Dock's cell with a mismatched filter is
+FULL and takes nothing; the ME Chest's takes stone; all through a restart; one filter and one card slot in the
+Cell Workbench; the Compression Card shows the cutoff button at the iron block, presses move it down and a right
+press up; at the ingot cutoff a block, 2 ingots and 3 nuggets list as 11 ingots and 3 nuggets, 2 ingots out leave 9
+and 3; the data map chains snowballs into snow blocks; the listings after a restart; the Portable Cell Workbench's
+button; the Decompression Module draws 10 AE/t and makes the iron block craftable, and a terminal request runs the
+compression pattern (81 units out, the block in another cell); its priority menu sets 100, closes on back and keeps
+it through a restart; MEGA's four recipes:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-bulk
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.1)
 
-7. Bulk Item Cell, Compression Card, Decompression Module.
 8. Cells for other addons' key types (chemical, radioactive, source, soul), with those addons.
 
 `neoforge:mod_loaded` recipe conditions: not needed by slice 1 (its recipes have none); the 107

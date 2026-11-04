@@ -558,6 +558,11 @@ mod recursive {
         #[serde(default)]
         extra_outputs: Vec<String>,
         output: String,
+        /// A pattern of an addon's global crafting provider (MEGA's
+        /// `DecompressionService`): pushed to the provider, not to a
+        /// machine; `provider` is a part that stands for it.
+        #[serde(default)]
+        global: bool,
     }
     #[derive(Clone, Debug, Serialize, Deserialize)]
     struct Session {
@@ -1443,7 +1448,7 @@ mod recursive {
                         let inputs=choices.iter().filter(|c|!c.is_empty()).map(|c|Ingredient{choices:c.iter().cloned().map(|key|(key,1)).collect()}).collect();
                         let mut outputs=Inventory::new();output_add(&mut outputs,&actual)?;
                         register_source_pattern(&mut registry, ExtendedPattern{id:id.clone(),inputs,outputs}, source)?;
-                        specs.insert(id,Spec{provider:owner,slot,definition:definition.clone(),crafting_recipe:None,grid:physical_grid.iter().map(|item|item_data::canon_stack(item.as_ref())).collect(),choices,fluid_slots:BTreeMap::new(),processing:false,special:Some((special.kind,special.recipe)),special_grid_version:1,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&actual))});
+                        specs.insert(id,Spec{provider:owner,slot,definition:definition.clone(),crafting_recipe:None,grid:physical_grid.iter().map(|item|item_data::canon_stack(item.as_ref())).collect(),choices,fluid_slots:BTreeMap::new(),processing:false,special:Some((special.kind,special.recipe)),special_grid_version:1,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&actual)),global:false});
                         continue;
                     }
                     if let Some((inputs, outputs)) = pattern
@@ -1516,6 +1521,7 @@ mod recursive {
                                     .collect(),
                                 extra_outputs,
                                 output,
+                                global: false,
                             },
                         );
                         continue;
@@ -1659,8 +1665,31 @@ mod recursive {
                         fluid_outputs: Vec::new(),
                         extra_outputs: Vec::new(),
                         output: item_data::canon_stack(Some(&expected)),
+                        global: false,
                     });
                 }
+            }
+            // ICraftingService.addGlobalCraftingProvider: an addon's providers
+            // of the grid (MEGA's DecompressionService), one input and one
+            // output each, pushed as processing patterns are.
+            let anchor = self.ae2_local_address(pos).ok_or("invalid local grid position")?;
+            for (index, global) in self.ae2x_global_patterns(anchor).into_iter().enumerate() {
+                let owner = ProviderOwner::Part { host: global.owner.host, face: global.owner.face };
+                let id = format!("{}/global/{index}", owner.id());
+                let input = canon(&ItemStack { count: 1, ..global.input.0 });
+                let output = canon(&ItemStack { count: 1, ..global.output.0 });
+                registry.register(ExtendedPattern {
+                    id: id.clone(),
+                    inputs: vec![Ingredient { choices: Inventory::from([(input.clone(), global.input.1)]) }],
+                    outputs: Inventory::from([(output.clone(), global.output.1)]),
+                }).map_err(|error| format!("{error:?}"))?;
+                registry.set_source_inputs(&id, vec![SourceInput { encoded: input.clone(), primary: input.clone(), remaining: BTreeMap::new() }])
+                    .map_err(|error| format!("{error:?}"))?;
+                specs.insert(id, Spec {
+                    provider: owner, slot: 0, definition: None, crafting_recipe: None, grid: vec![input], choices: Vec::new(),
+                    fluid_slots: BTreeMap::new(), processing: true, special: None, special_grid_version: 0,
+                    fluid_inputs: Vec::new(), fluid_outputs: Vec::new(), extra_outputs: Vec::new(), output, global: true,
+                });
             }
             Ok((registry, specs))
         }
@@ -4172,6 +4201,11 @@ mod recursive {
                                 }
                             }
                         }
+                    } else if spec.global {
+                        // A global provider is never busy (DecompressionService.isBusy).
+                        if session.cpu.task_has_inputs(index) && self.ae2x_global_provider_present(cpu_address) {
+                            chosen=Some((index,cpu_address,spec,0.0));
+                        }
                     } else if session.cpu.task_has_inputs(index) {
                         if let Some(at) = self.recursive_destination(&spec,rejected_targets.get(&task.pattern),None,formation) {
                             if !machine_updates.iter().any(|(p, _)| *p == at) && !session.flights.values().any(|p| *p == at) {
@@ -4184,6 +4218,28 @@ mod recursive {
                 let Some((index, at, spec, power)) = chosen else {break;};
                 let mut next = session.cpu.clone();
                 let (id, step) = next.dispatch_task(index).map_err(|e|format!("CPU task dispatch: {e:?}"))?;
+                if spec.global {
+                    // DecompressionService.pushPattern: the inputs are spent, the
+                    // outputs reach the grid's storage at the next tick, where the
+                    // CPU waiting for them takes them as a processing result.
+                    let mut next_physical = physical.clone();
+                    for (key, amount) in &step.inputs {
+                        if parse_fluid(key).is_some() || take_physical_many(&mut next_physical, key, *amount)?.is_none() {
+                            return Err("global pattern input missing".into());
+                        }
+                    }
+                    if owned_counts(&next_physical, &fluids)? != *next.escrow() {
+                        return Err("global pattern dispatch ownership mismatch".into());
+                    }
+                    for (key, amount) in &step.outputs {
+                        let stack = item_data::parse_stack(key)?.ok_or("missing global pattern output")?;
+                        self.ae2x_push_global_pattern(cpu_address, &stack, *amount);
+                    }
+                    session.cpu = next;
+                    session.flights.insert(id, at);
+                    physical = next_physical;
+                    continue;
+                }
                 if spec.processing {
                     use horizon_client::ae2_provider_queue::Entry;
                     let provider=self.provider_machine(spec.provider).ok_or("provider disappeared")?;
@@ -4731,7 +4787,7 @@ mod recursive {
             let mut choices=vec![Vec::new();9];choices[0]=vec![water.clone(),filled.clone()];choices[1]=choices[0].clone();
             let spec=Spec{provider:ProviderOwner::Block(GridAddress::from_local(super::super::super::Dim::Overworld,(0,64,0)).unwrap()),slot:0,definition:None,
                 crafting_recipe:Some("minecraft:fluid_grid".into()),grid,choices,fluid_slots:BTreeMap::from([(0,(water.clone(),1000)),(1,(water.clone(),1000))]),
-                processing:false,special:None,special_grid_version:0,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:result.clone()};
+                processing:false,special:None,special_grid_version:0,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:result.clone(),global:false};
             let step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(water.clone(),1000),(filled.clone(),1)]),outputs:Inventory::from([(result.clone(),1),(empty,1)]),runs:1};
             let (grid,fluids)=choose_grid(&spec,&step,&recipes,&stations).unwrap();
             assert_eq!(grid[0].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
@@ -4760,7 +4816,7 @@ mod recursive {
             assert_eq!(source_crafting_templates(&recipes,"minecraft:nonunit",&recipe_grid,0,&choices[0],&input,2,true),vec![(input.clone(),2),(input.clone(),1)]);
             let spec=Spec{provider:ProviderOwner::Block(GridAddress::from_local(super::super::super::Dim::Overworld,(0,64,0)).unwrap()),slot:0,definition:None,
                 crafting_recipe:Some("minecraft:nonunit".into()),grid,choices,fluid_slots:BTreeMap::new(),processing:false,special:None,special_grid_version:0,
-                fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&ItemStack::new("minecraft:oak_planks",4)))};
+                fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&ItemStack::new("minecraft:oak_planks",4))),global:false};
             let mut step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(input.clone(),4)]),outputs:Inventory::from([(output,4)]),runs:1};
             let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&stations).is_none());assert_eq!(step,before);
             step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&stations).is_some());
@@ -4791,7 +4847,7 @@ mod recursive {
             let mut grid=vec!["-".to_string();9];grid[0]=primary.clone();let mut choices=vec![Vec::new();9];choices[0]=stock.keys().cloned().collect();
             let spec=Spec{provider,slot:0,definition:None,crafting_recipe:None,grid,choices,fluid_slots:BTreeMap::new(),
                 processing:false,special:None,special_grid_version:0,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),
-                output:result.clone()};
+                output:result.clone(),global:false};
             let specs=BTreeMap::from([("pattern".into(),spec)]);
             let mut registry=ExtendedRegistry::default();
             registry.register(ExtendedPattern{id:"pattern".into(),inputs:vec![Ingredient{choices:stock.clone()}],outputs:Inventory::from([(result.clone(),1)])}).unwrap();
@@ -4864,6 +4920,7 @@ mod recursive {
                 fluid_outputs: vec![],
                 extra_outputs: vec![],
                 output: canon(&ItemStack::new("minecraft:stone",1)),
+                global: false,
             };
             let session = Session {
                 cpu: Cpu::new(1024, 0),

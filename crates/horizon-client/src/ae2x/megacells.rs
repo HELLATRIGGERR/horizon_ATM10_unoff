@@ -106,6 +106,14 @@ pub const BULK_ITEM_CELL: &str = "megacells:bulk_item_cell";
 /// `MEGAItems.COMPRESSION_CARD`: an `UpgradeCardItem` the Bulk Item Cell takes
 /// (`MEGACells.initUpgrades`: `Upgrades.add(COMPRESSION_CARD, BULK_ITEM_CELL, 1)`).
 pub const COMPRESSION_CARD: &str = "megacells:compression_card";
+/// `MEGAItems.DECOMPRESSION_MODULE`: `PartItem<DecompressionModulePart>`, a
+/// cable part that lets autocrafting decompress what bulk cells hold.
+pub const DECOMPRESSION_MODULE: &str = "megacells:decompression_module";
+/// `DecompressionModulePart`'s constructor: `setIdlePowerUsage(10.0)`.
+pub const DECOMPRESSION_MODULE_IDLE: f64 = 10.0;
+/// `DecompressionService.TAG_PATTERN_PRIORITY`: the grid's pattern priority,
+/// saved on each module's node once a player set it.
+pub const PATTERN_PRIORITY: &str = "dcp";
 /// `MEGAComponents`: the Bulk Item Cell's own components.
 pub const BULK_ITEM: &str = "megacells:bulk_item";
 pub const BULK_UNIT_COUNT: &str = "megacells:bulk_unit_count";
@@ -332,6 +340,10 @@ pub fn register(defs: &mut Defs) {
         },
         1,
     );
+    // DecompressionModulePart: GridFlags.REQUIRE_CHANNEL, 10 AE/t; its state a
+    // part machine of its own kind, no slots, its config the saved node data.
+    defs.add_part(super::defs::PartDef { id: DECOMPRESSION_MODULE.to_owned(), idle_power: DECOMPRESSION_MODULE_IDLE, requires_channel: true, cells: 0 });
+    defs.add_machine(crate::ae2_world::ExtMachine { id: DECOMPRESSION_MODULE, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: true });
     // MEGACells.initUpgrades: Upgrades.add(COMPRESSION_CARD, BULK_ITEM_CELL, 1).
     defs.add_upgrade(COMPRESSION_CARD, BULK_ITEM_CELL, 1);
     // CellDockPart: GridFlags.REQUIRE_CHANNEL, an IStorageProvider of one

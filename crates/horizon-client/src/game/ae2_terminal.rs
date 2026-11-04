@@ -5171,7 +5171,7 @@ enum PriorityTarget {
 /// cell part (MEGA's Cell Dock).
 fn config_priority_host(kind:horizon_client::ae2_world::MachineKind)->bool {
     kind==horizon_client::ae2_world::MachineKind::Interface
-        || kind.ext().is_some_and(|m|m.part && super::ae2_parts::is_cell_part(m.id))
+        || kind.ext().is_some_and(|m|m.part && (super::ae2_parts::is_cell_part(m.id) || super::ae2x::part_opens_priority(m.id)))
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 struct WorkbenchRevision { state:i32, page:usize, keep:bool }
@@ -5595,6 +5595,7 @@ impl Game<'_> {
                 let machine=if let Some(part)=part {self.ae2_part_machine(part).ok().flatten()?} else {
                     let BlockEntity::Ae2(machine)=self.world.block_entities.get(&pos)? else{return None};(**machine).clone()
                 };
+                if let Some(value)=part.and_then(|part|self.ae2x_part_priority(part,machine.id())) {return Some(value);}
                 match machine.config.get(&"priority".into()){None=>Some(0),Some(Tag::Int(value))=>Some(*value),_=>None}
             }
         }
@@ -5620,6 +5621,7 @@ impl Game<'_> {
             PriorityTarget::Interface{pos,part,owner:_} => {
                 if let Some(part)=part {
                     let Some(mut machine)=self.ae2_part_machine(part).ok().flatten() else{return false};
+                    if let Some(stored)=self.ae2x_set_part_priority(part,machine.id(),value) {return stored;}
                     machine.config.insert("priority".into(),Tag::Int(value));
                     self.ae2_store_part_machine(part,&machine).is_ok()
                 } else {
@@ -5759,7 +5761,15 @@ impl Game<'_> {
                 return true;
             }
             if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.priority_edit=None;Self::priority_payload(host,conn,window,edit.token,"close","");self.lan_send_ae2_terminal(host,conn);}
-            else if let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){m.priority_edit=None;Self::priority_payload(host,conn,window,edit.token,"close","");self.lan_send_ae2_machine(host,conn);}
+            else if let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){
+                m.priority_edit=None;let part=m.part;Self::priority_payload(host,conn,window,edit.token,"close","");
+                let alone=part.is_some_and(|part|self.ae2_part_machine(part).ok().flatten().is_some_and(|machine|super::ae2x::part_opens_priority(machine.id())));
+                if alone {
+                    // DecompressionModulePart.returnToMainMenu: closeContainer.
+                    self.lan_ae2_machine_closed(host,conn,Some(window));
+                    host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
+                } else {self.lan_send_ae2_machine(host,conn);}
+            }
         } else if (0..8).contains(&p.slot) && matches!(input,Input::Pickup|Input::QuickMove) {
             if let Some(next)=priority_step(&edit.text,p.slot,input==Input::QuickMove){self.priority_update(host,conn,&next,true);}
         } else {self.lan_send_priority(host,conn);}
@@ -6147,6 +6157,10 @@ impl Game<'_> {
             screen_data: Vec::new(),
         });
         Self::lan_mark_ae2_base_screen(host,conn,window);
+        // DecompressionModulePart.onUseWithoutItem: AE2's PriorityMenu alone.
+        if super::ae2x::part_opens_priority(machine.id()) {
+            return self.lan_priority_open(host,conn,window,PriorityTarget::Interface{pos,part:Some(part),owner});
+        }
         self.lan_send_ae2_machine(host, conn);
         true
     }

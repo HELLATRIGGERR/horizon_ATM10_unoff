@@ -52,7 +52,8 @@
     "cell_dock": {},
     "bulk_cell_component": {},
     "bulk_item_cell": {"max_stack_size": 1},
-    "compression_card": {}
+    "compression_card": {},
+    "decompression_module": {}
   },
   "blocks": {
     "sky_steel_block": {

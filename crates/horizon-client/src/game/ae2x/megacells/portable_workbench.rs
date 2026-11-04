@@ -51,6 +51,8 @@ pub(in crate::game) struct State {
     pub(in crate::game) workbenches: std::collections::HashMap<u32, Session>,
     /// `CompressionService`'s chains on this server, and what each client was sent.
     pub(in crate::game) compression: super::compression::Compression,
+    /// `DecompressionService.patternOutputs`, of every grid.
+    pub(in crate::game) decompression_outputs: Vec<super::decompression::PendingOutput>,
 }
 
 /// `PortableCellWorkbenchInventory.saveChanges`: the cell as the item's

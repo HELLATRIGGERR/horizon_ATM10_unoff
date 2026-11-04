@@ -173,6 +173,24 @@ const LAYOUTS: &[(&str, Layout)] = &[
         page_line: None,
         panels: &[],
     }),
+    // DecompressionModulePart opens AE2's PriorityMenu alone: its window holds
+    // no slot, and the priority editor (PriorityScreen) stands in front of it.
+    (horizon_client::ae2x::megacells::DECOMPRESSION_MODULE, Layout {
+        kind: MachineKind::Chest,
+        style: "priority.json",
+        slots: &[],
+        icons: &[],
+        upgrades: 0..0,
+        toggles: &[],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
 ];
 
 /// The layout of a MEGA screen that goes by its menu's item or block.

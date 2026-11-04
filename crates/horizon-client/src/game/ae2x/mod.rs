@@ -157,7 +157,7 @@ pub(super) fn part_model(id: &str) -> Option<&'static str> {
 /// sixteenths with the part on the south face, as `ae2_geometry` keeps AE2's.
 pub(super) fn part_boxes(id: &str) -> Option<Vec<[f64; 6]>> {
     #[cfg(feature = "ae2-megacells")]
-    if let Some(boxes) = megacells::cell_dock::boxes(id) {
+    if let Some(boxes) = megacells::cell_dock::boxes(id).or_else(|| megacells::decompression::boxes(id)) {
         return Some(boxes);
     }
     let _ = id;
@@ -188,11 +188,32 @@ pub(super) fn part_placement_spin(id: &str, side: &str, yaw: f32) -> Option<u8> 
 /// over the part); none for a part machine without one.
 pub(super) fn part_menu_title(id: &str) -> Option<&'static str> {
     #[cfg(feature = "ae2-megacells")]
-    if let Some(title) = megacells::cell_dock::menu_title(id) {
+    if let Some(title) = megacells::cell_dock::menu_title(id).or_else(|| megacells::decompression::menu_title(id)) {
         return Some(title);
     }
     let _ = id;
     None
+}
+/// An addon part whose use opens AE2's `PriorityMenu` alone, its priority not
+/// the part's own (MEGA's Decompression Module: the grid's pattern priority);
+/// the menu's back button closes it (`returnToMainMenu`).
+pub(super) fn part_opens_priority(id: &str) -> bool {
+    #[cfg(feature = "ae2-megacells")]
+    if id == horizon_client::ae2x::megacells::DECOMPRESSION_MODULE {
+        return true;
+    }
+    let _ = id;
+    false
+}
+
+/// A pattern of an addon's global crafting provider on a grid
+/// (`ICraftingService.addGlobalCraftingProvider`: MEGA's
+/// `DecompressionService`): the part that stands for the provider, its one
+/// input and its output, each an item and an amount.
+pub(super) struct GlobalPattern {
+    pub(super) owner: super::ae2_parts::PartAddress,
+    pub(super) input: (horizon_client::items::ItemStack, u64),
+    pub(super) output: (horizon_client::items::ItemStack, u64),
 }
 
 /// `AppEngInternalInventory.isItemValid` of a Pattern Provider's pattern
@@ -292,8 +313,79 @@ impl Game<'_> {
         let _ = (machine, place, button);
         false
     }
+    /// The patterns the addons' global crafting providers offer on the grid of
+    /// `anchor`: MEGA's decompression patterns.
+    pub(super) fn ae2x_global_patterns(&self, anchor: super::ae2_global::GridAddress) -> Vec<GlobalPattern> {
+        #[cfg(feature = "ae2-megacells")]
+        {
+            let stack = |key: &ae2_cell_core::ItemKey| horizon_client::ae2_cell_codec::prototype(key).ok();
+            self.megacells_decompression_patterns(anchor)
+                .into_iter()
+                .filter_map(|(owner, pattern)| {
+                    Some(GlobalPattern {
+                        owner,
+                        input: (stack(&pattern.from.key)?, u64::from(pattern.from.count)),
+                        output: (stack(&pattern.to.key)?, u64::from(pattern.to.count)),
+                    })
+                })
+                .collect()
+        }
+        #[cfg(not(feature = "ae2-megacells"))]
+        {
+            let _ = anchor;
+            Vec::new()
+        }
+    }
+    /// Whether a global provider still offers its patterns on the grid of
+    /// `anchor` (MEGA's: some module on the grid).
+    pub(super) fn ae2x_global_provider_present(&self, anchor: super::ae2_global::GridAddress) -> bool {
+        #[cfg(feature = "ae2-megacells")]
+        {
+            !self.megacells_decompression_modules(anchor).is_empty()
+        }
+        #[cfg(not(feature = "ae2-megacells"))]
+        {
+            let _ = anchor;
+            false
+        }
+    }
+    /// `ICraftingProvider.pushPattern` of a global provider: the inputs are
+    /// spent, the outputs go into the grid of `anchor` (MEGA's at the next tick).
+    pub(super) fn ae2x_push_global_pattern(&mut self, anchor: super::ae2_global::GridAddress, output: &horizon_client::items::ItemStack, amount: u64) {
+        #[cfg(feature = "ae2-megacells")]
+        self.megacells_push_decompression(anchor, output, amount);
+        let _ = (anchor, output, amount);
+    }
+    /// The priority a part that opens AE2's `PriorityMenu` alone shows
+    /// (`IPriorityHost.getPriority`); none for any other part.
+    pub(super) fn ae2x_part_priority(&self, part: super::ae2_parts::PartAddress, id: &str) -> Option<i32> {
+        #[cfg(feature = "ae2-megacells")]
+        if id == horizon_client::ae2x::megacells::DECOMPRESSION_MODULE {
+            return Some(self.megacells_decompression_priority(part.host));
+        }
+        let _ = (part, id);
+        None
+    }
+    /// `IPriorityHost.setPriority` of such a part: none for any other part.
+    pub(super) fn ae2x_set_part_priority(&mut self, part: super::ae2_parts::PartAddress, id: &str, value: i32) -> Option<bool> {
+        #[cfg(feature = "ae2-megacells")]
+        if id == horizon_client::ae2x::megacells::DECOMPRESSION_MODULE {
+            return Some(self.megacells_set_decompression_priority(part, value));
+        }
+        let _ = (part, id, value);
+        None
+    }
+    /// The addons' grid services while the server's ticks are frozen (AE2's
+    /// grid services keep running).
+    pub(super) fn tick_ae2x_frozen(&mut self) {
+        #[cfg(feature = "ae2-megacells")]
+        self.tick_megacells_decompression();
+    }
     /// The addons' grid ticks, after AE2's interfaces.
     pub(super) fn tick_ae2x(&mut self) {
+        // DecompressionService.onServerStartTick: what was pushed in an earlier tick.
+        #[cfg(feature = "ae2-megacells")]
+        self.tick_megacells_decompression();
         #[cfg(feature = "ae2-merequester")]
         self.tick_merequester();
         #[cfg(feature = "ae2-extendedae")]

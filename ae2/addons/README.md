@@ -45,6 +45,7 @@ tables built once on first use: AE2's own rows (`Defs::ae2`), then each built-in
 | Table | AE2 API | Read by |
 |---|---|---|
 | cells: id, key type, tier (kilobytes), types, idle drain, portable, drive model; a portable cell's battery and charge-rate factors over AE2's | `IBasicCellItem`, `StorageCells`, `StorageCellModels`; `PortableCellItem` (`getAEMaxPower`, `getChargeRate`, `HotkeyActions.registerPortableCell`) | the cell codec (`is_cell`, `is_fluid_cell`, `idle_drain`), drives, chests, IO port, workbench, condenser, drive rendering; for the portable cells (`portable_cell`, `portable_cells` in registration order): their menu, battery and charge in a Charger, energy capability, upgrade store, disassembly and hotkeys |
+| cells of an addon's own handler: id, idle drain, drive model, filters; their card slots | `StorageCells.addCellHandler` with an `ICellHandler` of its own (MEGA's Bulk Item Cell) | the codec (`is_cell`, `idle_drain`, `config_slots`), `is_valid_storage_cell`; the game's `ae2x::HandlerCell` for the listing, storage, preference, the ME Chest and the IO Port; `handler_cell_state` for LEDs |
 | storage components: id, tier | `IStorageComponent` | the Condenser |
 | item upgrade slots: host, size | `IUpgradeableItem.getUpgrades` | `ae2_upgrade_inventory::capacity` |
 | upgrade rows: card, host, max | `Upgrades.add` | `ae2_upgrade_inventory` |

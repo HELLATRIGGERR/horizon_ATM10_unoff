@@ -742,6 +742,35 @@ impl Game<'_> {
         }
         Ok((blocks, parts))
     }
+    /// The parts of item `id` on the cable buses of the grid of `anchor`, in
+    /// the grid's order, online or not (the grid's nodes of an addon's grid
+    /// service, MEGA's `DecompressionService.addNode`).
+    pub(super) fn ae2_grid_parts_of(
+        &self,
+        anchor: super::ae2_global::GridAddress,
+        id: &str,
+    ) -> Result<Vec<super::ae2_parts::PartAddress>, String> {
+        let n = self.ae2_network();
+        let a = n.analyze().map_err(str::to_owned)?;
+        let s = a.nodes.get(&anchor.network_pos()).ok_or("no AE2 device here")?;
+        let mut parts = Vec::new();
+        for p in &a.components[s.component].positions {
+            let Some(address) = super::ae2_global::GridAddress::from_network(*p) else { continue };
+            let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(address) else { continue };
+            if m.kind != MachineKind::CableBus {
+                continue;
+            }
+            let Some(Tag::List(list)) = m.config.get(&"parts".into()) else { continue };
+            for part in list {
+                let (Some(Tag::String(part_id)), Some(Tag::String(face))) = (part.get("id"), part.get("face")) else { continue };
+                let (Ok(part_id), Some(face)) = (part_id.to_string(), face.to_string().ok().as_deref().and_then(face_index)) else { continue };
+                if part_id == id {
+                    parts.push(super::ae2_parts::PartAddress { host: address, face });
+                }
+            }
+        }
+        Ok(parts)
+    }
     /// Every cell mounted on the grid of `anchor`: the Drives' and ME Chests'
     /// slots, then each online cell part's.
     pub(super) fn ae2_grid_cells_encoded(&self, anchor: super::ae2_global::GridAddress) -> Result<Vec<ItemStack>, String> {

@@ -8031,6 +8031,7 @@ impl Game<'_> {
             self.ae2_portable_tick();
         } else if self.remote.is_none() {
             self.ae2_tick_frozen_grid_service();
+            self.tick_ae2x_frozen();
         }
         #[cfg(feature="ae2-lab")]
         self.ae2_check_network_advancements();

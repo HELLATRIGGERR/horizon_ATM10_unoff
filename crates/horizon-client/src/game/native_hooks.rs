@@ -6,6 +6,13 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 160 adds fluid handlers on a mod block's block entity, by side, as NeoForge 1.21.1's
+//! `Capabilities.FluidHandler.BLOCK` (`IFluidHandler`), with fluids as `FluidStack`s of the registry:
+//! the hook points `native_fluid_handler_tanks`, `native_fluid_handler_fill`, `native_fluid_handler_drain`,
+//! and the helpers `native_fluid_handler`, `native_fluid_fill`, `native_fluid_drain` and
+//! `native_fluid_interact` (`FluidUtil.interactWithFluidHandler`) in `machines/native_fluid_handler.rs`;
+//! the item fluid helpers and the tanks of API 54 take every fluid of the registry.
+//!
 //! API 159 adds the world's furnace, blast furnace, smoker and campfire recipes for a mod's machines (`native_cooking_recipes`).
 //!
 //! API 158 adds a mixin bundle saying it listens to entities joining and leaving a level (`native_entity_level_listened`).
@@ -490,7 +497,7 @@ use horizon_client::mod_api::{
 };
 use horizon_client::mod_api::{AttachmentResult, Attachments, Holder, Suggestion};
 pub(crate) use horizon_client::mod_api::{
-    NativeBiome, NativeDimensionType, NativeFeInfo, NativePrecipitation,
+    NativeBiome, NativeDimensionType, NativeFeInfo, NativeFluidTankInfo, NativePrecipitation,
 };
 pub(crate) use horizon_client::mod_api::{
     NativeBlockRim, NativeColoredLight, NativeLootDrops, NativeMinimap, NativeMod,
@@ -530,6 +537,7 @@ use horizon_core::{
 use horizon_world::{
     consumable::UseAnimation,
     fluid::{FluidKind, FluidState},
+    fluid_stack::FluidStack,
     level::{BlockId, LevelAccess, PlacementContext, Ticks},
     nbt::Compound,
     registry::{BlockRegistry, BlockStateId},
@@ -553,7 +561,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 159;
+pub(crate) const NATIVE_HOOKS_API: u32 = 160;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -2413,6 +2421,96 @@ impl Game<'_> {
             simulate,
             wide,
             given,
+        );
+    }
+    /// The fluid handler of the block entity at `pos` in `dimension`, a
+    /// mod's, through `face`, as NeoForge's `IFluidHandler` reads it
+    /// (`getTanks`, `getFluidInTank`, `getTankCapacity`). `face` is the side
+    /// of this block the caller touches, as in `native_fe_storage`; none is
+    /// the block itself, a null side. Set `tanks` when `entity.id` is yours
+    /// and `tanks` is none yet; leave it none on a side without a handler
+    /// (`getCapability` answering null), so pipes and buses see nothing
+    /// there. Asked on the server, often, from inside other blocks' transfers
+    /// and maybe while another level is in place: answer from `entity` and
+    /// your own state, not from the world. API 160.
+    pub(super) fn native_fluid_handler_tanks(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        entity: &ModBlockEntity,
+        tanks: &mut Option<Vec<NativeFluidTankInfo>>,
+    ) {
+        mod_api::dispatch_fluid_handler_tanks(
+            self,
+            mod_api::mods(),
+            dimension,
+            pos,
+            face,
+            entity,
+            tanks,
+        );
+    }
+    /// `IFluidHandler.fill` on the block entity at `pos`, a mod's: `resource`
+    /// (never empty) offered through `face`, as in
+    /// `native_fluid_handler_tanks`. Set `filled` (0 to the resource's
+    /// amount) when `entity.id` is yours and `filled` is none yet; with
+    /// `simulate` (`FluidAction.SIMULATE`), answer what you would take and
+    /// change nothing. The entity is out of the world during the call, as in
+    /// `native_fe_receive`; the engine puts it back and, when it took
+    /// something for real, marks it changed (`setChanged`). The same block,
+    /// side and operation asked again inside its own call gets 0, and so
+    /// does a chain 16 calls deep. API 160.
+    pub(super) fn native_fluid_handler_fill(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        entity: &mut ModBlockEntity,
+        resource: &FluidStack,
+        simulate: bool,
+        filled: &mut Option<i32>,
+    ) {
+        mod_api::dispatch_fluid_handler_fill(
+            self,
+            mod_api::mods(),
+            dimension,
+            pos,
+            face,
+            entity,
+            resource,
+            simulate,
+            filled,
+        );
+    }
+    /// `IFluidHandler.drain` on the block entity at `pos`, a mod's, as
+    /// `native_fluid_handler_fill`: with a `resource`, `drain(FluidStack)` (at
+    /// most its amount, and only that fluid with those components), without
+    /// one, `drain(int)` of at most `max` (1 or more) of whatever comes out
+    /// first. Set `drained` to what leaves (the empty stack for nothing).
+    /// API 160.
+    pub(super) fn native_fluid_handler_drain(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        entity: &mut ModBlockEntity,
+        resource: Option<&FluidStack>,
+        max: i32,
+        simulate: bool,
+        drained: &mut Option<FluidStack>,
+    ) {
+        mod_api::dispatch_fluid_handler_drain(
+            self,
+            mod_api::mods(),
+            dimension,
+            pos,
+            face,
+            entity,
+            resource,
+            max,
+            simulate,
+            drained,
         );
     }
     /// A block entity of a mod entered the world: placed, or loaded with its

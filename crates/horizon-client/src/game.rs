@@ -112,6 +112,8 @@ mod ae2_fluids;
 #[cfg(feature = "ae2-lab")]
 mod ae2_fluid_grid;
 #[cfg(feature = "ae2-lab")]
+mod ae2_mod_fluids;
+#[cfg(feature = "ae2-lab")]
 mod ae2_storage_devices;
 #[cfg(feature = "ae2-lab")]
 mod ae2_machine_ui;

@@ -805,18 +805,25 @@ impl TransferHost for FluidHost<'_, '_> {
     fn adjacent_slots(&self) -> Vec<(Key, u64)> {
         self.game
             .ae2_local_address(self.target)
-            .and_then(|address| {
+            .map(|address| {
+                if let Some(contents) = self.game.ae2_fluid_p2p_contents(address, self.face) {
+                    return contents.into_iter().collect();
+                }
+                if let Some(contents) = self.game.ae2_interface_fluid_contents(address, self.face) {
+                    return contents.into_iter().collect();
+                }
+                // A native block's fluid handler: each tank it lists.
+                if let Some(entries) = self.game.ae2_mod_fluid_entries(address, self.face, false) {
+                    return entries;
+                }
                 self.game
-                    .ae2_fluid_p2p_contents(address, self.face)
-                    .unwrap_or_else(|| {
-                        self.game
-                            .ae2_interface_fluid_contents(address, self.face)
-                            .unwrap_or_else(|| {
-                                self.game.ae2_tank_contents_encoded(address).ok().flatten()
-                            })
-                    })
+                    .ae2_tank_contents_encoded(address)
+                    .ok()
+                    .flatten()
+                    .into_iter()
+                    .collect::<Vec<_>>()
             })
-            .map(|(k, n)| vec![(Key::from(&k), n)])
+            .map(|entries| entries.iter().map(|(k, n)| (Key::from(k), *n)).collect())
             .unwrap_or_default()
     }
     fn fuzzy_matches(&self, a: &Key, b: &Key) -> bool {
@@ -870,9 +877,14 @@ impl TransferHost for FluidHost<'_, '_> {
                                 address, self.face, &key, limit, false, true, &mut formation,
                             ) {
                                 Some(n) => n,
-                                None => self
-                                    .game
-                                    .ae2_tank_drain_encoded(address, &key, limit, true)?,
+                                None => match self.game.ae2_mod_fluid_move(
+                                    address, self.face, &key, limit, false, true,
+                                ) {
+                                    Some(n) => n,
+                                    None => self
+                                        .game
+                                        .ae2_tank_drain_encoded(address, &key, limit, true)?,
+                                },
                             },
                         };
                         let moved = self
@@ -887,9 +899,14 @@ impl TransferHost for FluidHost<'_, '_> {
                                 address, self.face, &key, moved, false, false, &mut formation,
                             ) {
                                 Some(n) => n,
-                                None => self
-                                    .game
-                                    .ae2_tank_drain_encoded(address, &key, moved, false)?,
+                                None => match self.game.ae2_mod_fluid_move(
+                                    address, self.face, &key, moved, false, false,
+                                ) {
+                                    Some(n) => n,
+                                    None => self
+                                        .game
+                                        .ae2_tank_drain_encoded(address, &key, moved, false)?,
+                                },
                             },
                         };
                         if actual != moved {
@@ -915,9 +932,14 @@ impl TransferHost for FluidHost<'_, '_> {
                                     address, self.face, &key, limit, true,
                                 ) {
                                     Some(n) => n,
-                                    None => self
-                                        .game
-                                        .ae2_tank_fill_encoded(address, &key, limit, true)?,
+                                    None => match self.game.ae2_mod_fluid_move(
+                                        address, self.face, &key, limit, true, true,
+                                    ) {
+                                        Some(n) => n,
+                                        None => self
+                                            .game
+                                            .ae2_tank_fill_encoded(address, &key, limit, true)?,
+                                    },
                                 },
                             },
                         };
@@ -937,9 +959,14 @@ impl TransferHost for FluidHost<'_, '_> {
                                     address, self.face, &key, moved, false,
                                 ) {
                                     Some(n) => n,
-                                    None => self
-                                        .game
-                                        .ae2_tank_fill_encoded(address, &key, moved, false)?,
+                                    None => match self.game.ae2_mod_fluid_move(
+                                        address, self.face, &key, moved, true, false,
+                                    ) {
+                                        Some(n) => n,
+                                        None => self
+                                            .game
+                                            .ae2_tank_fill_encoded(address, &key, moved, false)?,
+                                    },
                                 },
                             },
                         };
@@ -1187,6 +1214,9 @@ impl Game<'_> {
         if let Some(n) = self.ae2_provider_return_fluid_at(target, face, key, amount, simulate) {
             return Ok(n);
         }
+        if let Some(n) = self.ae2_mod_fluid_move(target, face, key, amount, true, simulate) {
+            return Ok(n);
+        }
         Ok(self
             .ae2_tank_fill_encoded(target, key, amount, simulate)
             .unwrap_or(0))
@@ -1280,6 +1310,7 @@ impl Game<'_> {
                 let target_exists = self.ae2_has_interface_face(target, target_side)
                     || if fluid {
                         matches!(self.ae2_block_entity(target),Some(BlockEntity::Ae2(m)) if matches!(m.kind,MachineKind::SkyStoneTank|MachineKind::Condenser))
+                            || self.ae2_mod_fluid_supports(target, target_side)
                     } else {
                         self.ae2_native_container_supports(target, target_side)
                     };

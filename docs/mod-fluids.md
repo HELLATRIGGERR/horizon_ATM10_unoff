@@ -75,10 +75,37 @@ bucket does, and `LiquidBlock.pickupBlock` gives it back; the sounds are the typ
 fluid as water (same heights, flow UVs, overlay beside glass and leaves) with its own sprites, its tint in place of
 the biome's water colour, and in the translucent layer when it asks for it (NeoForge's default is solid).
 
-**Fluid stacks in tanks.** Not in slice 1. The plan: a `FluidStack` (id, amount in mB, components) in
-`horizon-world`, the registry's ids as its fluids, and a fluid handler capability for native mods' block entities
-(NeoForge's `IFluidHandler`: tanks, fill/drain with simulate), next to Forge Energy's hooks; AE2's storage buses and
-Mekanism's tanks then meet through it.
+**Fluid stacks in tanks (slice 5).** `horizon_world::fluid_stack::FluidStack` is NeoForge's: a fluid of the registry
+(`FluidKind`), an amount in mB and its component patch (kept as the patch's NBT, carried and compared, not read), with
+`EMPTY`, `isEmpty`, `copyWithAmount`, `split`, `isSameFluid`, `isSameFluidSameComponents`, `is(tag)` (a mod fluid by
+its registry entry's tags; vanilla's water and lava by `minecraft:water`/`minecraft:lava` and NeoForge's
+`c:water`/`c:lava`) and `FluidStack.CODEC`'s NBT (`{id, amount, components}`: `save`, `parse`, `parseOptional`, a bare
+path being `minecraft:`'s), and the fluid type's bucket and bucket sounds. A native mod's block entity has a fluid
+handler by side as NeoForge's `Capabilities.FluidHandler.BLOCK` (`IFluidHandler`): hook points API 160,
+`native_fluid_handler_tanks` (`getTanks`, `getFluidInTank`, `getTankCapacity`, and whether a simulated drain of the
+tank gives anything, which AE2's storage bus filter asks), `native_fluid_handler_fill` and `native_fluid_handler_drain`
+(`drain(FluidStack)` and `drain(int)`), with `FluidAction.SIMULATE`; the dispatcher (`machines/native_fluid_handler.rs`)
+takes the entity out of the world for a fill or a drain and guards re-entry as Forge Energy's does, and a block that
+answers none of them but declared tanks (API 54) is read and moved by those tanks' rules. The tanks of API 54 and the
+item fluid helpers of API 147 take every fluid of the registry: a content mod's bucket is a `FluidBucketWrapper` (a
+whole bucket of its fluid or nothing; an empty bucket takes any fluid that has a bucket). `FluidUtil`'s container
+transfers are ported as NeoForge has them (`tryFluidTransfer`, `tryFillContainer`, `tryEmptyContainer`, their
+`AndStow` forms with the creative player keeping the container and the result stowed by
+`ItemHandlerHelper.insertItemStacked` or dropped, the fluid type's bucket sounds), and
+`native_fluid_interact(hand, dimension, pos, face)` is `FluidUtil.interactWithFluidHandler`, for a mod block's use to
+call (NeoForge calls it for no block of its own). AE2 meets a native handler as it meets any `IFluidHandler`
+(`ExternalStorageFacade.FluidHandlerFacade`, `ae2_mod_fluids.rs`): a storage bus lists each tank (only the drainable
+ones under its default extractable-only filter), inserts with `fill` and extracts with `drain(FluidStack)`; import and
+export buses move through it after AE2's own hosts (P2P tunnels, interfaces, pattern providers, the sky stone tank). A
+key with components moves nothing there. Its first user is Mekanism Generators' Heat Generator (`pack/mods/mekanism`):
+its lava tank (`VariableCapacityFluidTank.input`, `heatTankCapacity` from `generators.toml`, 24 000 mB in ATM10) is on
+every side but its front (`FluidTankHelper.forSide(...).addTank(lavaTank, LEFT, RIGHT, BACK, TOP, BOTTOM)`), takes
+`FluidTags.LAVA` from any block, without a rate limit, into an empty tank or one holding the same fluid, and gives to
+none (`notExternal`; the null side's proxy is read only); it is saved as Mekanism saves it
+(`fluid_tanks: [{tank: 0b, stored: <FluidStack>}]`). Its fuel slot fills the tank through the item's fluid handler
+(`IFluidHandlerSlot.fillTank`, `fillHandlerFromOther`: a bucket only whole, and one that doesn't fit counts as handled)
+before it burns anything (`FluidFuelInventorySlot.fillOrBurn`). Lava source blocks beside it only heat it
+(`TileEntityHeatGenerator.getBoost`): Java never draws them into the tank.
 
 **AE2 keys.** AE2 keeps keying fluids by id. `bucket_fluid` and `fluid_bucket` read the registry, so a mod fluid goes
 into and out of fluid cells, the ME Chest and terminals by its bucket, and its icon is its still texture with its tint.
@@ -151,8 +178,18 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
    `fallDistanceModifier`, `canExtinguish`, `supportsBoating`, the camera's fog and overlay
    (`modifyFogColor`/`getRenderOverlayTexture`), and mod fluids in the `minecraft:water` or `minecraft:lava` tag
    (`the_bumblezone:sugar_water`) behaving as water or lava in physics and interactions.
-5. **Fluid stacks and tanks.** As above; Mekanism's Heat Generator's lava tank first, then its machines' tanks, Modern
-   Industrialization's and Industrial Foregoing's.
+5. **Fluid stacks and tanks (done).** As "Fluid stacks in tanks" above. Tests: `horizon-world`
+   (`fluid_stack::tests`: the codec, empty stacks and comparisons, tags, buckets and sounds), the game's
+   `native_fluid_handler` (declared tanks by side with a mod fluid; a bucket moving only whole through
+   `tryFluidTransfer`), `native_item_fluids` (a content mod's bucket), `ae2_mod_fluids` (keys to stacks), the
+   `mekanism-energy` crate (`heat`: the fuel slot's fill and burn, the tank's sides, insert and extract), and the world
+   test `pack/mods/mekanism/tests/heat-generator-tank.ts` (an export bus filling the tank to its capacity through a
+   side and not through the front, a storage bus filling it with lava only and listing none of it, an import bus taking
+   nothing, Mekanism's saved form across a restart). Not yet: AE2's annihilation plane picking up fluid sources
+   (`FluidPickupStrategy`) and P2P fluid tunnels and pattern providers reaching native handlers; vanilla's cauldrons as
+   NeoForge's `CauldronWrapper` handler (API 54's helpers read them; the dispatcher doesn't); Mekanism's machines'
+   tanks, Modern Industrialization's and Industrial Foregoing's; a tank's contents in its item
+   (`ContainedFluidOverrideHandler`).
 6. **Fluid ingredients and recipes.** NeoForge's `FluidIngredient`/`SizedFluidIngredient` and the mods' fluid recipe
    inputs and outputs, against the registry and its tags.
 7. **The rest of `FluidType`.** Vaporizing in an ultrawarm dimension (`isVaporizedOnPlacement`), `FluidInteractionRegistry`

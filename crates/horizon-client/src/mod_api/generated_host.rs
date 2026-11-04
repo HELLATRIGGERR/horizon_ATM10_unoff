@@ -1048,8 +1048,8 @@ pub trait Host {
         let _ = b_offer;
         unimplemented!("Host::exchange_items")
     }
-    /// `native_fluid_insert`: up to `amount` millibuckets of `fluid`
-    /// (`minecraft:water`, `minecraft:lava`) into the block at `pos`, through
+    /// `native_fluid_insert`: up to `amount` millibuckets of `fluid` (a fluid
+    /// of the registry: `minecraft:water`, a content mod's) into the block at `pos`, through
     /// its side `face`, in the level in place: a mod block's tanks first
     /// those with the same fluid, then empty ones, by the sides and tanks its
     /// table gave; a cauldron by thirds of a bucket, a lava one only whole.
@@ -1218,6 +1218,83 @@ pub trait Host {
         let _ = simulate;
         let _ = wide;
         unimplemented!("Host::fe_draw")
+    }
+    /// The fluid handler of the block at `pos` in `dimension` through `face`
+    /// (the side of that block you touch; none is the block itself), as
+    /// `IFluidHandler` reads it: each tank's fluid and capacity. None where
+    /// it has no handler on that side, in a level that isn't open, on a
+    /// client's copy of the world, and for the block entity ticking now.
+    /// API 160.
+    fn fluid_handler(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+    ) -> Option<Vec<NativeFluidTankInfo>> {
+        let _ = dimension;
+        let _ = pos;
+        let _ = face;
+        unimplemented!("Host::fluid_handler")
+    }
+    /// `IFluidHandler.fill` of `resource` on the block at `pos` in
+    /// `dimension` through `face`, as `native_fluid_handler` finds it: what it
+    /// took (with `simulate`, would take), 0 to the resource's amount. API 160.
+    fn fluid_fill(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        resource: &FluidStack,
+        simulate: bool,
+    ) -> i32 {
+        let _ = dimension;
+        let _ = pos;
+        let _ = face;
+        let _ = resource;
+        let _ = simulate;
+        unimplemented!("Host::fluid_fill")
+    }
+    /// `IFluidHandler.drain` on the block at `pos` in `dimension` through
+    /// `face`: with `resource`, that fluid (at most its amount); without, at
+    /// most `max` of whatever comes out first. What left it (with
+    /// `simulate`, would leave); the empty stack for nothing. API 160.
+    fn fluid_drain(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        resource: Option<&FluidStack>,
+        max: i32,
+        simulate: bool,
+    ) -> FluidStack {
+        let _ = dimension;
+        let _ = pos;
+        let _ = face;
+        let _ = resource;
+        let _ = max;
+        let _ = simulate;
+        unimplemented!("Host::fluid_drain")
+    }
+    /// `FluidUtil.interactWithFluidHandler(player, hand, level, pos, side)`
+    /// for the player in place, as a block's use calls it: the container in
+    /// `hand` is filled from the block's handler on `face`, or else emptied
+    /// into it, with the bucket's sound; one alone becomes the result, one of
+    /// several is shrunk and the result stowed (or dropped), and a creative
+    /// player keeps the container. Whether it moved fluid. False where the
+    /// block has no handler on that side, the hand is empty or holds no
+    /// container, and in a level that isn't the one in place. API 160.
+    fn fluid_interact(
+        &mut self,
+        hand: Hand,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+    ) -> bool {
+        let _ = hand;
+        let _ = dimension;
+        let _ = pos;
+        let _ = face;
+        unimplemented!("Host::fluid_interact")
     }
     /// How many ticks `stack` burns in a furnace, 0 when it is no fuel
     /// (`AbstractFurnaceBlockEntity`'s fuel values, `ItemStack.getBurnTime`).

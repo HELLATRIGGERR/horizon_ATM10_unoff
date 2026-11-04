@@ -4,13 +4,16 @@
 //! turns the heat it loses to the air into Joules at the Carnot efficiency
 //! against the biome's temperature (`HeatAPI.getAmbientTemp`). Its fuel slot
 //! takes lava buckets and anything that burns in a furnace
-//! (`FluidFuelInventorySlot.fillOrBurn`). Its store gives out of its front.
+//! (`FluidFuelInventorySlot.fillOrBurn`). Its store gives out of its front;
+//! its lava tank is a fluid handler on every other side, which takes lava
+//! from anyone and gives it to no other block (`VariableCapacityFluidTank.input`).
 //!
 //! Heat a capacitor is handed waits in `heatToHandle` until the end of the
 //! tick (`ITileHeatHandler.updateHeatCapacitors`), so everything in one tick
 //! reads the temperature the tick started with.
 use crate::config::GeneratorsConfig;
 use crate::container::{Automation, EnergyContainer};
+use crate::sides::{Direction, RelativeSide};
 
 /// `HEAT_CAPACITY`.
 pub const HEAT_CAPACITY: f64 = 10.0;
@@ -83,32 +86,57 @@ impl Ambient {
     }
 }
 
-/// What a fuel slot holds, as far as burning goes.
+/// The fluid a container in the fuel slot holds (its `IFluidHandlerItem`,
+/// one tank), as `IFluidHandlerSlot.fillTank` reads it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ItemFluid {
+    /// mB it holds.
+    pub amount: u32,
+    /// `isFluidValid`: the tank takes its fluid (`FluidTags.LAVA`).
+    pub valid: bool,
+    /// The tank is empty or holds that fluid (`isFluidEqual`), so an insert
+    /// takes it.
+    pub same: bool,
+    /// It gives all or nothing: a bucket (`FluidBucketWrapper.drain` of less
+    /// than its bucket gives none).
+    pub whole: bool,
+}
+
+/// What a fuel slot holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Fuel {
     pub count: u32,
-    /// A bucket of lava (a fluid item holding lava): it empties into the tank.
-    pub lava_bucket: bool,
+    /// The fluid it holds, if it is a fluid container.
+    pub fluid: Option<ItemFluid>,
     /// `ItemStack.getBurnTime`, ticks in a furnace.
     pub burn_time: i32,
     /// It leaves something when used (`hasCraftingRemainingItem`, a bucket).
     pub has_remainder: bool,
+    /// The tank is empty or holds `minecraft:lava`, so the lava a burn makes
+    /// (`new FluidStack(Fluids.LAVA, fuel)`) goes in. Otherwise the burn still
+    /// uses the item up, and its lava is lost, as in Java.
+    pub takes_lava: bool,
 }
 
 /// What `fill_or_burn` did to the slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotUse {
     Kept,
-    /// The item became what it leaves (a lava bucket an empty one).
+    /// The item became what it leaves (`getCraftingRemainingItem`).
     Remainder,
     /// One item went.
     ShrunkOne,
+    /// The container gave this many mB into the tank and becomes what it is
+    /// then (`setStack(handler.getContainer())`: a lava bucket an empty one).
+    Drained(u32),
 }
 
-/// `FluidFuelInventorySlot.fillOrBurn`: a lava bucket (alone in the slot)
-/// empties into the tank when a whole bucket fits; anything else that burns
-/// gives `burnTime / 20` mB of lava when that fits, leaving its remainder (a
-/// stack of several with a remainder waits).
+/// `FluidFuelInventorySlot.fillOrBurn`: a fluid container alone in the slot
+/// whose fluid the tank takes fills it (`fillTank`, `fillHandlerFromOther`):
+/// what fits, a bucket only whole, and a bucket that doesn't fit still counts
+/// as handled, nothing moving; anything else that burns gives `burnTime / 20`
+/// mB of lava when that fits, leaving its remainder (a stack of several with
+/// a remainder waits).
 pub fn fill_or_burn(lava: &mut u32, capacity: u32, fuel: Option<Fuel>) -> SlotUse {
     let Some(fuel) = fuel.filter(|f| f.count > 0) else {
         return SlotUse::Kept;
@@ -117,14 +145,15 @@ pub fn fill_or_burn(lava: &mut u32, capacity: u32, fuel: Option<Fuel>) -> SlotUs
     if needed == 0 {
         return SlotUse::Kept;
     }
-    if fuel.lava_bucket && fuel.count == 1 {
-        // `fillTank`: a bucket drains only whole; less room still counts as
-        // handled, and nothing moves.
-        if needed >= BUCKET {
-            *lava += BUCKET;
-            return SlotUse::Remainder;
+    if fuel.count == 1
+        && let Some(fluid) = fuel.fluid.filter(|f| f.valid && f.same && f.amount > 0)
+    {
+        let take = fluid.amount.min(needed);
+        if fluid.whole && take < fluid.amount {
+            return SlotUse::Kept;
         }
-        return SlotUse::Kept;
+        *lava += take;
+        return SlotUse::Drained(take);
     }
     let value = fuel.burn_time / 20;
     if value <= 0 || value as u32 > needed {
@@ -133,8 +162,48 @@ pub fn fill_or_burn(lava: &mut u32, capacity: u32, fuel: Option<Fuel>) -> SlotUs
     if fuel.has_remainder && fuel.count > 1 {
         return SlotUse::Kept;
     }
-    *lava += value as u32;
+    if fuel.takes_lava {
+        *lava += value as u32;
+    }
     if fuel.has_remainder { SlotUse::Remainder } else { SlotUse::ShrunkOne }
+}
+
+/// The sides the lava tank is on (`FluidTankHelper.forSide(facing).addTank(lavaTank,
+/// LEFT, RIGHT, BACK, TOP, BOTTOM)`): all but the front.
+pub const TANK_SIDES: [RelativeSide; 5] =
+    [RelativeSide::Left, RelativeSide::Right, RelativeSide::Back, RelativeSide::Top, RelativeSide::Bottom];
+
+/// Whether the lava tank is on the absolute face `side` of a generator
+/// facing `facing` (`FluidTankHolder.getTanks(side)`).
+pub fn tank_on(facing: Direction, side: Direction) -> bool {
+    TANK_SIDES.iter().any(|s| s.direction(facing) == side)
+}
+
+/// `BasicFluidTank.insert` into the lava tank holding `stored` of `capacity`
+/// (`VariableCapacityFluidTank.input`: anyone may insert, at no rate limit):
+/// what of `offered` mB it takes. `valid`: the fluid is in `FluidTags.LAVA`
+/// (`isFluidValid`); `same`: the tank is empty or holds that fluid with
+/// those components (`isFluidEqual`).
+pub fn tank_insert(stored: u32, capacity: u32, valid: bool, same: bool, offered: u32) -> u32 {
+    if offered == 0 || !valid {
+        return 0;
+    }
+    let needed = capacity.saturating_sub(stored);
+    if needed == 0 || (stored > 0 && !same) {
+        return 0;
+    }
+    offered.min(needed)
+}
+
+/// `BasicFluidTank.extract` of up to `amount` from the lava tank holding
+/// `stored`: `ConstantPredicates.notExternal`, so another block (a pipe, a
+/// bus: `AutomationType.EXTERNAL`) takes nothing; the generator itself and a
+/// player do.
+pub fn tank_extract(stored: u32, automation: Automation, amount: u32) -> u32 {
+    if stored == 0 || amount == 0 || automation == Automation::External {
+        return 0;
+    }
+    amount.min(stored)
 }
 
 /// A heat generator as its block entity keeps it.
@@ -299,27 +368,72 @@ mod tests {
         assert_eq!(ambient_temperature(9.0), ambient_temperature(5.0), "clamped");
     }
 
+    const LAVA_BUCKET: ItemFluid = ItemFluid { amount: 1000, valid: true, same: true, whole: true };
+    fn fuel(count: u32, fluid: Option<ItemFluid>, burn_time: i32, has_remainder: bool) -> Option<Fuel> {
+        Some(Fuel { count, fluid, burn_time, has_remainder, takes_lava: true })
+    }
+
     #[test]
     fn a_bucket_gives_a_thousand_millibuckets_and_coal_eighty() {
-        let bucket = Some(Fuel { count: 1, lava_bucket: true, burn_time: 20_000, has_remainder: true });
+        let bucket = fuel(1, Some(LAVA_BUCKET), 20_000, true);
         let mut lava = 0;
-        assert_eq!(fill_or_burn(&mut lava, 24_000, bucket), SlotUse::Remainder);
+        assert_eq!(fill_or_burn(&mut lava, 24_000, bucket), SlotUse::Drained(1000));
         assert_eq!(lava, 1000);
         // Less than a bucket of room: the bucket waits.
         let mut lava = 23_500;
         assert_eq!(fill_or_burn(&mut lava, 24_000, bucket), SlotUse::Kept);
         assert_eq!(lava, 23_500);
-        let coal = Some(Fuel { count: 3, lava_bucket: false, burn_time: 1600, has_remainder: false });
+        let coal = fuel(3, None, 1600, false);
         assert_eq!(fill_or_burn(&mut lava, 24_000, coal), SlotUse::ShrunkOne);
         assert_eq!(lava, 23_580);
         let mut full = 24_000;
         assert_eq!(fill_or_burn(&mut full, 24_000, coal), SlotUse::Kept);
-        let stone = Some(Fuel { count: 1, lava_bucket: false, burn_time: 0, has_remainder: false });
+        let stone = fuel(1, None, 0, false);
         assert_eq!(fill_or_burn(&mut lava, 24_000, stone), SlotUse::Kept);
         // Two of something with a remainder (stacked buckets of another fuel) wait.
-        let two = Some(Fuel { count: 2, lava_bucket: false, burn_time: 200, has_remainder: true });
+        let two = fuel(2, None, 200, true);
         assert_eq!(fill_or_burn(&mut lava, 24_000, two), SlotUse::Kept);
         assert_eq!(fill_or_burn(&mut lava, 24_000, None), SlotUse::Kept);
+    }
+
+    #[test]
+    fn a_container_fills_what_fits_and_other_fluids_burn_or_wait() {
+        // A container that gives part of what it holds fills the room.
+        let tank_item = ItemFluid { amount: 3000, whole: false, ..LAVA_BUCKET };
+        let mut lava = 22_500;
+        assert_eq!(fill_or_burn(&mut lava, 24_000, fuel(1, Some(tank_item), 0, false)), SlotUse::Drained(1500));
+        assert_eq!(lava, 24_000);
+        // A fluid the tank refuses (heavy water) is no fuel and stays.
+        let water = ItemFluid { valid: false, ..LAVA_BUCKET };
+        let mut lava = 0;
+        assert_eq!(fill_or_burn(&mut lava, 24_000, fuel(1, Some(water), 0, true)), SlotUse::Kept);
+        // Two lava buckets stacked (a mod's stacking bucket) don't fill: one burns
+        // only alone, as anything with a remainder.
+        assert_eq!(fill_or_burn(&mut lava, 24_000, fuel(2, Some(LAVA_BUCKET), 20_000, true)), SlotUse::Kept);
+        // A tank holding another lava (flowing lava, by a bus): the bucket can't
+        // fill it, so it burns, and the burn's lava doesn't go in either.
+        let other = Fuel { takes_lava: false, ..fuel(1, Some(ItemFluid { same: false, ..LAVA_BUCKET }), 20_000, true).unwrap() };
+        let mut lava = 500;
+        assert_eq!(fill_or_burn(&mut lava, 24_000, Some(other)), SlotUse::Remainder);
+        assert_eq!(lava, 500);
+    }
+
+    #[test]
+    fn the_lava_tank_takes_lava_on_every_side_but_the_front_and_gives_none_to_blocks() {
+        for facing in [Direction::North, Direction::East, Direction::South, Direction::West] {
+            for side in [Direction::Down, Direction::Up, Direction::North, Direction::South, Direction::West, Direction::East] {
+                assert_eq!(tank_on(facing, side), side != facing, "{facing:?} {side:?}");
+            }
+        }
+        assert_eq!(tank_insert(0, 24_000, true, true, 1000), 1000);
+        assert_eq!(tank_insert(23_500, 24_000, true, true, 1000), 500);
+        assert_eq!(tank_insert(24_000, 24_000, true, true, 1000), 0);
+        assert_eq!(tank_insert(0, 24_000, false, true, 1000), 0, "only lava");
+        assert_eq!(tank_insert(500, 24_000, true, false, 1000), 0, "only the lava already there");
+        assert_eq!(tank_insert(0, 24_000, true, false, 1000), 1000, "an empty tank takes either lava");
+        assert_eq!(tank_extract(1000, Automation::External, 1000), 0);
+        assert_eq!(tank_extract(1000, Automation::Internal, 400), 400);
+        assert_eq!(tank_extract(0, Automation::Internal, 400), 0);
     }
 
     /// The first ticks of a new generator with lava in its tank, in plains:

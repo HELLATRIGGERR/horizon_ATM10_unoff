@@ -8,13 +8,15 @@
 //! any side.
 use super::Game;
 use horizon_client::items::ItemStack;
+use horizon_world::fluid_stack::{bucket_fluid, filled_bucket};
 use horizon_world::nbt::{Compound, JavaString, Tag};
 
 /// What one item of a stack holds (`native_item_fluid`).
 #[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NativeItemFluid {
-    /// `minecraft:water` or `minecraft:lava`; none when it is empty.
+    /// A fluid of the registry (`minecraft:water`, a content mod's); none
+    /// when it is empty.
     pub(crate) fluid: Option<String>,
     /// In millibuckets: a bucket is a thousand.
     pub(crate) amount: i32,
@@ -29,16 +31,10 @@ const TANK: &str = "horizon_fluid";
 const BUCKET: i32 = 1000;
 const MOD_CAPACITY: std::ops::RangeInclusive<i32> = 1..=1_000_000;
 
-/// The bucket items: (empty, full), by the fluid they hold. A bucket is all
-/// or nothing, as `BucketItem` is. Milk, powder snow and fish buckets hold
-/// no fluid Horizon models.
-const BUCKETS: [(&str, &str); 2] = [
-    ("minecraft:water", "minecraft:water_bucket"),
-    ("minecraft:lava", "minecraft:lava_bucket"),
-];
-
+/// Whether `name` is a fluid of the registry (not the empty one).
 fn is_fluid(name: &str) -> bool {
-    BUCKETS.iter().any(|(fluid, _)| *fluid == name)
+    horizon_world::fluid::FluidKind::from_name(name)
+        .is_some_and(|f| f != horizon_world::fluid::FluidKind::Empty)
 }
 
 /// The contents a mod container's stack keeps in its `custom_data`: none and
@@ -96,7 +92,7 @@ fn bucket(item: &str) -> ItemStack {
 
 /// What one item of `stack` holds, if it is a container: a bucket, or an item
 /// whose mod gave it `capacity`.
-fn contents(stack: &ItemStack, capacity: Option<i32>) -> Option<NativeItemFluid> {
+pub(super) fn contents(stack: &ItemStack, capacity: Option<i32>) -> Option<NativeItemFluid> {
     if stack.count == 0 {
         return None;
     }
@@ -107,9 +103,9 @@ fn contents(stack: &ItemStack, capacity: Option<i32>) -> Option<NativeItemFluid>
             capacity: BUCKET,
         });
     }
-    if let Some((fluid, _)) = BUCKETS.iter().find(|(_, full)| *full == &*stack.item) {
+    if let Some(fluid) = bucket_fluid(&stack.item) {
         return Some(NativeItemFluid {
-            fluid: Some((*fluid).to_owned()),
+            fluid: Some(fluid.name().to_owned()),
             amount: BUCKET,
             capacity: BUCKET,
         });
@@ -125,7 +121,7 @@ fn contents(stack: &ItemStack, capacity: Option<i32>) -> Option<NativeItemFluid>
 
 /// How much of `amount` of `fluid` one item of `stack` takes, and the item
 /// it becomes.
-fn fill_one(
+pub(super) fn fill_one(
     stack: &ItemStack,
     capacity: Option<i32>,
     fluid: &str,
@@ -138,12 +134,12 @@ fn fill_one(
         return Some((0, unchanged));
     }
     if &*stack.item == "minecraft:bucket" {
-        // All or nothing: a bucket takes a whole bucket.
-        let full = BUCKETS.iter().find(|(f, _)| *f == fluid)?.1;
-        return Some(if amount >= BUCKET {
-            (BUCKET, bucket(full))
-        } else {
-            (0, unchanged)
+        // All or nothing: a bucket takes a whole bucket of a fluid that has
+        // one (`FluidBucketWrapper.canFillFluidType`).
+        let full = horizon_world::fluid::FluidKind::from_name(fluid).and_then(filled_bucket);
+        return Some(match full {
+            Some(full) if amount >= BUCKET => (BUCKET, bucket(full)),
+            _ => (0, unchanged),
         });
     }
     if capacity.is_none() || held.fluid.as_deref().is_some_and(|f| f != fluid) {
@@ -158,7 +154,7 @@ fn fill_one(
 
 /// The fluid and how much one item of `stack` gives of at most `max`, and
 /// the item it becomes.
-fn drain_one(
+pub(super) fn drain_one(
     stack: &ItemStack,
     capacity: Option<i32>,
     max: i32,
@@ -168,7 +164,7 @@ fn drain_one(
     if max <= 0 {
         return None;
     }
-    if capacity.is_none() || BUCKETS.iter().any(|(_, full)| *full == &*stack.item) {
+    if capacity.is_none() || bucket_fluid(&stack.item).is_some() {
         // A full bucket gives its whole bucket or nothing.
         return (max >= BUCKET).then(|| (fluid, BUCKET, bucket("minecraft:bucket")));
     }
@@ -184,7 +180,7 @@ fn drain_one(
 #[allow(dead_code)]
 impl Game<'_> {
     /// The capacity a mod gave item `item`, clamped; none for any other item.
-    fn native_item_tank_capacity(&self, item: &str) -> Option<i32> {
+    pub(in crate::game) fn native_item_tank_capacity(&self, item: &str) -> Option<i32> {
         if item.starts_with("minecraft:") {
             return None;
         }
@@ -193,14 +189,14 @@ impl Game<'_> {
         capacity.map(|c| c.clamp(*MOD_CAPACITY.start(), *MOD_CAPACITY.end()))
     }
     /// `Capabilities.FluidHandler.ITEM`, read: the fluid, amount and capacity
-    /// of one item of `stack`. A bucket holds a bucket of water or lava or
-    /// nothing; a mod's container what it keeps in its `custom_data`. None
+    /// of one item of `stack`. A bucket holds a bucket of its fluid (water,
+    /// lava, a content mod's) or nothing; a mod's container what it keeps in its `custom_data`. None
     /// for any other item, and for an empty stack.
     pub(in crate::game) fn native_item_fluid(&self, stack: &ItemStack) -> Option<NativeItemFluid> {
         contents(stack, self.native_item_tank_capacity(&stack.item))
     }
     /// Fills one item of `stack` with up to `amount` millibuckets of `fluid`
-    /// (`minecraft:water`, `minecraft:lava`), as `IFluidHandler.fill`: a
+    /// (a fluid of the registry), as `IFluidHandler.fill`: a
     /// bucket takes a whole bucket or nothing and becomes the full one; a
     /// mod's container takes what fits of one fluid. The amount it takes, and
     /// the single item it becomes (the item itself when it took nothing). The
@@ -277,6 +273,33 @@ mod tests {
         );
         let empty = ItemStack::new("minecraft:bucket", 1);
         assert_eq!(drain_one(&empty, None, 1000), None);
+    }
+
+    #[test]
+    fn a_content_mods_bucket_holds_its_fluid_as_vanillas_do() {
+        // FluidBucketWrapper: any fluid with a bucket, a whole bucket or nothing.
+        horizon_world::mod_fluids::register_test_fluids();
+        let empty = ItemStack::new("minecraft:bucket", 1);
+        let (took, filled) = fill_one(&empty, None, "test:brine", 1000).unwrap();
+        assert_eq!((took, &*filled.item), (1000, "test:brine_bucket"));
+        assert_eq!(
+            contents(&filled, None).and_then(|c| c.fluid),
+            Some("test:brine".to_owned())
+        );
+        let (fluid, took, back) = drain_one(&filled, None, 1000).unwrap();
+        assert_eq!(
+            (fluid.as_str(), took, &*back.item),
+            ("test:brine", 1000, "minecraft:bucket")
+        );
+        assert_eq!(drain_one(&filled, None, 999), None);
+        // A fluid the registry lacks fills nothing; a mod's container takes any registered one.
+        assert_eq!(fill_one(&empty, None, "nope:fluid", 1000).unwrap().0, 0);
+        assert_eq!(
+            fill_one(&canister(1), Some(500), "test:sludge", 800)
+                .unwrap()
+                .0,
+            500
+        );
     }
 
     #[test]

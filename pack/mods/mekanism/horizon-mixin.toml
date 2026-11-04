@@ -4,9 +4,9 @@
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12, 14-20, 23, 26,
-# 42, 47, 60, 154-156 and 158) and calls the helpers of API 157 (`native_biome`,
-# `native_dimension_type`) and 159 (`native_cooking_recipes`), so it builds on
-# any Horizon with hooks API 159 or later: it pins no revision (horizon-mixins
+# 42, 47, 60, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
+# `native_dimension_type`), 159 (`native_cooking_recipes`) and 160 (`FluidStack`), so it builds on
+# any Horizon with hooks API 160 or later: it pins no revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.
@@ -310,6 +310,53 @@ bindings = [
   { name = "max", ty = "i64", value = "max" },
   { name = "simulate", ty = "bool", value = "simulate" },
   { name = "given", ty = "&mut Option<i64>", value = "&mut *given" },
+]
+
+[[injection]]
+id = "fluid-handler-tanks"
+hook = "fluid_handler_tanks"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fluid_handler_tanks.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "tanks", ty = "&mut Option<Vec<crate::game::native_hooks::NativeFluidTankInfo>>", value = "&mut *tanks" },
+]
+
+[[injection]]
+id = "fluid-handler-fill"
+hook = "fluid_handler_fill"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fluid_handler_fill.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "resource", ty = "&horizon_world::fluid_stack::FluidStack", value = "resource" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "filled", ty = "&mut Option<i32>", value = "&mut *filled" },
+]
+
+[[injection]]
+id = "fluid-handler-drain"
+hook = "fluid_handler_drain"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fluid_handler_drain.rs"
+bindings = [
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "resource", ty = "Option<&horizon_world::fluid_stack::FluidStack>", value = "resource" },
+  { name = "max", ty = "i32", value = "max" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "drained", ty = "&mut Option<horizon_world::fluid_stack::FluidStack>", value = "&mut *drained" },
 ]
 
 [[injection]]

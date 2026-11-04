@@ -2505,6 +2505,65 @@ pub trait Hooks: Send + Sync {
         let _ = event;
         None
     }
+    /// The fluid handler of the block entity at `pos` in `dimension`, a
+    /// mod's, through `face`, as NeoForge's `IFluidHandler` reads it
+    /// (`getTanks`, `getFluidInTank`, `getTankCapacity`). `face` is the side
+    /// of this block the caller touches, as in `native_fe_storage`; none is
+    /// the block itself, a null side. Set `tanks` when `entity.id` is yours
+    /// and `tanks` is none yet; leave it none on a side without a handler
+    /// (`getCapability` answering null), so pipes and buses see nothing
+    /// there. Asked on the server, often, from inside other blocks' transfers
+    /// and maybe while another level is in place: answer from `entity` and
+    /// your own state, not from the world. API 160.
+    ///
+    /// Return `Some` to set `tanks`; the first mod returning `Some` wins.
+    fn fluid_handler_tanks(
+        &self,
+        host: &dyn Host,
+        event: &mut FluidHandlerTanksEvent<'_>,
+    ) -> Option<Vec<NativeFluidTankInfo>> {
+        let _ = host;
+        let _ = event;
+        None
+    }
+    /// `IFluidHandler.fill` on the block entity at `pos`, a mod's: `resource`
+    /// (never empty) offered through `face`, as in
+    /// `native_fluid_handler_tanks`. Set `filled` (0 to the resource's
+    /// amount) when `entity.id` is yours and `filled` is none yet; with
+    /// `simulate` (`FluidAction.SIMULATE`), answer what you would take and
+    /// change nothing. The entity is out of the world during the call, as in
+    /// `native_fe_receive`; the engine puts it back and, when it took
+    /// something for real, marks it changed (`setChanged`). The same block,
+    /// side and operation asked again inside its own call gets 0, and so
+    /// does a chain 16 calls deep. API 160.
+    ///
+    /// Return `Some` to set `filled`; the first mod returning `Some` wins.
+    fn fluid_handler_fill(
+        &self,
+        host: &mut dyn Host,
+        event: &mut FluidHandlerFillEvent<'_>,
+    ) -> Option<i32> {
+        let _ = host;
+        let _ = event;
+        None
+    }
+    /// `IFluidHandler.drain` on the block entity at `pos`, a mod's, as
+    /// `native_fluid_handler_fill`: with a `resource`, `drain(FluidStack)` (at
+    /// most its amount, and only that fluid with those components), without
+    /// one, `drain(int)` of at most `max` (1 or more) of whatever comes out
+    /// first. Set `drained` to what leaves (the empty stack for nothing).
+    /// API 160.
+    ///
+    /// Return `Some` to set `drained`; the first mod returning `Some` wins.
+    fn fluid_handler_drain(
+        &self,
+        host: &mut dyn Host,
+        event: &mut FluidHandlerDrainEvent<'_>,
+    ) -> Option<FluidStack> {
+        let _ = host;
+        let _ = event;
+        None
+    }
     /// Slot `slot` of block `block`'s container is offered `stack`, by a
     /// hopper or a click in its menu (`Container.canPlaceItem`, `Slot.mayPlace`):
     /// clear `accepts` when the block is yours and refuses it. `fuel`: the
@@ -9067,6 +9126,120 @@ pub fn dispatch_fe_extract(
     for mod_hook in super::entered(mods, "fe_extract") {
         if let Some(replacement) = mod_hook.fe_extract(host, &mut event) {
             *given = Some(replacement);
+            break;
+        }
+    }
+}
+/// What [`Hooks::fluid_handler_tanks`] is told. Fields may be added: the struct is `#[non_exhaustive]`.
+#[non_exhaustive]
+pub struct FluidHandlerTanksEvent<'a> {
+    pub dimension: &'a str,
+    pub pos: [i32; 3],
+    pub face: Option<Direction>,
+    pub entity: &'a ModBlockEntity,
+}
+pub fn dispatch_fluid_handler_tanks(
+    host: &dyn Host,
+    mods: &[Box<dyn Hooks>],
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Direction>,
+    entity: &ModBlockEntity,
+    tanks: &mut Option<Vec<NativeFluidTankInfo>>,
+) {
+    if tanks.is_some() {
+        return;
+    }
+    let mut event = FluidHandlerTanksEvent {
+        dimension,
+        pos,
+        face,
+        entity,
+    };
+    for mod_hook in super::entered(mods, "fluid_handler_tanks") {
+        if let Some(replacement) = mod_hook.fluid_handler_tanks(host, &mut event) {
+            *tanks = Some(replacement);
+            break;
+        }
+    }
+}
+/// What [`Hooks::fluid_handler_fill`] is told. Fields may be added: the struct is `#[non_exhaustive]`.
+#[non_exhaustive]
+pub struct FluidHandlerFillEvent<'a> {
+    pub dimension: &'a str,
+    pub pos: [i32; 3],
+    pub face: Option<Direction>,
+    pub entity: &'a mut ModBlockEntity,
+    pub resource: &'a FluidStack,
+    pub simulate: bool,
+}
+pub fn dispatch_fluid_handler_fill(
+    host: &mut dyn Host,
+    mods: &[Box<dyn Hooks>],
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Direction>,
+    entity: &mut ModBlockEntity,
+    resource: &FluidStack,
+    simulate: bool,
+    filled: &mut Option<i32>,
+) {
+    if filled.is_some() {
+        return;
+    }
+    let mut event = FluidHandlerFillEvent {
+        dimension,
+        pos,
+        face,
+        entity,
+        resource,
+        simulate,
+    };
+    for mod_hook in super::entered(mods, "fluid_handler_fill") {
+        if let Some(replacement) = mod_hook.fluid_handler_fill(host, &mut event) {
+            *filled = Some(replacement);
+            break;
+        }
+    }
+}
+/// What [`Hooks::fluid_handler_drain`] is told. Fields may be added: the struct is `#[non_exhaustive]`.
+#[non_exhaustive]
+pub struct FluidHandlerDrainEvent<'a> {
+    pub dimension: &'a str,
+    pub pos: [i32; 3],
+    pub face: Option<Direction>,
+    pub entity: &'a mut ModBlockEntity,
+    pub resource: Option<&'a FluidStack>,
+    pub max: i32,
+    pub simulate: bool,
+}
+pub fn dispatch_fluid_handler_drain(
+    host: &mut dyn Host,
+    mods: &[Box<dyn Hooks>],
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Direction>,
+    entity: &mut ModBlockEntity,
+    resource: Option<&FluidStack>,
+    max: i32,
+    simulate: bool,
+    drained: &mut Option<FluidStack>,
+) {
+    if drained.is_some() {
+        return;
+    }
+    let mut event = FluidHandlerDrainEvent {
+        dimension,
+        pos,
+        face,
+        entity,
+        resource,
+        max,
+        simulate,
+    };
+    for mod_hook in super::entered(mods, "fluid_handler_drain") {
+        if let Some(replacement) = mod_hook.fluid_handler_drain(host, &mut event) {
+            *drained = Some(replacement);
             break;
         }
     }

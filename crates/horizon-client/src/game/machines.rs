@@ -9,6 +9,7 @@ pub(in crate::game) mod ae2_capabilities;
 mod crafter;
 pub(in crate::game) mod native_energy;
 pub(in crate::game) mod native_fe;
+pub(in crate::game) mod native_fluid_handler;
 pub(in crate::game) mod native_fluids;
 pub(in crate::game) mod native_items;
 use horizon_client::{

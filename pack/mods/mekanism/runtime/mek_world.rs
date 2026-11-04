@@ -4,7 +4,8 @@
 // Copyright (c) 2017-2025 Aidan C. Brady); this module is the glue: the
 // Solar and Heat Generators (what they read of the world: the sun, the weather,
 // the biome and its dimension through hook points API 157, lava beside them, the
-// fuel in their slot), the cubes' block entities and
+// fuel in their slot, the heat generator's lava tank as a fluid handler through
+// hook points API 160), the cubes' block entities and
 // their saved compound, the ejector's neighbours, Forge Energy at the cube's
 // edge (hook points API 154), universal cables and their networks (kept here,
 // per dimension, through the block entity lifecycle hook points API 156; each
@@ -20,7 +21,7 @@
 
 use super::{
     Game, mek_machines,
-    native_hooks::NativeFeInfo,
+    native_hooks::{NativeFeInfo, NativeFluidTankInfo},
     native_lifecycle::WorldPhase,
     native_server::{NativeCommand, NativeServerPlayer},
 };
@@ -31,6 +32,8 @@ use horizon_client::{
 };
 use horizon_core::geometry::Direction as Face;
 use horizon_world::{
+    fluid::FluidKind,
+    fluid_stack::FluidStack,
     level::flags,
     nbt::{Compound, JavaString, Tag},
 };
@@ -40,7 +43,7 @@ use mekanism_energy::{
     cube::{self, CubeState},
     fe::{self, Conversion, StrictEnergy},
     generator::GeneratorKind,
-    heat::{self, Activity, Ambient, Fuel, HeatGenerator, SlotUse},
+    heat::{self, Activity, Ambient, Fuel, HeatGenerator, ItemFluid, SlotUse},
     menu::{Button, GeneratorView, View},
     network::{self, Connection, Networks},
     sides::{self, DataType, Direction, RelativeSide},
@@ -1252,35 +1255,141 @@ fn generator_store(nbt: &Compound, kind: GeneratorKind, config: &EnergyConfig) -
     container
 }
 
-/// `fluid_tanks: [{tank: 0b, stored: {id: "minecraft:lava", amount: 1000}}]`,
-/// left out when empty (`IExtendedFluidTank.serializeNBT`).
-fn saved_lava(nbt: &Compound) -> u32 {
+/// The lava tank, `fluid_tanks: [{tank: 0b, stored: {id: "minecraft:lava",
+/// amount: 1000}}]` (`IExtendedFluidTank.serializeNBT`, `stored` a
+/// `FluidStack.save`), left out when empty; a fluid the registry lacks reads
+/// as empty, as `FluidStack.parseOptional` reads it.
+fn saved_tank(nbt: &Compound) -> FluidStack {
     let Some(Tag::List(list)) = nbt.get(&key("fluid_tanks")) else {
-        return 0;
+        return FluidStack::EMPTY;
     };
     list.iter()
         .find_map(|entry| match entry {
             Tag::Compound(c) if number(c.get(&key("tank"))).unwrap_or(0) == 0 => match c.get(&key("stored")) {
-                Some(Tag::Compound(fluid)) => Some(number(fluid.get(&key("amount"))).unwrap_or(0).clamp(0, i64::from(i32::MAX)) as u32),
+                Some(Tag::Compound(stored)) => Some(FluidStack::parse_optional(stored)),
                 _ => None,
             },
             _ => None,
         })
-        .unwrap_or(0)
+        .unwrap_or(FluidStack::EMPTY)
 }
 
-fn write_lava(nbt: &mut Compound, lava: u32) {
-    if lava == 0 {
+fn write_tank(nbt: &mut Compound, tank: &FluidStack) {
+    let Some(stored) = tank.save() else {
         nbt.remove(&key("fluid_tanks"));
         return;
+    };
+    let mut entry = Compound::new();
+    entry.insert(key("tank"), Tag::Byte(0));
+    entry.insert(key("stored"), Tag::Compound(stored));
+    nbt.insert(key("fluid_tanks"), Tag::List(vec![Tag::Compound(entry)]));
+}
+
+/// `lavaTank`'s validator: `fluidStack.is(FluidTags.LAVA)`.
+fn lava_valid(stack: &FluidStack) -> bool {
+    stack.is_tag("minecraft:lava")
+}
+
+/// The heat generator's lava tank as a fluid handler through `face`
+/// (`TileEntityHeatGenerator.getInitialFluidTanks`: every side but the
+/// front; `ProxyFluidHandler`: a null side reads it and moves nothing). None
+/// for any other block, and on the front, which has no handler.
+fn heat_tank_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<Option<Face>> {
+    if GeneratorKind::of_block(&entity.id) != Some(GeneratorKind::Heat) {
+        return None;
     }
-    let mut fluid = Compound::new();
-    fluid.insert(key("id"), Tag::String(key(LAVA)));
-    fluid.insert(key("amount"), Tag::Int(lava.min(i32::MAX as u32) as i32));
-    let mut tank = Compound::new();
-    tank.insert(key("tank"), Tag::Byte(0));
-    tank.insert(key("stored"), Tag::Compound(fluid));
-    nbt.insert(key("fluid_tanks"), Tag::List(vec![Tag::Compound(tank)]));
+    match face {
+        Some(f) if !heat::tank_on(generator_facing(&entity.nbt), mek_direction(f)) => None,
+        _ => Some(face),
+    }
+}
+
+/// `native_fluid_handler_tanks` (`IFluidHandler.getTanks`,
+/// `getFluidInTank`, `getTankCapacity`) of a heat generator: one tank,
+/// `heatTankCapacity` mB, which no other block can drain (`notExternal`).
+pub(super) fn fluid_tanks(
+    _dimension: &str,
+    _pos: [i32; 3],
+    face: Option<Face>,
+    entity: &ModBlockEntity,
+    tanks: &mut Option<Vec<NativeFluidTankInfo>>,
+) {
+    if tanks.is_some() || heat_tank_side(entity, face).is_none() {
+        return;
+    }
+    let (config, _) = energy_config();
+    *tanks = Some(vec![NativeFluidTankInfo {
+        stack: saved_tank(&entity.nbt),
+        capacity: config.generators.heat_tank_capacity.min(i32::MAX as u32) as i32,
+        drainable: false,
+    }]);
+}
+
+/// `native_fluid_handler_fill` (`IFluidHandler.fill`, through
+/// `ExtendedFluidHandlerUtils.insert` and `BasicFluidTank.insert` with
+/// `AutomationType.EXTERNAL`) of a heat generator: lava, into an empty tank
+/// or one holding the same fluid, what fits.
+pub(super) fn fluid_fill(
+    _dimension: &str,
+    _pos: [i32; 3],
+    face: Option<Face>,
+    entity: &mut ModBlockEntity,
+    resource: &FluidStack,
+    simulate: bool,
+    filled: &mut Option<i32>,
+) {
+    if filled.is_some() {
+        return;
+    }
+    let Some(side) = heat_tank_side(entity, face) else {
+        return;
+    };
+    if side.is_none() {
+        // The null side's proxy is read only.
+        *filled = Some(0);
+        return;
+    }
+    let (config, _) = energy_config();
+    let capacity = config.generators.heat_tank_capacity;
+    let tank = saved_tank(&entity.nbt);
+    let stored = tank.amount().max(0) as u32;
+    let same = tank.is_empty() || FluidStack::is_same_fluid_same_components(&tank, resource);
+    let took = heat::tank_insert(stored, capacity, lava_valid(resource), same, resource.amount().max(0) as u32);
+    if took > 0 && !simulate {
+        let after = if tank.is_empty() { resource.copy_with_amount(took as i32) } else { tank.copy_with_amount((stored + took) as i32) };
+        write_tank(&mut entity.nbt, &after);
+    }
+    *filled = Some(took as i32);
+}
+
+/// `native_fluid_handler_drain` (`IFluidHandler.drain`) of a heat generator:
+/// `lavaTank` is `VariableCapacityFluidTank.input`, extractable only by the
+/// generator itself (`notExternal`), and the null side is read only, so no
+/// block drains it.
+pub(super) fn fluid_drain(
+    _dimension: &str,
+    _pos: [i32; 3],
+    face: Option<Face>,
+    entity: &mut ModBlockEntity,
+    resource: Option<&FluidStack>,
+    max: i32,
+    _simulate: bool,
+    drained: &mut Option<FluidStack>,
+) {
+    if drained.is_some() {
+        return;
+    }
+    let Some(side) = heat_tank_side(entity, face) else {
+        return;
+    };
+    let tank = saved_tank(&entity.nbt);
+    let wanted = resource.map_or(max, FluidStack::amount).max(0) as u32;
+    let given = match side {
+        Some(_) => heat::tank_extract(tank.amount().max(0) as u32, Automation::External, wanted),
+        None => 0,
+    };
+    // Nothing leaves (`given` is 0 by `notExternal`); the tank is not written.
+    *drained = Some(tank.copy_with_amount(given as i32));
 }
 
 /// `heat_capacitors: [{container: 0b, stored: 3000.0d, heat_capacity: 10.0d}]`.
@@ -1430,14 +1539,26 @@ fn tick_solar(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: 
     .pack();
 }
 
-/// What the fuel slot holds, as `fill_or_burn` needs it.
-fn fuel_in(game: &Game<'_>, slot: Option<&ItemStack>) -> Option<Fuel> {
+/// What the fuel slot holds, as `fill_or_burn` needs it: its fluid through
+/// the item's fluid handler (`Capabilities.FluidHandler.ITEM`: a bucket of any
+/// fluid of the registry, a mod's container), against the tank's `tank`.
+fn fuel_in(game: &Game<'_>, slot: Option<&ItemStack>, tank: &FluidStack) -> Option<Fuel> {
     let stack = slot.filter(|s| s.count > 0)?;
+    let fluid = game.native_item_fluid(stack).and_then(|held| {
+        let held_stack = FluidStack::of(held.fluid.as_deref()?, held.amount)?;
+        Some(ItemFluid {
+            amount: held.amount.max(0) as u32,
+            valid: lava_valid(&held_stack),
+            same: tank.is_empty() || FluidStack::is_same_fluid_same_components(tank, &held_stack),
+            whole: horizon_world::fluid_stack::bucket_fluid(&stack.item).is_some(),
+        })
+    });
     Some(Fuel {
         count: stack.count,
-        lava_bucket: &*stack.item == "minecraft:lava_bucket",
+        fluid,
         burn_time: game.native_burn_time(stack),
         has_remainder: game.native_crafting_remainder(&stack.item).is_some(),
+        takes_lava: tank.is_empty() || (tank.is(FluidKind::Lava) && tank.components().is_empty()),
     })
 }
 
@@ -1456,20 +1577,37 @@ fn tick_heat(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     let mut shown = game.native_block_property(pos, "active").as_deref() == Some("true");
     let changed = activity.tick(shown);
     show_active(game, pos, changed, &mut shown);
+    let tank = saved_tank(&entity.nbt);
     let mut generator = HeatGenerator {
         energy: generator_store(&entity.nbt, GeneratorKind::Heat, config).stored,
-        lava: saved_lava(&entity.nbt).min(generators.heat_tank_capacity),
+        lava: (tank.amount().max(0) as u32).min(generators.heat_tank_capacity),
         heat: saved_heat(&entity.nbt),
     };
+    // The fluid that comes into an empty tank this tick.
+    let mut incoming = None;
     let before = generator;
     // The ejector, out of the front.
     let mut container = generator.container(generators);
     eject(game, config, pos, &[GeneratorKind::Heat.energy_face(facing)], &mut container, heat::max_output(generators));
     generator.energy = container.stored;
     // The fuel slot: a lava bucket empties into the tank, fuel burns into lava.
-    let fuel = fuel_in(game, entity.items.first().and_then(Option::as_ref));
+    let fuel = fuel_in(game, entity.items.first().and_then(Option::as_ref), &tank);
+    let lava_before = generator.lava;
     match heat::fill_or_burn(&mut generator.lava, generators.heat_tank_capacity, fuel) {
         SlotUse::Kept => {}
+        SlotUse::Drained(n) => {
+            // The container's own handler gives it up and says what it becomes.
+            let stack = entity.items.first().and_then(Option::as_ref).cloned();
+            match stack.and_then(|s| game.native_item_fluid_drain(&s, n as i32)) {
+                Some((fluid, took, after)) if took as u32 == n => {
+                    incoming = FluidKind::from_name(&fluid);
+                    if let Some(slot) = entity.items.first_mut() {
+                        *slot = Some(after);
+                    }
+                }
+                _ => generator.lava = lava_before,
+            }
+        }
         SlotUse::Remainder => {
             let item = entity.items.first().and_then(Option::as_ref).map(|s| s.item.clone());
             let rest = item.and_then(|i| game.native_crafting_remainder(&i));
@@ -1501,8 +1639,16 @@ fn tick_heat(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     if generator.energy != before.energy {
         write_energy(&mut entity.nbt, generator.energy);
     }
-    if generator.lava != before.lava {
-        write_lava(&mut entity.nbt, generator.lava);
+    // A burn's lava is `Fluids.LAVA`; a container's is its own.
+    let after = if generator.lava == 0 {
+        FluidStack::EMPTY
+    } else if tank.is_empty() {
+        FluidStack::new(incoming.unwrap_or(FluidKind::Lava), generator.lava as i32)
+    } else {
+        tank.copy_with_amount(generator.lava as i32)
+    };
+    if after != tank {
+        write_tank(&mut entity.nbt, &after);
     }
     if let Some(heat) = generator.heat
         && Some(heat) != before.heat
@@ -1571,7 +1717,8 @@ fn probe_generator(game: &Game<'_>, pos: [i32; 3], id: &str, kind: GeneratorKind
         }
         GeneratorKind::Heat => {
             let activity = read_activity(nbt);
-            out["lava"] = saved_lava(nbt).into();
+            out["lava"] = saved_tank(nbt).amount().into();
+            out["lava_fluid"] = saved_tank(nbt).name().into();
             out["tank"] = config.generators.heat_tank_capacity.into();
             out["temperature"] = view.temperature.into();
             out["heat"] = saved_heat(nbt).map_or(serde_json::Value::Null, Into::into);

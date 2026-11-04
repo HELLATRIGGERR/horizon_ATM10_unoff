@@ -35,7 +35,9 @@ assets when `mekanism-content` is given them.
   mB; a hopper puts only fuel there), heat from burning 10 mB a tick (800), from lava on each face (30) and in an
   ultra-warm dimension (100), a heat capacitor that loses heat to the biome's air and turns it into Joules at the Carnot
   efficiency, out of its front; `facing` and `active` (light 13) in its block, `active` going off after
-  `blockDeactivationDelay`.
+  `blockDeactivationDelay`. Its tank is a fluid handler (hook points API 160) on every side but the front: any block
+  (AE2's export and storage buses) fills it with lava, none drains it; its fuel slot fills it through the item's fluid
+  handler (a whole bucket, or what a container gives).
 - Both generators: Forge Energy on their energy face, cables connecting there, a screen like Mekanism's
   (`GuiSolarGenerator`, `GuiHeatGenerator`), and `/mek probe` answers for tests.
 - The Enrichment Chamber, the Crusher and the Energized Smelter (`TileEntityElectricMachine`) and the Metallurgic
@@ -76,8 +78,8 @@ assets when `mekanism-content` is given them.
   computes it a tick earlier, so at dusk and dawn the solar generator may stop or start a tick apart.
 - The solar generator's outline and collision are one box, its panel's height (half a block); its block has no
   `facing` or `active`, which Mekanism's model doesn't show. The heat generator is a full block.
-- Lava beside the heat generator is vanilla's lava block; mod fluids tagged lava, lava-logging, pipes into its tank and
-  fluid items other than the lava bucket wait for mod fluids. No heat goes to a heat handler below (none is ported).
+- Lava beside the heat generator is vanilla's lava block, and lava-logging isn't read; the pack tags no mod fluid lava,
+  so lava buckets are the only fluid items its fuel slot meets. No heat goes to a heat handler below (none is ported).
 - Hoppers take nothing out of the heat generator's fuel slot (an empty bucket stays until a player takes it): a hook
   point for what a slot gives is missing, and coal must stay. Its energy slots charge nothing until items carry energy.
 - Generators drop plain: their energy, lava and heat stay behind, as the cube did before its items kept energy.

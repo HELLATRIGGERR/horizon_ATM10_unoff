@@ -43,6 +43,7 @@ pub use horizon_world::{
         AttachmentCodec, AttachmentError, AttachmentHost, AttachmentType, Attachments, Holder,
     },
     fluid::FluidState,
+    fluid_stack::FluidStack,
     level::{BlockId, Dimension as LevelDimension, PlacementContext},
     loot::{LootStack, NativeLootContext},
     nbt::{Compound, Tag},
@@ -273,6 +274,21 @@ pub struct NativeFeInfo {
     pub can_receive: bool,
     /// `canExtract`: whether an extract may give anything.
     pub can_extract: bool,
+}
+
+/// One tank of a block's fluid handler through one side, as NeoForge's `IFluidHandler` reads it
+/// (`getFluidInTank`, `getTankCapacity`; `native_fluid_handler_tanks`, `native_fluid_handler`), in
+/// millibuckets.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NativeFluidTankInfo {
+    /// `getFluidInTank`: what it holds, the empty stack when nothing.
+    pub stack: FluidStack,
+    /// `getTankCapacity`.
+    pub capacity: i32,
+    /// Whether a simulated `drain` of `stack` through this side gives any of it: what AE2's
+    /// storage bus asks of each tank to show only what it can take (`ExternalStorageFacade`'s
+    /// extractable-only filter). False for an empty tank.
+    pub drainable: bool,
 }
 
 /// What falls in a biome when it rains (`Biome.Precipitation`), as `native_biome` reads it.

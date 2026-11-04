@@ -27,8 +27,11 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   declared from the NeoForge oracle's server and client facts; the overlay's two hand declarations went (the oracle's
   are the same values). `mekanism-content` counts the carry's fluids and warns when a carry from before the client's
   oracle run has none: carry again then (`tools/atm10/oracle-client.sh`, docs/mod-fluids.md).
-- Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), fluid tanks (mod fluids' slice 5)
-  for the heat generator's tank, S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
+- Mod fluids, slice 5 (branch `feat/mod-fluids-5`, hook points API 160): the heat generator's lava tank is a fluid
+  handler (`fluid_handler_tanks`, `fluid_handler_fill`, `fluid_handler_drain`): every side but the front, lava from any
+  block, none out; its fuel slot fills it through the item's fluid handler; `fluid_tanks` is read and written as a
+  `FluidStack`. World test `heat-generator-tank` (AE2's export, storage and import buses against it).
+- Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
   Combiner, Purification Chamber) on the same `machine` crate module, energy items charging machines, chemicals as a
   capability for the infuser's tank.
 

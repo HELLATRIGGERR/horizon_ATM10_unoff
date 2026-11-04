@@ -87,7 +87,7 @@ impl Drop for Entered {
 
 /// The level named `dimension` (`minecraft:overworld`); none for one the
 /// game doesn't have.
-fn dim_of(dimension: &str) -> Option<Dim> {
+pub(super) fn dim_of(dimension: &str) -> Option<Dim> {
     let dim = Dim::from_id(dimension);
     (dim.id() == dimension).then_some(dim)
 }
@@ -191,7 +191,7 @@ fn declared_move(
 /// The mod block entity at `key`, taken out of `world` for a hook: an empty
 /// id marks its place meanwhile, as during its tick. None for any other
 /// block entity, and for one already out (ticking, or in a call of its own).
-fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
+pub(super) fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
     let Some(BlockEntity::Mod(m)) = world.block_entities.get_mut(&key) else {
         return None;
     };
@@ -204,7 +204,7 @@ fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
 /// Puts `taken` back where `take` left its mark; with `changed`, its
 /// `setChanged`: the next save writes its chunk. Whether it went back: a
 /// block entity the call removed or replaced stays gone.
-fn put_back(world: &mut World, key: Pos, taken: ModBlockEntity, changed: bool) -> bool {
+pub(super) fn put_back(world: &mut World, key: Pos, taken: ModBlockEntity, changed: bool) -> bool {
     match world.block_entities.get_mut(&key) {
         Some(BlockEntity::Mod(m)) if m.id.is_empty() => {
             **m = taken;
@@ -219,7 +219,7 @@ fn put_back(world: &mut World, key: Pos, taken: ModBlockEntity, changed: bool) -
 
 impl Game<'_> {
     /// The level `dim`: the one in place or a parked one.
-    fn fe_world(&self, dim: Dim) -> Option<&World> {
+    pub(super) fn fe_world(&self, dim: Dim) -> Option<&World> {
         if dim == self.dim {
             Some(&self.world)
         } else {
@@ -227,7 +227,7 @@ impl Game<'_> {
         }
     }
 
-    fn fe_world_mut(&mut self, dim: Dim) -> Option<&mut World> {
+    pub(super) fn fe_world_mut(&mut self, dim: Dim) -> Option<&mut World> {
         if dim == self.dim {
             Some(&mut self.world)
         } else {

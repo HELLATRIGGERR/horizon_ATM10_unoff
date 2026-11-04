@@ -508,6 +508,44 @@ impl Host for super::Game<'_> {
     ) -> i64 {
         self.native_fe_draw(dimension, pos, face, amount, simulate, wide)
     }
+    fn fluid_handler(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+    ) -> Option<Vec<NativeFluidTankInfo>> {
+        self.native_fluid_handler(dimension, pos, face)
+    }
+    fn fluid_fill(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        resource: &FluidStack,
+        simulate: bool,
+    ) -> i32 {
+        self.native_fluid_fill(dimension, pos, face, resource, simulate)
+    }
+    fn fluid_drain(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        resource: Option<&FluidStack>,
+        max: i32,
+        simulate: bool,
+    ) -> FluidStack {
+        self.native_fluid_drain(dimension, pos, face, resource, max, simulate)
+    }
+    fn fluid_interact(
+        &mut self,
+        hand: Hand,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+    ) -> bool {
+        self.native_fluid_interact(hand, dimension, pos, face)
+    }
     fn burn_time(&self, stack: &ItemStack) -> i32 {
         self.native_burn_time(stack)
     }

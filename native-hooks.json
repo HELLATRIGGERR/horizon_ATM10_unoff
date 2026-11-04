@@ -449,6 +449,22 @@
       "target": "horizon_client::game::machines::native_fe::Game<'_>::native_fe_draw"
     },
     {
+      "name": "fluid_handler",
+      "target": "horizon_client::game::machines::native_fluid_handler::Game<'_>::native_fluid_handler"
+    },
+    {
+      "name": "fluid_fill",
+      "target": "horizon_client::game::machines::native_fluid_handler::Game<'_>::native_fluid_fill"
+    },
+    {
+      "name": "fluid_drain",
+      "target": "horizon_client::game::machines::native_fluid_handler::Game<'_>::native_fluid_drain"
+    },
+    {
+      "name": "fluid_interact",
+      "target": "horizon_client::game::machines::native_fluid_handler::Game<'_>::native_fluid_interact"
+    },
+    {
       "name": "burn_time",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_burn_time"
     },
@@ -2245,6 +2261,39 @@
       "mod_api": {
         "contract": "replace",
         "out": "given"
+      }
+    },
+    {
+      "name": "fluid_handler_tanks",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fluid_handler_tanks",
+      "neoforge": "Capabilities.FluidHandler.BLOCK",
+      "side": "server",
+      "mod_api": {
+        "contract": "replace",
+        "out": "tanks"
+      }
+    },
+    {
+      "name": "fluid_handler_fill",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fluid_handler_fill",
+      "neoforge": "Capabilities.FluidHandler.BLOCK",
+      "side": "server",
+      "mod_api": {
+        "contract": "replace",
+        "out": "filled"
+      }
+    },
+    {
+      "name": "fluid_handler_drain",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fluid_handler_drain",
+      "neoforge": "Capabilities.FluidHandler.BLOCK",
+      "side": "server",
+      "mod_api": {
+        "contract": "replace",
+        "out": "drained"
       }
     },
     {

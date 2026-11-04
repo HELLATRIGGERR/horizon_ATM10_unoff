@@ -111,7 +111,12 @@ about 910,000 of `MAX_STATES`' 1,048,576), 14,218 items; the load check has 289 
 whose jar has no blockstate for it is left out: the pack's run sees what other mods register in a namespace for their
 own content (Bibliowoods' furniture in other mods' woods: 6,083 blocks and 270,000 states; Dyenamics and Friends',
 Amendments'). Of the dump's 95,015 recipes, 78,649 are in carries and 8,746 in `atm10-pack`, 5,699 are parked (their
-result is an item we don't have: Bibliocraft's furniture, Dyenamics and Friends', Powah's).
+result is an item we don't have: Bibliocraft's furniture, Dyenamics and Friends', Powah's). A run's count is not fixed:
+Sawmill makes its `sawmill:woodcutting` recipes at each reload from the recipe graph (`SawmillRecipeGenerator`: a
+depth-capped search over `HashSet`s and a `HashMultimap` of items, whose order Java's identity hashes decide), 17,936
+in the run above and 17,529 in mod fluids' (4 November: 94,608 recipes, 78,229 in carries), whose carries and dump
+replaced these; ten more differ only by a random roll (Ars Nouveau's tome colour, Artifacts' eternal steak) or an
+ingredient list's order (Refined Storage's upgrades).
 
 The Java baseline to beat, on the 16 GB laptop: 200 s from launch to in-world (140 s to the title, 58 s for the world),
 96,202 recipes, about 8.3 GB heap.

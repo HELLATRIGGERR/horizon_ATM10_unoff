@@ -43,6 +43,12 @@ impl Game<'_> {
                     Vec::new()
                 } else if let Some(entries) = self.ae2_interface_fluid_entries(mount.target, mount.face) {
                     entries
+                } else if let Some(entries) =
+                    self.ae2_mod_fluid_entries(mount.target, mount.face, mount.extractable_only)
+                {
+                    // A native block's IFluidHandler, read as it stands: its storage bus's
+                    // monitor (one per bus) follows the block's items when it has any.
+                    entries
                 } else {
                     self.ae2_monitor_read(&mount)?.1
                 };
@@ -304,6 +310,13 @@ impl Game<'_> {
         }else if self.ae2_has_interface_face(mount.target,mount.face){
             if !mount.allows(&ae2_machines_core::Key::from(key),!insert)||!self.ae2_interface_mount_allowed(mount.target,mount.face,insert){return Ok((0,None))}
             let moved=self.ae2_interface_fluid_move_staged(mount.target,mount.face,key,amount,insert,simulate,plan).unwrap_or(0);
+            Ok((if insert&&mount.void_overflow{amount}else{moved},None))
+        }else if self.ae2_mod_fluid_supports(mount.target,mount.face){
+            // A native block's IFluidHandler (FluidHandlerFacade): fill to insert,
+            // drain to extract. The caller's block snapshot restores it on failure.
+            if !mount.allows(&ae2_machines_core::Key::from(key),!insert){return Ok((0,None))}
+            let moved=self.ae2_mod_fluid_move(mount.target,mount.face,key,amount,insert,simulate).unwrap_or(0);
+            if moved>0 && !simulate {self.ae2_monitor_invalidate(mount.identity);}
             Ok((if insert&&mount.void_overflow{amount}else{moved},None))
         }else{self.stage_fluid_mount(mount,key,amount,insert)}
     }

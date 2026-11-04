@@ -16,7 +16,8 @@ use std::sync::Arc;
 pub(crate) struct NativeFluidTank {
     /// Its number, for the mod's own use.
     pub(crate) tank: usize,
-    /// `minecraft:water` or `minecraft:lava`; none when the tank is empty.
+    /// A fluid of the registry (`minecraft:water`, a content mod's); none
+    /// when the tank is empty.
     pub(crate) fluid: Option<String>,
     /// In millibuckets: a bucket is a thousand.
     pub(crate) amount: i32,
@@ -25,6 +26,12 @@ pub(crate) struct NativeFluidTank {
     pub(crate) can_fill: bool,
     /// Whether a drain may take it through this side.
     pub(crate) can_drain: bool,
+}
+
+/// Whether `name` is a fluid of the registry other than the empty one.
+pub(super) fn registered_fluid(name: &str) -> bool {
+    horizon_world::fluid::FluidKind::from_name(name)
+        .is_some_and(|f| f != horizon_world::fluid::FluidKind::Empty)
 }
 
 /// A cauldron level's contents: level `level` holds `level * 1000 / 3`
@@ -78,12 +85,12 @@ enum CauldronFluids {
 }
 
 /// The saved state of one tank: its fluid and amount in millibuckets.
-type Tank = (Option<String>, i32);
+pub(super) type Tank = (Option<String>, i32);
 
 /// The tanks in `nbt`, each `n` long: missing entries read as empty, and a
 /// save with more tanks than the block now declares keeps the ones that
 /// still exist (a mod update that shrank its tanks loses nothing it kept).
-fn read_tanks(nbt: &Compound, n: usize) -> Vec<Tank> {
+pub(super) fn read_tanks(nbt: &Compound, n: usize) -> Vec<Tank> {
     let list = match nbt.get(&JavaString::from("fluids")) {
         Some(Tag::List(list)) => list,
         _ => return vec![(None, 0); n],
@@ -114,7 +121,7 @@ fn read_tanks(nbt: &Compound, n: usize) -> Vec<Tank> {
 
 /// `read_tanks`'s writer: the list back into `nbt`, an empty tank as
 /// `minecraft:empty` so the tank numbers stay in place.
-fn write_tanks(nbt: &mut Compound, tanks: &[Tank]) {
+pub(super) fn write_tanks(nbt: &mut Compound, tanks: &[Tank]) {
     let list = tanks
         .iter()
         .map(|&(ref fluid, amount)| {
@@ -190,8 +197,8 @@ impl Game<'_> {
             Err(_) => false,
         }
     }
-    /// `native_fluid_insert`: up to `amount` millibuckets of `fluid`
-    /// (`minecraft:water`, `minecraft:lava`) into the block at `pos`, through
+    /// `native_fluid_insert`: up to `amount` millibuckets of `fluid` (a fluid
+    /// of the registry: `minecraft:water`, a content mod's) into the block at `pos`, through
     /// its side `face`, in the level in place: a mod block's tanks first
     /// those with the same fluid, then empty ones, by the sides and tanks its
     /// table gave; a cauldron by thirds of a bucket, a lava one only whole.
@@ -203,7 +210,8 @@ impl Game<'_> {
         fluid: &str,
         amount: i32,
     ) -> i32 {
-        if fluid != "minecraft:water" && fluid != "minecraft:lava" {
+        // Any fluid of the registry, vanilla's or a content mod's (API 160).
+        if !registered_fluid(fluid) {
             return amount;
         }
         if !self.native_simulates() {

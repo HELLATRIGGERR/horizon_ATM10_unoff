@@ -1,0 +1,9 @@
+[package]
+name = "ae2-megacells-core"
+version = "0.1.0"
+edition = "2021"
+license = "LGPL-3.0-or-later"
+description = "MEGA Cells 4.11.0's bulk cell, compression chains and decompression patterns, without the game"
+
+[dependencies]
+ae2-cell-core = { path = "../ae2-cell-core" }

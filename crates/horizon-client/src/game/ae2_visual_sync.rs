@@ -132,6 +132,10 @@ fn text(t: Option<&Tag>) -> Option<String> {
 /// 1 `EMPTY`, 2 `NOT_EMPTY`, 3 `TYPES_FULL`, 4 `FULL`; 0 for a stack the
 /// codec can't read.
 fn cell_state(v: &horizon_client::items::ItemStack) -> u8 {
+    // A cell of an addon's own handler (MEGA's `BulkCellInventory.getStatus`).
+    if let Some(state) = horizon_client::ae2x::handler_cell_state(v) {
+        return state;
+    }
     let cell = super::ae2_lab::read_cell(v).or_else(|_| super::ae2_fluids::read_fluid_cell(v));
     match cell {
         Ok(c) if c.total_items() == 0 => 1,

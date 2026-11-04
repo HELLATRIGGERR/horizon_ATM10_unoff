@@ -359,6 +359,8 @@ impl Game<'_> {
                 "powered": visual.powered,
                 "connections": visual.connections,
                 "crafting_job": visual.crafting_job.as_ref().map(|job| json!({"item": job.item, "fluid": job.fluid, "amount": job.amount})),
+                // A Drive's cells and their LED states (`CellState` 1 to 4), by slot.
+                "cells": visual.slots.iter().map(|slot| slot.as_ref().map(|cell| json!({"item": cell.id, "state": cell.state}))).collect::<Vec<_>>(),
                 // Its parts: a cell part's cell and LED state (`CellState` 1 to 4) and spin.
                 "parts": visual.parts.iter().map(|part| json!({
                     "id": part.id, "face": part.face, "online": part.online, "powered": part.powered,

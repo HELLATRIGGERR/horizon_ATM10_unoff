@@ -13,6 +13,21 @@ pub(super) mod merequester;
 #[cfg(feature = "ae2-extendedae")]
 pub(super) mod extendedae;
 
+/// A storage cell of an addon's own `ICellHandler` (`StorageCells.getCellInventory`
+/// for a cell no basic handler takes): MEGA's Bulk Item Cell. Item keys
+/// only; a change is written back to its stack with [`HandlerCell::store`].
+/// Its LED is `horizon_client::ae2x::handler_cell_state`.
+pub(super) trait HandlerCell {
+    /// `getAvailableStacks`, in the cell's order; amounts may be 0.
+    fn available_stacks(&mut self) -> Vec<(ae2_cell_core::ItemKey, u64)>;
+    fn insert(&mut self, key: &ae2_cell_core::ItemKey, amount: u64, action: ae2_cell_core::Action) -> u64;
+    fn extract(&mut self, key: &ae2_cell_core::ItemKey, amount: u64, action: ae2_cell_core::Action) -> u64;
+    /// `isPreferredStorageFor`.
+    fn is_preferred_storage_for(&self, key: &ae2_cell_core::ItemKey) -> bool;
+    /// `persist`: the cell's state onto its stack.
+    fn store(&self, stack: &mut horizon_client::items::ItemStack) -> Result<(), String>;
+}
+
 /// How an addon's block turns to face the player when placed: AE2's
 /// `OrientationStrategies.facing()` or `full()` (facing with spin).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -192,19 +207,6 @@ pub(super) fn pattern_inventory_accepts(machine: &Machine, item: &horizon_client
     true
 }
 
-/// What an addon's item adds to its tooltip below its name
-/// (`Item.appendHoverText`), each line in its own style.
-pub(super) fn item_hover_lines(id: &str, translate: &dyn Fn(&str) -> Option<String>) -> Vec<horizon_client::text::Text> {
-    #[cfg(feature = "ae2-megacells")]
-    {
-        let lines = megacells::hover_lines(id, translate);
-        if !lines.is_empty() {
-            return lines;
-        }
-    }
-    let _ = (id, translate);
-    Vec::new()
-}
 
 /// Whether an addon's item opens a menu when used (`Item.use` succeeds on
 /// the client, `sidedSuccess`): the client then stops at this hand.
@@ -229,6 +231,43 @@ pub(super) struct State {
 }
 
 impl Game<'_> {
+    /// `StorageCells.getCellInventory` of a cell of an addon's own handler:
+    /// none for any other stack (AE2's basic cells, creative cells, items).
+    pub(super) fn ae2x_handler_cell(&self, stack: &horizon_client::items::ItemStack) -> Option<Result<Box<dyn HandlerCell>, String>> {
+        #[cfg(feature = "ae2-megacells")]
+        if stack.item.as_ref() == horizon_client::ae2x::megacells::BULK_ITEM_CELL {
+            return Some(self.megacells_bulk_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
+        }
+        let _ = stack;
+        None
+    }
+    /// The tooltip image of a cell of an addon's own handler
+    /// (`getTooltipImage`): its upgrades and its content.
+    pub(super) fn ae2x_cell_preview(&self, stack: &horizon_client::items::ItemStack, show_upgrades: bool, show_content: bool) -> Option<(Vec<horizon_client::items::ItemStack>, Vec<(ae2_cell_core::ItemKey, u64)>)> {
+        #[cfg(feature = "ae2-megacells")]
+        if stack.item.as_ref() == horizon_client::ae2x::megacells::BULK_ITEM_CELL {
+            return self.megacells_bulk_preview(stack, show_upgrades, show_content);
+        }
+        let _ = (stack, show_upgrades, show_content);
+        None
+    }
+    /// What an addon's item adds to its tooltip below its name
+    /// (`Item.appendHoverText`), each line in its own style; `name` gives an
+    /// item's hover name.
+    pub(super) fn ae2x_item_hover_lines(&self, stack: &horizon_client::items::ItemStack, translate: &dyn Fn(&str) -> Option<String>, name: &dyn Fn(&horizon_client::items::ItemStack) -> horizon_client::text::Text) -> Vec<horizon_client::text::Text> {
+        #[cfg(feature = "ae2-megacells")]
+        {
+            if stack.item.as_ref() == horizon_client::ae2x::megacells::BULK_ITEM_CELL {
+                return self.megacells_bulk_hover_lines(stack, name);
+            }
+            let lines = megacells::hover_lines(&stack.item, translate);
+            if !lines.is_empty() {
+                return lines;
+            }
+        }
+        let _ = (stack, translate, name);
+        Vec::new()
+    }
     /// The addons' grid ticks, after AE2's interfaces.
     pub(super) fn tick_ae2x(&mut self) {
         #[cfg(feature = "ae2-merequester")]

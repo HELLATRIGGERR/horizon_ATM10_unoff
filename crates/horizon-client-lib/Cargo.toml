@@ -18,6 +18,7 @@ ae2-cell-core = { path = "../ae2-cell-core", optional = true }
 ae2-machines-core = { path = "../ae2-machines-core", optional = true }
 ae2-network-core = { path = "../ae2-network-core", optional = true }
 ae2-merequester-core = { path = "../ae2-merequester-core", optional = true }
+ae2-megacells-core = { path = "../ae2-megacells-core", optional = true }
 toml = { version = "1.1", optional = true }
 horizon-assets = { path = "../horizon-assets" }
 horizon-client-core = { path = "../horizon-client-core" }
@@ -112,7 +113,7 @@ wgpu = { version = "30.0.1", default-features = false, features = ["gles"] }
 [features]
 # The AE2 port's library half (`ae2_*`, `ae2x`); the client's `ae2-lab` turns it on.
 ae2-lab = ["horizon-client-render/ae2-lab", "horizon-items/ae2-lab", "horizon-command/ae2-lab", "dep:ae2-cell-core", "dep:ae2-network-core", "dep:ae2-machines-core", "dep:toml"]
-ae2-megacells = ["ae2-lab"]
+ae2-megacells = ["ae2-lab", "dep:ae2-megacells-core"]
 ae2-merequester = ["ae2-lab", "dep:ae2-merequester-core"]
 ae2-extendedae = ["ae2-lab"]
 default = ["audio", "controllers"]

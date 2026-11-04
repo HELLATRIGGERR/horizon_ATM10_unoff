@@ -34,9 +34,11 @@ pub fn prototype(key: &ItemKey) -> Result<ItemStack, String> {
 }
 
 /// A storage cell of the definitions registry: AE2's item, fluid and
-/// portable cells, and an addon's.
+/// portable cells, and an addon's, of AE2's basic handler or its own
+/// (`StorageCells.isCellHandled`).
 pub fn is_cell(id: &str) -> bool {
-    crate::ae2x::defs::get().cell(id).is_some()
+    let defs = crate::ae2x::defs::get();
+    defs.cell(id).is_some() || defs.handler_cell(id).is_some()
 }
 /// A cell of fluids (`getKeyType() == AEKeyType.fluids()`).
 pub fn is_fluid_cell(id: &str) -> bool {
@@ -49,8 +51,16 @@ pub fn is_fluid_cell(id: &str) -> bool {
 pub fn idle_drain(id: &str) -> Option<f64> {
     match id {
         "ae2:matter_cannon" | "ae2:color_applicator" => Some(0.5),
-        _ => crate::ae2x::defs::get().cell(id).map(|cell| cell.idle_drain),
+        _ => {
+            let defs = crate::ae2x::defs::get();
+            defs.cell(id).map(|cell| cell.idle_drain).or_else(|| defs.handler_cell(id).map(|cell| cell.idle_drain))
+        }
     }
+}
+/// The filters a cell keeps (`getConfigInventory(is).size()`): 63 for
+/// AE2's, an addon handler's own number for its cells.
+pub fn config_slots(id: &str) -> usize {
+    crate::ae2x::defs::get().handler_cell(id).map_or(63, |cell| cell.config_slots)
 }
 fn cell_config(id: &str) -> Option<CellConfig> {
     match id {
@@ -67,6 +77,9 @@ fn cell_config(id: &str) -> Option<CellConfig> {
 pub fn nested_cell_empty(stack: &ItemStack) -> bool {
     if stack.count != 1 {
         return false;
+    }
+    if let Some(fits) = crate::ae2x::handler_cell_fits_inside(stack) {
+        return fits;
     }
     if is_fluid_cell(&stack.item) {
         return read_fluid_cell(stack).is_ok_and(|cell| cell.total_items()==0);

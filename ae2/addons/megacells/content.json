@@ -1,7 +1,7 @@
 {
   "namespace": "megacells",
   "name": "MEGA Cells",
-  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2), the Superdense Energy Cell and the Greater Energy Card (slice 3), the portable M cells and the Portable Cell Workbench (slice 4), the MEGA Pattern Provider and the MEGA Interface, blocks and parts (slice 5), the ME Cell Dock (slice 6).",
+  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2), the Superdense Energy Cell and the Greater Energy Card (slice 3), the portable M cells and the Portable Cell Workbench (slice 4), the MEGA Pattern Provider and the MEGA Interface, blocks and parts (slice 5), the ME Cell Dock (slice 6), the Bulk Item Cell, the Compression Card and the Decompression Module (slice 7).",
   "authors": ["90 (MEGA Cells)"],
   "slices": [
     "1: M-tier item and fluid cells, their components and housings, Sky Steel, Sky Bronze, the Accumulation Processor",
@@ -9,7 +9,8 @@
     "3: Superdense Energy Cell, Greater Energy Card",
     "4: 1M-256M Portable Item and Fluid Cells, Portable Cell Workbench",
     "5: MEGA Pattern Provider and MEGA Interface, block and part",
-    "6: ME Cell Dock"
+    "6: ME Cell Dock",
+    "7: Bulk Item Cell, Compression Card, Decompression Module"
   ],
   "items": {
     "sky_steel_ingot": {"fire_resistant": true},
@@ -48,7 +49,9 @@
     "portable_cell_workbench": {"max_stack_size": 1},
     "cable_mega_pattern_provider": {},
     "cable_mega_interface": {},
-    "cell_dock": {}
+    "cell_dock": {},
+    "bulk_cell_component": {},
+    "bulk_item_cell": {"max_stack_size": 1}
   },
   "blocks": {
     "sky_steel_block": {

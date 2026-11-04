@@ -93,6 +93,10 @@ impl Game<'_> {
         // only a delegating wrapper around BasicCellInventory, whose default
         // preference is false. Keep that source distinction. MEGA's Cell Dock
         // mounts a DriveWatcher too (`CellDockPart.updateState`).
+        // An addon handler's cell: the chest's delegating wrapper asks the
+        // cell; a DriveWatcher asks it after its simulated extraction, which
+        // finds nothing the cell would not prefer (MEGA's bulk cell).
+        if let Some(cell)=self.ae2x_handler_cell(&stack){return Ok(!fluid && cell.is_ok_and(|cell|cell.is_preferred_storage_for(key)))}
         if mount.kind!=MachineKind::Drive && mount.part.is_none(){return Ok(false)}
         let cell=self.ae2_read_cell(&stack);
         Ok(cell.is_ok_and(|cell| {
@@ -119,6 +123,14 @@ impl Game<'_> {
         if let Ok(keys)=self.ae2_creative_cell_keys(&stack){
             let wanted=if fluid{super::ae2_storage_devices::CreativeCellKey::Fluid(key.clone())}else{super::ae2_storage_devices::CreativeCellKey::Item(key.clone())};
             return Ok((if keys.contains(&wanted){amount}else{0},None))
+        }
+        if let Some(cell)=self.ae2x_handler_cell(&stack){
+            let Ok(mut cell)=cell else{return Ok((0,None))};
+            if fluid{return Ok((0,None))}
+            let action=if simulate{Action::Simulate}else{Action::Modulate};
+            let moved=if insert{cell.insert(key,amount,action)}else{cell.extract(key,amount,action)};
+            let updated=if moved>0&&!simulate{let mut updated=stack;cell.store(&mut updated)?;Some(updated)}else{None};
+            return Ok((moved,updated));
         }
         let cell=self.ae2_read_cell(&stack);
         let Ok(mut cell)=cell else{return Ok((0,None))};

@@ -122,6 +122,18 @@ pub(super) fn cell_preview(stack:&horizon_client::items::ItemStack, settings:Cli
     Some(CellPreview {upgrades,entries,has_more})
 }
 
+impl super::Game<'_> {
+    /// `getTooltipImage` of a cell of an addon's own handler: its cards and
+    /// content as `StorageCellTooltipComponent` takes them.
+    pub(super) fn ae2_handler_cell_preview(&self, stack:&horizon_client::items::ItemStack, settings:ClientSettings) -> Option<CellPreview> {
+        let (upgrades,content)=self.ae2x_cell_preview(stack,settings.show_cell_upgrades,settings.show_cell_content)?;
+        let mut entries:Vec<_>=content.into_iter().map(|(key,n)|(key,n,ae2_cell_core::Channel::Item)).collect();
+        let has_more=entries.len()>settings.max_cell_content_shown;
+        entries.truncate(settings.max_cell_content_shown);
+        Some(CellPreview {upgrades,entries,has_more})
+    }
+}
+
 fn config_path() -> std::path::PathBuf {
     horizon_client::logging::game_home().join("config/ae2-client.toml")
 }

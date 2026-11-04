@@ -86,7 +86,9 @@ impl Game<'_> {
         if self.remote.is_some() {
             return false;
         }
-        let Some(stack) = self.held().filter(|s| codec::is_cell(&s.item)).cloned() else {
+        // A cell of an addon's own handler is an AEBaseItem with no `use`
+        // (MEGA's BulkCellItem): it passes.
+        let Some(stack) = self.held().filter(|s| codec::is_cell(&s.item) && horizon_client::ae2x::defs::get().handler_cell(&s.item).is_none()).cloned() else {
             return false;
         };
         let portable = horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some();

@@ -86,7 +86,10 @@ fn workbench_apply_filters(cell:&mut ItemStack,slots:&[Option<Tag>])->Result<Vec
 }
 fn workbench_apply_filters_checked(cell:&mut ItemStack,slots:&[Option<Tag>],known:&dyn Fn(&str,bool)->bool)->Result<Vec<Option<Tag>>,String>{
     if slots.len()!=63{return Err("invalid workbench filter size".into())}
-    let accepted:Vec<_>=slots.iter().map(|entry|entry.clone().filter(|v|workbench_filter_allowed(cell,v))).collect();
+    // CellWorkbenchBlockEntity.copy: the cell's config inventory takes its
+    // own size of filters (one on MEGA's bulk cell); the rest are cleared.
+    let size=horizon_client::ae2_cell_codec::config_slots(&cell.item);
+    let accepted:Vec<_>=slots.iter().enumerate().map(|(index,entry)|entry.clone().filter(|v|index<size && workbench_filter_allowed(cell,v))).collect();
     let mut settings=horizon_client::ae2_cell_codec::cell_settings_checked(cell,known)?;
     settings.insert("filters".into(),Tag::List(horizon_client::ae2_cell_codec::encode_view_filter_slots(&accepted)?));
     let mut staged=cell.clone();set_cell_settings(&mut staged,settings)?;
@@ -118,7 +121,12 @@ fn workbench_partition_checked(machine:&mut horizon_client::ae2_world::Machine,k
     let mut filters=vec![None;63];
     if let Some(cell)=machine.slots.first().and_then(Option::as_ref){
         let storage=if is_fluid(cell){horizon_client::ae2_cell_codec::read_fluid_cell_checked(cell,known)}else{horizon_client::ae2_cell_codec::read_cell_checked(cell,known)};
-        if let Ok(storage)=storage {
+        if let Some(keys)=horizon_client::ae2x::handler_cell_keys(cell,known) {
+            // iterateCellStacks over an addon handler's cell: its listed keys.
+            for (slot,key) in filters.iter_mut().zip(keys) {
+                *slot=Some(Tag::compound([("item",horizon_client::save::item_to_nbt(&ae2_lab::prototype(&key)?))]));
+            }
+        }else if let Ok(storage)=storage {
             for (slot,(key,_)) in filters.iter_mut().zip(storage.entries()){
                 *slot=Some(if is_fluid(cell){
                     Tag::compound([("fluid",Tag::String(key.item_id.as_str().into())),("components",Tag::ByteArray(key.components.clone()))])

@@ -11,9 +11,14 @@
 //! Slice 2: the MEGA crafting CPU blocks. Slice 3: the Superdense Energy Cell
 //! and the Greater Energy Card. Slice 4: the portable M cells and the Portable
 //! Cell Workbench. Slice 5: the MEGA Pattern Provider and the MEGA Interface,
-//! blocks and parts. Slice 6: the ME Cell Dock. The bulk cell and the cells
-//! for other addons' key types come with later slices.
-use super::defs::{CellDef, Defs, add_storage_cell_cards};
+//! blocks and parts. Slice 6: the ME Cell Dock. Slice 7: the Bulk Item Cell
+//! (`BulkCellItem`), the Compression Card and the Decompression Module. The
+//! cells for other addons' key types come with later slices.
+use super::defs::{CellDef, Defs, HandlerCellDef, add_storage_cell_cards};
+use crate::items::ItemStack;
+use ae2_cell_core::ItemKey;
+use ae2_megacells_core::{Big, BulkCell, BulkData, Chains};
+use horizon_world::nbt::Tag;
 use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind, MachineVariant};
 use ae2_cell_core::{Channel, Tier};
 
@@ -94,6 +99,131 @@ pub const CELL_DOCK_IDLE: f64 = 0.5;
 /// `MEGAPatternProviderBlock.createLogic`: the pattern inventory's
 /// `AEItemDefinitionFilter(AEItems.PROCESSING_PATTERN)`.
 pub const PROCESSING_PATTERN: &str = "ae2:processing_pattern";
+
+/// `MEGAItems.BULK_ITEM_CELL`: `BulkCellItem`, a cell of MEGA's own
+/// `ICellHandler` (`BulkCellItem.registerHandler`).
+pub const BULK_ITEM_CELL: &str = "megacells:bulk_item_cell";
+/// `MEGAItems.COMPRESSION_CARD`: an `UpgradeCardItem` the Bulk Item Cell takes
+/// (`MEGACells.initUpgrades`: `Upgrades.add(COMPRESSION_CARD, BULK_ITEM_CELL, 1)`).
+pub const COMPRESSION_CARD: &str = "megacells:compression_card";
+/// `MEGAComponents`: the Bulk Item Cell's own components.
+pub const BULK_ITEM: &str = "megacells:bulk_item";
+pub const BULK_UNIT_COUNT: &str = "megacells:bulk_unit_count";
+pub const BULK_UNIT_FACTOR: &str = "megacells:bulk_unit_factor";
+pub const COMPRESSION_CUTOFF: &str = "megacells:compression_cutoff";
+
+/// The cell's [`BulkData`] from its stack's components; `known` says which
+/// item ids the game has (an unknown stored item reads as AE2's missing
+/// content, as `AEKey.CODEC` recovers it).
+pub fn bulk_data(stack: &ItemStack, known: &dyn Fn(&str, bool) -> bool) -> Result<BulkData, String> {
+    let data = stack.data();
+    let component = |id: &str| data.and_then(|data| data.other(id));
+    let item = match component(BULK_ITEM) {
+        None => None,
+        Some(Tag::Compound(key)) => {
+            let mut generic = key.clone();
+            generic.insert("#".into(), Tag::Long(0));
+            let value = crate::ae2_generic_stack::decode_tolerant_checked(&Tag::Compound(generic), known)?.ok_or("empty bulk item")?;
+            if value.fluid {
+                return Err("a bulk cell holds items".into());
+            }
+            Some(value.key)
+        }
+        Some(_) => return Err("invalid bulk item".into()),
+    };
+    let big = |id: &str| -> Result<Option<Big>, String> {
+        match component(id) {
+            None => Ok(None),
+            Some(Tag::String(text)) => {
+                let text = text.to_string().map_err(|_| format!("invalid {id}"))?;
+                Big::parse(&text).map(Some).ok_or_else(|| format!("invalid {id}"))
+            }
+            Some(_) => Err(format!("invalid {id}")),
+        }
+    };
+    let cutoff = match component(COMPRESSION_CUTOFF) {
+        None => None,
+        Some(Tag::Int(value)) => Some(*value),
+        Some(_) => return Err("invalid compression cutoff".into()),
+    };
+    Ok(BulkData { item, unit_count: big(BULK_UNIT_COUNT)?, unit_factor: big(BULK_UNIT_FACTOR)?, cutoff })
+}
+
+/// `stack.set` / `stack.remove` of the cell's components.
+pub fn store_bulk_data(stack: &mut ItemStack, data: &BulkData) -> Result<(), String> {
+    let item = match &data.item {
+        None => None,
+        Some(key) => {
+            let Tag::Compound(mut generic) = crate::ae2_generic_stack::encode(&crate::ae2_generic_stack::GenericStack { key: key.clone(), fluid: false, amount: 0 })? else {
+                return Err("invalid bulk item".into());
+            };
+            generic.remove(&"#".into());
+            Some(Tag::Compound(generic))
+        }
+    };
+    let out = stack.data_mut();
+    out.set_other(BULK_ITEM, item);
+    out.set_other(BULK_UNIT_COUNT, data.unit_count.as_ref().map(|n| Tag::String(n.to_string().as_str().into())));
+    out.set_other(BULK_UNIT_FACTOR, data.unit_factor.as_ref().map(|n| Tag::String(n.to_string().as_str().into())));
+    out.set_other(COMPRESSION_CUTOFF, data.cutoff.map(Tag::Int));
+    Ok(())
+}
+
+/// `BulkCellItem.getConfigInventory(is).getKey(0)`: the one filter, an item.
+pub fn bulk_filter(stack: &ItemStack, known: &dyn Fn(&str, bool) -> bool) -> Result<Option<ItemKey>, String> {
+    let settings = crate::ae2_cell_codec::cell_settings_checked(stack, known)?;
+    let Some(Tag::List(filters)) = settings.get(&"filters".into()) else { return Err("invalid cell filters".into()) };
+    let slots = crate::ae2_cell_codec::decode_view_filter_slots(filters)?;
+    let Some(entry) = slots.first().and_then(Option::as_ref) else { return Ok(None) };
+    let Some(item) = entry.get("item") else { return Ok(None) };
+    let item = crate::save::item_from_nbt(item).ok_or("invalid bulk cell filter")?;
+    crate::ae2_cell_codec::key(&item).map(Some)
+}
+
+/// `getUpgrades(is).isInstalled(COMPRESSION_CARD)`.
+pub fn compression_installed(stack: &ItemStack) -> bool {
+    crate::ae2_upgrade_inventory::Inventory::read(stack)
+        .is_ok_and(|cards| cards.slots.iter().flatten().any(|card| card.item.as_ref() == COMPRESSION_CARD))
+}
+
+/// `BulkCellItem.Handler.getCellInventory`: the cell of a Bulk Item Cell
+/// stack, over `chains`; an error for any other stack.
+pub fn bulk_cell(stack: &ItemStack, chains: &Chains, known: &dyn Fn(&str, bool) -> bool) -> Result<BulkCell, String> {
+    if stack.item.as_ref() != BULK_ITEM_CELL || stack.count != 1 {
+        return Err("not a bulk item cell".into());
+    }
+    Ok(BulkCell::new(bulk_data(stack, known)?, bulk_filter(stack, known)?, compression_installed(stack), chains))
+}
+
+/// `CompressionService.chains`: the chains of the running server, or those
+/// it sent this client (`SyncCompressionChainsPacket`), with a generation
+/// that counts their changes. A static, as MEGA's list is: a single player
+/// world's server and client share it.
+static CHAINS: std::sync::RwLock<(u64, Option<std::sync::Arc<Chains>>)> = std::sync::RwLock::new((0, None));
+
+/// The chains in use: none before a server loaded them.
+pub fn chains() -> std::sync::Arc<Chains> {
+    CHAINS.read().ok().and_then(|chains| chains.1.clone()).unwrap_or_default()
+}
+/// How many times the chains were set.
+pub fn chains_generation() -> u64 {
+    CHAINS.read().map_or(0, |chains| chains.0)
+}
+/// `loadRecipes` (or `syncToClient`): `chains.clear(); chains.addAll(...)`.
+pub fn set_chains(chains: Chains) -> u64 {
+    let mut slot = CHAINS.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    slot.0 += 1;
+    slot.1 = Some(std::sync::Arc::new(chains));
+    slot.0
+}
+
+/// `BulkCellInventory.canFitInsideCell`: no filter, no stored item, no units.
+pub fn bulk_fits_inside(stack: &ItemStack) -> bool {
+    let known = |_: &str, _: bool| true;
+    stack.count == 1
+        && bulk_filter(stack, &known).is_ok_and(|filter| filter.is_none())
+        && bulk_data(stack, &known).is_ok_and(|data| data.item.is_none() && data.unit_count.is_none_or(|n| n.is_zero()))
+}
 
 /// The MEGA devices that are AE2's with other sizes.
 pub const MACHINES: [MachineVariant; 4] = [
@@ -190,6 +320,18 @@ pub fn register(defs: &mut Defs) {
     for machine in MACHINES {
         defs.add_variant(machine);
     }
+    // BulkCellItem: MEGA's own cell handler; BulkCellInventory.getIdleDrain
+    // 5; CellConfig.create(items, is, 1); UpgradeInventories.forItem(is, 1);
+    // MEGACellsClient.initStorageCellModels: block/drive/cells/bulk_item_cell.
+    defs.add_handler_cell(
+        HandlerCellDef {
+            id: BULK_ITEM_CELL.to_owned(),
+            idle_drain: ae2_megacells_core::IDLE_DRAIN,
+            drive_model: format!("{NAMESPACE}:block/drive/cells/bulk_item_cell"),
+            config_slots: 1,
+        },
+        1,
+    );
     // CellDockPart: GridFlags.REQUIRE_CHANNEL, an IStorageProvider of one
     // cell (`AppEngCellInventory(this, 1)`).
     defs.add_cell_part(CELL_DOCK, CELL_DOCK_IDLE, 1);

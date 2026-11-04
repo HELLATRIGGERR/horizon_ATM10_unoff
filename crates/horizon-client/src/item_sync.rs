@@ -780,6 +780,10 @@ mod tests {
         let samples = vec![
             ("ae2:exported_settings_source", string("Example")),
             ("merequester:exported_requests", list()),
+            ("megacells:bulk_item", Tag::compound([("#t", string("ae2:i")), ("id", string("minecraft:stone"))])),
+            ("megacells:bulk_unit_count", string("36893488147419103228")),
+            ("megacells:bulk_unit_factor", string("81")),
+            ("megacells:compression_cutoff", Tag::Int(1)),
             ("ae2:exported_custom_name", string("Named")),
             ("ae2:exported_upgrades", list()),
             ("ae2:exported_settings", Tag::compound([("redstone_mode", string("HIGH"))])),
@@ -825,7 +829,7 @@ mod tests {
         ];
         let expected: std::collections::BTreeSet<_> = crate::ae2_components::PERSISTENT_IDS.iter().copied().collect();
         assert_eq!(samples.iter().map(|(id, _)| *id).collect::<std::collections::BTreeSet<_>>(), expected);
-        assert_eq!(samples.len(), 36);
+        assert_eq!(samples.len(), 40);
         for (id, value) in &samples {
             crate::ae2_components::validate(id, value).unwrap_or_else(|error| panic!("invalid source-shaped sample for {id}: {error}"));
         }

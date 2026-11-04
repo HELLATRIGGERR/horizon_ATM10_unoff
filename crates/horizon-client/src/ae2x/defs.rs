@@ -48,6 +48,19 @@ impl CellDef {
     }
 }
 
+/// A storage cell of an addon's own `ICellHandler` (`StorageCells.addCellHandler`),
+/// not an `IBasicCellItem`: its inventory is the addon's (MEGA's Bulk Item Cell).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HandlerCellDef {
+    pub id: String,
+    /// `StorageCell.getIdleDrain`, AE/t in a drive or chest.
+    pub idle_drain: f64,
+    /// `StorageCellModels.registerModel`.
+    pub drive_model: String,
+    /// `ICellWorkbenchItem.getConfigInventory(is).size()`: the filters it keeps.
+    pub config_slots: usize,
+}
+
 /// A part an addon puts on cables (`IPart` with its grid node).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartDef {
@@ -67,6 +80,7 @@ pub struct PartDef {
 #[derive(Debug, Default)]
 pub struct Defs {
     cells: HashMap<String, CellDef>,
+    handler_cells: HashMap<String, HandlerCellDef>,
     components: HashMap<String, Tier>,
     upgrade_slots: HashMap<String, usize>,
     upgrades: HashMap<(String, String), usize>,
@@ -90,6 +104,23 @@ impl Defs {
             self.portable_order.push(cell.id.clone());
         }
         self.cells.insert(cell.id.clone(), cell);
+    }
+    /// A cell of the addon's own handler, with `upgrade_slots` card slots
+    /// (`ICellWorkbenchItem.getUpgrades`). Its cards are added with [`Defs::add_upgrade`].
+    pub fn add_handler_cell(&mut self, cell: HandlerCellDef, upgrade_slots: usize) {
+        self.upgrade_slots.insert(cell.id.clone(), upgrade_slots);
+        self.handler_cells.insert(cell.id.clone(), cell);
+    }
+    /// A cell of an addon's own handler; none for AE2's and the basic cells.
+    pub fn handler_cell(&self, id: &str) -> Option<&HandlerCellDef> {
+        self.handler_cells.get(id)
+    }
+    /// `StorageCellModels.model(item)`: the model a drive draws for any cell.
+    pub fn drive_model(&self, id: &str) -> Option<&str> {
+        self.cells
+            .get(id)
+            .map(|cell| cell.drive_model.as_str())
+            .or_else(|| self.handler_cells.get(id).map(|cell| cell.drive_model.as_str()))
     }
     /// A storage component (`IStorageComponent`) of `tier`: what a Condenser
     /// takes as its storage, `getBytes` × 8 power.

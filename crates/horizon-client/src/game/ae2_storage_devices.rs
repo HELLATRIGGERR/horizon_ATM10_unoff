@@ -29,8 +29,14 @@ pub(super) use horizon_client::ae2_cell_codec::{
     CreativeCellKey, cell_settings, creative_cell_keys,
 };
 
+/// `StorageCells.isCellHandled`, one to the slot: a cell the codec reads, a
+/// creative cell, or a cell of an addon's own handler (MEGA's Bulk Item Cell,
+/// whose `isCell` asks the item alone).
 pub(super) fn is_valid_storage_cell(stack: &ItemStack) -> bool {
-    stack.count == 1 && (read(stack).is_ok() || creative_cell_keys(stack).is_ok())
+    stack.count == 1
+        && (read(stack).is_ok()
+            || creative_cell_keys(stack).is_ok()
+            || horizon_client::ae2x::defs::get().handler_cell(&stack.item).is_some())
 }
 pub(super) fn is_valid_workbench_cell(stack: &ItemStack) -> bool {
     is_valid_storage_cell(stack) || horizon_client::ae2_cell_codec::read_view_cell(stack).is_ok()
@@ -216,6 +222,12 @@ fn completed(c: &Cell, mode: &str) -> bool {
         _ => false,
     }
 }
+/// The cell in an I/O port slot: AE2's basic cell, or one of an addon's own
+/// handler (MEGA's bulk cell).
+enum IoCell {
+    Basic(Cell),
+    Handler(Box<dyn super::ae2x::HandlerCell>),
+}
 /// What IOPortBlockEntity.tickingRequest finds in one input slot.
 enum IoSlot<C> {
     Empty,
@@ -366,15 +378,30 @@ impl Game<'_> {
                 let Some(item) = m.slots[slot].clone() else {
                     return Ok(IoSlot::Empty);
                 };
+                if let Some(cell) = g.ae2x_handler_cell(&item) {
+                    return Ok(match cell {
+                        Ok(cell) => IoSlot::Cell((item, IoCell::Handler(cell))),
+                        Err(_) => IoSlot::NotCell,
+                    });
+                }
                 Ok(match g.ae2_read_cell(&item) {
-                    Ok(cell) => IoSlot::Cell((item, cell)),
+                    Ok(cell) => IoSlot::Cell((item, IoCell::Basic(cell))),
                     Err(_) => IoSlot::NotCell,
                 })
             },
-            |g: &mut Self, slot, cell: &mut (ItemStack, Cell), operations| {
-                g.ae2_io_transfer(pos, slot, cell, &mode, operations)
+            |g: &mut Self, slot, (item, cell): &mut (ItemStack, IoCell), operations| match cell {
+                IoCell::Basic(cell) => g.ae2_io_transfer(pos, slot, item, cell, &mode, operations),
+                IoCell::Handler(cell) => g.ae2_io_transfer_handler(pos, slot, item, cell.as_mut(), &mode, operations),
             },
-            |(_, cell): &(ItemStack, Cell)| completed(cell, &fullness),
+            // matchesFullnessMode: the cell's status, EMPTY or FULL.
+            |(item, cell): &(ItemStack, IoCell)| match cell {
+                IoCell::Basic(cell) => completed(cell, &fullness),
+                IoCell::Handler(_) => match fullness.as_str() {
+                    "empty" => horizon_client::ae2x::handler_cell_state(item) == Some(1),
+                    "full" => horizon_client::ae2x::handler_cell_state(item) == Some(4),
+                    _ => true,
+                },
+            },
             |g: &mut Self, slot| g.io_move_output(pos, slot),
         )
         .map(Some)
@@ -385,7 +412,8 @@ impl Game<'_> {
         &mut self,
         pos: Pos,
         slot: usize,
-        (item, cell): &mut (ItemStack, Cell),
+        item: &mut ItemStack,
+        cell: &mut Cell,
         mode: &str,
         mut operations: u64,
     ) -> Result<u64, String> {
@@ -476,6 +504,82 @@ impl Game<'_> {
                     }
                 };
                 Ok(Some(if moved == 0 { 0 } else { (moved / factor).max(1) }))
+            })?;
+            if used == 0 {
+                break;
+            }
+            operations = operations.saturating_sub(used);
+        }
+        Ok(operations)
+    }
+    /// IOPortBlockEntity.transferContents for a cell of an addon's own
+    /// handler in input `slot` (MEGA's bulk cell, items alone): the cell's
+    /// available stacks into the grid, or the grid's items into the cell;
+    /// gives the operations left.
+    fn ae2_io_transfer_handler(
+        &mut self,
+        pos: Pos,
+        slot: usize,
+        item: &mut ItemStack,
+        cell: &mut dyn super::ae2x::HandlerCell,
+        mode: &str,
+        mut operations: u64,
+    ) -> Result<u64, String> {
+        while operations > 0 {
+            let candidates: Vec<(ae2_cell_core::ItemKey, u64)> = if mode == "empty" {
+                cell.available_stacks().into_iter().filter(|(_, n)| *n > 0).collect()
+            } else {
+                self.ae2_grid_inventory(pos)?.into_iter().filter(|(_, n)| *n > 0).collect()
+            };
+            let used = io_transfer_pass(candidates, mode == "fill", |(key, available)| {
+                let accepts = if mode == "empty" {
+                    let mut stack = ae2_lab::prototype(&key)?;
+                    stack.count = available.min(u64::from(u32::MAX)) as u32;
+                    self.ae2_grid_insert_simulate(pos, &stack, u64::from(stack.count))? > 0
+                } else {
+                    cell.insert(&key, 1, Action::Simulate) > 0
+                };
+                if !accepts {
+                    return Ok(None);
+                }
+                let max = operations.min(available);
+                let before = self.io_snapshot();
+                let mut formation = super::ae2_buses::FormationPlan::default();
+                let transfer = (|| -> Result<u64, String> {
+                    let moved = if mode == "empty" {
+                        let mut stack = ae2_lab::prototype(&key)?;
+                        stack.count = max.min(u32::MAX as u64) as u32;
+                        self.ae2_grid_insert_staged(pos, &stack, u64::from(stack.count), &mut formation)?
+                    } else {
+                        let room = cell.insert(&key, max, Action::Simulate);
+                        self.ae2_grid_extract_staged(pos, &key, room, &mut formation)?.map_or(0, |s| u64::from(s.count))
+                    };
+                    if moved == 0 {
+                        return Ok(0);
+                    }
+                    let changed = if mode == "empty" { cell.extract(&key, moved, Action::Modulate) } else { cell.insert(&key, moved, Action::Modulate) };
+                    if changed != moved {
+                        return Err("I/O cell refused staged transfer".into());
+                    }
+                    cell.store(item)?;
+                    let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
+                        return Err("I/O port disappeared".into());
+                    };
+                    if m.slots.get(slot).is_none() {
+                        return Err("I/O input slot disappeared".into());
+                    }
+                    m.slots[slot] = Some(item.clone());
+                    self.world.modified.insert((pos.0 >> 4, pos.2 >> 4));
+                    Ok(moved)
+                })();
+                let transfer = transfer.and_then(|moved| self.ae2_commit_formation(formation).map(|_| moved));
+                match transfer {
+                    Ok(moved) => Ok(Some(moved)),
+                    Err(e) => {
+                        self.io_restore(before);
+                        Err(e)
+                    }
+                }
             })?;
             if used == 0 {
                 break;
@@ -1204,7 +1308,8 @@ fn set_cell_settings(stack: &mut ItemStack, settings: Compound) -> Result<(), St
     let source_cards=horizon_client::ae2_components::normalize("ae2:upgrades",Tag::List(horizon_client::ae2_upgrade_inventory::encode_source(&slots)?))?;
     let Some(Tag::List(filters))=settings.get(&"filters".into()) else{return Err("invalid cell filters".into());};
     let source_filters=match horizon_client::ae2_cell_codec::encode_source_filters(filters) {
-        Ok(filters)=>Some(Tag::List(filters)),
+        // ConfigInventory.toList: as many entries as the cell keeps filters.
+        Ok(mut filters)=>{filters.truncate(horizon_client::ae2_cell_codec::config_slots(&stack.item));Some(Tag::List(filters))}
         Err(error) if stack.data().and_then(|data|data.other("ae2:storage_cell_config_inv")).is_some()=>return Err(error),
         Err(_)=>None,
     };
@@ -1425,7 +1530,13 @@ impl Game<'_> {
         };
         let keep=workbench_keep(machine);
         Some(super::ae2_workbench_screen::WorkbenchView{
-            window,config,enabled:if cell.is_some()||keep {super::ae2_workbench_screen::CONFIG_PLACES}else{0},upgrades,
+            // CellWorkbenchMenu.isPartitionSlotEnabled: the cell's config size
+            // while clearing on removal, all of them in keep mode.
+            window,config,enabled:match (&cell,keep) {
+                (_,true)=>super::ae2_workbench_screen::CONFIG_PLACES,
+                (Some(cell),false)=>horizon_client::ae2_cell_codec::config_slots(&cell.item).min(super::ae2_workbench_screen::CONFIG_PLACES),
+                (None,false)=>0,
+            },upgrades,
             fuzzy:settings.as_ref().and_then(|s|text(s,"fuzzy_mode")).unwrap_or_else(||"ignore_all".into()),fuzzy_card,keep,
             ..Default::default()
         })

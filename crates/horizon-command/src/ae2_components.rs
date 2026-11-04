@@ -5,6 +5,13 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2:exported_settings_source",
     // ME Requester's rows on a Memory Card (its `exported_settings` tag entry).
     "merequester:exported_requests",
+    // MEGA Cells' Bulk Item Cell (`MEGAComponents`): its stored item (an
+    // `AEKey`), unit count and factor (`BigInteger`s as decimal text) and
+    // compression cutoff.
+    "megacells:bulk_item",
+    "megacells:bulk_unit_count",
+    "megacells:bulk_unit_factor",
+    "megacells:compression_cutoff",
     "ae2:exported_custom_name",
     "ae2:exported_upgrades",
     "ae2:exported_settings",
@@ -364,6 +371,29 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
         return Err("AE2 component nesting exceeds 64".into());
     }
     match id {
+        // AEKey.CODEC: a generic stack's key, with no amount.
+        "megacells:bulk_item" => {
+            let mut m = map(t)?;
+            if m.contains_key(&"#".into()) {
+                return Err("an AEKey has no amount".into());
+            }
+            m.insert("#".into(), Tag::Long(0));
+            let Tag::Compound(mut key) = generic(Tag::Compound(m), depth)? else {
+                return Err("Not a map".into());
+            };
+            key.remove(&"#".into());
+            Ok(Tag::Compound(key))
+        }
+        // BIG_INTEGER_CODEC: `new BigInteger(str)`, a sign and decimal digits.
+        "megacells:bulk_unit_count" | "megacells:bulk_unit_factor" => {
+            let text = string(&t)?;
+            let digits = text.strip_prefix(['-', '+']).unwrap_or(&text);
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(format!("Not a BigInteger: {text}"));
+            }
+            Ok(Tag::String(text.as_str().into()))
+        }
+        "megacells:compression_cutoff" => Ok(Tag::Int(integer(&t)?)),
         "merequester:exported_requests" => {
             let Tag::List(rows) = &t else {
                 return Err("Not a list".into());

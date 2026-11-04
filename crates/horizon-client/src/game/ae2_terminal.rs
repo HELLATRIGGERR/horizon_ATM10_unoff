@@ -466,11 +466,15 @@ impl Game<'_> {
         });
         let is_fluid = fluid.is_some();
         let channel = if is_fluid { Channel::Fluid } else { Channel::Item };
-        let mut cell = if creative.is_some() { None } else { Some(self.ae2_read_cell(&stack)?) };
+        // A cell of an addon's own handler (MEGA's bulk cell) holds items alone.
+        let mut handler = if creative.is_some() { None } else { self.ae2x_handler_cell(&stack).transpose()? };
+        let mut cell = if creative.is_some() || handler.is_some() { None } else { Some(self.ae2_read_cell(&stack)?) };
         // The physical cell only accepts its own channel. A foreign-channel
         // key restored from source data is nevertheless recoverable.
         if insert && cell.as_ref().is_some_and(|cell|cell.config().channel!=channel) {return Ok(0);}
-        let possible = if let Some(cell) = cell.as_mut() {
+        let possible = if let Some(handler) = handler.as_mut() {
+            if is_fluid {0} else if insert {handler.insert(physical_key, limit, Action::Simulate)} else {handler.extract(physical_key, limit, Action::Simulate)}
+        } else if let Some(cell) = cell.as_mut() {
             if insert {
                 self.ae2_cell_insert(cell, physical_key, limit, Action::Simulate)
             } else {
@@ -495,7 +499,11 @@ impl Game<'_> {
         if amount == 0 {
             return Ok(0);
         }
-        let moved = if let Some(cell) = cell.as_mut() {
+        let moved = if let Some(handler) = handler.as_mut() {
+            let moved = if insert {handler.insert(physical_key, amount, Action::Modulate)} else {handler.extract(physical_key, amount, Action::Modulate)};
+            handler.store(&mut stack)?;
+            moved
+        } else if let Some(cell) = cell.as_mut() {
             if insert {
                 self.ae2_cell_insert(cell, physical_key, amount, Action::Modulate)
             } else {
@@ -585,6 +593,9 @@ impl Game<'_> {
                     .collect());
             }
             use ae2_cell_core::Channel;
+            if let Some(cell)=self.ae2x_handler_cell(stack) {
+                return Ok(cell?.available_stacks().into_iter().filter(|(_,n)|*n>0).collect());
+            }
             let cell=self.ae2_read_cell(stack)?;
             let mut entries:Vec<_>=cell.entries_for(Channel::Item).map(|(k,n)|(k.clone(),*n)).collect();
             entries.extend(cell.entries_for(Channel::Fluid).map(|(k,n)|(fluid_marker(k),*n)));

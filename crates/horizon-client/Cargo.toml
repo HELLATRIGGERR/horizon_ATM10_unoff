@@ -17,6 +17,7 @@ ae2-network-core = { path = "../ae2-network-core", optional = true }
 ae2-cell-core = { path = "../ae2-cell-core", optional = true }
 ae2-links-core = { path = "../ae2-links-core", optional = true }
 ae2-merequester-core = { path = "../ae2-merequester-core", optional = true }
+ae2-megacells-core = { path = "../ae2-megacells-core", optional = true }
 horizon-client-lib = { path = "../horizon-client-lib", default-features = false }
 horizon-assets = { path = "../horizon-assets" }
 horizon-client-core = { path = "../horizon-client-core" }
@@ -116,7 +117,7 @@ winresource = "0.1"
 [features]
 ae2-lab = ["horizon-client-lib/ae2-lab", "horizon-client-render/ae2-lab", "dep:ae2-cell-core", "dep:ae2-network-core", "dep:ae2-machines-core", "dep:ae2-crafting-core", "dep:ae2-links-core", "dep:toml"]
 # AE2 addons from All the Mods 10, one feature each (pack/pack.toml, ae2/addons/<id>/).
-ae2-megacells = ["ae2-lab", "horizon-client-lib/ae2-megacells"]
+ae2-megacells = ["ae2-lab", "horizon-client-lib/ae2-megacells", "dep:ae2-megacells-core"]
 # ME Requester 1.5.0 (ae2/addons/merequester).
 ae2-merequester = ["ae2-lab", "horizon-client-lib/ae2-merequester", "dep:ae2-merequester-core"]
 # ExtendedAE 1.21-2.2.42 (ae2/addons/extendedae).

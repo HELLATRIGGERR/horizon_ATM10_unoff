@@ -783,6 +783,15 @@ impl Game<'_> {
                     let n = total.entry(k.clone()).or_default();
                     *n = n.checked_add(*v).ok_or("network item count overflow")?;
                 }
+            } else if let Some(Ok(mut cell)) = self.ae2x_handler_cell(stack) {
+                // An addon handler's cell (MEGA's bulk cell): its available
+                // stacks; a 0 the terminal does not list.
+                for (k, v) in cell.available_stacks() {
+                    if v > 0 {
+                        let n = total.entry(k).or_default();
+                        *n = n.checked_add(v).ok_or("network item count overflow")?;
+                    }
+                }
             }
         }
         for mount in self.ae2_storage_mounts_encoded(pos) {

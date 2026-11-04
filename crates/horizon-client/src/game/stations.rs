@@ -2176,7 +2176,8 @@ impl Game<'_> {
             ), rgba(170,170,170,255)));
         }
         #[cfg(feature = "ae2-lab")]
-        if let Some(preview)=super::ae2_client_config::cell_preview(stack,super::ae2_client_config::settings()) {
+        if let Some(preview)=super::ae2_client_config::cell_preview(stack,super::ae2_client_config::settings())
+            .or_else(||self.ae2_handler_cell_preview(stack,super::ae2_client_config::settings())) {
             for upgrade in preview.upgrades {
                 let name=upgrade.custom_name().unwrap_or_else(||self.pack.names.display_item(&upgrade.item));
                 lines.push((horizon_client::text::Text::literal(format!("Upgrade: {name}")),rgba(170,170,170,255)));
@@ -2200,7 +2201,7 @@ impl Game<'_> {
         let item_info = self.items().get(&stack.item);
         // An AE2 addon's `Item.appendHoverText` (MEGA's providers' notice).
         #[cfg(feature = "ae2-lab")]
-        for text in super::ae2x::item_hover_lines(&stack.item, &translate) {
+        for text in self.ae2x_item_hover_lines(stack, &translate, &|item| horizon_client::text::Text::literal(self.stack_hover_name(item))) {
             lines.push((text, u32::MAX));
         }
         // SmithingTemplateItem.appendHoverText: `Item.appendHoverText` comes

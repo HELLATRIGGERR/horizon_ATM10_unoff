@@ -105,6 +105,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 return Some(pos);
             }
             BucketContent::MobWater => FluidKind::Water,
+            // `if (!(this.content instanceof FlowingFluid)) return false`.
+            BucketContent::Fluid(fluid) if fluid.mod_fluid().is_some_and(|m| !m.flows()) => {
+                return None;
+            }
             BucketContent::Fluid(fluid) => fluid,
         };
         let mob = content == BucketContent::MobWater;

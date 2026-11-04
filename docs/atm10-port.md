@@ -97,7 +97,10 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
    (`neoforge_oracle.py pack`), 448 mods. It writes the final recipes, tags and loot tables, `pack-facts.json` (fuel,
    compost, worn slot, piston and light facts of every item and block), and each batch's facts (`--batches`,
    `facts-<batch>.json`, 1.5 GB in all): one server run, about 16 minutes at `-Xmx5G` on the 16 GB PC.
-3. `tools/atm10/carry-with-facts.sh`: each batch carried with its facts (about 10 minutes for all).
+   Then `tools/atm10/oracle-client.sh`: the pack on NeoForge's client, hidden, for what only a client knows of its
+   fluids (textures, tints, render layers, bucket colours: `client-facts.json`, docs/mod-fluids.md), about 2.5 minutes.
+3. `tools/atm10/carry-with-facts.sh`: each batch carried with its facts and the client's (about 10 minutes for all);
+   the mods' fluids are declared from both.
 4. `horizon-port-pack final-data <carries> --dump <dump> --work <work> --resources <26.3> --instance <ATM10> --also content/ae2`
    writes each namespace's data into the carry that owns it. The rest goes in `atm10-pack`, whose mod id is `kubejs`.
 5. `tools/atm10/load-check` reads them as the game does; `tools/atm10/play-atm10.ts` passes each carry to the game as a

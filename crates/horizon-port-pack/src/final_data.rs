@@ -78,6 +78,8 @@ pub struct Summary {
     pub loot_failed: usize,
     pub kubejs_blocks: usize,
     pub kubejs_items: usize,
+    /// KubeJS's fluids declared (with the client's facts).
+    pub kubejs_fluids: usize,
     pub kubejs_assets: usize,
     /// Namespaces of mods not carried: their port will own them.
     pub kubejs_assets_left_out: usize,
@@ -529,6 +531,7 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         facts.vanilla_items = serde_json::from_slice(&fs::read(o.resources.join("items.json")).unwrap_or_default())
             .unwrap_or_default();
         facts.pack = crate::oracle::PackFacts::read(&o.dump.join("pack-facts.json"))?;
+        facts.client = crate::fluids::ClientFacts::read(&o.dump.join("client-facts.json"))?;
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;
         claimed.insert(PACK_ID.to_owned());
     }
@@ -703,15 +706,46 @@ fn kubejs_content(
             )?;
         }
     }
-    // 26.3 finds item models through a definition per item.
+    // Its fluids, as carry declares a mod's.
+    if let Some(client) = &facts.client {
+        let (mut blocks_used, mut buckets_used) = (BTreeSet::new(), BTreeSet::new());
+        for (full, fluid) in facts.fluids.range(prefix.clone()..) {
+            let Some(name) = full.strip_prefix(&prefix) else { break };
+            // Its block one of KubeJS's on a liquid template, or none.
+            let liquid = fluid.block.strip_prefix(&prefix).is_some_and(|b| {
+                fs::read(decl.join(format!("block/{b}.json")))
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                    .is_some_and(|v| matches!(v["template"].as_str(), Some("minecraft:water" | "minecraft:lava")))
+            });
+            let binds = fluid.flowing.as_ref().is_some_and(|f| f != full) && fluid.block != "minecraft:air";
+            if !fluid.is_source || (binds && !liquid) {
+                continue;
+            }
+            if binds && !blocks_used.insert(fluid.block.clone()) {
+                continue;
+            }
+            let item_declared =
+                |item: &str| known.contains(item) && item.starts_with(&prefix) && !buckets_used.contains(item);
+            if let Ok(v) = crate::fluids::declaration(&facts.fluids, &facts.fluid_types, client, full, &item_declared) {
+                if let Some(bucket) = v["bucket"].as_str() {
+                    buckets_used.insert(bucket.to_owned());
+                }
+                sink.json(&decl.join(format!("fluid/{name}.json")), &v)?;
+                s.kubejs_fluids += 1;
+            }
+        }
+    }
+    // 26.3 finds item models through a definition per item; a bucket's takes its item colours.
     for full in declared.iter().chain(facts.items.range(prefix.clone()..).map(|(k, _)| k)) {
         let Some(name) = full.strip_prefix(&prefix) else { continue };
         let def = pack.join(format!("assets/{PACK_ID}/items/{name}.json"));
         if !def.exists() {
-            sink.json(
-                &def,
-                &json!({"model": {"type": "minecraft:model", "model": format!("{PACK_ID}:item/{name}")}}),
-            )?;
+            let mut model = json!({"type": "minecraft:model", "model": format!("{PACK_ID}:item/{name}")});
+            if let Some(tints) = facts.client.as_ref().and_then(|c| c.item_tints(full)) {
+                model["tints"] = Value::Array(tints);
+            }
+            sink.json(&def, &json!({"model": model}))?;
         }
     }
     // The names a startup script gives, which KubeJS turns into a lang file only on a client.

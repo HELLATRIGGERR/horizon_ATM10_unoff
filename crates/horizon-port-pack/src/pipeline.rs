@@ -114,6 +114,7 @@ pub fn carry(
                 .unwrap_or_default();
         }
         f.pack = oracle::PackFacts::read(&work.join("oracle/pack-facts.json"))?;
+        f.client = crate::fluids::ClientFacts::read(&work.join("oracle/client-facts.json"))?;
         log(format!(
             "oracle facts: {} blocks, {} items",
             f.blocks.len(),

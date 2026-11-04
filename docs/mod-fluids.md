@@ -43,7 +43,10 @@ NeoForge's builders do:
 ```
 
 `flowing` (default `<id>:flowing_<path>`), `block` (default the fluid's id; one of the mod's blocks on the
-`minecraft:water` or `minecraft:lava` template, which gives it `LiquidBlock`'s class and `level` property),
+`minecraft:water` or `minecraft:lava` template, which gives it `LiquidBlock`'s class and `level` property, or
+`minecraft:air` for a fluid with none: `createLegacyBlock` gives air, and only tanks and buckets hold it), `flows`
+(default true; false for a `Fluid` that is no `FlowingFluid`, as Modern Industrialization's: no flowing fluid, its
+`block` air, and its bucket places nothing, as `BucketItem.emptyContents` refuses a fluid that doesn't flow),
 `tick_rate` 5, `slope_find_distance` 4, `level_decrease_per_block` 1, `explosion_resistance` 1, `can_convert_to_source`
 false, `light_level` 0, `density` 1000, `temperature` 300, `viscosity` 1000, `description` `block.<ns>.<path>`. `tint`
 is ARGB, as Java's int or `0xAARRGGBB`. Fluid tags are ordinary data: `data/<ns>/tags/fluid/*.json`, merged into the
@@ -80,20 +83,53 @@ Mekanism's tanks then meet through it.
 **AE2 keys.** AE2 keeps keying fluids by id. `bucket_fluid` and `fluid_bucket` read the registry, so a mod fluid goes
 into and out of fluid cells, the ME Chest and terminals by its bucket, and its icon is its still texture with its tint.
 
+**From the NeoForge oracle (slice 2).** Two runs of the whole pack give Java's values, none guessed. The server's
+(`tools/atm10/oracle-pack.sh`, `FactsExporter` with `FluidFacts`) writes, in each batch's facts, every fluid of the
+batch's namespaces: its class, type, source and flowing fluid (`FlowingFluid.getSource`/`getFlowing`, none for a
+`Fluid` that doesn't flow), `getTickDelay`, `getSlopeFindDistance`, `getDropOff` and `getExplosionResistance` (the
+protected ones by reflection) and `canConvertToSource` on the overworld, the `LiquidBlock` a source of it is
+(`createLegacyBlock`), its bucket and pickup sound; and every `FluidType` they use with its description, light, density,
+temperature, viscosity, rarity, `isLighterThanAir`, sounds (`BUCKET_FILL`, `BUCKET_EMPTY`, `FLUID_VAPORIZE`) and what it
+does to a pig and a boat (`canSwim`, `canDrownIn`, `canPushEntity`, `motionScale`, `getFallDistanceModifier`,
+`canExtinguish`, `canHydrate`, `supportsBoating`: slice 4's); and the batch's fluid tags. A server has no client
+extensions, so the client's run (`tools/atm10/oracle-client.sh`, `neoforge_oracle.py client-pack`,
+`mods/horizon/src/neoforge-oracle-client`) starts the pack on NeoForge's client with its window hidden (a mixin makes
+it with `GLFW_VISIBLE` false; FML's early window is off; Crash Assistant, which opens a window of its own, is never
+loaded), and once the mods have loaded (`FMLLoadCompleteEvent`) writes `client-facts.json`: each type's
+`IClientFluidTypeExtensions` (still, flowing and overlay textures, `getTintColor`, the same for a bucket's stack, the
+camera overlay), each fluid's `ItemBlockRenderTypes.getRenderLayer`, and each bucket's `ItemColors.getColor` by tint
+index; then it halts (about 2.5 minutes, 8 GB of heap). `horizon-port-pack carry` (`fluids.rs`) declares each source
+fluid of a mod's namespace from both: its liquid block is kept although the jar has no blockstate for it (Titanium's
+fluids: `LiquidBlock`'s render shape is invisible), a fluid whose block another mod registers, whose block holds
+another fluid or isn't on a liquid template, or whose numbers the flow can't take (a tick delay of 0) is left out with
+the reason in the carry report (`fluids_unknown`), and each bucket's item definition takes its item colours as
+`minecraft:constant` tints. `final-data` declares KubeJS's fluids the same way.
+
+
 ## Slices
 
-1. **Registry, flow, buckets, rendering, AE2 keys (this slice).** The declaration and its checks, `FluidKind` as a
+1. **Registry, flow, buckets, rendering, AE2 keys (done).** The declaration and its checks, `FluidKind` as a
    registry id with the mod registry and its tags, the flow port on the mod's numbers, buckets both ways, the mesher's
    sprites and tint, AE2's bucket mapping and icons. Mekanism's heavy water and brine are declared in
    `pack/mods/mekanism/content` (Mekanism's own numbers, read from its `MekanismFluids`), and `mekanism-content` brings
    the pack's fluid tags. Tests: `horizon-mods` (declaration), `horizon-world` (`mod_fluids`), `horizon-items`
    (buckets), the content-root test `a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket`, AE2's
    `a_mod_fluid_bucket_fills_a_fluid_cell`, and the world test `pack/mods/mekanism/tests/mod-fluid-heavy-water.ts`.
-2. **Every pack fluid carried.** The NeoForge oracle's `FactsExporter` writes each fluid of its namespaces (source and
-   flowing ids, block, bucket, `BaseFlowingFluid`'s and `FluidType`'s numbers by reflection, sounds, the render
-   layer) and, where the type exposes them, its client textures and tint (fields such as Mekanism's
-   `MekanismFluidType`; the rest wants a client-side export); `horizon-port-pack carry` writes the declarations and
-   keeps the jars' fluid tags. Then Mekanism's hand declarations go.
+2. **Every pack fluid carried (done).** As "From the NeoForge oracle" above: the server's fluid facts, the client's
+   run, the carry's declarations, fluids with no liquid block and fluids that don't flow. ATM10 8.4 (4 November 2026):
+   the server's run (21 minutes with the dump and every batch) and the client's (2.5 minutes) give 718 fluids and 409
+   types of the carried namespaces; the 288 carries and `atm10-pack` declare all 409 source fluids (406 carried, 3 of
+   KubeJS): 309 that flow (281 with a liquid block, 28 without), 100 that don't (Modern Industrialization's 72,
+   Extended Industrialization's 9, Iron's Spellbooks' 16 whose flowing fluid is themselves, three more), 369 with a
+   bucket, 189 buckets tinted by their item colours, 124 of the 732 fluids translucent. The full-pack content root
+   registers all 409 (`content_root_build`), and the load check takes the 289 mods with none refused. The pack's 8
+   other fluids are in namespaces no carry owns (Advanced AE's, Sophisticated Core's, Sauce's, XyCraft Core's).
+   Mekanism's hand declarations of slice 1 went: its fluids are its carry's (`mekanism-content` counts them and warns
+   about a carry from before the client's run); the oracle's heavy water and brine are the files slice 1 wrote by
+   hand, field for field. Tests: `horizon-port-pack` (`fluids::tests`, `carry::tests::a_mods_fluids_come_from_both_oracle_runs`),
+   `horizon-mods` (fluids with no block, fluids that don't flow), and the world test
+   `tools/atm10/tests/carried-fluids.ts` (four carried fluids against Java's values, placed, flowing, drawn and picked
+   up; Modern Industrialization's crude oil in its declaration).
 3. **Bucket and container item models.** NeoForge's `neoforge:fluid_container` model (`DynamicFluidContainerModel`:
    the bucket with the fluid's still texture masked in and tinted); today the carried bucket models have no
    `neoforge:item/bucket` parent to draw.

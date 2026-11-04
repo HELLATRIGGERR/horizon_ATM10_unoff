@@ -514,10 +514,19 @@ pub struct Fluid {
     /// `<mod id>:<path>`.
     #[serde(skip)]
     pub id: String,
-    /// `<mod id>:flowing_<path>` when left out.
+    /// `<mod id>:flowing_<path>` when left out; empty for a fluid that
+    /// doesn't flow (`flows: false`).
     #[serde(default)]
     pub flowing: String,
-    /// The fluid's own id when left out.
+    /// False for a `Fluid` that is no `FlowingFluid` (Modern
+    /// Industrialization's): it has no flowing fluid and no `LiquidBlock`
+    /// (`block` is [`Fluid::NO_BLOCK`]), so only tanks, pipes and buckets hold
+    /// it, and its bucket places nothing (`BucketItem.emptyContents`).
+    #[serde(default = "Fluid::yes")]
+    pub flows: bool,
+    /// The fluid's own id when left out; [`Fluid::NO_BLOCK`] for a fluid
+    /// with none, which only tanks and buckets hold (`createLegacyBlock`
+    /// gives air: a `BaseFlowingFluid.Properties` without `block`).
     #[serde(default)]
     pub block: String,
     /// One of the mod's items: the filled bucket (`BucketItem`).
@@ -559,6 +568,11 @@ pub struct Fluid {
 }
 
 impl Fluid {
+    /// The `block` of a fluid that has no `LiquidBlock`.
+    pub const NO_BLOCK: &'static str = "minecraft:air";
+    fn yes() -> bool {
+        true
+    }
     fn white() -> u32 {
         0xFFFF_FFFF
     }
@@ -1113,7 +1127,14 @@ impl Content {
             id: id.clone(),
             ..file
         };
-        if fluid.flowing.is_empty() {
+        if !fluid.flows {
+            if !fluid.flowing.is_empty() || fluid.block != Fluid::NO_BLOCK {
+                return Err(format!(
+                    "a fluid that doesn't flow has no flowing fluid and its block is {}",
+                    Fluid::NO_BLOCK
+                ));
+            }
+        } else if fluid.flowing.is_empty() {
             fluid.flowing = format!("{ns}:flowing_{path}");
         }
         if fluid.block.is_empty() {
@@ -1122,20 +1143,20 @@ impl Content {
         if fluid.description.is_empty() {
             fluid.description = format!("block.{ns}.{path}");
         }
-        if !own(&fluid.flowing) || fluid.flowing == id {
+        if fluid.flows && (!own(&fluid.flowing) || fluid.flowing == id) {
             return Err(format!(
                 "flowing {:?} is another id in {ns}:",
                 fluid.flowing
             ));
         }
-        if self
-            .fluids
-            .iter()
-            .any(|f| f.flowing == fluid.flowing || f.id == fluid.flowing || f.flowing == id)
-        {
+        if self.fluids.iter().any(|f| {
+            f.flowing == id
+                || (fluid.flows && (f.flowing == fluid.flowing || f.id == fluid.flowing))
+        }) {
             return Err(format!("{} or {} is another fluid's", id, fluid.flowing));
         }
         match self.blocks.iter().find(|b| b.id == fluid.block) {
+            _ if fluid.block == Fluid::NO_BLOCK => {}
             Some(b) if matches!(b.template.as_str(), "minecraft:water" | "minecraft:lava") => {}
             Some(_) => {
                 return Err(format!(
@@ -1150,7 +1171,7 @@ impl Content {
                 ));
             }
         }
-        if self.fluids.iter().any(|f| f.block == fluid.block) {
+        if fluid.block != Fluid::NO_BLOCK && self.fluids.iter().any(|f| f.block == fluid.block) {
             return Err(format!(
                 "block {:?} already holds another fluid",
                 fluid.block
@@ -1998,6 +2019,50 @@ capabilities = ["registries"]
             let e = refused(case, block, &fluid);
             assert!(e.contains(why), "{case}: {e}");
         }
+        // Fluids with no LiquidBlock (only tanks hold them) name air, and two of them don't clash.
+        let none = format!(r#"{{{textures}, "block": "minecraft:air"}}"#);
+        let files: &[(&str, &[u8])] = &[
+            ("data/ruby/horizon/fluid/steam.json", none.as_bytes()),
+            ("data/ruby/horizon/fluid/smoke.json", none.as_bytes()),
+        ];
+        let content = hmod("fluid-no-block", MANIFEST_TEXT, files).unwrap();
+        let blocks: Vec<_> = content
+            .fluids
+            .iter()
+            .map(|f| (f.id.as_str(), f.block.as_str()))
+            .collect();
+        assert_eq!(
+            blocks,
+            [
+                ("ruby:smoke", "minecraft:air"),
+                ("ruby:steam", "minecraft:air")
+            ]
+        );
+        // Fluids that don't flow (Modern Industrialization's) have no flowing fluid, and two don't clash either.
+        let still = format!(r#"{{{textures}, "flows": false, "block": "minecraft:air"}}"#);
+        let files: &[(&str, &[u8])] = &[
+            ("data/ruby/horizon/fluid/oil.json", still.as_bytes()),
+            ("data/ruby/horizon/fluid/tar.json", still.as_bytes()),
+        ];
+        let content = hmod("fluid-still", MANIFEST_TEXT, files).unwrap();
+        assert!(
+            content
+                .fluids
+                .iter()
+                .all(|f| !f.flows && f.flowing.is_empty()),
+            "{:?}",
+            content.fluids
+        );
+        let flowing = format!(
+            r#"{{{textures}, "flows": false, "flowing": "ruby:oil_flow", "block": "minecraft:air"}}"#
+        );
+        let e = hmod(
+            "fluid-still-flowing",
+            MANIFEST_TEXT,
+            &[("data/ruby/horizon/fluid/oil.json", flowing.as_bytes())],
+        )
+        .unwrap_err();
+        assert!(e.contains("doesn't flow"), "{e}");
     }
 
     #[test]

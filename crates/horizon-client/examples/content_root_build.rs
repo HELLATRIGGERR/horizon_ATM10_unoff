@@ -50,11 +50,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let started = Instant::now();
     let loaded = load_root(&base, &candidates, &[], &[], &cache)?;
     println!(
-        "root: {} mods, {} effects, {:.1} s, {}",
+        "root: {} mods, {} effects, {} fluids, {:.1} s, {}",
         loaded.mods,
         loaded.effects.len(),
+        loaded.fluids.len(),
         started.elapsed().as_secs_f64(),
         loaded.root.display()
+    );
+    // The fluid registry the game would make of them (mod_fluids), with their tags.
+    horizon_client::mod_content::register_mod_fluids(&loaded.root, &loaded.fluids);
+    let registered = horizon_world::mod_fluids::mod_fluids();
+    println!(
+        "fluids registered: {} ({} that flow, {} with a liquid block, {} with a bucket, {} in a tag)",
+        registered.len(),
+        registered.iter().filter(|f| f.flows()).count(),
+        registered
+            .iter()
+            .filter(|f| f.block != "minecraft:air")
+            .count(),
+        registered.iter().filter(|f| f.bucket.is_some()).count(),
+        registered
+            .iter()
+            .filter(|f| !f.source_tags.is_empty())
+            .count()
     );
     Ok(())
 }

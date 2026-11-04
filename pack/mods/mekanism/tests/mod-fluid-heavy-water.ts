@@ -1,5 +1,6 @@
 /** Mekanism's heavy water as a content mod's fluid (the engine's mod fluids, slice 1), from ATM10's Mekanism 10.7.19
- * through `mekanism-content`, whose overlay declares it (`data/mekanism/horizon/fluid/heavy_water.json`):
+ * through `mekanism-content`, whose carry declares it from the NeoForge oracle's facts
+ * (`data/mekanism/horizon/fluid/heavy_water.json`, docs/mod-fluids.md slice 2):
  *
  * - Its bucket places a source of `mekanism:heavy_water` (its own `LiquidBlock`, not the lava its block copies), which
  *   spreads as `BaseFlowingFluid`'s defaults have it: a tick delay of 5, one level less a block, seven blocks out on a

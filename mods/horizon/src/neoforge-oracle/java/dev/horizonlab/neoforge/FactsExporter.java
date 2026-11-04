@@ -186,6 +186,7 @@ public final class FactsExporter {
             }
             json.endArray();
             items();
+            new FluidFacts(level, this::ours, json).write();
             recipes();
             tags();
             json.name("skipped");
@@ -539,28 +540,31 @@ public final class FactsExporter {
         void tags() throws IOException {
             json.name("tags");
             json.beginObject();
-            for (String kind : new String[] {"block", "item"}) {
-                json.name(kind);
-                json.beginObject();
-                Map<String, Set<String>> out = new TreeMap<>();
-                var registry = kind.equals("block") ? BuiltInRegistries.BLOCK : BuiltInRegistries.ITEM;
-                registry.getTags().forEach(pair -> {
-                    String tag = pair.getFirst().location().toString();
-                    boolean convention = pair.getFirst().location().getNamespace().equals("c");
-                    Set<String> members = new LinkedHashSet<>();
-                    for (var holder : pair.getSecond()) {
-                        ResourceLocation id = holder.unwrapKey().orElseThrow().location();
-                        if (convention || ours(id) || ours(pair.getFirst().location())) members.add(id.toString());
-                    }
-                    if (!members.isEmpty()) out.put(tag, new TreeSet<>(members));
-                });
-                for (var e : out.entrySet()) {
-                    json.name(e.getKey());
-                    json.beginArray();
-                    for (String m : e.getValue()) json.value(m);
-                    json.endArray();
+            tagsOf("block", BuiltInRegistries.BLOCK);
+            tagsOf("item", BuiltInRegistries.ITEM);
+            tagsOf("fluid", BuiltInRegistries.FLUID);
+            json.endObject();
+        }
+
+        <T> void tagsOf(String kind, net.minecraft.core.Registry<T> registry) throws IOException {
+            json.name(kind);
+            json.beginObject();
+            Map<String, Set<String>> out = new TreeMap<>();
+            registry.getTags().forEach(pair -> {
+                String tag = pair.getFirst().location().toString();
+                boolean convention = pair.getFirst().location().getNamespace().equals("c");
+                Set<String> members = new LinkedHashSet<>();
+                for (var holder : pair.getSecond()) {
+                    ResourceLocation id = holder.unwrapKey().orElseThrow().location();
+                    if (convention || ours(id) || ours(pair.getFirst().location())) members.add(id.toString());
                 }
-                json.endObject();
+                if (!members.isEmpty()) out.put(tag, new TreeSet<>(members));
+            });
+            for (var e : out.entrySet()) {
+                json.name(e.getKey());
+                json.beginArray();
+                for (String m : e.getValue()) json.value(m);
+                json.endArray();
             }
             json.endObject();
         }

@@ -60,6 +60,10 @@ pub struct Report {
     pub equipment: usize,
     /// Items left out, and why (oracle only).
     pub items_unknown: BTreeMap<String, String>,
+    /// Declared source fluids (oracle with the client's facts only).
+    pub fluids: BTreeSet<String>,
+    /// Source fluids left out, and why.
+    pub fluids_unknown: BTreeMap<String, String>,
     /// Convention (`c:`) tags the recipes use, filled in from the oracle.
     pub convention_tags: usize,
     /// Structure, placement and pool element types rewritten as vanilla's,
@@ -1024,6 +1028,11 @@ pub fn carry(
         report.oracle = true;
         let prefix = format!("{id}:");
         let mut declared = BTreeSet::new();
+        // The mod's liquid blocks: Java draws them with the fluid renderer, not a model (`LiquidBlock`'s render
+        // shape is invisible), so a jar may well have no blockstate for them.
+        let liquid: BTreeSet<&str> = crate::fluids::liquid_blocks(&facts.fluids, id)
+            .into_iter()
+            .collect();
         for (full, block) in facts.blocks.range(prefix.clone()..) {
             let Some(b) = full.strip_prefix(&prefix) else {
                 break;
@@ -1032,7 +1041,7 @@ pub fn carry(
             // content (Bibliowoods' furniture in other mods' woods, Dyenamics and Friends' dyed blocks of other mods,
             // Amendments' wall lanterns): this jar has no blockstate to draw them with. Declaring them would also cost
             // about 270,000 states of the game's 2^20.
-            if !blockstate_files.contains(b) {
+            if !blockstate_files.contains(b) && !liquid.contains(full.as_str()) {
                 report
                     .blocks_unknown
                     .insert(b.to_owned(), "no blockstate in its jar: another mod registers it, or code draws it".into());
@@ -1173,6 +1182,11 @@ pub fn carry(
                 }
             }
         }
+        let left = FluidsLeft {
+            declared: &mut report.fluids,
+            unknown: &mut report.fluids_unknown,
+        };
+        fluids(facts, id, &inside, &write_decl, (&report.blocks, &report.blocks_unknown), left)?;
         // 26.3 draws worn armour from an equipment asset per material, in the mod's own namespaces.
         let mut materials = BTreeSet::new();
         for (full, item) in facts.items.range(prefix.clone()..) {
@@ -1263,6 +1277,100 @@ pub fn carry(
         &serde_json::to_vec_pretty(&report).unwrap_or_default(),
     )?;
     Ok(report)
+}
+
+/// Where [`fluids`] notes what it declared and what it left out ([`Report::fluids`], [`Report::fluids_unknown`]).
+struct FluidsLeft<'a> {
+    declared: &'a mut BTreeSet<String>,
+    unknown: &'a mut BTreeMap<String, String>,
+}
+
+/// The mod's fluids from the oracle (docs/mod-fluids.md): each source fluid of its namespace is declared
+/// (`data/<id>/horizon/fluid/<path>.json`, [`crate::fluids::declaration`]) when its liquid block is one the carry
+/// declared (or it has none), and each bucket's item definition takes the item colours the client gives it. Nothing
+/// without the client's facts: a declaration wants the fluid's textures.
+fn fluids(
+    facts: &Facts,
+    id: &str,
+    inside: &Path,
+    write_decl: &dyn Fn(&str, &str, &Value) -> Result<(), String>,
+    (blocks, blocks_unknown): (&BTreeMap<String, String>, &BTreeMap<String, String>),
+    report: FluidsLeft,
+) -> Result<(), String> {
+    let Some(client) = &facts.client else {
+        return Ok(());
+    };
+    let prefix = format!("{id}:");
+    let item_declared = |item: &str| {
+        item.strip_prefix(&prefix)
+            .is_some_and(|name| inside.join(format!("data/{id}/horizon/item/{name}.json")).exists())
+    };
+    let mut blocks_used = BTreeSet::new();
+    let mut buckets_used = BTreeSet::new();
+    for (full, fluid) in facts.fluids.range(prefix.clone()..) {
+        let Some(name) = full.strip_prefix(&prefix) else {
+            break;
+        };
+        if !fluid.is_source {
+            continue;
+        }
+        // A fluid that doesn't flow binds no liquid block: its block, if it has one, stays an ordinary block.
+        let liquid = fluid.flowing.as_ref().is_some_and(|f| f != full) && fluid.block != "minecraft:air";
+        let template = fluid.block.strip_prefix(&prefix).and_then(|b| blocks.get(b));
+        if let Some(t) = template.filter(|t| liquid && !matches!(t.as_str(), "minecraft:water" | "minecraft:lava")) {
+            report
+                .unknown
+                .insert(name.to_owned(), format!("its block {} is on {t}, not a liquid", fluid.block));
+            continue;
+        }
+        let block_declared = !liquid || template.is_some();
+        if !block_declared {
+            let why = match blocks_unknown.get(fluid.block.strip_prefix(&prefix).unwrap_or("")) {
+                Some(why) => format!("its block {} is left out: {why}", fluid.block),
+                None => format!("its block {} is not one of this mod's", fluid.block),
+            };
+            report.unknown.insert(name.to_owned(), why);
+            continue;
+        }
+        // One fluid to a liquid block and to a bucket, as the engine takes them: the first by id keeps them.
+        if liquid && !blocks_used.insert(fluid.block.as_str()) {
+            report
+                .unknown
+                .insert(name.to_owned(), format!("its block {} holds another fluid", fluid.block));
+            continue;
+        }
+        let bucket_free = |item: &str| item_declared(item) && !buckets_used.contains(item);
+        match crate::fluids::declaration(&facts.fluids, &facts.fluid_types, client, full, &bucket_free) {
+            Ok(v) => {
+                if let Some(bucket) = v["bucket"].as_str() {
+                    buckets_used.insert(bucket.to_owned());
+                }
+                write_decl("fluid", name, &v)?;
+                report.declared.insert(name.to_owned());
+            }
+            Err(why) => {
+                report.unknown.insert(name.to_owned(), why);
+            }
+        }
+    }
+    // `DynamicFluidContainerModel.Colors` and the like: the bucket's fluid layer takes its fluid's tint.
+    for (item, _) in client.items.range(prefix.clone()..) {
+        let Some(name) = item.strip_prefix(&prefix) else {
+            break;
+        };
+        let def = inside.join(format!("assets/{id}/items/{name}.json"));
+        let (Some(tints), Ok(bytes)) = (client.item_tints(item), fs::read(&def)) else {
+            continue;
+        };
+        let Ok(mut v) = serde_json::from_slice::<Value>(&bytes) else {
+            continue;
+        };
+        if v["model"]["type"] == "minecraft:model" && v["model"].get("tints").is_none() {
+            v["model"]["tints"] = Value::Array(tints);
+            write(&def, &serde_json::to_vec_pretty(&v).unwrap_or_default())?;
+        }
+    }
+    Ok(())
 }
 
 /// The item a recipe makes: `result.id` (1.21 and later), `result.item` or a bare id.
@@ -1381,6 +1489,7 @@ fn write(path: &Path, bytes: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Map;
     use std::io::Write;
 
     /// YUNG's pools carry comments, which Minecraft's lenient reader skips;
@@ -2075,6 +2184,133 @@ mod tests {
         assert!(report.blocks_unknown["oak_shelf"].contains("no blockstate in its jar"));
         // Nor an item that places it under another name.
         assert_eq!(report.items_unknown["oak_shelf_back"], "its block is left out");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A mod's fluid from both oracle runs: its liquid block kept although the jar has no blockstate for it
+    /// (Titanium's fluids), declared on a liquid template, the fluid declared with the facts' numbers and the
+    /// client's textures, tint and layer, and the bucket's item definition tinted as `ItemColors` tints it. A
+    /// fluid whose block another mod registers is left out. Horizon's own reader takes it.
+    #[test]
+    fn a_mods_fluids_come_from_both_oracle_runs() {
+        let dir =
+            std::env::temp_dir().join(format!("horizon-port-pack-fluid-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let jar = dir.join("m-1.0.jar");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&jar).unwrap());
+        for (name, text) in [
+            (
+                "META-INF/neoforge.mods.toml",
+                "license = \"MIT\"
+[[mods]]
+modId = \"m\"
+version = \"1.0\"
+",
+            ),
+            (
+                "assets/m/models/item/sludge_bucket.json",
+                r#"{"parent": "neoforge:item/bucket", "loader": "neoforge:fluid_container", "fluid": "m:sludge"}"#,
+            ),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        let info = crate::jar::read(&jar).unwrap();
+        let pack = Pack {
+            loaded: &|_| true,
+            mods: &|_| false,
+        };
+        let levels: Vec<String> = (0..16).map(|l| l.to_string()).collect();
+        let liquid = |item: &str, sound: &str, emission: u8| {
+            let states: Map<String, Value> = levels
+                .iter()
+                .map(|l| {
+                    (format!("level={l}"), json!({"hardness": 100.0, "emission": emission,
+                        "requires_tool": false, "map_color_id": 12, "sound": {"break": sound},
+                        "outline": [], "collision": []}))
+                })
+                .collect();
+            json!({"class": ["net.minecraft.world.level.block.LiquidBlock"], "properties": {"level": levels},
+                "default": "level=0", "item": item, "explosion_resistance": 100.0, "friction": 0.6,
+                "speed_factor": 1.0, "jump_factor": 1.0, "states": states})
+        };
+        let source = |block: &str, flowing: &str| {
+            json!({"type": "m:sludge", "is_source": true, "source": "m:sludge", "flowing": flowing,
+                "slope_find_distance": 2, "drop_off": 2, "can_convert_to_source": true, "block": block,
+                "bucket": "m:sludge_bucket", "tick_delay": 30, "explosion_resistance": 100.0})
+        };
+        let facts: Facts = serde_json::from_value(json!({
+            "blocks": {
+                "minecraft:water": liquid("minecraft:air", "empty", 0),
+                "minecraft:lava": liquid("minecraft:air", "empty", 15),
+                "m:sludge": liquid("minecraft:air", "empty", 0),
+            },
+            "items": {
+                "m:sludge_bucket": {"class": "net.minecraft.world.item.BucketItem", "max_stack_size": 1,
+                    "rarity": "common"},
+            },
+            "fluids": {
+                "m:sludge": source("m:sludge", "m:sludge_flowing"),
+                "m:sludge_flowing": {"type": "m:sludge", "is_source": false, "source": "m:sludge",
+                    "flowing": "m:sludge_flowing", "block": "m:sludge", "bucket": "m:sludge_bucket",
+                    "tick_delay": 30, "explosion_resistance": 100.0},
+                "m:tar": source("other:tar", "m:flowing_tar"),
+                // Modern Industrialization's kind: no FlowingFluid, its block an ordinary one.
+                "m:oil": {"type": "m:sludge", "is_source": true, "block": "m:oil", "bucket": "minecraft:air",
+                    "tick_delay": 0, "explosion_resistance": 0.0},
+            },
+            "fluid_types": {
+                "m:sludge": {"description": "fluid_type.m.sludge", "light_level": 4, "density": 3000,
+                    "temperature": 1300, "viscosity": 6000, "sounds": {}},
+            },
+        }))
+        .map(|mut f: Facts| {
+            f.client = serde_json::from_value(json!({
+                "fluid_types": {"m:sludge": {"still": "m:block/sludge_still", "flowing": "m:block/sludge_flow",
+                    "overlay": null, "tint": -9162171}},
+                "fluids": {"m:sludge": {"render_layer": "translucent"}},
+                "items": {"m:sludge_bucket": {"tints": [-1, -9162171, -1]}},
+            }))
+            .unwrap();
+            f
+        })
+        .unwrap();
+        let out = dir.join("out");
+        let report = carry(&jar, &info, &out, Some(&facts), &|_| true, &pack, &BTreeMap::new())
+            .unwrap();
+        let carried = out.join("carry");
+        let read = |rel: &str| -> Value {
+            serde_json::from_slice(&fs::read(carried.join(rel)).unwrap()).unwrap()
+        };
+        let block = read("data/m/horizon/block/sludge.json");
+        // A vanilla `LiquidBlock`, as the engine wants a mod fluid's block.
+        assert!(matches!(block["template"].as_str(), Some("minecraft:water" | "minecraft:lava")), "{block}");
+        assert_eq!(block["item"], json!(false));
+        let fluid = read("data/m/horizon/fluid/sludge.json");
+        assert_eq!(fluid["flowing"], json!("m:sludge_flowing"));
+        assert_eq!(fluid["bucket"], json!("m:sludge_bucket"));
+        assert_eq!(fluid["tint"], json!("0xFF743245"));
+        assert_eq!((fluid["tick_rate"].clone(), fluid["viscosity"].clone()), (json!(30), json!(6000)));
+        assert_eq!(read("assets/m/items/sludge_bucket.json")["model"]["tints"][1]["value"], json!(-9162171));
+        assert_eq!(report.fluids, BTreeSet::from(["oil".to_owned(), "sludge".to_owned()]));
+        let oil = read("data/m/horizon/fluid/oil.json");
+        assert_eq!((oil["flows"].clone(), oil["block"].clone()), (json!(false), json!("minecraft:air")));
+        assert!(report.fluids_unknown["tar"].contains("not one of this mod's"), "{:?}", report.fluids_unknown);
+
+        let package = horizon_mods::Package::read(&carried).unwrap();
+        let content = horizon_mods::Content::read(&carried, &package.manifest).unwrap();
+        let [oil, sludge] = content.fluids.as_slice() else {
+            panic!("{:?}", content.fluids)
+        };
+        assert!(!oil.flows);
+        assert_eq!(
+            (sludge.id.as_str(), sludge.block.as_str(), sludge.light_level, sludge.can_convert_to_source),
+            ("m:sludge", "m:sludge", 4, true)
+        );
+        assert!(sludge.translucent);
         fs::remove_dir_all(&dir).unwrap();
     }
 

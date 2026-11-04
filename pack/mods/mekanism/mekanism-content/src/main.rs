@@ -8,7 +8,9 @@
 //! which.
 //!
 //! - The carry is copied, then the overlay's files of that namespace over it:
-//!   its block declarations replace the carried ones.
+//!   its block declarations replace the carried ones. The fluids are the
+//!   carry's, which `horizon-port-pack` declares from the NeoForge oracle's
+//!   facts (docs/mod-fluids.md); the summary counts them.
 //! - Each energy cube the overlay declares with the six face properties
 //!   (`down` ... `east` = `none|input|output`) gets its model converted:
 //!   Mekanism's `mekanism:energy_cube` model loader becomes a multipart
@@ -223,8 +225,19 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
         Some(pack) => pack_tags(&pack.join("data"), &out.join("data"), &id)?,
         None => 0,
     };
+    // The mod's fluids are the carry's, declared from the oracle's facts (docs/mod-fluids.md, slice 2); a carry from
+    // before the client oracle declares none, and the content then has no heavy water or brine.
+    let fluids = fs::read_dir(out.join("data").join(&id).join("horizon/fluid"))
+        .map(|dir| dir.flatten().count())
+        .unwrap_or(0);
+    if fluids == 0 && id == "mekanism" {
+        eprintln!(
+            "mekanism-content: {} declares no fluids: carry it again with the client oracle's facts (docs/mod-fluids.md)",
+            carry.display()
+        );
+    }
     let report = json!({
-        "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags,
+        "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags, "fluids": fluids,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
         "cubes": cubes, "cables": cables, "blocks": others, "loot_tables": loot, "recipes": recipes,
         "gui_sprites": gui_sprites,

@@ -22,8 +22,11 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
 - Mod fluids, slice 1 (`docs/mod-fluids.md`, branch `feat/mod-fluids`): the overlay declares heavy water and brine
   (`content/data/mekanism/horizon/fluid/`, Mekanism's own textures, tints and `BaseFlowingFluid` defaults), and
   `mekanism-content` brings the pack's `c:` fluid tags; their buckets place and take sources that flow by those
-  numbers, and AE2's fluid cells hold them. World test `mod-fluid-heavy-water` (no native bundle needed). The other
-  Mekanism fluids wait for slice 2 (carried from the oracle).
+  numbers, and AE2's fluid cells hold them. World test `mod-fluid-heavy-water` (no native bundle needed).
+- Mod fluids, slice 2 (branch `feat/mod-fluids-2`): all 18 of Mekanism's fluids (and Generators' 4) are the carry's,
+  declared from the NeoForge oracle's server and client facts; the overlay's two hand declarations went (the oracle's
+  are the same values). `mekanism-content` counts the carry's fluids and warns when a carry from before the client's
+  oracle run has none: carry again then (`tools/atm10/oracle-client.sh`, docs/mod-fluids.md).
 - Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), fluid tanks (mod fluids' slice 5)
   for the heat generator's tank, S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
   Combiner, Purification Chamber) on the same `machine` crate module, energy items charging machines, chemicals as a

@@ -23,6 +23,14 @@ pub struct Facts {
     /// What the whole pack's run says beyond these facts (`pack-facts.json`).
     #[serde(skip)]
     pub pack: PackFacts,
+    /// The fluids and fluid types of the namespaces (`FluidFacts`); empty in facts from before they were exported.
+    #[serde(default)]
+    pub fluids: BTreeMap<String, crate::fluids::Fluid>,
+    #[serde(default)]
+    pub fluid_types: BTreeMap<String, crate::fluids::FluidType>,
+    /// What the pack's client run says of its fluids (`client-facts.json`), or none.
+    #[serde(skip)]
+    pub client: Option<crate::fluids::ClientFacts>,
 }
 
 /// What `tools/neoforge_oracle.py pack` writes to `pack-facts.json`: what no vanilla table can say of an item or a
@@ -169,6 +177,8 @@ pub struct Tags {
     pub block: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub item: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub fluid: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]

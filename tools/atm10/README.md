@@ -6,5 +6,6 @@ They only read the instance. Paths come from the environment:
   `mods/<key>/carry/`, `leave-out.txt`, `play/`).
 - `ATM10_DATA`: generated data beside it (the pack server's run folder, `dump/`).
 - `HORIZON_NEOFORGE_HOME`: a NeoForge server of the instance's version; `HORIZON_ORACLE_JAVA`: Java 21 for it.
+- `HORIZON_NEOFORGE_CLIENT_HOME` (oracle-client.sh): where NeoForge's client of that version is installed, once.
 - `HORIZON_PORT_PACK`: the tool's exe; `HORIZON_RESOURCES`: prepared 26.3 resources.
 - `HORIZON_REPO` (play-atm10.ts): the checkout whose game, resources and `content/ae2` are the defaults.

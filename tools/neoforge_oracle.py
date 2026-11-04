@@ -3,6 +3,7 @@
 
     neoforge_oracle.py export --jars DIR [--deps DIR] [--namespaces a,b] --out FACTS.json
     neoforge_oracle.py pack --instance DIR --run DIR --out DIR [--leave-out FILE] [--namespaces a,b] [--batches FILE]
+    neoforge_oracle.py client-pack --instance DIR --run DIR --out FILE [--leave-out FILE]
 
 installs a NeoForge server under .local/neoforge-oracle (once), builds the exporter mod in
 mods/horizon/src/neoforge-oracle, starts the server headless with the given mod jars, and writes every
@@ -16,8 +17,15 @@ the final recipes, tags and loot tables to --out as JSON lines (FactsExporter's 
 a whole pack's facts in one file are too big for `horizon-port-pack carry` to read at once. KubeJS and Almost Unified have then had their say, so the result stands in for both. KubeJS scripts may be
 All Rights Reserved: the output stays local.
 
+`client-pack` starts the same instance on the NeoForge *client* (every jar of its mods/, with the client exporter in
+mods/horizon/src/neoforge-oracle-client) and writes what only a client holds to --out once the mods have loaded:
+each fluid type's client extension (textures, tint), each fluid's render layer and each bucket's item colours
+(docs/mod-fluids.md). Its window is never shown, the game halts before the title screen, mods that open windows of
+their own (CLIENT_NEVER: Crash Assistant) are left out, and a Java process a mod leaves behind is stopped.
+
 Environment: HORIZON_NEOFORGE_HOME, a NeoForge server already installed (its libraries/ and args files), used
-instead of installing one; HORIZON_ORACLE_JAVA, the Java that runs NeoForge (1.21.1 wants Java 21; default
+instead of installing one; HORIZON_NEOFORGE_CLIENT_HOME, the folder the NeoForge client is installed into (default
+.local/neoforge-oracle/client-<version>); HORIZON_ORACLE_JAVA, the Java that runs NeoForge (1.21.1 wants Java 21; default
 `java`); HORIZON_ORACLE_XMX, the server's heap (default 4G); HORIZON_ORACLE_JVM, more Java options. On Windows the server reads win_args.txt, and a run
 folder gets a junction to libraries/ and copies of the jars: symbolic links need Developer Mode there.
 """
@@ -45,6 +53,17 @@ XMX = os.environ.get('HORIZON_ORACLE_XMX', '4G')
 ARGS = 'win_args.txt' if os.name == 'nt' else 'unix_args.txt'
 
 
+def installer_jar():
+    """NeoForge's installer, fetched once per version."""
+    installer = LOCAL / f'neoforge-{NEOFORGE}-installer.jar'
+    if not installer.exists():
+        LOCAL.mkdir(parents=True, exist_ok=True)
+        url = f'{MAVEN}/{NEOFORGE}/neoforge-{NEOFORGE}-installer.jar'
+        with urllib.request.urlopen(url, timeout=120) as r:
+            installer.write_bytes(r.read())
+    return installer
+
+
 def install():
     """The NeoForge server, installed once per version (or the one HORIZON_NEOFORGE_HOME names)."""
     home = Path(HOME) if HOME else LOCAL / NEOFORGE
@@ -54,11 +73,7 @@ def install():
     if HOME:
         sys.exit(f'HORIZON_NEOFORGE_HOME: {args} does not exist')
     home.mkdir(parents=True, exist_ok=True)
-    installer = LOCAL / f'neoforge-{NEOFORGE}-installer.jar'
-    if not installer.exists():
-        url = f'{MAVEN}/{NEOFORGE}/neoforge-{NEOFORGE}-installer.jar'
-        with urllib.request.urlopen(url, timeout=120) as r:
-            installer.write_bytes(r.read())
+    installer = installer_jar()
     with (LOCAL / f'install-{NEOFORGE}.log').open('w') as log:
         subprocess.run([JAVA, '-jar', str(installer), '--installServer', str(home)],
                        cwd=LOCAL, stdout=log, stderr=subprocess.STDOUT, check=True)
@@ -71,15 +86,15 @@ def client():
     sys.path.insert(0, str(ROOT / 'tools'))
     import hashlib
     import lab
-    home = LOCAL / f'client-{NEOFORGE}'
+    home = Path(os.environ.get('HORIZON_NEOFORGE_CLIENT_HOME') or LOCAL / f'client-{NEOFORGE}')
     profile = home / 'versions' / f'neoforge-{NEOFORGE}' / f'neoforge-{NEOFORGE}.json'
     if not profile.exists():
-        install()  # the installer jar
+        installer = installer_jar()
         home.mkdir(parents=True, exist_ok=True)
         (home / 'launcher_profiles.json').write_text('{"profiles":{}}')
-        with (LOCAL / f'install-client-{NEOFORGE}.log').open('w') as log:
-            subprocess.run(['java', '-jar', str(LOCAL / f'neoforge-{NEOFORGE}-installer.jar'), '--installClient',
-                            str(home)], cwd=LOCAL, stdout=log, stderr=subprocess.STDOUT, check=True)
+        with (home / f'install-client-{NEOFORGE}.log').open('w') as log:
+            subprocess.run([JAVA, '-jar', str(installer), '--installClient', str(home)], cwd=home, stdout=log,
+                           stderr=subprocess.STDOUT, check=True)
     neo = json.loads(profile.read_text())
     base = json.loads((home / 'versions' / neo['inheritsFrom'] / f'{neo["inheritsFrom"]}.json').read_text())
     jars = []
@@ -321,6 +336,99 @@ def pack(args):
     print(f'{dump}: server ran {seconds:.1f} s: {(dump / "summary.json").read_text(encoding="utf-8")[:400]}')
 
 
+CLIENT_SOURCE = ROOT / 'mods' / 'horizon' / 'src' / 'neoforge-oracle-client'
+# Mods a client oracle never loads, whatever --leave-out says: Crash Assistant starts a process of its own with a
+# window (its integrated GPU warning) that a hidden game can't hide, and that outlives the game.
+CLIENT_NEVER = {'crash_assistant'}
+
+
+def natives_of(jars, target):
+    """The native libraries of the client's natives jars, as the launcher extracts them."""
+    target.mkdir(parents=True, exist_ok=True)
+    for jar in jars:
+        if 'natives-' not in jar.name:
+            continue
+        with zipfile.ZipFile(jar) as archive:
+            for name in archive.namelist():
+                if name.endswith(('.so', '.dylib', '.jnilib', '.dll')) and not (target / Path(name).name).exists():
+                    (target / Path(name).name).write_bytes(archive.read(name))
+
+
+def no_early_window(fml_toml):
+    """FML's early loading window off (`earlyWindowControl`), so the game's own, hidden window is the only one."""
+    text = fml_toml.read_text(encoding='utf-8') if fml_toml.exists() else ''
+    lines = [line for line in text.splitlines() if not line.strip().startswith('earlyWindowControl')]
+    fml_toml.parent.mkdir(parents=True, exist_ok=True)
+    fml_toml.write_text('\n'.join(['earlyWindowControl = false', *lines]) + '\n', encoding='utf-8')
+
+
+def stop_strays(run):
+    """Ends any Java process a mod of the run started that outlived the game (one whose command line names the run
+    folder), so nothing of the oracle stays on a shared machine."""
+    if os.name != 'nt':
+        return
+    folder = str(run).replace("'", "''")
+    script = (f"Get-CimInstance Win32_Process -Filter \"Name='java.exe' OR Name='javaw.exe'\" | "
+              f"Where-Object {{ $_.CommandLine -like '*{folder}*' }} | "
+              f"ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force; $_.ProcessId }}")
+    stopped = subprocess.run(['powershell', '-NoProfile', '-Command', script], capture_output=True, text=True).stdout.split()
+    if stopped:
+        print(f'stopped {len(stopped)} Java process(es) the run left behind: {", ".join(stopped)}')
+
+
+def client_pack(args):
+    instance_dir, run, out = Path(args.instance), Path(args.run).resolve(), Path(args.out).resolve()
+    leave_out = set(CLIENT_NEVER)
+    if args.leave_out:
+        for text in Path(args.leave_out).read_text(encoding='utf-8').splitlines():
+            text = text.split('#')[0].strip()
+            if text:
+                leave_out.add(text)
+    home, _, _, jars = client()
+    exporter = build(home, CLIENT_SOURCE, 'horizon-oracle-client.jar', client_classpath(home))
+    shutil.rmtree(run, ignore_errors=True)
+    (run / 'mods').mkdir(parents=True)
+    used = left = 0
+    for jar in sorted((instance_dir / 'mods').glob('*.jar')):
+        if jar.name in leave_out or any(i in leave_out for i in mod_ids(jar)):
+            left += 1
+            continue
+        # Copied, not linked: the instance is only read.
+        shutil.copyfile(jar, run / 'mods' / jar.name)
+        used += 1
+    shutil.copyfile(exporter, run / 'mods' / exporter.name)
+    for folder in PACK_FOLDERS:
+        if (instance_dir / folder).is_dir():
+            shutil.copytree(instance_dir / folder, run / folder)
+    no_early_window(run / 'config' / 'fml.toml')
+    natives, assets = run / 'natives', run / 'assets'
+    natives_of(jars, natives)
+    (assets / 'indexes').mkdir(parents=True, exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.unlink(missing_ok=True)
+    extra = os.environ.get('HORIZON_ORACLE_JVM', '').split()
+    _, command = client_command(JAVA, XMX, run, natives, assets,
+                                jvm=[*extra, f'-Dhorizon.oracle.client.out={out}'],
+                                game=['--width', '854', '--height', '480'])
+    print(f'{used} mods, {left} left out; client starting with -Xmx{XMX}', flush=True)
+    began = time.monotonic()
+    env = dict(os.environ, ALSOFT_DRIVERS='null')
+    with (run / 'client.log').open('w') as log:
+        try:
+            subprocess.run(command, cwd=run, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                           env=env, timeout=args.timeout)
+        except subprocess.TimeoutExpired:
+            print(f'the client ran past {args.timeout} s and was stopped')
+    stop_strays(run)
+    seconds = time.monotonic() - began
+    if not out.exists():
+        tail = '\n'.join((run / 'client.log').read_text(errors='replace').splitlines()[-40:])
+        sys.exit(f'the client oracle wrote nothing; the end of {run / "client.log"}:\n{tail}')
+    facts = json.loads(out.read_text(encoding='utf-8'))
+    print(f'{out}: {len(facts["fluid_types"])} fluid types, {len(facts["fluids"])} fluids, {len(facts["items"])} '
+          f'buckets; client ran {seconds:.1f} s')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -337,8 +445,14 @@ def main():
     p.add_argument('--namespaces', help='comma-separated: also write these namespaces\' facts to <out>/facts.json')
     p.add_argument('--batches', help='a file of `<name> <namespace>,...` lines: facts of each into <out>/facts-<name>.json')
     p.add_argument('--timeout', type=int, default=1500, help='seconds before the server is stopped')
+    c = sub.add_parser('client-pack', help="write a whole modpack's client facts of its fluids")
+    c.add_argument('--instance', required=True, help='the modpack folder; only read')
+    c.add_argument('--run', required=True, help='the game folder to make; deleted first')
+    c.add_argument('--out', required=True, help='the JSON file to write')
+    c.add_argument('--leave-out', help='a file of jar names or mod ids not to load, one a line')
+    c.add_argument('--timeout', type=int, default=1500, help='seconds before the client is stopped')
     args = parser.parse_args()
-    {'export': export, 'pack': pack}[args.command](args)
+    {'export': export, 'pack': pack, 'client-pack': client_pack}[args.command](args)
 
 
 if __name__ == '__main__':

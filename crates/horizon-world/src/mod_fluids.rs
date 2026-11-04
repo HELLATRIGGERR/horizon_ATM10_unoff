@@ -18,9 +18,11 @@ use std::{
 pub struct ModFluid {
     /// The source fluid, `<mod id>:<path>`.
     pub id: String,
-    /// The flowing fluid (`BaseFlowingFluid.Flowing`).
+    /// The flowing fluid (`BaseFlowingFluid.Flowing`); empty for a fluid that
+    /// is no `FlowingFluid` ([`ModFluid::flows`]).
     pub flowing: String,
-    /// Its `LiquidBlock`, which `createLegacyBlock` places.
+    /// Its `LiquidBlock`, which `createLegacyBlock` places; `minecraft:air`
+    /// for a fluid with none (only tanks and buckets hold it).
     pub block: String,
     /// `getBucket`, None for `Items.AIR`.
     pub bucket: Option<String>,
@@ -90,6 +92,12 @@ impl ModFluid {
             flowing_tags: Vec::new(),
         }
     }
+    /// Whether it is a `FlowingFluid`: one that doesn't (Modern
+    /// Industrialization's) has no flowing fluid and no `LiquidBlock`, and
+    /// its bucket places nothing.
+    pub fn flows(&self) -> bool {
+        !self.flowing.is_empty()
+    }
     /// Whether `kind`'s fluid tags hold `tag`.
     pub fn in_tag(&self, kind: FluidKind, tag: &str) -> bool {
         let tags = if kind.is_source_kind() {
@@ -136,8 +144,8 @@ pub fn register_mod_fluids(fluids: impl IntoIterator<Item = ModFluid>) -> bool {
         };
         if fluid.id == fluid.flowing
             || taken(&fluid.id)
-            || taken(&fluid.flowing)
-            || registry.by_block.contains_key(&fluid.block)
+            || (fluid.flows() && taken(&fluid.flowing))
+            || (fluid.block != "minecraft:air" && registry.by_block.contains_key(&fluid.block))
             || fluid
                 .bucket
                 .as_ref()
@@ -151,8 +159,12 @@ pub fn register_mod_fluids(fluids: impl IntoIterator<Item = ModFluid>) -> bool {
         }
         let (source, flowing) = FluidKind::of_mod(registry.fluids.len());
         registry.by_name.insert(fluid.id.clone(), source);
-        registry.by_name.insert(fluid.flowing.clone(), flowing);
-        registry.by_block.insert(fluid.block.clone(), source);
+        if fluid.flows() {
+            registry.by_name.insert(fluid.flowing.clone(), flowing);
+        }
+        if fluid.block != "minecraft:air" {
+            registry.by_block.insert(fluid.block.clone(), source);
+        }
         if let Some(bucket) = &fluid.bucket {
             registry.by_bucket.insert(bucket.clone(), source);
         }

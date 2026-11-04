@@ -1,7 +1,8 @@
 #!/bin/bash
 # carry-with-facts.sh [batch...]: carries each oracle batch's mods ($ATM10_WORK/oracle/<batch>.txt, from batches.py)
 # with that batch's facts from the pack run ($ATM10_DATA/dump/facts-<batch>.json, copied to oracle/facts.json; one
-# file for all would be ~1.5 GB to load) and the pack's own facts (dump/pack-facts.json: fuel, compost, pistons, light).
+# file for all would be ~1.5 GB to load), the pack's own facts (dump/pack-facts.json: fuel, compost, pistons, light) and
+# the client's facts of its fluids (dump/client-facts.json, from oracle-client.sh: textures, tints, render layers).
 # Every key of all-keys.txt gets its mods/<key>/carry folder first, so each batch sees all the others as ported (the
 # conditions of worldgen modifiers). The mods sharing a namespace no pack mod owns are one batch (`shared`), so one
 # run sees all their claims and leaves the namespace to none of them. Logs: carry-<batch>.log.
@@ -9,6 +10,9 @@
 : "${ATM10_WORK:?}" "${ATM10_DATA:?}" "${HORIZON_PORT_PACK:?}" "${HORIZON_RESOURCES:?}"
 cd "$ATM10_WORK" || exit 1
 cp "$ATM10_DATA/dump/pack-facts.json" oracle/pack-facts.json || exit 1
+# The client's facts of the fluids (oracle-client.sh), when there are some: without them no fluid is declared.
+rm -f oracle/client-facts.json
+[ -f "$ATM10_DATA/dump/client-facts.json" ] && cp "$ATM10_DATA/dump/client-facts.json" oracle/client-facts.json
 # Lists written on Windows may end their lines with CR.
 keys() { tr -d '\015' < "$1"; }
 for k in $(keys all-keys.txt); do mkdir -p "mods/$k/carry"; done

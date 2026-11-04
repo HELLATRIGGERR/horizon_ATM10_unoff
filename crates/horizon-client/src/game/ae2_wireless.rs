@@ -146,12 +146,14 @@ pub(super) fn target(stack: &ItemStack) -> Option<(String, Pos)> {
     };
     Some((dim.to_string().ok()?, (*x, *y, *z)))
 }
+/// `Upgrades.getEnergyCardMultiplier` of the terminal's cards: AE2's energy
+/// card counts 1, an addon's its own multiplier (MEGA's Greater Energy Card 8).
 fn cards(stack: &ItemStack) -> Result<u32, String> {
     if !is_wireless(stack) {
         return Err("not a wireless terminal".into());
     }
     let upgrades=horizon_client::ae2_upgrade_inventory::Inventory::read(stack)?;
-    Ok(upgrades.slots.iter().flatten().count() as u32)
+    Ok(upgrades.energy_card_multiplier())
 }
 pub(super) fn energy(stack: &ItemStack) -> Result<(f64, f64), String> {
     let base = horizon_client::ae2_common_config::wireless().terminal_capacity;
@@ -161,6 +163,7 @@ pub(super) fn energy(stack: &ItemStack) -> Result<(f64, f64), String> {
     let power = horizon_client::ae2_powered_items::component_power_value(stack,"ae2:stored_energy","ae2_wireless_energy",0.0)?;
     Ok((power, max))
 }
+/// `WirelessTerminalItem.getChargeRate`: 800 + 800 × `Upgrades.getEnergyCardMultiplier`.
 pub(super) fn charge_rate(stack: &ItemStack) -> Result<f64, String> {
     Ok(800.0 * (1.0 + f64::from(cards(stack)?)))
 }

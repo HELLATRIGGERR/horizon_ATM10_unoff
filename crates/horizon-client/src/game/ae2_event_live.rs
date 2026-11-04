@@ -447,6 +447,7 @@ impl Game<'_> {
             return None;
         }
         let mut device = Device::new(super::ae2_grid::kind(machine)?);
+        device.energy_capacity_override = super::ae2_grid::cell_capacity(machine);
         let properties = self.pack.assets.registry.state(BlockStateId(state));
         match machine.kind {
             MachineKind::DebugPhantomNode => device.idle_override = Some(1.0),

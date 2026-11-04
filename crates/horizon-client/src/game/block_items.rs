@@ -78,7 +78,15 @@ impl Game<'_> {
             tag=save::live_vanilla_block_entity(key,entity,block,self.world.block_names.get(&key).map(String::as_str),Some(original));
             self.restore_loot_table(key,&mut tag);
         }
-        block_entity_nbt::canonical(&tag)
+        let canonical = block_entity_nbt::canonical(&tag);
+        // `canonical` keeps AE2's own machines' tags as they are (`ae2:` ids);
+        // an addon's AE2 machine (MEGA's Superdense Energy Cell) is kept so too,
+        // so its item's data reaches it (`importSettings`).
+        #[cfg(feature = "ae2-lab")]
+        if canonical.is_none() && matches!(entity, BlockEntity::Ae2(_)) {
+            return Some(tag);
+        }
+        canonical
     }
 
     /// `BlockState.getCloneItemStack` of the block at `pos`, then, with
@@ -315,8 +323,7 @@ impl Game<'_> {
     /// disassembly; restore it when that actual item is placed.
     #[cfg(feature = "ae2-lab")]
     pub(super) fn ae2_import_dismantled_energy(&mut self,key:(i32,i32,i32),stack:&ItemStack) {
-        use horizon_client::ae2_world::MachineKind;
-        let max=match stack.item.as_ref() {"ae2:energy_cell"=>200_000.0,"ae2:dense_energy_cell"=>1_600_000.0,_=>return};
+        let Some(max)=horizon_client::ae2_world::energy_cell(&stack.item).map(|cell|cell.max_power) else{return};
         let energy=stack.data().and_then(|d|d.other("ae2:stored_energy").or_else(||
             d.other("minecraft:custom_data").and_then(|v|v.get("ae2:stored_energy"))))
             .and_then(|v|match v {Tag::Double(bits)=>Some(f64::from_bits(*bits)),_=>None})
@@ -329,7 +336,7 @@ impl Game<'_> {
         let energy=stored.stored();
         let mut changed=false;
         if let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get_mut(&key) {
-            if matches!(machine.kind,MachineKind::EnergyCell|MachineKind::DenseEnergyCell) {
+            if machine.kind.is_energy_cell() {
                 machine.energy=energy;self.world.modified.insert((key.0>>4,key.2>>4));changed=true;
             }
         }
@@ -352,9 +359,8 @@ impl Game<'_> {
     /// the original item amount again after other callbacks have run.
     #[cfg(feature = "ae2-lab")]
     pub(super) fn ae2_publish_placed_energy(&self,key:(i32,i32,i32)) {
-        use horizon_client::ae2_world::MachineKind;
         if !matches!(self.world.block_entities.get(&key),Some(BlockEntity::Ae2(machine))
-            if matches!(machine.kind,MachineKind::EnergyCell|MachineKind::DenseEnergyCell)) {return;}
+            if machine.kind.is_energy_cell()) {return;}
         if self.ae2_sync_events() {
             if let Some(address)=self.ae2_local_address(key) {self.ae2_energy_store_changed(address,None);}
         } else {

@@ -48,11 +48,9 @@ fn prepare(
         if item.count == 0 {
             return Err("empty cell-disassembly output".into());
         }
-        let maximum = match item.item.as_ref() {
-            "ae2:energy_cell" => Some(200_000.0),
-            "ae2:dense_energy_cell" => Some(1_600_000.0),
-            _ => None,
-        };
+        // An energy cell output (EnergyCellBlockItem) takes the cell's charge
+        // up to its block's getMaxPower.
+        let maximum = horizon_client::ae2_world::energy_cell(&item.item).map(|cell| cell.max_power);
         if let Some(maximum) = maximum.filter(|_| energy > 0.0) {
             let mut data = match item.data().and_then(|d| d.other("minecraft:custom_data")) {
                 None => Compound::new(),

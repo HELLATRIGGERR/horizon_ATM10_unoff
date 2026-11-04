@@ -116,10 +116,12 @@ impl Game<'_> {
                     props.insert("powered".into(),(local || status.is_some_and(|s|s.powered)).to_string());
                 }
                 MachineKind::EnergyCell | MachineKind::DenseEnergyCell => {
-                    let capacity=if kind==MachineKind::EnergyCell {200_000.0} else {1_600_000.0};
-                    let energy=match self.world.block_entities.get(&p) {Some(BlockEntity::Ae2(m)) if m.energy.is_finite()=>m.energy,_=>0.0};
-                    let fullness=(4.0*(energy/capacity+0.01).clamp(0.0,1.0)).floor() as u8;
-                    props.insert("fullness".into(),fullness.to_string());
+                    // EnergyCellBlockEntity.updateStateForPowerLevel, on the
+                    // cell's own EnergyCellBlock.getMaxPower.
+                    let Some(BlockEntity::Ae2(m))=self.world.block_entities.get(&p) else{continue};
+                    let Some(cell)=m.energy_cell() else{continue};
+                    let energy=if m.energy.is_finite(){m.energy}else{0.0};
+                    props.insert("fullness".into(),cell.storage_level(energy).to_string());
                 }
                 MachineKind::VibrationChamber => {
                     let active=matches!(self.world.block_entities.get(&p),Some(BlockEntity::Ae2(m)) if m.burn_remaining>0.0);

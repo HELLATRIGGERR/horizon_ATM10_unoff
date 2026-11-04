@@ -545,15 +545,19 @@ pub fn apply_cell_settings_checked(
         _ => return Err("invalid cell fuzzy mode".into()),
     };
     let mut seen = std::collections::BTreeSet::new();
-    let mut energy_cards = 0u8;
+    // Energy cards (`EnergyCardItem`, AE2's and an addon's), each up to its
+    // own `Upgrades.add` limit on the portable cell or tool (two of each).
+    let defs = crate::ae2x::defs::get();
+    let mut energy_cards = std::collections::BTreeMap::<String, usize>::new();
     for card in cards {
         if card.get("count") != Some(&Tag::Int(1)) {
             return Err("invalid cell card count".into());
         };
         let card = save::item_from_nbt(card).ok_or("invalid cell card")?;
-        if card.item.as_ref() == "ae2:energy_card" && (config.portable || config.tool.is_some()) {
-            energy_cards += 1;
-            if energy_cards > 2 {
+        if defs.energy_card_multiplier(&card.item) > 0 && (config.portable || config.tool.is_some()) {
+            let count = energy_cards.entry(card.item.to_string()).or_insert(0);
+            *count += 1;
+            if *count > defs.upgrade_limit(&card.item, &stack.item) {
                 return Err("too many energy cards".into());
             }
             continue;

@@ -26,8 +26,11 @@ fn saved_share(tag:Option<&Tag>)->Result<f64,String>{
 fn store(machine:&Machine,host:u64)->Result<Option<Store>,String>{
     let (amount,capacity,priority,creative)=match machine.kind {
         MachineKind::Controller=>(machine.energy,8000.0,0,false),
-        MachineKind::EnergyCell=>(machine.energy,200000.0,200,false),
-        MachineKind::DenseEnergyCell=>(machine.energy,1600000.0,1600,false),
+        // EnergyCellBlockEntity: getAEMaxPower and getPriority of its block.
+        MachineKind::EnergyCell|MachineKind::DenseEnergyCell=>{
+            let cell=machine.energy_cell().ok_or("energy cell without a row")?;
+            (machine.energy,cell.max_power,cell.priority,false)
+        }
         MachineKind::CreativeEnergyCell=>(CREATIVE_STORED,CREATIVE_STORED,i32::MAX,true),
         _=>return Ok(None),
     };

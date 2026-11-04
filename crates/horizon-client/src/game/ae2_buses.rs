@@ -2475,7 +2475,7 @@ impl Game<'_> {
             if let Some(block)=drops.iter_mut().find(|item|item.item.as_ref()==facts.name.as_ref()) {
                 let name=self.world.block_names.get(&target).map(String::as_str);
                 block.set_custom_name_component(super::ae2_memory_host::machine_name_component(machine,name));
-                if matches!(machine.kind,MachineKind::EnergyCell|MachineKind::DenseEnergyCell) && machine.energy>0.0 {
+                if machine.kind.is_energy_cell() && machine.energy>0.0 {
                     block.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(machine.energy.to_bits())));
                 }
             }

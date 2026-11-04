@@ -8,7 +8,7 @@
 //! then each addon's; the tables are built once, on first use, and do not
 //! change after. An addon whose content is not loaded leaves rows that no item
 //! reaches.
-use crate::ae2_world::{AE2_CRAFTING_UNITS, CraftingUnit, ExtMachine, MachineVariant};
+use crate::ae2_world::{AE2_CRAFTING_UNITS, AE2_ENERGY_CELLS, CraftingUnit, EnergyCell, ExtMachine, MachineVariant};
 use ae2_cell_core::{CellConfig, Channel, Tier};
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -61,6 +61,8 @@ pub struct Defs {
     machines: Vec<ExtMachine>,
     variants: Vec<MachineVariant>,
     crafting_units: Vec<CraftingUnit>,
+    energy_cells: Vec<EnergyCell>,
+    energy_cards: HashMap<String, u32>,
     parts: HashMap<String, PartDef>,
 }
 impl Defs {
@@ -124,6 +126,40 @@ impl Defs {
     }
     pub fn crafting_units(&self) -> &[CraftingUnit] {
         &self.crafting_units
+    }
+    /// An addon's energy cell (`EnergyCellBlock` with its own capacity, charge
+    /// rate and priority): its row, and the machine variant of AE2's cell of
+    /// the same kind it behaves as.
+    pub fn add_energy_cell(&mut self, cell: EnergyCell) {
+        let base = AE2_ENERGY_CELLS
+            .iter()
+            .find(|ae2| ae2.kind == cell.kind)
+            .expect("an energy cell has one of AE2's energy cell kinds")
+            .id;
+        self.variants.push(MachineVariant {
+            id: cell.id,
+            base,
+            block: cell.id,
+            kind: cell.kind,
+            slots: 0,
+            upgrades: 0,
+            part: false,
+        });
+        self.energy_cells.push(cell);
+    }
+    pub fn energy_cells(&self) -> &[EnergyCell] {
+        &self.energy_cells
+    }
+    /// An `EnergyCardItem(properties, energyMultiplier)`: an upgrade card that
+    /// adds `multiplier` to `Upgrades.getEnergyCardMultiplier` of the
+    /// inventory it sits in. Where it fits is [`Defs::add_upgrade`]'s.
+    pub fn add_energy_card(&mut self, card: &str, multiplier: u32) {
+        assert!(multiplier > 0, "energyMultiplier must be > 0");
+        self.energy_cards.insert(card.to_owned(), multiplier);
+    }
+    /// `EnergyCardItem.getEnergyMultiplier`: 0 for a card that is no energy card.
+    pub fn energy_card_multiplier(&self, card: &str) -> u32 {
+        self.energy_cards.get(card).copied().unwrap_or(0)
     }
     /// An addon's cable part.
     pub fn add_part(&mut self, part: PartDef) {
@@ -190,6 +226,8 @@ impl Defs {
             }
             defs.add_component(&format!("ae2:cell_component_{size}"), tier);
         }
+        // AEItems.ENERGY_CARD: EnergyCardItem(p, 1).
+        defs.add_energy_card("ae2:energy_card", 1);
         // InitUpgrades, the item hosts.
         for cell in defs.cells.values().cloned().collect::<Vec<_>>() {
             add_storage_cell_cards(&mut defs, &cell);
@@ -243,11 +281,12 @@ pub fn get() -> &'static Defs {
         #[cfg(feature = "ae2-extendedae")]
         super::extendedae::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
-        // variants of AE2's, for `Machine::for_block`, and the crafting CPU
-        // blocks' bytes and threads.
+        // variants of AE2's, for `Machine::for_block`, the crafting CPU
+        // blocks' bytes and threads, and the energy cells' capacities.
         crate::ae2_world::install_ext_machines(defs.machines.clone());
         crate::ae2_world::install_machine_variants(defs.variants.clone());
         crate::ae2_world::install_crafting_units(defs.crafting_units.clone());
+        crate::ae2_world::install_energy_cells(defs.energy_cells.clone());
         defs
     });
     &DEFS

@@ -126,6 +126,13 @@ impl Inventory {
         }
         Ok(())
     }
+    /// `Upgrades.getEnergyCardMultiplier`: the sum of the energy cards'
+    /// `EnergyCardItem.getEnergyMultiplier` (AE2's card 1, an addon's its own),
+    /// 0 with none.
+    pub fn energy_card_multiplier(&self) -> u32 {
+        let defs = crate::ae2x::defs::get();
+        self.slots.iter().flatten().map(|card| defs.energy_card_multiplier(&card.item)).sum()
+    }
     pub fn insert_one(&mut self, card: &ItemStack) -> bool {
         let count = self
             .slots
@@ -169,24 +176,22 @@ impl Inventory {
         }
         // Source onUpgradesChanged resets capacity and permanently clamps
         // excess charge; removing and reinstalling a card cannot restore it.
-        let energy_cards = self
-            .slots
-            .iter()
-            .flatten()
-            .filter(|s| s.item.as_ref() == "ae2:energy_card")
-            .count() as f64;
+        // setAEMaxPowerMultiplier(stack, 1 + getEnergyCardMultiplier × 8) on
+        // portable cells, the colour applicator and the matter cannon;
+        // 1 + getEnergyCardMultiplier on wireless terminals.
+        let multiplier = f64::from(self.energy_card_multiplier());
         let power = if let Some((base, _)) = crate::ae2_powered_items::profile(stack) {
-            Some((base, base * (1.0 + 8.0 * energy_cards), "ae2:stored_energy"))
+            Some((base, base * (1.0 + 8.0 * multiplier), "ae2:stored_energy"))
         } else if stack.item.starts_with("ae2:portable_") {
             Some((
                 crate::ae2_common_config::batteries().portable_cell,
-                crate::ae2_common_config::batteries().portable_cell * (1.0 + 8.0 * energy_cards),
+                crate::ae2_common_config::batteries().portable_cell * (1.0 + 8.0 * multiplier),
                 "ae2_portable_energy",
             ))
         } else if stack.item.starts_with("ae2:wireless_") {
             Some((
                 crate::ae2_common_config::wireless().terminal_capacity,
-                crate::ae2_common_config::wireless().terminal_capacity * (1.0 + energy_cards),
+                crate::ae2_common_config::wireless().terminal_capacity * (1.0 + multiplier),
                 "ae2_wireless_energy",
             ))
         } else {

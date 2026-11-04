@@ -6,10 +6,11 @@
 //! `ae2/addons/megacells/`.
 //!
 //! Slice 1: the M-tier item and fluid storage cells and their components.
-//! Slice 2: the MEGA crafting CPU blocks. The portable M cells, the bulk
-//! cell and the cells for other addons' key types come with later slices.
+//! Slice 2: the MEGA crafting CPU blocks. Slice 3: the Superdense Energy Cell
+//! and the Greater Energy Card. The portable M cells, the bulk cell and the
+//! cells for other addons' key types come with later slices.
 use super::defs::{CellDef, Defs, add_storage_cell_cards};
-use crate::ae2_world::{CraftingUnit, MachineKind};
+use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind};
 use ae2_cell_core::{Channel, Tier};
 
 pub const NAMESPACE: &str = "megacells";
@@ -54,9 +55,37 @@ pub const CRAFTING_UNITS: [CraftingUnit; 8] = [
     mega_unit("megacells:mega_crafting_monitor", MachineKind::CraftingMonitor, 0, "monitor"),
 ];
 
+/// `MEGABlocks.MEGA_ENERGY_CELL`: the Superdense Energy Cell,
+/// `new EnergyCellBlock(12800000, 3200, 12800)` with AE2's
+/// `EnergyCellBlockItem` and `EnergyCellBlockEntity`: 8 times the Dense
+/// Energy Cell's capacity, twice its charge rate.
+pub const MEGA_ENERGY_CELL: EnergyCell = EnergyCell {
+    id: "megacells:mega_energy_cell",
+    kind: MachineKind::DenseEnergyCell,
+    max_power: 12_800_000.0,
+    charge_rate: 3_200.0,
+    priority: 12_800,
+};
+/// `MEGAItems.GREATER_ENERGY_CARD`: `new EnergyCardItem(p, 8)`.
+pub const GREATER_ENERGY_CARD: &str = "megacells:greater_energy_card";
+
 pub fn register(defs: &mut Defs) {
     for unit in CRAFTING_UNITS {
         defs.add_crafting_unit(unit);
+    }
+    defs.add_energy_cell(MEGA_ENERGY_CELL);
+    defs.add_energy_card(GREATER_ENERGY_CARD, 8);
+    // MEGACells.initUpgrades: the Greater Energy Card where AE2's energy card
+    // goes on items, two at most, each card counted on its own
+    // (`Upgrades.getMaxInstallable` per card; the tooltip groups are names).
+    // AE2's portable cells (MEGA's portable M cells come with slice 4) ...
+    let portable: Vec<String> = defs.cells().filter(|cell| cell.portable).map(|cell| cell.id.clone()).collect();
+    for cell in portable {
+        defs.add_upgrade(GREATER_ENERGY_CARD, &cell, 2);
+    }
+    // ... the wireless terminals, the colour applicator and the matter cannon.
+    for host in ["ae2:wireless_terminal", "ae2:wireless_crafting_terminal", "ae2:color_applicator", "ae2:matter_cannon"] {
+        defs.add_upgrade(GREATER_ENERGY_CARD, host, 2);
     }
     for tier in TIERS {
         let size = size(tier);
@@ -151,5 +180,107 @@ mod tests {
             assert_eq!((unit.storage_bytes, unit.accelerator_threads, unit.textures), (bytes, threads, "ae2"), "{id}");
         }
         assert!(Machine::for_block("ae2:drive").unwrap().crafting_unit().is_none());
+    }
+
+    /// `MEGABlocks.MEGA_ENERGY_CELL`: `EnergyCellBlock(12800000, 3200, 12800)`,
+    /// a machine of AE2's energy cell kind; AE2's cells keep
+    /// `EnergyCellBlock(200000, 800, 200)` and `(1600000, 1600, 1600)`.
+    #[test]
+    fn superdense_energy_cell_has_megas_capacity_rate_and_priority() {
+        use crate::ae2_world::{Machine, base_id, energy_cell, is_machine_block};
+        crate::ae2x::install();
+        let machine = Machine::for_block("megacells:mega_energy_cell").unwrap();
+        assert_eq!((machine.kind, machine.id(), machine.slots.len(), machine.upgrades.len()), (MachineKind::DenseEnergyCell, "megacells:mega_energy_cell", 0, 0));
+        assert_eq!(base_id("megacells:mega_energy_cell"), "ae2:dense_energy_cell");
+        assert!(is_machine_block("megacells:mega_energy_cell"));
+        let cell = machine.energy_cell().unwrap();
+        assert_eq!((cell.max_power, cell.charge_rate, cell.priority), (12_800_000.0, 3_200.0, 12_800));
+        assert_eq!(machine.source_energy_capacity(), Some(12_800_000.0));
+        // StoredEnergyAmount.setStored on load: over-capacity clamps to the cell's own maximum.
+        let mut loaded = machine.clone();
+        loaded.set_saved_energy(20_000_000.0);
+        assert_eq!(loaded.energy, 12_800_000.0);
+        loaded.set_saved_energy(9_000_000.0);
+        assert_eq!(loaded.energy, 9_000_000.0);
+        // getStorageLevelFromFillFactor: floor(4 × clamp(fill + 0.01)), so a
+        // 1.6M charge that fills AE2's dense cell is an eighth of MEGA's.
+        assert_eq!([0.0, 1_600_000.0, 3_200_000.0, 6_400_000.0, 12_700_000.0, 12_800_000.0].map(|e| cell.storage_level(e)), [0, 0, 1, 2, 4, 4]);
+        for (id, max, rate, priority) in [("ae2:energy_cell", 200_000.0, 800.0, 200), ("ae2:dense_energy_cell", 1_600_000.0, 1_600.0, 1_600)] {
+            let cell = Machine::for_block(id).unwrap().energy_cell().copied().unwrap();
+            assert_eq!((cell.max_power, cell.charge_rate, cell.priority), (max, rate, priority), "{id}");
+            assert_eq!(cell.storage_level(1_600_000.0), 4);
+        }
+        assert!(energy_cell("megacells:mega_crafting_unit").is_none());
+        assert!(Machine::for_block("megacells:mega_crafting_unit").unwrap().energy_cell().is_none());
+    }
+
+    /// `EnergyCardItem(p, 8)` where `MEGACells.initUpgrades` puts it: two at
+    /// most on AE2's portable cells, wireless terminals, colour applicator and
+    /// matter cannon, each card counted against its own limit; nowhere else.
+    #[test]
+    fn greater_energy_card_fits_where_megas_upgrades_put_it() {
+        let mut defs = Defs::ae2();
+        register(&mut defs);
+        assert_eq!(defs.energy_card_multiplier("ae2:energy_card"), 1);
+        assert_eq!(defs.energy_card_multiplier(GREATER_ENERGY_CARD), 8);
+        assert_eq!(defs.energy_card_multiplier("ae2:speed_card"), 0);
+        let mut hosts = vec!["ae2:wireless_terminal", "ae2:wireless_crafting_terminal", "ae2:color_applicator", "ae2:matter_cannon"];
+        let portable: Vec<String> = defs.cells().filter(|c| c.portable).map(|c| c.id.clone()).collect();
+        assert_eq!(portable.len(), 10);
+        hosts.extend(portable.iter().map(String::as_str));
+        for host in hosts {
+            assert_eq!(defs.upgrade_limit(GREATER_ENERGY_CARD, host), 2, "{host}");
+            assert_eq!(defs.upgrade_limit("ae2:energy_card", host), 2, "{host}");
+        }
+        for host in ["ae2:item_storage_cell_1k", "megacells:item_storage_cell_1m", "ae2:view_cell", "ae2:vibration_chamber"] {
+            assert_eq!(defs.upgrade_limit(GREATER_ENERGY_CARD, host), 0, "{host}");
+        }
+    }
+
+    /// `Upgrades.getEnergyCardMultiplier` sums the cards' multipliers, which
+    /// each host turns into its capacity (`setAEMaxPowerMultiplier`) and charge
+    /// rate (`getChargeRate`).
+    #[test]
+    fn greater_energy_card_multiplies_item_batteries_by_eight() {
+        use crate::{ae2_powered_items as power, ae2_upgrade_inventory::Inventory, items::ItemStack};
+        crate::ae2x::install();
+        let greater = ItemStack::new(GREATER_ENERGY_CARD, 1);
+        let energy = ItemStack::new("ae2:energy_card", 1);
+        let capacity = |stack: &ItemStack, base: f64| power::component_power_value(stack, "ae2:energy_capacity", "ae2:energy_capacity", base).unwrap();
+        // Matter cannon, four slots: two of each card, 2 + 16 = 18;
+        // 200,000 × (1 + 18 × 8) AE, charged at 800 × (1 + 18) AE/t.
+        let mut cannon = ItemStack::new("ae2:matter_cannon", 1);
+        let mut cards = Inventory::read(&cannon).unwrap();
+        for card in [&greater, &greater, &energy, &energy] {
+            assert!(cards.insert_one(card));
+        }
+        assert!(!cards.insert_one(&greater), "a third greater card");
+        assert_eq!(cards.energy_card_multiplier(), 18);
+        cards.store(&mut cannon).unwrap();
+        assert_eq!(power::energy(&cannon).unwrap(), (0.0, 29_000_000.0));
+        assert_eq!(power::charge_rate(&cannon).unwrap(), 15_200.0);
+        // Colour applicator, two slots: two greater cards, 20,000 × 129 AE at 80 × 17 AE/t.
+        let mut applicator = ItemStack::new("ae2:color_applicator", 1);
+        let mut cards = Inventory::read(&applicator).unwrap();
+        assert!(cards.insert_one(&greater) && cards.insert_one(&greater));
+        assert!(!cards.insert_one(&energy), "both slots taken");
+        cards.store(&mut applicator).unwrap();
+        assert_eq!(power::energy(&applicator).unwrap(), (0.0, 2_580_000.0));
+        assert_eq!(power::charge_rate(&applicator).unwrap(), 1_360.0);
+        // Portable cell: one greater card and one of AE2's, 20,000 × (1 + 9 × 8).
+        let mut portable = ItemStack::new("ae2:portable_item_cell_1k", 1);
+        let mut cards = Inventory::read(&portable).unwrap();
+        assert!(cards.insert_one(&greater) && cards.insert_one(&energy));
+        cards.store(&mut portable).unwrap();
+        assert_eq!(capacity(&portable, 20_000.0), 1_460_000.0);
+        // Wireless terminal: 1 + getEnergyCardMultiplier, no × 8: 1.6M × 9.
+        let mut terminal = ItemStack::new("ae2:wireless_terminal", 1);
+        let mut cards = Inventory::read(&terminal).unwrap();
+        assert!(cards.insert_one(&greater));
+        cards.store(&mut terminal).unwrap();
+        assert_eq!(capacity(&terminal, 1_600_000.0), 14_400_000.0);
+        // A cell that is no portable one takes none.
+        let mut storage = Inventory::read(&ItemStack::new("ae2:item_storage_cell_1k", 1)).unwrap();
+        assert!(!storage.insert_one(&greater));
     }
 }

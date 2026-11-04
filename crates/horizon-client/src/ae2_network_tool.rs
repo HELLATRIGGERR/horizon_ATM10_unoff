@@ -16,7 +16,7 @@ pub fn is_card(id: &str) -> bool {
             | "ae2:crafting_card"
             | "ae2:equal_distribution_card"
             | "ae2:energy_card"
-    )
+    ) || crate::ae2x::defs::get().energy_card_multiplier(id) > 0
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Inventory {

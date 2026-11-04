@@ -811,6 +811,11 @@ pub enum NumericProperty {
     UseDuration {
         remaining: bool,
     },
+    /// A property a mod registers under its own namespace (NeoForge's
+    /// `RegisterRangeSelectItemModelPropertyEvent`, `ItemProperties.register`
+    /// before it), answered by [`ItemEnv::numeric_property`]: AE2's
+    /// `ae2:fill_level` of energy cells.
+    Host(String),
 }
 impl NumericProperty {
     fn decode(m: &Map<String, Value>) -> Result<Self> {
@@ -859,6 +864,7 @@ impl NumericProperty {
             "minecraft:count" => Self::Count {
                 normalize: normalize()?,
             },
+            id if !id.starts_with("minecraft:") => Self::Host(id.to_owned()),
             _ => return Err(err("unknown range dispatch property")),
         })
     }
@@ -957,6 +963,11 @@ pub trait ItemEnv {
     }
     /// `BundleItem.getFullnessDisplay`.
     fn bundle_fullness(&self, _stack: &StackView, _components: &Components) -> f32 {
+        0.0
+    }
+    /// A mod's own range dispatch property ([`NumericProperty::Host`]) of the
+    /// stack; 0 when the host knows no such property.
+    fn numeric_property(&self, _property: &str, _stack: &StackView, _components: &Components) -> f32 {
         0.0
     }
     /// Additional component predicate types supplied by the host.
@@ -1466,6 +1477,9 @@ impl Resolve<'_> {
                 }
                 _ => 0.0,
             },
+            NumericProperty::Host(property) => {
+                self.env.numeric_property(property, self.stack, self.components)
+            }
         }
     }
     /// `Time.calculate` (through `NeedleDirectionHelper.get`).

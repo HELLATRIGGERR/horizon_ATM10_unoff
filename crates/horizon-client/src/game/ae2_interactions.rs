@@ -98,7 +98,8 @@ impl Game<'_> {
 }
 
 /// AE2 portable-cell battery helpers. Energy is stored on the actual item;
-/// 20,000 AE base and each energy card adds 8x the base capacity.
+/// 20,000 AE base and each point of energy-card multiplier adds 8x the base
+/// capacity. Returns `Upgrades.getEnergyCardMultiplier` of the cell's cards.
 fn portable_energy_cards(stack: &ItemStack) -> Result<u32, String> {
     if stack.count != 1 {
         return Err("portable cell must be unstackable".into());
@@ -112,7 +113,7 @@ fn portable_energy_cards(stack: &ItemStack) -> Result<u32, String> {
         return Err("unsupported portable cell".into());
     }
     let cards=horizon_client::ae2_upgrade_inventory::Inventory::read(stack)?;
-    Ok(cards.slots.iter().flatten().filter(|card|card.item.as_ref()=="ae2:energy_card").count() as u32)
+    Ok(cards.energy_card_multiplier())
 }
 pub(super) fn portable_energy(stack: &ItemStack) -> Result<(f64, f64), String> {
     let _=portable_energy_cards(stack)?;
@@ -120,6 +121,7 @@ pub(super) fn portable_energy(stack: &ItemStack) -> Result<(f64, f64), String> {
     let power = horizon_client::ae2_powered_items::component_power_value(stack, "ae2:stored_energy", "ae2_portable_energy", 0.0)?;
     Ok((power, max))
 }
+/// `PortableCellItem.getChargeRate`: 80 + 80 × `Upgrades.getEnergyCardMultiplier`.
 pub(super) fn portable_charge_rate(stack: &ItemStack) -> Result<f64, String> {
     Ok(80.0 * (1.0 + f64::from(portable_energy_cards(stack)?)))
 }

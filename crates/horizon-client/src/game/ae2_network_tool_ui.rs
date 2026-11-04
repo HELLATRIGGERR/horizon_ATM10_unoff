@@ -154,7 +154,7 @@ impl Game<'_> {
             let node=self.ae2_local_address(pos)?.network_pos();let state=analysis.nodes.get(&node)?;
             let component=analysis.components.get(state.component)?;
             let power=analysis.power_components.get(component.power_component)?;
-            let capacity=power.positions.iter().filter_map(|p|network.nodes.get(p)).map(|d|d.kind.energy_capacity()).sum::<f64>();
+            let capacity=power.positions.iter().filter_map(|p|network.nodes.get(p)).map(|d|d.energy_capacity()).sum::<f64>();
             let mut groups=std::collections::BTreeMap::<String,usize>::new();
             for p in &component.positions {
                 let Some(address)=super::ae2_global::GridAddress::from_network(*p) else {continue;};

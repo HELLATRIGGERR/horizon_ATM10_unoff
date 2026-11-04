@@ -62,6 +62,20 @@ impl ItemEnv for Env<'_, '_> {
         }
         total as f32
     }
+    /// AE2's `InitItemModelsProperties` (and MEGA Cells'
+    /// `MEGACellsClient.initEnergyCellProps`): `ae2:fill_level` of an
+    /// `EnergyCellBlockItem`, its `getAECurrentPower / getAEMaxPower`.
+    fn numeric_property(&self, property: &str, stack: &StackView, components: &Components) -> f32 {
+        #[cfg(feature = "ae2-lab")]
+        if property == "ae2:fill_level"
+            && let Some(cell) = horizon_client::ae2_world::energy_cell(&stack.item)
+        {
+            let stored = components.get("ae2:stored_energy").and_then(Value::as_f64).unwrap_or(0.0);
+            return (stored / cell.max_power) as f32;
+        }
+        let _ = (property, stack, components);
+        0.0
+    }
     fn has_shift_down(&self) -> bool {
         self.game.has_shift_down()
     }

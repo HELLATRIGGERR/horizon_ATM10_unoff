@@ -314,11 +314,12 @@ pub(super) fn charger_chargeable(stack:&ItemStack)->bool {
         || energy_cell_item(&single).is_some()
 }
 /// EnergyCellBlockItem, an IAEItemPowerStorage the Charger fills: its
-/// block's max power and charge rate per tick (AEBlocks.ENERGY_CELL and
-/// DENSE_ENERGY_CELL).
+/// block's max power and charge rate per tick (`EnergyCellBlock.getMaxPower`
+/// and `getChargeRate`, from the registry's energy cell rows: AE2's and the
+/// addons').
 fn energy_cell_item(stack:&ItemStack)->Option<(f64,f64)> {
     if stack.count!=1 {return None;}
-    match stack.item.as_ref() {"ae2:energy_cell"=>Some((200_000.0,800.0)),"ae2:dense_energy_cell"=>Some((1_600_000.0,1_600.0)),_=>None}
+    horizon_client::ae2_world::energy_cell(&stack.item).map(|cell|(cell.max_power,cell.charge_rate))
 }
 pub(super) fn is_energy_cell_item(stack:&ItemStack)->bool {energy_cell_item(stack).is_some()}
 /// EnergyCellBlockItem.getAECurrentPower and getAEMaxPower.
@@ -1180,6 +1181,22 @@ mod push_out_and_charge_tests {
         dense.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(1_590_000f64.to_bits())));
         assert_eq!(energy_cell_insert(&mut dense,16_000.0).unwrap(),10_000.0);
         assert_eq!(energy_cell_energy(&dense).unwrap(),(1_600_000.0,1_600_000.0));
+    }
+    /// MEGA's Superdense Energy Cell is AE2's EnergyCellBlockItem on
+    /// EnergyCellBlock(12800000, 3200, 12800): a Charger fills it 32,000 AE a
+    /// cycle, past the dense cell's 1.6M up to its own 12.8M.
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn charger_fills_the_superdense_cell_at_megas_rate() {
+        horizon_client::ae2x::install();
+        let mut cell=simple_stack("megacells:mega_energy_cell");
+        assert!(charger_chargeable(&cell));
+        assert_eq!(energy_cell_charge_rate(&cell).unwrap()*10.0,32_000.0);
+        cell.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(1_600_000f64.to_bits())));
+        assert_eq!(energy_cell_insert(&mut cell,32_000.0).unwrap(),32_000.0);
+        cell.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(12_790_000f64.to_bits())));
+        assert_eq!(energy_cell_insert(&mut cell,32_000.0).unwrap(),10_000.0);
+        assert_eq!(energy_cell_energy(&cell).unwrap(),(12_800_000.0,12_800_000.0));
     }
 }
 

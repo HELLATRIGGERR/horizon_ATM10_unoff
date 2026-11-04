@@ -6362,6 +6362,13 @@ impl Game<'_> {
             self.pending.record_saved(pos, &tag);
         }
         self.creaking_heart_broken(pos, true);
+        // AEBaseEntityBlock.getDrops: an energy cell's exportSettings
+        // (DISMANTLE_ITEM) puts its stored AE on the dropped cell.
+        #[cfg(feature = "ae2-lab")]
+        let cell_energy = match self.world.block_entities.get(&key) {
+            Some(BlockEntity::Ae2(m)) if m.kind.is_energy_cell() && m.energy > 0.0 => Some(m.energy),
+            _ => None,
+        };
         let hive = match self.world.block_entities.get(&key) {
             Some(BlockEntity::Beehive(h)) => self.hive_state(pos).map(|s| ((**h).clone(), s)),
             _ => None,
@@ -6428,7 +6435,14 @@ impl Game<'_> {
                 if let Some(p) = self.player.as_mut() {
                     p.cause_food_exhaustion(0.005);
                 }
-                let drops = self.block_loot_at(pos, state, held.as_ref(), loot_entity);
+                #[allow(unused_mut)]
+                let mut drops = self.block_loot_at(pos, state, held.as_ref(), loot_entity);
+                #[cfg(feature = "ae2-lab")]
+                if let Some(energy) = cell_energy
+                    && let Some(block) = drops.iter_mut().find(|d| d.item.as_ref() == facts.name.as_ref())
+                {
+                    block.data_mut().set_other("ae2:stored_energy", Some(horizon_world::nbt::Tag::Double(energy.to_bits())));
+                }
                 let silk = held
                     .as_ref()
                     .is_some_and(|h| h.enchantment_level("minecraft:silk_touch") > 0);

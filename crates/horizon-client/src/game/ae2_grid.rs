@@ -32,6 +32,11 @@ pub(super) fn face_index(face: &str) -> Option<u8> {
         _ => return None,
     })
 }
+/// `EnergyCellBlock.getMaxPower` of an energy cell, AE2's or an addon's: its
+/// grid device's stored-energy maximum.
+pub(super) fn cell_capacity(m: &Machine) -> Option<f64> {
+    m.energy_cell().map(|cell| cell.max_power)
+}
 pub(super) fn kind(m: &Machine) -> Option<DeviceKind> {
     Some(match m.kind {
         MachineKind::Controller => DeviceKind::Controller,
@@ -167,6 +172,7 @@ impl Game<'_> {
                         continue;
                     };
                     let mut d = Device::new(device_kind);
+                    d.energy_capacity_override = cell_capacity(m);
                     let Some(address) = self.ae2_dimension_address(dim, p) else { continue };
                     let Some(host_identity) = world.block_entities.incarnation(&p) else { continue };
                     let network_pos = address.network_pos();
@@ -195,7 +201,7 @@ impl Game<'_> {
                         super::ae2_channels::node_mode(&m.config, if m.kind == MachineKind::DebugPhantomNode { "proxy" } else { "gn" }),
                         self.ae2_committed_channels.forced_mode(identity),
                     );
-                    d.energy = m.energy.min(d.kind.energy_capacity()).max(0.0);
+                    d.energy = m.energy.min(d.energy_capacity()).max(0.0);
                     if matches!(m.kind, MachineKind::Drive | MachineKind::Chest) {
                         let cell_idle = m
                             .slots
@@ -515,7 +521,7 @@ impl Game<'_> {
     pub(super) fn ae2_commit_power(&mut self, n: &Network) {
         let observed = self.ae2_sync_events();
         for (p, d) in &n.nodes {
-            if d.kind.energy_capacity() == 0.0 {
+            if d.energy_capacity() == 0.0 {
                 continue;
             }
             let Some(address) = super::ae2_global::GridAddress::from_network(*p) else {
@@ -595,14 +601,14 @@ impl Game<'_> {
     pub(super) fn ae2_power_room(&mut self, pos: WorldPos) -> f64 {
         let Some(address)=self.ae2_local_address(pos) else {return 0.0;};
         let network=self.ae2_network();
-        let upper = network.nodes.values().map(|node|node.kind.energy_capacity()).sum::<f64>()
+        let upper = network.nodes.values().map(|node|node.energy_capacity()).sum::<f64>()
             + self.ae2_live_events.borrow().energy.lifecycle.services.values().map(|service|service.local_capacity()).sum::<f64>()
             + if network.nodes.values().any(|node|node.kind==DeviceKind::CreativeEnergyCell) { super::ae2_energy_service::CREATIVE_STORED } else {0.0};
         if upper.is_finite() && let Ok(room)=self.ae2_energy_transaction(address,None,upper,true,true) {return room;}
         let Ok(analysis)=network.analyze() else {return 0.0;};
         let Some(status)=analysis.nodes.get(&address.network_pos()) else {return 0.0;};
         let power=&analysis.power_components[analysis.components[status.component].power_component];
-        power.positions.iter().filter_map(|p|network.nodes.get(p)).map(|node|(node.kind.energy_capacity()-node.energy).max(0.0)).sum()
+        power.positions.iter().filter_map(|p|network.nodes.get(p)).map(|node|(node.energy_capacity()-node.energy).max(0.0)).sum()
     }
     pub(super) fn ae2_add_power_encoded(
         &mut self,

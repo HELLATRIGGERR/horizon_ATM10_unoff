@@ -302,15 +302,18 @@ pub fn energy(stack: &ItemStack) -> Result<(f64, f64), String> {
 }
 pub fn charge_rate(stack: &ItemStack) -> Result<f64, String> {
     let (_, rate) = profile(stack).ok_or("not an AE2 powered tool")?;
-    let (cards, _) = tool_upgrades(stack)?;
-    Ok(rate * (1.0 + f64::from(cards)))
+    let (multiplier, _) = tool_upgrades(stack)?;
+    // MatterCannonItem / ColorApplicatorItem.getChargeRate:
+    // rate + rate × Upgrades.getEnergyCardMultiplier.
+    Ok(rate * (1.0 + f64::from(multiplier)))
 }
-/// Source physical upgrade limits. Returns (energy multiplier, speed cards).
-pub fn tool_upgrades(stack: &ItemStack) -> Result<(u8, u8), String> {
+/// Source physical upgrade limits. Returns (energy multiplier, speed cards):
+/// `Upgrades.getEnergyCardMultiplier` and the installed speed cards.
+pub fn tool_upgrades(stack: &ItemStack) -> Result<(u32, u8), String> {
     if !matches!(stack.item.as_ref(),"ae2:matter_cannon" | "ae2:color_applicator") {return Ok((0,0));}
     let inventory=crate::ae2_upgrade_inventory::Inventory::read(stack)?;
-    let count=|id:&str|inventory.slots.iter().flatten().filter(|card|card.item.as_ref()==id).count() as u8;
-    Ok((count("ae2:energy_card"),count("ae2:speed_card")))
+    let speed=inventory.slots.iter().flatten().filter(|card|card.item.as_ref()=="ae2:speed_card").count() as u8;
+    Ok((inventory.energy_card_multiplier(),speed))
 }
 pub fn transfer(
     stack: &mut ItemStack,

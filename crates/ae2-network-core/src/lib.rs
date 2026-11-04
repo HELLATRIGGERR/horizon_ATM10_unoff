@@ -231,6 +231,11 @@ pub struct Device {
     pub idle_override: Option<f64>,
     #[serde(default)]
     pub capacity_override: Option<usize>,
+    /// The stored-energy maximum of an energy cell whose block is not one of
+    /// AE2's two (`EnergyCellBlock.getMaxPower`, an addon's cell); the kind's
+    /// otherwise.
+    #[serde(default)]
+    pub energy_capacity_override: Option<f64>,
     #[serde(default)]
     pub channel_override: Option<bool>,
     /// A persisted forced channel mode from this node, if any.
@@ -258,6 +263,7 @@ impl Device {
             attached: Vec::new(),
             idle_override: None,
             capacity_override: None,
+            energy_capacity_override: None,
             channel_override: None,
             channel_mode_override: None,
             part_channel_modes: BTreeMap::new(),
@@ -265,6 +271,11 @@ impl Device {
     }
     fn idle(&self) -> f64 {
         self.idle_override.unwrap_or_else(|| self.kind.idle())
+    }
+    /// The AE this device stores at most: its own cell's, or its kind's.
+    pub fn energy_capacity(&self) -> f64 {
+        self.energy_capacity_override
+            .unwrap_or_else(|| self.kind.energy_capacity())
     }
     fn capacity(&self) -> usize {
         self.capacity_override
@@ -693,9 +704,10 @@ impl Network {
         if self.nodes.values().any(|d| {
             !d.energy.is_finite()
                 || d.energy < 0.0
-                || d.energy > d.kind.energy_capacity()
+                || d.energy > d.energy_capacity()
                 || d.faces & !63 != 0
                 || d.idle_override.is_some_and(|v| !v.is_finite() || v < 0.0)
+                || d.energy_capacity_override.is_some_and(|v| !v.is_finite() || v < 0.0)
                 || d.capacity_override.is_some_and(|v| v > 32)
                 || (!d.attached.is_empty() && !d.kind.carries())
                 || d.part_channel_modes
@@ -972,7 +984,7 @@ impl Network {
         let mut remaining = amount;
         for p in group {
             let d = self.nodes.get_mut(&p).unwrap();
-            let accepted = remaining.min(d.kind.energy_capacity() - d.energy);
+            let accepted = remaining.min(d.energy_capacity() - d.energy);
             d.energy += accepted;
             remaining -= accepted;
         }
@@ -1428,6 +1440,23 @@ mod tests {
         n.committed_channels = Some(CommittedChannels::capture(&n, &initial));
         n.part_identities.insert((p, 5), identity(12));
         assert!(!n.analyze().unwrap().nodes[&p].parts[&5].channel);
+    }
+    /// An addon's cell (MEGA's Superdense, `EnergyCellBlock(12800000, ...)`)
+    /// keeps its own maximum on a kind of AE2's: it holds and takes more than
+    /// the kind's 1,600,000 AE, and no more than its own.
+    #[test]
+    fn energy_capacity_override_bounds_a_cell_of_an_addon() {
+        let mut network = Network::default();
+        let at = Pos { x: 0, y: 0, z: 0 };
+        let mut cell = Device::new(DeviceKind::DenseEnergyCell);
+        cell.energy_capacity_override = Some(12_800_000.0);
+        cell.energy = 2_000_000.0;
+        network.nodes.insert(at, cell);
+        network.validate().unwrap();
+        assert_eq!(network.insert_energy(at, 20_000_000.0).unwrap(), 10_800_000.0);
+        assert_eq!(network.nodes[&at].energy, 12_800_000.0);
+        network.nodes.get_mut(&at).unwrap().energy_capacity_override = None;
+        assert!(network.validate().is_err(), "over the kind's own maximum without the override");
     }
     #[test]
     fn quartz_overlay_shares_energy_without_merging_grids_or_channels() {
@@ -2121,7 +2150,7 @@ impl VibrationChamber {
                 .iter()
                 .map(|p| {
                     let d = &network.nodes[p];
-                    d.kind.energy_capacity() - d.energy
+                    d.energy_capacity() - d.energy
                 })
                 .sum();
             if free >= 1.0 {

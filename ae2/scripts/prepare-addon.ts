@@ -106,10 +106,24 @@ if (!help(usage)) {
       ...(spec.fire_resistant ? { components: fireResistant } : {}),
     });
   }
+  // An item model whose 1.21.1 `overrides` all test one mod property (AE2's `ae2:fill_level` on an energy cell)
+  // becomes the 26.3 form of the same choice: a range dispatch on that property, the highest threshold reached
+  // winning as the last matching override did; the model itself is the fallback.
+  const itemModel = (path: string): unknown => {
+    const base = { type: 'minecraft:model', model: `${ns}:item/${path}` };
+    const overrides = read(join(assets, 'models/item', path + '.json')).overrides as { model: string; predicate: Record<string, number> }[] | undefined;
+    const keys = new Set((overrides ?? []).flatMap(o => Object.keys(o.predicate)));
+    if (!overrides?.length || keys.size !== 1 || overrides.some(o => Object.keys(o.predicate).length !== 1)) return base;
+    const [property] = keys;
+    // A vanilla property's overrides (`pull`, `minecraft:...`) keep the model alone, as before.
+    if (property.startsWith('minecraft:') || !property.includes(':')) return base;
+    return { type: 'minecraft:range_dispatch', property,
+      entries: overrides.map(o => ({ threshold: o.predicate[property], model: { type: 'minecraft:model', model: o.model } })), fallback: base };
+  };
   for (const item of items) {
     const path = item.slice(ns.length + 1);
     if (!existsSync(join(assets, 'models/item', path + '.json'))) throw new Error(`${item} has no item model in the jar`);
-    put(join(out, 'assets', ns, 'items', path + '.json'), { model: { type: 'minecraft:model', model: `${ns}:item/${path}` } });
+    put(join(out, 'assets', ns, 'items', path + '.json'), { model: itemModel(path) });
   }
 
   // Recipes: those of the declared items only, in their 1.21.1 form, which

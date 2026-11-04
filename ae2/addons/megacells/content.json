@@ -1,11 +1,12 @@
 {
   "namespace": "megacells",
   "name": "MEGA Cells",
-  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2).",
+  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2), the Superdense Energy Cell and the Greater Energy Card (slice 3).",
   "authors": ["90 (MEGA Cells)"],
   "slices": [
     "1: M-tier item and fluid cells, their components and housings, Sky Steel, Sky Bronze, the Accumulation Processor",
-    "2: MEGA Crafting Unit, Co-Processing Unit, 1M-256M Crafting Storage, Crafting Monitor"
+    "2: MEGA Crafting Unit, Co-Processing Unit, 1M-256M Crafting Storage, Crafting Monitor",
+    "3: Superdense Energy Cell, Greater Energy Card"
   ],
   "items": {
     "sky_steel_ingot": {"fire_resistant": true},
@@ -29,7 +30,8 @@
     "fluid_storage_cell_4m": {"max_stack_size": 1},
     "fluid_storage_cell_16m": {"max_stack_size": 1},
     "fluid_storage_cell_64m": {"max_stack_size": 1},
-    "fluid_storage_cell_256m": {"max_stack_size": 1}
+    "fluid_storage_cell_256m": {"max_stack_size": 1},
+    "greater_energy_card": {}
   },
   "blocks": {
     "sky_steel_block": {
@@ -87,6 +89,11 @@
       "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"], "formed": ["false", "true"], "powered": ["false", "true"]},
       "state_defaults": {"facing": "north", "spin": "0", "formed": "false", "powered": "false"},
       "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "mega_energy_cell": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:glass"},
+      "state_properties": {"fullness": ["0", "1", "2", "3", "4"]},
+      "state_defaults": {"fullness": "0"}
     }
   }
 }

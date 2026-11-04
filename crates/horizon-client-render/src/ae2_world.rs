@@ -354,6 +354,64 @@ impl MachineKind {
                 | Self::CraftingMonitor
         )
     }
+    /// AE2's energy cell kinds: what an `EnergyCellBlock` of any mod behaves as.
+    pub fn is_energy_cell(self) -> bool {
+        matches!(self, Self::EnergyCell | Self::DenseEnergyCell)
+    }
+}
+/// An energy cell: AE2's `EnergyCellBlock(maxPower, chargeRate, priority)`
+/// with its `EnergyCellBlockItem` and `EnergyCellBlockEntity`. AE2's own are
+/// [`AE2_ENERGY_CELLS`]; an addon's are installed with
+/// [`install_energy_cells`], each also a [`MachineVariant`] of AE2's cell of
+/// the same kind, so the grid, the Charger and the drops treat them alike.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EnergyCell {
+    /// The block's id, which is also its item's.
+    pub id: &'static str,
+    /// AE2's kind it behaves as.
+    pub kind: MachineKind,
+    /// `EnergyCellBlock.getMaxPower`: the block entity's `StoredEnergyAmount`
+    /// maximum and the item's `getAEMaxPower`, in AE.
+    pub max_power: f64,
+    /// `EnergyCellBlock.getChargeRate`: the item's `getChargeRate`, AE a tick
+    /// a Charger puts in.
+    pub charge_rate: f64,
+    /// `EnergyCellBlock.getPriority`: the block entity's `IAEPowerStorage`
+    /// priority in the grid's energy service.
+    pub priority: i32,
+}
+impl EnergyCell {
+    /// `EnergyCellBlockEntity.getStorageLevelFromFillFactor`: the `fullness`
+    /// of the block's state, 0 to `EnergyCellBlock.MAX_FULLNESS` (4), for
+    /// `stored` AE.
+    pub fn storage_level(&self, stored: f64) -> u8 {
+        (4.0 * (stored / self.max_power + 0.01).clamp(0.0, 1.0)).floor() as u8
+    }
+}
+/// AE2 19.2.18's `AEBlocks.ENERGY_CELL` and `DENSE_ENERGY_CELL`.
+pub const AE2_ENERGY_CELLS: [EnergyCell; 2] = [
+    EnergyCell { id: "ae2:energy_cell", kind: MachineKind::EnergyCell, max_power: 200_000.0, charge_rate: 800.0, priority: 200 },
+    EnergyCell {
+        id: "ae2:dense_energy_cell",
+        kind: MachineKind::DenseEnergyCell,
+        max_power: 1_600_000.0,
+        charge_rate: 1_600.0,
+        priority: 1_600,
+    },
+];
+static ENERGY_CELLS: std::sync::OnceLock<Vec<EnergyCell>> = std::sync::OnceLock::new();
+/// The addons' energy cells, installed once at start-up before any world
+/// loads; a second call keeps the first table.
+pub fn install_energy_cells(cells: Vec<EnergyCell>) {
+    let _ = ENERGY_CELLS.set(cells);
+}
+/// Every energy cell: AE2's, then the installed addons'.
+pub fn energy_cells() -> impl Iterator<Item = &'static EnergyCell> {
+    AE2_ENERGY_CELLS.iter().chain(ENERGY_CELLS.get().map_or(&[][..], Vec::as_slice))
+}
+/// The energy cell block or item `id`, AE2's or an addon's.
+pub fn energy_cell(id: &str) -> Option<&'static EnergyCell> {
+    energy_cells().find(|cell| cell.id == id)
 }
 /// How many patterns a Pattern Provider of any built-in size holds at most.
 pub fn max_provider_slots() -> usize {
@@ -422,6 +480,14 @@ impl Machine {
         }
         crafting_unit(self.id())
     }
+    /// The energy cell this is, AE2's or an addon's: its capacity, charge
+    /// rate and priority (`EnergyCellBlock`).
+    pub fn energy_cell(&self) -> Option<&'static EnergyCell> {
+        if !self.kind.is_energy_cell() {
+            return None;
+        }
+        energy_cell(self.id())
+    }
     /// The size of `upgrades`.
     pub fn upgrade_slots(&self) -> usize {
         self.variant.map_or_else(|| self.kind.upgrade_slots(), |v| v.upgrades)
@@ -448,9 +514,7 @@ impl Machine {
         self.private_power_capacity().or(match self.kind {
             MachineKind::Controller => Some(8000.0),
             MachineKind::EnergyAcceptor => Some(0.0),
-            MachineKind::EnergyCell => Some(200_000.0),
-            MachineKind::DenseEnergyCell => Some(1_600_000.0),
-            _ => None,
+            _ => self.energy_cell().map(|cell| cell.max_power),
         })
     }
     pub fn set_saved_energy(&mut self, amount: f64) {

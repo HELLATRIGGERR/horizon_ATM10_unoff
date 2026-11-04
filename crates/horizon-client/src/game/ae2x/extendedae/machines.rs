@@ -21,12 +21,14 @@ use horizon_client::{
     items::{ItemStack, Items},
 };
 use horizon_core::{geometry::Direction, random::RandomSource};
-use horizon_world::nbt::Tag;
+use horizon_world::{
+    fluid::FluidKind,
+    fluid_ingredient::FluidIngredient,
+    fluid_stack::{FluidStack, positive_int},
+    nbt::Tag,
+};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-
-/// `Recipes::fluid_tags`: a fluid tag's members.
-type FluidTags = HashMap<String, HashSet<String>>;
+use std::collections::HashMap;
 
 /// The machine's recipe type, inputs and pace.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,11 +172,45 @@ impl<'a> Stack<'a> {
     }
 }
 
+/// One `IngredientStack.Fluid`: NeoForge's `FluidIngredient` and its amount.
+#[derive(Clone, Debug)]
+struct FluidNeed {
+    ingredient: FluidIngredient,
+    amount: u32,
+}
+impl FluidNeed {
+    /// `IngredientStack.FLUID_CODEC`: `ingredient` (`FluidIngredient.CODEC`,
+    /// against the fluid registry and its tags), `amount` (1 when absent,
+    /// positive). A fluid the registry lacks fails the recipe.
+    fn parse(v: &Value) -> Option<Self> {
+        let amount = match v.get("amount") {
+            None => 1,
+            Some(n) => u32::try_from(positive_int(n).ok()?).ok()?,
+        };
+        Some(Self { ingredient: FluidIngredient::parse(v.get("ingredient")?).ok()?, amount })
+    }
+}
+
+/// An ingredient of a recipe, item or fluid, in the order they take.
+#[derive(Clone, Copy, Debug)]
+enum Need<'r, 'a> {
+    Item(&'r Stack<'a>),
+    Fluid(&'r FluidNeed),
+}
+impl Need<'_, '_> {
+    fn amount(self) -> u32 {
+        match self {
+            Self::Item(s) => s.amount,
+            Self::Fluid(f) => f.amount,
+        }
+    }
+}
+
 /// A Crystal Assembler or Circuit Cutter recipe, as its codec reads it.
 #[derive(Clone, Debug)]
 pub(in crate::game) struct Recipe<'a> {
     items: Vec<Stack<'a>>,
-    fluid: Option<Stack<'a>>,
+    fluid: Option<FluidNeed>,
     pub(in crate::game) output: ItemStack,
 }
 impl<'a> Recipe<'a> {
@@ -185,7 +221,7 @@ impl<'a> Recipe<'a> {
             Kind::Assembler => (
                 v.get("input_items")?.as_array()?.iter().map(Stack::parse).collect::<Option<Vec<_>>>()?,
                 match v.get("input_fluid") {
-                    Some(f) => Some(Stack::parse(f)?),
+                    Some(f) => Some(FluidNeed::parse(f)?),
                     None => None,
                 },
             ),
@@ -194,6 +230,10 @@ impl<'a> Recipe<'a> {
             Kind::Fixer => return None,
         };
         Some(Self { items, fluid, output })
+    }
+    /// `RecipeExecutor`'s order: the item ingredients, then the fluid.
+    fn needs(&self) -> impl Iterator<Item = Need<'_, 'a>> {
+        self.items.iter().map(Need::Item).chain(self.fluid.iter().map(Need::Fluid))
     }
 }
 /// `ItemStack.CODEC`.
@@ -208,17 +248,12 @@ fn output_stack(v: &Value) -> Option<ItemStack> {
     }
     Some(horizon_client::crafting::Template::parse(v)?.create())
 }
-/// NeoForge's `FluidIngredient`: a fluid, a fluid tag, or a list of them.
-fn fluid_matches(tags: &FluidTags, v: &Value, fluid: &str) -> bool {
-    match v {
-        Value::Array(list) => list.iter().any(|v| fluid_matches(tags, v, fluid)),
-        _ => {
-            if let Some(id) = v.get("fluid").and_then(Value::as_str) {
-                return id == fluid;
-            }
-            v.get("tag").and_then(Value::as_str).and_then(|tag| tags.get(tag)).is_some_and(|members| members.contains(fluid))
-        }
-    }
+/// `FluidIngredient.test` on the tank's `GenericStack`, as the `FluidStack`
+/// `RecipeSearchContext` makes of it; a fluid the registry lacks matches
+/// nothing.
+fn fluid_matches(ingredient: &FluidIngredient, fluid: &str, amount: u64) -> bool {
+    FluidKind::from_name(fluid)
+        .is_some_and(|kind| ingredient.test(&FluidStack::new(kind, i32::try_from(amount).unwrap_or(i32::MAX))))
 }
 
 /// What a tester consumes from: a copied item stack, or the tank's fluid.
@@ -240,7 +275,7 @@ fn output_fits(items: &Items, slot: Option<&ItemStack>, out: &ItemStack) -> bool
 /// `testRecipe`: the output fits, then each ingredient in turn takes from
 /// copies of the inputs, in slot order, and the tank's fluid last; one that
 /// is not filled fails it.
-pub(in crate::game) fn test(kind: Kind, m: &Machine, recipe: &Recipe, items: &Items, tags: &FluidTags) -> bool {
+pub(in crate::game) fn test(kind: Kind, m: &Machine, recipe: &Recipe, items: &Items) -> bool {
     let n = kind.inputs();
     if !output_fits(items, m.slots.get(n).and_then(Option::as_ref), &recipe.output) {
         return false;
@@ -251,10 +286,10 @@ pub(in crate::game) fn test(kind: Kind, m: &Machine, recipe: &Recipe, items: &It
             copy.push(Held::Fluid(fluid, amount));
         }
     }
-    for (stack, is_fluid) in recipe.items.iter().map(|s| (s, false)).chain(recipe.fluid.iter().map(|s| (s, true))) {
-        let mut left = stack.amount;
+    for need in recipe.needs() {
+        let mut left = need.amount();
         for held in &mut copy {
-            left = consume(items, tags, stack, is_fluid, held, left);
+            left = consume(items, need, held, left);
             if left == 0 {
                 break;
             }
@@ -271,17 +306,17 @@ pub(in crate::game) fn test(kind: Kind, m: &Machine, recipe: &Recipe, items: &It
 }
 /// `IngredientStack.consume` when `checkType` holds: takes up to `left` from
 /// `held` if the ingredient matches it; gives what is still wanted.
-fn consume(items: &Items, tags: &FluidTags, stack: &Stack, is_fluid: bool, held: &mut Held, left: u32) -> u32 {
+fn consume(items: &Items, need: Need, held: &mut Held, left: u32) -> u32 {
     if left == 0 {
         return 0;
     }
-    match held {
-        Held::Item(s) if !is_fluid && s.count > 0 && json_ingredient(items, Some(stack.ingredient), Some(s)) => {
+    match (need, held) {
+        (Need::Item(stack), Held::Item(s)) if s.count > 0 && json_ingredient(items, Some(stack.ingredient), Some(s)) => {
             let taken = s.count.min(left);
             s.count -= taken;
             left - taken
         }
-        Held::Fluid(fluid, n) if is_fluid && *n > 0 && fluid_matches(tags, stack.ingredient, fluid) => {
+        (Need::Fluid(need), Held::Fluid(fluid, n)) if *n > 0 && fluid_matches(&need.ingredient, fluid, *n) => {
             let taken = (*n).min(u64::from(left));
             *n -= taken;
             left - taken as u32
@@ -291,15 +326,15 @@ fn consume(items: &Items, tags: &FluidTags, stack: &Stack, is_fluid: bool, held:
 }
 /// `runRecipe`: each ingredient takes from the input slots in order, then
 /// (the Crystal Assembler's) from the tank.
-pub(in crate::game) fn run(kind: Kind, m: &mut Machine, recipe: &Recipe, items: &Items, tags: &FluidTags) {
+pub(in crate::game) fn run(kind: Kind, m: &mut Machine, recipe: &Recipe, items: &Items) {
     let n = kind.inputs();
     let mut fluid = tank(m).map(|(id, amount)| Held::Fluid(id, amount));
-    for (stack, is_fluid) in recipe.items.iter().map(|s| (s, false)).chain(recipe.fluid.iter().map(|s| (s, true))) {
-        let mut left = stack.amount;
+    for need in recipe.needs() {
+        let mut left = need.amount();
         for slot in &mut m.slots[..n] {
             if let Some(s) = slot.take() {
                 let mut held = Held::Item(s);
-                left = consume(items, tags, stack, is_fluid, &mut held, left);
+                left = consume(items, need, &mut held, left);
                 if let Held::Item(s) = held {
                     *slot = (s.count > 0).then_some(s);
                 }
@@ -310,7 +345,7 @@ pub(in crate::game) fn run(kind: Kind, m: &mut Machine, recipe: &Recipe, items: 
         }
         if let Some(held) = fluid.as_mut() {
             if left > 0 {
-                consume(items, tags, stack, is_fluid, held, left);
+                consume(items, need, held, left);
             }
         }
     }
@@ -481,20 +516,20 @@ impl Host for GameHost<'_, '_> {
     }
     fn test(&self, m: &Machine, id: &str) -> bool {
         let (items, recipes) = (self.game.res.items(), self.game.res.recipes());
-        find(recipes, self.kind, id).is_some_and(|r| test(self.kind, m, &r, items, &recipes.fluid_tags))
+        find(recipes, self.kind, id).is_some_and(|r| test(self.kind, m, &r, items))
     }
     fn search(&self, m: &Machine) -> Option<String> {
         let (items, recipes) = (self.game.res.items(), self.game.res.recipes());
         // The recipe manager's order is its map's; here the recipes' load order.
         recipes.ae2_custom.get(self.kind.recipe_type())?.iter().find_map(|(id, v)| {
             let r = Recipe::parse(self.kind, v)?;
-            (items.get(&r.output.item).is_some() && test(self.kind, m, &r, items, &recipes.fluid_tags)).then(|| id.clone())
+            (items.get(&r.output.item).is_some() && test(self.kind, m, &r, items)).then(|| id.clone())
         })
     }
     fn finish(&mut self, m: &mut Machine, id: &str) -> bool {
         let (items, recipes) = (self.game.res.items(), self.game.res.recipes());
         let Some(r) = find(recipes, self.kind, id) else { return false };
-        run(self.kind, m, &r, items, &recipes.fluid_tags);
+        run(self.kind, m, &r, items);
         let out = &mut m.slots[self.kind.inputs()];
         match out {
             Some(s) => s.count += r.output.count,
@@ -794,9 +829,9 @@ mod tests {
     fn stack(id: &str, n: u32) -> Option<ItemStack> {
         Some(ItemStack::new(id, n))
     }
-    /// Items of 64 a stack, and no fluid tags.
-    fn data() -> (Items, FluidTags) {
-        (Items::for_tests(HashMap::new()), FluidTags::new())
+    /// Items of 64 a stack.
+    fn data() -> Items {
+        Items::for_tests(HashMap::new())
     }
     fn fluix() -> Value {
         json!({"type":"extendedae:crystal_assembler","input_fluid":{"amount":100,"ingredient":{"fluid":"minecraft:water"}},
@@ -811,7 +846,7 @@ mod tests {
 
     #[test]
     fn assembler_takes_ingredients_across_slots_and_water_from_its_tank() {
-        let (items, tags) = data();
+        let items = data();
         let v = fluix();
         let r = Recipe::parse(Kind::Assembler, &v).unwrap();
         let mut m = machine(rows::CRYSTAL_ASSEMBLER);
@@ -820,12 +855,12 @@ mod tests {
         m.slots[4] = stack("minecraft:redstone", 3);
         m.slots[8] = stack("minecraft:quartz", 4);
         // No water yet.
-        assert!(!test(Kind::Assembler, &m, &r, &items, &tags));
+        assert!(!test(Kind::Assembler, &m, &r, &items));
         set_tank(&mut m, Some(("minecraft:water", 99)));
-        assert!(!test(Kind::Assembler, &m, &r, &items, &tags));
+        assert!(!test(Kind::Assembler, &m, &r, &items));
         set_tank(&mut m, Some(("minecraft:water", 1000)));
-        assert!(test(Kind::Assembler, &m, &r, &items, &tags));
-        run(Kind::Assembler, &mut m, &r, &items, &tags);
+        assert!(test(Kind::Assembler, &m, &r, &items));
+        run(Kind::Assembler, &mut m, &r, &items);
         assert_eq!(m.slots[0], None);
         assert_eq!(m.slots[3], stack("ae2:charged_certus_quartz_crystal", 1));
         assert_eq!(m.slots[4], stack("minecraft:redstone", 1));
@@ -836,27 +871,61 @@ mod tests {
         m.slots[0] = stack("minecraft:redstone", 4);
         m.slots[1] = stack("ae2:charged_certus_quartz_crystal", 4);
         m.slots[2] = stack("minecraft:quartz", 4);
-        assert!(!test(Kind::Assembler, &m, &r, &items, &tags));
+        assert!(!test(Kind::Assembler, &m, &r, &items));
         m.slots[9] = stack("ae2:fluix_crystal", 56);
-        assert!(test(Kind::Assembler, &m, &r, &items, &tags));
+        assert!(test(Kind::Assembler, &m, &r, &items));
         // The last of the tank empties it.
         set_tank(&mut m, Some(("minecraft:water", 100)));
-        run(Kind::Assembler, &mut m, &r, &items, &tags);
+        run(Kind::Assembler, &mut m, &r, &items);
         assert_eq!(tank(&m), None);
+    }
+
+    /// The tank's fluid against NeoForge's `FluidIngredient`, by the registry
+    /// and its tags: a single fluid by identity, a tag by its members.
+    #[test]
+    fn assembler_tests_its_tank_with_the_fluid_ingredient() {
+        let items = data();
+        let fill = |m: &mut Machine| {
+            m.slots[0] = stack("minecraft:redstone", 4);
+            m.slots[1] = stack("ae2:charged_certus_quartz_crystal", 4);
+            m.slots[2] = stack("minecraft:quartz", 4);
+        };
+        let v = fluix();
+        let r = Recipe::parse(Kind::Assembler, &v).unwrap();
+        let mut m = machine(rows::CRYSTAL_ASSEMBLER);
+        fill(&mut m);
+        for other in ["minecraft:lava", "minecraft:flowing_water", "other:not_registered"] {
+            set_tank(&mut m, Some((other, 1000)));
+            assert!(!test(Kind::Assembler, &m, &r, &items), "{other} is not minecraft:water");
+        }
+        // The same recipe by the water tag (FluidIngredient's other map form) takes flowing water.
+        let mut by_tag = fluix();
+        by_tag["input_fluid"]["ingredient"] = json!({"tag": "minecraft:water"});
+        let r = Recipe::parse(Kind::Assembler, &by_tag).unwrap();
+        set_tank(&mut m, Some(("minecraft:flowing_water", 100)));
+        assert!(test(Kind::Assembler, &m, &r, &items));
+        run(Kind::Assembler, &mut m, &r, &items);
+        assert_eq!(tank(&m), None);
+        // A fluid the registry lacks, or one ingredient in two forms, fails the recipe as its codec does.
+        for bad in [json!({"fluid": "other:not_registered"}), json!({"fluid": "minecraft:water", "tag": "c:water"})] {
+            let mut v = fluix();
+            v["input_fluid"]["ingredient"] = bad;
+            assert!(Recipe::parse(Kind::Assembler, &v).is_none());
+        }
     }
 
     #[test]
     fn cutter_reads_its_single_input() {
-        let (items, tags) = data();
+        let items = data();
         let v = json!({"type":"extendedae:circuit_cutter","input":{"ingredient":{"item":"minecraft:glass"},"amount":2},"output":{"id":"ae2:printed_silicon","count":9}});
         let r = Recipe::parse(Kind::Cutter, &v).unwrap();
         assert_eq!(r.output.count, 9);
         let mut m = machine(rows::CIRCUIT_CUTTER);
         m.slots[0] = stack("minecraft:glass", 1);
-        assert!(!test(Kind::Cutter, &m, &r, &items, &tags));
+        assert!(!test(Kind::Cutter, &m, &r, &items));
         m.slots[0] = stack("minecraft:glass", 3);
-        assert!(test(Kind::Cutter, &m, &r, &items, &tags));
-        run(Kind::Cutter, &mut m, &r, &items, &tags);
+        assert!(test(Kind::Cutter, &m, &r, &items));
+        run(Kind::Cutter, &mut m, &r, &items);
         assert_eq!(m.slots[0], stack("minecraft:glass", 1));
     }
 
@@ -941,7 +1010,7 @@ mod tests {
 
     #[test]
     fn fixer_recipes_read_their_blocks_fuel_and_chance() {
-        let (items, _) = data();
+        let items = data();
         let v = json!({"input":{"id":"ae2:flawed_budding_quartz","count":1},"output":{"id":"ae2:flawless_budding_quartz","count":1},"fuel":{"ingredient":{"item":"ae2:charged_certus_quartz_crystal"}},"chance":500});
         let r = FixerRecipe::parse(&v).unwrap();
         assert!(r.test("ae2:flawed_budding_quartz", stack("ae2:charged_certus_quartz_crystal", 1).as_ref(), &items));

@@ -5,6 +5,7 @@
 //! tanks hold and what fluid handlers move (docs/mod-fluids.md, slice 5).
 use crate::fluid::FluidKind;
 use crate::nbt::{Compound, JavaString, Tag};
+use serde_json::Value;
 
 /// `FluidType.BUCKET_VOLUME`: millibuckets in a bucket.
 pub const BUCKET_VOLUME: i32 = 1000;
@@ -131,9 +132,10 @@ impl FluidStack {
     }
 
     /// `is(TagKey<Fluid>)`: a content mod's fluid by its registry entry's
-    /// tags; vanilla's water and lava by `minecraft:water` and
-    /// `minecraft:lava` and NeoForge's `c:water` and `c:lava`, which hold
-    /// them (`Tags.Fluids`). The empty fluid is in no tag.
+    /// tags; vanilla's fluids by the root's tags they are in
+    /// ([`crate::mod_fluids::vanilla_in_tag`]: at least `minecraft:water`
+    /// and `minecraft:lava` and NeoForge's `c:water` and `c:lava`). The empty
+    /// fluid is in no tag.
     pub fn is_tag(&self, tag: &str) -> bool {
         fluid_in_tag(self.fluid(), tag)
     }
@@ -231,6 +233,106 @@ impl FluidStack {
         }
         Self::parse(&Tag::Compound(tag.clone())).unwrap_or(Self::EMPTY)
     }
+
+    /// `FluidStack.CODEC` reading a recipe's JSON (a result: Mekanism's
+    /// `{"id": "mekanism:brine", "amount": 1}`): `id` a registered fluid
+    /// other than `minecraft:empty` (`FLUID_NON_EMPTY_CODEC`), `amount` a
+    /// positive int, `components` an optional `DataComponentPatch`, kept as
+    /// its NBT (`JsonOps.convertTo(NbtOps)`). The codec's error otherwise.
+    pub fn from_json(v: &Value) -> Result<Self, String> {
+        let o = v.as_object().ok_or_else(|| format!("Not a map: {v}"))?;
+        let fluid = fluid_from_json(o.get("id").ok_or("No key id in MapLike")?)?;
+        let amount = positive_int(o.get("amount").ok_or("No key amount in MapLike")?)?;
+        Ok(Self {
+            fluid,
+            amount,
+            components: component_patch(o.get("components"))?,
+        })
+    }
+
+    /// `FluidStack.OPTIONAL_CODEC` (`ExtraCodecs.optionalEmptyMap`): `{}` is
+    /// the empty stack, anything else as [`FluidStack::from_json`].
+    pub fn from_json_optional(v: &Value) -> Result<Self, String> {
+        match v.as_object() {
+            Some(o) if o.is_empty() => Ok(Self::EMPTY),
+            _ => Self::from_json(v),
+        }
+    }
+
+    /// `FluidStack.fixedAmountCodec(amount)`: `id` and `components` only.
+    pub fn from_json_fixed_amount(v: &Value, amount: i32) -> Result<Self, String> {
+        let o = v.as_object().ok_or_else(|| format!("Not a map: {v}"))?;
+        Ok(Self {
+            fluid: fluid_from_json(o.get("id").ok_or("No key id in MapLike")?)?,
+            amount,
+            components: component_patch(o.get("components"))?,
+        })
+    }
+}
+
+/// `FluidStack.FLUID_NON_EMPTY_CODEC` (`BuiltInRegistries.FLUID.holderByNameCodec()`,
+/// not `minecraft:empty`): a fluid of the registry by its id, a bare path
+/// being `minecraft:`'s.
+pub fn fluid_from_json(v: &Value) -> Result<FluidKind, String> {
+    let id = v.as_str().ok_or_else(|| format!("Not a string: {v}"))?;
+    let valid = |s: &str, extra: &str| {
+        !s.is_empty()
+            && s.chars().all(|c| {
+                c.is_ascii_lowercase()
+                    || c.is_ascii_digit()
+                    || "_-.".contains(c)
+                    || extra.contains(c)
+            })
+    };
+    let name = match id.split_once(':') {
+        Some((ns, path)) if valid(ns, "") && valid(path, "/") => id.to_owned(),
+        None if valid(id, "/") => format!("minecraft:{id}"),
+        _ => return Err(format!("Not a valid resource location: {id}")),
+    };
+    match FluidKind::from_name(&name) {
+        Some(FluidKind::Empty) => Err("Fluid must not be minecraft:empty".into()),
+        Some(kind) => Ok(kind),
+        None => Err(format!(
+            "Unknown registry key in ResourceKey[minecraft:root / minecraft:fluid]: {name}"
+        )),
+    }
+}
+
+/// `ExtraCodecs.POSITIVE_INT` on JSON: `Codec.INT` (a number's `intValue`,
+/// a boolean as 1 or 0), above zero.
+pub fn positive_int(v: &Value) -> Result<i32, String> {
+    let n = match v {
+        Value::Number(n) => match n.as_i64() {
+            Some(i) => i as i32,
+            None => n.as_f64().map_or(0, |d| d as i32),
+        },
+        Value::Bool(b) => i32::from(*b),
+        _ => return Err(format!("Not a number: {v}")),
+    };
+    if n > 0 {
+        Ok(n)
+    } else {
+        Err(format!("Value must be positive: {n}"))
+    }
+}
+
+/// A recipe's JSON as NBT, `JsonOps.convertTo(NbtOps)`: how a component
+/// value from a recipe meets the NBT a stack keeps.
+pub fn json_to_nbt(v: &Value) -> Option<Tag> {
+    let text: Vec<u16> = v.to_string().encode_utf16().collect();
+    crate::datafix::json::to_nbt(&crate::datafix::json::parse_strict(&text)?)
+}
+
+/// `DataComponentPatch.CODEC`'s map, optional (absent: no patch), as NBT.
+fn component_patch(v: Option<&Value>) -> Result<Compound, String> {
+    match v {
+        None => Ok(Compound::new()),
+        Some(v @ Value::Object(_)) => match json_to_nbt(v) {
+            Some(Tag::Compound(patch)) => Ok(patch),
+            _ => Err(format!("Not a component patch: {v}")),
+        },
+        Some(v) => Err(format!("Not a map: {v}")),
+    }
 }
 
 /// [`FluidStack::is_tag`] for a fluid.
@@ -241,11 +343,7 @@ pub fn fluid_in_tag(fluid: FluidKind, tag: &str) -> bool {
     if let Some(m) = fluid.mod_fluid() {
         return m.in_tag(fluid, tag);
     }
-    match tag {
-        "minecraft:water" | "c:water" => fluid.is_water(),
-        "minecraft:lava" | "c:lava" => fluid.is_lava(),
-        _ => false,
-    }
+    crate::mod_fluids::vanilla_in_tag(fluid, tag)
 }
 
 /// `FluidType.getBucket` (`FluidUtil.getFilledBucket`): the bucket a fluid's

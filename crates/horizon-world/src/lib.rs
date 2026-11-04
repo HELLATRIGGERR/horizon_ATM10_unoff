@@ -54,6 +54,7 @@ pub mod fall_damage;
 pub mod fluid;
 pub mod fluid_box;
 pub mod fluid_flow;
+pub mod fluid_ingredient;
 pub mod fluid_occupancy;
 pub mod fluid_shape;
 pub mod fluid_stack;

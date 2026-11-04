@@ -141,20 +141,30 @@ pub fn mod_fluid(
 }
 
 /// Registers `fluids` (those of a root [`load_root`] gave) after vanilla's,
-/// with the fluid tags of `root`: once per process, as the mods' mob effects
-/// are. False when fluids were already registered.
+/// with the fluid tags of `root` (theirs, and vanilla's fluids' own: the full
+/// pack's `create:bottomless/allow` holds water): once per process, as the
+/// mods' mob effects are. False when fluids were already registered.
 pub fn register_mod_fluids(root: &Path, fluids: &[Fluid]) -> bool {
     let known: BTreeSet<&str> = fluids
         .iter()
         .flat_map(|f| [f.id.as_str(), f.flowing.as_str()])
         .chain(horizon_world::fluid::FluidKind::ALL.iter().map(|k| k.name()))
         .collect();
-    let tags = horizon_world::mod_fluids::fluid_tags_in(root, &|id| known.contains(id))
+    let lists = horizon_world::mod_fluids::fluid_tag_lists_in(root, &|id| known.contains(id))
         .unwrap_or_else(|e| {
             log::warn!("Horizon: the mods' fluid tags not read: {e}");
             BTreeMap::new()
         });
-    horizon_world::mod_fluids::register_mod_fluids(fluids.iter().map(|f| mod_fluid(f, &tags)))
+    let mut tags: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (tag, members) in &lists {
+        for fluid in members {
+            tags.entry(fluid.clone()).or_default().push(tag.clone());
+        }
+    }
+    horizon_world::mod_fluids::register_fluids(
+        fluids.iter().map(|f| mod_fluid(f, &tags)),
+        Some(&lists),
+    )
 }
 
 /// JSON with its object keys in file order, so a rewritten table differs

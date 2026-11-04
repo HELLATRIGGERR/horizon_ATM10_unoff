@@ -91,10 +91,20 @@ try {
   fixture.mark('its screen fills the tank from buckets and takes four speed cards');
 
   // Fluix: four each of charged certus, redstone and quartz and 100 mB of water make eight.
+  // Its fluid is NeoForge's FluidIngredient `{"fluid": "minecraft:water"}`: two buckets of lava in the tank make nothing.
+  await fixture.command(`data merge block ${assembler} {ae2_lab_config:{tank_in:{id:"minecraft:lava",amount:2000L}}}`);
+  assert.match(await contents(assembler), /tank_in: \{[^}]*minecraft:lava/, 'lava in the tank');
   for (const [i, id] of ['ae2:charged_certus_quartz_crystal', 'minecraft:redstone', 'minecraft:quartz'].entries()) {
     await fixture.command(`item replace block ${assembler} container.${i} with ${id} 4`);
   }
   const before = await gridEnergy();
+  await fixture.step(60);
+  const idle = await contents(assembler);
+  assert.doesNotMatch(idle, /ae2:fluix_crystal/, 'no fluix from lava');
+  assert.match(idle, /amount: 2000L/, 'the lava untouched');
+  assert.equal(await gridEnergy(), before, 'no power spent on it');
+  fixture.mark('the Crystal Assembler takes no recipe whose fluid ingredient its tank does not match');
+  await fixture.command(`data merge block ${assembler} {ae2_lab_config:{tank_in:{id:"minecraft:water",amount:2000L}}}`);
   await until(() => contents(assembler), text => /ae2:fluix_crystal/.test(text) && /count: 8/.test(text), 'eight fluix made', 60000);
   const fluix = await contents(assembler);
   assert.match(fluix, /amount: 1900L/, '100 mB of water used');

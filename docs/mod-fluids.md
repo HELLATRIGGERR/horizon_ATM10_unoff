@@ -107,6 +107,29 @@ none (`notExternal`; the null side's proxy is read only); it is saved as Mekanis
 before it burns anything (`FluidFuelInventorySlot.fillOrBurn`). Lava source blocks beside it only heat it
 (`TileEntityHeatGenerator.getBoost`): Java never draws them into the tank.
 
+**Fluid ingredients (slice 6).** `horizon_world::fluid_ingredient` is NeoForge's `FluidIngredient` with its seven
+types (`neoforge:single`, `tag`, `empty`, `compound`, `components`, `difference`, `intersection`), read by their codecs
+(`CODEC`: a list, `CompoundFluidIngredient.of`, or a map; `CODEC_NON_EMPTY`; `MAP_CODEC_NONEMPTY`: with a `type` that
+type's codec, else `{"fluid"}` or `{"tag"}` but not both, never the empty ingredient), with their errors: a fluid the
+registry lacks (`holderByNameCodec`) or `minecraft:empty` fails the read, and the recipe with it. `test(FluidStack)` is
+each type's (a single fluid by identity, water not flowing water; a tag by the registry's tags; `components` by a
+`DataComponentPredicate` over the stack's patch, or the exact patch with `strict`; numbers compare by value, as the
+JSON's take the smallest NBT type), `stacks()` is `getStacks` (a bucket of each, no repeats, a tag in its own order) and
+`has_no_fluids` asks it. `SizedFluidIngredient` reads `FLAT_CODEC` (the map with `amount` beside it, a bucket when
+absent: Mekanism's, Create's, Industrial Foregoing's) and `NESTED_CODEC` (`{ingredient, amount}`: Theurgy's), tests the
+amount too and gives `getFluids`. A recipe's fluid result is `FluidStack::from_json` (`FluidStack.CODEC` on JSON:
+`{id, amount, components}`, the components' JSON as NBT by `JsonOps.convertTo(NbtOps)`), `from_json_optional`
+(`OPTIONAL_CODEC`) and `from_json_fixed_amount`. Vanilla's fluids now carry the root's fluid tags as the mods' do
+(`register_fluids` with the root's tag lists, `fluid_tag_lists_in`: the full pack's `create:bottomless/allow` holds water
+and lava, `minecraft:water` holds Bumblezone's sugar water too), over vanilla's and NeoForge's own water and lava tags;
+`fluids_in_tag` gives a tag's fluids in its order (`TagFluidIngredient.generateStacks`). Mods' own readers build on these:
+Modern Industrialization's inputs are the ingredient's map beside a long `amount` and a `probability`, its outputs a
+fluid by id. The first consumer is ExtendedAE's Crystal Assembler: its recipes' `input_fluid` is Glodium's
+`IngredientStack.Fluid` (`FluidIngredient.CODEC` in `ingredient`, 1 mB when absent), and its tank (`tank_in`) is tested
+as a `FluidStack` against it. It was the cheapest honest one: the fork already runs it with a fluid tank and a recipe
+that is NeoForge's own codec, while the Mekanism machines the bundle runs take no fluid and its fluid recipes
+(`evaporating`, `rotary`, `separating`, `washing`, `reaction`) need chemicals or the evaporation multiblock first.
+
 **AE2 keys.** AE2 keeps keying fluids by id. `bucket_fluid` and `fluid_bucket` read the registry, so a mod fluid goes
 into and out of fluid cells, the ME Chest and terminals by its bucket, and its icon is its still texture with its tint.
 
@@ -190,8 +213,17 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
    NeoForge's `CauldronWrapper` handler (API 54's helpers read them; the dispatcher doesn't); Mekanism's machines'
    tanks, Modern Industrialization's and Industrial Foregoing's; a tank's contents in its item
    (`ContainedFluidOverrideHandler`).
-6. **Fluid ingredients and recipes.** NeoForge's `FluidIngredient`/`SizedFluidIngredient` and the mods' fluid recipe
-   inputs and outputs, against the registry and its tags.
+6. **Fluid ingredients and recipes (done).** As "Fluid ingredients" above. Tests: `horizon-world`
+   (`fluid_ingredient::tests`: the codecs and their errors, each type's test, components, sized forms), its integration
+   tests `fluid_recipes` (real recipes of the ATM10 8.4 dump against a registry of their fluids and the pack's tags:
+   Mekanism's evaporating, rotary, separating and reaction fluids, Industrial Foregoing's dissolution chamber and fluid
+   extractor, Modern Industrialization's electrolyzer, Create's mixing, compacting and filling with
+   `neoforge:components`, ExtendedAE's and Theurgy's nested forms) and `fluid_recipes_dump` (`#[ignore]`,
+   `HORIZON_ATM10_DUMP`: every fluid field of those mods' recipes in the dump, 1,923 of them in 32 recipe types, reads
+   against the pack's 728 fluids), the game's `extendedae::machines` (the tank against the ingredient), and the world
+   test `extendedae-crystal` (lava in the tank makes no fluix and spends no power; water does). Not yet: NeoForge's
+   milk (`minecraft:milk`, enabled by a pack mod, in `c:milk`) is not in Horizon's registry, so recipes naming it don't
+   read and `c:milk` names nothing; Mekanism's fluid recipes wait for its chemicals.
 7. **The rest of `FluidType`.** Vaporizing in an ultrawarm dimension (`isVaporizedOnPlacement`), `FluidInteractionRegistry`
    (mods' own lava-like interactions), dripstone and cauldrons, light from fluids, LOD and minimap colours, mod fluids
    over the network to a client whose content differs, and AE2's Missing Content for a fluid the registry lacks.

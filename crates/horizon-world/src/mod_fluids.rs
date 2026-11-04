@@ -115,6 +115,35 @@ struct Registry {
     /// Source kinds by liquid block and by bucket.
     by_block: HashMap<String, FluidKind>,
     by_bucket: HashMap<String, FluidKind>,
+    /// The fluid tags of vanilla's own fluids, by [`FluidKind::id`]: the
+    /// root's, over [`VANILLA_TAGS`].
+    vanilla_tags: [Vec<String>; 5],
+    /// Each tag's fluids in the tag's own order, when the root's tags were
+    /// given ([`register_fluids`]).
+    members: HashMap<String, Vec<FluidKind>>,
+}
+
+/// The tags vanilla's own data (`minecraft:water`, `minecraft:lava`) and
+/// NeoForge's (`Tags.Fluids.WATER`, `LAVA`: `c:water`, `c:lava`) give its
+/// fluids, whatever the mods' data adds.
+const VANILLA_TAGS: [(&str, [FluidKind; 2]); 4] = [
+    (
+        "minecraft:water",
+        [FluidKind::Water, FluidKind::FlowingWater],
+    ),
+    ("minecraft:lava", [FluidKind::Lava, FluidKind::FlowingLava]),
+    ("c:water", [FluidKind::Water, FluidKind::FlowingWater]),
+    ("c:lava", [FluidKind::Lava, FluidKind::FlowingLava]),
+];
+
+fn default_vanilla_tags() -> [Vec<String>; 5] {
+    std::array::from_fn(|id| {
+        VANILLA_TAGS
+            .iter()
+            .filter(|(_, kinds)| kinds.iter().any(|k| usize::from(k.id()) == id))
+            .map(|(tag, _)| (*tag).to_owned())
+            .collect()
+    })
 }
 
 static REGISTRY: OnceLock<Registry> = OnceLock::new();
@@ -125,6 +154,18 @@ static REGISTRY: OnceLock<Registry> = OnceLock::new();
 /// A fluid whose id, flowing id, block or bucket another one already took is
 /// left out.
 pub fn register_mod_fluids(fluids: impl IntoIterator<Item = ModFluid>) -> bool {
+    register_fluids(fluids, None)
+}
+
+/// [`register_mod_fluids`] with the root's fluid tags (`tags`: each tag's
+/// fluid ids in order, [`fluid_tag_lists_in`]), which also give vanilla's
+/// own fluids theirs (the full pack's `create:bottomless/allow` holds water)
+/// and each tag's order (`TagFluidIngredient.generateStacks`). A mod
+/// fluid's own tags stay its [`ModFluid::source_tags`] and `flowing_tags`.
+pub fn register_fluids(
+    fluids: impl IntoIterator<Item = ModFluid>,
+    tags: Option<&BTreeMap<String, Vec<String>>>,
+) -> bool {
     if REGISTRY.get().is_some() {
         return false;
     }
@@ -135,6 +176,8 @@ pub fn register_mod_fluids(fluids: impl IntoIterator<Item = ModFluid>) -> bool {
         by_name: HashMap::new(),
         by_block: HashMap::new(),
         by_bucket: HashMap::new(),
+        vanilla_tags: default_vanilla_tags(),
+        members: HashMap::new(),
     };
     for fluid in fluids {
         let taken = |name: &str| {
@@ -170,7 +213,67 @@ pub fn register_mod_fluids(fluids: impl IntoIterator<Item = ModFluid>) -> bool {
         }
         registry.fluids.push(fluid);
     }
+    if let Some(tags) = tags {
+        let kind = |name: &str| {
+            FluidKind::ALL
+                .into_iter()
+                .find(|k| k.name() == name)
+                .or_else(|| registry.by_name.get(name).copied())
+        };
+        for (tag, names) in tags {
+            // Vanilla's data pack loads before the mods': its members first.
+            let mut members: Vec<FluidKind> = VANILLA_TAGS
+                .iter()
+                .filter(|(t, _)| t == tag)
+                .flat_map(|(_, kinds)| *kinds)
+                .collect();
+            for k in names.iter().filter_map(|n| kind(n)) {
+                if k != FluidKind::Empty && !members.contains(&k) {
+                    members.push(k);
+                }
+            }
+            for k in members.iter().filter(|k| k.id() < 5) {
+                let held = &mut registry.vanilla_tags[usize::from(k.id())];
+                if !held.contains(tag) {
+                    held.push(tag.clone());
+                }
+            }
+            registry.members.insert(tag.clone(), members);
+        }
+    }
     REGISTRY.set(registry).is_ok()
+}
+
+/// Whether vanilla's fluid `kind` is in `tag`: the root's tags when the
+/// fluids were registered with them, else vanilla's and NeoForge's water and
+/// lava tags ([`VANILLA_TAGS`]). False for a mod fluid and the empty fluid.
+pub fn vanilla_in_tag(kind: FluidKind, tag: &str) -> bool {
+    if kind == FluidKind::Empty || kind.id() >= 5 {
+        return false;
+    }
+    match REGISTRY.get() {
+        Some(r) => r.vanilla_tags[usize::from(kind.id())]
+            .iter()
+            .any(|t| t == tag),
+        None => VANILLA_TAGS
+            .iter()
+            .any(|(t, kinds)| *t == tag && kinds.contains(&kind)),
+    }
+}
+
+/// `BuiltInRegistries.FLUID.getTag(tag)`: the fluids of `tag` in the tag's
+/// order when the root's tags were registered, else (and for a tag the root
+/// lacks) every fluid in the tag in registry order. Empty for an unknown tag.
+pub fn fluids_in_tag(tag: &str) -> Vec<FluidKind> {
+    if let Some(members) = REGISTRY.get().and_then(|r| r.members.get(tag)) {
+        return members.clone();
+    }
+    FluidKind::all()
+        .filter(|&k| match k.mod_fluid() {
+            Some(m) => !k.name().is_empty() && m.in_tag(k, tag),
+            None => vanilla_in_tag(k, tag),
+        })
+        .collect()
 }
 
 /// The content mods' fluids, in registry order.
@@ -197,14 +300,29 @@ pub fn kind_by_bucket(item: &str) -> Option<FluidKind> {
     REGISTRY.get()?.by_bucket.get(item).copied()
 }
 
-/// The fluid tags of a resource root (`data/<ns>/tags/fluid/**.json`, a
-/// content root's merged files), resolved as `TagLoader` does, by fluid id:
-/// what a [`ModFluid`]'s source and flowing tags take. `known` names the
-/// fluids the game has. An entry naming another (a fluid of a mod not
-/// carried: ATM10's `c:heavy_water` also names Modern Industrialization's)
-/// is left out, not the whole tag, as damage tags lose only their missing
-/// references; a missing tag reference still leaves the tag out.
+/// The fluid tags of a resource root, by fluid id ([`fluid_tag_lists_in`]
+/// turned round): what a [`ModFluid`]'s source and flowing tags take.
 pub fn fluid_tags_in(
+    root: &Path,
+    known: &dyn Fn(&str) -> bool,
+) -> io::Result<BTreeMap<String, Vec<String>>> {
+    let mut by_fluid: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (tag, members) in fluid_tag_lists_in(root, known)? {
+        for fluid in members {
+            by_fluid.entry(fluid).or_default().push(tag.clone());
+        }
+    }
+    Ok(by_fluid)
+}
+
+/// The fluid tags of a resource root (`data/<ns>/tags/fluid/**.json`, a
+/// content root's merged files), resolved as `TagLoader` does: each tag's
+/// fluid ids in its order. `known` names the fluids the game has. An entry
+/// naming another (a fluid of a mod not carried: ATM10's `c:heavy_water` also
+/// names Modern Industrialization's) is left out, not the whole tag, as
+/// damage tags lose only their missing references; a missing tag reference
+/// still leaves the tag out.
+pub fn fluid_tag_lists_in(
     root: &Path,
     known: &dyn Fn(&str) -> bool,
 ) -> io::Result<BTreeMap<String, Vec<String>>> {
@@ -253,13 +371,11 @@ pub fn fluid_tags_in(
     let built = definitions
         .build(|name, _| Some(name.to_owned()))
         .map_err(|e| invalid(e.to_string()))?;
-    let mut by_fluid: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (tag, members) in built.tags {
-        for fluid in members.into_iter().filter(|f| known(f)) {
-            by_fluid.entry(fluid).or_default().push(tag.clone());
-        }
-    }
-    Ok(by_fluid)
+    Ok(built
+        .tags
+        .into_iter()
+        .map(|(tag, members)| (tag, members.into_iter().filter(|f| known(f)).collect()))
+        .collect())
 }
 
 /// The fluids unit tests share, registered once per test process (any test

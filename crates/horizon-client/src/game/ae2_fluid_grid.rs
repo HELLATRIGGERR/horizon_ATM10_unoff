@@ -19,26 +19,21 @@ impl Game<'_> {
         pos: super::ae2_global::GridAddress,
     ) -> Result<Vec<(ItemKey, u64)>, String> {
         let mut totals = BTreeMap::<ItemKey, u64>::new();
-        for at in self.ae2_drives_encoded(pos)? {
-            let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(at) else {
-                continue;
-            };
-            for item in machine.slots.iter().flatten() {
-                if let Ok(keys) = self.ae2_creative_cell_keys(item) {
-                    for key in keys {
-                        if let super::ae2_storage_devices::CreativeCellKey::Fluid(k) = key {
-                            let total = totals.entry(k).or_default();
-                            *total = total
-                                .checked_add(i32::MAX as u64)
-                                .ok_or("fluid amount overflow")?;
-                        }
+        for item in &self.ae2_grid_cells_encoded(pos)? {
+            if let Ok(keys) = self.ae2_creative_cell_keys(item) {
+                for key in keys {
+                    if let super::ae2_storage_devices::CreativeCellKey::Fluid(k) = key {
+                        let total = totals.entry(k).or_default();
+                        *total = total
+                            .checked_add(i32::MAX as u64)
+                            .ok_or("fluid amount overflow")?;
                     }
                 }
-                let Ok(cell) = self.ae2_read_cell(item) else { continue; };
-                for (key, amount) in cell.entries_for(ae2_cell_core::Channel::Fluid) {
-                    let total = totals.entry(key.clone()).or_default();
-                    *total = total.checked_add(*amount).ok_or("fluid amount overflow")?;
-                }
+            }
+            let Ok(cell) = self.ae2_read_cell(item) else { continue; };
+            for (key, amount) in cell.entries_for(ae2_cell_core::Channel::Fluid) {
+                let total = totals.entry(key.clone()).or_default();
+                *total = total.checked_add(*amount).ok_or("fluid amount overflow")?;
             }
         }
         for mount in self.ae2_fluid_storage_mounts_encoded(pos) {
@@ -238,7 +233,7 @@ impl Game<'_> {
                 if left==0{break}
                 if insert&&!self.ae2_cell_preferred(mount,key,true)?{late_cells.push(mount);continue}
                 let (accepted,updated)=self.ae2_cell_storage_change(mount,key,left,true,insert,simulate)?;left-=accepted;
-                if let Some(updated)=updated{changes.push((mount.address,mount.slot,updated));}
+                if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             for mount in late_buses{
                 if left==0{break}
@@ -248,7 +243,7 @@ impl Game<'_> {
             for mount in late_cells{
                 if left==0{break}
                 let (accepted,updated)=self.ae2_cell_storage_change(mount,key,left,true,insert,simulate)?;left-=accepted;
-                if let Some(updated)=updated{changes.push((mount.address,mount.slot,updated));}
+                if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             if insert && left>0 { left-=self.ae2_form_fluids(pos,key,left,priority,plan)?; }
             if left==0{break}
@@ -260,9 +255,8 @@ impl Game<'_> {
         if !simulate && moved > 0 {
             // No other work can interleave on this authoritative game thread.
             // Validate staged target slots before any power or inventory mutation.
-            for (at, slot, _) in &changes {
-                if !matches!(self.ae2_block_entity(*at),Some(BlockEntity::Ae2(m)) if *slot < m.slots.len())
-                {
+            for (mount, _) in &changes {
+                if self.ae2_mounted_cell_stack(mount).is_err() {
                     return Err("fluid drive disappeared".into());
                 }
             }
@@ -287,11 +281,8 @@ impl Game<'_> {
                 self.ae2_mark_modified(at);
                 self.ae2_monitor_invalidate(identity);
             }
-            for (at, slot, item) in changes {
-                if let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity_mut(at) {
-                    machine.slots[slot] = Some(item);
-                }
-                self.ae2_mark_modified(at);
+            for (mount, item) in changes {
+                self.ae2_store_mounted_cell(&mount, item);
             }
         }
         Ok(moved)

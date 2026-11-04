@@ -81,6 +81,7 @@ impl Game<'_> {
     pub(in crate::game) fn ae2_native_item_supports_local(&self,address:GridAddress,face:Direction)->bool {
         if matches!(self.ae2_block_entity(address), Some(BlockEntity::Ae2(m)) if matches!(m.kind,MachineKind::DebugItemGenerator|MachineKind::Condenser|MachineKind::Charger|MachineKind::VibrationChamber|MachineKind::Inscriber|MachineKind::MolecularAssembler)) { return true; }
         if self.ae2_interface_supports(address,face) || self.ae2_provider_part_at(address,face).is_some()
+            || self.ae2_cell_part_at(address,face).is_some()
             || matches!(self.ae2_block_entity(address),Some(BlockEntity::Ae2(m)) if m.kind==MachineKind::PatternProvider)
             {return true;}
         self.ae2_native_view(address).is_some_and(|(_,view,_)|!view.slots_for_face(Some(face)).is_empty())
@@ -282,6 +283,64 @@ impl Game<'_> {
             .flatten()
             .filter(|m| m.kind == MachineKind::PatternProvider)
             .map(|_| address)
+    }
+    /// The cell part on face `face` of the cable bus `host` (MEGA's Cell Dock,
+    /// whose `Capabilities.ItemHandler.BLOCK` is its cell inventory's
+    /// `toItemHandler()`); none for any other part or block.
+    pub(in crate::game) fn ae2_cell_part_at(
+        &self,
+        host: GridAddress,
+        face: Direction,
+    ) -> Option<super::super::ae2_parts::PartAddress> {
+        let face = match face {
+            Direction::East => 0,
+            Direction::West => 1,
+            Direction::Up => 2,
+            Direction::Down => 3,
+            Direction::South => 4,
+            Direction::North => 5,
+        };
+        let address = super::super::ae2_parts::PartAddress { host, face };
+        self.ae2_part_machine(address)
+            .ok()
+            .flatten()
+            .filter(|m| super::super::ae2_parts::is_cell_part(m.id()))
+            .map(|_| address)
+    }
+    /// `AppEngCellInventory.insertItem` through the cell part's item handler:
+    /// one cell to a slot (`getSlotLimit` 1), and only what
+    /// `StorageCells.isCellHandled` takes (`CellDockPart.Filter`).
+    fn ae2_cell_part_insert(&mut self, part: super::super::ae2_parts::PartAddress, stack: &ItemStack, limit: u32, simulate: bool) -> u32 {
+        let one = ItemStack { count: 1, ..stack.clone() };
+        if limit == 0 || stack.count == 0 || !crate::game::ae2_storage_devices::is_valid_storage_cell(&one) {
+            return 0;
+        }
+        let Ok(Some(mut machine)) = self.ae2_part_machine(part) else { return 0 };
+        let Some(slot) = machine.slots.iter().position(Option::is_none) else { return 0 };
+        if !simulate {
+            machine.slots[slot] = Some(one);
+            if self.ae2_store_part_machine(part, &machine).is_err() {
+                return 0;
+            }
+        }
+        1
+    }
+    /// `AppEngCellInventory.extractItem` through the cell part's item handler:
+    /// its cell, when it matches `filter`.
+    fn ae2_cell_part_extract(&mut self, part: super::super::ae2_parts::PartAddress, limit: u32, filter: Option<&ItemStack>, simulate: bool) -> Option<ItemStack> {
+        if limit == 0 {
+            return None;
+        }
+        let Ok(Some(mut machine)) = self.ae2_part_machine(part) else { return None };
+        let slot = machine.slots.iter().position(|s| s.as_ref().is_some_and(|s| s.count > 0 && filter.is_none_or(|f| f.same_item_same_components(s))))?;
+        let cell = machine.slots[slot].clone()?;
+        let mut out = cell.clone();
+        out.count = out.count.min(limit);
+        if !simulate {
+            machine.slots[slot] = (cell.count > out.count).then(|| ItemStack { count: cell.count - out.count, ..cell });
+            self.ae2_store_part_machine(part, &machine).ok()?;
+        }
+        Some(out)
     }
     pub(in crate::game) fn ae2_provider_return_fluid_at(
         &mut self,
@@ -707,6 +766,9 @@ impl Game<'_> {
         if let Some(part) = self.ae2_provider_part_at(address, face) {
             return self.ae2_part_provider_return_item(part, stack, limit, simulate);
         }
+        if let Some(part) = self.ae2_cell_part_at(address, face) {
+            return self.ae2_cell_part_insert(part, stack, limit, simulate);
+        }
         if matches!(self.ae2_block_entity(address), Some(BlockEntity::Ae2(m)) if m.kind == MachineKind::PatternProvider)
         {
             return self.ae2_provider_return_item(address, stack, limit, simulate);
@@ -829,6 +891,9 @@ impl Game<'_> {
         if let Some(items) = self.ae2_interface_item_candidates(address, face) {
             return items;
         }
+        if let Some(part) = self.ae2_cell_part_at(address, face) {
+            return self.ae2_part_machine(part).ok().flatten().map_or_else(Vec::new, |m| m.slots.into_iter().flatten().filter(|s| s.count > 0).collect());
+        }
         let Some((c, view, _)) = self.ae2_native_view(address) else {
             return Vec::new();
         };
@@ -870,6 +935,9 @@ impl Game<'_> {
         if let Some(item) = self.ae2_interface_item_extract(address, face, limit, filter, simulate)
         {
             return item;
+        }
+        if let Some(part) = self.ae2_cell_part_at(address, face) {
+            return self.ae2_cell_part_extract(part, limit, filter, simulate);
         }
         if limit == 0 {
             return None;

@@ -3,7 +3,7 @@
 //! `MEGACells.initUpgrades`, `MEGACellsClient.initStorageCellModels`,
 //! `MEGACraftingUnitType`, `MEGABlocks`, `MEGACraftingUnitModelProvider`,
 //! `MEGAPortableCell`, `MEGAPatternProviderBlock`, `MEGAPatternProviderPart`,
-//! `MEGAInterfaceBlockEntity`, `MEGAInterfacePart`),
+//! `MEGAInterfaceBlockEntity`, `MEGAInterfacePart`, `CellDockPart`),
 //! https://github.com/62832/MEGACells tag 4.11.0, LGPL-3.0; see
 //! `ae2/addons/megacells/`.
 //!
@@ -11,8 +11,8 @@
 //! Slice 2: the MEGA crafting CPU blocks. Slice 3: the Superdense Energy Cell
 //! and the Greater Energy Card. Slice 4: the portable M cells and the Portable
 //! Cell Workbench. Slice 5: the MEGA Pattern Provider and the MEGA Interface,
-//! blocks and parts. The bulk cell and the cells for other addons' key types
-//! come with later slices.
+//! blocks and parts. Slice 6: the ME Cell Dock. The bulk cell and the cells
+//! for other addons' key types come with later slices.
 use super::defs::{CellDef, Defs, add_storage_cell_cards};
 use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind, MachineVariant};
 use ae2_cell_core::{Channel, Tier};
@@ -85,6 +85,12 @@ pub const MEGA_PATTERN_PROVIDER_PART: &str = "megacells:cable_mega_pattern_provi
 /// and `MEGAItems.MEGA_INTERFACE`, the part (`MEGAInterfacePart`).
 pub const MEGA_INTERFACE: &str = "megacells:mega_interface";
 pub const MEGA_INTERFACE_PART: &str = "megacells:cable_mega_interface";
+/// `MEGAItems.CELL_DOCK`: `PartItem<CellDockPart>`, a cable part that holds
+/// one storage cell and mounts it on the grid.
+pub const CELL_DOCK: &str = "megacells:cell_dock";
+/// `CellDockPart`'s constructor: `setIdlePowerUsage(0.5)` (and each cell's
+/// `getIdleDrain` on top, `updateState`).
+pub const CELL_DOCK_IDLE: f64 = 0.5;
 /// `MEGAPatternProviderBlock.createLogic`: the pattern inventory's
 /// `AEItemDefinitionFilter(AEItems.PROCESSING_PATTERN)`.
 pub const PROCESSING_PATTERN: &str = "ae2:processing_pattern";
@@ -184,6 +190,9 @@ pub fn register(defs: &mut Defs) {
     for machine in MACHINES {
         defs.add_variant(machine);
     }
+    // CellDockPart: GridFlags.REQUIRE_CHANNEL, an IStorageProvider of one
+    // cell (`AppEngCellInventory(this, 1)`).
+    defs.add_cell_part(CELL_DOCK, CELL_DOCK_IDLE, 1);
     // MEGACells.initUpgrades: a crafting card and a fuzzy card on the MEGA
     // Interface, block and part, one of each, as on AE2's Interface.
     for card in ["ae2:crafting_card", "ae2:fuzzy_card"] {
@@ -513,5 +522,28 @@ mod tests {
         assert_eq!(hover_line(MEGA_PATTERN_PROVIDER_PART), Some(("gui.tooltips.megacells.ProcessingOnly", 0xffde7d)));
         assert_eq!(hover_line(MEGA_PATTERN_PROVIDER), hover_line(MEGA_PATTERN_PROVIDER_PART));
         assert_eq!(hover_line(MEGA_INTERFACE), None);
+    }
+
+    /// `MEGAItems.CELL_DOCK`, `CellDockPart`: a part of 0.5 AE/t that needs a
+    /// channel and holds one cell; its state is a part machine of a kind of its
+    /// own, which no block has.
+    #[test]
+    fn the_cell_dock_is_a_cell_part_of_its_own_kind() {
+        use crate::ae2_world::{Machine, is_machine_block};
+        crate::ae2x::install();
+        let defs = super::super::defs::get();
+        let part = defs.cell_part(CELL_DOCK).unwrap();
+        assert_eq!((part.idle_power, part.requires_channel, part.cells), (0.5, true, 1));
+        let kind = MachineKind::from_id(CELL_DOCK).unwrap();
+        assert!(kind.ext().is_some_and(|row| row.part));
+        let machine = Machine::new(kind);
+        assert_eq!((machine.slots.len(), machine.upgrades.len(), machine.id()), (1, 0, CELL_DOCK));
+        assert!(!is_machine_block(CELL_DOCK) && Machine::for_block(CELL_DOCK).is_none());
+        // The other parts hold no cells.
+        for other in [MEGA_INTERFACE_PART, MEGA_PATTERN_PROVIDER_PART, "ae2:terminal"] {
+            assert!(defs.cell_part(other).is_none(), "{other}");
+        }
+        // No card goes in it.
+        assert_eq!(defs.upgrade_limit("ae2:speed_card", CELL_DOCK), 0);
     }
 }

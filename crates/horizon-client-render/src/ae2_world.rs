@@ -69,6 +69,9 @@ pub struct ExtMachine {
     /// `AEBasePoweredBlockEntity.setInternalMaxPower`: the AE of its own
     /// buffer, filled by Forge Energy on its power sides; none without one.
     pub power_capacity: Option<f64>,
+    /// The state of a cable part (its item's id), which no block holds: MEGA's
+    /// Cell Dock (`CellDockPart`), a machine of its own kind on the cable bus.
+    pub part: bool,
 }
 static EXT_MACHINES: std::sync::OnceLock<Vec<ExtMachine>> = std::sync::OnceLock::new();
 /// The addon machines, installed once at start-up before any world loads;
@@ -270,7 +273,7 @@ pub fn bus_card_slots(id: &str) -> usize {
 }
 /// Whether block `id` is an AE2 machine, AE2's own or an addon's.
 pub fn is_machine_block(id: &str) -> bool {
-    MachineKind::from_id(id).is_some() || variant(id).is_some_and(|v| !v.part)
+    MachineKind::from_id(id).is_some_and(|kind| kind.ext().is_none_or(|m| !m.part)) || variant(id).is_some_and(|v| !v.part)
 }
 /// A crafting CPU block: AE2's `AbstractCraftingUnitBlock` on the
 /// `ICraftingUnitType` it is built with. AE2's own are [`AE2_CRAFTING_UNITS`]
@@ -612,7 +615,7 @@ impl Machine {
             .count()
     }
     pub fn for_block(id: &str) -> Option<Self> {
-        if let Some(kind) = MachineKind::from_id(id) {
+        if let Some(kind) = MachineKind::from_id(id).filter(|kind| kind.ext().is_none_or(|m| !m.part)) {
             return Some(Self::new(kind));
         }
         variant(id).filter(|v| !v.part).map(Self::of_variant)

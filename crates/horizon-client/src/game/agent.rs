@@ -359,6 +359,12 @@ impl Game<'_> {
                 "powered": visual.powered,
                 "connections": visual.connections,
                 "crafting_job": visual.crafting_job.as_ref().map(|job| json!({"item": job.item, "fluid": job.fluid, "amount": job.amount})),
+                // Its parts: a cell part's cell and LED state (`CellState` 1 to 4) and spin.
+                "parts": visual.parts.iter().map(|part| json!({
+                    "id": part.id, "face": part.face, "online": part.online, "powered": part.powered,
+                    "cell": part.cell.as_ref().map(|cell| json!({"item": cell.id, "state": cell.state})),
+                    "spin": part.spin,
+                })).collect::<Vec<_>>(),
             });
         }
         v

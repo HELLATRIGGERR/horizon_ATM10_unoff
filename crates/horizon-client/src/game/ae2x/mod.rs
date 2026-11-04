@@ -89,6 +89,8 @@ pub(super) fn machine_progress(machine: &Machine) -> Option<(f64, f64)> {
 /// The entries an addon machine's window shows past its slots and cards.
 pub(super) fn machine_menu_items(machine: &Machine, items: &mut [Option<horizon_client::items::ItemStack>]) {
     let _ = (machine, &items);
+    #[cfg(feature = "ae2-megacells")]
+    megacells::cell_dock::menu_items(machine, items);
     #[cfg(feature = "ae2-extendedae")]
     extendedae::menu_items(machine, items);
 }
@@ -131,6 +133,48 @@ pub(super) fn part_model(id: &str) -> Option<&'static str> {
     #[cfg(feature = "ae2-extendedae")]
     if let Some(model) = extendedae::part_model(id) {
         return Some(model);
+    }
+    let _ = id;
+    None
+}
+
+/// An addon part's collision and selection boxes (`IPart.getBoxes`), in
+/// sixteenths with the part on the south face, as `ae2_geometry` keeps AE2's.
+pub(super) fn part_boxes(id: &str) -> Option<Vec<[f64; 6]>> {
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(boxes) = megacells::cell_dock::boxes(id) {
+        return Some(boxes);
+    }
+    let _ = id;
+    None
+}
+/// Where an addon's cell part draws its cell (`renderDynamic`), from the
+/// block's centre: the cell model's pose, which its LED shares, and the pose
+/// of the part's own LED.
+pub(super) fn cell_part_poses(id: &str, side: &str, spin: u8) -> Option<(glam::Mat4, glam::Mat4)> {
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(poses) = megacells::cell_dock::poses(id, side, spin) {
+        return Some(poses);
+    }
+    let _ = (id, side, spin);
+    None
+}
+/// An addon part's spin when placed on cable face `side` by a player of yaw
+/// `yaw` (`IPart.onPlacement`): none for a part that keeps no spin.
+pub(super) fn part_placement_spin(id: &str, side: &str, yaw: f32) -> Option<u8> {
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(spin) = megacells::cell_dock::placement_spin(id, side, yaw) {
+        return Some(spin);
+    }
+    let _ = (id, side, yaw);
+    None
+}
+/// The title of the menu an addon's part machine opens (AE2's machine menu
+/// over the part); none for a part machine without one.
+pub(super) fn part_menu_title(id: &str) -> Option<&'static str> {
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(title) = megacells::cell_dock::menu_title(id) {
+        return Some(title);
     }
     let _ = id;
     None
@@ -303,6 +347,10 @@ impl Game<'_> {
     /// item uses (`Item.useOn`): true when an addon's item acted.
     pub(super) fn ae2x_use_on(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
         let _ = (pos, face);
+        #[cfg(feature = "ae2-megacells")]
+        if self.megacells_dock_wrench(pos, face) {
+            return true;
+        }
         #[cfg(feature = "ae2-extendedae")]
         if self.extendedae_kit_use(pos, face) {
             return true;

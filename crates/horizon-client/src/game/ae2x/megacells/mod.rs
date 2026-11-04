@@ -1,6 +1,7 @@
 //! MEGA Cells 4.11.0 in the game (feature `ae2-megacells`). Its cells and
 //! components are rows of the definitions registry (`horizon_client::ae2x::
 //! megacells`); what needs the game's own code is here.
+pub(in crate::game) mod cell_dock;
 pub(in crate::game) mod lava;
 pub(in crate::game) mod portable_workbench;
 
@@ -8,11 +9,14 @@ use horizon_client::{ae2x::megacells as rows, items::ItemStack};
 pub(in crate::game) use portable_workbench::State;
 
 /// `MEGAPatternProviderPart.MODEL_BASE` and `MEGAInterfacePart.MODEL_BASE`:
-/// the parts' base models, over AE2's interface status models.
+/// the parts' base models, over AE2's interface status models; the Cell
+/// Dock's `MODEL`.
 pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
     match id {
         rows::MEGA_PATTERN_PROVIDER_PART => Some("megacells:part/mega_pattern_provider"),
         rows::MEGA_INTERFACE_PART => Some("megacells:part/mega_interface"),
+        // CellDockPart.MODEL, its static model; the cell is drawn on it.
+        rows::CELL_DOCK => Some("megacells:part/cell_dock"),
         _ => None,
     }
 }

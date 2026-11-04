@@ -199,6 +199,14 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
                 extra: None,
             });
             if wrenched_part {additional.push(part_item)} else {out.push(part_item)}
+            // An addon part machine's own slots: the cell of MEGA's Cell Dock
+            // (`CellDockPart.addAdditionalDrops`).
+            if super::ae2_parts::is_cell_part(id.as_str()) {
+                if let Some(machine)=part.get("machine") && let Ok(slots)=super::ae2_parts::strict_part_items(machine.get("slots"),super::ae2_parts::part_slot_limit(id.as_str())) {
+                    additional.extend(slots.into_iter().flatten());
+                }
+                continue;
+            }
             // Interface and provider part machines own physical, slot-tagged
             // inventories separate from virtual filters and fluid return data.
             let base=horizon_client::ae2_world::base_id(id.as_str());

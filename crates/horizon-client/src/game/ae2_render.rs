@@ -55,7 +55,8 @@ mod monitor_tests {
     }
 }
 
-fn orientation(facing: &str, spin: u8) -> glam::Mat4 {
+/// `BlockOrientation.get(facing, spin).getQuaternion()`.
+pub(in crate::game) fn orientation(facing: &str, spin: u8) -> glam::Mat4 {
     // Rotations match AE2's drive blockstate variants (quarter turns).
     let (x, y) = match facing {
         "up" => (270, 0),
@@ -74,6 +75,38 @@ fn orientation(facing: &str, spin: u8) -> glam::Mat4 {
         * glam::Mat4::from_rotation_x(-(x as f32) * PI / 180.0)
         * glam::Mat4::from_rotation_z(-(z as f32) * PI / 180.0)
 }
+/// `CellLedRenderer.LED_QUADS`: the LED cuboid of a drive's top left slot,
+/// front, left, right, top and bottom faces (it has no back).
+const LED_QUADS: [[[f32; 3]; 4]; 5] = {
+    const L: f32 = 5.0 / 16.0;
+    const R: f32 = 4.0 / 16.0;
+    const T: f32 = 1.0 / 16.0;
+    const B: f32 = -0.001 / 16.0;
+    const FR: f32 = -0.001 / 16.0;
+    const BA: f32 = 0.999 / 16.0;
+    [
+        [[R, T, FR], [L, T, FR], [L, B, FR], [R, B, FR]],
+        [[L, T, FR], [L, T, BA], [L, B, BA], [L, B, FR]],
+        [[R, T, BA], [R, T, FR], [R, B, FR], [R, B, BA]],
+        [[R, T, BA], [L, T, BA], [L, T, FR], [R, T, FR]],
+        [[R, B, FR], [L, B, FR], [L, B, BA], [R, B, BA]],
+    ]
+};
+/// `CellState.getStateColor` as a vertex colour (ABGR): green `EMPTY`, blue
+/// `NOT_EMPTY`, orange `TYPES_FULL`, red `FULL`; `CellLedRenderer`'s black
+/// while unpowered (and for a cell the codec can't read).
+fn led_color(state: u8, powered: bool) -> u32 {
+    if !powered {
+        return 0xFF00_0000;
+    }
+    match state {
+        1 => 0xFF00FF00,
+        2 => 0xFFFFAA00,
+        3 => 0xFF00AAFF,
+        4 => 0xFF0000FF,
+        _ => 0xFF000000,
+    }
+}
 // CraftingCubeBakedModel deliberately overlaps its 3/16 frame by 0.01
 // source-model units to prevent a seam at the edge.
 fn cpu_inner_bounds(negative_connected: bool, positive_connected: bool) -> (f32, f32) {
@@ -81,6 +114,42 @@ fn cpu_inner_bounds(negative_connected: bool, positive_connected: bool) -> (f32,
 }
 
 impl Game<'_> {
+    /// `DriveBakedModel.getCellChassisModel`: the drive model of cell `id`
+    /// (`StorageCellModels`, AE2's generic one for a cell with none), its
+    /// quads placed by `pose` (block units, the model's origin at its corner).
+    fn ae2_cell_chassis_quads(&self, id: &str, pose: glam::Mat4, light: u32, out: &mut Vec<Vertex>) {
+        let library = self.pack.render.model_library.as_ref().ok();
+        let model_name = horizon_client::ae2x::defs::get().cell(id)
+            .map(|cell| cell.drive_model.clone())
+            .unwrap_or_else(|| "ae2:block/drive/drive_cell".to_owned());
+        let Some(quads) = library.and_then(|l| l.resolve(&model_name).ok())
+            .and_then(|m| horizon_assets::bake::bake_model(&m).ok()) else { return };
+        for q in quads {
+            let key = q.material.sprite.strip_prefix("minecraft:").unwrap_or(&q.material.sprite);
+            let Some(rect) = self.gui.atlas.sprites.get(key) else { continue };
+            let points = q.positions.map(|p| pose.transform_point3(glam::Vec3::from_array(p)));
+            let normal = (points[1]-points[0]).cross(points[2]-points[0]).normalize_or_zero();
+            for n in 0..4 {
+                out.push(Vertex {glint_uv:[0.0,0.0], pos: points[n].to_array(),
+                    uv: [rect.u0+q.uv[n][0]*(rect.u1-rect.u0), rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],
+                    layer: 0, color: 0xFFFF_FFFF, light,
+                    normal: [(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127], });
+            }
+        }
+    }
+    /// `CellLedRenderer.renderLed`: the LED cuboid in `pose`, full bright.
+    fn ae2_cell_led(&self, pose: glam::Mat4, color: u32, out: &mut Vec<Vertex>) {
+        let Some(rect) = self.gui.atlas.sprites.get("horizon/white").copied() else { return };
+        for face in LED_QUADS {
+            let points = face.map(|p| pose.transform_point3(glam::Vec3::from_array(p)));
+            let normal = (points[1]-points[0]).cross(points[2]-points[0]).normalize_or_zero();
+            for point in points {
+                out.push(Vertex {glint_uv:[0.0,0.0], pos: point.to_array(),
+                    uv: [(rect.u0+rect.u1)*0.5,(rect.v0+rect.v1)*0.5], layer: 0, color, light: 0x00F000F0,
+                    normal: [(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127], });
+            }
+        }
+    }
     pub(super) fn ae2_visual_geometry(&self, camera: glam::DVec3, out: &mut Vec<Vertex>) {
         let owned: Vec<Visual>;
         let visuals: Vec<&Visual> = if self.remote.is_some() {
@@ -383,7 +452,11 @@ impl Game<'_> {
                     }
                 }
                 for part in &v.parts {
-                    let pose = base * glam::Mat4::from_quat(rotate(&part.face));
+                    // CableBusBakedModel: QuadRotator.get(side, spin) for a part with a spin.
+                    let pose = match part.spin {
+                        Some(spin) => base * orientation(&part.face, spin),
+                        None => base * glam::Mat4::from_quat(rotate(&part.face)),
+                    };
                     let name = part.id.strip_prefix("ae2:").unwrap_or(&part.id);
                     // An addon's terminal: AE2's display parts around its own screen.
                     if let Some(screen) = name.strip_suffix("_terminal").filter(|_| name.starts_with("merequester:")) {
@@ -423,6 +496,16 @@ impl Game<'_> {
                     }
                 }
                 drop(model);
+                // A cell part's renderDynamic (CellDockPart): its cell as a drive
+                // draws it, the cell's LED and the part's own.
+                for part in &v.parts {
+                    let Some(cell) = &part.cell else { continue };
+                    let Some((cell_pose, led_pose)) = super::ae2x::cell_part_poses(&part.id, &part.face, part.spin.unwrap_or(0)) else { continue };
+                    self.ae2_cell_chassis_quads(&cell.id, base * cell_pose, light, out);
+                    let color = led_color(cell.state, part.powered);
+                    self.ae2_cell_led(base * cell_pose, color, out);
+                    self.ae2_cell_led(base * led_pose, color, out);
+                }
                 // Resolve the actual facade block state so directional and
                 // other blockstate variants use the same model as the world.
                 for facade in &v.facades {
@@ -507,7 +590,6 @@ impl Game<'_> {
             // DriveBakedModel translates the source block-cell model into each
             // slot. Keep the original geometry and atlas UVs, rather than using
             // the inventory item's billboard model.
-            let library = self.pack.render.model_library.as_ref().ok();
             for (i, slot) in v.slots.iter().enumerate() {
                 let Some(slot) = slot else { continue };
                 // ExDriveBakedModel: slots 10 to 19 are a second bank of two
@@ -523,33 +605,11 @@ impl Game<'_> {
                 );
                 let base = if bank == 1 { back } else { base };
                 // StorageCellModels: the cell's registered model, else the generic one.
-                let model_name = horizon_client::ae2x::defs::get().cell(&slot.id)
-                    .map(|cell| cell.drive_model.clone())
-                    .unwrap_or_else(|| "ae2:block/drive/drive_cell".to_owned());
-                let quads = library.and_then(|l| l.resolve(&model_name).ok())
-                    .and_then(|m| horizon_assets::bake::bake_model(&m).ok());
-                if let Some(quads) = quads {
-                    for q in quads {
-                        let key = q.material.sprite.strip_prefix("minecraft:").unwrap_or(&q.material.sprite);
-                        let Some(rect) = self.gui.atlas.sprites.get(key) else { continue };
-                        let points = q.positions.map(|p| base.transform_point3(
-                            glam::Vec3::from_array(p) + origin - glam::Vec3::splat(0.5)));
-                        let normal = (points[1]-points[0]).cross(points[2]-points[0]).normalize_or_zero();
-                        for n in 0..4 {
-                            out.push(Vertex {glint_uv:[0.0,0.0], pos: points[n].to_array(),
-                                uv: [rect.u0+q.uv[n][0]*(rect.u1-rect.u0), rect.v0+q.uv[n][1]*(rect.v1-rect.v0)],
-                                layer: 0, color: 0xFFFF_FFFF, light,
-                                normal: [(normal.x*127.0) as i8,(normal.y*127.0) as i8,(normal.z*127.0) as i8,-127], });
-                        }
-                    }
-                }
+                self.ae2_cell_chassis_quads(&slot.id, base * glam::Mat4::from_translation(origin - glam::Vec3::splat(0.5)), light, out);
                 // Source CellLedRenderer's front face: a 1x1 pixel cuboid at
                 // x=4..5, y=0..1 relative to the slot. Unpowered is black.
                 if let Some(rect) = white {
-                    let color = if !v.powered { 0xFF000000 } else { match slot.state {
-                        1 => 0xFF00FF00, 2 => 0xFFFFAA00,
-                        3 => 0xFF00AAFF, 4 => 0xFF0000FF, _ => 0xFF000000,
-                    }};
+                    let color = led_color(slot.state, v.powered);
                     let x = origin.x + 4.0/16.0 - 0.5;
                     let y = origin.y - 0.5;
                     let z = origin.z - 0.50001;

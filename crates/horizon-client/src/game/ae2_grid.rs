@@ -329,6 +329,7 @@ impl Game<'_> {
                                     // An addon's part (`ae2x::defs`).
                                     id if horizon_client::ae2x::defs::get().part(id).is_some() => {
                                         horizon_client::ae2x::defs::get().part(id).map_or(0.0, |part| part.idle_power)
+                                            + super::ae2_parts::cell_part_drain(id, part)
                                     }
                                     _ => continue,
                                 };
@@ -699,12 +700,15 @@ impl Game<'_> {
         &self,
         pos: WorldPos,
     ) -> Result<Vec<super::ae2_global::GridAddress>, String> {
-        self.ae2_drives_encoded(self.ae2_local_address(pos).ok_or("invalid AE2 anchor")?)
+        Ok(self.ae2_cell_hosts_encoded(self.ae2_local_address(pos).ok_or("invalid AE2 anchor")?)?.0)
     }
-    pub(super) fn ae2_drives_encoded(
+    /// The `IStorageProvider`s of cells on the grid of `anchor`, online: its
+    /// Drives and ME Chests, and the cell parts on its cable buses (MEGA's
+    /// `CellDockPart.mountInventories` mounts only while its node is online).
+    pub(super) fn ae2_cell_hosts_encoded(
         &self,
         anchor: super::ae2_global::GridAddress,
-    ) -> Result<Vec<super::ae2_global::GridAddress>, String> {
+    ) -> Result<(Vec<super::ae2_global::GridAddress>, Vec<super::ae2_parts::PartAddress>), String> {
         let n = self.ae2_network();
         let a = n.analyze().map_err(str::to_owned)?;
         let s = a
@@ -714,9 +718,46 @@ impl Game<'_> {
         if !s.online {
             return Err("network is offline: check power and channels".into());
         }
-        Ok(a.components[s.component].positions.iter().filter(|p|a.nodes.get(p).is_some_and(|s|s.online)).filter_map(|p|{
-   let address=super::ae2_global::GridAddress::from_network(*p)?;matches!(self.ae2_block_entity(address),Some(BlockEntity::Ae2(m))if matches!(m.kind,MachineKind::Drive|MachineKind::Chest)).then_some(address)
-  }).collect())
+        let (mut blocks, mut parts) = (Vec::new(), Vec::new());
+        for p in &a.components[s.component].positions {
+            let Some(address) = super::ae2_global::GridAddress::from_network(*p) else { continue };
+            let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(address) else { continue };
+            if matches!(m.kind, MachineKind::Drive | MachineKind::Chest) {
+                if a.nodes.get(p).is_some_and(|s| s.online) {
+                    blocks.push(address);
+                }
+                continue;
+            }
+            if m.kind != MachineKind::CableBus {
+                continue;
+            }
+            let Some(Tag::List(list)) = m.config.get(&"parts".into()) else { continue };
+            for part in list {
+                let (Some(Tag::String(id)), Some(Tag::String(face))) = (part.get("id"), part.get("face")) else { continue };
+                let (Ok(id), Some(face)) = (id.to_string(), face.to_string().ok().as_deref().and_then(face_index)) else { continue };
+                if super::ae2_parts::is_cell_part(&id) && n.part_status(&a, *p, face).is_some_and(|status| status.online) {
+                    parts.push(super::ae2_parts::PartAddress { host: address, face });
+                }
+            }
+        }
+        Ok((blocks, parts))
+    }
+    /// Every cell mounted on the grid of `anchor`: the Drives' and ME Chests'
+    /// slots, then each online cell part's.
+    pub(super) fn ae2_grid_cells_encoded(&self, anchor: super::ae2_global::GridAddress) -> Result<Vec<ItemStack>, String> {
+        let (blocks, parts) = self.ae2_cell_hosts_encoded(anchor)?;
+        let mut cells = Vec::new();
+        for p in blocks {
+            if let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(p) {
+                cells.extend(m.slots.iter().flatten().cloned());
+            }
+        }
+        for part in parts {
+            if let Ok(Some(machine)) = self.ae2_part_machine(part) {
+                cells.extend(machine.slots.into_iter().flatten());
+            }
+        }
+        Ok(cells)
     }
     pub(super) fn ae2_grid_inventory(&self, pos: WorldPos) -> Result<Vec<(ItemKey, u64)>, String> {
         self.ae2_grid_inventory_encoded(self.ae2_local_address(pos).ok_or("invalid AE2 anchor")?)
@@ -726,25 +767,21 @@ impl Game<'_> {
         pos: super::ae2_global::GridAddress,
     ) -> Result<Vec<(ItemKey, u64)>, String> {
         let mut total = BTreeMap::<ItemKey, u64>::new();
-        for p in self.ae2_drives_encoded(pos)? {
-            if let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(p) {
-                for stack in m.slots.iter().flatten() {
-                    if let Ok(keys) = self.ae2_creative_cell_keys(stack) {
-                        for key in keys {
-                            if let super::ae2_storage_devices::CreativeCellKey::Item(k) = key {
-                                let n = total.entry(k).or_default();
-                                *n = n
-                                    .checked_add(i32::MAX as u64)
-                                    .ok_or("network item count overflow")?;
-                            }
-                        }
+        for stack in &self.ae2_grid_cells_encoded(pos)? {
+            if let Ok(keys) = self.ae2_creative_cell_keys(stack) {
+                for key in keys {
+                    if let super::ae2_storage_devices::CreativeCellKey::Item(k) = key {
+                        let n = total.entry(k).or_default();
+                        *n = n
+                            .checked_add(i32::MAX as u64)
+                            .ok_or("network item count overflow")?;
                     }
-                    if let Ok(c) = self.ae2_read_cell(stack) {
-                        for (k, v) in c.entries_for(ae2_cell_core::Channel::Item) {
-                            let n = total.entry(k.clone()).or_default();
-                            *n = n.checked_add(*v).ok_or("network item count overflow")?;
-                        }
-                    }
+                }
+            }
+            if let Ok(c) = self.ae2_read_cell(stack) {
+                for (k, v) in c.entries_for(ae2_cell_core::Channel::Item) {
+                    let n = total.entry(k.clone()).or_default();
+                    *n = n.checked_add(*v).ok_or("network item count overflow")?;
                 }
             }
         }
@@ -947,14 +984,14 @@ impl Game<'_> {
                 if left==0{break}
                 if self.ae2_cell_preferred(mount,&k,false)?{
                     let (moved,updated)=self.ae2_cell_storage_change(mount,&k,left,false,true,simulate)?;left-=moved;
-                    if let Some(updated)=updated{changes.push((mount.address,mount.slot,updated));}
+                    if let Some(updated)=updated{changes.push((mount.clone(),updated));}
                 }else{late_cells.push(mount);}
             }
             for mount in late_buses{if left==0{break}left-=self.ae2_storage_insert(mount,input,left,simulate,formation)?;}
             for mount in late_cells{
                 if left==0{break}
                 let (moved,updated)=self.ae2_cell_storage_change(mount,&k,left,false,true,simulate)?;left-=moved;
-                if let Some(updated)=updated{changes.push((mount.address,mount.slot,updated));}
+                if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             // FormationPlane's InWorldStorage has the default nonpreferred
             // behavior. Existing placement staging/rollback remains intact.
@@ -966,11 +1003,8 @@ impl Game<'_> {
             if charge_power {
                 self.ae2_take_power_encoded(pos, moved as f64, false);
             }
-            for (p, i, s) in changes {
-                if let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity_mut(p) {
-                    m.slots[i] = Some(s);
-                }
-                self.ae2_mark_modified(p);
+            for (mount, s) in changes {
+                self.ae2_store_mounted_cell(&mount, s);
             }
         }
         Ok(moved)
@@ -1112,7 +1146,7 @@ impl Game<'_> {
             for mount in cells.iter().filter(|mount|mount.priority==priority){
                 if left==0{break}
                 let (moved,updated)=self.ae2_cell_storage_change(mount,k,left,false,false,false)?;left-=moved;
-                if let Some(updated)=updated{changes.push((mount.address,mount.slot,updated));}
+                if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             if left==0{break}
         }
@@ -1123,11 +1157,8 @@ impl Game<'_> {
         if charge_power {
             self.ae2_take_power_encoded(pos, got as f64, false);
         }
-        for (p, i, s) in changes {
-            if let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity_mut(p) {
-                m.slots[i] = Some(s);
-            }
-            self.ae2_mark_modified(p);
+        for (mount, s) in changes {
+            self.ae2_store_mounted_cell(&mount, s);
         }
         Ok(got)
     }
@@ -1424,6 +1455,10 @@ impl Game<'_> {
                 ]);
                 if let (Some(signal), Tag::Compound(data)) = (toggle_signal, &mut attached) {
                     data.insert("toggle_signal".into(), Tag::Byte(i8::from(signal)));
+                }
+                // An addon part's onPlacement: its spin, kept in its machine's config.
+                if let (Some(spin), Tag::Compound(data)) = (super::ae2x::part_placement_spin(&held.item, face, self.yaw), &mut attached) {
+                    data.insert("machine".into(), Tag::compound([("config", Tag::compound([("spin", Tag::Byte(spin as i8))]))]));
                 }
                 parts.push(attached.clone());
                 if held.item.ends_with("terminal") && held.item.as_ref()!="ae2:pattern_access_terminal" {

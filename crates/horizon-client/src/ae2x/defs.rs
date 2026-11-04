@@ -56,6 +56,11 @@ pub struct PartDef {
     pub idle_power: f64,
     /// `GridFlags.REQUIRE_CHANNEL`.
     pub requires_channel: bool,
+    /// The storage cells it holds and mounts on the grid while online
+    /// (`IChestOrDrive.getCellCount` of an `IStorageProvider` part: MEGA's
+    /// Cell Dock); 0 for a part that holds none. Each cell adds its
+    /// `getIdleDrain` to the part's idle power.
+    pub cells: usize,
 }
 
 /// The tables. Filled by [`Defs::ae2`] and the addons' `register`.
@@ -179,6 +184,19 @@ impl Defs {
     }
     pub fn part(&self, id: &str) -> Option<&PartDef> {
         self.parts.get(id)
+    }
+    /// An addon's part that holds storage cells (`IChestOrDrive` with
+    /// `IStorageProvider`): its row, and the part machine (`MachineKind::Ext`
+    /// of a part row) that keeps its cells in its slots, its priority and
+    /// settings in its config.
+    pub fn add_cell_part(&mut self, id: &'static str, idle_power: f64, cells: usize) {
+        assert!(cells > 0, "a cell part holds a cell");
+        self.add_part(PartDef { id: id.to_owned(), idle_power, requires_channel: true, cells });
+        self.add_machine(ExtMachine { id, physical_slots: cells, upgrade_slots: 0, key_drops: None, power_capacity: None, part: true });
+    }
+    /// A part that holds storage cells; none for any other part.
+    pub fn cell_part(&self, id: &str) -> Option<&PartDef> {
+        self.parts.get(id).filter(|part| part.cells > 0)
     }
 
     pub fn cell(&self, id: &str) -> Option<&CellDef> {

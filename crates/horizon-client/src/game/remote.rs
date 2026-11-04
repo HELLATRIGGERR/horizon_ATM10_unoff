@@ -8037,7 +8037,8 @@ impl Game<'_> {
             let block = self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2]));
             let alternate = self.keys.contains(&KeyCode::ShiftLeft);
             if (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && (matches!(horizon_client::ae2_world::base_id(block.name.as_ref()), "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:wireless_access_point" | "ae2:crystal_resonance_generator" | "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest" | "ae2:growth_accelerator" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:spatial_anchor" | "ae2:pattern_provider") || super::ae2x::orientation(block.name.as_ref()).is_some()))
-                || (alternate && (block.name.as_ref()=="ae2:cable_bus" || horizon_client::ae2_world::MachineKind::from_id(horizon_client::ae2_world::base_id(block.name.as_ref())).is_some_and(|kind| !matches!(kind,horizon_client::ae2_world::MachineKind::CableBus|horizon_client::ae2_world::MachineKind::Paint) && self.res.items().get(kind.id()).is_some()))) {
+                || (alternate && (block.name.as_ref()=="ae2:cable_bus" || horizon_client::ae2_world::MachineKind::from_id(horizon_client::ae2_world::base_id(block.name.as_ref())).is_some_and(|kind| !matches!(kind,horizon_client::ae2_world::MachineKind::CableBus|horizon_client::ae2_world::MachineKind::Paint) && self.res.items().get(kind.id()).is_some())))
+                || (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && self.ae2_spun_part_at(hit.pos, hit.face)) {
                 return (InteractionResult::Success, DryUse::default());
             }
         }

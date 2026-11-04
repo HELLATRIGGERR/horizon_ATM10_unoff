@@ -25,7 +25,8 @@ pub(super) fn boxes(v:&Visual, collision:bool)->Vec<B> {
     for p in &v.parts {
         let id=horizon_client::ae2_world::base_id(&p.id);
         let id=id.strip_prefix("ae2:").unwrap_or(id);
-        let parts:Vec<B>=match id {
+        // An addon part's own getBoxes.
+        let parts:Vec<B>=if let Some(boxes)=super::ae2x::part_boxes(&p.id) {boxes.into_iter().map(b).collect()} else {match id {
             "terminal"|"crafting_terminal"|"pattern_encoding_terminal"|"pattern_access_terminal"|"merequester:requester_terminal"|"storage_monitor"|"conversion_monitor"|"monitor"|"semi_dark_monitor"|"dark_monitor" => vec![b([2.,2.,14.,14.,14.,16.]),b([4.,4.,13.,12.,12.,14.])],
             "export_bus" => vec![b([4.,4.,12.,12.,12.,14.]),b([5.,5.,14.,11.,11.,15.]),b([6.,6.,15.,10.,10.,16.]),b([6.,6.,11.,10.,10.,12.])],
             "import_bus" => vec![b([6.,6.,11.,10.,10.,13.]),b([5.,5.,13.,11.,11.,14.]),b([4.,4.,14.,12.,12.,16.])],
@@ -44,7 +45,7 @@ pub(super) fn boxes(v:&Visual, collision:bool)->Vec<B> {
             },
             // Keep unknown part types solid until their source shape is ported.
             _ => vec![b([0.,0.,0.,16.,16.,16.])],
-        };
+        }};
         out.extend(parts.into_iter().map(|b|turn(b,&p.face)));
     }
     for facade in &v.facades {
@@ -55,7 +56,7 @@ pub(super) fn boxes(v:&Visual, collision:bool)->Vec<B> {
 #[cfg(test)] mod tests {
  use super::*; use crate::game::ae2_visual_sync::{Part,Visual};
  #[test] fn source_dense_and_terminal_shapes_rotate() {
-  let v=Visual{pos:[0,0,0],kind:"ae2:cable_bus".into(),slots:vec![],facades:vec![],parts:vec![Part{id:"ae2:terminal".into(),face:"north".into(),online:true,powered:true,plane_edges:[false;4],monitor:None,monitor_locked:false}],cable:Some("ae2:fluix_smart_dense_cable".into()),powered:true,connections:vec!["east".into()],channels:0,paint_dots:vec![],charger_working:false,crank_angle:0,crafting_job:None,painted_color:None,anchor_chunks:vec![],anchor_pending:None};
+  let v=Visual{pos:[0,0,0],kind:"ae2:cable_bus".into(),slots:vec![],facades:vec![],parts:vec![Part{id:"ae2:terminal".into(),face:"north".into(),online:true,powered:true,plane_edges:[false;4],monitor:None,monitor_locked:false,cell:None,spin:None}],cable:Some("ae2:fluix_smart_dense_cable".into()),powered:true,connections:vec!["east".into()],channels:0,paint_dots:vec![],charger_working:false,crank_angle:0,crafting_job:None,painted_color:None,anchor_chunks:vec![],anchor_pending:None};
   let c=boxes(&v,true); let o=boxes(&v,false);
   assert_eq!(c[0],[4.9/16.,4.9/16.,4.9/16.,11.1/16.,11.1/16.,11.1/16.]);
   assert_eq!(o[0],[3./16.,3./16.,3./16.,13./16.,13./16.,13./16.]);

@@ -959,6 +959,7 @@ impl Game<'_> {
                     || self
                         .ae2_provider_part_at(address, facing.opposite())
                         .is_some()
+                    || self.ae2_cell_part_at(address, facing.opposite()).is_some()
                     || self
                         .ae2_interface_item_candidates(address, facing.opposite())
                         .is_some();
@@ -1099,7 +1100,9 @@ impl Game<'_> {
             } else {
                 None
             };
-            let condenser=matches!(self.ae2_block_entity(address),Some(BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::Condenser|horizon_client::ae2_world::MachineKind::Charger|horizon_client::ae2_world::MachineKind::VibrationChamber|horizon_client::ae2_world::MachineKind::Inscriber|horizon_client::ae2_world::MachineKind::MolecularAssembler|horizon_client::ae2_world::MachineKind::QuantumLink));
+            // A cell part's item handler (MEGA's Cell Dock) gives its cell, as these machines' give theirs.
+            let condenser=matches!(self.ae2_block_entity(address),Some(BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::Condenser|horizon_client::ae2_world::MachineKind::Charger|horizon_client::ae2_world::MachineKind::VibrationChamber|horizon_client::ae2_world::MachineKind::Inscriber|horizon_client::ae2_world::MachineKind::MolecularAssembler|horizon_client::ae2_world::MachineKind::QuantumLink))
+                || (p2p.is_none() && interface.is_none() && self.ae2_cell_part_at(address, Direction::Down).is_some());
             let condenser_choices=condenser.then(||self.ae2_native_item_candidates(address,Direction::Down));
             if let Some(choices) = p2p.or(interface).or(condenser_choices) {
                 for candidate in choices {

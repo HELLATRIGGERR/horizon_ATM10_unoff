@@ -63,6 +63,14 @@ pub(super) struct Part {
     pub monitor: Option<MonitorVisual>,
     #[serde(default)]
     pub monitor_locked: bool,
+    /// A cell part's cell, as a drive's slot shows it (`CellDockPart`'s
+    /// `clientCell` and `clientCellState`).
+    #[serde(default)]
+    pub cell: Option<CellVisual>,
+    /// A part that turns on its face (`CellDockPart.spin`): its model is
+    /// drawn in `BlockOrientation.get(side, spin)`.
+    #[serde(default)]
+    pub spin: Option<u8>,
 }
 /// Only the configured display key and its public aggregate are replicated.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -120,6 +128,33 @@ fn text(t: Option<&Tag>) -> Option<String> {
         _ => None,
     }
 }
+/// `CellState` of a cell stack as `BasicCellInventory.getStatus` gives it:
+/// 1 `EMPTY`, 2 `NOT_EMPTY`, 3 `TYPES_FULL`, 4 `FULL`; 0 for a stack the
+/// codec can't read.
+fn cell_state(v: &horizon_client::items::ItemStack) -> u8 {
+    let cell = super::ae2_lab::read_cell(v).or_else(|_| super::ae2_fluids::read_fluid_cell(v));
+    match cell {
+        Ok(c) if c.total_items() == 0 => 1,
+        Ok(c) if c.can_hold_new_type() => 2,
+        Ok(c) if c.remaining_items() > 0 => 3,
+        Ok(_) => 4,
+        Err(_) => 0,
+    }
+}
+/// A cell part record's cell and spin (`CellDockPart.writeToStream`: the cell's
+/// item, `getCellStatus(0)` and `spin`).
+fn cell_part_visual(part: &Tag) -> (Option<CellVisual>, Option<u8>) {
+    let machine = part.get("machine");
+    let cell = machine
+        .and_then(|m| super::ae2_parts::strict_part_items(m.get("slots"), 1).ok())
+        .and_then(|slots| slots.into_iter().next().flatten())
+        .map(|stack| CellVisual { id: stack.item.to_string(), state: cell_state(&stack) });
+    let spin = match machine.and_then(|m| m.get("config")).and_then(|c| c.get("spin")) {
+        Some(Tag::Byte(spin)) => (*spin as u8) % 4,
+        _ => 0,
+    };
+    (cell, Some(spin))
+}
 pub(super) fn visual(pos: (i32, i32, i32), entity: &BlockEntity, powered: bool) -> Option<Visual> {
     let BlockEntity::Ae2(machine) = entity else {
         return None;
@@ -130,20 +165,9 @@ pub(super) fn visual(pos: (i32, i32, i32), entity: &BlockEntity, powered: bool) 
             .iter()
             .take(10)
             .map(|s| {
-                s.as_ref().map(|v| {
-                    let cell = super::ae2_lab::read_cell(v)
-                        .or_else(|_| super::ae2_fluids::read_fluid_cell(v));
-                    let state = match cell {
-                        Ok(c) if c.total_items() == 0 => 1,
-                        Ok(c) if c.can_hold_new_type() => 2,
-                        Ok(c) if c.remaining_items() > 0 => 3,
-                        Ok(_) => 4,
-                        Err(_) => 0,
-                    };
-                    CellVisual {
-                        id: v.item.to_string(),
-                        state,
-                    }
+                s.as_ref().map(|v| CellVisual {
+                    id: v.item.to_string(),
+                    state: cell_state(v),
                 })
             })
             .collect()
@@ -156,7 +180,8 @@ pub(super) fn visual(pos: (i32, i32, i32), entity: &BlockEntity, powered: bool) 
     if let Some(Tag::List(list)) = machine.config.get(&"parts".into()) {
         for p in list.iter().take(6) {
             if let (Some(id), Some(face)) = (text(p.get("id")), text(p.get("face"))) {
-                parts.push(Part { id, face, online: false, powered:false, plane_edges: [false; 4], monitor: None, monitor_locked:false });
+                let (cell, spin) = if super::ae2_parts::is_cell_part(&id) { cell_part_visual(p) } else { (None, None) };
+                parts.push(Part { id, face, online: false, powered:false, plane_edges: [false; 4], monitor: None, monitor_locked:false, cell, spin });
             }
         }
     }
@@ -207,6 +232,15 @@ pub(super) fn visual(pos: (i32, i32, i32), entity: &BlockEntity, powered: bool) 
     })
 }
 impl Game<'_> {
+    /// Whether this client draws a part that turns with a wrench (a spin,
+    /// MEGA's Cell Dock) on face `face` of the cable bus at `pos`: its
+    /// `onUseItemOn` takes the wrench on the client too, so the use ends there
+    /// and goes to no other hand.
+    pub(super) fn ae2_spun_part_at(&self, pos: [i32; 3], face: [i32; 3]) -> bool {
+        let side = match face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",[1,0,0]=>"east",_=>return false};
+        self.ae2_visual_cache.get(&(pos[0], pos[1], pos[2]))
+            .is_some_and(|v| v.parts.iter().any(|part| part.face == side && part.spin.is_some()))
+    }
     pub(super) fn ae2_enrich_anchor_visual(&self,v:&mut Visual) {
         if v.kind!="ae2:spatial_anchor" {return;}
         let Some(address)=self.ae2_local_address((v.pos[0],v.pos[1],v.pos[2])) else{return};

@@ -102,7 +102,19 @@ fn terminal_stack_key(stack:&ItemStack)->Option<ae2_cell_core::ItemKey> {
     horizon_client::ae2_cell_codec::key(stack).ok()
 }
 
-fn navigation(label: &str) -> ItemStack {
+/// What a part machine's own slot takes from the player: a Pattern Provider's
+/// patterns its inventory filter lets in; a cell part's storage cells
+/// (`RestrictedInputSlot.PlacableItemType.STORAGE_CELLS` on `CellDockMenu`'s
+/// slot, and the cell inventory's `StorageCells.isCellHandled` filter); an
+/// Interface's anything.
+pub(super) fn part_slot_allows(machine: &horizon_client::ae2_world::Machine, stack: &ItemStack) -> bool {
+    if super::ae2_parts::is_cell_part(machine.id()) {
+        return super::ae2_storage_devices::is_valid_storage_cell(stack);
+    }
+    machine.kind != horizon_client::ae2_world::MachineKind::PatternProvider
+        || super::ae2_pattern_access::provider_pattern_valid(machine, stack)
+}
+pub(in crate::game) fn navigation(label: &str) -> ItemStack {
     let mut stack = ItemStack {
         item: Arc::from("minecraft:arrow"),
         count: 1,
@@ -5139,8 +5151,16 @@ enum PriorityTarget {
     Part { pos:(i32,i32,i32), face:u8, identity:(u64,[i32;4]) },
     Drive { pos:(i32,i32,i32), identity:u64 },
     Provider { pos:(i32,i32,i32), part:Option<super::ae2_parts::PartAddress>, identity:ProviderMenuOwner },
-    /// `InterfaceLogicHost`'s priority (`IPriorityHost`), kept in the machine's config.
+    /// `InterfaceLogicHost`'s priority (`IPriorityHost`), kept in the machine's config;
+    /// a cell part's too (`CellDockPart.setPriority`), see [`config_priority_host`].
     Interface { pos:(i32,i32,i32), part:Option<super::ae2_parts::PartAddress>, owner:MachineMenuOwner },
+}
+/// A machine of `kind` whose `IPriorityHost` priority is its config's
+/// `priority`, read and set as the Interface's: the Interface, and an addon's
+/// cell part (MEGA's Cell Dock).
+fn config_priority_host(kind:horizon_client::ae2_world::MachineKind)->bool {
+    kind==horizon_client::ae2_world::MachineKind::Interface
+        || kind.ext().is_some_and(|m|m.part && super::ae2_parts::is_cell_part(m.id))
 }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 struct WorkbenchRevision { state:i32, page:usize, keep:bool }
@@ -5614,7 +5634,7 @@ impl Game<'_> {
         let m=play.ae2_machine.as_ref()?;let edit=m.priority_edit.clone()?;
         if m.owner_dim!=self.dim.id() || !player.within_block_range([m.pos.0,m.pos.1,m.pos.2],4.0){return None;}
         let target=if let Some(identity)=m.provider_owner {PriorityTarget::Provider{pos:m.pos,part:m.part,identity}}
-            else if m.owner.kind==horizon_client::ae2_world::MachineKind::Interface {PriorityTarget::Interface{pos:m.pos,part:m.part,owner:m.owner}}
+            else if config_priority_host(m.owner.kind) {PriorityTarget::Interface{pos:m.pos,part:m.part,owner:m.owner}}
             else {PriorityTarget::Drive{pos:m.pos,identity:m.drive_owner?}};
         Some((m.window,target,edit))
     }
@@ -6057,7 +6077,9 @@ impl Game<'_> {
         let Ok(Some(machine)) = self.ae2_part_machine(part) else {
             return false;
         };
-        if !matches!(
+        // An addon part machine with a menu of its own kind (MEGA's CellDockMenu).
+        let addon_title = super::ae2x::part_menu_title(machine.id());
+        if addon_title.is_none() && !matches!(
             machine.kind,
             horizon_client::ae2_world::MachineKind::Interface
                 | horizon_client::ae2_world::MachineKind::PatternProvider
@@ -6077,7 +6099,9 @@ impl Game<'_> {
         self.lan_station_closed(host, conn, None);
         self.lan_crafting_closed(host, conn, None);
         self.guest_container_closed(host, conn);
-        let title = if machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider {
+        let title = if let Some(title) = addon_title {
+            title
+        } else if machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider {
             "ME Pattern Provider"
         } else {
             "ME Interface"
@@ -6887,7 +6911,7 @@ impl Game<'_> {
             let target=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).and_then(|m|
                 m.provider_owner.map(|identity|PriorityTarget::Provider{pos,part,identity})
                     .or_else(||m.drive_owner.map(|identity|PriorityTarget::Drive{pos,identity}))
-                    .or_else(||(m.owner.kind==horizon_client::ae2_world::MachineKind::Interface).then_some(PriorityTarget::Interface{pos,part,owner:m.owner})));
+                    .or_else(||config_priority_host(m.owner.kind).then_some(PriorityTarget::Interface{pos,part,owner:m.owner})));
             if let Some(target)=target {return self.lan_priority_open(host,conn,p.container,target);}
         }
         let paged_ghost = part.is_none()
@@ -7188,6 +7212,7 @@ impl Game<'_> {
     }
     /// Per-face part inventory transaction. Stale menu snapshots are checked
     /// before this runs; the player and owned part roll back together on error.
+    /// A slot of a part machine takes what [`part_slot_allows`] lets in.
     fn ae2_part_machine_click(
         &mut self,
         part: super::ae2_parts::PartAddress,
@@ -7221,8 +7246,7 @@ impl Game<'_> {
                     if i >= normal {
                         super::ae2_machine_ui::machine_upgrade_allowed(&machine, i - normal, s)
                     } else {
-                        machine.kind != horizon_client::ae2_world::MachineKind::PatternProvider
-                            || super::ae2_pattern_access::provider_pattern_valid(&machine, s)
+                        part_slot_allows(&machine, s)
                     }
                 };
                 let max = |s: &ItemStack| {
@@ -7292,8 +7316,7 @@ impl Game<'_> {
                                 &held,
                             )
                         } else {
-                            machine.kind != horizon_client::ae2_world::MachineKind::PatternProvider
-                                || super::ae2_pattern_access::provider_pattern_valid(&machine, &held)
+                            part_slot_allows(&machine, &held)
                         };
                         if !allowed {
                             continue;

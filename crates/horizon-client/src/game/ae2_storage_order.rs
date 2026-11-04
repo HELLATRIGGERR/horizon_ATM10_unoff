@@ -7,9 +7,17 @@ use horizon_world::nbt::Tag;
 #[derive(Clone,Debug)]
 pub(super) struct CellMount {
     pub address:GridAddress,
+    /// The cable bus face of a cell part (MEGA's Cell Dock) whose cell this
+    /// is; none for a Drive's or ME Chest's own slot.
+    pub part:Option<u8>,
     pub slot:usize,
     pub priority:i32,
     pub kind:MachineKind,
+}
+/// `IPriorityHost.getPriority` of a part machine that keeps it in its config
+/// (`CellDockPart.priority`, saved as `priority`): 0 when unset.
+pub(super) fn config_priority(machine:&horizon_client::ae2_world::Machine)->Result<i32,String>{
+    match machine.config.get(&"priority".into()){None=>Ok(0),Some(Tag::Int(value))=>Ok(*value),_=>Err("invalid cell storage priority".into())}
 }
 impl Game<'_> {
     pub(super) fn ae2_storage_priority(&self,address:GridAddress)->Result<i32,String>{
@@ -33,17 +41,46 @@ impl Game<'_> {
     }
     pub(super) fn ae2_cell_mounts_encoded(&self,anchor:GridAddress)->Result<Vec<CellMount>,String>{
         let mut mounts=Vec::new();
-        for address in self.ae2_drives_encoded(anchor)?{
+        let (drives,parts)=self.ae2_cell_hosts_encoded(anchor)?;
+        for address in drives{
             let priority=self.ae2_storage_priority(address)?;
             let Some(BlockEntity::Ae2(machine))=self.ae2_block_entity(address) else{continue};
-            for (slot,stack) in machine.slots.iter().enumerate(){if stack.is_some(){mounts.push(CellMount{address,slot,priority,kind:machine.kind});}}
+            for (slot,stack) in machine.slots.iter().enumerate(){if stack.is_some(){mounts.push(CellMount{address,part:None,slot,priority,kind:machine.kind});}}
+        }
+        // CellDockPart.mountInventories: its DriveWatcher, at its priority.
+        for part in parts{
+            let Some(machine)=self.ae2_part_machine(part)? else{continue};
+            let priority=config_priority(&machine)?;
+            for (slot,stack) in machine.slots.iter().enumerate(){if stack.is_some(){mounts.push(CellMount{address:part.host,part:Some(part.face),slot,priority,kind:machine.kind});}}
         }
         Ok(mounts)
     }
     pub(super) fn ae2_mounted_cell_stack(&self,mount:&CellMount)->Result<ItemStack,String>{
+        if let Some(face)=mount.part {
+            let machine=self.ae2_part_machine(super::ae2_parts::PartAddress{host:mount.address,face})?.ok_or("cell part disappeared")?;
+            if machine.kind!=mount.kind{return Err("cell part changed".into())}
+            return machine.slots.get(mount.slot).and_then(Option::as_ref).cloned().ok_or_else(||"mounted cell disappeared".into());
+        }
         let Some(BlockEntity::Ae2(machine))=self.ae2_block_entity(mount.address) else{return Err("cell host disappeared".into())};
         if machine.kind!=mount.kind{return Err("cell host changed".into())}
         machine.slots.get(mount.slot).and_then(Option::as_ref).cloned().ok_or_else(||"mounted cell disappeared".into())
+    }
+    /// Commits a mounted cell's changed stack to its host: the Drive's or ME
+    /// Chest's slot, or the cell part's (`CellDockPart.onCellContentChanged`
+    /// saves the part's host).
+    pub(super) fn ae2_store_mounted_cell(&mut self,mount:&CellMount,stack:ItemStack){
+        if let Some(face)=mount.part {
+            let part=super::ae2_parts::PartAddress{host:mount.address,face};
+            let Ok(Some(mut machine))=self.ae2_part_machine(part) else{return};
+            if machine.kind!=mount.kind || mount.slot>=machine.slots.len(){return}
+            machine.slots[mount.slot]=Some(stack);
+            if let Err(error)=self.ae2_store_part_machine(part,&machine){log::warn!("AE2 cell part {error}");}
+            return;
+        }
+        if let Some(BlockEntity::Ae2(m))=self.ae2_block_entity_mut(mount.address) {
+            if let Some(slot)=m.slots.get_mut(mount.slot){*slot=Some(stack);}
+        }
+        self.ae2_mark_modified(mount.address);
     }
     pub(super) fn ae2_cell_preferred(&self,mount:&CellMount,key:&ItemKey,fluid:bool)->Result<bool,String>{
         let stack=self.ae2_mounted_cell_stack(mount)?;
@@ -54,8 +91,9 @@ impl Game<'_> {
         // DriveWatcher is an MEInventoryHandler: its simulated extraction
         // makes existing keys preferred. ME Chest's ChestMonitorHandler is
         // only a delegating wrapper around BasicCellInventory, whose default
-        // preference is false. Keep that source distinction.
-        if mount.kind!=MachineKind::Drive{return Ok(false)}
+        // preference is false. Keep that source distinction. MEGA's Cell Dock
+        // mounts a DriveWatcher too (`CellDockPart.updateState`).
+        if mount.kind!=MachineKind::Drive && mount.part.is_none(){return Ok(false)}
         let cell=self.ae2_read_cell(&stack);
         Ok(cell.is_ok_and(|cell| {
             let primary=(cell.config().channel==ae2_cell_core::Channel::Fluid)==fluid;

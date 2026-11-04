@@ -605,7 +605,41 @@ pub(super) fn part_machine(id: &str) -> Option<Machine> {
     if let Some(variant) = horizon_client::ae2_world::variant(id).filter(|v| v.part && v.kind != MachineKind::CableBus) {
         return Some(Machine::of_variant(variant));
     }
+    // An addon's part of a kind of its own (a part row of `ExtMachine`).
+    if let Some(kind) = MachineKind::from_id(id).filter(|kind| kind.ext().is_some_and(|m| m.part)) {
+        return Some(Machine::new(kind));
+    }
     Some(Machine::new(part_machine_kind(id)?))
+}
+/// The physical slots part `id`'s machine record holds, for checks of a saved
+/// record before its items move (drops, removal): an addon variant's, an
+/// addon part machine's, AE2's encoding terminal's two, nine otherwise.
+pub(super) fn part_slot_limit(id: &str) -> usize {
+    if let Some(variant) = horizon_client::ae2_world::variant(id) {
+        return variant.slots;
+    }
+    if let Some(machine) = MachineKind::from_id(id).and_then(MachineKind::ext).filter(|m| m.part) {
+        return machine.physical_slots;
+    }
+    if id == "ae2:pattern_encoding_terminal" { 2 } else { 9 }
+}
+/// A part that holds storage cells (MEGA's Cell Dock): its machine's slots
+/// are the cells, mounted on the grid while the part is online.
+pub(super) fn is_cell_part(id: &str) -> bool {
+    horizon_client::ae2x::defs::get().cell_part(id).is_some()
+}
+/// `CellDockPart.updateState`: what the cells in part record `part` (of item
+/// `id`) add to its idle power, each its `StorageCell.getIdleDrain`; 0 for a
+/// part that holds no cells, or a record whose slots don't decode.
+pub(super) fn cell_part_drain(id: &str, part: &Tag) -> f64 {
+    if !is_cell_part(id) {
+        return 0.0;
+    }
+    let slots = part.get("machine").map(|machine| strict_part_items(machine.get("slots"), part_slot_limit(id)));
+    match slots {
+        Some(Ok(slots)) => slots.iter().flatten().filter_map(super::ae2_storage_devices::cell_idle_drain).sum(),
+        _ => 0.0,
+    }
 }
 pub(super) fn strict_part_items(tag: Option<&Tag>, size: usize) -> Result<Vec<Option<ItemStack>>, String> {
     let Some(tag) = tag else {

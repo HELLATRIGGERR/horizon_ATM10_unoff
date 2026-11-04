@@ -21,6 +21,7 @@
   "derived_files": [
     "crates/horizon-client/src/ae2x/megacells.rs",
     "crates/horizon-client/src/game/ae2x/megacells/mod.rs",
+    "crates/horizon-client/src/game/ae2x/megacells/cell_dock.rs",
     "crates/horizon-client/src/game/ae2x/megacells/lava.rs",
     "crates/horizon-client/src/game/ae2x/megacells/portable_workbench.rs",
     "crates/horizon-client/src/game/ae2x/megacells/screens.rs",

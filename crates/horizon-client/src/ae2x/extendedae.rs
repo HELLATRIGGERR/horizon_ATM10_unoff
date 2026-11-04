@@ -178,9 +178,9 @@ pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
 /// The mod's own machines: physical slots, cards, and the AE buffer
 /// (`POWER_MAXIMUM_AMOUNT`, 8,000 on each).
 pub const OWN_MACHINES: &[ExtMachine] = &[
-    ExtMachine { id: CRYSTAL_ASSEMBLER, physical_slots: 10, upgrade_slots: 4, key_drops: None, power_capacity: Some(8000.0) },
-    ExtMachine { id: CIRCUIT_CUTTER, physical_slots: 2, upgrade_slots: 4, key_drops: None, power_capacity: Some(8000.0) },
-    ExtMachine { id: CRYSTAL_FIXER, physical_slots: 1, upgrade_slots: 0, key_drops: None, power_capacity: Some(8000.0) },
+    ExtMachine { id: CRYSTAL_ASSEMBLER, physical_slots: 10, upgrade_slots: 4, key_drops: None, power_capacity: Some(8000.0), part: false },
+    ExtMachine { id: CIRCUIT_CUTTER, physical_slots: 2, upgrade_slots: 4, key_drops: None, power_capacity: Some(8000.0), part: false },
+    ExtMachine { id: CRYSTAL_FIXER, physical_slots: 1, upgrade_slots: 0, key_drops: None, power_capacity: Some(8000.0), part: false },
 ];
 
 pub fn register(defs: &mut Defs) {

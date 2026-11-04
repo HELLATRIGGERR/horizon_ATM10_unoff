@@ -4,7 +4,9 @@
 //! `cell_workbench.json` and names the item as its title); and
 //! `MEGACellsClient`'s `PatternProviderScreen` and `InterfaceScreen` over
 //! AE2's `PatternProviderMenu` and `InterfaceMenu` (`MEGAMenus`), with
-//! `screens/megacells/mega_pattern_provider.json` and `mega_interface.json`.
+//! `screens/megacells/mega_pattern_provider.json` and `mega_interface.json`;
+//! `CellDockScreen` over `CellDockMenu`, with `screens/megacells/cell_dock.json`
+//! (which includes `me_chest.json` and names the dock as its title).
 //! Derived from MEGA Cells 4.11.0, https://github.com/62832/MEGACells tag
 //! 4.11.0, LGPL-3.0; see `ae2/addons/megacells/`.
 //! The window entries are `ae2_machine_ui::MenuShape`'s: 54 for 18 slots.
@@ -152,6 +154,25 @@ const LAYOUTS: &[(&str, Layout)] = &[
         page_line: None,
         panels: &[],
     }),
+    // CellDockMenu (after MEChestMenu): the cell slot (STORAGE_CELL) and the
+    // player's; CellDockScreen's addOpenPriorityButton, on the window's last
+    // entry as on the ME Chest's.
+    (horizon_client::ae2x::megacells::CELL_DOCK, Layout {
+        kind: MachineKind::Chest,
+        style: "megacells/cell_dock.json",
+        slots: &[(0, "STORAGE_CELL")],
+        icons: &[(0, icon::BACKGROUND_STORAGE_CELL)],
+        upgrades: 0..0,
+        toggles: &[],
+        progress: None,
+        priority: Some(26),
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
 ];
 
 /// The layout of a MEGA screen that goes by its menu's item or block.
@@ -201,5 +222,19 @@ mod tests {
         // A cog over each config slot, nine to a row.
         assert_eq!(layout.cogs.iter().map(|(range, _)| range.len()).sum::<usize>(), 18);
         assert!(layout.cogs.iter().all(|(range, _)| config.contains(&(range.start as u8)) && config.contains(&(range.end as u8 - 1))));
+    }
+
+    /// The Cell Dock's screen: its cell on the part machine's one slot, the
+    /// priority tab on the last entry of the 27-entry window.
+    #[test]
+    fn the_cell_dock_screen_sits_on_its_part_machines_window() {
+        horizon_client::ae2x::install();
+        let dock = crate::game::ae2_parts::part_machine(rows::CELL_DOCK).unwrap();
+        let shape = MenuShape::of(&dock);
+        let layout = super::layout(rows::CELL_DOCK).unwrap();
+        assert_eq!((shape.window(), shape.slots), ("minecraft:generic_9x3", 1));
+        assert_eq!(layout.slots, &[(0, "STORAGE_CELL")]);
+        assert_eq!(layout.priority, Some(shape.priority() as i32));
+        assert!(layout.upgrades.is_empty() && layout.toggles.is_empty());
     }
 }

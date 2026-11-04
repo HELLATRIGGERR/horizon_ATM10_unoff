@@ -203,9 +203,54 @@ cable drop the devices with their patterns, stock and card:
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-provider-interface
 ```
 
+## Slice 6: ME Cell Dock
+
+| MEGA | Port |
+|---|---|
+| `MEGAItems.CELL_DOCK`: `PartItem<CellDockPart>`; `CellDockPart extends AEBasePart implements IChestOrDrive, IStorageProvider, IPriorityHost`, no size variant of any AE2 part | a cell part row (`ae2x/megacells.rs`, `Defs::add_cell_part`): the part's state is a part machine of a kind of its own (an `ExtMachine` row with `part`, which no block has), its one slot the cell, its config `priority` and `spin`, kept in the cable bus's part record like the interface part's |
+| the node: `setIdlePowerUsage(0.5)`, `REQUIRE_CHANNEL`; `updateState`: `0.5 + cell.getIdleDrain()` | the grid's part idle draw adds each cell part's cells' drain (`ae2_parts::cell_part_drain`): 1 AE/t with an AE2 1k cell, 3.5 with a MEGA 1M cell |
+| `AppEngCellInventory(this, 1)` with `Filter.allowInsert` = `StorageCells.isCellHandled`; `CellDockMenu`: `RestrictedInputSlot(STORAGE_CELLS)` | a part machine's slot takes what `part_slot_allows` lets in: for a cell part, any storage cell the codec reads (AE2's and MEGA's, item and fluid, portable and creative cells), one to the slot |
+| `mountInventories`: while online, its `DriveWatcher` at its `priority` | `ae2_cell_hosts_encoded` finds the grid's online Drives, ME Chests and cell parts; their cells are listed in terminals and the grid status, take and give at the part's priority (a `CellMount` with `part`), preferred like a Drive's cells (the `DriveWatcher`); a change is saved on the part (`ae2_store_mounted_cell`) |
+| `IPriorityHost.setPriority`; `CellDockScreen.addOpenPriorityButton` | the priority tab on the window's last entry, the Interface's config priority target |
+| `MEGACells.initPartCapabilities`: `Capabilities.ItemHandler.BLOCK` = `getCellInventory().toItemHandler()` | the part face's item handler (`ae2_cell_part_at`): a hopper above a dock on a cable's top puts a cell in (and keeps what is no cell), one below a dock on its bottom takes the cell out |
+| `onPlacement`: on UP or DOWN, `spin = floor(yRot × 4 / 360 + 2.5) & 3`; `onUseItemOn` with `canWrenchRotate`: `spin + 1` | the same (`cell_dock::placement_spin`, `megacells_dock_wrench` through `ae2x_use_on`) |
+| `getBoxes`: (3, 3, 12)–(13, 13, 16) and (5, 5, 11)–(11, 11, 12) | the part's collision and outline boxes (`ae2x::part_boxes`) |
+| `addAdditionalDrops`: the cell | a broken cable or a wrenched part drops the dock, then its cell |
+| `MODEL` `megacells:part/cell_dock` with `AEModelData.SPIN`; `renderDynamic`: the cell's `DriveBakedModel.getCellChassisModel` in `BlockOrientation.get(up from spin, side)` at (-3, 5, -4), `CellLedRenderer.renderLed` with it and again in `BlockOrientation.get(side, spin)` at (-8, -3, -8) | the part model turned by its spin (`QuadRotator.get(side, spin)`); the client's visual of a cell part carries the cell's item, its `CellState` and the spin, and the renderer draws the cell's drive model and both LEDs (`CellLedRenderer`'s five-faced cuboid; black unpowered) |
+| `MEGAMenus.CELL_DOCK`; `CellDockScreen` with `screens/megacells/cell_dock.json` (`me_chest.json`, titled `item.megacells.cell_dock`) | AE2's machine menu over the part, titled "ME Cell Dock", and a layout of the ME Chest's screen keyed on the part (`game/ae2x/megacells/screens.rs`); the content script copies the style |
+| `network/cell_dock` (shaped: iron, copper, iron over a glass cable) | MEGA's recipe, as it is |
+
+Differences, known:
+
+- The dock's NBT is the port's part machine record (`slots`, `config.priority`, `config.spin`) where Java writes
+  `cell`, `priority` and `spin` on the part; saves of the port read their own.
+- Java refreshes the dock's idle power and its LED's state only when it mounts or its inventory changes
+  (`updateState`, `recalculateDisplay`); the port derives both from the cell each grid tick. A dock that was never
+  online shows no LED in Java (no `DriveWatcher` yet); the port shows it black.
+- No Memory Card on the dock (`AEBasePart.exportSettings` would copy its priority), as on the port's other addon parts.
+- A dock on a cable bus with no cable (`ae2_centerless`) is not mounted: its own node is no position of the grid.
+- A Storage Bus facing a dock does not see its cell inventory.
+- The port draws AE2's other parts on a top face without the 180° of `BlockOrientation.UP_NORTH`; the dock uses
+  AE2's orientation.
+
+Tests: `horizon-client-lib` (the dock's row: 0.5 AE/t, a channel, one cell, a part machine of its own kind that no
+block has), `horizon-client` (the slot filter on AE2's and MEGA's item, fluid and portable cells and its refusals, the
+part's idle drain with 0.5 to 5 AE/t cells, its drops, the client's cell, `CellState` and spin, the boxes, the
+`SpinMapping` round trip and the poses of the cell and the LEDs, the placement spin, the screen's entries against the
+part's window) and the world test `megacells-cell-dock`: put on a cable's bottom face by a player of yaw 90, the dock
+has spin 3 and draws 0.5 AE/t and its channel; its screen refuses dirt and takes an AE2 1k cell, whose 64 stone the grid
+lists and whose 0.5 AE/t the grid draws; at priority 100 (the priority tab) its cell takes ten cobblestone before the
+Drive's and leaves the grid with them; MEGA's 1M cell adds 3 AE/t and the client draws it with its `NOT_EMPTY` LED; a
+wrench turns the dock from 3 to 0 to 1 and opens no menu; a hopper above a dock puts a MEGA fluid cell in and keeps its
+dirt, a hopper below one takes its 4M cell out; cells, priority and spin through a restart; the broken cable drops the
+dock and its cell; MEGA's recipe makes it:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-cell-dock
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.1)
 
-6. ME Cell Dock.
 7. Bulk Item Cell, Compression Card, Decompression Module.
 8. Cells for other addons' key types (chemical, radioactive, source, soul), with those addons.
 

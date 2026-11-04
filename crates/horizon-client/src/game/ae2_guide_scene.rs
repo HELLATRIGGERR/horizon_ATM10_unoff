@@ -162,7 +162,7 @@ fn visual(block:&StructureBlock, cpu_positions:&HashSet<[i32;3]>) -> Option<Visu
             let Some(part)=tag.get(face) else {continue};let Some(id)=tag_string(part.get("id")) else{continue};
             let visual=part.get("visual");let powered=byte(visual.and_then(|t|t.get("powered")))!=0;
             v.parts.push(Part{id,face:face.to_owned(),online:powered && byte(visual.and_then(|t|t.get("missingChannel")))==0,
-                powered,plane_edges:[false;4],monitor:None,monitor_locked:false});
+                powered,plane_edges:[false;4],monitor:None,monitor_locked:false,cell:None,spin:None});
         }
         return Some(v)
     }

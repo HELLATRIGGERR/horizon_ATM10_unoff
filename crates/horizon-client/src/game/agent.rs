@@ -350,6 +350,17 @@ impl Game<'_> {
         {
             v["sign"] = json!({ "front": sign.front.lines, "back": sign.back.lines });
         }
+        // An AE2 block as this client draws it: a formed crafting block's
+        // connected faces, and the job a crafting monitor shows.
+        #[cfg(feature = "ae2-lab")]
+        if let Some(visual) = self.ae2_visual_cache.get(&(pos[0], pos[1], pos[2])) {
+            v["ae2"] = json!({
+                "kind": visual.kind,
+                "powered": visual.powered,
+                "connections": visual.connections,
+                "crafting_job": visual.crafting_job.as_ref().map(|job| json!({"item": job.item, "fluid": job.fluid, "amount": job.amount})),
+            });
+        }
         v
     }
     pub(super) fn stack_value(&self, s: &ItemStack) -> Value {

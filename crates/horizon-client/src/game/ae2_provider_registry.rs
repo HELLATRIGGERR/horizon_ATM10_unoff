@@ -21,17 +21,10 @@ struct ProviderData {
     priority: i32,
 }
 
-fn cpu_kind(kind: MachineKind) -> Option<(u64, u32)> {
-    Some(match kind {
-        MachineKind::CraftingUnit | MachineKind::CraftingMonitor => (0, 0),
-        MachineKind::CraftingAccelerator => (0, 1),
-        MachineKind::CraftingStorage1k => (1024, 0),
-        MachineKind::CraftingStorage4k => (4096, 0),
-        MachineKind::CraftingStorage16k => (16384, 0),
-        MachineKind::CraftingStorage64k => (65536, 0),
-        MachineKind::CraftingStorage256k => (262144, 0),
-        _ => return None,
-    })
+/// A crafting CPU block's `getStorageBytes` and `getAcceleratorThreads`, from
+/// the `ICraftingUnitType` of its block, AE2's or an addon's.
+fn cpu_kind(machine: &horizon_client::ae2_world::Machine) -> Option<(u64, u32)> {
+    machine.crafting_unit().map(|unit| (unit.storage_bytes, unit.accelerator_threads))
 }
 
 fn cpu_initial_core(initial: &Ae2CpuInitialCore) -> Result<bool, String> {
@@ -410,7 +403,7 @@ impl<D: Clone + Eq + Hash, K: Clone + Eq> ProviderObserver<D, K> {
             cpu.contains(&NodeIdentity { host: incarnation, part: None, outer: false }));
         let relevant = match checkpoint {
             ReplayCheckpoint::BeforeMutation { event, .. } => match &event.kind {
-                Ae2MutationKind::EntityAdded { entity: BlockEntity::Ae2(machine), .. } => cpu_kind(machine.kind).is_some(),
+                Ae2MutationKind::EntityAdded { entity: BlockEntity::Ae2(machine), .. } => cpu_kind(machine).is_some(),
                 Ae2MutationKind::EntityRemoved { incarnation, bulk_unload: false, .. } => tracked(*incarnation),
                 _ => false,
             },
@@ -454,7 +447,7 @@ impl<D: Clone + Eq + Hash, K: Clone + Eq> ProviderObserver<D, K> {
             match checkpoint {
                 ReplayCheckpoint::BeforeMutation { dimension, event } => match &event.kind {
                     Ae2MutationKind::EntityAdded { incarnation, entity: BlockEntity::Ae2(machine), cpu_core, .. } => {
-                        if let Some((storage, coprocessors)) = cpu_kind(machine.kind) {
+                        if let Some((storage, coprocessors)) = cpu_kind(machine) {
                             let core = cpu_initial_core(cpu_core)?;
                             let (x, y, z) = event.position;
                             cpu.add_block(NodeIdentity { host: *incarnation, part: None, outer: false },
@@ -538,7 +531,7 @@ impl<D: Clone + Eq + Hash, K: Clone + Eq> ProviderObserver<D, K> {
                 }
             }
             if let ReplayCheckpoint::BeforeMutation { dimension, event } = checkpoint {
-                if matches!(&event.kind,Ae2MutationKind::EntityAdded {entity:BlockEntity::Ae2(machine),..} if cpu_kind(machine.kind).is_some()) {
+                if matches!(&event.kind,Ae2MutationKind::EntityAdded {entity:BlockEntity::Ae2(machine),..} if cpu_kind(machine).is_some()) {
                     let (x,y,z)=event.position;
                     let added=CpuPos{dimension:*dimension,x,y,z};
                     for old in self.cpu_unloaded.values_mut().filter(|old|old.position==added) {old.stale=true;}
@@ -980,7 +973,7 @@ mod tests {
             MachineKind::CableBus => DeviceKind::GlassCable,
             MachineKind::PatternProvider => DeviceKind::Interface,
             MachineKind::CreativeEnergyCell => DeviceKind::CreativeEnergyCell,
-            kind if cpu_kind(kind).is_some() => DeviceKind::CraftingCpu,
+            _ if cpu_kind(machine).is_some() => DeviceKind::CraftingCpu,
             _ => return None,
         });
         if matches!(machine.config.get(&"parts".into()), Some(Tag::List(parts)) if parts.iter().any(|part| part.get("face") == Some(&Tag::String("east".into())))) {
@@ -1074,6 +1067,29 @@ mod tests {
         assert!(observer.cpu().unwrap().cluster_of(&node).unwrap().is_some());
         assert!(delivered.iter().filter_map(|change|change.as_ref().ok()).any(|change|change.node==node));
         assert!(delivered.iter().all(Result::is_ok));
+    }
+
+    /// MEGA Cells' crafting blocks are `CraftingBlockEntity`s on their own
+    /// `MEGACraftingUnitType`: in one cluster with AE2's, `addBlockEntity`
+    /// adds AE2's 1,024 bytes and 1 thread to MEGA's 1,048,576 and 4.
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn cpu_observer_adds_mega_bytes_and_threads_to_ae2_blocks() {
+        horizon_client::ae2x::install();
+        let mut entities = BlockEntities::default(); entities.start_ae2_journal();
+        for (pos, id) in [((0, 64, 0), "ae2:1k_crafting_storage"), ((1, 64, 0), "megacells:1m_crafting_storage"),
+            ((0, 65, 0), "ae2:crafting_accelerator"), ((1, 65, 0), "megacells:mega_crafting_accelerator")] {
+            entities.state_changed(pos, 0, 1);
+            entities.insert(pos, BlockEntity::Ae2(Box::new(Machine::for_block(id).unwrap())));
+        }
+        let first = NodeIdentity { host: entities.incarnation(&(0, 64, 0)).unwrap(), part: None, outer: false };
+        let mut replay = EventReplay::default(); replay.topology.services.start_membership_recording().unwrap();
+        let mut observer = ProviderObserver::<String, String>::default(); observer.enable_cpu();
+        apply(&mut replay, &mut observer, entities.take_ae2_mutations().unwrap());
+        ready(&mut replay, &mut observer, (0, 0));
+        let cluster = observer.cpu().unwrap().cluster_of(&first).unwrap().unwrap().clone();
+        assert_eq!(cluster.members.len(), 4);
+        assert_eq!((cluster.storage, cluster.coprocessors), (1024 + 1_048_576, 1 + 4));
     }
 
     #[test]

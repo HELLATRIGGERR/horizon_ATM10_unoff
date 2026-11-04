@@ -50,10 +50,10 @@ tables built once on first use: AE2's own rows (`Defs::ae2`), then each built-in
 | machines: block id, slots, card slots, owned keys a break drops | `AEBaseEntityBlock` with its block entity | `MachineKind::Ext(index)` (`MachineKind::from_id`, saves, drops); the game's `ae2x` gives the grid node, block state and menu |
 | machine variants: block or part id, the AE2 id it behaves as, AE2's kind, slots, card slots, the block whose screen it shows | a subclass of AE2's block entity or part with other sizes (ExtendedAE's `TileExDrive`) | `ae2_world::variant`, `base_id`, `Machine::for_block` and the block entity's id; all behaviour is the kind's |
 | parts: id, idle power, channel | `IPart` with its grid node | part placement and the grid's idle draw |
+| crafting CPU blocks: block id, AE2's kind, storage bytes, co-processor threads, texture namespace and affix | `ICraftingUnitType` on AE2's `CraftingUnitBlock` (MEGA Cells' `MEGACraftingUnitType`) | `ae2_world::crafting_unit`: the CPU's bytes and threads (`CraftingCPUCluster.addBlockEntity`), its formation, the formed model's textures, the in-place upgrade; each is also a machine variant of AE2's block of its kind |
 
 `ae2-cell-core::Tier` is a size in kilobytes, so a cell of any power-of-four tier up to 256M works
 with the verified byte maths. The game reaches an addon's behaviour through `game/ae2x/mod.rs` alone (its tick, grid node, block
 state, menus, screen, item uses, part models and `/ae2` commands). One exception: a variant's screen is a layout of AE2's
-own screen code, so `game/ae2_screens.rs` takes the addon's layouts as a child module (`addon_layout`). Next tables, as their addons need them: CPU blocks (bytes,
-threads), wireless terminals (AE2WTLib's `WTDefinition`: item, menu,
+own screen code, so `game/ae2_screens.rs` takes the addon's layouts as a child module (`addon_layout`). Next tables, as their addons need them: wireless terminals (AE2WTLib's `WTDefinition`: item, menu,
 hotkey, upgrade slots) and key types.

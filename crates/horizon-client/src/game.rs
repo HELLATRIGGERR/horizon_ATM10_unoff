@@ -1340,10 +1340,8 @@ impl LevelAccess for GameLevel<'_> {
             self.quantum.flush_events(self.world,self.dim,(pos.x,pos.y,pos.z));
         }
         #[cfg(feature="ae2-lab")]
-        if !self.client_side && matches!(self.facts.get(state).name.as_ref(),
-            "ae2:crafting_unit"|"ae2:crafting_accelerator"|"ae2:crafting_monitor"|
-            "ae2:1k_crafting_storage"|"ae2:4k_crafting_storage"|"ae2:16k_crafting_storage"|
-            "ae2:64k_crafting_storage"|"ae2:256k_crafting_storage") {
+        // AbstractCraftingUnitBlock.neighborChanged, on AE2's crafting blocks and the addons'.
+        if !self.client_side && horizon_client::ae2_world::crafting_unit(self.facts.get(state).name.as_ref()).is_some() {
             self.world.block_entities.record_ae2_cpu_neighbor((pos.x,pos.y,pos.z),source.map(|p|(p.x,p.y,p.z)));
         }
         #[cfg(not(feature="ae2-lab"))]

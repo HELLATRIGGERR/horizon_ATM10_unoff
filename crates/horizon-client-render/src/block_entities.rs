@@ -40,9 +40,7 @@ fn vanilla_metadata_entity(entity:&BlockEntity)->bool {
 
 #[cfg(feature = "ae2-lab")]
 fn ae2_cpu_kind(kind: crate::ae2_world::MachineKind) -> bool {
-    use crate::ae2_world::MachineKind::*;
-    matches!(kind, CraftingUnit | CraftingAccelerator | CraftingMonitor | CraftingStorage1k
-        | CraftingStorage4k | CraftingStorage16k | CraftingStorage64k | CraftingStorage256k)
+    kind.is_crafting()
 }
 
 /// Exact host mutation stream for the AE2 grid event consumer. This journal is

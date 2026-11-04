@@ -11,7 +11,10 @@ type Declared = { fire_resistant?: boolean; max_stack_size?: number };
 type Block = Declared & { template?: string; properties?: Record<string, unknown>;
   state_properties?: Record<string, string[]>; state_defaults?: Record<string, string>;
   /** The block model to draw when the jar's needs a custom loader (`extendedae:ex_drive`). */
-  model?: string };
+  model?: string;
+  /** A crafting CPU block (MEGA's): the game draws its `formed=true` variants, whose model in the jar is empty for
+   * AE2's crafting cube loader, so they get an empty model with this particle texture, as content/ae2's do. */
+  formed_particle?: string };
 type Content = { namespace: string; name: string; description: string; authors: string[]; slices: string[];
   items: Record<string, Declared>; blocks: Record<string, Block>;
   /** The addon's own recipe types whose machines the slices carry: their recipes are kept. */
@@ -83,6 +86,11 @@ if (!help(usage)) {
     // AE2's own rotation key (`ae2:z`) is plain `z` to the port, as in content/ae2.
     const variants = JSON.parse(readFileSync(state, 'utf8').replaceAll('"ae2:z"', '"z"'));
     if (spec.model) for (const variant of Object.values<any>(variants.variants ?? {})) variant.model = spec.model;
+    if (spec.formed_particle) {
+      const model = `${ns}:block/horizon_static/${block}_formed`;
+      put(join(out, 'assets', ns, 'models/block/horizon_static', block + '_formed.json'), { textures: { particle: spec.formed_particle }, elements: [] });
+      for (const [key, variant] of Object.entries<any>(variants.variants ?? {})) if (key.split(',').includes('formed=true')) variant.model = model;
+    }
     put(join(out, 'assets', ns, 'blockstates', block + '.json'), variants);
     put(join(out, 'data', ns, 'horizon/block', block + '.json'), {
       template: spec.template ?? 'minecraft:iron_block', item: true,

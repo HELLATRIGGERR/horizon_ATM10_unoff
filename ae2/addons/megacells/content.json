@@ -1,9 +1,12 @@
 {
   "namespace": "megacells",
   "name": "MEGA Cells",
-  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1).",
+  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2).",
   "authors": ["90 (MEGA Cells)"],
-  "slices": ["1: M-tier item and fluid cells, their components and housings, Sky Steel, Sky Bronze, the Accumulation Processor"],
+  "slices": [
+    "1: M-tier item and fluid cells, their components and housings, Sky Steel, Sky Bronze, the Accumulation Processor",
+    "2: MEGA Crafting Unit, Co-Processing Unit, 1M-256M Crafting Storage, Crafting Monitor"
+  ],
   "items": {
     "sky_steel_ingot": {"fire_resistant": true},
     "sky_bronze_ingot": {"fire_resistant": true},
@@ -36,6 +39,54 @@
     "sky_bronze_block": {
       "fire_resistant": true,
       "properties": {"hardness": 3, "explosion_resistance": 12, "requires_tool": true, "sounds": "minecraft:iron_block"}
+    },
+    "mega_crafting_unit": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "mega_crafting_accelerator": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "1m_crafting_storage": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "4m_crafting_storage": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "16m_crafting_storage": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "64m_crafting_storage": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "256m_crafting_storage": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
+    },
+    "mega_crafting_monitor": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"facing": ["down", "up", "north", "south", "west", "east"], "spin": ["0", "1", "2", "3"], "formed": ["false", "true"], "powered": ["false", "true"]},
+      "state_defaults": {"facing": "north", "spin": "0", "formed": "false", "powered": "false"},
+      "formed_particle": "megacells:block/crafting/ring_corner"
     }
   }
 }

@@ -220,7 +220,8 @@ impl Game<'_> {
         let Some(address)=self.ae2_local_address(pos) else{return};
         let point=address.network_pos();
         let Some(node)=analysis.nodes.get(&point) else{return};
-        if v.kind=="ae2:crafting_monitor" {
+        // CraftingMonitorRenderer, on AE2's monitor and an addon's.
+        if horizon_client::ae2_world::crafting_unit(&v.kind).is_some_and(|unit|unit.kind==horizon_client::ae2_world::MachineKind::CraftingMonitor) {
             if let Some(group)=network.nodes.get(&point).and_then(|d|d.multiblock) {
                 let job=jobs.entry(group).or_insert_with(||self.ae2_crafting_monitor_job(pos));
                 if let Some((key,fluid,amount))=job && key.item_id.len()<=512 && key.components.len()<=65536 {
@@ -292,7 +293,7 @@ impl Game<'_> {
         for (face, (dx,dy,dz)) in [("down",(0,-1,0)),("up",(0,1,0)),("north",(0,0,-1)),("south",(0,0,1)),("west",(-1,0,0)),("east",(1,0,0))] {
             if let Some(other) = self.ae2_local_address((p.0+dx,p.1+dy,p.2+dz)) {
                 let other=other.network_pos();
-                let connected=if matches!(v.kind.as_str(), "ae2:crafting_monitor" | "ae2:crafting_unit" | "ae2:crafting_accelerator" | "ae2:1k_crafting_storage" | "ae2:4k_crafting_storage" | "ae2:16k_crafting_storage" | "ae2:64k_crafting_storage" | "ae2:256k_crafting_storage") {
+                let connected=if horizon_client::ae2_world::crafting_unit(&v.kind).is_some() {
                     network.nodes.get(&node).and_then(|d|d.multiblock).is_some_and(|group|network.nodes.get(&other).and_then(|d|d.multiblock)==Some(group))
                 } else {network.physical_connection(node,other)};
                 if connected {v.connections.push(face.to_owned());}

@@ -203,7 +203,7 @@ fn source_quads(game:&Game<'_>,blocks:&[(StructureBlock,BlockStateId)], world:&W
             quads.push(SceneQuad{pos:points,uv:q.uv.map(|uv|[rect.u0+uv[0]*(rect.u1-rect.u0),rect.v0+uv[1]*(rect.v1-rect.v0)]),color:0xffffffff,normal,translucent:face.translucent});
         }}
     }
-    let cpu_positions:HashSet<_>=blocks.iter().filter(|(b,_)|descriptor(&b.state).ok().is_some_and(|s| matches!(s.name.as_str(),"ae2:crafting_unit"|"ae2:crafting_accelerator"|"ae2:crafting_monitor"|"ae2:1k_crafting_storage"|"ae2:4k_crafting_storage"|"ae2:16k_crafting_storage"|"ae2:64k_crafting_storage"|"ae2:256k_crafting_storage") && s.properties.get("formed").is_some_and(|v|v=="true"))).map(|(b,_)|b.pos).collect();
+    let cpu_positions:HashSet<_>=blocks.iter().filter(|(b,_)|descriptor(&b.state).ok().is_some_and(|s| horizon_client::ae2_world::crafting_unit(&s.name).is_some() && s.properties.get("formed").is_some_and(|v|v=="true"))).map(|(b,_)|b.pos).collect();
     let visuals:Vec<_>=blocks.iter().filter_map(|(b,_)|visual(b,&cpu_positions)).collect();
     let refs:Vec<_>=visuals.iter().collect();let mut dynamic=Vec::<Vertex>::new();
     game.ae2_visual_geometry_from(DVec3::ZERO,&refs,world,&mut dynamic);

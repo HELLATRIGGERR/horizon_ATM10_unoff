@@ -171,14 +171,7 @@ impl Game<'_> {
                 let Some(BlockEntity::Ae2(c)) = self.world.block_entities.get(&cpu) else {
                     return Err("missing CPU".into());
                 };
-                if !matches!(
-                    c.kind,
-                    MachineKind::CraftingStorage1k
-                        | MachineKind::CraftingStorage4k
-                        | MachineKind::CraftingStorage16k
-                        | MachineKind::CraftingStorage64k
-                        | MachineKind::CraftingStorage256k
-                ) {
+                if !c.crafting_unit().is_some_and(|unit| unit.storage_bytes > 0) {
                     return Err("not a CPU block".into());
                 }
                 if c.config.contains_key(&"ae2_cpu_job".into()) || c.config.contains_key(&"ae2_recursive_job".into()) {
@@ -1067,28 +1060,10 @@ mod recursive {
         );
         Ok(())
     }
+    /// `CraftingCPUCalculator.isValidBlockEntity`: a `CraftingBlockEntity` of
+    /// any mod (AE2's or an addon's crafting block, `ae2_world::CraftingUnit`).
     fn kind(kind: MachineKind) -> bool {
-        matches!(
-            kind,
-            MachineKind::CraftingUnit
-                | MachineKind::CraftingAccelerator
-                | MachineKind::CraftingStorage1k
-                | MachineKind::CraftingStorage4k
-                | MachineKind::CraftingStorage16k
-                | MachineKind::CraftingStorage64k
-                | MachineKind::CraftingStorage256k
-                | MachineKind::CraftingMonitor
-        )
-    }
-    fn capacity(kind: MachineKind) -> u64 {
-        match kind {
-            MachineKind::CraftingStorage1k => 1024,
-            MachineKind::CraftingStorage4k => 4096,
-            MachineKind::CraftingStorage16k => 16384,
-            MachineKind::CraftingStorage64k => 65536,
-            MachineKind::CraftingStorage256k => 262144,
-            _ => 0,
-        }
+        kind.is_crafting()
     }
     fn neighbors((x, y, z): Pos) -> impl Iterator<Item = Pos> {
         [
@@ -1152,12 +1127,15 @@ mod recursive {
         let mut coprocessors = 0u32;
         for p in &seen {
             if let Some(BlockEntity::Ae2(m)) = world.block_entities.get(p) {
+                // CraftingCPUCluster.addBlockEntity: each block's own
+                // ICraftingUnitType bytes and threads, AE2's or an addon's.
+                let (storage, threads) = m.crafting_unit().map_or((0, 0), |unit| (unit.storage_bytes, unit.accelerator_threads));
                 bytes = bytes
-                    .checked_add(capacity(m.kind))
+                    .checked_add(storage)
                     .ok_or("CPU capacity overflow")?;
-                if m.kind == MachineKind::CraftingAccelerator {
-                    coprocessors += 1;
-                }
+                coprocessors = coprocessors
+                    .checked_add(threads)
+                    .ok_or("CPU co-processor overflow")?;
                 if check_busy
                     && ((m.config.contains_key(&JOB.into()) && !(allow_job && *p == root))
                         || m.config.contains_key(&"ae2_cpu_job".into()))

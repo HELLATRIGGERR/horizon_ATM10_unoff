@@ -272,6 +272,89 @@ pub fn bus_card_slots(id: &str) -> usize {
 pub fn is_machine_block(id: &str) -> bool {
     MachineKind::from_id(id).is_some() || variant(id).is_some_and(|v| !v.part)
 }
+/// A crafting CPU block: AE2's `AbstractCraftingUnitBlock` on the
+/// `ICraftingUnitType` it is built with. AE2's own are [`AE2_CRAFTING_UNITS`]
+/// (`CraftingUnitType`); an addon's are installed with
+/// [`install_crafting_units`], each also a [`MachineVariant`] of AE2's block
+/// of the same role. All of them are `CraftingBlockEntity`s, so any mix of
+/// them forms one cluster (`CraftingCPUCalculator.isValidBlockEntity`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CraftingUnit {
+    /// The block's id.
+    pub id: &'static str,
+    /// AE2's kind of the same role (unit, co-processor, a storage, monitor):
+    /// the kind of its machine.
+    pub kind: MachineKind,
+    /// `ICraftingUnitType.getStorageBytes`.
+    pub storage_bytes: u64,
+    /// `ICraftingUnitType.getAcceleratorThreads`.
+    pub accelerator_threads: u32,
+    /// The namespace of its formed model's textures
+    /// (`AbstractCraftingUnitModelProvider`'s materials, `block/crafting/`).
+    pub textures: &'static str,
+    /// The type's affix: a co-processor's or storage's formed model lights
+    /// `<textures>:block/crafting/<affix>_light`.
+    pub affix: &'static str,
+}
+impl CraftingUnit {
+    /// `<textures>:block/crafting/<name>`, a texture of its formed model.
+    pub fn texture(&self, name: &str) -> String {
+        format!("{}:block/crafting/{name}", self.textures)
+    }
+}
+const fn ae2_unit(id: &'static str, kind: MachineKind, storage_kb: u64, affix: &'static str) -> CraftingUnit {
+    CraftingUnit {
+        id,
+        kind,
+        // CraftingUnitType.getStorageBytes: 1024 × storageKb.
+        storage_bytes: 1024 * storage_kb,
+        // getAcceleratorThreads: 1 on the Crafting Co-Processing Unit.
+        accelerator_threads: if matches!(kind, MachineKind::CraftingAccelerator) { 1 } else { 0 },
+        textures: "ae2",
+        affix,
+    }
+}
+/// AE2 19.2.18's `CraftingUnitType`, block by block.
+pub const AE2_CRAFTING_UNITS: [CraftingUnit; 8] = [
+    ae2_unit("ae2:crafting_unit", MachineKind::CraftingUnit, 0, "unit"),
+    ae2_unit("ae2:crafting_accelerator", MachineKind::CraftingAccelerator, 0, "accelerator"),
+    ae2_unit("ae2:1k_crafting_storage", MachineKind::CraftingStorage1k, 1, "1k_storage"),
+    ae2_unit("ae2:4k_crafting_storage", MachineKind::CraftingStorage4k, 4, "4k_storage"),
+    ae2_unit("ae2:16k_crafting_storage", MachineKind::CraftingStorage16k, 16, "16k_storage"),
+    ae2_unit("ae2:64k_crafting_storage", MachineKind::CraftingStorage64k, 64, "64k_storage"),
+    ae2_unit("ae2:256k_crafting_storage", MachineKind::CraftingStorage256k, 256, "256k_storage"),
+    ae2_unit("ae2:crafting_monitor", MachineKind::CraftingMonitor, 0, "monitor"),
+];
+static CRAFTING_UNITS: std::sync::OnceLock<Vec<CraftingUnit>> = std::sync::OnceLock::new();
+/// The addons' crafting CPU blocks, installed once at start-up before any
+/// world loads; a second call keeps the first table.
+pub fn install_crafting_units(units: Vec<CraftingUnit>) {
+    let _ = CRAFTING_UNITS.set(units);
+}
+/// Every crafting CPU block: AE2's, then the installed addons'.
+pub fn crafting_units() -> impl Iterator<Item = &'static CraftingUnit> {
+    AE2_CRAFTING_UNITS.iter().chain(CRAFTING_UNITS.get().map_or(&[][..], Vec::as_slice))
+}
+/// The crafting CPU block `id`, AE2's or an addon's.
+pub fn crafting_unit(id: &str) -> Option<&'static CraftingUnit> {
+    crafting_units().find(|unit| unit.id == id)
+}
+impl MachineKind {
+    /// AE2's crafting CPU kinds: what a crafting block of any mod behaves as.
+    pub fn is_crafting(self) -> bool {
+        matches!(
+            self,
+            Self::CraftingUnit
+                | Self::CraftingAccelerator
+                | Self::CraftingStorage1k
+                | Self::CraftingStorage4k
+                | Self::CraftingStorage16k
+                | Self::CraftingStorage64k
+                | Self::CraftingStorage256k
+                | Self::CraftingMonitor
+        )
+    }
+}
 /// How many patterns a Pattern Provider of any built-in size holds at most.
 pub fn max_provider_slots() -> usize {
     machine_variants()
@@ -330,6 +413,14 @@ impl Machine {
     /// The size of `slots`, whatever the machine holds now.
     pub fn physical_slots(&self) -> usize {
         self.variant.map_or_else(|| self.kind.physical_slots(), |v| v.slots)
+    }
+    /// The crafting CPU block this is, AE2's or an addon's: what it adds to
+    /// its cluster (`CraftingCPUCluster.addBlockEntity`).
+    pub fn crafting_unit(&self) -> Option<&'static CraftingUnit> {
+        if !self.kind.is_crafting() {
+            return None;
+        }
+        crafting_unit(self.id())
     }
     /// The size of `upgrades`.
     pub fn upgrade_slots(&self) -> usize {
@@ -395,17 +486,7 @@ impl Machine {
                 ..item
             }));
         }
-        if matches!(
-            self.kind,
-            MachineKind::CraftingUnit
-                | MachineKind::CraftingAccelerator
-                | MachineKind::CraftingStorage1k
-                | MachineKind::CraftingStorage4k
-                | MachineKind::CraftingStorage16k
-                | MachineKind::CraftingStorage64k
-                | MachineKind::CraftingStorage256k
-                | MachineKind::CraftingMonitor
-        ) {
+        if self.kind.is_crafting() {
             if let Some(horizon_world::nbt::Tag::List(entries)) =
                 self.config.get(&"ae2_cpu_escrow".into())
             {

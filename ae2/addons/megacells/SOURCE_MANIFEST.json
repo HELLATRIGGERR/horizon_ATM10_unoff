@@ -20,6 +20,7 @@
   "requires": ["ae2 19.2.18"],
   "derived_files": [
     "crates/horizon-client/src/ae2x/megacells.rs",
-    "crates/horizon-client/src/game/ae2x/megacells/lava.rs"
+    "crates/horizon-client/src/game/ae2x/megacells/lava.rs",
+    "crates/horizon-client/src/game/ae2_crafting_upgrade.rs"
   ]
 }

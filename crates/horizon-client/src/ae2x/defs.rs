@@ -8,7 +8,7 @@
 //! then each addon's; the tables are built once, on first use, and do not
 //! change after. An addon whose content is not loaded leaves rows that no item
 //! reaches.
-use crate::ae2_world::{ExtMachine, MachineVariant};
+use crate::ae2_world::{AE2_CRAFTING_UNITS, CraftingUnit, ExtMachine, MachineVariant};
 use ae2_cell_core::{CellConfig, Channel, Tier};
 use std::{collections::HashMap, sync::LazyLock};
 
@@ -60,6 +60,7 @@ pub struct Defs {
     upgrades: HashMap<(String, String), usize>,
     machines: Vec<ExtMachine>,
     variants: Vec<MachineVariant>,
+    crafting_units: Vec<CraftingUnit>,
     parts: HashMap<String, PartDef>,
 }
 impl Defs {
@@ -100,6 +101,29 @@ impl Defs {
     }
     pub fn variants(&self) -> &[MachineVariant] {
         &self.variants
+    }
+    /// An addon's crafting CPU block (`AbstractCraftingUnitBlock` on its own
+    /// `ICraftingUnitType`): its row, and the machine variant of AE2's block
+    /// of the same kind it behaves as.
+    pub fn add_crafting_unit(&mut self, unit: CraftingUnit) {
+        let base = AE2_CRAFTING_UNITS
+            .iter()
+            .find(|ae2| ae2.kind == unit.kind)
+            .expect("a crafting unit has one of AE2's crafting kinds")
+            .id;
+        self.variants.push(MachineVariant {
+            id: unit.id,
+            base,
+            block: unit.id,
+            kind: unit.kind,
+            slots: 0,
+            upgrades: 0,
+            part: false,
+        });
+        self.crafting_units.push(unit);
+    }
+    pub fn crafting_units(&self) -> &[CraftingUnit] {
+        &self.crafting_units
     }
     /// An addon's cable part.
     pub fn add_part(&mut self, part: PartDef) {
@@ -218,10 +242,12 @@ pub fn get() -> &'static Defs {
         super::merequester::register(&mut defs);
         #[cfg(feature = "ae2-extendedae")]
         super::extendedae::register(&mut defs);
-        // The addon machines' block ids, for `MachineKind::from_id`, and
-        // the variants of AE2's, for `Machine::for_block`.
+        // The addon machines' block ids, for `MachineKind::from_id`, the
+        // variants of AE2's, for `Machine::for_block`, and the crafting CPU
+        // blocks' bytes and threads.
         crate::ae2_world::install_ext_machines(defs.machines.clone());
         crate::ae2_world::install_machine_variants(defs.variants.clone());
+        crate::ae2_world::install_crafting_units(defs.crafting_units.clone());
         defs
     });
     &DEFS

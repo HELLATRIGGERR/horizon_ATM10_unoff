@@ -1,65 +1,79 @@
 //! Source in-world crafting-unit component exchange, AE2 19.2.18 (LGPL-3.0+).
-//! AbstractCraftingUnitBlock and active CraftingUnitTransformRecipe records.
+//! AbstractCraftingUnitBlock and active CraftingUnitTransformRecipe records,
+//! with MEGA Cells 4.11.0's `AbstractCraftingUnitBlockMixin` (LGPL-3.0) over
+//! every crafting block: a block changes only into blocks of its own
+//! namespace, and MEGA's crafting unit takes a component as AE2's does.
 use super::{Game, KeyCode};
-use horizon_client::{ae2_world::MachineKind, items::ItemStack, text::Text};
+use horizon_client::{
+    ae2_world::{self, MachineKind},
+    items::ItemStack,
+    text::Text,
+};
 use serde_json::Value;
 type Recipes = [(String, Value)];
-fn crafting(kind: MachineKind) -> bool {
-    matches!(
-        kind,
-        MachineKind::CraftingUnit
-            | MachineKind::CraftingAccelerator
-            | MachineKind::CraftingStorage1k
-            | MachineKind::CraftingStorage4k
-            | MachineKind::CraftingStorage16k
-            | MachineKind::CraftingStorage64k
-            | MachineKind::CraftingStorage256k
-            | MachineKind::CraftingMonitor
-    )
+fn namespace(id: &str) -> &str {
+    id.split_once(':').map_or("minecraft", |(ns, _)| ns)
+}
+/// `AbstractCraftingUnitBlockMixin.removeMegaUpgrade`: the plain unit an
+/// alternate use leaves, MEGA's crafting unit for MEGA's blocks and AE2's
+/// for the rest.
+fn plain_unit(block: &str) -> &'static str {
+    ae2_world::crafting_units()
+        .find(|unit| unit.kind == MachineKind::CraftingUnit && namespace(unit.id) == namespace(block))
+        .map_or("ae2:crafting_unit", |unit| unit.id)
 }
 struct Change {
-    next: MachineKind,
+    next: &'static str,
     returned: Option<ItemStack>,
     consume: bool,
 }
+/// `AbstractCraftingUnitBlock.upgrade`, and `useWithoutItem`'s
+/// `removeUpgrade`, on block `old`.
 fn change(
-    old: MachineKind,
+    old: &str,
     held: Option<&ItemStack>,
     alternate: bool,
     hands_full: bool,
     recipes: &Recipes,
 ) -> Option<Change> {
-    if !crafting(old) || alternate && hands_full {
+    let unit = ae2_world::crafting_unit(old)?;
+    if alternate && hands_full {
         return None;
     }
+    // `type == UNIT`, and the mixin's `isMegaUnit`: a plain unit has no
+    // upgrade to give back.
+    let plain = unit.kind == MachineKind::CraftingUnit;
+    // CraftingUnitTransformRecipe.getRemovedUpgrade.
     let old_part = || {
         recipes
             .iter()
-            .find(|(_, r)| r["upgraded_block"].as_str() == Some(old.id()))
+            .find(|(_, r)| r["upgraded_block"].as_str() == Some(old))
             .and_then(|(_, r)| r["upgrade_item"].as_str())
             .map(|id| ItemStack::new(id, 1))
     };
     if let Some(held) = held.filter(|s| s.count > 0) {
-        let (_, recipe) = recipes
-            .iter()
-            .find(|(_, r)| r["upgrade_item"].as_str() == Some(held.item.as_ref()))?;
-        let next = MachineKind::from_id(recipe["upgraded_block"].as_str()?)?;
-        if !crafting(next) || next == old {
+        // getUpgradedBlock, and the mixin's `isMegaUpgrade`: an upgrade into
+        // a block of another namespace is none. MEGA takes the first recipe
+        // of the held item the recipe manager lists, in no fixed order, and
+        // refuses it when it is the other mod's; the port takes the first of
+        // the block's own namespace (README, slice 2).
+        let (_, recipe) = recipes.iter().find(|(_, r)| {
+            r["upgrade_item"].as_str() == Some(held.item.as_ref())
+                && r["upgraded_block"].as_str().is_some_and(|next| namespace(next) == namespace(old))
+        })?;
+        let next = ae2_world::crafting_unit(recipe["upgraded_block"].as_str()?)?;
+        if next.id == old {
             return None;
         }
-        let returned = if old == MachineKind::CraftingUnit {
-            None
-        } else {
-            Some(old_part()?)
-        };
+        let returned = if plain { None } else { Some(old_part()?) };
         Some(Change {
-            next,
+            next: next.id,
             returned,
             consume: true,
         })
-    } else if alternate && old != MachineKind::CraftingUnit {
+    } else if alternate && !plain {
         Some(Change {
-            next: MachineKind::CraftingUnit,
+            next: plain_unit(old),
             returned: Some(old_part()?),
             consume: false,
         })
@@ -77,12 +91,9 @@ impl Game<'_> {
             .res
             .facts()
             .get(self.world.block(pos[0], pos[1], pos[2]));
-        let Some(kind) = MachineKind::from_id(&block.name) else {
-            return false;
-        };
         let hands_full = self.inventory[self.selected].is_some() || self.offhand.is_some();
         change(
-            kind,
+            &block.name,
             held,
             self.keys.contains(&KeyCode::ShiftLeft),
             hands_full,
@@ -99,12 +110,13 @@ impl Game<'_> {
             return false;
         }
         let old = self.world.block(pos[0], pos[1], pos[2]);
-        let Some(kind) = MachineKind::from_id(&self.res.facts().get(old).name) else {
+        let name = self.res.facts().get(old).name.clone();
+        let Some(unit) = ae2_world::crafting_unit(&name) else {
             return false;
         };
         let hands_full = self.inventory[self.selected].is_some() || self.offhand.is_some();
         let Some(change) = change(
-            kind,
+            &name,
             self.held(),
             self.keys.contains(&KeyCode::ShiftLeft),
             hands_full,
@@ -118,7 +130,7 @@ impl Game<'_> {
         };
         let key = (pos[0], pos[1], pos[2]);
         self.ae2_ensure_machine(key);
-        if kind != MachineKind::CraftingUnit && self.ae2_crafting_cluster_busy(key) {
+        if unit.kind != MachineKind::CraftingUnit && self.ae2_crafting_cluster_busy(key) {
             self.system_message(Text::translate("chat.ae2.CraftingCpuBusy", &[]));
             return true;
         }
@@ -130,7 +142,7 @@ impl Game<'_> {
             return false;
         }
         let registry = self.pack.assets.registry;
-        let Some(base) = registry.default_state(change.next.id()) else {
+        let Some(base) = registry.default_state(change.next) else {
             return false;
         };
         let Some(mut target) = registry.state(base).cloned() else {
@@ -192,30 +204,27 @@ impl Game<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn recipe(item: &str, block: &str) -> (String, Value) {
+        (block.into(), serde_json::json!({"upgrade_item": item, "upgraded_block": block}))
+    }
     #[test]
     fn source_crafting_component_exchange_uses_active_recipe_and_alternate_rules() {
         let recipes = vec![
-            (
-                "one".into(),
-                serde_json::json!({"upgrade_item":"ae2:cell_component_1k","upgraded_block":"ae2:1k_crafting_storage"}),
-            ),
-            (
-                "four".into(),
-                serde_json::json!({"upgrade_item":"ae2:cell_component_4k","upgraded_block":"ae2:4k_crafting_storage"}),
-            ),
+            recipe("ae2:cell_component_1k", "ae2:1k_crafting_storage"),
+            recipe("ae2:cell_component_4k", "ae2:4k_crafting_storage"),
         ];
         let c = change(
-            MachineKind::CraftingUnit,
+            "ae2:crafting_unit",
             Some(&ItemStack::new("ae2:cell_component_1k", 2)),
             false,
             true,
             &recipes,
         )
         .unwrap();
-        assert_eq!(c.next, MachineKind::CraftingStorage1k);
+        assert_eq!(c.next, "ae2:1k_crafting_storage");
         assert!(c.returned.is_none() && c.consume);
         let c = change(
-            MachineKind::CraftingStorage1k,
+            "ae2:1k_crafting_storage",
             Some(&ItemStack::new("ae2:cell_component_4k", 1)),
             false,
             true,
@@ -223,13 +232,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(c.returned, Some(ItemStack::new("ae2:cell_component_1k", 1)));
-        let c = change(MachineKind::CraftingStorage4k, None, true, false, &recipes).unwrap();
-        assert_eq!(c.next, MachineKind::CraftingUnit);
+        let c = change("ae2:4k_crafting_storage", None, true, false, &recipes).unwrap();
+        assert_eq!(c.next, "ae2:crafting_unit");
         assert!(!c.consume);
         assert_eq!(c.returned, Some(ItemStack::new("ae2:cell_component_4k", 1)));
         assert!(
             change(
-                MachineKind::CraftingUnit,
+                "ae2:crafting_unit",
                 Some(&ItemStack::new("ae2:cell_component_1k", 1)),
                 true,
                 true,
@@ -239,7 +248,7 @@ mod tests {
         );
         assert!(
             change(
-                MachineKind::CraftingStorage1k,
+                "ae2:1k_crafting_storage",
                 Some(&ItemStack::new("ae2:cell_component_1k", 1)),
                 false,
                 true,
@@ -247,5 +256,46 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    /// MEGA's `AbstractCraftingUnitBlockMixin`: MEGA's unit upgrades in place
+    /// into MEGA's blocks only, AE2's into AE2's only, and a MEGA block goes
+    /// back to MEGA's unit. The engineering processor and the storage monitor
+    /// upgrade both mods' units, each into its own mod's block.
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn mega_crafting_blocks_change_within_their_own_namespace() {
+        horizon_client::ae2x::install();
+        let recipes = vec![
+            recipe("ae2:engineering_processor", "ae2:crafting_accelerator"),
+            recipe("ae2:storage_monitor", "ae2:crafting_monitor"),
+            recipe("ae2:cell_component_1k", "ae2:1k_crafting_storage"),
+            recipe("megacells:cell_component_1m", "megacells:1m_crafting_storage"),
+            recipe("megacells:cell_component_256m", "megacells:256m_crafting_storage"),
+            recipe("ae2:engineering_processor", "megacells:mega_crafting_accelerator"),
+            recipe("ae2:storage_monitor", "megacells:mega_crafting_monitor"),
+        ];
+        let held = |id: &str| ItemStack::new(id, 1);
+        let c = change("megacells:mega_crafting_unit", Some(&held("megacells:cell_component_1m")), false, false, &recipes).unwrap();
+        assert_eq!((c.next, c.returned, c.consume), ("megacells:1m_crafting_storage", None, true));
+        // AE2's unit takes no MEGA component, MEGA's no AE2 one.
+        assert!(change("ae2:crafting_unit", Some(&held("megacells:cell_component_1m")), false, false, &recipes).is_none());
+        assert!(change("megacells:mega_crafting_unit", Some(&held("ae2:cell_component_1k")), false, false, &recipes).is_none());
+        for (unit, accelerator, monitor) in [
+            ("ae2:crafting_unit", "ae2:crafting_accelerator", "ae2:crafting_monitor"),
+            ("megacells:mega_crafting_unit", "megacells:mega_crafting_accelerator", "megacells:mega_crafting_monitor"),
+        ] {
+            assert_eq!(change(unit, Some(&held("ae2:engineering_processor")), false, false, &recipes).unwrap().next, accelerator);
+            assert_eq!(change(unit, Some(&held("ae2:storage_monitor")), false, false, &recipes).unwrap().next, monitor);
+        }
+        // A 1M storage swapped for a 256M one gives its component back.
+        let c = change("megacells:1m_crafting_storage", Some(&held("megacells:cell_component_256m")), false, false, &recipes).unwrap();
+        assert_eq!((c.next, c.returned), ("megacells:256m_crafting_storage", Some(held("megacells:cell_component_1m"))));
+        // Alternate use: back to MEGA's own unit, not AE2's.
+        let c = change("megacells:mega_crafting_accelerator", None, true, false, &recipes).unwrap();
+        assert_eq!((c.next, c.returned, c.consume), ("megacells:mega_crafting_unit", Some(held("ae2:engineering_processor")), false));
+        assert_eq!(change("ae2:1k_crafting_storage", None, true, false, &recipes).unwrap().next, "ae2:crafting_unit");
+        // MEGA's plain unit has nothing to give back.
+        assert!(change("megacells:mega_crafting_unit", None, true, false, &recipes).is_none());
     }
 }

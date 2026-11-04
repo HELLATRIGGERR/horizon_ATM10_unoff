@@ -121,8 +121,10 @@ impl Game<'_> {
     ) {
         let white = self.gui.atlas.sprites.get("horizon/white").copied();
         for v in visuals {
-            let cpu = matches!(v.kind.as_str(), "ae2:crafting_monitor" | "ae2:crafting_unit" | "ae2:crafting_accelerator" | "ae2:1k_crafting_storage" | "ae2:4k_crafting_storage" | "ae2:16k_crafting_storage" | "ae2:64k_crafting_storage" | "ae2:256k_crafting_storage");
-            if !cpu && horizon_client::ae2_world::base_id(&v.kind) != "ae2:drive" && v.kind != "ae2:cable_bus" && v.kind != "ae2:paint" && v.kind != "ae2:charger" && v.kind != "ae2:crafting_monitor" && v.kind != "ae2:crank" {
+            // A crafting CPU block of any mod, drawn from its own model
+            // provider's textures (`AbstractCraftingUnitModelProvider`).
+            let cpu = horizon_client::ae2_world::crafting_unit(&v.kind);
+            if cpu.is_none() && horizon_client::ae2_world::base_id(&v.kind) != "ae2:drive" && v.kind != "ae2:cable_bus" && v.kind != "ae2:paint" && v.kind != "ae2:charger" && v.kind != "ae2:crank" {
                 continue;
             }
             let p = v.pos;
@@ -156,8 +158,13 @@ impl Game<'_> {
                 }
                 continue;
             }
-            if cpu {
+            if let Some(unit) = cpu {
                 if state.name!=v.kind || state.properties.get("formed").map(String::as_str)!=Some("true") {continue;}
+                use horizon_client::ae2_world::MachineKind;
+                let monitor=unit.kind==MachineKind::CraftingMonitor;
+                let [ring_corner,ring_side_hor,ring_side_ver,unit_base,light_base,monitor_base]=
+                    ["ring_corner","ring_side_hor","ring_side_ver","unit_base","light_base","monitor_base"].map(|name|unit.texture(name));
+                let type_light=unit.texture(&format!("{}_light",unit.affix));
                 let base=(center-camera).as_vec3();
                 let facing=state.properties.get("facing").map(String::as_str).unwrap_or("north");
                 let powered=state.properties.get("powered").map(String::as_str)==Some("true");
@@ -192,35 +199,29 @@ impl Game<'_> {
                     let edge=3./16.;
                     let (x0,x1)=cpu_inner_bounds(contains(left),contains(right));
                     let (y0,y1)=cpu_inner_bounds(contains(bottom),contains(top));
-                    if v.kind=="ae2:crafting_monitor" && face==facing {
-                        quad("ae2:block/crafting/monitor_base",x0,y0,x1,y1,0xffffffff,false);
+                    if monitor && face==facing {
+                        // MonitorBakedModel: the provider's monitor base, and
+                        // AE2's own three lights under any mod's monitor.
+                        quad(&monitor_base,x0,y0,x1,y1,0xffffffff,false);
                         for (name,color) in [("dark",palette[0]),("medium",palette[1]),("bright",palette[2])] {
                             quad(&format!("ae2:block/crafting/monitor_light_{name}"),x0,y0,x1,y1,color,powered);
                         }
-                    } else if v.kind=="ae2:crafting_monitor" || v.kind=="ae2:crafting_unit" {
-                        quad("ae2:block/crafting/unit_base",x0,y0,x1,y1,0xffffffff,false);
+                    } else if monitor || unit.kind==MachineKind::CraftingUnit {
+                        quad(&unit_base,x0,y0,x1,y1,0xffffffff,false);
                     } else {
-                        quad("ae2:block/crafting/light_base",x0,y0,x1,y1,0xffffffff,false);
-                        let overlay=match v.kind.as_str() {
-                            "ae2:crafting_accelerator"=>"accelerator_light",
-                            "ae2:1k_crafting_storage"=>"1k_storage_light",
-                            "ae2:4k_crafting_storage"=>"4k_storage_light",
-                            "ae2:16k_crafting_storage"=>"16k_storage_light",
-                            "ae2:64k_crafting_storage"=>"64k_storage_light",
-                            "ae2:256k_crafting_storage"=>"256k_storage_light",
-                            _=>unreachable!(),
-                        };
-                        quad(&format!("ae2:block/crafting/{overlay}"),x0,y0,x1,y1,0xffffffff,powered);
+                        // LightBakedModel: the light base under the type's light.
+                        quad(&light_base,x0,y0,x1,y1,0xffffffff,false);
+                        quad(&type_light,x0,y0,x1,y1,0xffffffff,powered);
                     }
                     let (sx0,sx1)=(if contains(left){0.}else{edge},if contains(right){1.}else{1.-edge});
                     let (sy0,sy1)=(if contains(bottom){0.}else{edge},if contains(top){1.}else{1.-edge});
                     for (dir,x,y) in [(left,0.,false),(right,1.-edge,false),(bottom,0.,true),(top,1.-edge,true)] {
                         if contains(dir) {continue;}
-                        if y {quad("ae2:block/crafting/ring_side_hor",sx0,x,sx1,x+edge,0xffffffff,false);}
-                        else {quad("ae2:block/crafting/ring_side_ver",x,sy0,x+edge,sy1,0xffffffff,false);}
+                        if y {quad(&ring_side_hor,sx0,x,sx1,x+edge,0xffffffff,false);}
+                        else {quad(&ring_side_ver,x,sy0,x+edge,sy1,0xffffffff,false);}
                     }
                     for (horizontal,x) in [(left,0.),(right,1.-edge)] {for (vertical,y) in [(bottom,0.),(top,1.-edge)] {
-                        if !contains(horizontal) && !contains(vertical) {quad("ae2:block/crafting/ring_corner",x,y,x+edge,y+edge,0xffffffff,false);}
+                        if !contains(horizontal) && !contains(vertical) {quad(&ring_corner,x,y,x+edge,y+edge,0xffffffff,false);}
                     }}
                 }
                 if let Some(job)=&v.crafting_job {

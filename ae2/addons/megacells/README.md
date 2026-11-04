@@ -38,9 +38,47 @@ buckets and a 1M fluid cell at 18 types in an ME Chest, both listed in terminals
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-cells
 ```
 
+## Slice 2: MEGA crafting CPU blocks
+
+| MEGA | Port |
+|---|---|
+| `MEGACraftingUnitType(storageMb, affix)`: `getStorageBytes` 1024 × 1024 × storageMb, so 1M 1,048,576 bytes to 256M 268,435,456; `getAcceleratorThreads` 4 on the Co-Processing Unit, 0 on the rest | `CRAFTING_UNITS` rows (`ae2x/megacells.rs`) in the registry's crafting CPU table, next to AE2's `CraftingUnitType` (1,024 bytes a KiB, 1 thread); each block's row is what it adds to its cluster (`CraftingCPUCluster.addBlockEntity`), in the CPU's checks and in the ordered formation observer |
+| `MEGABlocks`: AE2's `CraftingUnitBlock` and `CraftingMonitorBlock` on MEGA's type; `MEGABlockEntities`: AE2's `CraftingBlockEntity` and `CraftingMonitorBlockEntity` | each block a machine variant of AE2's block of the same kind (`base_id`), so AE2's CPU code runs it: formation, the CPU menu, jobs, escrow, the monitor's job display, colouring the monitor |
+| `CraftingCPUCalculator.isValidBlockEntity`: any `CraftingBlockEntity` | MEGA's and AE2's blocks form one CPU together (a filled cuboid of at most 17 a side with some storage); their bytes and threads add up |
+| `MEGACraftingUnitModelProvider`: AE2's formed models (`UnitBakedModel`, `LightBakedModel`, `MonitorBakedModel`) on MEGA's own `block/crafting/` textures, AE2's monitor lights | the CPU renderer draws a formed block from its row's texture namespace and affix; the jar's `*_formed` models are empty for AE2's built-in loader, so `content.json`'s `formed_particle` gives those variants an empty model with MEGA's ring corner as particle, as `content/ae2` has |
+| `AbstractCraftingUnitBlockMixin`: a block takes `crafting_unit_transform` upgrades into blocks of its own namespace only; MEGA's unit takes a component as AE2's does; an alternate use goes back to MEGA's own unit | the same rules for every crafting block (`game/ae2_crafting_upgrade.rs`) |
+| `crafting/mega_crafting_unit` (shaped), `crafting/<block>` (MEGA unit and part, shapeless), `crafting/<block>_disassembly` (`ae2:crafting_unit_transform`) | MEGA's own 15 recipes, as they are |
+| loot tables: each block drops itself | MEGA's 8 loot tables |
+
+Differences, known:
+
+- `CraftingUnitTransformRecipe.getUpgradedBlock` answers with the first recipe of the held item in the recipe
+  manager's order, a `HashMap`'s that changes with the pack's recipe count, and MEGA's mixin then refuses an
+  upgrade into the other mod's block. The engineering processor and the storage monitor upgrade both mods'
+  units, so in Java one of the two can't be made in place, depending on the pack; the port looks at the recipes
+  of the block's own namespace, and both can.
+- `CraftingBlockItem.use` (an alternate use of a crafting block item in the air gives back its part and a unit,
+  MEGA's for MEGA's with `CraftingBlockItemMixin`) is not ported, for AE2's blocks either.
+- No item tooltip on the Co-Processing Unit (`AcceleratorThreads`, "Provides 4 co-processing threads per block").
+- Saves keep the block's id as the block entity's, as for AE2's crafting blocks; Java's are
+  `megacells:mega_crafting_unit` (unit and co-processor), `megacells:mega_crafting_storage` and
+  `megacells:mega_crafting_monitor`.
+
+Tests: `horizon-client` (the rows' bytes, threads, kinds and textures; the namespace rules of the in-place
+upgrade; the formation observer adding AE2's and MEGA's blocks) and the world test `megacells-crafting-cpu`: a 1M
+MEGA Crafting Storage from MEGA's recipe; a MEGA unit upgraded in place with a 4M component, back to MEGA's unit
+with the component returned, then a co-processor, while AE2's unit refuses MEGA's component; a CPU of MEGA's
+unit, 1M storage, co-processor and monitor forms with 1,048,576 bytes and 4 co-processors, is offered for a
+1,168-byte job a 1K CPU refuses, runs it and shows it on the MEGA Crafting Monitor; AE2's and MEGA's storages
+and co-processors form one CPU of 1,049,600 bytes and 5 co-processors; both through a restart; a broken MEGA
+block drops itself:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-crafting-cpu
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.1)
 
-2. MEGA Crafting Storage 1M–256M, Crafting Unit, Co-Processing Unit, Crafting Monitor.
 3. Superdense Energy Cell, Greater Energy Card.
 4. Portable M cells (`CellConfig::portable` is ready; MEGA's type count is `18 + (index - 5) × 9`), Portable Cell Workbench.
 5. MEGA Pattern Provider and Interface, block and part.

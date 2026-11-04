@@ -227,7 +227,8 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 5. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`: Ex Inscriber, Charger, Molecular Assembler); Mekanism's
    chemicals and gases, then factories (`pack/mods/mekanism/NOTES.md`); bring `wip/quests` onto the head.
 6. Then, as the roadmap in the handoff folder lays out: data maps and biome modifiers, a shared GUI kit and machine recipe
-   matcher, the small required machines, mod fluids, custom dimensions and mob types as data. Measure against the Java
-   baseline as you go.
+   matcher, the small required machines, mod fluids (slice 1, the registry, flow, buckets, drawing and AE2 keys, is done:
+   [mod-fluids.md](mod-fluids.md) has the design and the slices left), custom dimensions and mob types as data. Measure
+   against the Java baseline as you go.
 
 Coverage today, by a count over the registries with judged weights: AE2 86.6%, Mekanism 7.5%, ATM10 as a whole about 5%.

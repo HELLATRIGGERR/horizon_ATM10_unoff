@@ -42,10 +42,19 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let b = self.b;
         let state = self.state(pos);
         let item = if b.instance_of(state, Class::Liquid) {
+            // `LiquidBlock.pickupBlock`: `new ItemStack(fluid.getBucket())`.
             match b.fluid(state).kind() {
                 FluidKind::Water | FluidKind::FlowingWater => "minecraft:water_bucket",
                 FluidKind::Lava | FluidKind::FlowingLava => "minecraft:lava_bucket",
                 FluidKind::Empty => return None,
+                kind => match kind.mod_fluid().and_then(|m| m.bucket.as_deref()) {
+                    Some(bucket) => bucket,
+                    // `Items.AIR`: the source goes, and the bucket stays empty.
+                    None => {
+                        self.pickup_block(pos, state, creative);
+                        return None;
+                    }
+                },
             }
         } else if b.implements(state, Interface::SimpleWaterlogged)
             && b.table.has(state, b.props.waterlogged)
@@ -144,15 +153,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         if may_replace && !b.instance_of(state, Class::Liquid) {
             self.destroy_block(pos, true, super::flags::UPDATE_LIMIT);
         }
-        let source = FluidState::new(
-            if water {
-                FluidKind::Water
-            } else {
-                FluidKind::Lava
-            },
-            8,
-            false,
-        );
+        // `this.content.defaultFluidState()`: the bucket's source fluid.
+        let source = FluidState::new(fluid.source(), 8, false);
         let legacy: BlockStateId = b.legacy_block(source);
         if !self.set_block(pos, legacy, super::flags::UPDATE_ALL_IMMEDIATE)
             && !self.fluid_at(pos).is_source()
@@ -170,7 +172,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let state=self.state(pos);
         // `Fluid.defaultFluidState`: flowing fluids default to level 1 and
         // FALLING=true; source fluids have amount 8 and become legacy level 0.
-        let amount=if matches!(fluid,FluidKind::FlowingWater|FluidKind::FlowingLava) {1} else {8};
+        let amount=if fluid.is_source_kind() {8} else {1};
         let legacy=b.legacy_block(FluidState::new(fluid,amount,true));
         if state==legacy {return false;}
         if b.is_air(state) {return true;}
@@ -200,7 +202,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         if replaceable && !b.instance_of(state,Class::Liquid) {
             self.destroy_block(pos,true,super::flags::UPDATE_LIMIT);
         }
-        let amount=if matches!(fluid,FluidKind::FlowingWater|FluidKind::FlowingLava) {1} else {8};
+        let amount=if fluid.is_source_kind() {8} else {1};
         let legacy=b.legacy_block(FluidState::new(fluid,amount,true));
         if !self.set_block(pos,legacy,super::flags::UPDATE_ALL_IMMEDIATE) && !old_fluid.is_source() {
             return false;
@@ -215,7 +217,16 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             // Source calls Level.addParticle eight times on ServerLevel;
             // the 1.21.1 server inherits Level's no-op addParticle.
         } else {
-            self.empty_sound(pos,if water {"minecraft:item.bucket.empty"} else {"minecraft:item.bucket.empty_lava"},false);
+            // A mod's fluid: its type's BUCKET_EMPTY sound, else the plain bucket's.
+            let sound = match fluid.mod_fluid() {
+                Some(m) => m
+                    .empty_sound
+                    .as_deref()
+                    .unwrap_or("minecraft:item.bucket.empty"),
+                None if water => "minecraft:item.bucket.empty",
+                None => "minecraft:item.bucket.empty_lava",
+            };
+            self.empty_sound(pos, sound, false);
         }
     }
     /// `playEmptySound`: `MobBucketItem` overrides it without the game event.

@@ -249,6 +249,18 @@ impl RenderAssets {
         ] {
             sprites.insert(root, &format!("minecraft:block/{name}"))?;
         }
+        // The content mods' fluids: their client extensions' still, flowing
+        // and overlay textures, in the block atlas as NeoForge stitches them.
+        for fluid in horizon_world::mod_fluids::mod_fluids() {
+            let names = [Some(&fluid.still_texture), Some(&fluid.flowing_texture)];
+            for name in names
+                .into_iter()
+                .chain([fluid.overlay_texture.as_ref()])
+                .flatten()
+            {
+                sprites.insert(root, name)?;
+            }
+        }
         for stage in 0..10 {
             sprites.insert(root, &format!("minecraft:block/destroy_stage_{stage}"))?;
         }

@@ -14128,12 +14128,16 @@ impl Game<'_> {
             // `player.awardStat(Stats.ITEM_USED.get(this))`,
             // `getPickupSound` and `level.gameEvent(player, FLUID_PICKUP)`.
             self.award_stat("used", "minecraft:bucket", 1);
-            let sound = if filled == "minecraft:lava_bucket" {
-                "minecraft:item.bucket.fill_lava"
-            } else {
-                "minecraft:item.bucket.fill"
+            // A content mod's fluid: NeoForge's BaseFlowingFluid pickup sound,
+            // its type's BUCKET_FILL sound, none without one.
+            let sound = match horizon_world::mod_fluids::kind_by_bucket(filled) {
+                Some(kind) => kind.mod_fluid().and_then(|m| m.fill_sound.as_deref()),
+                None if filled == "minecraft:lava_bucket" => Some("minecraft:item.bucket.fill_lava"),
+                None => Some("minecraft:item.bucket.fill"),
             };
-            self.audio.play(sound, Some(at(hit.pos)), 1.0, 1.0);
+            if let Some(sound) = sound {
+                self.audio.play(sound, Some(at(hit.pos)), 1.0, 1.0);
+            }
             self.post_block_game_event(
                 "minecraft:fluid_pickup",
                 hit.pos,

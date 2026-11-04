@@ -19,8 +19,13 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   `electric-machines` and `metallurgic-infuser`; their numbers were measured on a NeoForge 1.21.1 server with only
   Mekanism 10.7.19 and ATM10's configs, driven over RCON (`/tick freeze`, `/tick step`, `data get block`; the scripts
   and logs stay in the local work folder).
-- Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), mod fluids for the heat generator's
-  tank, S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
+- Mod fluids, slice 1 (`docs/mod-fluids.md`, branch `feat/mod-fluids`): the overlay declares heavy water and brine
+  (`content/data/mekanism/horizon/fluid/`, Mekanism's own textures, tints and `BaseFlowingFluid` defaults), and
+  `mekanism-content` brings the pack's `c:` fluid tags; their buckets place and take sources that flow by those
+  numbers, and AE2's fluid cells hold them. World test `mod-fluid-heavy-water` (no native bundle needed). The other
+  Mekanism fluids wait for slice 2 (carried from the oracle).
+- Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), fluid tanks (mod fluids' slice 5)
+  for the heat generator's tank, S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
   Combiner, Purification Chamber) on the same `machine` crate module, energy items charging machines, chemicals as a
   capability for the infuser's tank.
 

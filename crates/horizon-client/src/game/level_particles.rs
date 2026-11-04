@@ -284,6 +284,8 @@ impl Game<'_> {
             horizon_client::blocks::Fluid::Lava => ParticleType::DrippingDripstoneLava,
             horizon_client::blocks::Fluid::None if nether => ParticleType::DrippingDripstoneLava,
             horizon_client::blocks::Fluid::None => ParticleType::DrippingDripstoneWater,
+            // Not lava: water's drip, as `spawnDripParticle` picks.
+            horizon_client::blocks::Fluid::Mod(_) => ParticleType::DrippingDripstoneWater,
         };
         let offset = self
             .pack

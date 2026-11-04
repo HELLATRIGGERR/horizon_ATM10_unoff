@@ -577,7 +577,20 @@ pub struct MeshTables {
     water_overlay: u32,
     lava_still: u32,
     lava_flow: u32,
+    /// The content mods' fluids, in registry order.
+    mod_fluids: Vec<ModFluidRender>,
     animated_layers: Vec<bool>,
+}
+/// A content mod's fluid as the fluid renderer draws it (its client
+/// extension's textures and tint, its render layer).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ModFluidRender {
+    pub still: u32,
+    pub flow: u32,
+    pub overlay: Option<u32>,
+    /// RGB of `getTintColor`.
+    pub tint: u32,
+    pub translucent: bool,
 }
 fn stem_color(age: u8) -> u32 {
     let a = u32::from(age);
@@ -749,8 +762,25 @@ impl MeshTables {
             water_overlay: layer("minecraft:block/water_overlay")?,
             lava_still: layer("minecraft:block/lava_still")?,
             lava_flow: layer("minecraft:block/lava_flow")?,
+            mod_fluids: horizon_world::mod_fluids::mod_fluids()
+                .iter()
+                .map(|m| {
+                    Ok(ModFluidRender {
+                        still: layer(&m.still_texture)?,
+                        flow: layer(&m.flowing_texture)?,
+                        overlay: m.overlay_texture.as_deref().map(layer).transpose()?,
+                        tint: m.tint & 0xFF_FFFF,
+                        translucent: m.translucent,
+                    })
+                })
+                .collect::<crate::Result<_>>()?,
             animated_layers,
         })
+    }
+    /// How a content mod's fluid is drawn; None for vanilla's.
+    pub(crate) fn mod_fluid(&self, kind: FluidKind) -> Option<&ModFluidRender> {
+        let index = usize::from(kind.id().checked_sub(5)?) / 2;
+        self.mod_fluids.get(index)
     }
     /// Whether a terrain sprite layer has an animated clip.
     pub fn is_animated(&self, layer: u32) -> bool {

@@ -2226,7 +2226,16 @@ pub fn bucket_contents(
             "minecraft:item.bucket.empty_sulfur_cube",
             Some("sulfur_cube"),
         ),
-        _ => return None,
+        // A content mod's fluid bucket (`BucketItem` of its source fluid):
+        // its type's BUCKET_EMPTY sound, or `BucketItem.playEmptySound`'s.
+        _ => {
+            let kind = horizon_world::mod_fluids::kind_by_bucket(item)?;
+            let sound = kind
+                .mod_fluid()
+                .and_then(|m| m.empty_sound.as_deref())
+                .unwrap_or("minecraft:item.bucket.empty");
+            (C::Fluid(kind), sound, None)
+        }
     })
 }
 
@@ -2261,6 +2270,24 @@ mod bucket_use_tests {
         }
         assert!(bucket_contents("minecraft:bucket").is_none());
         assert!(bucket_contents("minecraft:milk_bucket").is_none());
+    }
+    /// A content mod's bucket holds its source fluid and empties with its
+    /// type's BUCKET_EMPTY sound, or the plain bucket's without one.
+    #[test]
+    fn a_mod_fluid_bucket_holds_its_source() {
+        use horizon_world::{fluid::FluidKind, level::BucketContent as C};
+        horizon_world::mod_fluids::register_test_fluids();
+        let brine = FluidKind::from_name("test:brine").unwrap();
+        let sludge = FluidKind::from_name("test:sludge").unwrap();
+        assert_eq!(
+            bucket_contents("test:brine_bucket"),
+            Some((C::Fluid(brine), "minecraft:item.bucket.empty", None))
+        );
+        assert_eq!(
+            bucket_contents("test:sludge_bucket"),
+            Some((C::Fluid(sludge), "minecraft:item.bucket.empty", None))
+        );
+        assert!(bucket_contents("test:brine").is_none());
     }
 }
 

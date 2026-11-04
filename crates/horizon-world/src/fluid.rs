@@ -7,16 +7,35 @@ use crate::{
 };
 use std::io;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum FluidKind {
-    Empty,
-    FlowingWater,
-    Water,
-    FlowingLava,
-    Lava,
+/// A fluid's registry id (`BuiltInRegistries.FLUID`): vanilla's five, then
+/// the content mods' fluids ([`crate::mod_fluids`]), each a flowing and a
+/// source fluid (`BaseFlowingFluid.Flowing` and `Source`) in that order, as
+/// vanilla's water and lava are. Vanilla's keep their old names as constants,
+/// so `FluidKind::Water` reads and matches as it did.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FluidKind(u16);
+#[allow(non_upper_case_globals)]
+impl FluidKind {
+    pub const Empty: Self = Self(0);
+    pub const FlowingWater: Self = Self(1);
+    pub const Water: Self = Self(2);
+    pub const FlowingLava: Self = Self(3);
+    pub const Lava: Self = Self(4);
+}
+impl std::fmt::Debug for FluidKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            0 => f.write_str("Empty"),
+            1 => f.write_str("FlowingWater"),
+            2 => f.write_str("Water"),
+            3 => f.write_str("FlowingLava"),
+            4 => f.write_str("Lava"),
+            _ => write!(f, "Mod({})", self.name()),
+        }
+    }
 }
 impl FluidKind {
+    /// Vanilla's fluids, in registry order.
     pub const ALL: [Self; 5] = [
         Self::Empty,
         Self::FlowingWater,
@@ -24,34 +43,83 @@ impl FluidKind {
         Self::FlowingLava,
         Self::Lava,
     ];
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Empty => "minecraft:empty",
-            Self::FlowingWater => "minecraft:flowing_water",
-            Self::Water => "minecraft:water",
-            Self::FlowingLava => "minecraft:flowing_lava",
-            Self::Lava => "minecraft:lava",
+    /// The registry id: a tick type's, a saved tick's.
+    pub const fn id(self) -> u16 {
+        self.0
+    }
+    /// The fluid with registry id `id`: vanilla's, or a registered mod fluid's.
+    pub fn from_id(id: u32) -> Option<Self> {
+        let id = u16::try_from(id).ok()?;
+        (usize::from(id) < Self::ALL.len() + 2 * crate::mod_fluids::mod_fluids().len())
+            .then_some(Self(id))
+    }
+    /// Every registered fluid: vanilla's, then the mods'.
+    pub fn all() -> impl Iterator<Item = Self> {
+        let count = Self::ALL.len() + 2 * crate::mod_fluids::mod_fluids().len();
+        (0..count as u16).map(Self)
+    }
+    pub fn name(self) -> &'static str {
+        match self.0 {
+            0 => "minecraft:empty",
+            1 => "minecraft:flowing_water",
+            2 => "minecraft:water",
+            3 => "minecraft:flowing_lava",
+            4 => "minecraft:lava",
+            _ => match self.mod_fluid() {
+                Some(m) if self.is_source_kind() => m.id.as_str(),
+                Some(m) => m.flowing.as_str(),
+                None => "minecraft:empty",
+            },
         }
     }
     pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| kind.name() == name)
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.name() == name)
+            .or_else(|| crate::mod_fluids::kind_by_name(name))
     }
+    /// `Fluid.isSame`: the source and flowing fluid of one family.
     pub const fn same_family(self, other: Self) -> bool {
-        matches!(
-            (self, other),
-            (Self::Empty, Self::Empty)
-                | (
-                    Self::Water | Self::FlowingWater,
-                    Self::Water | Self::FlowingWater
-                )
-                | (
-                    Self::Lava | Self::FlowingLava,
-                    Self::Lava | Self::FlowingLava
-                )
-        )
+        self.0.div_ceil(2) == other.0.div_ceil(2)
     }
+    /// The bit of a vanilla fluid in a vanilla tag's mask; a mod fluid has
+    /// none (its tags are its registry entry's, [`crate::mod_fluids::ModFluid`]).
     pub const fn mask(self) -> u8 {
-        1 << self as u8
+        if self.0 < 5 { 1 << self.0 } else { 0 }
+    }
+    /// Whether it is a family's source fluid (`FlowingFluid.getSource()`).
+    pub const fn is_source_kind(self) -> bool {
+        self.0 != 0 && self.0 % 2 == 0
+    }
+    /// `FlowingFluid.getSource()` of its family (the empty fluid stays empty).
+    pub const fn source(self) -> Self {
+        Self(self.0.div_ceil(2) * 2)
+    }
+    /// `FlowingFluid.getFlowing()` of its family (the empty fluid stays empty).
+    pub const fn flowing(self) -> Self {
+        if self.0 == 0 {
+            self
+        } else {
+            Self(self.0.div_ceil(2) * 2 - 1)
+        }
+    }
+    /// Water or flowing water (by identity, not the `minecraft:water` tag).
+    pub const fn is_water(self) -> bool {
+        self.same_family(Self::Water)
+    }
+    /// Lava or flowing lava (by identity, not the `minecraft:lava` tag).
+    pub const fn is_lava(self) -> bool {
+        self.same_family(Self::Lava)
+    }
+    /// The content mod's fluid this is one of, None for vanilla's.
+    pub fn mod_fluid(self) -> Option<&'static crate::mod_fluids::ModFluid> {
+        let index = usize::from(self.0.checked_sub(5)?) / 2;
+        crate::mod_fluids::mod_fluids().get(index)
+    }
+    /// The source and flowing fluid of the `index`th registered mod fluid.
+    pub(crate) fn of_mod(index: usize) -> (Self, Self) {
+        let flowing = Self(5 + 2 * index as u16);
+        (Self(flowing.0 + 1), flowing)
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,7 +151,7 @@ impl FluidState {
         if kind == FluidKind::Empty {
             return Ok(Self::EMPTY);
         }
-        let flowing = matches!(kind, FluidKind::FlowingWater | FluidKind::FlowingLava);
+        let flowing = !kind.is_source_kind();
         let mut state = Self {
             kind,
             amount: if flowing { 1 } else { 8 },
@@ -157,8 +225,9 @@ impl FluidState {
     pub const fn falling(self) -> bool {
         self.falling
     }
+    /// `Fluid.isSource`: a family's source fluid (vanilla's or a mod's).
     pub const fn is_source(self) -> bool {
-        matches!(self.kind, FluidKind::Water | FluidKind::Lava)
+        self.kind.is_source_kind()
     }
     pub const fn is_full(self) -> bool {
         self.amount == 8
@@ -194,30 +263,38 @@ impl FluidState {
     pub fn own_height(self) -> f32 {
         f32::from(self.amount) / 9.0
     }
+    /// `LiquidBlock.getFluidState`: level 0 is the source, 1 to 7 flowing
+    /// with 8 - level, 8 and up falling (`fluid` is any of the family).
+    fn of_liquid_block(state: &BlockState, fluid: FluidKind) -> io::Result<Self> {
+        let level = state
+            .properties
+            .get("level")
+            .and_then(|v| v.parse::<u8>().ok())
+            .filter(|v| *v <= 15)
+            .ok_or_else(|| invalid("invalid liquid block level"))?;
+        Ok(Self {
+            kind: if level == 0 {
+                fluid.source()
+            } else {
+                fluid.flowing()
+            },
+            amount: if level == 0 || level >= 8 {
+                8
+            } else {
+                8 - level
+            },
+            falling: level >= 8,
+        })
+    }
     pub fn from_block(state: &BlockState) -> io::Result<Self> {
-        let water = state.name == "minecraft:water";
-        if water || state.name == "minecraft:lava" {
-            let level = state
-                .properties
-                .get("level")
-                .and_then(|v| v.parse::<u8>().ok())
-                .filter(|v| *v <= 15)
-                .ok_or_else(|| invalid("invalid liquid block level"))?;
-            let kind = match (water, level == 0) {
-                (true, true) => FluidKind::Water,
-                (true, false) => FluidKind::FlowingWater,
-                (false, true) => FluidKind::Lava,
-                (false, false) => FluidKind::FlowingLava,
-            };
-            return Ok(Self {
-                kind,
-                amount: if level == 0 || level >= 8 {
-                    8
-                } else {
-                    8 - level
-                },
-                falling: level >= 8,
-            });
+        match state.name.as_str() {
+            "minecraft:water" => return Self::of_liquid_block(state, FluidKind::Water),
+            "minecraft:lava" => return Self::of_liquid_block(state, FluidKind::Lava),
+            _ => {}
+        }
+        // A content mod's `LiquidBlock` holds its fluid as water's holds water.
+        if let Some(fluid) = crate::mod_fluids::kind_by_block(&state.name) {
+            return Self::of_liquid_block(state, fluid);
         }
         if matches!(
             state.name.as_str(),
@@ -279,6 +356,10 @@ pub struct FluidBlockBindings {
     air: BlockStateId,
     water: [BlockStateId; 16],
     lava: [BlockStateId; 16],
+    /// Each registered mod fluid's liquid block by level, in registry order:
+    /// air where its block is missing (`BaseFlowingFluid.createLegacyBlock`
+    /// without a block).
+    mods: Vec<[BlockStateId; 16]>,
 }
 impl FluidBlockBindings {
     pub fn new(registry: &BlockRegistry) -> io::Result<Self> {
@@ -296,14 +377,21 @@ impl FluidBlockBindings {
             }
             Ok(result)
         };
+        let air = registry
+            .default_state("minecraft:air")
+            .ok_or_else(|| invalid("missing air block"))?;
+        let mods = crate::mod_fluids::mod_fluids()
+            .iter()
+            .map(|m| levels(&m.block).unwrap_or([air; 16]))
+            .collect();
         Ok(Self {
-            air: registry
-                .default_state("minecraft:air")
-                .ok_or_else(|| invalid("missing air block"))?,
+            air,
             water: levels("minecraft:water")?,
             lava: levels("minecraft:lava")?,
+            mods,
         })
     }
+    /// `FluidState.createLegacyBlock`.
     pub fn block(&self, state: FluidState) -> BlockStateId {
         if state.kind == FluidKind::Empty {
             return self.air;
@@ -315,8 +403,13 @@ impl FluidBlockBindings {
         } as usize;
         if state.kind.same_family(FluidKind::Water) {
             self.water[level]
-        } else {
+        } else if state.kind.same_family(FluidKind::Lava) {
             self.lava[level]
+        } else {
+            let index = usize::from(state.kind.id() - 5) / 2;
+            self.mods
+                .get(index)
+                .map_or(self.air, |levels| levels[level])
         }
     }
 }

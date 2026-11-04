@@ -232,12 +232,15 @@ pub(super) fn tesselate(
         return;
     }
     let water = matches!(kind, FluidKind::Water | FluidKind::FlowingWater);
-    let tint = if water {
-        water_color & 0xFF_FFFF
-    } else {
-        0xFF_FFFF
+    // A content mod's fluid: its client extension's tint and textures
+    // (NeoForge's IClientFluidTypeExtensions, getTintColor and the rest).
+    let modded = tables.mod_fluid(kind);
+    let tint = match modded {
+        Some(m) => m.tint,
+        None if water => water_color & 0xFF_FFFF,
+        None => 0xFF_FFFF,
     };
-    let emission = if water {
+    let emission = if water || modded.is_some() {
         0
     } else {
         crate::mesher::hdr_tier("lava", 15)
@@ -310,16 +313,18 @@ pub(super) fn tesselate(
             lighting::coords(pad, at(above), above),
         ))
     };
-    let (still, flow, overlay) = if water {
-        (
+    let (still, flow, overlay) = match modded {
+        Some(m) => (m.still, m.flow, m.overlay),
+        None if water => (
             tables.water_still,
             tables.water_flow,
             Some(tables.water_overlay),
-        )
-    } else {
-        (tables.lava_still, tables.lava_flow, None)
+        ),
+        None => (tables.lava_still, tables.lava_flow, None),
     };
-    let target = if water {
+    // Water's layer, or a mod fluid's (NeoForge 1.21.1's render layer by
+    // fluid, solid unless the mod registers translucent).
+    let target = if water || modded.is_some_and(|m| m.translucent) {
         &mut out.translucent
     } else {
         &mut out.solid

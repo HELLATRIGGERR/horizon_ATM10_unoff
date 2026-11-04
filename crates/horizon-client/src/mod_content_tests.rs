@@ -4664,3 +4664,214 @@ fn a_feature_gives_a_mods_sign_its_block_entity() {
     assert_eq!(generate(true), (placed, placed));
     let _ = fs::remove_dir_all(&scratch);
 }
+
+/// A content mod's fluid (`test:brine`, `BaseFlowingFluid`'s defaults, and
+/// `test:sludge`, slower and thicker, which makes sources) joins the fluid
+/// registry after vanilla's; its bucket places a source of its own block that
+/// spreads on its own tick rate and drop-off, and takes the source back.
+#[test]
+#[ignore = "full content root: CI and pr_ready run it"]
+fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
+    use horizon_core::position::{BlockPos, ChunkPos};
+    use horizon_core::random::LegacyRandom;
+    use horizon_world::fluid::FluidKind;
+    use horizon_world::level::{Behaviours, BucketContent, LevelAccess, Ticks};
+    use std::collections::HashMap;
+
+    let Some(base) = prepared() else {
+        return;
+    };
+    let scratch = std::env::temp_dir().join(format!("horizon-mod-fluid-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    // The same fluids as `register_test_fluids`, declared by a content mod.
+    let m = folder_mod(
+        &scratch.join("test"),
+        &[
+            ("horizon-mod.toml", &manifest("test", "")),
+            (
+                "data/test/horizon/block/brine.json",
+                r#"{"template": "minecraft:water", "item": false}"#,
+            ),
+            (
+                "data/test/horizon/block/sludge.json",
+                r#"{"template": "minecraft:lava", "item": false}"#,
+            ),
+            (
+                "data/test/horizon/item/brine_bucket.json",
+                r#"{"template": "minecraft:stick", "max_stack_size": 1}"#,
+            ),
+            (
+                "data/test/horizon/item/sludge_bucket.json",
+                r#"{"template": "minecraft:stick", "max_stack_size": 1}"#,
+            ),
+            (
+                "data/test/horizon/fluid/brine.json",
+                r#"{"bucket": "test:brine_bucket", "still_texture": "test:liquid/liquid",
+                    "flowing_texture": "test:liquid/liquid_flow",
+                    "overlay_texture": "minecraft:block/water_overlay",
+                    "tint": "0xFFFEEF9C", "translucent": true,
+                    "sounds": {"bucket_fill": "minecraft:item.bucket.fill",
+                        "bucket_empty": "minecraft:item.bucket.empty"}}"#,
+            ),
+            (
+                "data/test/horizon/fluid/sludge.json",
+                r#"{"bucket": "test:sludge_bucket", "still_texture": "test:liquid/sludge",
+                    "flowing_texture": "test:liquid/sludge_flow", "tick_rate": 10,
+                    "slope_find_distance": 2, "level_decrease_per_block": 2,
+                    "can_convert_to_source": true}"#,
+            ),
+            (
+                "data/c/tags/fluid/brine.json",
+                r#"{"values": ["test:brine", "test:flowing_brine"]}"#,
+            ),
+            // A fluid this game lacks, in vanilla's water tag (as ATM10's
+            // sugar water is): water stays water.
+            (
+                "data/minecraft/tags/fluid/water.json",
+                r#"{"values": ["othermod:sugar_water"]}"#,
+            ),
+        ],
+    );
+    let root = resource_root(&base, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let decls: Vec<Fluid> = fluids(std::slice::from_ref(&m))
+        .into_iter()
+        .cloned()
+        .collect();
+    register_mod_fluids(&root, &decls);
+    // What the declarations give is what the registry holds (asserted when
+    // another test registered first).
+    horizon_world::mod_fluids::register_test_fluids();
+    let brine = FluidKind::from_name("test:brine").unwrap();
+    let sludge = FluidKind::from_name("test:sludge").unwrap();
+
+    let assets = Assets::load(&root).unwrap();
+    let registry = assets.registry;
+    let b = Behaviours::load(registry, &root).unwrap();
+    let water_mask = FluidKind::Water.mask() | FluidKind::FlowingWater.mask();
+    assert_eq!(b.fluid_tags.water, water_mask, "minecraft:water keeps water");
+    struct Level {
+        blocks: HashMap<BlockPos, BlockStateId>,
+        air: BlockStateId,
+        random: LegacyRandom,
+        time: i64,
+    }
+    impl LevelAccess for Level {
+        fn block_state(&self, pos: BlockPos) -> BlockStateId {
+            self.blocks.get(&pos).copied().unwrap_or(self.air)
+        }
+        fn set_raw(&mut self, pos: BlockPos, state: BlockStateId) -> Option<BlockStateId> {
+            Some(self.blocks.insert(pos, state).unwrap_or(self.air))
+        }
+        fn is_loaded(&self, _pos: BlockPos) -> bool {
+            true
+        }
+        fn random(&mut self) -> &mut LegacyRandom {
+            &mut self.random
+        }
+        fn game_time(&self) -> i64 {
+            self.time
+        }
+    }
+    let air = registry.default_state("minecraft:air").unwrap();
+    let stone = registry.default_state("minecraft:stone").unwrap();
+    let mut level = Level {
+        blocks: HashMap::new(),
+        air,
+        random: LegacyRandom::new(1),
+        time: 0,
+    };
+    for x in -12..=12 {
+        for z in -12..=40 {
+            level.blocks.insert(BlockPos::new(x, 63, z), stone);
+        }
+    }
+    let mut ticks = Ticks::new(0);
+    for x in -1..=0 {
+        for z in -1..=2 {
+            ticks.add_empty_chunk(ChunkPos::new(x, z)).unwrap();
+        }
+    }
+    let at = |x, z| BlockPos::new(x, 64, z);
+    let fluid = |level: &Level, x, z| b.fluid(level.block_state(at(x, z)));
+    let empty = |level: &mut Level, ticks: &mut Ticks, x, z, kind| {
+        let content = BucketContent::Fluid(kind);
+        let sound = "minecraft:item.bucket.empty";
+        b.bucket_empty(level, ticks, at(x, z), None, content, sound, false, false)
+    };
+    let run = |level: &mut Level, ticks: &mut Ticks, until: i64| {
+        while level.time < until {
+            level.time += 1;
+            b.tick_scheduled(level, ticks);
+        }
+    };
+    // A bucket of each: their own blocks, at level 0.
+    assert_eq!(empty(&mut level, &mut ticks, 0, 0, brine), Some(at(0, 0)));
+    assert_eq!(
+        empty(&mut level, &mut ticks, 0, 24, sludge),
+        Some(at(0, 24))
+    );
+    let placed = registry.state(level.block_state(at(0, 0))).unwrap();
+    assert_eq!(placed.name, "test:brine");
+    assert_eq!(
+        placed.properties.get("level").map(String::as_str),
+        Some("0")
+    );
+    assert_eq!(fluid(&level, 0, 0).kind(), brine);
+    // Brine ticks every 5 ticks (`tickRate`); sludge every 10.
+    run(&mut level, &mut ticks, 4);
+    assert_eq!(fluid(&level, 1, 0).kind(), FluidKind::Empty);
+    run(&mut level, &mut ticks, 5);
+    let side = fluid(&level, 1, 0);
+    assert_eq!((side.kind(), side.amount()), (brine.flowing(), 7));
+    assert_eq!(
+        fluid(&level, 1, 24).kind(),
+        FluidKind::Empty,
+        "sludge waits 10 ticks"
+    );
+    run(&mut level, &mut ticks, 10);
+    let side = fluid(&level, 1, 24);
+    assert_eq!(
+        (side.kind(), side.amount()),
+        (sludge.flowing(), 6),
+        "drop-off 2"
+    );
+    // Settled: brine loses 1 a block over 7 blocks, sludge 2 over 3.
+    run(&mut level, &mut ticks, 200);
+    let amounts = |level: &Level, z| {
+        (1..=8)
+            .map(|x| fluid(level, x, z).amount())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(amounts(&level, 0), [7, 6, 5, 4, 3, 2, 1, 0]);
+    assert_eq!(amounts(&level, 24), [6, 4, 2, 0, 0, 0, 0, 0]);
+    let flowing = registry.state(level.block_state(at(3, 0))).unwrap();
+    assert_eq!(flowing.name, "test:brine");
+    assert_eq!(
+        flowing.properties.get("level").map(String::as_str),
+        Some("3")
+    );
+    // Two sources make a third only where the fluid's type allows it.
+    for (z, kind) in [(-8, brine), (36, sludge)] {
+        empty(&mut level, &mut ticks, -11, z, kind);
+        empty(&mut level, &mut ticks, -9, z, kind);
+    }
+    run(&mut level, &mut ticks, 400);
+    assert!(!fluid(&level, -10, -8).is_source(), "brine makes no source");
+    assert!(fluid(&level, -10, 36).is_source(), "sludge does");
+    // The empty bucket takes a source back, not a flowing block.
+    assert_eq!(
+        b.bucket_pickup(&mut level, &mut ticks, at(2, 0), false),
+        None
+    );
+    let picked = b.bucket_pickup(&mut level, &mut ticks, at(0, 0), false);
+    assert_eq!(picked, Some("test:brine_bucket"));
+    assert_eq!(level.block_state(at(0, 0)), air);
+    // Vanilla's water is still vanilla's.
+    let water = empty(&mut level, &mut ticks, 10, 10, FluidKind::Water);
+    assert_eq!(water, Some(at(10, 10)));
+    let water = registry.state(level.block_state(at(10, 10))).unwrap();
+    assert_eq!(water.name, "minecraft:water");
+    let decl = &horizon_world::mod_fluids::mod_fluids()[0];
+    assert_eq!(decl.source_tags, ["c:brine"], "the root's fluid tags");
+    fs::remove_dir_all(&scratch).unwrap();
+}

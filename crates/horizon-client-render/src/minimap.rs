@@ -54,6 +54,8 @@ impl Palette {
                 Fluid::None => 0,
                 Fluid::Water => 1,
                 Fluid::Lava => 2,
+                // A content mod's fluid: drawn by its block's map colour.
+                Fluid::Mod(_) => 0,
             };
             if facts.is_air(horizon_world::registry::BlockStateId(i as u32)) {
                 b |= AIR;

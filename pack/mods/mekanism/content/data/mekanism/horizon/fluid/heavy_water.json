@@ -1,0 +1,12 @@
+{
+  "bucket": "mekanism:heavy_water_bucket",
+  "still_texture": "minecraft:block/water_still",
+  "flowing_texture": "minecraft:block/water_flow",
+  "overlay_texture": "minecraft:block/water_overlay",
+  "tint": "0xFF0D1455",
+  "translucent": true,
+  "sounds": {
+    "bucket_fill": "minecraft:item.bucket.fill",
+    "bucket_empty": "minecraft:item.bucket.empty"
+  }
+}

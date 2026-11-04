@@ -83,8 +83,9 @@ fn storage_fuzzy_match(
     }
 }
 impl Game<'_> {
-    // Horizon exposes an installed item registry, but not a mod-fluid
-    // registry. Preserve all syntactically valid fluid IDs until one exists.
+    // Fluid ids stay known whether or not the fluid registry holds them
+    // (vanilla's and the content mods' fluids): an unregistered fluid is kept
+    // as stored, not turned into Missing Content.
     fn ae2_known_cell_key(&self, id:&str, fluid:bool)->bool {
         fluid || self.res.items().get(id).is_some()
     }

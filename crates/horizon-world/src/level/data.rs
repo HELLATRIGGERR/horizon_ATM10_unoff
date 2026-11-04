@@ -826,8 +826,18 @@ fn build_with_gameplay<G: GameplayStateSource>(
             )
             .map_err(|e| invalid(e.to_string()))?;
     }
+    // The masks hold vanilla's fluids; a mod fluid's tags are its registry
+    // entry's. A mod's fluid in a vanilla tag (ATM10's `minecraft:water`
+    // names `the_bumblezone:sugar_water_still`), carried or not, leaves the
+    // tag whole, outside the mask, as damage tags lose only their missing
+    // references: a tag left out for it would leave water without water.
     let fluid_built = fluid_definitions
-        .build(|name, _| FluidKind::from_name(name).map(|kind| kind as u8))
+        .build(
+            |name, _| match FluidKind::ALL.into_iter().find(|k| k.name() == name) {
+                Some(kind) => Some(kind.id() as u8),
+                None => (!name.starts_with("minecraft:")).then_some(u8::MAX),
+            },
+        )
         .map_err(|e| invalid(e.to_string()))?;
     let fluid_mask = |name: &str| -> u8 {
         fluid_built
@@ -835,6 +845,7 @@ fn build_with_gameplay<G: GameplayStateSource>(
             .get(name)
             .into_iter()
             .flatten()
+            .filter(|kind| **kind < 8)
             .fold(0, |mask, kind| mask | 1 << kind)
     };
     let fluid_tags = FluidTags {
@@ -876,11 +887,17 @@ fn build_with_gameplay<G: GameplayStateSource>(
             .get(int(2) as usize)
             .copied()
             .ok_or_else(|| fail("invalid exported fluid"))?;
-        let fluid = FluidState::new(
-            fluid_kind,
-            int(3) as u8,
-            row.get(4).and_then(Value::as_bool).unwrap_or(false),
-        );
+        // A content mod's `LiquidBlock` copies its template's row (lava's or
+        // water's): its states hold the mod's fluid instead.
+        let state = registry.state(BlockStateId(id as u32));
+        let fluid = match state.filter(|s| crate::mod_fluids::kind_by_block(&s.name).is_some()) {
+            Some(state) => FluidState::from_block(state)?,
+            None => FluidState::new(
+                fluid_kind,
+                int(3) as u8,
+                row.get(4).and_then(Value::as_bool).unwrap_or(false),
+            ),
+        };
         facts.push(StateFacts {
             flags,
             sturdy: int(0) as u32,

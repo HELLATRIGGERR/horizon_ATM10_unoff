@@ -446,17 +446,18 @@ impl Game<'_> {
             .res
             .facts()
             .get(self.world.block(pos[0], pos[1], pos[2]));
-        let kind = match f.fluid {
+        let (source, flowing) = match f.fluid {
             Fluid::None => return ("minecraft:empty".into(), Vec::new()),
-            Fluid::Water => "water",
-            Fluid::Lava => "lava",
+            Fluid::Water => ("minecraft:water", "minecraft:flowing_water"),
+            Fluid::Lava => ("minecraft:lava", "minecraft:flowing_lava"),
+            Fluid::Mod(kind) => (kind.source().name(), kind.flowing().name()),
         };
         let falling = ("falling", f.fluid_falling.to_string());
         if f.fluid_level == 8 && !f.fluid_falling {
-            (format!("minecraft:{kind}"), vec![falling])
+            (source.to_owned(), vec![falling])
         } else {
             (
-                format!("minecraft:flowing_{kind}"),
+                flowing.to_owned(),
                 vec![falling, ("level", f.fluid_level.to_string())],
             )
         }

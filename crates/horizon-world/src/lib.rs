@@ -86,6 +86,7 @@ pub mod living_air;
 pub mod living_damage;
 pub mod living_fall;
 pub mod living_fluid;
+pub mod mod_fluids;
 pub mod living_health;
 pub mod living_hurt;
 pub mod living_landing;

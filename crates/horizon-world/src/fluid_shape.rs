@@ -31,9 +31,13 @@ impl FluidShapeCache {
         if state.kind() == FluidKind::Empty {
             return Ok(VoxelShape::empty());
         }
-        let index = state.kind() as usize * 18
+        let index = usize::from(state.kind().id()) * 18
             + usize::from(state.falling()) * 9
             + usize::from(state.amount());
+        // Vanilla's five fluids fill the first slots; a mod fluid's grow them.
+        if index >= self.shapes.len() {
+            self.shapes.resize(index + 1, None);
+        }
         if let Some(shape) = &self.shapes[index] {
             return Ok(shape.clone());
         }

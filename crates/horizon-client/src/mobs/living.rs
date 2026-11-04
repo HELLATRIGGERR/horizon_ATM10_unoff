@@ -189,7 +189,8 @@ impl MobWorld<'_> {
                                 out.lava = out.lava.max(depth);
                                 out.in_lava = true;
                             }
-                            Fluid::None => {}
+                            // A content mod's fluid: no water or lava physics yet.
+                            Fluid::None | Fluid::Mod(_) => {}
                         }
                     }
                 }
@@ -239,6 +240,8 @@ impl MobWorld<'_> {
                         FluidKind::Empty => continue,
                         FluidKind::Water | FluidKind::FlowingWater => &mut water,
                         FluidKind::Lava | FluidKind::FlowingLava => &mut lava,
+                        // A content mod's fluid pushes no entity yet.
+                        _ => continue,
                     };
                     let surface = f64::from(y) + self.fluid_height(x, y, z).1;
                     if surface < lo.y {

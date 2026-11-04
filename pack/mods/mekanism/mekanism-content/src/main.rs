@@ -32,11 +32,12 @@
 //!
 //! - With `--pack` (the full pack's own carry, `atm10-pack`, which holds the
 //!   final tags of the namespaces no mod owns), the entries of its vanilla and
-//!   convention (`minecraft`, `c`) block and item tags that name this mod's
-//!   blocks and items are added to the content mod's tags of the same names
-//!   (the only other namespaces a content mod may add to), so a world
-//!   with only this content mod mines its blocks with the right tool and
-//!   finds its items by tag (`c:dusts/osmium`), as the whole pack does.
+//!   convention (`minecraft`, `c`) block, item and fluid tags that name this
+//!   mod's blocks, items and fluids are added to the content mod's tags of the
+//!   same names (the only other namespaces a content mod may add to), so a
+//!   world with only this content mod mines its blocks with the right tool and
+//!   finds its items and fluids by tag (`c:dusts/osmium`, `c:heavy_water`), as
+//!   the whole pack does.
 //!
 //! The output is generated, never committed: Mekanism's files stay local.
 //! It may only replace a folder this tool made (`mekanism-content.json`).
@@ -232,15 +233,15 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
     Ok(report)
 }
 
-/// The vanilla and convention block and item tags of `pack` (a `data/`
-/// folder), cut to the entries that name `id`'s own blocks and items, added to
+/// The vanilla and convention block, item and fluid tags of `pack` (a `data/`
+/// folder), cut to the entries that name `id`'s own blocks, items and fluids, added to
 /// those of the same name under `out` (`data/`): how many tag files took
 /// entries.
 fn pack_tags(pack: &Path, out: &Path, id: &str) -> Result<usize> {
     let prefix = format!("{id}:");
     let mut written = 0;
     for namespace in ["minecraft", "c"] {
-        for kind in ["block", "item"] {
+        for kind in ["block", "item", "fluid"] {
             let dir = pack.join(namespace).join("tags").join(kind);
             let mut files = Vec::new();
             json_files(&dir, &mut files);
@@ -671,12 +672,19 @@ mod tests {
         )
         .unwrap();
         write_json(&pack.join("c/tags/item/dusts/iron.json"), &json!({ "values": ["alltheores:iron_dust"] })).unwrap();
+        write_json(
+            &pack.join("c/tags/fluid/heavy_water.json"),
+            &json!({ "values": ["mekanism:heavy_water", "mekanism:flowing_heavy_water", "modern_industrialization:heavy_water"] }),
+        )
+        .unwrap();
         write_json(&pack.join("mekanism/tags/item/own.json"), &json!({ "values": ["mekanism:x"] })).unwrap();
         write_json(&pack.join("almostunified/tags/item/hide.json"), &json!({ "values": ["mekanism:ingot_tin"] })).unwrap();
         write_json(&out.join("minecraft/tags/block/mineable/pickaxe.json"), &json!({ "values": ["mekanism:steel_casing"] })).unwrap();
-        assert_eq!(pack_tags(&pack, &out, "mekanism").unwrap(), 1);
+        assert_eq!(pack_tags(&pack, &out, "mekanism").unwrap(), 2);
         let merged = read_json(&out.join("minecraft/tags/block/mineable/pickaxe.json")).unwrap();
         assert_eq!(merged["values"], json!(["mekanism:steel_casing", { "id": "mekanism:crusher", "required": false }]));
+        let fluids = read_json(&out.join("c/tags/fluid/heavy_water.json")).unwrap();
+        assert_eq!(fluids["values"], json!(["mekanism:heavy_water", "mekanism:flowing_heavy_water"]));
         assert!(!out.join("c/tags/item/dusts/iron.json").exists(), "nothing of the mod's: no file");
         assert!(!out.join("mekanism/tags/item/own.json").exists(), "its own namespace is the carry's");
         assert!(!out.join("almostunified/tags/item/hide.json").exists(), "a content mod adds only to vanilla and convention tags");

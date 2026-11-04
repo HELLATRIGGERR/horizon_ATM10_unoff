@@ -26,6 +26,8 @@ pub enum Fluid {
     None,
     Water,
     Lava,
+    /// A content mod's fluid (its source), [`horizon_world::mod_fluids`].
+    Mod(horizon_world::fluid::FluidKind),
 }
 #[derive(Clone, Debug)]
 pub struct Sounds {
@@ -407,6 +409,7 @@ impl BlockFacts {
             let state = registry.state(id).ok_or("missing registry state")?;
             let sound = &entry.sound;
             let prop = |k: &str| state.properties.get(k).map(String::as_str);
+            let mod_fluid = horizon_world::mod_fluids::kind_by_block(&state.name);
             let (fluid, fluid_level, fluid_falling) = match state.name.as_str() {
                 "minecraft:water" | "minecraft:lava" => {
                     let level: u8 = prop("level").and_then(|v| v.parse().ok()).unwrap_or(0);
@@ -429,6 +432,18 @@ impl BlockFacts {
                 | "minecraft:kelp_plant"
                 | "minecraft:seagrass"
                 | "minecraft:tall_seagrass" => (Fluid::Water, 8, false),
+                // A mod's `LiquidBlock`: levels as water's.
+                _ if let Some(kind) = mod_fluid => {
+                    let level: u8 = prop("level").and_then(|v| v.parse().ok()).unwrap_or(0);
+                    let kind = Fluid::Mod(kind);
+                    if level == 0 {
+                        (kind, 8, false)
+                    } else if level >= 8 {
+                        (kind, 8, true)
+                    } else {
+                        (kind, 8 - level, false)
+                    }
+                }
                 _ if prop("waterlogged") == Some("true") => (Fluid::Water, 8, false),
                 _ => (Fluid::None, 0, false),
             };

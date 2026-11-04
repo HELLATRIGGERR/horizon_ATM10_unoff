@@ -65,7 +65,7 @@ impl<W: Write> LiquidCollisionWorld for LiquidWorld<'_, W> {
         self.query(&format!(
             "stand {} {} {} {}",
             entity.0,
-            fluid.kind() as u8,
+            fluid.kind().id(),
             fluid.amount(),
             fluid.falling()
         ))?;
@@ -434,7 +434,7 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let result = context.can_stand_on_fluid(first, second, |entity, fluid| {
                     assert_eq!(entity, player.identity);
                     calls += 1;
-                    last = fluid.kind() as i32;
+                    last = i32::from(fluid.kind().id());
                     if f["fail"].as_bool().unwrap() {
                         Err(())
                     } else {

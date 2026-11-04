@@ -20,8 +20,8 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"HZBEHAV\0";
-const VERSION: u32 = 2;
-const FILE_NAME: &str = "behaviours-v2.bin";
+const VERSION: u32 = 3;
+const FILE_NAME: &str = "behaviours-v3.bin";
 const MAX_FILE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_DECODED_BYTES: usize = 256 * 1024 * 1024;
 static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
@@ -50,7 +50,7 @@ struct Fact {
     sturdy: u32,
     weak: u32,
     strong: u32,
-    fluid_kind: u8,
+    fluid_kind: u16,
     fluid_amount: u8,
     fluid_falling: bool,
     emission: u8,
@@ -385,7 +385,7 @@ impl Snapshot {
                 sturdy: fact.sturdy,
                 weak: fact.weak,
                 strong: fact.strong,
-                fluid_kind: fact.fluid.kind() as u8,
+                fluid_kind: fact.fluid.kind().id(),
                 fluid_amount: fact.fluid.amount(),
                 fluid_falling: fact.fluid.falling(),
                 emission: fact.emission,
@@ -578,9 +578,7 @@ impl Snapshot {
                 if wire.shape < -1 || wire.shape >= shapes.len() as i32 {
                     return Err(invalid("cached shape index out of range"));
                 }
-                let fluid_kind = FluidKind::ALL
-                    .get(wire.fluid_kind as usize)
-                    .copied()
+                let fluid_kind = FluidKind::from_id(u32::from(wire.fluid_kind))
                     .ok_or_else(|| invalid("cached fluid kind out of range"))?;
                 Ok(StateFacts {
                     flags: wire.flags,

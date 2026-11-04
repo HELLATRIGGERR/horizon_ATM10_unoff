@@ -1,7 +1,7 @@
 //! A content mod's `assets/` and `data/` (API 0.2, docs/modpacks.md): the
 //! files it adds to the game's resource tree, and the blocks, items, mob
 //! effects, entity types and menu types it declares in
-//! `data/<id>/horizon/{block,item,mob_effect,entity_type,menu}/`.
+//! `data/<id>/horizon/{block,item,mob_effect,entity_type,menu,fluid}/`.
 //!
 //! Content is data, not code: nothing here runs in the sandbox. What a mod
 //! may add is fenced instead. Its own namespaces (its id and the ones its
@@ -493,6 +493,112 @@ pub struct MenuType {
 /// container (`native_block_entity_container`) may.
 pub const MAX_MENU_SLOTS: u16 = 256;
 
+/// The sounds a fluid's bucket makes (`FluidType.Properties.sound` with
+/// `SoundActions.BUCKET_FILL` and `BUCKET_EMPTY`).
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FluidSounds {
+    pub bucket_fill: Option<String>,
+    pub bucket_empty: Option<String>,
+}
+
+/// A fluid the mod adds (`data/<id>/horizon/fluid/<path>.json`), as
+/// NeoForge's `FluidType` and `BaseFlowingFluid` make one: its source fluid
+/// is `<id>:<path>`, its flowing fluid `flowing`, and its `LiquidBlock`
+/// (`block`, a block of the mod on the `minecraft:water` or `minecraft:lava`
+/// template, whose `level` it fills) is what the world holds. Left out, the
+/// numbers are `BaseFlowingFluid.Properties`' and `FluidType.Properties`'.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Fluid {
+    /// `<mod id>:<path>`.
+    #[serde(skip)]
+    pub id: String,
+    /// `<mod id>:flowing_<path>` when left out.
+    #[serde(default)]
+    pub flowing: String,
+    /// The fluid's own id when left out.
+    #[serde(default)]
+    pub block: String,
+    /// One of the mod's items: the filled bucket (`BucketItem`).
+    pub bucket: Option<String>,
+    /// Block atlas sprites (`<ns>:<path>` under `textures/`): the client
+    /// extension's `getStillTexture`, `getFlowingTexture`, `getOverlayTexture`.
+    pub still_texture: String,
+    pub flowing_texture: String,
+    pub overlay_texture: Option<String>,
+    /// `getTintColor`: ARGB, as Java's int (`-15920043`) or `0xAARRGGBB`.
+    #[serde(default = "Fluid::white", deserialize_with = "argb")]
+    pub tint: u32,
+    /// Its render layer is translucent (`ItemBlockRenderTypes`); solid when left out.
+    #[serde(default)]
+    pub translucent: bool,
+    #[serde(default = "Fluid::tick_rate")]
+    pub tick_rate: i32,
+    #[serde(default = "Fluid::slope_find_distance")]
+    pub slope_find_distance: i32,
+    #[serde(default = "Fluid::level_decrease_per_block")]
+    pub level_decrease_per_block: i32,
+    #[serde(default = "Fluid::explosion_resistance")]
+    pub explosion_resistance: f32,
+    #[serde(default)]
+    pub can_convert_to_source: bool,
+    #[serde(default)]
+    pub light_level: u8,
+    #[serde(default = "Fluid::thousand")]
+    pub density: i32,
+    #[serde(default = "Fluid::temperature")]
+    pub temperature: i32,
+    #[serde(default = "Fluid::thousand")]
+    pub viscosity: i32,
+    #[serde(default)]
+    pub sounds: FluidSounds,
+    /// `FluidType.getDescriptionId`; `block.<ns>.<path>` when left out.
+    #[serde(default)]
+    pub description: String,
+}
+
+impl Fluid {
+    fn white() -> u32 {
+        0xFFFF_FFFF
+    }
+    fn tick_rate() -> i32 {
+        5
+    }
+    fn slope_find_distance() -> i32 {
+        4
+    }
+    fn level_decrease_per_block() -> i32 {
+        1
+    }
+    fn explosion_resistance() -> f32 {
+        1.0
+    }
+    fn thousand() -> i32 {
+        1000
+    }
+    fn temperature() -> i32 {
+        300
+    }
+}
+
+/// An ARGB colour as Java's signed int or a `0xAARRGGBB` string.
+fn argb<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    use serde::de::Error;
+    match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Number(n) => n
+            .as_i64()
+            .filter(|v| (i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(v))
+            .map(|v| v as u32)
+            .ok_or_else(|| D::Error::custom("tint is a 32-bit ARGB colour")),
+        serde_json::Value::String(s) => s
+            .strip_prefix("0x")
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+            .ok_or_else(|| D::Error::custom("tint is 0xAARRGGBB")),
+        _ => Err(D::Error::custom("tint is a number or 0xAARRGGBB")),
+    }
+}
+
 #[derive(Debug)]
 enum Source {
     Dir(PathBuf),
@@ -514,6 +620,7 @@ pub struct Content {
     pub creative_tabs: Vec<CreativeTab>,
     pub entity_types: Vec<EntityType>,
     pub menu_types: Vec<MenuType>,
+    pub fluids: Vec<Fluid>,
     /// The namespaces it owns: the mod id, then the manifest's `namespaces`.
     pub namespaces: Vec<String>,
 }
@@ -613,6 +720,7 @@ impl Content {
             creative_tabs: Vec::new(),
             entity_types: Vec::new(),
             menu_types: Vec::new(),
+            fluids: Vec::new(),
             namespaces: manifest.owned_namespaces().map(str::to_owned).collect(),
         };
         content.check(manifest, declared, &mut reader)?;
@@ -631,6 +739,7 @@ impl Content {
             creative_tabs: Vec::new(),
             entity_types: Vec::new(),
             menu_types: Vec::new(),
+            fluids: Vec::new(),
             namespaces: vec![namespace.to_owned()],
         }
     }
@@ -754,6 +863,7 @@ impl Content {
         let mut tabs = Vec::new();
         let mut types = Vec::new();
         let mut menus = Vec::new();
+        let mut fluids = Vec::new();
         for name in &self.files {
             let mut parts = name.splitn(3, '/');
             let (top, namespace, rest) = (
@@ -802,9 +912,11 @@ impl Content {
                 types.push((kind, name.clone()));
             } else if let Some(menu) = parse("menu") {
                 menus.push((menu, name.clone()));
+            } else if let Some(fluid) = parse("fluid") {
+                fluids.push((fluid, name.clone()));
             } else {
                 return Err(format!(
-                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/, creative_tab/, entity_type/ and menu/*.json only"
+                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/, creative_tab/, entity_type/, menu/ and fluid/*.json only"
                 ));
             }
         }
@@ -974,7 +1086,111 @@ impl Content {
             }
             self.menu_types.push(MenuType { id: menu, ..file });
         }
+        for (fluid, name) in fluids {
+            let file: Fluid =
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
+            let fluid = self
+                .check_fluid(fluid, file, &ids)
+                .map_err(|e| format!("{name}: {e}"))?;
+            self.fluids.push(fluid);
+        }
         Ok(())
+    }
+
+    /// A fluid file's declaration with its defaults filled in: its flowing
+    /// fluid and block in the mod's own namespace, the block one of the mod's
+    /// on a liquid template, its bucket one of the mod's items, and its
+    /// numbers as `FlowingFluid` can use them.
+    fn check_fluid(
+        &self,
+        id: String,
+        file: Fluid,
+        items: &BTreeSet<String>,
+    ) -> Result<Fluid, String> {
+        let (ns, path) = id.split_once(':').unwrap_or_default();
+        let own = |s: &str| namespaced_id(s) && s.split_once(':').is_some_and(|(n, _)| n == ns);
+        let mut fluid = Fluid {
+            id: id.clone(),
+            ..file
+        };
+        if fluid.flowing.is_empty() {
+            fluid.flowing = format!("{ns}:flowing_{path}");
+        }
+        if fluid.block.is_empty() {
+            fluid.block = id.clone();
+        }
+        if fluid.description.is_empty() {
+            fluid.description = format!("block.{ns}.{path}");
+        }
+        if !own(&fluid.flowing) || fluid.flowing == id {
+            return Err(format!(
+                "flowing {:?} is another id in {ns}:",
+                fluid.flowing
+            ));
+        }
+        if self
+            .fluids
+            .iter()
+            .any(|f| f.flowing == fluid.flowing || f.id == fluid.flowing || f.flowing == id)
+        {
+            return Err(format!("{} or {} is another fluid's", id, fluid.flowing));
+        }
+        match self.blocks.iter().find(|b| b.id == fluid.block) {
+            Some(b) if matches!(b.template.as_str(), "minecraft:water" | "minecraft:lava") => {}
+            Some(_) => {
+                return Err(format!(
+                    "block {:?} is not on minecraft:water or minecraft:lava",
+                    fluid.block
+                ));
+            }
+            None => {
+                return Err(format!(
+                    "block {:?} is not one of this mod's blocks",
+                    fluid.block
+                ));
+            }
+        }
+        if self.fluids.iter().any(|f| f.block == fluid.block) {
+            return Err(format!(
+                "block {:?} already holds another fluid",
+                fluid.block
+            ));
+        }
+        if let Some(bucket) = &fluid.bucket
+            && (!items.contains(bucket)
+                || self
+                    .fluids
+                    .iter()
+                    .any(|f| f.bucket.as_ref() == Some(bucket)))
+        {
+            return Err(format!(
+                "bucket {bucket:?} is not one of this mod's items, or holds another fluid"
+            ));
+        }
+        for texture in [
+            Some(&fluid.still_texture),
+            Some(&fluid.flowing_texture),
+            fluid.overlay_texture.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !namespaced_id(texture) {
+                return Err(format!(
+                    "texture {texture:?} is not a sprite id (namespace:path)"
+                ));
+            }
+        }
+        if fluid.tick_rate < 1
+            || fluid.level_decrease_per_block < 1
+            || fluid.slope_find_distance < 0
+        {
+            return Err("tick_rate and level_decrease_per_block are 1 or more, slope_find_distance 0 or more".into());
+        }
+        if fluid.light_level > 15 || !fluid.explosion_resistance.is_finite() {
+            return Err("light_level is 0 to 15, explosion_resistance a number".into());
+        }
+        Ok(fluid)
     }
 }
 
@@ -1679,6 +1895,107 @@ capabilities = ["registries"]
         ] {
             let files: &[(&str, &[u8])] = &[("data/ruby/horizon/menu/a.json", file.as_bytes())];
             let e = hmod(case, MANIFEST_TEXT, files).unwrap_err();
+            assert!(e.contains(why), "{case}: {e}");
+        }
+    }
+
+    #[test]
+    fn fluids_name_their_liquid_block_and_bucket() {
+        const LIQUID: &[u8] = br#"{"template": "minecraft:water", "item": false}"#;
+        const BUCKET: &[u8] = br#"{"template": "minecraft:stick", "max_stack_size": 1}"#;
+        let fluid = br#"{"bucket": "ruby:brine_bucket", "still_texture": "ruby:liquid/brine",
+            "flowing_texture": "ruby:liquid/brine_flow", "tint": -69732, "translucent": true,
+            "sounds": {"bucket_fill": "minecraft:item.bucket.fill"}}"#;
+        let files: &[(&str, &[u8])] = &[
+            ("data/ruby/horizon/block/brine.json", LIQUID),
+            ("data/ruby/horizon/item/brine_bucket.json", BUCKET),
+            ("data/ruby/horizon/fluid/brine.json", fluid),
+        ];
+        let content = hmod("fluids", MANIFEST_TEXT, files).unwrap();
+        let [brine] = content.fluids.as_slice() else {
+            panic!("{:?}", content.fluids)
+        };
+        // Its defaults are BaseFlowingFluid.Properties' and FluidType.Properties'.
+        assert_eq!(
+            (
+                brine.id.as_str(),
+                brine.flowing.as_str(),
+                brine.block.as_str()
+            ),
+            ("ruby:brine", "ruby:flowing_brine", "ruby:brine")
+        );
+        assert_eq!(brine.tint, 0xFFFE_EF9C);
+        assert_eq!(
+            (
+                brine.tick_rate,
+                brine.slope_find_distance,
+                brine.level_decrease_per_block
+            ),
+            (5, 4, 1)
+        );
+        assert_eq!(
+            (
+                brine.density,
+                brine.temperature,
+                brine.can_convert_to_source
+            ),
+            (1000, 300, false)
+        );
+        assert_eq!(brine.description, "block.ruby.brine");
+        let refused = |case: &str, block: &[u8], fluid: &str| {
+            let files: &[(&str, &[u8])] = &[
+                ("data/ruby/horizon/block/brine.json", block),
+                ("data/ruby/horizon/item/brine_bucket.json", BUCKET),
+                ("data/ruby/horizon/fluid/brine.json", fluid.as_bytes()),
+            ];
+            hmod(case, MANIFEST_TEXT, files).unwrap_err()
+        };
+        let textures = r#""still_texture": "ruby:a", "flowing_texture": "ruby:b""#;
+        for (case, block, fluid, why) in [
+            (
+                "fluid-solid",
+                BLOCK,
+                format!("{{{textures}}}"),
+                "is not on minecraft:water",
+            ),
+            (
+                "fluid-bucket",
+                LIQUID,
+                format!(r#"{{{textures}, "bucket": "minecraft:water_bucket"}}"#),
+                "is not one of this mod's items",
+            ),
+            (
+                "fluid-block",
+                LIQUID,
+                format!(r#"{{{textures}, "block": "ruby:other"}}"#),
+                "is not one of this mod's blocks",
+            ),
+            (
+                "fluid-flowing",
+                LIQUID,
+                format!(r#"{{{textures}, "flowing": "other:brine"}}"#),
+                "is another id in ruby:",
+            ),
+            (
+                "fluid-tick",
+                LIQUID,
+                format!(r#"{{{textures}, "tick_rate": 0}}"#),
+                "tick_rate",
+            ),
+            (
+                "fluid-tint",
+                LIQUID,
+                format!(r#"{{{textures}, "tint": "red"}}"#),
+                "0xAARRGGBB",
+            ),
+            (
+                "fluid-texture",
+                LIQUID,
+                r#"{"still_texture": "a"}"#.to_owned(),
+                "missing field",
+            ),
+        ] {
+            let e = refused(case, block, &fluid);
             assert!(e.contains(why), "{case}: {e}");
         }
     }

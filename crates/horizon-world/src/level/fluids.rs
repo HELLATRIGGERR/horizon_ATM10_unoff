@@ -1,5 +1,6 @@
-//! `FlowingFluid` (water and lava) ticking and spreading, `LiquidBlock`
-//! interactions, liquid containers (waterlogging) and bucket pickup.
+//! `FlowingFluid` (water, lava and the content mods' `BaseFlowingFluid`s)
+//! ticking and spreading, `LiquidBlock` interactions, liquid containers
+//! (waterlogging) and bucket pickup.
 use super::{
     Behaviours, Dimension, LevelAccess, Sim, Spread,
     classes::{Class, Interface},
@@ -25,21 +26,13 @@ const POSSIBLE_FLOW_DIRECTIONS: [Direction; 5] = [
 ];
 
 fn is_water(kind: FluidKind) -> bool {
-    matches!(kind, FluidKind::Water | FluidKind::FlowingWater)
+    kind.is_water()
 }
 fn source_of(kind: FluidKind) -> FluidKind {
-    if is_water(kind) {
-        FluidKind::Water
-    } else {
-        FluidKind::Lava
-    }
+    kind.source()
 }
 fn flowing_of(kind: FluidKind) -> FluidKind {
-    if is_water(kind) {
-        FluidKind::FlowingWater
-    } else {
-        FluidKind::FlowingLava
-    }
+    kind.flowing()
 }
 
 /// `FlowingFluid.SpreadContext`: per-spread caches keyed by horizontal offset.
@@ -107,35 +100,49 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     fn fast_lava(&self) -> bool {
         self.level.dimension() == Dimension::Nether
     }
-    /// `Fluid.getTickDelay`.
+    /// `Fluid.getTickDelay` (`BaseFlowingFluid`: its `tickRate`).
     pub(crate) fn fluid_tick_delay(&self, kind: FluidKind) -> i32 {
         match kind {
             FluidKind::Empty => 0,
             FluidKind::Water | FluidKind::FlowingWater => 5,
-            _ => {
+            FluidKind::Lava | FluidKind::FlowingLava => {
                 if self.fast_lava() {
                     10
                 } else {
                     30
                 }
             }
+            _ => kind.mod_fluid().map_or(0, |m| m.tick_rate),
         }
     }
+    /// `FlowingFluid.getDropOff` (`BaseFlowingFluid`: `levelDecreasePerBlock`).
     fn drop_off(&self, kind: FluidKind) -> i32 {
+        if let Some(m) = kind.mod_fluid() {
+            return m.level_decrease_per_block;
+        }
         if is_water(kind) || self.fast_lava() {
             1
         } else {
             2
         }
     }
+    /// `FlowingFluid.getSlopeFindDistance` (`BaseFlowingFluid`: `slopeFindDistance`).
     fn slope_find_distance(&self, kind: FluidKind) -> i32 {
+        if let Some(m) = kind.mod_fluid() {
+            return m.slope_find_distance;
+        }
         if is_water(kind) || self.fast_lava() {
             4
         } else {
             2
         }
     }
+    /// `FlowingFluid.canConvertToSource`; a mod's fluid asks its `FluidType`,
+    /// as NeoForge's BaseFlowingFluid does.
     fn can_convert_to_source(&self, kind: FluidKind) -> bool {
+        if let Some(m) = kind.mod_fluid() {
+            return m.can_convert_to_source;
+        }
         let rules = self.level.game_rules();
         if is_water(kind) {
             rules.water_source_conversion
@@ -153,7 +160,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             fluid.own_height()
         }
     }
-    /// `FluidState.canBeReplacedWith(level, pos, other, direction)`.
+    /// `FluidState.canBeReplacedWith(level, pos, other, direction)`:
+    /// `WaterFluid`'s, `LavaFluid`'s or `BaseFlowingFluid`'s.
     fn can_be_replaced_with(
         &self,
         fluid: FluidState,
@@ -166,7 +174,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             FluidKind::Water | FluidKind::FlowingWater => {
                 direction == Direction::Down && !is_water(other)
             }
-            _ => self.fluid_height(fluid, pos) >= 0.444_444_45 && is_water(other),
+            FluidKind::Lava | FluidKind::FlowingLava => {
+                self.fluid_height(fluid, pos) >= 0.444_444_45 && is_water(other)
+            }
+            kind => direction == Direction::Down && !kind.same_family(other),
         }
     }
 
@@ -527,7 +538,9 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             .filter(|d| self.is_source_of(kind, self.fluid_at(rel(pos, *d))))
             .count() as i32
     }
-    /// `FlowingFluid.spreadTo` (with LavaFluid's water-to-stone override).
+    /// `FlowingFluid.spreadTo` (with LavaFluid's water-to-stone override);
+    /// `beforeDestroyingBlock` drops the block's resources but for lava's
+    /// fizz (`WaterFluid`'s and `BaseFlowingFluid`'s are the same).
     fn spread_to(
         &mut self,
         kind: FluidKind,
@@ -543,7 +556,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         {
             return;
         }
-        if !is_water(kind)
+        if kind.is_lava()
             && direction == Direction::Down
             && b.is_water_fluid(self.fluid_at(pos).kind())
         {
@@ -557,10 +570,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             self.place_liquid(pos, state, target, false);
         } else {
             if !b.is_air(state) {
-                if is_water(kind) {
-                    self.drop_resources(state, pos);
-                } else {
+                if kind.is_lava() {
                     self.level_event(1501, pos, 0);
+                } else {
+                    self.drop_resources(state, pos);
                 }
             }
             let legacy = b.legacy_block(target);
@@ -622,10 +635,12 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             let new_fluid = self.new_liquid(kind, pos, state);
             let delay = self.spread_delay(kind, pos, fluid, new_fluid);
             if new_fluid != fluid {
+                // A mod's fluid goes by its source's id.
                 let name = match kind {
                     FluidKind::Water | FluidKind::FlowingWater => "water",
                     FluidKind::Lava | FluidKind::FlowingLava => "lava",
                     FluidKind::Empty => return,
+                    _ => kind.source().name(),
                 };
                 if !self.level.allow_fluid_level_change(
                     pos,
@@ -657,7 +672,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         new: FluidState,
     ) -> i32 {
         let delay = self.fluid_tick_delay(kind);
-        if is_water(kind) {
+        // `FlowingFluid.getSpreadDelay`: only `LavaFluid` overrides it.
+        if !kind.is_lava() {
             return delay;
         }
         if old.kind() != FluidKind::Empty

@@ -17,7 +17,7 @@
 use crate::{Result, blocks::MAP_COLORS};
 use horizon_core::geometry::{Aabb, Axis, ShapeOp, Vec3, VoxelShape};
 use horizon_mods::content::{
-    Block, Content, CreativeTab, EntityType, MenuType, MobEffect, Rarity, StateProperty,
+    Block, Content, CreativeTab, EntityType, Fluid, MenuType, MobEffect, Rarity, StateProperty,
 };
 use horizon_world::nbt::{self, Compound, JavaString, Limits, Tag};
 use serde::{Deserialize, Serialize, de};
@@ -97,6 +97,64 @@ pub fn menu_types(mods: &[ContentMod]) -> Vec<&MenuType> {
     let mut menus: Vec<&MenuType> = mods.iter().flat_map(|m| &m.content.menu_types).collect();
     menus.sort_by(|a, b| a.id.cmp(&b.id));
     menus
+}
+
+/// The mods' fluids in registry order, by id as effects are.
+pub fn fluids(mods: &[ContentMod]) -> Vec<&Fluid> {
+    let mut fluids: Vec<&Fluid> = mods.iter().flat_map(|m| &m.content.fluids).collect();
+    fluids.sort_by(|a, b| a.id.cmp(&b.id));
+    fluids
+}
+
+/// A fluid declaration as the fluid registry holds it, with the fluid tags
+/// `tags` gives its source and flowing fluid ([`horizon_world::mod_fluids::fluid_tags_in`]).
+pub fn mod_fluid(
+    decl: &Fluid,
+    tags: &BTreeMap<String, Vec<String>>,
+) -> horizon_world::mod_fluids::ModFluid {
+    let tags_of = |id: &str| tags.get(id).cloned().unwrap_or_default();
+    horizon_world::mod_fluids::ModFluid {
+        id: decl.id.clone(),
+        flowing: decl.flowing.clone(),
+        block: decl.block.clone(),
+        bucket: decl.bucket.clone(),
+        tick_rate: decl.tick_rate,
+        slope_find_distance: decl.slope_find_distance,
+        level_decrease_per_block: decl.level_decrease_per_block,
+        explosion_resistance: decl.explosion_resistance,
+        can_convert_to_source: decl.can_convert_to_source,
+        light_level: decl.light_level,
+        density: decl.density,
+        temperature: decl.temperature,
+        viscosity: decl.viscosity,
+        still_texture: decl.still_texture.clone(),
+        flowing_texture: decl.flowing_texture.clone(),
+        overlay_texture: decl.overlay_texture.clone(),
+        tint: decl.tint,
+        translucent: decl.translucent,
+        fill_sound: decl.sounds.bucket_fill.clone(),
+        empty_sound: decl.sounds.bucket_empty.clone(),
+        description: decl.description.clone(),
+        source_tags: tags_of(&decl.id),
+        flowing_tags: tags_of(&decl.flowing),
+    }
+}
+
+/// Registers `fluids` (those of a root [`load_root`] gave) after vanilla's,
+/// with the fluid tags of `root`: once per process, as the mods' mob effects
+/// are. False when fluids were already registered.
+pub fn register_mod_fluids(root: &Path, fluids: &[Fluid]) -> bool {
+    let known: BTreeSet<&str> = fluids
+        .iter()
+        .flat_map(|f| [f.id.as_str(), f.flowing.as_str()])
+        .chain(horizon_world::fluid::FluidKind::ALL.iter().map(|k| k.name()))
+        .collect();
+    let tags = horizon_world::mod_fluids::fluid_tags_in(root, &|id| known.contains(id))
+        .unwrap_or_else(|e| {
+            log::warn!("Horizon: the mods' fluid tags not read: {e}");
+            BTreeMap::new()
+        });
+    horizon_world::mod_fluids::register_mod_fluids(fluids.iter().map(|f| mod_fluid(f, &tags)))
 }
 
 /// JSON with its object keys in file order, so a rewritten table differs
@@ -3374,6 +3432,8 @@ pub struct LoadedRoot {
     pub effects: Vec<MobEffect>,
     pub entity_types: Vec<EntityType>,
     pub menu_types: Vec<MenuType>,
+    /// Their fluids, in registry order ([`fluids`]).
+    pub fluids: Vec<Fluid>,
 }
 
 /// What a built root's start needs to know without reading the mods again.
@@ -3389,6 +3449,8 @@ struct Summary {
     effects: Vec<(String, MobEffect)>,
     entity_types: Vec<(String, EntityType)>,
     menu_types: Vec<(String, MenuType)>,
+    #[serde(default)]
+    fluids: Vec<(String, Fluid)>,
 }
 
 /// In a root built by [`load_root`]: its [`Summary`].
@@ -3411,6 +3473,7 @@ pub fn load_root(
         effects: Vec::new(),
         entity_types: Vec::new(),
         menu_types: Vec::new(),
+        fluids: Vec::new(),
     };
     if candidates.is_empty() && blocks.is_empty() && items.is_empty() {
         return Ok(base_root(Vec::new()));
@@ -3444,6 +3507,7 @@ pub fn load_root(
         let effects = summary.effects.into_iter();
         let types = summary.entity_types.into_iter();
         let menus = summary.menu_types.into_iter();
+        let fluids = summary.fluids.into_iter();
         return Ok(LoadedRoot {
             root: out,
             mods: summary.mods,
@@ -3451,6 +3515,7 @@ pub fn load_root(
             effects: effects.map(|(id, e)| MobEffect { id, ..e }).collect(),
             entity_types: types.map(|(id, t)| EntityType { id, ..t }).collect(),
             menu_types: menus.map(|(id, m)| MenuType { id, ..m }).collect(),
+            fluids: fluids.map(|(id, f)| Fluid { id, ..f }).collect(),
         });
     }
     let read = par_map(candidates, FILE_THREADS, |c| {
@@ -3510,6 +3575,7 @@ pub fn load_root(
     let effects: Vec<MobEffect> = mob_effects(&mods).into_iter().cloned().collect();
     let types: Vec<EntityType> = entity_types(&mods).into_iter().cloned().collect();
     let menus: Vec<MenuType> = menu_types(&mods).into_iter().cloned().collect();
+    let mod_fluids: Vec<Fluid> = fluids(&mods).into_iter().cloned().collect();
     let started = std::time::Instant::now();
     for warning in build(base, &mods, &out)? {
         log::warn!("Horizon: {warning}");
@@ -3525,6 +3591,7 @@ pub fn load_root(
         effects: effects.iter().map(|e| (e.id.clone(), e.clone())).collect(),
         entity_types: types.iter().map(|t| (t.id.clone(), t.clone())).collect(),
         menu_types: menus.iter().map(|m| (m.id.clone(), m.clone())).collect(),
+        fluids: mod_fluids.iter().map(|f| (f.id.clone(), f.clone())).collect(),
     };
     fs::write(out.join(SUMMARY), serde_json::to_vec(&summary)?)?;
     fs::write(out.join(STAMP), stamp)?;
@@ -3535,6 +3602,7 @@ pub fn load_root(
         effects,
         entity_types: types,
         menu_types: menus,
+        fluids: mod_fluids,
     })
 }
 

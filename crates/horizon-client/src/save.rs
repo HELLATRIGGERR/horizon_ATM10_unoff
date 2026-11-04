@@ -572,29 +572,16 @@ fn read_ticks(
         })
         .collect()
 }
+/// A saved fluid tick's fluid: vanilla's or a content mod's (the empty fluid ticks never).
 fn fluid_name(kind: u32) -> Option<String> {
     use horizon_world::fluid::FluidKind;
-    let fluid = *FluidKind::ALL.get(kind as usize)?;
-    Some(
-        match fluid {
-            FluidKind::Empty => return None,
-            FluidKind::FlowingWater => "minecraft:flowing_water",
-            FluidKind::Water => "minecraft:water",
-            FluidKind::FlowingLava => "minecraft:flowing_lava",
-            FluidKind::Lava => "minecraft:lava",
-        }
-        .to_owned(),
-    )
+    let fluid = FluidKind::from_id(kind).filter(|k| *k != FluidKind::Empty)?;
+    Some(fluid.name().to_owned())
 }
 fn fluid_id(name: &str) -> Option<u32> {
     use horizon_world::fluid::FluidKind;
-    Some(match name {
-        "minecraft:flowing_water" => FluidKind::FlowingWater,
-        "minecraft:water" => FluidKind::Water,
-        "minecraft:flowing_lava" => FluidKind::FlowingLava,
-        "minecraft:lava" => FluidKind::Lava,
-        _ => return None,
-    } as u32)
+    let fluid = FluidKind::from_name(name).filter(|k| *k != FluidKind::Empty)?;
+    Some(u32::from(fluid.id()))
 }
 
 pub use horizon_items::item_nbt::{

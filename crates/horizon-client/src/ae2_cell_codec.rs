@@ -179,18 +179,27 @@ fn fluid_config(id: &str) -> Option<CellConfig> {
         .filter(|cell| cell.channel == Channel::Fluid)
         .map(|cell| cell.config())
 }
+/// The fluid a filled bucket holds (`BucketItem.content`, as AE2's
+/// `GenericContainerHelper` reads it): water, lava, or a content mod's fluid
+/// whose bucket it is.
 pub fn bucket_fluid(id: &str) -> Option<&'static str> {
     match id {
         "minecraft:water_bucket" => Some("minecraft:water"),
         "minecraft:lava_bucket" => Some("minecraft:lava"),
-        _ => None,
+        _ => horizon_world::mod_fluids::kind_by_bucket(id).map(|kind| kind.name()),
     }
 }
+/// The bucket a fluid fills (`Fluid.getBucket`): only a source fluid has one.
 pub fn fluid_bucket(id: &str) -> Option<&'static str> {
     match id {
         "minecraft:water" => Some("minecraft:water_bucket"),
         "minecraft:lava" => Some("minecraft:lava_bucket"),
-        _ => None,
+        _ => {
+            let kind = horizon_world::mod_fluids::kind_by_name(id)?;
+            kind.is_source_kind()
+                .then(|| kind.mod_fluid()?.bucket.as_deref())
+                .flatten()
+        }
     }
 }
 pub fn fluid_key(id: &str) -> ItemKey {
@@ -682,6 +691,43 @@ pub fn can_store_item(stack: &ItemStack) -> bool {
 mod tests {
     use super::*;
     use ae2_cell_core::Action;
+    /// A content mod's fluid is a key like water: its bucket fills a fluid
+    /// cell, the cell saves it as AE2's `ae2:f` stack, and gives it back.
+    #[test]
+    fn a_mod_fluid_bucket_fills_a_fluid_cell() {
+        horizon_world::mod_fluids::register_test_fluids();
+        assert_eq!(bucket_fluid("test:brine_bucket"), Some("test:brine"));
+        assert_eq!(fluid_bucket("test:brine"), Some("test:brine_bucket"));
+        assert_eq!(
+            fluid_bucket("test:flowing_brine"),
+            None,
+            "only a source fills a bucket"
+        );
+        assert_eq!(bucket_fluid("test:salt_bucket"), None);
+        let mut stack = ItemStack::new("ae2:fluid_storage_cell_1k", 1);
+        let mut cell = read_fluid_cell(&stack).unwrap();
+        let brine = fluid_key(bucket_fluid("test:brine_bucket").unwrap());
+        assert_eq!(cell.insert(&brine, 3000, Action::Modulate), 3000);
+        write_fluid_cell(&mut stack, &cell).unwrap();
+        let restored = save::item_from_nbt(&save::item_to_nbt(&stack)).unwrap();
+        let Tag::List(encoded) = restored
+            .data()
+            .unwrap()
+            .other("ae2:storage_cell_inv")
+            .unwrap()
+        else {
+            panic!("no source cell inventory")
+        };
+        let stored = Tag::compound([
+            ("#t", Tag::String("ae2:f".into())),
+            ("id", Tag::String("test:brine".into())),
+            ("#", Tag::Long(3000)),
+        ]);
+        assert!(encoded.contains(&stored), "{encoded:?}");
+        let mut cell = read_fluid_cell(&restored).unwrap();
+        assert_eq!(cell.extract(&brine, 1000, Action::Modulate), 1000);
+        assert_eq!(cell.count(&brine), 2000);
+    }
     #[test]
     fn overfilled_source_cell_is_not_hidden_and_can_be_extracted() {
         let source=Tag::compound([("#t",Tag::String("ae2:i".into())),("id",Tag::String("minecraft:stone".into())),("#",Tag::Long(9000))]);

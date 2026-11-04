@@ -123,13 +123,14 @@ impl ItemRenderer {
     }
 
     /// Source FluidKeyRenderHandler draws the still sprite as a GUI quad.
-    /// Known vanilla fluids receive their vanilla tint; arbitrary extension
-    /// render properties are not exposed by the native content system yet.
+    /// Known vanilla fluids receive their vanilla tint; a content mod's fluid
+    /// its client extension's still texture and tint.
     pub fn ae2_wrapped_fluid(&self,display:DisplayContext,id:&str) -> Option<ItemRenderState> {
         if display!=DisplayContext::Gui || !valid_id(id) {return None;}
         let (namespace,path)=id.split_once(':')?;
         let path=match (namespace,path) {("minecraft","flowing_water")=>"water",("minecraft","flowing_lava")=>"lava",_=>path};
-        let sprite=format!("{namespace}:block/{path}_still");
+        let modded=horizon_world::mod_fluids::kind_by_name(id).and_then(|kind|kind.mod_fluid());
+        let sprite=match modded {Some(m)=>m.still_texture.clone(),None=>format!("{namespace}:block/{path}_still")};
         if self.sprites.mask(&sprite).is_none() {return None;}
         let key=format!("ae2:wrapped_fluid/{sprite}");
         let cached=self.baked.lock().ok().and_then(|cache|cache.get(&key).cloned());
@@ -142,7 +143,7 @@ impl ItemRenderer {
         });
         let matrix=glam_matrix(&geometry.layer_matrix(display,&horizon_assets::math::Mat4::IDENTITY));
         let extents=self.quad_extents(&key,&geometry);
-        let tint=if namespace=="minecraft" && path=="water" {0x3f76e4} else {0xffffff};
+        let tint=match modded {Some(m)=>m.tint&0xff_ffff,None if namespace=="minecraft" && path=="water"=>0x3f76e4,None=>0xffffff};
         Some(ItemRenderState{display,layers:vec![LayerRender{geometry:LayerGeometry::Quads(geometry),tints:vec![opaque(tint)],foil:FoilType::None,matrix,particle:sprite_name(&sprite).to_owned(),uses_block_light:false,extents}],oversized_in_gui:false,animated:false,cit_glint:None,hdr_tier:0,hdr_light:0})
     }
 }

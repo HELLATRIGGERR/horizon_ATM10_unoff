@@ -78,7 +78,7 @@ impl Behaviours {
         self.data(state).implements(interface)
     }
     pub(crate) fn fluid_in(&self, kind: FluidKind, mask: u8) -> bool {
-        mask & (1 << kind as u8) != 0
+        mask & kind.mask() != 0
     }
     pub(crate) fn is_water_fluid(&self, kind: FluidKind) -> bool {
         self.fluid_in(kind, self.fluid_tags.water)

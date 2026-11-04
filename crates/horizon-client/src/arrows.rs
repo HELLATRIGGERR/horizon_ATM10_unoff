@@ -1178,7 +1178,8 @@ impl Ticker<'_, '_, '_, '_> {
                         effects.apply(Effect::ClearFreeze);
                         effects.apply(Effect::LavaIgnite);
                     }
-                    FluidKind::Empty => {}
+                    // `Fluid.entityInside` does nothing (`BaseFlowingFluid`).
+                    _ => {}
                 }
             }
         }

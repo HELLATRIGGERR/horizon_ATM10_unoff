@@ -118,6 +118,7 @@ pub(super) fn content_root(
             register_mob_effects(&loaded.effects);
             register_entity_types(&loaded.entity_types);
             register_menu_types(&loaded.menu_types);
+            register_fluids(&loaded.root, &loaded.fluids);
             loaded.root
         }
         Err(e) => {
@@ -200,6 +201,21 @@ fn register_entity_types(types: &[horizon_mods::content::EntityType]) {
             .ne(types.iter().map(|t| t.id.as_str()))
     {
         log::warn!("Horizon: the mods' entity types changed; restart the game to use them");
+    }
+}
+
+/// The mods' fluids join vanilla's in the fluid registry, as their mob
+/// effects: set once, from the startup root, before the block tables read
+/// which blocks hold them.
+fn register_fluids(root: &std::path::Path, fluids: &[horizon_mods::content::Fluid]) {
+    let set = horizon_client::mod_content::register_mod_fluids(root, fluids);
+    if !set
+        && horizon_world::mod_fluids::mod_fluids()
+            .iter()
+            .map(|f| f.id.as_str())
+            .ne(fluids.iter().map(|f| f.id.as_str()))
+    {
+        log::warn!("Horizon: the mods' fluids changed; restart the game to use them");
     }
 }
 

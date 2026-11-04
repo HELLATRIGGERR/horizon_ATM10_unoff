@@ -1,0 +1,12 @@
+{
+  "bucket": "mekanism:brine_bucket",
+  "still_texture": "mekanism:liquid/liquid",
+  "flowing_texture": "mekanism:liquid/liquid_flow",
+  "overlay_texture": "minecraft:block/water_overlay",
+  "tint": "0xFFFEEF9C",
+  "translucent": true,
+  "sounds": {
+    "bucket_fill": "minecraft:item.bucket.fill",
+    "bucket_empty": "minecraft:item.bucket.empty"
+  }
+}

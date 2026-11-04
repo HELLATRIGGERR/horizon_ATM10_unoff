@@ -13,11 +13,15 @@ pub(super) struct PortableDrag {
     slots: Vec<usize>,
 }
 
+/// A `PortableCellItem` of the registry (AE2's or an addon's) for fluids or for items.
+fn portable_channel(s: &ItemStack, channel: Channel) -> bool {
+    horizon_client::ae2x::defs::get().portable_cell(&s.item).is_some_and(|cell| cell.channel == channel)
+}
 fn portable_fluid(s: &ItemStack) -> bool {
-    s.item.starts_with("ae2:portable_fluid_cell_")
+    portable_channel(s, Channel::Fluid)
 }
 fn portable_item(s: &ItemStack) -> bool {
-    s.item.starts_with("ae2:portable_item_cell_")
+    portable_channel(s, Channel::Item)
 }
 fn read(s: &ItemStack) -> Result<Cell, String> {
     if portable_fluid(s) {

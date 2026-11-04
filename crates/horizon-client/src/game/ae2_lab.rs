@@ -102,7 +102,7 @@ impl Game<'_> {
             .offhand
             .clone()
             .ok_or("put a 1K storage cell in your offhand")?;
-        if stack.item.starts_with("ae2:portable_item_cell_") {
+        if horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some() {
             return Err("open the portable cell to use its powered storage".into());
         }
         let mut cell = read_cell(&stack)?;

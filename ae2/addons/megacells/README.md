@@ -121,9 +121,47 @@ models in the inventory:
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-energy
 ```
 
+## Slice 4: portable M cells, Portable Cell Workbench
+
+| MEGA | Port |
+|---|---|
+| `MEGAItems.itemPortable` / `fluidPortable`: `MEGAPortableCell(tier, keyType, AE2's portable cell menu, 0x80caff)`, a `PortableCellItem` of `18 + (index - 5) × 9` item types (27 at 1M to 63 at 256M) or 18 fluid types | registry rows (`ae2x/megacells.rs`, `portable_cell`) on `CellConfig::portable`: half the tier's bytes (`getBytes` = `tier.bytes() / 2`, 524,288 at 1M to 134,217,728 at 256M), a 128th of the tier's bytes a type; the drive draws the tier's cell model (`initStorageCellModels` covers the portable cells) |
+| `MEGAPortableCell.getIdleDrain` 1.0, `getAEMaxPower` `super × 8`, `getChargeRate` `super × 2` | `CellDef.idle_drain` 1.0 (a drive or chest draws it), `battery_scale` 8 and `charge_scale` 2, which the portable battery reads: 160,000 AE with no card, 10,400,000 with one Greater Energy Card, 20,640,000 with two; 160 AE/t in a Charger, 1,440 and 2,720 with the cards. `onUpgradesChanged` is AE2's, so a change of cards clamps the charge to 20,000 × (1 + 8 × multiplier), before the × 8, as in Java |
+| `MEGACells.initUpgrades`: inverter, equal distribution, void (and fuzzy on item cells) and two Greater Energy Cards on each portable cell; AE2's energy card is not registered on them | the same rows |
+| `MEGACells.initStorageCells`: `HotkeyActions.register` for each portable cell, after AE2's, each first | the hotkeys rank the registry's portable cells by registration order, last first: MEGA's 256M cell answers before AE2's 256K |
+| `MEGACells.initCapabilities`: `PoweredItemCapabilities` on the portable cells | the energy capability's probe asks the registry |
+| `cells/portable/portable_{item,fluid}_cell_*m` (shapeless: ME Chest, component, Dense Energy Cell, housing) and their `ae2:storage_cell_disassembly` recipes | MEGA's own 20 recipes; `AbstractPortableCell.disassembleDrive` gives the parts back and the cell's energy to the Dense Energy Cell |
+| `PortableCellWorkbenchItem` (`stacksTo(1)`): `use` opens `PortableCellWorkbenchMenu` on `PortableCellWorkbenchMenuHost`; `PortableCellWorkbenchInventory` keeps one `ICellWorkbenchItem` as the item's `minecraft:container` and a 63-slot `GenericStackInv(CONFIG_TYPES)` as `ae2:exported_config_inv`, and writes `ae2:exported_settings` | `game/ae2x/megacells/portable_workbench.rs`: the item's state as a Cell Workbench `Machine` no block holds (`ae2_workbench::workbench_machine`), on which AE2's own workbench code runs: the cell slot and `onChangeInventory` (the filters follow the cell in and, in clear-on-remove mode, out), the cards, the filters, fuzzy mode, partition, clear and copy mode (`ae2_workbench_menu_click_on`, shared with the block's menu); then `saveChanges` onto the item |
+| `ItemMenuHostMixin`: the host's `getUpgrades` is the held cell's own upgrade inventory, proxied | the card slots edit the cell's `ae2:upgrades`, which sets its battery (`onUpgradesChanged`) |
+| `PortableCellWorkbenchInventory`'s `IConfigManager` is built with `CLEAR_ON_REMOVE` and never reads `ae2:exported_settings` | the copy mode is the menu's: each opening starts clearing on removal; the filters themselves stay on the item |
+| `PortableCellWorkbenchScreen` with `screens/megacells/portable_cell_workbench.json` (`cell_workbench.json` with the item as title) | the client draws AE2's Cell Workbench screen (`ae2_workbench_screen`) from the style the content script copies under `assets/megacells/ae2/`; the server names the window's screen (`ae2:menu_block`), which a window opened in the air now honours |
+| `network/portable_cell_workbench` (shaped: Cell Workbench, Singularity, MEGA Item Cell Housing) | MEGA's recipe |
+
+Differences, known:
+
+- No LED or housing colour on the portable cells' items (`PortableCellItem.getColor`, tint indexes 1 and 2), for AE2's either; no
+  cell tooltip, and no tooltip image of the workbench's filters and cell (`PortableCellWorkbenchTooltipComponent`).
+- The workbench's compression cutoff button (`mega$nextCompressionLimit`) waits for the Bulk Item Cell (slice 7).
+- A shift-click of a card from the inventory does not go into the held cell's card slots, as on the port's Cell Workbench block.
+- The item's empty `minecraft:container` is left out where Java writes an empty list.
+- The port's AE2 creative catalog still lists AE2's items only: no charged MEGA portable cell (`addToMainCreativeTab`).
+
+Tests: `horizon-client-lib` (the portable rows: types, bytes, drain, factors, cards, a 1M portable item cell full at 4,128,768
+items of one type, the registration order), `horizon-client` (the battery with 0, 1 and 2 Greater Energy Cards and its clamp,
+the charge rate, MEGA's portable cells answering the hotkey before AE2's, the workbench item's container, filters and settings
+read back) and the world test `megacells-portable`: both recipes; the cell charging at 160 AE a tick (3,200 AE in 20 ticks)
+and stopping at 160,000 (AE2's 1K portable cell at 20,000); opened and storing three diamonds from its battery; 27 types and a 28th refused; 4,128,768
+cobblestone; disassembled with its 100,000 AE in the Dense Energy Cell; in the Portable Cell Workbench, two Greater Energy
+Cards (2,580,000 AE before the × 8) and a filter installed, AE2's energy card refused, the filters cleared with the cell out
+and kept in keep-on-remove mode, a new menu clearing again; the cell, its cards and its filter in the workbench through a
+restart:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-portable
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.1)
 
-4. Portable M cells (`CellConfig::portable` is ready; MEGA's type count is `18 + (index - 5) × 9`), Portable Cell Workbench.
 5. MEGA Pattern Provider and Interface, block and part.
 6. ME Cell Dock.
 7. Bulk Item Cell, Compression Card, Decompression Module.

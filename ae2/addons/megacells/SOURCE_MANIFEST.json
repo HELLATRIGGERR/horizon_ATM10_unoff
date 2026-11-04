@@ -21,6 +21,8 @@
   "derived_files": [
     "crates/horizon-client/src/ae2x/megacells.rs",
     "crates/horizon-client/src/game/ae2x/megacells/lava.rs",
+    "crates/horizon-client/src/game/ae2x/megacells/portable_workbench.rs",
+    "crates/horizon-client/src/game/ae2x/megacells/screens.rs",
     "crates/horizon-client/src/game/ae2_crafting_upgrade.rs"
   ]
 }

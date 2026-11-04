@@ -34,7 +34,7 @@ impl Game<'_> {
             .offhand
             .clone()
             .ok_or("hold a fluid cell in your offhand")?;
-        if item.item.starts_with("ae2:portable_fluid_cell_") {
+        if horizon_client::ae2x::defs::get().portable_cell(&item.item).is_some() {
             return Err("use the portable cell interface for powered transfers".into());
         }
         let mut cell = read_fluid_cell(&item)?;

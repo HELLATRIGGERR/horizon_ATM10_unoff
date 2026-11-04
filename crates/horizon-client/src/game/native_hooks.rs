@@ -8690,22 +8690,22 @@ impl Game<'_> {
         // (a part's window has the cable for its block): taken now, so that it
         // never outlives this window.
         let menu_block = self.extra_screen_block();
-        let Some(t) = target else {
-            return;
+        // A window the server named a block (or an item's screen) for needs no
+        // block in front of the player: an item's menu opens in the air.
+        let block = match (menu_block, target) {
+            (Some(block), _) => block,
+            (None, Some(t)) => {
+                let block = self.res.facts().get(self.world.block(t.0, t.1, t.2)).name.to_string();
+                if block.starts_with("minecraft:") {
+                    return;
+                }
+                block
+            }
+            (None, None) => return,
         };
-        let block = self
-            .res
-            .facts()
-            .get(self.world.block(t.0, t.1, t.2))
-            .name
-            .to_string();
-        if block.starts_with("minecraft:") {
-            return;
-        }
         // A screen of the game's own for its own machines' menus, which asks
         // whether `menu` is the one the block opens itself.
         let mut screen = None;
-        let block = menu_block.unwrap_or(block);
         let extra = self.extra_native_screen(&block, menu, &mut screen);
         if screen.is_none() {
             // Only when this is the menu the clicked block opens: `target` outlives the

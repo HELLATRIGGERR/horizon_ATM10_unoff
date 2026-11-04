@@ -37,7 +37,8 @@ pub(super) fn is_valid_workbench_cell(stack: &ItemStack) -> bool {
 }
 /// StorageCell.getIdleDrain of a cell in a Drive or ME Chest, from the cell
 /// definitions (AE2's and its addons'): BasicStorageCell idleDrain by size;
-/// 0.5 for every PortableCellItem, MatterCannonItem and ColorApplicatorItem.
+/// 0.5 for AE2's PortableCellItem, MatterCannonItem and ColorApplicatorItem,
+/// 1.0 for MEGA's portable cells (`MEGAPortableCell.getIdleDrain`).
 pub(super) fn cell_idle_drain(stack: &ItemStack) -> Option<f64> {
     horizon_client::ae2_cell_codec::idle_drain(&stack.item)
 }
@@ -86,7 +87,7 @@ impl Game<'_> {
     // Fluid ids stay known whether or not the fluid registry holds them
     // (vanilla's and the content mods' fluids): an unregistered fluid is kept
     // as stored, not turned into Missing Content.
-    fn ae2_known_cell_key(&self, id:&str, fluid:bool)->bool {
+    pub(super) fn ae2_known_cell_key(&self, id:&str, fluid:bool)->bool {
         fluid || self.res.items().get(id).is_some()
     }
     pub(super) fn ae2_read_item_cell(&self, stack:&ItemStack)->Result<Cell,String> {
@@ -1402,12 +1403,18 @@ impl Game<'_> {
     /// What `CellWorkbenchScreen` shows beyond the paged menu's entries.
     pub(super) fn ae2_workbench_view_of(&self,pos:Pos,window:i32)->Option<super::ae2_workbench_screen::WorkbenchView>{
         let BlockEntity::Ae2(machine)=self.world.block_entities.get(&pos)? else{return None};
+        self.ae2_workbench_view_on(machine,window)
+    }
+    /// `CellWorkbenchScreen.updateBeforeRender` of `machine`, a Cell Workbench
+    /// block's or the one a Portable Cell Workbench item holds (MEGA's
+    /// `PortableCellWorkbenchScreen`, the same screen).
+    pub(super) fn ae2_workbench_view_on(&self,machine:&horizon_client::ae2_world::Machine,window:i32)->Option<super::ae2_workbench_screen::WorkbenchView>{
         if machine.kind!=MachineKind::CellWorkbench{return None}
         let cell=machine.slots.first()?.clone();
         let settings=cell.as_ref().map(|cell|self.ae2_checked_cell_settings(cell)).transpose().ok()?;
         let mut config=Vec::with_capacity(super::ae2_workbench_screen::CONFIG_PLACES);
         for page in 0..4 {
-            let slots=self.ae2_workbench_menu_slots(pos,page)?;
+            let slots=self.ae2_workbench_menu_slots_on(machine,page)?;
             config.extend(slots[5..23].iter().map(|slot|slot.as_ref().map_or_else(String::new,|stack|horizon_client::item_data::canon_stack(Some(stack)))));
         }
         config.truncate(super::ae2_workbench_screen::CONFIG_PLACES);
@@ -1425,6 +1432,11 @@ impl Game<'_> {
     }
     pub(super) fn ae2_workbench_menu_slots(&self,pos:Pos,page:usize)->Option<Vec<Option<ItemStack>>>{
         let BlockEntity::Ae2(machine)=self.world.block_entities.get(&pos)? else{return None};
+        self.ae2_workbench_menu_slots_on(machine,page)
+    }
+    /// `CellWorkbenchMenu`'s slots of `machine` on filter page `page`: the
+    /// cell, its cards, 18 filters and the toolbar's entries.
+    pub(super) fn ae2_workbench_menu_slots_on(&self,machine:&horizon_client::ae2_world::Machine,page:usize)->Option<Vec<Option<ItemStack>>>{
         if machine.kind!=MachineKind::CellWorkbench{return None}
         let mut slots=vec![None;27];slots[0]=machine.slots.first()?.clone();
         let cell=slots[0].clone();
@@ -1463,10 +1475,22 @@ impl Game<'_> {
         let Some(slot)=slot.filter(|s|(301..327).contains(s))else{return false};
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos)else{return false};
         if machine.kind!=MachineKind::CellWorkbench{return false}
-        if input!=horizon_client::menu::Input::Pickup||!(0..=1).contains(&button){return true}
-        if slot==325{*page=page.saturating_sub(1);return true}
-        if slot==326{*page=(*page+1).min(3);return true}
-        let original=(**machine).clone();let mut next=original.clone();let mut next_cursor=self.carried.clone();
+        let original=(**machine).clone();
+        let Some((next,next_cursor))=self.ae2_workbench_menu_click_on(&original,page,slot,button,input) else{return true};
+        let Some(BlockEntity::Ae2(current))=self.world.block_entities.get_mut(&pos)else{return true};
+        if **current!=original{return true}
+        **current=next;self.carried=next_cursor;self.world.modified.insert((pos.0>>4,pos.2>>4));true
+    }
+    /// `CellWorkbenchMenu`'s card slots, filters and actions (`setCellFuzzyMode`,
+    /// `nextWorkBenchCopyMode`, `partition`, `clear`) on `original`, a block's
+    /// workbench or the one a Portable Cell Workbench holds (MEGA's
+    /// `PortableCellWorkbenchMenu`, the same actions): the workbench and the
+    /// cursor after it, none when the press changes nothing but the page.
+    pub(super) fn ae2_workbench_menu_click_on(&self,original:&horizon_client::ae2_world::Machine,page:&mut usize,slot:usize,button:i32,input:horizon_client::menu::Input)->Option<(horizon_client::ae2_world::Machine,Option<ItemStack>)>{
+        if input!=horizon_client::menu::Input::Pickup||!(0..=1).contains(&button){return None}
+        if slot==325{*page=page.saturating_sub(1);return None}
+        if slot==326{*page=(*page+1).min(3);return None}
+        let mut next=original.clone();let mut next_cursor=self.carried.clone();
         let old_upgrades=next.slots.first().and_then(Option::as_ref).and_then(|cell|horizon_client::ae2_upgrade_inventory::Inventory::read(cell).ok().map(|v|v.slots));
         let result:Result<(),String>=(||{
             match slot {
@@ -1527,9 +1551,7 @@ impl Game<'_> {
             }
             Ok(())
         })();
-        if result.is_err(){return true}
-        let Some(BlockEntity::Ae2(current))=self.world.block_entities.get_mut(&pos)else{return true};
-        if **current!=original{return true}
-        **current=next;self.carried=next_cursor;self.world.modified.insert((pos.0>>4,pos.2>>4));true
+        if result.is_err(){return None}
+        Some((next,next_cursor))
     }
 }

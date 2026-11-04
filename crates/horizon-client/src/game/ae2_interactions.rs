@@ -99,31 +99,30 @@ impl Game<'_> {
 
 /// AE2 portable-cell battery helpers. Energy is stored on the actual item;
 /// 20,000 AE base and each point of energy-card multiplier adds 8x the base
-/// capacity. Returns `Upgrades.getEnergyCardMultiplier` of the cell's cards.
-fn portable_energy_cards(stack: &ItemStack) -> Result<u32, String> {
+/// capacity. Returns the registry's row of the portable cell (AE2's or an
+/// addon's) and `Upgrades.getEnergyCardMultiplier` of its cards.
+fn portable_energy_cards(stack: &ItemStack) -> Result<(&'static horizon_client::ae2x::defs::CellDef, u32), String> {
     if stack.count != 1 {
         return Err("portable cell must be unstackable".into());
     }
-    let suffix = stack
-        .item
-        .strip_prefix("ae2:portable_item_cell_")
-        .or_else(|| stack.item.strip_prefix("ae2:portable_fluid_cell_"))
-        .ok_or("not a portable cell")?;
-    if !["1k", "4k", "16k", "64k", "256k"].contains(&suffix) {
-        return Err("unsupported portable cell".into());
-    }
+    let cell = horizon_client::ae2x::defs::get().portable_cell(&stack.item).ok_or("not a portable cell")?;
     let cards=horizon_client::ae2_upgrade_inventory::Inventory::read(stack)?;
-    Ok(cards.energy_card_multiplier())
+    Ok((cell, cards.energy_card_multiplier()))
 }
+/// `AEBasePoweredItem.getAECurrentPower` and `getAEMaxPower`: the
+/// `ae2:energy_capacity` the cards set, or the configured battery, times the
+/// cell's own factor (`MEGAPortableCell.getAEMaxPower`: 8).
 pub(super) fn portable_energy(stack: &ItemStack) -> Result<(f64, f64), String> {
-    let _=portable_energy_cards(stack)?;
+    let (cell, _) = portable_energy_cards(stack)?;
     let max = horizon_client::ae2_powered_items::component_power_value(stack, "ae2:energy_capacity", "ae2:energy_capacity", horizon_client::ae2_common_config::batteries().portable_cell)?;
     let power = horizon_client::ae2_powered_items::component_power_value(stack, "ae2:stored_energy", "ae2_portable_energy", 0.0)?;
-    Ok((power, max))
+    Ok((power, max * cell.battery_scale))
 }
-/// `PortableCellItem.getChargeRate`: 80 + 80 × `Upgrades.getEnergyCardMultiplier`.
+/// `PortableCellItem.getChargeRate`: 80 + 80 × `Upgrades.getEnergyCardMultiplier`,
+/// times the cell's own factor (`MEGAPortableCell.getChargeRate`: 2).
 pub(super) fn portable_charge_rate(stack: &ItemStack) -> Result<f64, String> {
-    Ok(80.0 * (1.0 + f64::from(portable_energy_cards(stack)?)))
+    let (cell, multiplier) = portable_energy_cards(stack)?;
+    Ok(80.0 * (1.0 + f64::from(multiplier)) * cell.charge_scale)
 }
 fn set_portable_energy(stack: &mut ItemStack, power: f64) -> Result<(), String> {
     let _ = portable_energy(stack)?;

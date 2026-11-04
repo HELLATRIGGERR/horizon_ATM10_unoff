@@ -132,9 +132,22 @@ pub(super) fn part_model(id: &str) -> Option<&'static str> {
     None
 }
 
+/// Whether an addon's item opens a menu when used (`Item.use` succeeds on
+/// the client, `sidedSuccess`): the client then stops at this hand.
+pub(super) fn item_opens_menu(id: &str) -> bool {
+    #[cfg(feature = "ae2-megacells")]
+    if id == horizon_client::ae2x::megacells::PORTABLE_CELL_WORKBENCH {
+        return true;
+    }
+    let _ = id;
+    false
+}
+
 /// What the addons keep while the game runs; nothing of it is saved.
 #[derive(Default)]
 pub(super) struct State {
+    #[cfg(feature = "ae2-megacells")]
+    pub(super) megacells: megacells::State,
     #[cfg(feature = "ae2-merequester")]
     pub(super) merequester: merequester::State,
     #[cfg(feature = "ae2-extendedae")]
@@ -190,9 +203,24 @@ impl Game<'_> {
         false
     }
 
+    /// A guest uses the item in hand `hand` (0 main, 1 off) in the air
+    /// (`Item.use`): true when an addon's item opened its menu.
+    pub(super) fn lan_ae2x_use_item(&mut self, host: &mut super::lan::LanHost, conn: u32, hand: i32) -> bool {
+        let _ = (&host, conn, hand);
+        #[cfg(feature = "ae2-megacells")]
+        if self.lan_open_portable_workbench(host, conn, hand) {
+            return true;
+        }
+        false
+    }
+
     /// A click in an addon's menu window: true when an addon took it.
     pub(super) fn lan_ae2x_click(&mut self, host: &mut super::lan::LanHost, conn: u32, click: &horizon_protocol::packets::play::ContainerClick) -> bool {
         let _ = (&host, conn, click);
+        #[cfg(feature = "ae2-megacells")]
+        if self.lan_portable_workbench_click(host, conn, click) {
+            return true;
+        }
         #[cfg(feature = "ae2-merequester")]
         if self.lan_merequester_click(host, conn, click) {
             return true;
@@ -202,6 +230,10 @@ impl Game<'_> {
     /// The client closed window `window`: true when it was an addon's.
     pub(super) fn lan_ae2x_closed(&mut self, host: &mut super::lan::LanHost, conn: u32, window: i32) -> bool {
         let _ = (&host, conn, window);
+        #[cfg(feature = "ae2-megacells")]
+        if self.lan_portable_workbench_closed(host, conn, Some(window)) {
+            return true;
+        }
         #[cfg(feature = "ae2-merequester")]
         if self.lan_merequester_closed(host, conn, Some(window)) {
             return true;
@@ -221,6 +253,8 @@ impl Game<'_> {
     /// The addons' open menus, once a tick (`broadcastChanges`).
     pub(super) fn lan_refresh_ae2x(&mut self, host: &mut super::lan::LanHost) {
         let _ = &host;
+        #[cfg(feature = "ae2-megacells")]
+        self.lan_refresh_portable_workbenches(host);
         #[cfg(feature = "ae2-merequester")]
         self.lan_refresh_merequester(host);
     }

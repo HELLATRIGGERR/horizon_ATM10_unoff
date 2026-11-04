@@ -45,6 +45,26 @@ fn workbench_store_filters(machine:&mut horizon_client::ae2_world::Machine,slots
     let entries=horizon_client::ae2_cell_codec::encode_view_filter_slots(slots)?;
     machine.config.insert(WORKBENCH_FILTERS.into(),Tag::List(entries));Ok(())
 }
+/// A Cell Workbench that no block holds: `cell` in its cell slot, its 63
+/// filters (`GenericStackInv(CONFIG_TYPES, 63)`) and its copy mode, for an
+/// item that is one (MEGA's `PortableCellWorkbenchInventory`).
+pub(super) fn workbench_machine(cell:Option<ItemStack>,filters:&[Option<Tag>],keep:bool)->Result<horizon_client::ae2_world::Machine,String>{
+    let mut machine=horizon_client::ae2_world::Machine::for_block("ae2:cell_workbench").ok_or("no cell workbench")?;
+    *machine.slots.first_mut().ok_or("no cell slot")?=cell;
+    workbench_store_filters(&mut machine,filters)?;
+    machine.config.insert(WORKBENCH_MODE.into(),Tag::String(if keep{"keep_on_remove"}else{"clear_on_remove"}.into()));
+    Ok(machine)
+}
+/// What [`workbench_machine`] put in: the cell, the 63 filters and whether
+/// the copy mode keeps them on removal.
+pub(super) fn workbench_state(machine:&horizon_client::ae2_world::Machine)->Result<(Option<ItemStack>,Vec<Option<Tag>>,bool),String>{
+    if machine.kind!=MachineKind::CellWorkbench{return Err("not a workbench".into())}
+    let filters=match machine.config.get(&WORKBENCH_FILTERS.into()) {
+        Some(Tag::List(entries))=>workbench_decode(entries)?,
+        _=>vec![None;63],
+    };
+    Ok((machine.slots.first().cloned().flatten(),filters,workbench_keep(machine)))
+}
 // EMPTY_ITEM is a right-click action, not a generic conversion of every
 // bucket placed over a fluid-only filter. Left and drag actions use the item.
 fn workbench_emptying_mode(cell:Option<&ItemStack>,button:i32)->bool {

@@ -178,11 +178,14 @@ impl Inventory {
         // excess charge; removing and reinstalling a card cannot restore it.
         // setAEMaxPowerMultiplier(stack, 1 + getEnergyCardMultiplier × 8) on
         // portable cells, the colour applicator and the matter cannon;
-        // 1 + getEnergyCardMultiplier on wireless terminals.
+        // 1 + getEnergyCardMultiplier on wireless terminals. A portable cell
+        // is the registry's (`AbstractPortableCell.onUpgradesChanged`, which
+        // MEGA's inherit: its clamp is to this capacity, before the ×8 of
+        // `MEGAPortableCell.getAEMaxPower`).
         let multiplier = f64::from(self.energy_card_multiplier());
         let power = if let Some((base, _)) = crate::ae2_powered_items::profile(stack) {
             Some((base, base * (1.0 + 8.0 * multiplier), "ae2:stored_energy"))
-        } else if stack.item.starts_with("ae2:portable_") {
+        } else if crate::ae2x::defs::get().portable_cell(&stack.item).is_some() {
             Some((
                 crate::ae2_common_config::batteries().portable_cell,
                 crate::ae2_common_config::batteries().portable_cell * (1.0 + 8.0 * multiplier),

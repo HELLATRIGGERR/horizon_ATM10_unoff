@@ -10978,6 +10978,7 @@ fn ae2_item_consumes_use(id: &str) -> bool {
     horizon_client::ae2_cell_codec::is_cell(id)
         || id == horizon_client::ae2_network_tool::TOOL
         || matches!(id, "ae2:wireless_terminal" | "ae2:wireless_crafting_terminal")
+        || super::ae2x::item_opens_menu(id)
 }
 
 /// Whether `Item.use` usually acts on this item (eats, drinks, equips, raises,

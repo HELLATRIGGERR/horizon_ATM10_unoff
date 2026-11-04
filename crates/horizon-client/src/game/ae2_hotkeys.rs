@@ -25,9 +25,13 @@ impl Action {
             Self::Wireless => match item {
                 "ae2:wireless_crafting_terminal" => Some(0), "ae2:wireless_terminal" => Some(1), _ => None,
             },
+            // HotkeyActions.register adds each action first: the registry's
+            // portable cells of the key type, AE2's then the addons'
+            // (MEGACells.initStorageCells), last registered first.
             Self::ItemCell | Self::FluidCell => {
-                let suffix = item.strip_prefix(if self == Self::ItemCell {"ae2:portable_item_cell_"} else {"ae2:portable_fluid_cell_"})?;
-                ["256k", "64k", "16k", "4k", "1k"].iter().position(|size| *size == suffix)
+                let channel = if self == Self::ItemCell { ae2_cell_core::Channel::Item } else { ae2_cell_core::Channel::Fluid };
+                let order: Vec<_> = horizon_client::ae2x::defs::get().portable_cells().filter(|cell| cell.channel == channel).collect();
+                order.iter().rev().position(|cell| cell.id == item)
             }
         }
     }
@@ -98,5 +102,19 @@ mod tests {
         assert_eq!(Action::parse(b"wireless_terminal"), Some(Action::Wireless));
         assert_eq!(Action::parse(b"wireless_terminal\0"), None);
         assert_eq!(Action::parse(b"other_mod:wireless"), None);
+    }
+    /// MEGACells.initStorageCells registers its portable cells' hotkeys after
+    /// AE2's, each first: MEGA's largest cell opens before AE2's.
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn mega_portable_cells_answer_the_hotkey_before_ae2s() {
+        let mut inventory = vec![None; 41];
+        inventory[0] = Some(ItemStack::new("ae2:portable_item_cell_256k", 1));
+        inventory[3] = Some(ItemStack::new("megacells:portable_item_cell_1m", 1));
+        inventory[7] = Some(ItemStack::new("megacells:portable_item_cell_256m", 1));
+        inventory[8] = Some(ItemStack::new("megacells:portable_fluid_cell_4m", 1));
+        inventory[9] = Some(ItemStack::new("ae2:portable_fluid_cell_256k", 1));
+        assert_eq!(candidates(Action::ItemCell, &inventory), vec![7, 3, 0]);
+        assert_eq!(candidates(Action::FluidCell, &inventory), vec![8, 9]);
     }
 }

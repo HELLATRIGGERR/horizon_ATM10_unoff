@@ -865,11 +865,18 @@ fn layout(kind: MachineKind) -> Option<&'static Layout> {
 #[cfg(feature = "ae2-extendedae")]
 #[path = "ae2x/extendedae/screens.rs"]
 mod extendedae_screens;
+#[cfg(feature = "ae2-megacells")]
+#[path = "ae2x/megacells/screens.rs"]
+mod megacells_screens;
 
 /// The layout of an addon's block, and its namespace: where its style is.
 fn addon_layout(block: &str) -> Option<&'static Layout> {
     #[cfg(feature = "ae2-extendedae")]
     if let Some(found) = extendedae_screens::layout(block) {
+        return Some(found);
+    }
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(found) = megacells_screens::layout(block) {
         return Some(found);
     }
     let _ = block;

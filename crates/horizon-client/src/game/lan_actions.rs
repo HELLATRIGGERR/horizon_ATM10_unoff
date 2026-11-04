@@ -2586,6 +2586,10 @@ impl Game<'_> {
                     return;
                 }
                 #[cfg(feature = "ae2-lab")]
+                if self.lan_ae2x_use_item(host, conn, p.hand) {
+                    return;
+                }
+                #[cfg(feature = "ae2-lab")]
                 if self.lan_open_ae2_network_tool(host,conn,p.hand) {return;}
                 #[cfg(feature = "ae2-lab")]
                 if self.lan_open_ae2_wireless(host, conn, p.hand) {

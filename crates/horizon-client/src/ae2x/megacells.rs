@@ -1,14 +1,15 @@
 //! MEGA Cells 4.11.0's rows in the definitions registry (feature
 //! `ae2-megacells`). Derived from MEGA Cells 4.11.0 (`MEGAItems`,
 //! `MEGACells.initUpgrades`, `MEGACellsClient.initStorageCellModels`,
-//! `MEGACraftingUnitType`, `MEGABlocks`, `MEGACraftingUnitModelProvider`),
-//! https://github.com/62832/MEGACells tag 4.11.0, LGPL-3.0; see
-//! `ae2/addons/megacells/`.
+//! `MEGACraftingUnitType`, `MEGABlocks`, `MEGACraftingUnitModelProvider`,
+//! `MEGAPortableCell`), https://github.com/62832/MEGACells tag 4.11.0,
+//! LGPL-3.0; see `ae2/addons/megacells/`.
 //!
 //! Slice 1: the M-tier item and fluid storage cells and their components.
 //! Slice 2: the MEGA crafting CPU blocks. Slice 3: the Superdense Energy Cell
-//! and the Greater Energy Card. The portable M cells, the bulk cell and the
-//! cells for other addons' key types come with later slices.
+//! and the Greater Energy Card. Slice 4: the portable M cells and the Portable
+//! Cell Workbench. The bulk cell and the cells for other addons' key types
+//! come with later slices.
 use super::defs::{CellDef, Defs, add_storage_cell_cards};
 use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind};
 use ae2_cell_core::{Channel, Tier};
@@ -68,6 +69,33 @@ pub const MEGA_ENERGY_CELL: EnergyCell = EnergyCell {
 };
 /// `MEGAItems.GREATER_ENERGY_CARD`: `new EnergyCardItem(p, 8)`.
 pub const GREATER_ENERGY_CARD: &str = "megacells:greater_energy_card";
+/// `MEGAItems.PORTABLE_CELL_WORKBENCH`: `PortableCellWorkbenchItem`, a Cell
+/// Workbench the player carries, with the cell it holds inside it.
+pub const PORTABLE_CELL_WORKBENCH: &str = "megacells:portable_cell_workbench";
+
+/// `MEGAPortableCell(props, tier, keyType, menu, 0x80caff)`:
+/// `PortableCellItem(keyType, 18 + (index - 5) × 9 types for items, 18 for
+/// fluids, tier)`, so 27 to 63 item types from 1M to 256M; `getIdleDrain`
+/// 1.0, `getAEMaxPower` 8 times and `getChargeRate` twice AE2's portable
+/// cell's; the drive model is the tier's cell's (`initStorageCellModels`).
+pub fn portable_cell(tier: Tier, channel: Channel) -> CellDef {
+    let size = size(tier);
+    let (kind, types) = match channel {
+        Channel::Item => ("item", 18 + (tier.index() as usize - 5) * 9),
+        Channel::Fluid => ("fluid", 18),
+    };
+    CellDef {
+        id: format!("{NAMESPACE}:portable_{kind}_cell_{size}"),
+        channel,
+        tier,
+        types,
+        idle_drain: 1.0,
+        portable: true,
+        drive_model: format!("{NAMESPACE}:block/drive/cells/{size}_{kind}_cell"),
+        battery_scale: 8.0,
+        charge_scale: 2.0,
+    }
+}
 
 pub fn register(defs: &mut Defs) {
     for unit in CRAFTING_UNITS {
@@ -78,8 +106,8 @@ pub fn register(defs: &mut Defs) {
     // MEGACells.initUpgrades: the Greater Energy Card where AE2's energy card
     // goes on items, two at most, each card counted on its own
     // (`Upgrades.getMaxInstallable` per card; the tooltip groups are names).
-    // AE2's portable cells (MEGA's portable M cells come with slice 4) ...
-    let portable: Vec<String> = defs.cells().filter(|cell| cell.portable).map(|cell| cell.id.clone()).collect();
+    // AE2's ten portable cells (MEGA's own get theirs below) ...
+    let portable: Vec<String> = defs.portable_cells().map(|cell| cell.id.clone()).collect();
     for cell in portable {
         defs.add_upgrade(GREATER_ENERGY_CARD, &cell, 2);
     }
@@ -103,10 +131,24 @@ pub fn register(defs: &mut Defs) {
                 portable: false,
                 // MEGACellsClient.initStorageCellModels.
                 drive_model: format!("{NAMESPACE}:block/drive/cells/{size}_{kind}_cell"),
+                battery_scale: 1.0,
+                charge_scale: 1.0,
             };
             // MEGACells.initUpgrades: inverter, equal distribution and void on
             // every item and fluid cell, fuzzy on item cells.
             add_storage_cell_cards(defs, &cell);
+            defs.add_cell(cell);
+        }
+    }
+    // MEGAItems.itemPortable / fluidPortable, after the cells (`CELLS` order).
+    for channel in [Channel::Item, Channel::Fluid] {
+        for tier in TIERS {
+            let cell = portable_cell(tier, channel);
+            // MEGACells.initUpgrades: the storage cell cards, and the Greater
+            // Energy Card, two at most, on a portable one. AE2's energy card
+            // is not registered on MEGA's portable cells.
+            add_storage_cell_cards(defs, &cell);
+            defs.add_upgrade(GREATER_ENERGY_CARD, &cell.id, 2);
             defs.add_cell(cell);
         }
     }
@@ -121,7 +163,8 @@ mod tests {
     fn m_tier_cells_have_megas_layouts_cards_and_models() {
         let mut defs = Defs::ae2();
         register(&mut defs);
-        assert_eq!(defs.cells().count(), 30);
+        // AE2's 20, MEGA's 10 cells and 10 portable cells.
+        assert_eq!(defs.cells().count(), 40);
         for (tier, size, drain) in [
             (Tier::M1, "1m", 3.0),
             (Tier::M4, "4m", 3.5),
@@ -225,12 +268,17 @@ mod tests {
         assert_eq!(defs.energy_card_multiplier(GREATER_ENERGY_CARD), 8);
         assert_eq!(defs.energy_card_multiplier("ae2:speed_card"), 0);
         let mut hosts = vec!["ae2:wireless_terminal", "ae2:wireless_crafting_terminal", "ae2:color_applicator", "ae2:matter_cannon"];
-        let portable: Vec<String> = defs.cells().filter(|c| c.portable).map(|c| c.id.clone()).collect();
+        let portable: Vec<String> = defs.portable_cells().filter(|c| c.id.starts_with("ae2:")).map(|c| c.id.clone()).collect();
         assert_eq!(portable.len(), 10);
         hosts.extend(portable.iter().map(String::as_str));
         for host in hosts {
             assert_eq!(defs.upgrade_limit(GREATER_ENERGY_CARD, host), 2, "{host}");
             assert_eq!(defs.upgrade_limit("ae2:energy_card", host), 2, "{host}");
+        }
+        // MEGA's portable cells take its card alone.
+        for host in ["megacells:portable_item_cell_1m", "megacells:portable_fluid_cell_256m"] {
+            assert_eq!(defs.upgrade_limit(GREATER_ENERGY_CARD, host), 2, "{host}");
+            assert_eq!(defs.upgrade_limit("ae2:energy_card", host), 0, "{host}");
         }
         for host in ["ae2:item_storage_cell_1k", "megacells:item_storage_cell_1m", "ae2:view_cell", "ae2:vibration_chamber"] {
             assert_eq!(defs.upgrade_limit(GREATER_ENERGY_CARD, host), 0, "{host}");
@@ -282,5 +330,52 @@ mod tests {
         // A cell that is no portable one takes none.
         let mut storage = Inventory::read(&ItemStack::new("ae2:item_storage_cell_1k", 1)).unwrap();
         assert!(!storage.insert_one(&greater));
+    }
+    /// `MEGAPortableCell`: `PortableCellItem` with 18 + (index - 5) × 9 item
+    /// types (27 at 1M to 63 at 256M) and 18 fluid types, half the tier's
+    /// bytes (`getBytes` = `tier.bytes() / 2`, 524,288 at 1M), a 128th per
+    /// type, 1.0 AE/t in a drive, 8 times the battery and twice the charge
+    /// rate; the storage cell cards and two Greater Energy Cards
+    /// (`initUpgrades`), AE2's energy card none.
+    #[test]
+    fn portable_m_cells_have_megas_types_bytes_drain_and_cards() {
+        let mut defs = Defs::ae2();
+        register(&mut defs);
+        for (tier, size, item_types, bytes) in [
+            (Tier::M1, "1m", 27, 524_288),
+            (Tier::M4, "4m", 36, 2_097_152),
+            (Tier::M16, "16m", 45, 8_388_608),
+            (Tier::M64, "64m", 54, 33_554_432),
+            (Tier::M256, "256m", 63, 134_217_728),
+        ] {
+            for (kind, channel, types, slots) in [("item", Channel::Item, item_types, 4), ("fluid", Channel::Fluid, 18, 3)] {
+                let id = format!("megacells:portable_{kind}_cell_{size}");
+                let cell = defs.portable_cell(&id).unwrap_or_else(|| panic!("{id}"));
+                let config = cell.config();
+                assert_eq!((config.channel, config.max_types(), config.total_bytes(), config.bytes_per_type()), (channel, types, bytes, bytes / 64), "{id}");
+                assert!(config.portable);
+                assert_eq!((cell.idle_drain, cell.battery_scale, cell.charge_scale), (1.0, 8.0, 2.0), "{id}");
+                assert_eq!(cell.drive_model, format!("megacells:block/drive/cells/{size}_{kind}_cell"));
+                assert_eq!(defs.upgrade_slots(&id), Some(slots));
+                for card in ["ae2:inverter_card", "ae2:equal_distribution_card", "ae2:void_card"] {
+                    assert_eq!(defs.upgrade_limit(card, &id), 1, "{card} on {id}");
+                }
+                assert_eq!(defs.upgrade_limit("ae2:fuzzy_card", &id), usize::from(channel == Channel::Item));
+                assert_eq!((defs.upgrade_limit(GREATER_ENERGY_CARD, &id), defs.upgrade_limit("ae2:energy_card", &id)), (2, 0));
+            }
+        }
+        // AE2's own keep theirs: 63 - 9 × index item types, 0.5 AE/t, AE2's battery.
+        let ae2 = defs.portable_cell("ae2:portable_item_cell_256k").unwrap();
+        assert_eq!((ae2.config().max_types(), ae2.idle_drain, ae2.battery_scale, ae2.charge_scale), (18, 0.5, 1.0, 1.0));
+        assert!(defs.portable_cell("megacells:item_storage_cell_1m").is_none());
+        // One type fills a 1M portable item cell at (524,288 - 8,192) × 8 items.
+        let mut one = ae2_cell_core::Cell::new(defs.portable_cell("megacells:portable_item_cell_1m").unwrap().config());
+        let key = ae2_cell_core::ItemKey { item_id: "minecraft:cobblestone".into(), components: Vec::new() };
+        assert_eq!(one.insert(&key, u64::MAX, ae2_cell_core::Action::Modulate), 4_128_768);
+        // The hotkeys' order: AE2's portable item cells, then MEGA's, by tier.
+        let order: Vec<&str> = defs.portable_cells().filter(|c| c.channel == Channel::Item).map(|c| c.id.as_str()).collect();
+        assert_eq!(order.first().copied(), Some("ae2:portable_item_cell_1k"));
+        assert_eq!(&order[4..], ["ae2:portable_item_cell_256k", "megacells:portable_item_cell_1m", "megacells:portable_item_cell_4m",
+            "megacells:portable_item_cell_16m", "megacells:portable_item_cell_64m", "megacells:portable_item_cell_256m"]);
     }
 }

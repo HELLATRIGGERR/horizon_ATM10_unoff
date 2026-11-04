@@ -29,6 +29,13 @@ pub struct CellDef {
     pub portable: bool,
     /// `StorageCellModels.registerModel`: the model drawn in a drive's slot.
     pub drive_model: String,
+    /// A portable cell's `getAEMaxPower` over AE2's `PortableCellItem`'s (its
+    /// `ae2:energy_capacity`, or the configured battery): 1 for AE2's cells,
+    /// 8 for MEGA's (`MEGAPortableCell.getAEMaxPower`).
+    pub battery_scale: f64,
+    /// A portable cell's `getChargeRate` over AE2's (80 + 80 ×
+    /// `getEnergyCardMultiplier`): 1 for AE2's, 2 for MEGA's.
+    pub charge_scale: f64,
 }
 impl CellDef {
     /// The cell's storage layout, before its cards and partition.
@@ -64,6 +71,8 @@ pub struct Defs {
     energy_cells: Vec<EnergyCell>,
     energy_cards: HashMap<String, u32>,
     parts: HashMap<String, PartDef>,
+    /// The portable cells in the order they were added.
+    portable_order: Vec<String>,
 }
 impl Defs {
     /// A storage cell, with the upgrade inventory `BasicStorageCell` and
@@ -72,6 +81,9 @@ impl Defs {
     pub fn add_cell(&mut self, cell: CellDef) {
         let slots = if cell.channel == Channel::Item { 4 } else { 3 };
         self.upgrade_slots.insert(cell.id.clone(), slots);
+        if cell.portable && !self.portable_order.contains(&cell.id) {
+            self.portable_order.push(cell.id.clone());
+        }
         self.cells.insert(cell.id.clone(), cell);
     }
     /// A storage component (`IStorageComponent`) of `tier`: what a Condenser
@@ -175,6 +187,17 @@ impl Defs {
     pub fn cells(&self) -> impl Iterator<Item = &CellDef> {
         self.cells.values()
     }
+    /// A `PortableCellItem` (AE2's `AbstractPortableCell` with a cell
+    /// inventory): none for any other item.
+    pub fn portable_cell(&self, id: &str) -> Option<&CellDef> {
+        self.cells.get(id).filter(|cell| cell.portable)
+    }
+    /// The portable cells in registration order: AE2's, then each addon's
+    /// (`HotkeyActions.registerPortableCell` in `HotkeyActions.init`, then the
+    /// addons' common setup).
+    pub fn portable_cells(&self) -> impl Iterator<Item = &CellDef> {
+        self.portable_order.iter().filter_map(|id| self.cells.get(id))
+    }
     pub fn component(&self, id: &str) -> Option<Tier> {
         self.components.get(id).copied()
     }
@@ -208,6 +231,8 @@ impl Defs {
                     idle_drain: drain,
                     portable: false,
                     drive_model: model.clone(),
+                    battery_scale: 1.0,
+                    charge_scale: 1.0,
                 });
                 let portable_types = if channel == Channel::Item {
                     63 - 9 * tier.index() as usize
@@ -222,6 +247,8 @@ impl Defs {
                     idle_drain: 0.5,
                     portable: true,
                     drive_model: model,
+                    battery_scale: 1.0,
+                    charge_scale: 1.0,
                 });
             }
             defs.add_component(&format!("ae2:cell_component_{size}"), tier);

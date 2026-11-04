@@ -19,9 +19,9 @@ pub fn register_probe(capability: ItemCapability, probe: Probe) {
 fn powered_ae2_item(stack: &ItemStack) -> bool {
     let id = stack.item.as_ref();
     matches!(id, "ae2:entropy_manipulator" | "ae2:charged_staff" | "ae2:color_applicator" | "ae2:matter_cannon" | "ae2:wireless_terminal" | "ae2:wireless_crafting_terminal")
-        || ["ae2:portable_item_cell_", "ae2:portable_fluid_cell_"].iter().any(|prefix| {
-            id.strip_prefix(prefix).is_some_and(|tier| matches!(tier, "1k" | "4k" | "16k" | "64k" | "256k"))
-        })
+        // The portable cells, AE2's (`InitCapabilityProviders`) and an
+        // addon's (`MEGACells.initCapabilities`).
+        || crate::ae2x::defs::get().portable_cell(id).is_some()
 }
 fn native_fluid_container(stack: &ItemStack) -> bool {
     // These are the physical bucket handlers currently implemented by this host.

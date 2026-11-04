@@ -89,7 +89,7 @@ impl Game<'_> {
         let Some(stack) = self.held().filter(|s| codec::is_cell(&s.item)).cloned() else {
             return false;
         };
-        let portable = stack.item.starts_with("ae2:portable_");
+        let portable = horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some();
         if !self.keys.contains(&KeyCode::ShiftLeft) || self.hand != Hand::Main || stack.count != 1 {
             return air && !portable;
         }
@@ -147,7 +147,7 @@ impl Game<'_> {
         {
             return false;
         }
-        if stack.item.starts_with("ae2:portable_") {
+        if horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some() {
             return true;
         }
         matches!(

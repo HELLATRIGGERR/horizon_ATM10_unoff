@@ -13,6 +13,19 @@ pub trait EntityFluidTickWorld:
     fn water_splash(&mut self) -> Result<(), WorldError<Self>>;
     fn set_was_touching_water(&mut self, value: bool);
     fn fast_lava(&mut self) -> Result<bool, WorldError<Self>>;
+    /// NeoForge's `Entity.updateInWaterStateAndDoFluidPushing` for the content
+    /// mods' fluid types the entity is in: unless it rides a boat, its fall
+    /// distance times `fall_distance_modifier` (the least of their
+    /// `getFallDistanceModifier`), and with `extinguish` (one `canExtinguish`)
+    /// its fire put out. Nothing by default.
+    fn in_mod_fluid_types(
+        &mut self,
+        fall_distance_modifier: f32,
+        extinguish: bool,
+    ) -> Result<(), WorldError<Self>> {
+        let _ = (fall_distance_modifier, extinguish);
+        Ok(())
+    }
 }
 /// The push predicate is queried twice: before resetting immersion state and
 /// after water-entry effects. Water/lava membership is captured before effects.
@@ -57,6 +70,23 @@ pub fn update<W: EntityFluidTickWorld>(
                 .apply_current(world, lava, speed)
                 .map_err(FluidInteractionError::World)?;
         }
+        // NeoForge: each content mod's fluid type pushes by its own motion scale.
+        interaction
+            .apply_mod_currents(world)
+            .map_err(FluidInteractionError::World)?;
+    }
+    let types = interaction.mod_fluid_types();
+    if !types.is_empty() {
+        let types: Vec<_> = types.iter().filter_map(|(k, _)| k.mod_fluid()).collect();
+        let modifier = types
+            .iter()
+            .map(|m| m.entity.fall_distance_modifier)
+            .reduce(f32::min)
+            .unwrap_or(1.0);
+        let extinguish = types.iter().any(|m| m.entity.can_extinguish);
+        world
+            .in_mod_fluid_types(modifier, extinguish)
+            .map_err(FluidInteractionError::World)?;
     }
     Ok(changed)
 }

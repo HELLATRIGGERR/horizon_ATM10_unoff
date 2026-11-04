@@ -18,6 +18,12 @@ pub trait LivingFluidWorld: LivingAirWorld {
     fn is_free(&mut self, offset: Vec3) -> Result<bool, Self::Error>;
     fn is_vehicle(&mut self) -> Result<bool, Self::Error>;
     fn can_float_while_ridden(&mut self) -> Result<bool, Self::Error>;
+    /// NeoForge's `LivingEntity.travel`: the fluid at its block position is a
+    /// content mod's whose type it is in (`isInFluidType(fluidstate)`, never
+    /// `LAVA_TYPE`), which it travels in as in water. False by default.
+    fn in_mod_fluid_type(&mut self) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
 }
 
 pub fn fluid_falling_adjusted_movement<W: LivingFluidWorld>(
@@ -145,7 +151,7 @@ pub fn travel_in_fluid<W: LivingFluidWorld>(world: &mut W, input: Vec3) -> Resul
     let falling = world.velocity().y <= 0.0;
     let old_y = world.y();
     let gravity = world.effective_gravity()?;
-    if world.in_water()? {
+    if world.in_water()? || world.in_mod_fluid_type()? {
         travel_in_water(world, input, gravity, falling, old_y)?;
     } else {
         travel_in_lava(world, input, gravity, falling, old_y)?;

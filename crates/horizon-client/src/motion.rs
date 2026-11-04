@@ -902,16 +902,18 @@ impl PlayerMotion {
             enough_food: self.health.food.has_enough_food(),
             may_fly: self.may_fly,
             flying: self.flying,
-            // Entity.isInShallowWater.
-            shallow_water: self.fluids.was_touching_water && !self.is_under_water(),
+            // Entity.isInShallowWater; NeoForge's sprint also stops in a mod's
+            // fluid it can swim in but can't start swimming in.
+            shallow_water: self.fluids.was_touching_water && !self.is_under_water()
+                || self.in_swimmable_mod_fluid() && !self.fluids.mod_can_start_swimming,
             fall_flying: self.fall_flying,
             on_ground: self.ground.on_ground,
             horizontal_collision: self.collision.horizontal,
             minor_horizontal_collision: self.collision.minor,
             slow_item: self.item_use_slows_sprint,
             moving_slowly: self.moving_slowly(),
-            in_water: self.fluids.was_touching_water,
-            under_water: self.is_under_water(),
+            in_water: self.fluids.was_touching_water || self.in_swimmable_mod_fluid(),
+            under_water: self.is_under_water() || self.fluids.mod_can_start_swimming,
             swimming: self.swimming,
             ..Default::default()
         };
@@ -1134,8 +1136,17 @@ impl MotionWorld<'_, '_, '_> {
         } else {
             self.player.fall_fly_ticks = 0;
         }
-        // LocalPlayer.goDownInWater, before LivingEntity.aiStep's velocity cleanup.
-        if self.player.fluids.was_touching_water
+        // LocalPlayer.goDownInWater, before LivingEntity.aiStep's velocity
+        // cleanup; NeoForge's `sinkInFluid` too where the highest fluid type
+        // is a mod's it can swim in (0.04F a tick either way).
+        let sinks_in_mod = self
+            .player
+            .fluids
+            .interaction
+            .max_height_mod_fluid()
+            .and_then(|(k, _)| k.mod_fluid())
+            .is_some_and(|m| m.entity.can_swim);
+        if (self.player.fluids.was_touching_water || sinks_in_mod)
             && self.player.shift_key_down
             && !self.player.flying
         {
@@ -1348,8 +1359,12 @@ impl MotionWorld<'_, '_, '_> {
             }
         }
         let flying_y = self.player.flying.then_some(self.player.velocity.y);
+        // NeoForge's LivingEntity.travel: a mod's fluid at its feet that it is
+        // in travels as water.
         if !self.player.flying
-            && (self.player.fluids.was_touching_water || self.player.is_in_lava())
+            && (self.player.fluids.was_touching_water
+                || self.player.is_in_lava()
+                || self.in_mod_fluid_at_feet())
         {
             horizon_world::living_fluid::travel_in_fluid(self, input)?;
         } else if self.player.fall_flying {

@@ -85,6 +85,11 @@ pub struct PlayerFluids {
     pub fast_lava: bool,
     /// The boat the player sits in (`Entity.getVehicle`), set by the game.
     pub boat: Option<RiddenBoat>,
+    /// NeoForge's `IEntityExtension.canStartSwimming` where a content mod's
+    /// fluid is at the eyes or the feet, taken after each fluid update: the
+    /// eyes in a fluid type it can swim in, over one at its block position it
+    /// can swim in too.
+    pub mod_can_start_swimming: bool,
 }
 /// What `AbstractBoat.modifyPassengerFluidInteractionBox` reads of a boat.
 #[derive(Clone, Copy, Debug)]
@@ -103,6 +108,7 @@ impl Default for PlayerFluids {
             first_tick: true,
             fast_lava: false,
             boat: None,
+            mod_can_start_swimming: false,
         }
     }
 }
@@ -129,6 +135,25 @@ impl PlayerMotion {
     /// `Entity.isInLava`.
     pub fn is_in_lava(&self) -> bool {
         !self.fluids.first_tick && self.fluids.interaction.is_in_fluid(&FluidTags, LAVA)
+    }
+    /// NeoForge's `isInFluidType((type, height) -> canSwimInFluidType(type))`
+    /// for the content mods' fluids: the box is in one whose type `canSwim`.
+    pub fn in_swimmable_mod_fluid(&self) -> bool {
+        self.fluids
+            .interaction
+            .mod_fluid_types()
+            .iter()
+            .any(|(k, _)| k.mod_fluid().is_some_and(|m| m.entity.can_swim))
+    }
+}
+
+/// `canSwimInFluidType` of the fluid `kind` is, for the player: water's
+/// (`!isSensitiveToWater`), none for lava and the empty fluid, a content
+/// mod's by its type.
+fn player_can_swim_in(kind: FluidKind) -> bool {
+    match kind.mod_fluid() {
+        Some(m) => m.entity.can_swim,
+        None => kind.is_water(),
     }
 }
 /// `BubbleColumnBlock.entityInside` for an entity that is not the player (a mob,
@@ -279,6 +304,18 @@ impl MotionWorld<'_, '_, '_> {
     pub fn fluid_base_tick(&mut self) -> Result<()> {
         self.player.fluids.was_eye_in_water = self.player.is_eye_in_fluid(WATER);
         self.update_fluids()?;
+        // IEntityExtension.canStartSwimming, where a mod's fluid is at the eyes or the feet.
+        let feet = self
+            .fluid_at(BlockPos::containing(self.player.position))
+            .kind();
+        let eye_mod = self.player.fluids.interaction.eye_in_mod_fluid();
+        self.player.fluids.mod_can_start_swimming = (eye_mod.is_some()
+            || feet.mod_fluid().is_some())
+            && match eye_mod {
+                Some(k) => player_can_swim_in(k),
+                None => self.player.is_eye_in_fluid(WATER),
+            }
+            && player_can_swim_in(feet);
         // `Player.updateSwimming`'s flying guard over `Entity.updateSwimming`,
         // whose both branches need `!isPassenger()`: a rider keeps no swim, so
         // the server's copy of a guest who boards a boat while swimming is not
@@ -288,7 +325,8 @@ impl MotionWorld<'_, '_, '_> {
             && !self.player.is_passenger
             && self.player.sprinting
             && if self.player.swimming {
-                self.player.fluids.was_touching_water
+                // NeoForge: or in a mod's fluid it can swim in.
+                self.player.fluids.was_touching_water || self.player.in_swimmable_mod_fluid()
             } else {
                 self.player.is_under_water()
                     && is_tagged(
@@ -296,6 +334,7 @@ impl MotionWorld<'_, '_, '_> {
                             .kind(),
                         WATER,
                     )
+                    || self.player.fluids.mod_can_start_swimming
             };
         self.tick_remaining_fire()?;
         if self.player.is_in_lava() {
@@ -437,6 +476,19 @@ impl EntityFluidTickWorld for MotionWorld<'_, '_, '_> {
     }
     fn fast_lava(&mut self) -> Result<bool> {
         Ok(self.player.fluids.fast_lava)
+    }
+    /// NeoForge's `updateInWaterStateAndDoFluidPushing`: not in a boat, the
+    /// fall distance times the mods' fluids' least modifier; put out by one
+    /// that extinguishes.
+    fn in_mod_fluid_types(&mut self, fall_distance_modifier: f32, extinguish: bool) -> Result<()> {
+        if self.player.fluids.boat.is_none() {
+            self.player.fall_distance *= f64::from(fall_distance_modifier);
+            if extinguish {
+                // Entity.clearFire.
+                self.player.fire_ticks = self.player.fire_ticks.min(0);
+            }
+        }
+        Ok(())
     }
 }
 impl FluidHeightWorld for MotionWorld<'_, '_, '_> {

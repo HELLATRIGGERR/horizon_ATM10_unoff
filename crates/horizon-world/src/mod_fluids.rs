@@ -57,6 +57,60 @@ pub struct ModFluid {
     /// The fluid tags its source and its flowing fluid are in.
     pub source_tags: Vec<String>,
     pub flowing_tags: Vec<String>,
+    /// What its `FluidType` does to an entity in it.
+    pub entity: FluidEntity,
+    /// `IClientFluidTypeExtensions.getRenderOverlayTexture`: the camera's
+    /// overlay with the eye in it (a texture's resource path,
+    /// `minecraft:textures/misc/underwater.png`), none for none.
+    pub render_overlay: Option<String>,
+    /// `IClientFluidTypeExtensions.modifyFogColor`: the fog colour (RGB, 0 to
+    /// 1) with the camera in it, none to leave the fog's own.
+    pub fog_color: Option<[f32; 3]>,
+    /// `IClientFluidTypeExtensions.modifyFogRender` over the terrain at a
+    /// 12-chunk render distance: the fog's start and end in blocks, none to
+    /// leave the fog's own.
+    pub fog_range: Option<[f32; 2]>,
+}
+
+/// `FluidType`'s say over an entity in it (each one `FluidType.canSwim(Entity)`
+/// and the others, asked of a pig by the NeoForge oracle), with
+/// `FluidType.Properties`' defaults ([`FluidEntity::default`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FluidEntity {
+    /// `canSwim`: a sprinting entity swims in it, a mob floats up.
+    pub can_swim: bool,
+    /// `canDrownIn`: an eye in it uses up air.
+    pub can_drown: bool,
+    /// `canPushEntity`: its flow pushes.
+    pub can_push: bool,
+    /// `motionScale`: how hard its flow pushes.
+    pub motion_scale: f64,
+    /// `getFallDistanceModifier`: what an entity's fall distance is
+    /// multiplied by each tick it is in it.
+    pub fall_distance_modifier: f32,
+    /// `canExtinguish`: it puts a burning entity out.
+    pub can_extinguish: bool,
+    /// `canHydrate`.
+    pub can_hydrate: bool,
+    /// `supportsBoating`.
+    pub supports_boating: bool,
+}
+
+impl Default for FluidEntity {
+    /// `FluidType.Properties`: swim, drown, push at 0.014, fall distance
+    /// halved, no extinguishing, hydrating or boats.
+    fn default() -> Self {
+        Self {
+            can_swim: true,
+            can_drown: true,
+            can_push: true,
+            motion_scale: 0.014,
+            fall_distance_modifier: 0.5,
+            can_extinguish: false,
+            can_hydrate: false,
+            supports_boating: false,
+        }
+    }
 }
 
 impl ModFluid {
@@ -90,6 +144,10 @@ impl ModFluid {
             description: format!("block.{ns}.{path}"),
             source_tags: Vec::new(),
             flowing_tags: Vec::new(),
+            entity: FluidEntity::default(),
+            render_overlay: None,
+            fog_color: None,
+            fog_range: None,
         }
     }
     /// Whether it is a `FlowingFluid`: one that doesn't (Modern
@@ -380,8 +438,11 @@ pub fn fluid_tag_lists_in(
 
 /// The fluids unit tests share, registered once per test process (any test
 /// that needs a mod fluid calls this first): `test:brine` with
-/// `BaseFlowingFluid`'s defaults, and `test:sludge`, slower and thicker, which
-/// makes sources. Not for the game.
+/// `BaseFlowingFluid`'s and `FluidType`'s defaults (to an entity, Mekanism's
+/// heavy water's: its overlay and fog too), and `test:sludge`, slower and
+/// thicker, which makes sources and is a molten metal to an entity (All the
+/// Ores': no swimming or drowning, lava's push), puts fires out and keeps a
+/// fifth of a fall. Not for the game.
 #[doc(hidden)]
 pub fn register_test_fluids() {
     let brine = ModFluid {
@@ -395,6 +456,9 @@ pub fn register_test_fluids() {
         empty_sound: Some("minecraft:item.bucket.empty".into()),
         source_tags: vec!["c:brine".into()],
         flowing_tags: vec!["c:brine".into()],
+        render_overlay: Some("minecraft:textures/misc/underwater.png".into()),
+        fog_color: Some([0.050_980_393, 0.078_431_375, 0.333_333_34]),
+        fog_range: Some([-8.0, 24.0]),
         ..ModFluid::new("test:brine")
     };
     let sludge = ModFluid {
@@ -405,6 +469,14 @@ pub fn register_test_fluids() {
         can_convert_to_source: true,
         still_texture: "test:liquid/sludge".into(),
         flowing_texture: "test:liquid/sludge_flow".into(),
+        entity: FluidEntity {
+            can_swim: false,
+            can_drown: false,
+            motion_scale: 0.002_333_333_333_333_333_5,
+            fall_distance_modifier: 0.2,
+            can_extinguish: true,
+            ..FluidEntity::default()
+        },
         ..ModFluid::new("test:sludge")
     };
     if !register_mod_fluids([brine.clone(), sludge.clone()]) {

@@ -137,6 +137,19 @@ pub fn mod_fluid(
         description: decl.description.clone(),
         source_tags: tags_of(&decl.id),
         flowing_tags: tags_of(&decl.flowing),
+        entity: horizon_world::mod_fluids::FluidEntity {
+            can_swim: decl.entity.can_swim,
+            can_drown: decl.entity.can_drown,
+            can_push: decl.entity.can_push,
+            motion_scale: decl.entity.motion_scale,
+            fall_distance_modifier: decl.entity.fall_distance_modifier,
+            can_extinguish: decl.entity.can_extinguish,
+            can_hydrate: decl.entity.can_hydrate,
+            supports_boating: decl.entity.supports_boating,
+        },
+        render_overlay: decl.render_overlay.clone(),
+        fog_color: decl.fog_color,
+        fog_range: decl.fog_range,
     }
 }
 

@@ -557,6 +557,20 @@ impl Game<'_> {
         self.repro
             .fill_summary(&mut input, self.input_trace.events());
         state["input"] = input;
+        // The last frame's fog (its colour and environmental range) and the
+        // content mod's fluid at the eyes with its camera overlay (NeoForge's
+        // `getRenderOverlayTexture`), for tests of the fog in a mod's fluid.
+        state["fog"] = json!(self.fog.last_frame.map(|f| json!({
+            "color": f.color,
+            "environmental": [f.environmental_start, f.environmental_end],
+        })));
+        let eye_fluid = self.eye_position().and_then(|eye| {
+            horizon_client::fog::camera_mod_fluid(&self.world, self.res.facts(), eye)
+        });
+        state["eye_mod_fluid"] = json!(eye_fluid.map(|k| json!({
+            "fluid": k.name(),
+            "overlay": k.mod_fluid().and_then(|m| m.render_overlay.clone()),
+        })));
         state
     }
 

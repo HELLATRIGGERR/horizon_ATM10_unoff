@@ -60,6 +60,10 @@ pub struct ScreenInputs<'a> {
     pub block_overlay: Option<String>,
     /// Eye in water: (lightmap brightness at the eye, yaw, pitch).
     pub water: Option<(f32, f32, f32)>,
+    /// Eye in a content mod's fluid with a camera overlay (NeoForge's
+    /// `IClientFluidTypeExtensions.renderOverlay`, `ScreenEffectRenderer.renderFluid`):
+    /// its texture's sprite, drawn as water's.
+    pub fluid_overlay: Option<String>,
     pub on_fire: bool,
     /// `Hud.extractCameraOverlays` draws: the full-screen blits become
     /// screen quads (the spyglass, its fills and the nausea swirl do not).
@@ -179,8 +183,9 @@ impl ScreenEffects {
                 0,
             ));
         }
+        let overlay = input.fluid_overlay.as_deref().unwrap_or("misc/underwater");
         if let Some((brightness, yaw, pitch)) = input.water
-            && let Some(rect) = sprite("misc/underwater")
+            && let Some(rect) = sprite(overlay)
         {
             let (u, v) = (-yaw / 64.0, pitch / 64.0);
             let uv = [[u + 4.0, v + 4.0], [u, v + 4.0], [u, v], [u + 4.0, v]];
@@ -191,7 +196,7 @@ impl ScreenEffects {
                     uv,
                     rect,
                     [brightness, brightness, brightness, 0.1],
-                    texture_sampling("misc/underwater"),
+                    texture_sampling(overlay),
                 )
             });
         }
@@ -346,6 +351,7 @@ mod tests {
             partial: 0.0,
             block_overlay: None,
             water: Some((1.0, 0.0, 0.0)),
+            fluid_overlay: None,
             on_fire: false,
             gui_overlays: &[crate::hud_overlays::vignette(320, 240, 1.0, 0.0)],
         };
@@ -359,6 +365,7 @@ mod tests {
             let overlays = [crate::hud_overlays::vignette(320, 240, brightness, warning)];
             let input = ScreenInputs {
                 block_overlay: None,
+                fluid_overlay: None,
                 gui_overlays: &overlays,
                 ..input
             };
@@ -400,6 +407,7 @@ mod tests {
             partial: 0.0,
             block_overlay: Some("block/stone".to_owned()),
             water: Some((1.0, 0.0, 0.0)),
+            fluid_overlay: None,
             on_fire: false,
             gui_overlays: &[crate::hud_overlays::vignette(320, 240, 1.0, 0.0)],
         });

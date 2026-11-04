@@ -107,6 +107,37 @@ none (`notExternal`; the null side's proxy is read only); it is saved as Mekanis
 before it burns anything (`FluidFuelInventorySlot.fillOrBurn`). Lava source blocks beside it only heat it
 (`TileEntityHeatGenerator.getBoost`): Java never draws them into the tank.
 
+**Entities in mod fluids (slice 4).** NeoForge 1.21.1 moves an entity by `FluidType`, not by tag:
+`Entity.updateFluidHeightAndDoFluidPushing` keeps a height and a push for each type the box is in
+(`forgeFluidTypeHeight`), `isInWater` is `NeoForgeMod.WATER_TYPE` (vanilla's water alone: a mod fluid in
+`minecraft:water`, as Bumblezone's sugar water, is its own type to an entity, with its own numbers), and each mod type
+acts by its facts. Those facts are the oracle's: `entity` in a declaration (`can_swim`, `can_drown`, `can_push`,
+`motion_scale`, `fall_distance_modifier`, `can_extinguish`, `can_hydrate`, `supports_boating`, asked of a pig and a
+boat; `FluidType.Properties`' defaults when left out), `ModFluid::entity` in the registry. The port lays this over 26.3's
+`EntityFluidInteraction`, whose water and lava trackers stay vanilla's by identity (NeoForge's water and lava types):
+each mod fluid (its source and flowing fluid are one type) has its height (`mod_fluid_types`,
+`max_height_mod_fluid`, `eye_in_mod_fluid`) and, when its type pushes, its own current scaled by its `motionScale`;
+`entity_fluid_tick` then hands the entity the least `getFallDistanceModifier` of its mod types (not in a boat) and
+whether one `canExtinguish` (`updateInWaterStateAndDoFluidPushing`). A living entity with a mod fluid at its block
+position that it is in travels as in water (`LivingEntity.travel`'s first branch: `isInFluidType(fluidstate)`, never
+the lava type); its jump with a mod fluid the highest in its box is `jumpInFluid` (0.04F a tick; `LivingEntity.aiStep`);
+the player sinks in one it can swim in (`LocalPlayer.aiStep`'s `sinkInFluid`), swims there (`updateSwimming`,
+`canStartSwimming`: the eyes and the feet in types it can swim in) and its sprint keeps to the same rules; the eyes in
+a mod fluid use up air where its type `canDrownIn` and keep it where not, gaining none (`CommonHooks.onLivingBreathe`).
+Mobs do the same over their own fluid sample (`mobs/living.rs`: the highest mod fluid, the eyes, the feet), and
+`FloatGoal` and the brains' `Swim` float them where the type `canSwim` (NeoForge's patch of both). On the client the
+camera's fog type asks the tags as `Camera.getFluidInCamera` does (a mod fluid in `minecraft:water` fogs as water, in
+`minecraft:lava` as lava); with the camera in a mod fluid, its client extension's `modifyFogColor` and
+`modifyFogRender` set the fog's colour and range (`apply_mod_fluid_fog`, NeoForge's `ClientHooks.getFogColor` and
+`onFogRender`), and with the eyes in it its `getRenderOverlayTexture` is drawn as water's overlay
+(`ScreenEffectRenderer.renderFluid`) when the GUI atlas holds it. The client oracle now probes both fog hooks
+(`ClientFactsExporter.fog`: `modifyFogColor` of a known colour; `modifyFogRender` over the terrain at 12 chunks, read
+back from the shader's fog on the render thread; with no level or camera entity, an extension that reads them is left
+out) and the carry writes `render_overlay`, `fog_color` and `fog_range`: of ATM10 8.4's 415 types, 167 give a fog
+colour (Mekanism's 18 and Generators' 4 their tint) and 97 a range (Mekanism's -8 to 24); 5 colours and 3 ranges need a
+level. `horizon-ctl state` reports the last frame's fog and the mod fluid at the eyes with its overlay. Vanilla's fluids
+keep 26.3's rules: NeoForge's breathing in lava (no refill) and its swim speed attribute are not ported for them.
+
 **Fluid ingredients (slice 6).** `horizon_world::fluid_ingredient` is NeoForge's `FluidIngredient` with its seven
 types (`neoforge:single`, `tag`, `empty`, `compound`, `components`, `difference`, `intersection`), read by their codecs
 (`CODEC`: a list, `CompoundFluidIngredient.of`, or a map; `CODEC_NON_EMPTY`; `MAP_CODEC_NONEMPTY`: with a `type` that
@@ -197,10 +228,16 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
    layer drawn, no missing texture, the tinted one tinted). Not ported: `ContainedFluidOverrideHandler` (a container
    whose fluid is in its stack's data, as tanks are: slice 5), the emissive layer's own render type (its quads are full
    bright, drawn as the rest).
-4. **Entities in mod fluids.** `FluidType`'s `canSwim`, `canDrown`, `canPushEntity`, `motionScale`,
-   `fallDistanceModifier`, `canExtinguish`, `supportsBoating`, the camera's fog and overlay
-   (`modifyFogColor`/`getRenderOverlayTexture`), and mod fluids in the `minecraft:water` or `minecraft:lava` tag
-   (`the_bumblezone:sugar_water`) behaving as water or lava in physics and interactions.
+4. **Entities in mod fluids (done).** As "Entities in mod fluids" above. Tests: `horizon-world` (`entity_fluid::tests`:
+   a mod fluid's height, eyes and push by its own motion scale, a type that doesn't push, the fall modifier and
+   extinguishing handed on), `horizon-mods` and `horizon-port-pack` (the declaration's facts), `horizon-client-render`
+   (`fog::tests`: the tag-based camera fog, a mod fluid's fog colour and range), and the world test
+   `tools/atm10/tests/mod-fluid-entities.ts` (heavy water and molten aluminum from re-carried Mekanism and All the Ores:
+   a player's slow sink, a ten-block fall unhurt, air used up or kept, each fog's colour and range, the overlay, the
+   flow's push, a pig floating up or staying down). Not yet: dropped items (`FluidType.setItemMovement`), boats on mod
+   fluids (`supportsBoating`, `canBoatInFluid`), `canHydrate` (farmland, sponges, corals), `FluidType.move` and
+   `canRideVehicleUnder`, `SWIM_SPEED`, the mod's own overlay textures outside the GUI atlas (Neo Vitae's, Modular
+   Bees', Supplementaries'), and fog hooks that need a level (8 types).
 5. **Fluid stacks and tanks (done).** As "Fluid stacks in tanks" above. Tests: `horizon-world`
    (`fluid_stack::tests`: the codec, empty stacks and comparisons, tags, buckets and sounds), the game's
    `native_fluid_handler` (declared tanks by side with a mod fluid; a bucket moving only whole through

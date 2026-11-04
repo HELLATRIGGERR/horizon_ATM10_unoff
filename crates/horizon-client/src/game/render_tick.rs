@@ -3,7 +3,9 @@
 use super::{Dim, Game};
 use horizon_client::assets::Properties;
 use horizon_client::camera::NearPlane;
-use horizon_client::fog::{FogData, FogInputs, FogType, fog_type, update_rain_fog};
+use horizon_client::fog::{
+    FogData, FogInputs, FogType, apply_mod_fluid_fog, camera_mod_fluid, fog_type, update_rain_fog,
+};
 use horizon_client::{
     animate_tick::{AnimateContext, animate_tick, campfire_particles, marker_particle_target},
     biome::Biomes,
@@ -150,6 +152,11 @@ impl Game<'_> {
             night_vision: self.fog_night_vision(),
         };
         let mut fog = horizon_client::fog::setup_fog(tables, &self.fog, &input);
+        if self.title.is_none()
+            && let Some(fluid) = camera_mod_fluid(&self.world, self.res.facts(), at)
+        {
+            apply_mod_fluid_fog(&mut fog, fluid);
+        }
         if !self.settings.horizon.fog {
             horizon_client::fog::clear_distance_fog(&mut fog, &input);
         }
@@ -324,10 +331,18 @@ impl Game<'_> {
                 }
             }
         }
-        let in_water =
-            fog_type(&self.world, self.res.facts(), eye, &self.near_plane()) == FogType::Water;
-        let water =
-            (in_water && !spectator).then(|| (self.eye_brightness(eye), self.yaw, self.pitch));
+        // ScreenEffectRenderer: the eyes in water (NeoForge: `WATER_TYPE`, not
+        // the tag) draw the water overlay; in a content mod's fluid, its type's
+        // `getRenderOverlayTexture`, when the GUI atlas holds it.
+        let eye_mod = camera_mod_fluid(&self.world, self.res.facts(), eye);
+        let in_water = eye_mod.is_none()
+            && fog_type(&self.world, self.res.facts(), eye, &self.near_plane()) == FogType::Water;
+        let fluid_overlay = eye_mod
+            .and_then(|k| k.mod_fluid())
+            .and_then(|m| m.render_overlay.as_deref())
+            .and_then(overlay_sprite);
+        let water = ((in_water || fluid_overlay.is_some()) && !spectator)
+            .then(|| (self.eye_brightness(eye), self.yaw, self.pitch));
         // Hud.extractCameraOverlays; the spyglass scope (and its easing) is
         // drawn on the HUD by draw_spyglass.
         let fx = &self.screen_fx;
@@ -362,6 +377,7 @@ impl Game<'_> {
             partial,
             block_overlay,
             water,
+            fluid_overlay,
             on_fire: self.camera_type.first_person()
                 && !self.spectator()
                 && self.player.as_ref().is_some_and(|p| p.fire_ticks > 0),
@@ -658,4 +674,17 @@ mod tests {
         world.set(3, 8, 3, stone).unwrap();
         assert_eq!(splash_height(&world, &properties, 3, 1, 3), Some(9));
     }
+}
+
+/// A camera overlay texture's resource path as the GUI atlas names its
+/// standalone textures: `minecraft:textures/misc/underwater.png` is
+/// `misc/underwater`, a mod's `<ns>:<path>`.
+fn overlay_sprite(texture: &str) -> Option<String> {
+    let (ns, path) = texture.split_once(':').unwrap_or(("minecraft", texture));
+    let path = path.strip_prefix("textures/")?.strip_suffix(".png")?;
+    Some(if ns == "minecraft" {
+        path.to_owned()
+    } else {
+        format!("{ns}:{path}")
+    })
 }

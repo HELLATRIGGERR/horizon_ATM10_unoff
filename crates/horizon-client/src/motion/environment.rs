@@ -57,12 +57,22 @@ impl MotionWorld<'_, '_, '_> {
             .registry
             .state(self.block(eye))
             .is_some_and(|state| state.name == "minecraft:bubble_column");
-        let submerged = self.player.is_eye_in_fluid(WATER) && !bubble_column;
+        // NeoForge's CommonHooks.onLivingBreathe: the eyes in a content mod's
+        // fluid type drown as in water where its type `canDrownIn`; where it
+        // doesn't, the player breathes but gains no air.
+        let eye_mod = self
+            .player
+            .fluids
+            .interaction
+            .eye_in_mod_fluid()
+            .and_then(|k| k.mod_fluid());
+        let submerged = (self.player.is_eye_in_fluid(WATER) || eye_mod.is_some()) && !bubble_column;
         let drowns = submerged
             && !self.player.status.water_breathing
             && !self.player.status.breath_of_the_nautilus
             && !self.player.invulnerable
-            && !self.player.spectator;
+            && !self.player.spectator
+            && eye_mod.is_none_or(|m| m.entity.can_drown);
         let vanilla = if drowns {
             // decreaseAirSupply's getAttribute: the instance exists from now
             // on, even unmodified.
@@ -84,8 +94,9 @@ impl MotionWorld<'_, '_, '_> {
         } else {
             // The nautilus' breath keeps a submerged player's air as it is.
             let held = submerged
-                && self.player.status.breath_of_the_nautilus
-                && !self.player.status.water_breathing;
+                && (eye_mod.is_some()
+                    || self.player.status.breath_of_the_nautilus
+                        && !self.player.status.water_breathing);
             Breath {
                 can_breathe: true,
                 consume: 1,
@@ -217,6 +228,9 @@ impl LivingFluidWorld for MotionWorld<'_, '_, '_> {
     fn in_water(&mut self) -> Result<bool> {
         Ok(self.player.fluids.was_touching_water)
     }
+    fn in_mod_fluid_type(&mut self) -> Result<bool> {
+        Ok(self.in_mod_fluid_at_feet())
+    }
     fn sprinting(&mut self) -> Result<bool> {
         Ok(self.player.sprinting)
     }
@@ -257,11 +271,53 @@ impl PlayerMotion {
     }
 }
 impl MotionWorld<'_, '_, '_> {
+    /// NeoForge's `isInFluidType(level.getFluidState(blockPosition()))` for a
+    /// content mod's fluid: the one at its block position is a mod's, and the
+    /// box is in that fluid's type.
+    pub(super) fn in_mod_fluid_at_feet(&self) -> bool {
+        let feet = self
+            .fluid_at(BlockPos::containing(self.player.position))
+            .kind();
+        feet.mod_fluid().is_some()
+            && self
+                .player
+                .fluids
+                .interaction
+                .mod_fluid_types()
+                .iter()
+                .any(|(k, _)| *k == feet.source())
+    }
     /// `LivingEntity.aiStep`'s jump phase: rise in water or lava, else jump
     /// from the ground (or from shallow fluid); nothing while flying.
     pub(super) fn jump_phase(&mut self) -> Result<()> {
         if !self.player.jumping || self.player.flying {
             self.player.no_jump_delay = 0;
+            return Ok(());
+        }
+        // NeoForge's LivingEntity.aiStep jump with a mod's fluid in the box:
+        // the height of the highest fluid type, then water's, lava's or that
+        // type's `jumpInFluid` (0.04F a tick for each), or a jump from the ground.
+        if let Some((_, mod_height)) = self.player.fluids.interaction.max_height_mod_fluid() {
+            let water = self.player.fluid_height(WATER);
+            let lava = self.player.fluid_height(LAVA);
+            let height = if water >= mod_height && water >= lava {
+                water
+            } else if lava >= mod_height {
+                lava
+            } else {
+                mod_height
+            };
+            let in_water = self.player.fluids.was_touching_water && height > 0.0;
+            let threshold = self.player.fluid_jump_threshold();
+            let deep = !(self.player.ground.on_ground && height <= threshold);
+            if (in_water || self.player.is_in_lava() || mod_height > 0.0) && deep {
+                self.player.velocity.y += f64::from(0.04f32);
+            } else if (self.player.ground.on_ground || in_water && height <= threshold)
+                && self.player.no_jump_delay == 0
+            {
+                self.jump_from_ground()?;
+                self.player.no_jump_delay = 10;
+            }
             return Ok(());
         }
         let in_lava = self.player.is_in_lava();

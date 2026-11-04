@@ -502,6 +502,37 @@ pub struct FluidSounds {
     pub bucket_empty: Option<String>,
 }
 
+/// What a fluid's `FluidType` does to an entity in it (`canSwim`, `canDrownIn`,
+/// `canPushEntity`, `motionScale`, `getFallDistanceModifier`, `canExtinguish`,
+/// `canHydrate`, `supportsBoating`); each left out is `FluidType.Properties`'.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields, default)]
+pub struct FluidEntity {
+    pub can_swim: bool,
+    pub can_drown: bool,
+    pub can_push: bool,
+    pub motion_scale: f64,
+    pub fall_distance_modifier: f32,
+    pub can_extinguish: bool,
+    pub can_hydrate: bool,
+    pub supports_boating: bool,
+}
+
+impl Default for FluidEntity {
+    fn default() -> Self {
+        Self {
+            can_swim: true,
+            can_drown: true,
+            can_push: true,
+            motion_scale: 0.014,
+            fall_distance_modifier: 0.5,
+            can_extinguish: false,
+            can_hydrate: false,
+            supports_boating: false,
+        }
+    }
+}
+
 /// A fluid the mod adds (`data/<id>/horizon/fluid/<path>.json`), as
 /// NeoForge's `FluidType` and `BaseFlowingFluid` make one: its source fluid
 /// is `<id>:<path>`, its flowing fluid `flowing`, and its `LiquidBlock`
@@ -565,6 +596,22 @@ pub struct Fluid {
     /// `FluidType.getDescriptionId`; `block.<ns>.<path>` when left out.
     #[serde(default)]
     pub description: String,
+    /// What its type does to an entity in it.
+    #[serde(default)]
+    pub entity: FluidEntity,
+    /// The client extension's `getRenderOverlayTexture`: the camera's overlay
+    /// with the eyes in it, a texture's resource path
+    /// (`minecraft:textures/misc/underwater.png`); none when left out.
+    #[serde(default)]
+    pub render_overlay: Option<String>,
+    /// Its `modifyFogColor`: the fog's RGB (0 to 1) with the camera in it;
+    /// the fog's own when left out.
+    #[serde(default)]
+    pub fog_color: Option<[f32; 3]>,
+    /// Its `modifyFogRender` over the terrain at a 12-chunk render distance:
+    /// the fog's start and end, in blocks; the fog's own when left out.
+    #[serde(default)]
+    pub fog_range: Option<[f32; 2]>,
 }
 
 impl Fluid {
@@ -1963,6 +2010,32 @@ capabilities = ["registries"]
             (1000, 300, false)
         );
         assert_eq!(brine.description, "block.ruby.brine");
+        // FluidType.Properties' entity facts, no overlay, the fog left alone.
+        assert_eq!(brine.entity, FluidEntity::default());
+        assert!(brine.entity.can_swim && brine.entity.can_drown && !brine.entity.can_extinguish);
+        assert_eq!(brine.entity.motion_scale, 0.014);
+        assert_eq!(brine.entity.fall_distance_modifier, 0.5);
+        assert_eq!(brine.render_overlay, None);
+        assert_eq!((brine.fog_color, brine.fog_range), (None, None));
+        // A molten metal's, as the oracle wrote All the Ores': no swimming or drowning, lava's push.
+        let molten = br#"{"still_texture": "ruby:a", "flowing_texture": "ruby:b",
+            "entity": {"can_swim": false, "can_drown": false, "motion_scale": 0.0023333333333333335},
+            "render_overlay": "minecraft:textures/misc/underwater.png",
+            "fog_color": [0.05, 0.08, 0.33], "fog_range": [-8.0, 24.0]}"#;
+        let files: &[(&str, &[u8])] = &[
+            ("data/ruby/horizon/block/brine.json", LIQUID),
+            ("data/ruby/horizon/item/brine_bucket.json", BUCKET),
+            ("data/ruby/horizon/fluid/brine.json", molten),
+        ];
+        let content = hmod("fluid-entity", MANIFEST_TEXT, files).unwrap();
+        let molten = &content.fluids[0];
+        assert!(!molten.entity.can_swim && !molten.entity.can_drown && molten.entity.can_push);
+        assert_eq!(molten.entity.fall_distance_modifier, 0.5);
+        assert_eq!(molten.fog_range, Some([-8.0, 24.0]));
+        assert_eq!(
+            molten.render_overlay.as_deref(),
+            Some("minecraft:textures/misc/underwater.png")
+        );
         let refused = |case: &str, block: &[u8], fluid: &str| {
             let files: &[(&str, &[u8])] = &[
                 ("data/ruby/horizon/block/brine.json", block),

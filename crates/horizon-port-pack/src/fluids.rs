@@ -53,6 +53,11 @@ pub struct FluidType {
     /// `getSound(SoundActions.BUCKET_FILL)`... by action (`bucket_fill`, `bucket_empty`, `fluid_vaporize`).
     #[serde(default)]
     pub sounds: BTreeMap<String, String>,
+    /// What it does to an entity in it, asked of a pig and a boat (`canSwim`, `canDrownIn`, `canPushEntity`,
+    /// `motionScale`, `getFallDistanceModifier`, `canExtinguish`, `canHydrate`, `supportsBoating`): written into
+    /// the declaration as the oracle gives it.
+    #[serde(default)]
+    pub entity: Option<Map<String, Value>>,
 }
 
 /// What only the pack's client says of its fluids (`client-facts.json`).
@@ -80,6 +85,17 @@ pub struct ClientFluidType {
     pub overlay: Option<String>,
     /// `getTintColor()`, ARGB as Java's int.
     pub tint: i32,
+    /// `getRenderOverlayTexture(minecraft)`: the camera's overlay with the eyes in it (a texture's resource
+    /// path), none where Java has null.
+    #[serde(default)]
+    pub render_overlay: Option<String>,
+    /// `modifyFogColor` when it gives another colour than the fog's: RGB, 0 to 1.
+    #[serde(default)]
+    pub fog_color: Option<[f32; 3]>,
+    /// `modifyFogRender` over the terrain at a 12-chunk render distance, when it sets the shader's fog: its start
+    /// and end.
+    #[serde(default)]
+    pub fog_range: Option<[f32; 2]>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,6 +246,34 @@ pub fn declaration(
         v.insert("sounds".into(), Value::Object(sounds));
     }
     v.insert("description".into(), json!(ty.description));
+    // FluidType's say over entities (slice 4), and its client extension's camera overlay and fog.
+    if let Some(entity) = &ty.entity {
+        let known = [
+            "can_swim",
+            "can_drown",
+            "can_push",
+            "motion_scale",
+            "fall_distance_modifier",
+            "can_extinguish",
+            "can_hydrate",
+            "supports_boating",
+        ];
+        let kept: Map<String, Value> = entity
+            .iter()
+            .filter(|(k, _)| known.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        v.insert("entity".into(), Value::Object(kept));
+    }
+    if let Some(overlay) = &ext.render_overlay {
+        v.insert("render_overlay".into(), json!(overlay));
+    }
+    if let Some(color) = ext.fog_color {
+        v.insert("fog_color".into(), json!(color));
+    }
+    if let Some(range) = ext.fog_range {
+        v.insert("fog_range".into(), json!(range));
+    }
     Ok(Value::Object(v))
 }
 
@@ -285,9 +329,15 @@ mod tests {
             r#"{
             "mekanism:heavy_water": {"description": "block.mekanism.heavy_water", "light_level": 0,
                 "density": 1000, "temperature": 300, "viscosity": 1000,
-                "sounds": {"bucket_fill": "minecraft:item.bucket.fill", "bucket_empty": "minecraft:item.bucket.empty"}},
+                "sounds": {"bucket_fill": "minecraft:item.bucket.fill", "bucket_empty": "minecraft:item.bucket.empty"},
+                "entity": {"can_swim": true, "can_drown": true, "can_push": true, "motion_scale": 0.014,
+                    "fall_distance_modifier": 0.5, "can_extinguish": false, "can_hydrate": false,
+                    "supports_boating": false}},
             "industrialforegoing:latex": {"description": "fluid_type.industrialforegoing.latex", "light_level": 0,
-                "density": 1000, "temperature": 300, "viscosity": 1000, "sounds": {}},
+                "density": 1000, "temperature": 300, "viscosity": 1000, "sounds": {},
+                "entity": {"can_swim": false, "can_drown": false, "can_push": true, "motion_scale": 0.002335,
+                    "fall_distance_modifier": 0.5, "can_extinguish": false, "can_hydrate": false,
+                    "supports_boating": false}},
             "test:virtual": {"description": "fluid.test.virtual", "light_level": 0, "density": 1000,
                 "temperature": 300, "viscosity": 1000}
         }"#,
@@ -297,7 +347,9 @@ mod tests {
             r#"{
             "fluid_types": {
                 "mekanism:heavy_water": {"still": "minecraft:block/water_still", "flowing": "minecraft:block/water_flow",
-                    "overlay": "minecraft:block/water_overlay", "tint": -15920043},
+                    "overlay": "minecraft:block/water_overlay", "tint": -15920043,
+                    "render_overlay": "minecraft:textures/misc/underwater.png",
+                    "fog_color": [0.050980393, 0.078431375, 0.33333334], "fog_range": [-8.0, 24.0]},
                 "industrialforegoing:latex": {"still": "industrialforegoing:block/fluids/latex_still",
                     "flowing": "industrialforegoing:block/fluids/latex_flow", "overlay": null, "tint": -1},
                 "test:virtual": {"still": "test:block/virtual", "flowing": "test:block/virtual", "tint": -1}
@@ -337,6 +389,14 @@ mod tests {
             Some("minecraft:item.bucket.empty")
         );
         assert_eq!(file.description, "block.mekanism.heavy_water");
+        // Its type's entity facts and its client extension's overlay and fog (Mekanism's: its tint, 24 blocks).
+        assert_eq!(file.entity, horizon_mods::content::FluidEntity::default());
+        assert_eq!(
+            file.render_overlay.as_deref(),
+            Some("minecraft:textures/misc/underwater.png")
+        );
+        assert_eq!(file.fog_color, Some([0.050980393, 0.078431375, 0.33333334]));
+        assert_eq!(file.fog_range, Some([-8.0, 24.0]));
         // Titanium names its flowing fluid `<path>_flowing`, has no sounds and no overlay, and draws solid.
         let latex =
             declaration(&fluids, &types, &client, "industrialforegoing:latex", &yes).unwrap();
@@ -345,6 +405,13 @@ mod tests {
         assert_eq!((file.tint, file.translucent), (0xFFFF_FFFF, false));
         assert_eq!(file.overlay_texture, None);
         assert_eq!(file.sounds, horizon_mods::content::FluidSounds::default());
+        // A type that is no water to an entity (the facts are the oracle's, whatever they say).
+        assert!(!file.entity.can_swim && !file.entity.can_drown);
+        assert_eq!(file.entity.motion_scale, 0.002335);
+        assert_eq!(
+            (file.render_overlay, file.fog_color, file.fog_range),
+            (None, None, None)
+        );
         // A bucket the content doesn't declare is left out; a flowing fluid and one that doesn't flow aren't
         // declared.
         let no = |_: &str| false;

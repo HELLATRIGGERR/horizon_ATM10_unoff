@@ -16756,6 +16756,8 @@ impl Game<'_> {
         let glowing = std::mem::take(self.glowing_vertices.get_mut());
         let shadow_only = std::mem::take(self.shadow_only_vertices.get_mut());
         let skin = std::mem::take(self.skin_frame.get_mut());
+        // The frame's fog, kept for `horizon-ctl state`.
+        self.fog.last_frame = Some(self.frame_fog(camera, &sky, biome, water_fog));
         let frame = Frame {
             weather: &weather,
             weather_time: horizon_client::weather::Time::new(self.world.game_time, alpha as f32),
@@ -16810,7 +16812,7 @@ impl Game<'_> {
             environment_fog: (self.dim == Dim::Nether).then_some((sky.fog_start, sky.fog_end)),
             cave_culling,
             water_fog,
-            fog: Some(self.frame_fog(camera, &sky, biome, water_fog)),
+            fog: self.fog.last_frame,
             dark_disc: self.dark_disc(camera),
             outline,
             outline_after_terrain,

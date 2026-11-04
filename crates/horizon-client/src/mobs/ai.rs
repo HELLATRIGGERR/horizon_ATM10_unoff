@@ -978,6 +978,7 @@ fn base_tick(m: &mut Mob, w: &MobWorld, events: &mut Vec<MobEvent>) {
     // Fire: water or rain (Entity.isInRain) extinguishes, lava ignites,
     // burning hurts every second.
     if m.fire_ticks > 0 && (m.fluids.in_water || in_rain(m, w)) {
+        // (A mod's fluid that extinguishes did so in `update_fluids`, silently, as NeoForge's `clearFire`.)
         m.fire_ticks = 0;
         events.push(MobEvent::Sound(
             "entity.generic.extinguish_fire",
@@ -1033,11 +1034,18 @@ fn base_tick(m: &mut Mob, w: &MobWorld, events: &mut Vec<MobEvent>) {
             // LivingEntity.baseTick's air supply (LivingBreatheEvent): an
             // entity with its eyes in water that can't breathe there loses
             // air, any other gains it.
-            let drowns = m.fluids.eye_in_water && !m.kind.flags.breathes_water;
+            // NeoForge's CommonHooks.onLivingBreathe: the eyes in a content
+            // mod's fluid drown where its type `canDrownIn`; where not, the mob
+            // breathes but gains no air.
+            let eye_mod = m.fluids.eye_in_mod.and_then(|k| k.mod_fluid());
+            let drowns = match eye_mod {
+                Some(t) => t.entity.can_drown,
+                None => m.fluids.eye_in_water && !m.kind.flags.breathes_water,
+            };
             let vanilla = Breath {
                 can_breathe: !drowns,
                 consume: 1,
-                refill: if drowns { 0 } else { 4 },
+                refill: if drowns || eye_mod.is_some() { 0 } else { 4 },
             };
             let breath = breathe(m.id, &m.kind.id, vanilla);
             if let Some(drowning) = drown(m.id, &m.kind.id, &mut m.air, breath, true) {

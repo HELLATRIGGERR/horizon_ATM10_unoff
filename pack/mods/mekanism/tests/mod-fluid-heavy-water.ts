@@ -55,7 +55,9 @@ try {
   // A look for whoever reads the run: tinted water textures, translucent (not asserted).
   try { await fixture.raw(`screenshot ${join(fixture.run, 'heavy-water.png').replaceAll('\\', '/')}`); } catch {}
 
-  // The empty bucket takes the source back.
+  // The empty bucket takes the source back, from where the player stood: the flow it stands in has pushed it
+  // away meanwhile, as Java's does (FluidType.canPushEntity, docs/mod-fluids.md slice 4).
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 4.5}`);
   await fixture.raw(`look-at ${x + 0.5} ${y + 0.5} ${z + 0.5}`); await fixture.raw('use-item');
   await until(() => fixture.raw('inventory'), v => v.hotbar?.[0]?.item === 'mekanism:heavy_water_bucket', 'the bucket takes heavy water back');
   assert(!(await isBlock(at(0), 'mekanism:heavy_water[level=0]')), 'the source is gone');

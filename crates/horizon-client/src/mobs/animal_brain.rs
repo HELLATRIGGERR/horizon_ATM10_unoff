@@ -1861,9 +1861,10 @@ fn dist_sqr(a: [i32; 3], b: [i32; 3]) -> i64 {
 fn manhattan(a: [i32; 3], b: [i32; 3]) -> i32 {
     (a[0] - b[0]).abs() + (a[1] - b[1]).abs() + (a[2] - b[2]).abs()
 }
-/// `Swim`: deeper than the jump threshold, or in lava.
+/// `Swim`: deeper than the jump threshold, or in lava (NeoForge: or deeper
+/// in a mod's fluid it can swim in).
 fn swim_condition(m: &Mob) -> bool {
-    m.fluids.water > m.fluid_jump_threshold() || m.fluids.in_lava
+    m.should_float()
 }
 /// `PositionTracker.isVisibleBy`.
 fn tracker_visible(m: &mut Mob, w: &MobWorld, t: Tracker) -> bool {

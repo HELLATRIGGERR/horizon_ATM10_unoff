@@ -73,6 +73,8 @@ pub struct FogState {
     /// `LightmapRenderStateExtractor.blockLightFlicker`.
     pub block_light_flicker: f32,
     flicker_seed: u64,
+    /// The last frame's fog, for `horizon-ctl state` (its colour and range).
+    pub last_frame: Option<FogData>,
 }
 impl FogState {
     fn next_float(&mut self) -> f32 {
@@ -144,6 +146,7 @@ pub fn fog_type(world: &World, facts: &BlockFacts, camera: [f64; 3], near: &Near
         near,
         |b| camera_fluid_height(world, facts, b),
         |b| &*facts.get(world.block(b[0], b[1], b[2])).name == "minecraft:powder_snow",
+        in_tag,
     )
 }
 /// `fog_type` over a block lookup: the fluid and its camera height, and
@@ -153,6 +156,7 @@ fn camera_fog_type(
     near: &NearPlane,
     fluid: impl Fn([i32; 3]) -> Option<(Fluid, f64)>,
     powder_snow: impl Fn([i32; 3]) -> bool,
+    in_tag: impl Fn(Fluid, &str) -> bool,
 ) -> FogType {
     let block = |p: [f64; 3]| {
         [
@@ -162,7 +166,8 @@ fn camera_fog_type(
         ]
     };
     let b = block(camera);
-    if let Some((Fluid::Water, h)) = fluid(b)
+    if let Some((f, h)) = fluid(b)
+        && in_tag(f, "minecraft:water")
         && camera[1] < f64::from(b[1]) + h
     {
         return FogType::Water;
@@ -171,13 +176,74 @@ fn camera_fog_type(
         let p: [f64; 3] = std::array::from_fn(|i| camera[i] + point[i]);
         let b = block(p);
         match fluid(b) {
-            Some((Fluid::Lava, h)) if p[1] <= f64::from(b[1]) + h => return FogType::Lava,
-            Some((Fluid::Lava, _)) => {}
+            Some((f, h)) if in_tag(f, "minecraft:lava") && p[1] <= f64::from(b[1]) + h => {
+                return FogType::Lava;
+            }
+            Some((f, _)) if in_tag(f, "minecraft:lava") => {}
             _ if powder_snow(b) => return FogType::PowderSnow,
             _ => {}
         }
     }
     FogType::Atmospheric
+}
+
+/// `FluidState.is(FluidTags.WATER)` / `LAVA`, as `Camera.getFluidInCamera`
+/// asks it: vanilla's water and lava, and a content mod's fluid in the tag
+/// (Bumblezone's sugar water is in `minecraft:water`, so its camera fog is water's).
+fn in_tag(f: Fluid, tag: &str) -> bool {
+    match f {
+        Fluid::None => false,
+        Fluid::Water => tag == "minecraft:water",
+        Fluid::Lava => tag == "minecraft:lava",
+        Fluid::Mod(k) => horizon_world::fluid_stack::fluid_in_tag(k, tag),
+    }
+}
+
+/// The content mod's fluid (its source) the camera is in, below its surface
+/// by `FluidState.getHeight` (the full block under the same fluid, else its
+/// amount over 9): what NeoForge's `ClientHooks.getFogColor` and
+/// `onFogRender` ask the fluid's client extension of.
+pub fn camera_mod_fluid(
+    world: &World,
+    facts: &BlockFacts,
+    camera: [f64; 3],
+) -> Option<horizon_world::fluid::FluidKind> {
+    let b = [
+        camera[0].floor() as i32,
+        camera[1].floor() as i32,
+        camera[2].floor() as i32,
+    ];
+    let s = facts.get(world.block(b[0], b[1], b[2]));
+    let Fluid::Mod(kind) = s.fluid else {
+        return None;
+    };
+    let above = facts.get(world.block(b[0], b[1] + 1, b[2]));
+    let height = if above.fluid == s.fluid {
+        1.0
+    } else {
+        f64::from(s.fluid_level) / 9.0
+    };
+    (camera[1] < f64::from(b[1]) + height).then_some(kind)
+}
+
+/// NeoForge's `ClientHooks.getFogColor` and `onFogRender` with the camera in
+/// a content mod's fluid: its client extension's `modifyFogColor` (Mekanism's
+/// gives its tint) and `modifyFogRender` (Mekanism's: from 8 blocks behind to
+/// 24 ahead), as the NeoForge oracle read them; the fog's own where the
+/// extension keeps it.
+pub fn apply_mod_fluid_fog(fog: &mut FogData, fluid: horizon_world::fluid::FluidKind) {
+    let Some(m) = fluid.mod_fluid() else {
+        return;
+    };
+    if let Some([r, g, b]) = m.fog_color {
+        fog.color = [r, g, b, fog.color[3]];
+    }
+    if let Some([start, end]) = m.fog_range {
+        fog.environmental_start = start;
+        fog.environmental_end = end;
+        fog.sky_end = fog.sky_end.min(end);
+        fog.cloud_end = fog.cloud_end.min(end);
+    }
 }
 
 /// Everything `FogRenderer.setupFog` reads for one frame.
@@ -463,7 +529,7 @@ mod tests {
             let mut camera = crate::camera::Camera::default();
             camera.set_rotation(0.0, pitch);
             let near = camera.near_plane(70.0, 1600.0, 900.0);
-            camera_fog_type([0.5, y, 0.5], &near, fluid, |_| false)
+            camera_fog_type([0.5, y, 0.5], &near, fluid, |_| false, in_tag)
         };
         // Looking level, the near plane reaches tan(35 degrees) * 0.05 = 0.035 below the eye.
         assert_eq!(fog(surface + 0.02, 0.0), FogType::Lava);
@@ -471,6 +537,65 @@ mod tests {
         // The eye itself is not tested: looking up, the whole plane is above it.
         assert_eq!(fog(surface - 0.01, -90.0), FogType::Atmospheric);
     }
+    /// `Camera.getFluidInCamera` asks the tags: a content mod's fluid in
+    /// `minecraft:water` (Bumblezone's sugar water) gives water's fog, in
+    /// `minecraft:lava` lava's, in neither none (NeoForge's fluid types fog by
+    /// their client extension instead, `apply_mod_fluid_fog`).
+    #[test]
+    fn a_mod_fluid_in_the_water_or_lava_tag_fogs_as_water_or_lava() {
+        horizon_world::mod_fluids::register_test_fluids();
+        let brine = horizon_world::fluid::FluidKind::from_name("test:brine").unwrap();
+        let sludge = horizon_world::fluid::FluidKind::from_name("test:sludge").unwrap();
+        let near = crate::camera::Camera::default().near_plane(70.0, 1600.0, 900.0);
+        let tagged = |f: Fluid, tag: &str| match f {
+            Fluid::Mod(k) if k == brine => tag == "minecraft:water",
+            Fluid::Mod(k) if k == sludge => tag == "minecraft:lava",
+            _ => in_tag(f, tag),
+        };
+        let fog = |f: Fluid, tags: &dyn Fn(Fluid, &str) -> bool| {
+            let fluid = |b: [i32; 3]| (b[1] == 64).then_some((f, 8.0 / 9.0));
+            camera_fog_type([0.5, 64.5, 0.5], &near, fluid, |_| false, tags)
+        };
+        assert_eq!(fog(Fluid::Mod(brine), &tagged), FogType::Water);
+        assert_eq!(fog(Fluid::Mod(sludge), &tagged), FogType::Lava);
+        assert_eq!(fog(Fluid::Water, &tagged), FogType::Water);
+        // As the test fluids are registered: brine in c:brine only.
+        assert_eq!(fog(Fluid::Mod(brine), &in_tag), FogType::Atmospheric);
+    }
+
+    /// NeoForge's `modifyFogColor` and `modifyFogRender` with the camera in a
+    /// mod's fluid, as the oracle read Mekanism's: its tint, -8 to 24 blocks.
+    #[test]
+    fn a_mod_fluids_client_extension_sets_the_fog_colour_and_range() {
+        horizon_world::mod_fluids::register_test_fluids();
+        let brine = horizon_world::fluid::FluidKind::from_name("test:brine").unwrap();
+        let sludge = horizon_world::fluid::FluidKind::from_name("test:sludge").unwrap();
+        let sky = Sky {
+            fog_end: 1024.0,
+            cloud_fog_end: 2048.0,
+            ..Sky::default()
+        };
+        let tables = FogTables {
+            water_fog_end: vec![1.0],
+        };
+        let base = setup_fog(&tables, &FogState::default(), &inputs(&sky));
+        let mut fog = base;
+        apply_mod_fluid_fog(&mut fog, brine);
+        assert_eq!(
+            &fog.color[..3],
+            &[0.050_980_393, 0.078_431_375, 0.333_333_34]
+        );
+        assert_eq!(
+            (fog.environmental_start, fog.environmental_end),
+            (-8.0, 24.0)
+        );
+        assert_eq!((fog.sky_end, fog.cloud_end), (24.0, 24.0));
+        // One whose extension keeps the fog leaves it.
+        let mut kept = base;
+        apply_mod_fluid_fog(&mut kept, sludge);
+        assert_eq!(kept, base);
+    }
+
     #[test]
     fn boss_world_fog_closes_in() {
         // AtmosphericFogEnvironment.setupFog under a createWorldFog boss bar.

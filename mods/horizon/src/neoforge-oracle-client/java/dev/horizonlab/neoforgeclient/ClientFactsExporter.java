@@ -7,8 +7,12 @@ import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import com.mojang.blaze3d.shaders.FogShape;
+import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.color.item.ItemColors;
+import net.minecraft.client.renderer.FogRenderer;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -26,12 +30,14 @@ import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtension
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.FluidType;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
+import org.joml.Vector3f;
 
 /**
  * Dev-only client half of the NeoForge oracle (docs/mod-fluids.md, slice 2): once every mod has loaded on the client
  * (its client extensions registered, its render layers set, its item colours registered), writes what only a client
  * holds of the pack's fluids to {@code horizon.oracle.client.out}, then halts the game: each {@code FluidType}'s
- * {@code IClientFluidTypeExtensions} (still, flowing and overlay textures, tint), each fluid's render layer
+ * {@code IClientFluidTypeExtensions} (still, flowing and overlay textures, tint, the camera's overlay and what its
+ * {@code modifyFogColor} and {@code modifyFogRender} make of the fog), each fluid's render layer
  * ({@code ItemBlockRenderTypes.getRenderLayer}) and each bucket's item colours ({@code ItemColors.getColor}, which
  * {@code DynamicFluidContainerModel.Colors} gives its fluid layer). Its window is never shown ({@code
  * HiddenWindowMixin}). Never shipped to players.
@@ -150,9 +156,51 @@ public final class ClientFactsExporter {
         } catch (RuntimeException e) {
             // Left out.
         }
+        fog(j, ext);
         j.endObject();
         j.flush();
         return b.toString();
+    }
+
+    /**
+     * What the type's client extension makes of the fog with the camera in it (docs/mod-fluids.md, slice 4):
+     * {@code modifyFogColor} of a known colour (written when it gives another: Mekanism's gives its tint) and
+     * {@code modifyFogRender} over the terrain at a 12-chunk render distance (written when it sets the shader's fog
+     * start and end: Mekanism's, -8 to 24). There is no level or camera entity here: an extension that reads them
+     * throws, and is left out. This runs on the render thread ({@code enqueueWork}), which the shader's fog wants.
+     */
+    private static void fog(JsonWriter j, IClientFluidTypeExtensions ext) throws IOException {
+        try {
+            Vector3f in = new Vector3f(0.25F, 0.5F, 0.75F);
+            Vector3f out = ext.modifyFogColor(new Camera(), 0.0F, null, 12, 0.0F, new Vector3f(in));
+            if (out != null && !out.equals(in)) {
+                j.name("fog_color").beginArray().value(out.x()).value(out.y()).value(out.z()).endArray();
+            }
+        } catch (RuntimeException e) {
+            System.out.println("horizon-oracle: fog colour left out: " + e);
+        }
+        float start = RenderSystem.getShaderFogStart();
+        float end = RenderSystem.getShaderFogEnd();
+        FogShape shape = RenderSystem.getShaderFogShape();
+        try {
+            float unset = -12345.0F;
+            RenderSystem.setShaderFogStart(unset);
+            RenderSystem.setShaderFogEnd(unset);
+            ext.modifyFogRender(new Camera(), FogRenderer.FogMode.FOG_TERRAIN, 192.0F, 0.0F, 0.0F, 192.0F, FogShape.SPHERE);
+            float s = RenderSystem.getShaderFogStart();
+            float e = RenderSystem.getShaderFogEnd();
+            if (s != unset && e != unset) {
+                j.name("fog_range").beginArray().value(s).value(e).endArray();
+            } else if (s != unset || e != unset) {
+                System.out.println("horizon-oracle: fog range set only in part: " + s + " " + e);
+            }
+        } catch (RuntimeException e) {
+            System.out.println("horizon-oracle: fog range left out: " + e);
+        } finally {
+            RenderSystem.setShaderFogStart(start);
+            RenderSystem.setShaderFogEnd(end);
+            RenderSystem.setShaderFogShape(shape);
+        }
     }
 
     private static String fluid(Fluid fluid) throws IOException {

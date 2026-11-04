@@ -1078,9 +1078,10 @@ fn same_path(a: Option<&Path>, b: Option<&Path>) -> bool {
 fn block_of(p: Vec3) -> [i32; 3] {
     [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32]
 }
-/// `Swim`: deeper than the jump threshold, or in lava.
+/// `Swim`: deeper than the jump threshold, or in lava (NeoForge: or deeper
+/// in a mod's fluid it can swim in).
 fn swim_condition(m: &Mob) -> bool {
-    m.fluids.water > m.fluid_jump_threshold() || m.fluids.in_lava
+    m.should_float()
 }
 /// `PositionTracker.isVisibleBy`.
 fn tracker_visible(m: &mut Mob, w: &MobWorld, t: Tracker) -> bool {

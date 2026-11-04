@@ -49,6 +49,8 @@ pub(in crate::game) struct Session {
 #[derive(Default)]
 pub(in crate::game) struct State {
     pub(in crate::game) workbenches: std::collections::HashMap<u32, Session>,
+    /// `CompressionService`'s chains on this server, and what each client was sent.
+    pub(in crate::game) compression: super::compression::Compression,
 }
 
 /// `PortableCellWorkbenchInventory.saveChanges`: the cell as the item's
@@ -256,6 +258,13 @@ impl Game<'_> {
             self.lan_close_portable_workbench(host, conn);
             return true;
         }
+        // PortableCellWorkbenchMenu.mega$nextCompressionLimit: the held cell's cutoff.
+        if p.slot == super::compression::CUTOFF_PLACE {
+            let backwards = p.button == 1;
+            let _ = self.as_guest(host, conn, |g| g.portable_workbench_cutoff(source, keep, backwards));
+            self.lan_send_portable_workbench(host, conn);
+            return true;
+        }
         let input = lan_crafting::input(p.input);
         let mut button = i32::from(p.button);
         // A filter pressed by its index is on its own page, whatever page the menu shows.
@@ -310,6 +319,20 @@ impl Game<'_> {
         }
         self.lan_send_portable_workbench(host, conn);
         true
+    }
+
+    /// `mega$nextCompressionLimit` on the workbench in the player's slot
+    /// `source`: its bulk cell switches its cutoff, and the item saves it.
+    fn portable_workbench_cutoff(&mut self, source: usize, keep: bool, backwards: bool) -> Result<(), String> {
+        let stack = self.stack_in(source).cloned().ok_or("portable cell workbench moved")?;
+        let mut machine = self.megacells_item_workbench(&stack, keep)?;
+        if !self.megacells_next_compression_limit(&mut machine, backwards) {
+            return Ok(());
+        }
+        let mut next = stack;
+        store(&machine, &mut next)?;
+        *self.stack_in_mut(source) = Some(next);
+        Ok(())
     }
 
     /// The click on the player's side, as the player: the cell slot

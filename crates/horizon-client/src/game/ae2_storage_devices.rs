@@ -1538,6 +1538,7 @@ impl Game<'_> {
                 (None,false)=>0,
             },upgrades,
             fuzzy:settings.as_ref().and_then(|s|text(s,"fuzzy_mode")).unwrap_or_else(||"ignore_all".into()),fuzzy_card,keep,
+            cutoff:self.ae2x_workbench_cutoff(cell.as_ref()).map(|item|horizon_client::item_data::canon_stack(Some(&item))),
             ..Default::default()
         })
     }
@@ -1582,6 +1583,16 @@ impl Game<'_> {
     }
     /// Ghost filters and controls commit to the workbench plus the exact
     /// inserted cell. Physical cell/player/cursor ownership remains external.
+    /// A press an addon put on the Cell Workbench block's menu (MEGA's
+    /// compression cutoff): the block's workbench changed and saved.
+    pub(super) fn ae2_workbench_addon_press(&mut self,pos:Pos,place:i16,button:i32)->bool{
+        let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos)else{return false};
+        if machine.kind!=MachineKind::CellWorkbench{return false}
+        let mut next=(**machine).clone();
+        if !self.ae2x_workbench_press(&mut next,place,button){return false}
+        if let Some(BlockEntity::Ae2(current))=self.world.block_entities.get_mut(&pos){**current=next;}
+        self.world.modified.insert((pos.0>>4,pos.2>>4));true
+    }
     pub(super) fn ae2_workbench_menu_click(&mut self,pos:Pos,page:&mut usize,slot:Option<usize>,button:i32,input:horizon_client::menu::Input)->bool{
         let Some(slot)=slot.filter(|s|(301..327).contains(s))else{return false};
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos)else{return false};

@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 /// The menu place of filter `index`, whatever page the menu is on.
 pub(super) const CONFIG_PLACE: i16 = 100;
 pub(super) const CONFIG_PLACES: usize = 63;
+/// The window places under `CONFIG_PLACE` from here on press buttons an
+/// addon puts on the screen (MEGA's compression cutoff at 99).
+pub(super) const ADDON_PLACES: i16 = 90;
 /// The menu's entries: fuzzy (left) and copy mode (right), clear (left) and
 /// partition (right).
 const SETTINGS: i16 = 23;
@@ -39,8 +42,14 @@ pub(super) struct WorkbenchView {
     pub(super) fuzzy: String,
     pub(super) fuzzy_card: bool,
     pub(super) keep: bool,
+    /// MEGA's `CompressionCutoffButton` over a bulk cell: the cutoff item's
+    /// canonical text while it shows.
+    #[serde(default)]
+    pub(super) cutoff: Option<String>,
     #[serde(skip)]
     pub(super) stacks: Vec<Option<ItemStack>>,
+    #[serde(skip)]
+    pub(super) cutoff_stack: Option<ItemStack>,
 }
 
 /// A toolbar button after the help button: the entry and button it presses
@@ -51,6 +60,8 @@ struct Tool {
     icon: (i32, i32),
     title: &'static str,
     value: &'static str,
+    /// An item drawn in place of the icon, and named on the second tooltip line.
+    item: Option<ItemStack>,
 }
 
 fn tools(v: &WorkbenchView) -> Vec<Tool> {
@@ -63,19 +74,35 @@ fn tools(v: &WorkbenchView) -> Vec<Tool> {
             "percent_25" => (icon::FUZZY_PERCENT_25, "gui.tooltips.ae2.FZPercent_25"),
             _ => (icon::FUZZY_IGNORE, "gui.tooltips.ae2.FZIgnoreAll"),
         };
-        tools.push(Tool { press: (SETTINGS, 0), reverse: None, icon: shown, title: "gui.tooltips.ae2.FuzzyMode", value });
+        tools.push(Tool { press: (SETTINGS, 0), reverse: None, icon: shown, title: "gui.tooltips.ae2.FuzzyMode", value, item: None });
     }
-    tools.push(Tool { press: (FILTERS, 1), reverse: None, icon: icon::COG, title: "gui.tooltips.ae2.PartitionStorage", value: "gui.tooltips.ae2.PartitionStorageHint" });
-    tools.push(Tool { press: (FILTERS, 0), reverse: None, icon: CLEAR, title: "gui.tooltips.ae2.Clear", value: "gui.tooltips.ae2.ClearSettings" });
+    tools.push(Tool { press: (FILTERS, 1), reverse: None, icon: icon::COG, title: "gui.tooltips.ae2.PartitionStorage", value: "gui.tooltips.ae2.PartitionStorageHint", item: None });
+    tools.push(Tool { press: (FILTERS, 0), reverse: None, icon: CLEAR, title: "gui.tooltips.ae2.Clear", value: "gui.tooltips.ae2.ClearSettings", item: None });
     tools.push(Tool {
         press: (SETTINGS, 1),
         reverse: Some((SETTINGS, 1)),
         icon: if v.keep { COPY_OFF } else { COPY_ON },
         title: "gui.ae2.CopyMode",
         value: "gui.ae2.CopyModeDesc",
+        item: None,
     });
+    // MEGA's CellWorkbenchScreenMixin adds the cutoff button last, shown only
+    // over a compressing bulk cell: a press goes one variant down, a right
+    // press one up (`mega$nextCompressionLimit(isHandlingRightClick())`).
+    if let Some(item) = &v.cutoff_stack {
+        tools.push(Tool {
+            press: (CUTOFF_PLACE, 0),
+            reverse: Some((CUTOFF_PLACE, 1)),
+            icon: (0, 0),
+            title: "gui.tooltips.megacells.CompressionCutoff",
+            value: "",
+            item: Some(item.clone()),
+        });
+    }
     tools
 }
+/// `CompressionCutoffHost.ACTION_SET_COMPRESSION_LIMIT`'s window place.
+const CUTOFF_PLACE: i16 = 99;
 
 impl Game<'_> {
     fn ae2_workbench_view(&self) -> Option<&WorkbenchView> {
@@ -106,6 +133,7 @@ impl Game<'_> {
             return;
         };
         view.stacks = view.config.iter().map(|text| horizon_client::item_data::parse_stack(text).ok().flatten()).collect();
+        view.cutoff_stack = view.cutoff.as_deref().and_then(|text| horizon_client::item_data::parse_stack(text).ok().flatten());
         if let Some(r) = self.remote.as_mut() {
             r.ae2_workbench = Some(view);
         }
@@ -122,9 +150,10 @@ impl Game<'_> {
         };
         for (i, tool) in tools(&v).into_iter().enumerate() {
             if inside(toolbar_button(style, i as i32 + 1), at) {
-                if !right || tool.reverse.is_some() {
+                let press = if right { tool.reverse } else { Some(tool.press) };
+                if let Some((entry, button)) = press {
                     self.audio.play_button_click();
-                    self.ae2_send_menu_button(tool.press.0, tool.press.1);
+                    self.ae2_send_menu_button(entry, button);
                 }
                 return true;
             }
@@ -188,7 +217,18 @@ impl Game<'_> {
         self.ae2_draw_toolbar(batch, ox, oy, help, toolbar_button(style, tools.len() as i32));
         self.ae2_draw_icon_button(batch, ox, oy, help, icon::HELP, mouse);
         for (i, tool) in tools.iter().enumerate() {
-            self.ae2_draw_icon_button(batch, ox, oy, toolbar_button(style, i as i32 + 1), tool.icon, mouse);
+            let rect = toolbar_button(style, i as i32 + 1);
+            match &tool.item {
+                // CompressionCutoffButton.renderWidget: the backdrop, then the item a pixel down.
+                Some(item) => {
+                    let hover = inside(rect, mouse);
+                    let lift = if hover { 1.0 } else { 0.0 };
+                    let backdrop = if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND };
+                    self.ae2_icon(batch, backdrop, (18, 20), ox + rect[0] as f32 - 1.0, oy + rect[1] as f32 + lift);
+                    self.draw_item_model(batch, item, ox + rect[0] as f32, oy + rect[1] as f32 + 1.0 + lift);
+                }
+                None => self.ae2_draw_icon_button(batch, ox, oy, rect, tool.icon, mouse),
+            }
         }
         let states = Image { texture: "guis/states".into(), texture_size: (256, 256), src: None };
         let (sx, sy) = icon::SLOT_BACKGROUND;
@@ -217,7 +257,11 @@ impl Game<'_> {
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];
         if let Some((_, tool)) = tools(&v).into_iter().enumerate().find(|(i, _)| inside(toolbar_button(style, *i as i32 + 1), at)) {
             let mut lines = vec![self.translate(tool.title, tool.title)];
-            lines.extend(self.translate(tool.value, tool.value).split('\n').map(|l| format!("\u{a7}7{l}")));
+            match &tool.item {
+                // CompressionCutoffButton.getTooltipMessage: the item's hover name.
+                Some(item) => lines.push(item.custom_name().unwrap_or_else(|| self.pack.names.display_item(&item.item))),
+                None => lines.extend(self.translate(tool.value, tool.value).split('\n').map(|l| format!("\u{a7}7{l}"))),
+            }
             self.ae2_tooltip_lines(batch, lines);
             return true;
         }
@@ -244,7 +288,8 @@ impl Game<'_> {
             .enumerate()
             .map(|(i, t)| serde_json::json!({"title": t.title, "value": t.value, "rect": rect(toolbar_button(style, i as i32 + 1))}))
             .collect();
-        Some(serde_json::json!({"config": config, "tools": tools, "upgrades": v.upgrades, "keep": v.keep, "fuzzy": v.fuzzy}))
+        Some(serde_json::json!({"config": config, "tools": tools, "upgrades": v.upgrades, "keep": v.keep, "fuzzy": v.fuzzy,
+            "cutoff": v.cutoff_stack.as_ref().map(|s| s.item.to_string())}))
     }
 }
 
@@ -262,5 +307,13 @@ mod tests {
         assert_eq!(tools(&view)[1].press, (FILTERS, 1));
         assert_eq!(tools(&view)[2].press, (FILTERS, 0));
         assert_eq!(tools(&view)[3].press, (SETTINGS, 1));
+        assert_eq!(tools(&view).len(), 4);
+        // MEGA's cutoff button, last, over a compressing bulk cell: a press down, a right press up.
+        view.cutoff_stack = Some(ItemStack::new("minecraft:iron_block", 1));
+        let cutoff = tools(&view).pop().unwrap();
+        assert_eq!(cutoff.title, "gui.tooltips.megacells.CompressionCutoff");
+        assert_eq!((cutoff.press, cutoff.reverse), ((CUTOFF_PLACE, 0), Some((CUTOFF_PLACE, 1))));
+        assert_eq!(cutoff.item.map(|item| item.item.to_string()), Some("minecraft:iron_block".to_owned()));
+        assert!((ADDON_PLACES..CONFIG_PLACE).contains(&CUTOFF_PLACE));
     }
 }

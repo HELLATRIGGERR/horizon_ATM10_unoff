@@ -51,7 +51,8 @@
     "cable_mega_interface": {},
     "cell_dock": {},
     "bulk_cell_component": {},
-    "bulk_item_cell": {"max_stack_size": 1}
+    "bulk_item_cell": {"max_stack_size": 1},
+    "compression_card": {}
   },
   "blocks": {
     "sky_steel_block": {
@@ -127,5 +128,6 @@
   "ae2_namespace": {
     "screens": ["megacells/portable_cell_workbench.json", "megacells/mega_pattern_provider.json", "megacells/mega_interface.json", "megacells/cell_dock.json"],
     "gui_textures": ["megacells/mega_pattern_provider.png", "megacells/mega_interface.png"]
-  }
+  },
+  "data_maps": ["item/compression_overrides"]
 }

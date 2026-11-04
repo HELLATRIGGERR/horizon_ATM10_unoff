@@ -61,7 +61,7 @@ fn entry_value(raw: &Value) -> Option<Value> {
 /// One file over what earlier files made of the type: `replace` clears it,
 /// `values` attach (a tag to every entry in it), then `remove` takes entries
 /// away, as `DataMapFile` is applied. False when the file isn't a data map.
-fn apply_file(
+pub(super) fn apply_file(
     map: &mut BTreeMap<String, Value>,
     file: &Value,
     tags: &HashMap<String, HashSet<String>>,

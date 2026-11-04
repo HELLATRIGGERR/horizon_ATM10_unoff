@@ -6932,6 +6932,13 @@ impl Game<'_> {
             && host.hub.guests.iter().find(|g|g.conn==conn).is_none_or(|g|g.carried.is_none()) {
             self.lan_send_ae2_machine(host,conn);return true;
         }
+        // A button an addon put on the Cell Workbench screen (MEGA's cutoff).
+        if part.is_none() && p.slot<super::ae2_workbench_screen::CONFIG_PLACE && p.slot>=super::ae2_workbench_screen::ADDON_PLACES
+            && self.as_guest(host,conn,|game|game.ae2_workbench_addon_press(pos,p.slot,i32::from(p.button))).unwrap_or(false)
+        {
+            self.lan_send_ae2_machine(host,conn);
+            return true;
+        }
         // CellWorkbenchScreen presses a filter by its index, whatever the page.
         if (super::ae2_workbench_screen::CONFIG_PLACE..super::ae2_workbench_screen::CONFIG_PLACE+super::ae2_workbench_screen::CONFIG_PLACES as i16).contains(&p.slot)
             && matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(machine)) if machine.kind==horizon_client::ae2_world::MachineKind::CellWorkbench)

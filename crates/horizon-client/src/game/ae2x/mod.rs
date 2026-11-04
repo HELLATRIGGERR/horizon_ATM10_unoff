@@ -268,6 +268,30 @@ impl Game<'_> {
         let _ = (stack, translate, name);
         Vec::new()
     }
+    /// What a Cell Workbench's cell adds to its screen: MEGA's compression
+    /// cutoff button over a bulk cell (`CellWorkbenchScreenMixin`), shown
+    /// with its item; none hides it.
+    pub(super) fn ae2x_workbench_cutoff(&self, cell: Option<&horizon_client::items::ItemStack>) -> Option<horizon_client::items::ItemStack> {
+        #[cfg(feature = "ae2-megacells")]
+        return self.megacells_workbench_cutoff(cell);
+        #[cfg(not(feature = "ae2-megacells"))]
+        {
+            let _ = cell;
+            None
+        }
+    }
+    /// A press an addon put on a Cell Workbench's menu at window place
+    /// `place` (MEGA's cutoff button, `mega$nextCompressionLimit`), on the
+    /// workbench `machine`: true when an addon took it.
+    pub(super) fn ae2x_workbench_press(&self, machine: &mut Machine, place: i16, button: i32) -> bool {
+        #[cfg(feature = "ae2-megacells")]
+        if place == megacells::compression::CUTOFF_PLACE {
+            self.megacells_next_compression_limit(machine, button == 1);
+            return true;
+        }
+        let _ = (machine, place, button);
+        false
+    }
     /// The addons' grid ticks, after AE2's interfaces.
     pub(super) fn tick_ae2x(&mut self) {
         #[cfg(feature = "ae2-merequester")]
@@ -368,6 +392,8 @@ impl Game<'_> {
         let _ = &host;
         #[cfg(feature = "ae2-megacells")]
         self.lan_refresh_portable_workbenches(host);
+        #[cfg(feature = "ae2-megacells")]
+        self.lan_megacells_sync_chains(host);
         #[cfg(feature = "ae2-merequester")]
         self.lan_refresh_merequester(host);
     }
@@ -433,6 +459,10 @@ impl Game<'_> {
     /// A server payload of an addon's channel: true when an addon took it.
     pub(super) fn ae2x_client_payload(&mut self, channel: &str, data: &[u8]) -> bool {
         let _ = (channel, data);
+        #[cfg(feature = "ae2-megacells")]
+        if self.megacells_chains_payload(channel, data) {
+            return true;
+        }
         #[cfg(feature = "ae2-merequester")]
         if self.merequester_payload(channel, data) {
             return true;

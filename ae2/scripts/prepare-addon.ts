@@ -23,7 +23,10 @@ type Content = { namespace: string; name: string; description: string; authors: 
   config_conditions?: Record<string, { file: string; key: string; default: boolean }>;
   /** Files the addon ships under AE2's namespace that the declared slices use, kept under `assets/<ns>/ae2/`
    * (a content mod owns its namespace alone): screen styles and GUI textures. */
-  ae2_namespace?: { screens?: string[]; gui_textures?: string[] } };
+  ae2_namespace?: { screens?: string[]; gui_textures?: string[] };
+  /** The addon's data maps the slices read (`data/<ns>/data_maps/<registry>/<name>.json`, as `<registry>/<name>`),
+   * copied as they are: NeoForge's file, its conditions and tags resolved by the game. */
+  data_maps?: string[] };
 type Manifest = { addon: string; name: string; version: string; source: { url: string; tag: string; commit: string; license: string };
   assets_license: string; jar: { file: string; sha256: string } };
 
@@ -218,7 +221,12 @@ if (!help(usage)) {
   later('assets/ae2 (screens and GUI textures, merged into content/ae2 with the slices that use them)', join(jarDir, 'assets/ae2'));
   later('data/ae2 (tags, merged into content/ae2 with the slices that use them)', join(data, 'ae2'));
   later(`assets/${ns}/ae2guide`, join(assets, 'ae2guide'));
-  later(`data/${ns}/data_maps`, join(data, ns, 'data_maps'));
+  for (const map of content.data_maps ?? []) {
+    copy(join(data, ns, 'data_maps', `${map}.json`), join(out, 'data', ns, 'data_maps', `${map}.json`));
+    report.data_maps = [...(report.data_maps ?? []), `${ns}:${map}`];
+  }
+  const maps = walk(join(data, ns, 'data_maps')).filter(p => !(content.data_maps ?? []).some(m => relative(join(data, ns, 'data_maps'), p).replaceAll('\\', '/') === `${m}.json`));
+  if (maps.length) report.deferred[`data/${ns}/data_maps`] = maps.length;
   later(`data/${ns}/advancement`, join(data, ns, 'advancement'));
 
   writeFileSync(join(out, 'horizon-mod.toml'), [

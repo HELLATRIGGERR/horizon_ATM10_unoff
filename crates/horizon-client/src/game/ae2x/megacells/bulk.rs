@@ -8,9 +8,8 @@
 //! `ae2/addons/megacells/`.
 use crate::game::{Game, ae2x::HandlerCell};
 use ae2_cell_core::{Action, ItemKey};
-use ae2_megacells_core::{BulkCell, Chains};
+use ae2_megacells_core::BulkCell;
 use horizon_client::{ae2x::megacells as rows, items::ItemStack, text::Text};
-use std::sync::Arc;
 
 /// `BulkCellInventory` over its stack, as the storage code holds a cell.
 pub(in crate::game) struct BulkStack {
@@ -102,11 +101,6 @@ const NUMBER: u32 = 0x886eff;
 const DARK_RED: u32 = 0xAA0000;
 
 impl Game<'_> {
-    /// The chains `CompressionService` holds, the server's or what it sent.
-    pub(in crate::game) fn megacells_chains(&self) -> Arc<Chains> {
-        rows::chains()
-    }
-
     /// `BulkCellItem.Handler.getCellInventory`: the cell of a Bulk Item Cell
     /// stack, its stored item's id checked against the game's items.
     pub(in crate::game) fn megacells_bulk_cell(&self, stack: &ItemStack) -> Result<BulkStack, String> {

@@ -332,6 +332,8 @@ pub fn register(defs: &mut Defs) {
         },
         1,
     );
+    // MEGACells.initUpgrades: Upgrades.add(COMPRESSION_CARD, BULK_ITEM_CELL, 1).
+    defs.add_upgrade(COMPRESSION_CARD, BULK_ITEM_CELL, 1);
     // CellDockPart: GridFlags.REQUIRE_CHANNEL, an IStorageProvider of one
     // cell (`AppEngCellInventory(this, 1)`).
     defs.add_cell_part(CELL_DOCK, CELL_DOCK_IDLE, 1);

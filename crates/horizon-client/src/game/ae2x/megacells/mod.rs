@@ -3,6 +3,7 @@
 //! megacells`); what needs the game's own code is here.
 pub(in crate::game) mod bulk;
 pub(in crate::game) mod cell_dock;
+pub(in crate::game) mod compression;
 pub(in crate::game) mod lava;
 pub(in crate::game) mod portable_workbench;
 

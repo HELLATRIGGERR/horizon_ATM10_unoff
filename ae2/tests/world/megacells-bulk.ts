@@ -151,7 +151,92 @@ try {
   assert.match(held, /storage_cell_config_inv[^\]]*minecraft:iron_block/, 'the cell keeps its iron block filter');
   fixture.mark('the Cell Workbench gives a bulk cell one filter and one card slot, and the filter stays on the cell');
 
-  // MEGA's recipes: crafting/bulk_cell_component and cells/standard/bulk_item_cell.
+  // The Compression Card (MEGACells.initUpgrades: one on the bulk cell) in the workbench: the cell compresses its
+  // filter's chain (CompressionService, from vanilla's iron recipes: nugget, ingot, block) and MEGA's cutoff button
+  // shows last on the toolbar (CellWorkbenchScreenMixin) with the largest variant; a press goes one variant down, a
+  // right press one up (mega$nextCompressionLimit).
+  await fixture.command('clear @s');
+  await fixture.replace('hotbar.0', filtered('minecraft:iron_block')); await fixture.replace('hotbar.2', 'megacells:compression_card');
+  await fixture.replace('hotbar.8', 'minecraft:stick'); await fixture.select(8, 'minecraft:stick');
+  await fixture.raw(`interact ${bench} north`);
+  await until(() => fixture.raw('screen'), v => v.ae2_screen?.style === 'cell_workbench.json' && v.ae2_workbench, 'workbench screen', 15000);
+  await fixture.raw('click-slot 0 shift');
+  work = (await until(() => fixture.raw('screen'), v => v.ae2_workbench?.config[0].item === 'minecraft:iron_block', 'the iron block cell in the workbench', 15000)).ae2_workbench;
+  assert.equal(work.cutoff, null, 'no card, no cutoff button');
+  await fixture.raw('click-slot 2'); await until(() => fixture.raw('inventory'), s => s.carried?.item === 'megacells:compression_card', 'the card on the cursor');
+  await fixture.raw('click-slot 301'); await until(() => fixture.raw('inventory'), s => !s.carried, 'the card in');
+  work = (await until(() => fixture.raw('screen'), v => v.ae2_workbench?.cutoff === 'minecraft:iron_block', 'the cutoff button at the iron block', 15000)).ae2_workbench;
+  const cutoffButton = () => work.tools.at(-1);
+  assert.equal(cutoffButton().title, 'gui.tooltips.megacells.CompressionCutoff', 'the cutoff button comes last');
+  for (const [press, expected] of [['', 'minecraft:iron_ingot'], ['', 'minecraft:iron_nugget'], [' right', 'minecraft:iron_ingot']]) {
+    await fixture.raw(`click-at ${centre(cutoffButton().rect)}${press}`);
+    work = (await until(() => fixture.raw('screen'), v => v.ae2_workbench?.cutoff === expected, `the cutoff at ${expected}`, 15000)).ae2_workbench;
+  }
+  // Into the Drive (its fourth slot) by a shift-click from the workbench, then from the inventory.
+  await fixture.raw('click-slot 300'); await until(() => fixture.raw('inventory'), s => s.carried?.item === BULK, 'the compressing cell on the cursor');
+  await fixture.raw('click-slot 0'); await until(() => fixture.raw('inventory'), s => !s.carried && s.hotbar[0]?.item === BULK, 'the compressing cell in the hotbar');
+  await fixture.raw('close');
+  assert.match(JSON.stringify(await fixture.command('data get entity @s Inventory')), /compression_cutoff[^0-9-]*1\b/, 'the cutoff recorded on the cell: 1');
+  await fixture.command(`tp @s ${x + 1.5} ${y} ${z - 1.5}`);
+  await fixture.raw(`interact ${drive} north`);
+  await until(() => fixture.raw('screen'), v => v.ae2_screen?.style === 'drive.json', 'the Drive screen', 15000);
+  await fixture.raw('click-slot 0 shift');
+  await until(cells, c => c[3]?.item === BULK, 'the compressing cell in the drive', 30000);
+  await fixture.raw('close');
+  fixture.mark('a Compression Card turns on the cutoff button, at the iron block; presses take it to the ingot, the nugget and back up to the ingot');
+
+  // At the ingot cutoff, a block, two ingots and three nuggets (81 + 18 + 3 = 102 units) are 11 ingots and 3
+  // nuggets (CompressionChain.initStacks); two ingots out leave 84 units: 9 ingots, 3 nuggets.
+  for (const [item, n] of [['minecraft:iron_block', 1], ['minecraft:iron_ingot', 2], ['minecraft:iron_nugget', 3]] as const) {
+    await fixture.replace('hotbar.1', item, n); await fixture.select(1, item);
+    assert.equal((await fixture.ae(`grid deposit ${drive}`)).inserted, n);
+  }
+  view = await until(status, v => count(v, 'minecraft:iron_ingot') === 11 && count(v, 'minecraft:iron_nugget') === 3, '11 ingots and 3 nuggets listed', 30000);
+  assert.equal(count(view, 'minecraft:iron_block'), 0, 'no block listed past the cutoff');
+  assert(units(await driveData()).includes('102'));
+  await fixture.command('clear @s');
+  const ingots = view.items.findIndex((entry: any) => entry.item === 'minecraft:iron_ingot');
+  assert.equal((await fixture.ae(`grid withdraw ${drive} ${ingots} 2`)).extracted, 2);
+  await until(status, v => count(v, 'minecraft:iron_ingot') === 9 && count(v, 'minecraft:iron_nugget') === 3, '9 ingots and 3 nuggets', 30000);
+  assert(units(await driveData()).includes('84'));
+  fixture.mark('at the ingot cutoff, a block, 2 ingots and 3 nuggets list as 11 ingots and 3 nuggets; 2 ingots out leave 9 and 3 (84 units)');
+
+  // megacells:compression_overrides: no recipe turns a snow block back into snowballs, so only the data map makes
+  // the chain (snowball, snow block at 4). A compressing snowball cell in the Drive takes a snow block and two
+  // snowballs and lists both at its default cutoff, the snow block.
+  const card = 'ae2:upgrades=[{slot:0,item:{id:"megacells:compression_card",count:1}}]';
+  await fixture.command(`item replace block ${drive} container.4 with ${BULK}[${config('minecraft:snowball')},${card}]`);
+  await until(cells, c => c[4]?.item === BULK, 'the snowball cell in the drive', 30000);
+  for (const [item, n] of [['minecraft:snow_block', 1], ['minecraft:snowball', 2]] as const) {
+    await fixture.replace('hotbar.1', item, n); await fixture.select(1, item);
+    assert.equal((await fixture.ae(`grid deposit ${drive}`)).inserted, n);
+  }
+  await until(status, v => count(v, 'minecraft:snow_block') === 1 && count(v, 'minecraft:snowball') === 2, 'a snow block and 2 snowballs listed', 30000);
+  assert(units(await driveData()).includes('6'), 'six snowball units');
+  fixture.mark('the data map\'s override chains snowballs into snow blocks: a snow block and 2 snowballs, 6 units');
+
+  // Through a restart the server gathers its chains again: the same listings.
+  await fixture.restart();
+  view = await until(status, v => v.online && count(v, 'minecraft:iron_ingot') === 9, 'the iron cell after restart', 60000);
+  assert.equal(count(view, 'minecraft:iron_nugget'), 3); assert.equal(count(view, 'minecraft:snow_block'), 1); assert.equal(count(view, 'minecraft:snowball'), 2);
+  fixture.mark('the compressed listings come back after a restart');
+
+  // The Portable Cell Workbench has the cutoff button too (PortableCellWorkbenchScreen, PortableCellWorkbenchMenu).
+  await fixture.command('clear @s');
+  await fixture.replace('hotbar.0', 'megacells:portable_cell_workbench');
+  await fixture.replace('hotbar.1', `${BULK}[${config('minecraft:iron_nugget')},${card}]`);
+  // Looking up, so the use is the item's (Item.use), not the Drive's.
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 4.5} 0 -90`);
+  await fixture.select(0, 'megacells:portable_cell_workbench'); await fixture.raw('use-item');
+  await until(() => fixture.raw('screen'), v => v.ae2_screen?.style === 'megacells/portable_cell_workbench.json' && v.ae2_workbench, 'the Portable Cell Workbench', 15000);
+  await fixture.raw('click-slot 1 shift');
+  work = (await until(() => fixture.raw('screen'), v => v.ae2_workbench?.cutoff === 'minecraft:iron_block', 'its cutoff button at the iron block', 15000)).ae2_workbench;
+  await fixture.raw(`click-at ${centre(cutoffButton().rect)} right`);
+  await until(() => fixture.raw('screen'), v => v.ae2_workbench?.cutoff === 'minecraft:iron_nugget', 'a right press wraps to the nugget', 15000);
+  await fixture.raw('close');
+  fixture.mark('the Portable Cell Workbench shows the cutoff button and a right press wraps it from the block to the nugget');
+
+  // MEGA's recipes: crafting/bulk_cell_component, cells/standard/bulk_item_cell and crafting/compression_card.
   await fixture.command('clear @s');
   await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 4.5}`);
   await fixture.command('gamemode survival @s');
@@ -175,8 +260,9 @@ try {
   const [dust, glass] = ['ae2:sky_dust', 'ae2:quartz_vibrant_glass'];
   await craft([dust, 'ae2:spatial_cell_component_2', dust, 'megacells:accumulation_processor', glass, 'megacells:accumulation_processor', dust, 'megacells:cell_component_1m', dust], 'megacells:bulk_cell_component');
   await craft([glass, dust, glass, dust, 'megacells:bulk_cell_component', dust, 'minecraft:netherite_ingot', 'minecraft:netherite_ingot', 'minecraft:netherite_ingot'], BULK);
+  await craft(['ae2:advanced_card', 'ae2:matter_ball', '', '', '', '', '', '', ''], 'megacells:compression_card');
   await fixture.command('gamemode creative @s');
-  fixture.mark('MEGA\'s recipes make the Bulk Storage Component and the Bulk Item Cell');
+  fixture.mark('MEGA\'s recipes make the Bulk Storage Component, the Bulk Item Cell and the Compression Card');
   fixture.assertHidden(await fixture.raw('status')); fixture.report('passed');
 } catch (error) { fixture.report('failed', error); throw error; }
 finally { await fixture.close(); }

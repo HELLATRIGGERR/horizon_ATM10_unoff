@@ -4,10 +4,38 @@
 pub(in crate::game) mod lava;
 pub(in crate::game) mod portable_workbench;
 
+use horizon_client::{ae2x::megacells as rows, items::ItemStack};
 pub(in crate::game) use portable_workbench::State;
+
+/// `MEGAPatternProviderPart.MODEL_BASE` and `MEGAInterfacePart.MODEL_BASE`:
+/// the parts' base models, over AE2's interface status models.
+pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
+    match id {
+        rows::MEGA_PATTERN_PROVIDER_PART => Some("megacells:part/mega_pattern_provider"),
+        rows::MEGA_INTERFACE_PART => Some("megacells:part/mega_interface"),
+        _ => None,
+    }
+}
+
+/// `AEItemDefinitionFilter.allowInsert` on a MEGA provider's pattern
+/// inventory (`MEGAPatternProviderBlock.createLogic`): the processing pattern
+/// alone. None for a machine of no MEGA provider.
+pub(in crate::game) fn pattern_allowed(machine_id: &str, item: &ItemStack) -> Option<bool> {
+    rows::pattern_filter(machine_id).map(|only| item.item.as_ref() == only)
+}
+
+/// `MEGAPatternProviderBlockItem.addCheckedInformation` and
+/// `MEGAPatternProviderPartItem.appendHoverText`: "Supports processing
+/// patterns only.", in `NOTICE` (0xffde7d, italic).
+pub(in crate::game) fn hover_lines(id: &str, translate: &dyn Fn(&str) -> Option<String>) -> Vec<horizon_client::text::Text> {
+    let Some((key, colour)) = rows::hover_line(id) else { return Vec::new() };
+    let text = translate(key).unwrap_or_else(|| key.to_owned());
+    vec![horizon_client::text::Text::literal(text).with_color(colour).italic()]
+}
 
 #[cfg(test)]
 mod tests {
+    use super::{hover_lines, part_model, pattern_allowed};
     use crate::game::ae2_interactions::{portable_charge_rate, portable_energy, portable_insert_energy};
     use horizon_client::{ae2_upgrade_inventory::Inventory, ae2x::megacells::GREATER_ENERGY_CARD, items::ItemStack};
 
@@ -46,5 +74,32 @@ mod tests {
         assert_eq!(portable_energy(&ItemStack::new("ae2:portable_item_cell_1k", 1)).unwrap(), (0.0, 20_000.0));
         assert_eq!(portable_charge_rate(&ItemStack::new("ae2:portable_fluid_cell_256k", 1)).unwrap(), 80.0);
         assert!(portable_energy(&ItemStack::new("megacells:item_storage_cell_1m", 1)).is_err());
+    }
+
+    /// The MEGA providers take processing patterns alone; the parts draw
+    /// MEGA's base models; both provider items carry the notice.
+    #[test]
+    fn mega_providers_take_processing_patterns_only() {
+        let processing = ItemStack::new("ae2:processing_pattern", 1);
+        for id in ["megacells:mega_pattern_provider", "megacells:cable_mega_pattern_provider"] {
+            assert_eq!(pattern_allowed(id, &processing), Some(true), "{id}");
+            for refused in ["ae2:crafting_pattern", "ae2:smithing_table_pattern", "ae2:stonecutting_pattern", "ae2:blank_pattern"] {
+                assert_eq!(pattern_allowed(id, &ItemStack::new(refused, 1)), Some(false), "{refused} in {id}");
+            }
+        }
+        assert_eq!(pattern_allowed("ae2:pattern_provider", &ItemStack::new("ae2:crafting_pattern", 1)), None);
+        assert_eq!(pattern_allowed("megacells:mega_interface", &processing), None);
+        assert_eq!(part_model("megacells:cable_mega_pattern_provider"), Some("megacells:part/mega_pattern_provider"));
+        assert_eq!(part_model("megacells:cable_mega_interface"), Some("megacells:part/mega_interface"));
+        assert_eq!(part_model("ae2:cable_interface"), None);
+        let lang = |key: &str| (key == "gui.tooltips.megacells.ProcessingOnly").then(|| "Supports processing patterns only.".to_owned());
+        for id in ["megacells:mega_pattern_provider", "megacells:cable_mega_pattern_provider"] {
+            let lines = hover_lines(id, &lang);
+            assert_eq!(lines.len(), 1, "{id}");
+            assert_eq!(lines[0].plain(), "Supports processing patterns only.");
+            let style = lines[0].spans[0].style.clone();
+            assert_eq!((style.color, style.italic), (Some(0xffde7d), Some(true)));
+        }
+        assert!(hover_lines("megacells:cable_mega_interface", &lang).is_empty());
     }
 }

@@ -53,6 +53,13 @@ fn pattern(s:&ItemStack)->bool {
 pub(super) fn encoded_pattern_item(s:&ItemStack)->bool {
     s.count>0 && matches!(s.item.as_ref(),"ae2:crafting_pattern"|"ae2:processing_pattern"|"ae2:smithing_table_pattern"|"ae2:stonecutting_pattern")
 }
+/// `PatternProviderLogic.getPatternInv().isItemValid` with the
+/// `RestrictedInputSlot` (`ENCODED_PATTERN`) over it: an encoded pattern,
+/// and what an addon's provider narrows its pattern inventory to
+/// (`AppEngInternalInventory.setFilter`; MEGA's takes processing patterns alone).
+pub(super) fn provider_pattern_valid(machine:&horizon_client::ae2_world::Machine,s:&ItemStack)->bool {
+    encoded_pattern_item(s) && super::ae2x::pattern_inventory_accepts(machine,s)
+}
 impl Game<'_> {
     fn access_filter(&self,pos:(i32,i32,i32),face:&str)->Option<u8> {
         let BlockEntity::Ae2(host)=self.world.block_entities.get(&pos)? else{return None};
@@ -423,7 +430,7 @@ impl Game<'_> {
         } else if input==Input::Pickup && matches!(button,0|1) {
             let held=self.carried.clone();
             if held.is_none() {self.carried=current;machine.slots[slot]=None;}
-            else if (button==0 || current.is_none()) && held.as_ref().is_some_and(|x|x.count==1 && encoded_pattern_item(x)) {
+            else if (button==0 || current.is_none()) && held.as_ref().is_some_and(|x|x.count==1 && provider_pattern_valid(&machine,x)) {
                 self.carried=current;machine.slots[slot]=held;
             }
         }
@@ -435,6 +442,8 @@ impl Game<'_> {
         if let Some(item)=self.inventory.get(index).and_then(Clone::clone).filter(|v|v.count==1 && pattern(v)) {
             for row in rows {
                 let Some(mut machine)=self.access_machine(row.owner) else{continue};
+                // InternalInventory.addItems: a provider whose filter refuses it is passed over.
+                if !provider_pattern_valid(&machine,&item) {continue}
                 let Some(slot)=machine.slots.iter().position(Option::is_none) else{continue};
                 machine.slots[slot]=Some(item.clone());
                 if self.access_store(row.owner,&machine).is_ok(){self.inventory[index]=None;break;}

@@ -2198,6 +2198,11 @@ impl Game<'_> {
         };
         let gray = rgba(170, 170, 170, 255);
         let item_info = self.items().get(&stack.item);
+        // An AE2 addon's `Item.appendHoverText` (MEGA's providers' notice).
+        #[cfg(feature = "ae2-lab")]
+        for text in super::ae2x::item_hover_lines(&stack.item, &translate) {
+            lines.push((text, u32::MAX));
+        }
         // SmithingTemplateItem.appendHoverText: `Item.appendHoverText` comes
         // before the components.
         for (text, c) in horizon_client::item_tooltip::smithing_template_lines(stack, &translate) {

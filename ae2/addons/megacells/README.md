@@ -160,9 +160,51 @@ restart:
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-portable
 ```
 
+## Slice 5: MEGA Pattern Provider and MEGA Interface, block and part
+
+| MEGA | Port |
+|---|---|
+| `MEGABlocks.MEGA_PATTERN_PROVIDER` (`MEGAPatternProviderBlock`, `MEGAPatternProviderBlockEntity`) and `MEGAItems.MEGA_PATTERN_PROVIDER` (`cable_mega_pattern_provider`, `MEGAPatternProviderPart`): AE2's `PatternProviderBlockEntity` and `PatternProviderPart` with `createLogic` = `PatternProviderLogic(node, host, 18)` | machine variant rows (`ae2x/megacells.rs`, `MACHINES`) on `MachineKind::PatternProvider` with 18 slots, so AE2's provider code runs them: pushing, blocking and lock modes, AE2's nine return slots, priority, the Pattern Access Terminal, saves and drops. The crafting provider registry took a provider block of AE2's nine slots or of the largest addon's (ExtendedAE's 36) alone; it takes any provider's size now |
+| `createLogic` sets `AEItemDefinitionFilter(AEItems.PROCESSING_PATTERN)` on the pattern inventory (`AppEngInternalInventory.setFilter`); `isItemValid` asks it for the menu's slots (`AppEngSlot.mayPlace`) and for the Pattern Access Terminal (`InternalInventory.insertItem`, `addItems`) | `ae2x::megacells::pattern_filter`, which `game/ae2x` answers (`pattern_inventory_accepts`) for `ae2_pattern_access::provider_pattern_valid`: every placement of a pattern into a provider goes through it, a click, shift-click or hotbar swap in the block's and the part's menu, and the Pattern Access Terminal's click and shift-click (a provider that refuses is passed over, as `addItems` passes it). A refused pattern shift-clicked into the menu goes to the return slots, which take anything (`AEBaseMenu.quickMoveStack`, a `PatternProviderReturnInventory`), and from there into the grid, as in Java |
+| `MEGAPatternProviderBlock`: AE2's `PUSH_DIRECTION`, `ALL` when placed; `useItemOn` with a wrench: `setSide`, AE2's rule; `neighborChanged`: `updateRedstoneState` | the state in `content.json`; AE2's wrench, push and redstone code go by `base_id` |
+| `MEGAInterfaceBlockEntity`, `MEGAInterfacePart`: `InterfaceLogic(.., 18)`: 18 config and 18 storage slots, AE2's one card slot (`UpgradeInventories.forMachine(is, 1, ..)`) | rows on `MachineKind::Interface`; the window is `MenuShape`'s for an Interface past nine slots, with one page of 18 |
+| `MEGACells.initUpgrades`: `CRAFTING_CARD` and `FUZZY_CARD`, one each, on the block and the part | the same upgrade rows; the providers take none |
+| `MEGAMenus`: AE2's `PatternProviderMenu` and `InterfaceMenu`; `MEGACellsClient`: AE2's `PatternProviderScreen` and `InterfaceScreen` with `screens/megacells/mega_pattern_provider.json` (176 x 215: 18 patterns in rows of nine, `BREAK_AFTER_9COLS`, then AE2's return row) and `mega_interface.json` (176 x 240: two config rows between `amtButton1..9` and `amtButton10..18`, two storage rows); their textures `guis/megacells/*.png` | layouts in `game/ae2x/megacells/screens.rs`: the provider's patterns 0..18, returns 18..27, settings 27..29, priority 53; the interface's storage 0..18, config 18..36, card 36, fuzzy mode 41 (with a fuzzy card), priority 53, a stock cog above or below each config slot. The content script copies the styles and textures under `assets/megacells/ae2/`; the GUI atlas now reads an addon's GUI textures in folders, named as in the jar (`ae2:guis/megacells/mega_interface`) |
+| `MEGAPatternProviderPart.MODEL_BASE`, `MEGAInterfacePart.MODEL_BASE` (`megacells:part/mega_*`) over AE2's `part/interface_off`, `_on`, `_has_channel` | `game/ae2x/megacells::part_model` |
+| `MEGAPatternProviderBlockItem.addCheckedInformation`, `MEGAPatternProviderPartItem.appendHoverText`: `MEGATranslations.ProcessingOnly` in `NOTICE` (0xffde7d, italic) | both items' tooltips, below the name (`ae2x::item_hover_lines`) |
+| `network/mega_pattern_provider` and `network/mega_interface` (shapeless: AE2's device and an Accumulation Processor), their `_part` and `_block` recipes (each form from the other); the blocks' loot tables | MEGA's six recipes and two loot tables, as they are |
+
+Differences, known:
+
+- A Memory Card does nothing on these devices yet, as on ExtendedAE's: the port's provider and interface memory code
+  still takes AE2's nine slots and ids. In Java, `PatternProviderLogic.importSettings` restores the card's patterns
+  with `setItemDirect`, past MEGA's filter.
+- `MEGAInterfacePart.returnToMainMenu` opens its menu anew (`MenuOpener.open`) where the block returns to it
+  (`returnTo`); the port goes back from the stock and priority editors the same way for both.
+- MEGA's item tags `megacells:mega_pattern_provider` and `megacells:mega_interface` (block and part) come with the
+  content; nothing in this slice reads them. MEGA's guide pages and recipe advancements come later; the AppliedE
+  MEGA Transmutation Interface needs AppliedE.
+
+Tests: `horizon-client-lib` (the four rows' kinds, sizes, bases and screens, the cards, the pattern filter and the
+notice), `horizon-client` (MEGA's providers refusing every encoded pattern but the processing one, the part models,
+the tooltip line's text and style, the screens' entries against the server's window, an 18-slot provider block in
+the crafting provider registry) and the world test `megacells-provider-interface`: the block provider opens
+MEGA's screen with its settings at 27 to 29; a crafting pattern goes into no pattern slot, shift-clicked it goes
+through the return slots into the grid and from the cursor it stays there; 18 processing patterns fill the pattern
+slots and a 19th goes the returns' way; a wrench on its south face turns `push_direction` from `all` to `north`,
+and crafts from its first and 18th patterns push into the chest to its north and none above; the block interface
+opens MEGA's screen, stocks its first and 18th slots (the latter set to 2 in its stock editor), refuses a speed card
+and takes a fuzzy card, which shows fuzzy mode; the parts attach to a cable, open the same screens, the provider
+part refusing a crafting pattern from the cursor and taking a processing one, the interface part stocking; MEGA's six recipes; the
+patterns, push direction, config, stock, card and the parts' contents through a restart; broken, the blocks and the
+cable drop the devices with their patterns, stock and card:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts megacells-provider-interface
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.1)
 
-5. MEGA Pattern Provider and Interface, block and part.
 6. ME Cell Dock.
 7. Bulk Item Cell, Compression Card, Decompression Module.
 8. Cells for other addons' key types (chemical, radioactive, source, soul), with those addons.

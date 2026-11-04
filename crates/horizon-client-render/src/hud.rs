@@ -1259,7 +1259,9 @@ impl HudAtlas {
                     }
                 }
                 // Addons' GUI textures of AE2's namespace, carried under their
-                // own (`assets/<ns>/ae2/textures/guis`).
+                // own (`assets/<ns>/ae2/textures/guis`), with their folders:
+                // MEGA's `guis/megacells/mega_interface.png` is
+                // `ae2:guis/megacells/mega_interface`.
                 let mut addons: Vec<_> = std::fs::read_dir(root.join("assets"))
                     .into_iter()
                     .flatten()
@@ -1269,18 +1271,21 @@ impl HudAtlas {
                     .collect();
                 addons.sort();
                 for guis in addons {
-                    let mut files: Vec<_> = std::fs::read_dir(&guis)
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .map(|e| e.path())
-                        .filter(|p| p.extension().is_some_and(|e| e == "png"))
-                        .collect();
+                    let mut files = Vec::new();
+                    let mut folders = vec![guis.clone()];
+                    while let Some(folder) = folders.pop() {
+                        for path in std::fs::read_dir(&folder).into_iter().flatten().flatten().map(|e| e.path()) {
+                            if path.is_dir() {
+                                folders.push(path);
+                            } else if path.extension().is_some_and(|e| e == "png") {
+                                files.push(path);
+                            }
+                        }
+                    }
                     files.sort();
                     for path in files {
-                        let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
-                            continue;
-                        };
+                        let Ok(relative) = path.strip_prefix(&guis) else { continue };
+                        let name = relative.with_extension("").to_string_lossy().replace('\\', "/");
                         match decode(&path) {
                             Ok((w, h, pixels)) => images.push((format!("ae2:guis/{name}"), w, h, pixels)),
                             Err(error) => log::warn!("AE2 addon GUI texture {}: {error}", path.display()),

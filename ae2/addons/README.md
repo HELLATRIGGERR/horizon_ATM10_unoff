@@ -34,7 +34,8 @@ carries NeoForge conditions, is left out and listed in `content-inventory.json`,
 belong to later slices (the addon's files under AE2's namespace, its guide, data maps, advancements).
 Screen styles and GUI textures the addon ships under AE2's namespace, when `content.json` names them
 (`ae2_namespace`), go to `assets/<ns>/ae2/`, as a content mod owns its own namespace alone; the game
-looks there next to AE2's. A block whose model needs a custom loader names the model to draw (`model`).
+looks there next to AE2's, folders included (MEGA's `guis/megacells/mega_interface.png` is the GUI atlas's
+`ae2:guis/megacells/mega_interface`, as in the jar). A block whose model needs a custom loader names the model to draw (`model`).
 
 ## The definitions registry
 

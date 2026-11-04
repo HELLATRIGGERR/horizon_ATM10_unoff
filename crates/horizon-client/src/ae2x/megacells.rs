@@ -2,16 +2,19 @@
 //! `ae2-megacells`). Derived from MEGA Cells 4.11.0 (`MEGAItems`,
 //! `MEGACells.initUpgrades`, `MEGACellsClient.initStorageCellModels`,
 //! `MEGACraftingUnitType`, `MEGABlocks`, `MEGACraftingUnitModelProvider`,
-//! `MEGAPortableCell`), https://github.com/62832/MEGACells tag 4.11.0,
-//! LGPL-3.0; see `ae2/addons/megacells/`.
+//! `MEGAPortableCell`, `MEGAPatternProviderBlock`, `MEGAPatternProviderPart`,
+//! `MEGAInterfaceBlockEntity`, `MEGAInterfacePart`),
+//! https://github.com/62832/MEGACells tag 4.11.0, LGPL-3.0; see
+//! `ae2/addons/megacells/`.
 //!
 //! Slice 1: the M-tier item and fluid storage cells and their components.
 //! Slice 2: the MEGA crafting CPU blocks. Slice 3: the Superdense Energy Cell
 //! and the Greater Energy Card. Slice 4: the portable M cells and the Portable
-//! Cell Workbench. The bulk cell and the cells for other addons' key types
+//! Cell Workbench. Slice 5: the MEGA Pattern Provider and the MEGA Interface,
+//! blocks and parts. The bulk cell and the cells for other addons' key types
 //! come with later slices.
 use super::defs::{CellDef, Defs, add_storage_cell_cards};
-use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind};
+use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind, MachineVariant};
 use ae2_cell_core::{Channel, Tier};
 
 pub const NAMESPACE: &str = "megacells";
@@ -73,6 +76,81 @@ pub const GREATER_ENERGY_CARD: &str = "megacells:greater_energy_card";
 /// Workbench the player carries, with the cell it holds inside it.
 pub const PORTABLE_CELL_WORKBENCH: &str = "megacells:portable_cell_workbench";
 
+/// `MEGABlocks.MEGA_PATTERN_PROVIDER`: `MEGAPatternProviderBlock` with
+/// `MEGAPatternProviderBlockEntity`, AE2's `PatternProviderBlockEntity` on
+/// MEGA's logic; and `MEGAItems.MEGA_PATTERN_PROVIDER`, the part.
+pub const MEGA_PATTERN_PROVIDER: &str = "megacells:mega_pattern_provider";
+pub const MEGA_PATTERN_PROVIDER_PART: &str = "megacells:cable_mega_pattern_provider";
+/// `MEGABlocks.MEGA_INTERFACE` (`MEGAInterfaceBlock`, `MEGAInterfaceBlockEntity`)
+/// and `MEGAItems.MEGA_INTERFACE`, the part (`MEGAInterfacePart`).
+pub const MEGA_INTERFACE: &str = "megacells:mega_interface";
+pub const MEGA_INTERFACE_PART: &str = "megacells:cable_mega_interface";
+/// `MEGAPatternProviderBlock.createLogic`: the pattern inventory's
+/// `AEItemDefinitionFilter(AEItems.PROCESSING_PATTERN)`.
+pub const PROCESSING_PATTERN: &str = "ae2:processing_pattern";
+
+/// The MEGA devices that are AE2's with other sizes.
+pub const MACHINES: [MachineVariant; 4] = [
+    // MEGAPatternProviderBlock.createLogic: PatternProviderLogic(node, host, 18);
+    // the return inventory stays AE2's nine slots.
+    MachineVariant {
+        id: MEGA_PATTERN_PROVIDER,
+        base: "ae2:pattern_provider",
+        block: MEGA_PATTERN_PROVIDER,
+        kind: MachineKind::PatternProvider,
+        slots: 18,
+        upgrades: 0,
+        part: false,
+    },
+    // MEGAPatternProviderPart.createLogic: the same logic on a cable.
+    MachineVariant {
+        id: MEGA_PATTERN_PROVIDER_PART,
+        base: "ae2:cable_pattern_provider",
+        block: MEGA_PATTERN_PROVIDER,
+        kind: MachineKind::PatternProvider,
+        slots: 18,
+        upgrades: 0,
+        part: true,
+    },
+    // MEGAInterfaceBlockEntity.createLogic: InterfaceLogic(node, this, item, 18),
+    // 18 config and 18 storage slots and AE2's one card
+    // (`UpgradeInventories.forMachine(is, 1, ..)`).
+    MachineVariant {
+        id: MEGA_INTERFACE,
+        base: "ae2:interface",
+        block: MEGA_INTERFACE,
+        kind: MachineKind::Interface,
+        slots: 18,
+        upgrades: 1,
+        part: false,
+    },
+    // MEGAInterfacePart.createLogic: the same on a cable.
+    MachineVariant {
+        id: MEGA_INTERFACE_PART,
+        base: "ae2:cable_interface",
+        block: MEGA_INTERFACE,
+        kind: MachineKind::Interface,
+        slots: 18,
+        upgrades: 1,
+        part: true,
+    },
+];
+
+/// `AEItemDefinitionFilter.allowInsert` on the pattern inventory of provider
+/// block or part `id` (`MEGAPatternProviderBlock.createLogic`, which both
+/// MEGA's block entity and part call): the one item it takes. None for any
+/// other provider, whose `AppEngInternalInventory` has no filter.
+pub fn pattern_filter(id: &str) -> Option<&'static str> {
+    matches!(id, MEGA_PATTERN_PROVIDER | MEGA_PATTERN_PROVIDER_PART).then_some(PROCESSING_PATTERN)
+}
+
+/// `MEGAPatternProviderBlockItem.addCheckedInformation` and
+/// `MEGAPatternProviderPartItem.appendHoverText`: the line both items add
+/// (`MEGATranslations.ProcessingOnly`), in `NOTICE`, 0xffde7d and italic.
+pub fn hover_line(id: &str) -> Option<(&'static str, u32)> {
+    matches!(id, MEGA_PATTERN_PROVIDER | MEGA_PATTERN_PROVIDER_PART).then_some(("gui.tooltips.megacells.ProcessingOnly", 0xffde7d))
+}
+
 /// `MEGAPortableCell(props, tier, keyType, menu, 0x80caff)`:
 /// `PortableCellItem(keyType, 18 + (index - 5) × 9 types for items, 18 for
 /// fluids, tier)`, so 27 to 63 item types from 1M to 256M; `getIdleDrain`
@@ -103,6 +181,16 @@ pub fn register(defs: &mut Defs) {
     }
     defs.add_energy_cell(MEGA_ENERGY_CELL);
     defs.add_energy_card(GREATER_ENERGY_CARD, 8);
+    for machine in MACHINES {
+        defs.add_variant(machine);
+    }
+    // MEGACells.initUpgrades: a crafting card and a fuzzy card on the MEGA
+    // Interface, block and part, one of each, as on AE2's Interface.
+    for card in ["ae2:crafting_card", "ae2:fuzzy_card"] {
+        for host in [MEGA_INTERFACE, MEGA_INTERFACE_PART] {
+            defs.add_upgrade(card, host, 1);
+        }
+    }
     // MEGACells.initUpgrades: the Greater Energy Card where AE2's energy card
     // goes on items, two at most, each card counted on its own
     // (`Upgrades.getMaxInstallable` per card; the tooltip groups are names).
@@ -377,5 +465,53 @@ mod tests {
         assert_eq!(order.first().copied(), Some("ae2:portable_item_cell_1k"));
         assert_eq!(&order[4..], ["ae2:portable_item_cell_256k", "megacells:portable_item_cell_1m", "megacells:portable_item_cell_4m",
             "megacells:portable_item_cell_16m", "megacells:portable_item_cell_64m", "megacells:portable_item_cell_256m"]);
+    }
+
+    /// `MEGAPatternProviderBlock.createLogic` (18 patterns, processing only),
+    /// `MEGAInterfaceBlockEntity` and `MEGAInterfacePart.createLogic` (18 config
+    /// and storage slots, AE2's one card) and `MEGACells.initUpgrades`.
+    #[test]
+    fn mega_provider_and_interface_are_ae2s_with_eighteen_slots() {
+        use crate::ae2_world::{Machine, base_id, is_machine_block, variant};
+        crate::ae2x::install();
+        for (id, kind, slots, upgrades) in [(MEGA_PATTERN_PROVIDER, MachineKind::PatternProvider, 18, 0), (MEGA_INTERFACE, MachineKind::Interface, 18, 1)] {
+            let machine = Machine::for_block(id).unwrap();
+            assert_eq!((machine.kind, machine.slots.len(), machine.upgrades.len(), machine.id()), (kind, slots, upgrades, id));
+            assert!(is_machine_block(id));
+        }
+        for (id, base, block) in [
+            (MEGA_PATTERN_PROVIDER, "ae2:pattern_provider", MEGA_PATTERN_PROVIDER),
+            (MEGA_PATTERN_PROVIDER_PART, "ae2:cable_pattern_provider", MEGA_PATTERN_PROVIDER),
+            (MEGA_INTERFACE, "ae2:interface", MEGA_INTERFACE),
+            (MEGA_INTERFACE_PART, "ae2:cable_interface", MEGA_INTERFACE),
+        ] {
+            assert_eq!((base_id(id), variant(id).unwrap().block, variant(id).unwrap().slots), (base, block, 18), "{id}");
+        }
+        // The parts are no blocks.
+        assert!(Machine::for_block(MEGA_PATTERN_PROVIDER_PART).is_none() && !is_machine_block(MEGA_INTERFACE_PART));
+        // AE2's own keep nine.
+        assert_eq!(Machine::for_block("ae2:pattern_provider").unwrap().slots.len(), 9);
+        assert_eq!(Machine::for_block("ae2:interface").unwrap().slots.len(), 9);
+
+        let defs = super::super::defs::get();
+        for host in [MEGA_INTERFACE, MEGA_INTERFACE_PART] {
+            assert_eq!((defs.upgrade_limit("ae2:crafting_card", host), defs.upgrade_limit("ae2:fuzzy_card", host)), (1, 1), "{host}");
+            for card in ["ae2:speed_card", "ae2:capacity_card", "ae2:inverter_card", "ae2:redstone_card", GREATER_ENERGY_CARD] {
+                assert_eq!(defs.upgrade_limit(card, host), 0, "{card} on {host}");
+            }
+        }
+        // The providers take cards of no kind.
+        assert_eq!(defs.upgrade_limit("ae2:crafting_card", MEGA_PATTERN_PROVIDER), 0);
+
+        // Only processing patterns, on MEGA's providers; AE2's take any encoded pattern.
+        assert_eq!(pattern_filter(MEGA_PATTERN_PROVIDER), Some("ae2:processing_pattern"));
+        assert_eq!(pattern_filter(MEGA_PATTERN_PROVIDER_PART), Some("ae2:processing_pattern"));
+        for other in ["ae2:pattern_provider", "ae2:cable_pattern_provider", MEGA_INTERFACE, MEGA_INTERFACE_PART] {
+            assert_eq!(pattern_filter(other), None, "{other}");
+        }
+        // The notice on both provider items, none on the interfaces.
+        assert_eq!(hover_line(MEGA_PATTERN_PROVIDER_PART), Some(("gui.tooltips.megacells.ProcessingOnly", 0xffde7d)));
+        assert_eq!(hover_line(MEGA_PATTERN_PROVIDER), hover_line(MEGA_PATTERN_PROVIDER_PART));
+        assert_eq!(hover_line(MEGA_INTERFACE), None);
     }
 }

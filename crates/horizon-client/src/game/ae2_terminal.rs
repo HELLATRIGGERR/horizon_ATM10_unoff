@@ -6166,7 +6166,7 @@ impl Game<'_> {
             }
             K::WirelessAccessPoint => slot == 0 && item.item.as_ref() == "ae2:wireless_booster",
             K::Ext(_) => super::ae2x::machine_may_place(m, slot).unwrap_or(false),
-            K::PatternProvider => super::ae2_pattern_access::encoded_pattern_item(item),
+            K::PatternProvider => super::ae2_pattern_access::provider_pattern_valid(m, item),
             K::Interface => true,
             K::MolecularAssembler => match slot {
                 0..=8 => self.ae2_assembler_menu_slot_enabled(m,slot) && self.ae2_assembler_menu_accepts(m,slot,item),
@@ -7141,7 +7141,7 @@ impl Game<'_> {
         if source.is_none() && target.is_none() {return false}
         // Real encoded items stack to one. Reject malformed overstacks before
         // mutation; the general oversized-stack/drop path remains separate.
-        if source.as_ref().is_some_and(|stack|stack.count!=1 || !super::ae2_pattern_access::encoded_pattern_item(stack))
+        if source.as_ref().is_some_and(|stack|stack.count!=1 || !super::ae2_pattern_access::provider_pattern_valid(machine,stack))
             || target.as_ref().is_some_and(|stack|stack.count!=1) {return false}
         machine.slots[index]=source;
         if let Some(part)=part {
@@ -7222,7 +7222,7 @@ impl Game<'_> {
                         super::ae2_machine_ui::machine_upgrade_allowed(&machine, i - normal, s)
                     } else {
                         machine.kind != horizon_client::ae2_world::MachineKind::PatternProvider
-                            || super::ae2_pattern_access::encoded_pattern_item(s)
+                            || super::ae2_pattern_access::provider_pattern_valid(&machine, s)
                     }
                 };
                 let max = |s: &ItemStack| {
@@ -7293,7 +7293,7 @@ impl Game<'_> {
                             )
                         } else {
                             machine.kind != horizon_client::ae2_world::MachineKind::PatternProvider
-                                || super::ae2_pattern_access::encoded_pattern_item(&held)
+                                || super::ae2_pattern_access::provider_pattern_valid(&machine, &held)
                         };
                         if !allowed {
                             continue;

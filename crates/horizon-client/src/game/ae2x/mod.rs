@@ -124,12 +124,42 @@ pub(super) fn io_port_budget(machine: &Machine) -> Option<u64> {
 /// The base model an addon's cable part draws in place of AE2's (its status
 /// models are AE2's): none for AE2's own parts.
 pub(super) fn part_model(id: &str) -> Option<&'static str> {
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(model) = megacells::part_model(id) {
+        return Some(model);
+    }
     #[cfg(feature = "ae2-extendedae")]
     if let Some(model) = extendedae::part_model(id) {
         return Some(model);
     }
     let _ = id;
     None
+}
+
+/// `AppEngInternalInventory.isItemValid` of a Pattern Provider's pattern
+/// inventory past AE2's own rule (an encoded pattern): the filter an addon's
+/// provider sets on it (`setFilter`). True for AE2's, which set none.
+pub(super) fn pattern_inventory_accepts(machine: &Machine, item: &horizon_client::items::ItemStack) -> bool {
+    #[cfg(feature = "ae2-megacells")]
+    if let Some(allowed) = megacells::pattern_allowed(machine.id(), item) {
+        return allowed;
+    }
+    let _ = (machine, item);
+    true
+}
+
+/// What an addon's item adds to its tooltip below its name
+/// (`Item.appendHoverText`), each line in its own style.
+pub(super) fn item_hover_lines(id: &str, translate: &dyn Fn(&str) -> Option<String>) -> Vec<horizon_client::text::Text> {
+    #[cfg(feature = "ae2-megacells")]
+    {
+        let lines = megacells::hover_lines(id, translate);
+        if !lines.is_empty() {
+            return lines;
+        }
+    }
+    let _ = (id, translate);
+    Vec::new()
 }
 
 /// Whether an addon's item opens a menu when used (`Item.use` succeeds on

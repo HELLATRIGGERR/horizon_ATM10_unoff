@@ -1,13 +1,14 @@
 {
   "namespace": "megacells",
   "name": "MEGA Cells",
-  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2), the Superdense Energy Cell and the Greater Energy Card (slice 3), the portable M cells and the Portable Cell Workbench (slice 4).",
+  "description": "MEGA Cells 4.11.0 for the AE2 port: the M-tier item and fluid storage cells (slice 1) and the MEGA crafting CPU blocks (slice 2), the Superdense Energy Cell and the Greater Energy Card (slice 3), the portable M cells and the Portable Cell Workbench (slice 4), the MEGA Pattern Provider and the MEGA Interface, blocks and parts (slice 5).",
   "authors": ["90 (MEGA Cells)"],
   "slices": [
     "1: M-tier item and fluid cells, their components and housings, Sky Steel, Sky Bronze, the Accumulation Processor",
     "2: MEGA Crafting Unit, Co-Processing Unit, 1M-256M Crafting Storage, Crafting Monitor",
     "3: Superdense Energy Cell, Greater Energy Card",
-    "4: 1M-256M Portable Item and Fluid Cells, Portable Cell Workbench"
+    "4: 1M-256M Portable Item and Fluid Cells, Portable Cell Workbench",
+    "5: MEGA Pattern Provider and MEGA Interface, block and part"
   ],
   "items": {
     "sky_steel_ingot": {"fire_resistant": true},
@@ -43,7 +44,9 @@
     "portable_fluid_cell_16m": {"max_stack_size": 1},
     "portable_fluid_cell_64m": {"max_stack_size": 1},
     "portable_fluid_cell_256m": {"max_stack_size": 1},
-    "portable_cell_workbench": {"max_stack_size": 1}
+    "portable_cell_workbench": {"max_stack_size": 1},
+    "cable_mega_pattern_provider": {},
+    "cable_mega_interface": {}
   },
   "blocks": {
     "sky_steel_block": {
@@ -106,9 +109,18 @@
       "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:glass"},
       "state_properties": {"fullness": ["0", "1", "2", "3", "4"]},
       "state_defaults": {"fullness": "0"}
+    },
+    "mega_pattern_provider": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"push_direction": ["all", "down", "up", "north", "south", "west", "east"]},
+      "state_defaults": {"push_direction": "all"}
+    },
+    "mega_interface": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"}
     }
   },
   "ae2_namespace": {
-    "screens": ["megacells/portable_cell_workbench.json"]
+    "screens": ["megacells/portable_cell_workbench.json", "megacells/mega_pattern_provider.json", "megacells/mega_interface.json"],
+    "gui_textures": ["megacells/mega_pattern_provider.png", "megacells/mega_interface.png"]
   }
 }

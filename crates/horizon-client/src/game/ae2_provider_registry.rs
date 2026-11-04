@@ -67,7 +67,10 @@ fn decode_snapshot(snapshot: &Ae2ProviderSnapshot) -> Result<ProviderData, Strin
     };
     match snapshot {
         Ae2ProviderSnapshot::Block {slot_count,raw_slots,raw_priority} => {
-            if *slot_count != MachineKind::PatternProvider.physical_slots() && *slot_count != horizon_client::ae2_world::max_provider_slots() {
+            // AE2's nine, or the size of an addon's provider (ExtendedAE's 36, MEGA's 18).
+            let sized = *slot_count == MachineKind::PatternProvider.physical_slots()
+                || horizon_client::ae2_world::machine_variants().iter().any(|v| v.kind == MachineKind::PatternProvider && v.slots == *slot_count);
+            if !sized {
                 return Err("invalid provider block slot count".into());
             }
             Ok(ProviderData {slots:provider_items(Some(raw_slots),*slot_count)?,
@@ -85,7 +88,8 @@ fn decode_snapshot(snapshot: &Ae2ProviderSnapshot) -> Result<ProviderData, Strin
                 Some(_) => return Err("malformed provider part config".into()),
             };
             // A part's size goes with its item id, which the snapshot has not:
-            // AE2's nine unless a slot lies past them.
+            // AE2's nine unless a slot lies past them, then the largest provider's
+            // (a smaller addon part's slots past its own size stay empty).
             let plain=MachineKind::PatternProvider.physical_slots();
             let past_plain=matches!(data.get(&"slots".into()),Some(Tag::List(entries)) if entries.iter()
                 .any(|entry|matches!(entry.get("Slot"),Some(Tag::Byte(slot)) if *slot as usize>=plain)));
@@ -1627,5 +1631,18 @@ mod tests {
         assert_eq!(decode_snapshot(&Ae2ProviderSnapshot::Part {raw_machine:Some(Tag::Int(3))}),Err("malformed provider part machine".into()));
         assert_eq!(decode_snapshot(&Ae2ProviderSnapshot::Part {raw_machine:Some(Tag::compound([("config",Tag::Int(1))]))}),Err("malformed provider part config".into()));
         assert!(decode_snapshot(&Ae2ProviderSnapshot::Part {raw_machine:Some(Tag::compound([("slots",Tag::Int(1))]))}).is_err());
+    }
+
+    /// A provider block of an addon's size registers its patterns: MEGA's 18
+    /// beside ExtendedAE's 36; a size no provider has is refused.
+    #[cfg(feature = "ae2-megacells")]
+    #[test]
+    fn provider_snapshots_take_every_providers_size() {
+        horizon_client::ae2x::install();
+        let mut slots=vec![None;18];slots[17]=Some(ItemStack::new("ae2:processing_pattern",1));
+        let block=Ae2ProviderSnapshot::Block {slot_count:18,raw_slots:save::encode_items(&slots),raw_priority:None};
+        assert_eq!(decode_snapshot(&block).unwrap().slots,slots);
+        let odd=Ae2ProviderSnapshot::Block {slot_count:17,raw_slots:save::encode_items(&slots[..17]),raw_priority:None};
+        assert_eq!(decode_snapshot(&odd),Err("invalid provider block slot count".into()));
     }
 }

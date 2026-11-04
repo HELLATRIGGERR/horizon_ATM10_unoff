@@ -24,7 +24,7 @@ use crate::{
 use glam::{Mat3, Mat4, Vec3};
 use horizon_assets::{
     animation::AnimationMetadata,
-    item_bake::{BakedItemModel, SpriteLookup, SpriteMask, bake_item_model},
+    item_bake::{BakedItemModel, FluidLook, SpriteLookup, SpriteMask, bake_item_model},
     item_model::{
         ClientItem, Components, Context, DisplayContext, FoilType, ItemEnv, ItemModels,
         LayerContent, LevelState, OwnerState, SpecialModel, StackView,
@@ -523,6 +523,31 @@ impl SpriteLookup for FileSprites {
             cache.insert(sprite.to_owned(), mask.clone());
         }
         mask
+    }
+    /// A fluid of the registry as a bucket's fluid layer draws it: vanilla's
+    /// water and lava with their still sprites and lights (`FluidType`'s 0
+    /// and 15), a content mod's with its client extension's still texture.
+    fn fluid(&self, fluid: &str) -> Option<FluidLook> {
+        let look = |still: &str, light_level: u8| FluidLook {
+            still: still.to_owned(),
+            light_level,
+            lighter_than_air: false,
+        };
+        match fluid {
+            "minecraft:water" | "minecraft:flowing_water" => {
+                Some(look("minecraft:block/water_still", 0))
+            }
+            "minecraft:lava" | "minecraft:flowing_lava" => {
+                Some(look("minecraft:block/lava_still", 15))
+            }
+            _ => {
+                let m = horizon_world::mod_fluids::kind_by_name(fluid)?.mod_fluid()?;
+                Some(FluidLook {
+                    lighter_than_air: m.density <= 0,
+                    ..look(&m.still_texture, m.light_level)
+                })
+            }
+        }
     }
 }
 fn argb_pixels(rgba: &[u8]) -> Vec<u32> {

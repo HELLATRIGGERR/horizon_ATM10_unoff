@@ -481,6 +481,21 @@ fn atlas_sprites(root: &Path, packed: &[PackedImage]) -> (Vec<PackedImage>, Vec<
         names.push((id.clone(), vec![(order, SpriteOrigin::File(id.clone()))]));
         order += 1;
     }
+    // The content mods' fluids' still textures (`IClientFluidTypeExtensions.getStillTexture`), which NeoForge's
+    // block atlas holds wherever they lie (Mekanism's `liquid/`): a bucket's fluid layer
+    // (`DynamicFluidContainerModel`) and AE2's fluid icons draw with them.
+    let mut fluid_textures = std::collections::HashSet::new();
+    for fluid in horizon_world::mod_fluids::mod_fluids() {
+        let id = &fluid.still_texture;
+        let name = id.strip_prefix("minecraft:").unwrap_or(id).to_owned();
+        fluid_textures.insert(id.clone());
+        if have.contains(name.as_str()) || slots.contains_key(&name) {
+            continue;
+        }
+        slots.insert(name.clone(), names.len());
+        names.push((name, vec![(order, SpriteOrigin::File(id.clone()))]));
+        order += 1;
+    }
     let load = |texture: &str, directory: &str| {
         decode(&atlas_sources::texture_path(root, texture, directory)).ok()
     };
@@ -496,7 +511,10 @@ fn atlas_sprites(root: &Path, packed: &[PackedImage]) -> (Vec<PackedImage>, Vec<
                     decode(&file).ok().map(|image| {
                         // Animated strips keep their first frame and animate,
                         // like the packed files.
-                        if path.starts_with("block/") || path.starts_with("item/") {
+                        if path.starts_with("block/")
+                            || path.starts_with("item/")
+                            || fluid_textures.contains(texture)
+                        {
                             let mcmeta = horizon_core::prepared_files::read_to_string(
                                 &file.with_extension("png.mcmeta"),
                             )

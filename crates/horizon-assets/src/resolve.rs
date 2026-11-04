@@ -24,6 +24,9 @@ pub struct ResolvedCuboidModel {
     pub unresolved_textures: BTreeSet<String>,
     geometry: Option<Arc<CuboidModel>>,
     generated: bool,
+    /// NeoForge's fluid container geometry, the closest the chain has
+    /// (`BlockModel.customData.getCustomGeometry` walks the parents).
+    pub fluid_container: Option<FluidContainer>,
 }
 impl ResolvedCuboidModel {
     /// Whether the top geometry is `builtin/generated`'s layer extrusion
@@ -74,6 +77,7 @@ impl ModelLibrary {
             )]),
             elements: None,
             display: None,
+            fluid_container: None,
         }
     }
     pub fn new(models: BTreeMap<String, CuboidModel>) -> Result<Self> {
@@ -203,6 +207,7 @@ impl ModelLibrary {
             .zip(&names)
             .find(|(m, name)| m.elements.is_some() || *name == GENERATED_MODEL)
             .is_some_and(|(_, name)| name == GENERATED_MODEL);
+        let fluid_container = chain.iter().find_map(|m| m.fluid_container.clone());
         let display = ItemTransforms {
             contexts: std::array::from_fn(|index| {
                 chain
@@ -266,6 +271,7 @@ impl ModelLibrary {
             unresolved_textures,
             geometry,
             generated,
+            fluid_container,
         })
     }
 }
@@ -315,6 +321,7 @@ pub fn missing_model() -> CuboidModel {
                 }),
             ),
         ]),
+        fluid_container: None,
     }
 }
 

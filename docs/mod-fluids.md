@@ -103,8 +103,20 @@ fluid of a mod's namespace from both: its liquid block is kept although the jar 
 fluids: `LiquidBlock`'s render shape is invisible), a fluid whose block another mod registers, whose block holds
 another fluid or isn't on a liquid template, or whose numbers the flow can't take (a tick delay of 0) is left out with
 the reason in the carry report (`fluids_unknown`), and each bucket's item definition takes its item colours as
-`minecraft:constant` tints. `final-data` declares KubeJS's fluids the same way.
+`minecraft:constant` tints. `final-data` declares KubeJS's fluids the same way, and puts NeoForge's own item models and
+masks (`assets/neoforge/models/item/`, `textures/item/mask/`, from the loader's jar) in `atm10-pack`.
 
+**Bucket models (slice 3).** NeoForge's `"loader": "neoforge:fluid_container"` (`DynamicFluidContainerModel`) is read
+with the model (`CuboidModel::fluid_container`: `fluid`, `flip_gas`, `cover_is_mask`, `apply_fluid_luminosity`, as its
+`Loader.read` defaults them) and inherited down the parents, and `item_bake` bakes it as `DynamicFluidContainerModel.bake`
+does: the `base` texture as an item layer (tint index 0), the `fluid` mask's shape
+(`UnbakedGeometryHelper.createUnbakedItemMaskElements`, with its quirks: a run that reaches the right edge makes no box)
+filled with the fluid's still texture (tint index 1, which the bucket's item colour tints; full bright for a fluid that
+gives light), the `cover` mask over it, every layer translucent and lit from the front, the fluid and cover layers 1.002
+and 1.004 out along z (`FLUID_TRANSFORM`, `COVER_TRANSFORM`), a gas upside down with `flip_gas`. The item renderer's
+sprites (`SpriteLookup::fluid`) give vanilla's water and lava and the registry's mod fluids; the GUI atlas holds the mod
+fluids' still textures wherever they lie (Mekanism's `liquid/`), first frame of an animated strip, as NeoForge's block
+atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item generator's own seams stand).
 
 ## Slices
 
@@ -130,9 +142,11 @@ the reason in the carry report (`fluids_unknown`), and each bucket's item defini
    `horizon-mods` (fluids with no block, fluids that don't flow), and the world test
    `tools/atm10/tests/carried-fluids.ts` (four carried fluids against Java's values, placed, flowing, drawn and picked
    up; Modern Industrialization's crude oil in its declaration).
-3. **Bucket and container item models.** NeoForge's `neoforge:fluid_container` model (`DynamicFluidContainerModel`:
-   the bucket with the fluid's still texture masked in and tinted); today the carried bucket models have no
-   `neoforge:item/bucket` parent to draw.
+3. **Bucket and container item models (done).** As "Bucket models" above. Tests: `horizon-assets`
+   (`a_fluid_container_masks_its_fluid_into_the_bucket`) and the buckets of `carried-fluids.ts` in the GUI (their fluid
+   layer drawn, no missing texture, the tinted one tinted). Not ported: `ContainedFluidOverrideHandler` (a container
+   whose fluid is in its stack's data, as tanks are: slice 5), the emissive layer's own render type (its quads are full
+   bright, drawn as the rest).
 4. **Entities in mod fluids.** `FluidType`'s `canSwim`, `canDrown`, `canPushEntity`, `motionScale`,
    `fallDistanceModifier`, `canExtinguish`, `supportsBoating`, the camera's fog and overlay
    (`modifyFogColor`/`getRenderOverlayTexture`), and mod fluids in the `minecraft:water` or `minecraft:lava` tag

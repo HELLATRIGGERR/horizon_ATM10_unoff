@@ -94,6 +94,12 @@ fn main() -> ExitCode {
                 if let Some(instance) = &instance {
                     mods.extend(horizon_port_pack::final_data::instance_mods(instance));
                 }
+                // The loader's universal jar, as `import` keeps it.
+                let loader = std::fs::read_dir(work.join("loader")).ok().and_then(|dir| {
+                    dir.flatten()
+                        .map(|e| e.path())
+                        .find(|p| p.to_string_lossy().ends_with("-universal.jar"))
+                });
                 let summary = horizon_port_pack::final_data::apply(&horizon_port_pack::final_data::Options {
                     carries,
                     dump: dump.as_deref().ok_or(USAGE)?,
@@ -101,6 +107,7 @@ fn main() -> ExitCode {
                     instance: instance.as_deref(),
                     mods: &mods,
                     also: &also,
+                    loader: loader.as_deref(),
                 })?;
                 let text = serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?;
                 std::fs::write(work.join("final-data.json"), &text).map_err(|e| e.to_string())?;

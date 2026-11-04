@@ -64,6 +64,23 @@ pub struct CuboidModel {
     pub textures: BTreeMap<String, TextureSlot>,
     pub elements: Option<Vec<Option<Element>>>,
     pub display: Option<ItemTransforms>,
+    /// NeoForge's `"loader": "neoforge:fluid_container"` geometry, which a
+    /// carried mod's bucket model names.
+    pub fluid_container: Option<FluidContainer>,
+}
+/// NeoForge's fluid container geometry (`DynamicFluidContainerModel`, as
+/// its `Loader.read` takes it): the item drawn as its `base` texture, its
+/// `fluid` mask filled with `fluid`'s still texture, and its `cover` over it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FluidContainer {
+    /// The fluid it holds, by id (an unknown one holds none).
+    pub fluid: String,
+    /// Turned upside down for a fluid lighter than air (default false).
+    pub flip_gas: bool,
+    /// `cover` is a mask the base texture shows through (default true).
+    pub cover_is_mask: bool,
+    /// The fluid layer is emissive when the fluid gives light (default true).
+    pub apply_fluid_luminosity: bool,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct Element {
@@ -185,6 +202,12 @@ impl CuboidModel {
             .get("display")
             .map(|r| ItemTransforms::decode(r))
             .transpose()?;
+        let fluid_container = match obj.get("loader").map(|r| primitive_string(r)).transpose()? {
+            Some(loader) if loader == "neoforge:fluid_container" => {
+                Some(FluidContainer::decode(&obj)?)
+            }
+            _ => None,
+        };
         Ok(Self {
             parent,
             ambient_occlusion,
@@ -192,6 +215,27 @@ impl CuboidModel {
             textures,
             elements,
             display,
+            fluid_container,
+        })
+    }
+}
+impl FluidContainer {
+    /// `DynamicFluidContainerModel.Loader.read`: `fluid` is required ("Bucket
+    /// model requires 'fluid' value."), the flags default as there.
+    fn decode(obj: &Object<'_>) -> Result<Self> {
+        let fluid = identifier(&primitive_string(
+            obj.get("fluid")
+                .copied()
+                .ok_or_else(|| error("Bucket model requires 'fluid' value."))?,
+        )?)?;
+        let flag = |name: &str, default: bool| -> Result<bool> {
+            obj.get(name).map_or(Ok(default), |r| boolean(r))
+        };
+        Ok(Self {
+            fluid,
+            flip_gas: flag("flip_gas", false)?,
+            cover_is_mask: flag("cover_is_mask", true)?,
+            apply_fluid_luminosity: flag("apply_fluid_luminosity", true)?,
         })
     }
 }

@@ -44,6 +44,8 @@ pub struct Options<'a> {
     pub mods: &'a BTreeSet<String>,
     /// Other content mods that load beside these (AE2's): folders.
     pub also: &'a [PathBuf],
+    /// The loader's own jar (NeoForge's universal jar, `<work>/loader/`): its item models and masks.
+    pub loader: Option<&'a Path>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -80,6 +82,8 @@ pub struct Summary {
     pub kubejs_items: usize,
     /// KubeJS's fluids declared (with the client's facts).
     pub kubejs_fluids: usize,
+    /// The loader's own assets the mods' models name (`neoforge:item/bucket` and its masks).
+    pub loader_assets: usize,
     pub kubejs_assets: usize,
     /// Namespaces of mods not carried: their port will own them.
     pub kubejs_assets_left_out: usize,
@@ -535,6 +539,11 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;
         claimed.insert(PACK_ID.to_owned());
     }
+    if let Some(jar) = o.loader
+        && let Some((root, _)) = dir_of("neoforge", &mut claimed)
+    {
+        s.loader_assets = loader_assets(jar, &root, &mut sink)?;
+    }
     let vanilla_recipes = o.resources.join("data/minecraft/recipe");
     lines(&o.dump.join("recipes.jsonl"), |row| {
         s.recipes_in_dump += 1;
@@ -626,6 +635,33 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
     );
     sink.write(&pack.join(horizon_mods::manifest::MANIFEST), manifest.as_bytes())?;
     Ok(s)
+}
+
+/// NeoForge's own item models and their masks, from the loader's jar into `root`: the parents the mods' bucket
+/// models name (`neoforge:item/bucket`, `bucket_drip`, `default`) and the textures of their fluid layer
+/// (`neoforge:item/mask/bucket_fluid`...), which NeoForge's resources give every mod. Returns how many files.
+fn loader_assets(jar: &Path, root: &Path, sink: &mut Sink) -> Result<usize, String> {
+    let file = fs::File::open(jar).map_err(|e| format!("{}: {e}", jar.display()))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("{}: {e}", jar.display()))?;
+    let names: Vec<String> = zip
+        .file_names()
+        .filter_map(Result::ok)
+        .filter(|n| {
+            (n.starts_with("assets/neoforge/models/item/") && n.ends_with(".json"))
+                || (n.starts_with("assets/neoforge/textures/item/mask/") && n.ends_with(".png"))
+        })
+        .map(|n| n.into_owned())
+        .collect();
+    for name in &names {
+        let mut bytes = Vec::new();
+        std::io::Read::read_to_end(
+            &mut zip.by_name(name).map_err(|e| format!("{}: {name}: {e}", jar.display()))?,
+            &mut bytes,
+        )
+        .map_err(|e| format!("{}: {name}: {e}", jar.display()))?;
+        sink.write(&root.join(name), &bytes)?;
+    }
+    Ok(names.len())
 }
 
 /// The blocks and items KubeJS's startup scripts register: declarations from the oracle's facts, as carry writes
@@ -956,6 +992,7 @@ mod tests {
                     instance: Some(inst),
                     mods,
                     also: std::slice::from_ref(also),
+                    loader: None,
                 })
             }
         };
@@ -983,6 +1020,7 @@ mod tests {
             instance: Some(&inst),
             mods: &mods,
             also: std::slice::from_ref(&also),
+            loader: None,
         })
         .unwrap();
         assert_eq!((s.recipes_in_dump, s.recipes_vanilla, s.recipes_of_also, s.recipes_failed), (9, 1, 1, 1));

@@ -1,4 +1,4 @@
-/** Carried pack fluids (docs/mod-fluids.md, slice 2): fluids that `horizon-port-pack` declares in ATM10's
+/** Carried pack fluids (docs/mod-fluids.md, slices 2 and 3): fluids that `horizon-port-pack` declares in ATM10's
  * carries from the NeoForge oracle's facts (the server's numbers, the client's textures, tints and layers), in a world
  * with those carries alone. For each sample:
  *
@@ -7,6 +7,10 @@
  *   every flowing block still its block, at its own pace (`getTickDelay`);
  * - the pool draws: looked at from above it is no longer the floor, and nowhere the missing texture;
  * - an empty bucket takes the source back as the fluid's bucket.
+ *
+ * Then the buckets in the hotbar (slice 3, NeoForge's `fluid_container` model with its `neoforge:item/bucket` parent,
+ * from the loader's jar through `final-data`): each draws other pixels than the empty bucket (its fluid layer), none of
+ * them the missing texture, and the tinted fluid's layer takes its tint.
  *
  * Samples, with Java's values (the oracle runs' facts of ATM10 8.4): Industrial Foregoing's latex (Titanium's fluid:
  * `latex_flowing`, its own textures, solid, no blockstate in its jar), Immersive Engineering's creosote (`IEFluid`: a
@@ -17,9 +21,9 @@
  * its own block, which the engine doesn't port).
  *
  * Needs ATM10_CARRIES: the carries folder `final-data` wrote (its `industrialforegoing`, `immersiveengineering`,
- * `mekanism`, `alltheores` and `modern_industrialization`), carried again from the client oracle's facts too. */
+ * `mekanism`, `alltheores`, `modern_industrialization` and `atm10-pack`), carried again from the client oracle's facts too. */
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { WorldFixture, until } from '../../../ae2/tests/world/harness';
@@ -37,7 +41,7 @@ const samples: Sample[] = [
     java: { still_texture: 'alltheores:block/fluid/molten_metal', translucent: false, tint: '0xFFE3E3E3', light_level: 15, temperature: 1300, viscosity: 6000,
       sounds: { bucket_fill: 'minecraft:item.bucket.fill_lava', bucket_empty: 'minecraft:item.bucket.empty_lava' } } },
 ];
-for (const name of [...samples.map(s => s.carry), 'modern_industrialization']) assert(existsSync(join(carries, name, 'horizon-mod.toml')), `ATM10_CARRIES has no ${name}`);
+for (const name of [...samples.map(s => s.carry), 'modern_industrialization', 'atm10-pack']) assert(existsSync(join(carries, name, 'horizon-mod.toml')), `ATM10_CARRIES has no ${name}`);
 const declaration = (carry: string, fluid: string) => {
   const [ns, path] = fluid.split(':');
   return JSON.parse(readFileSync(join(carries, carry, `data/${ns}/horizon/fluid/${path}.json`), 'utf8'));
@@ -77,6 +81,13 @@ function screenshot(path: string) {
 const missing = (r: number, g: number, b: number) => r > 240 && g < 16 && b > 240;
 
 const fixture = new WorldFixture('carried-fluids', 'server-thread', { devMods: samples.map(s => join(carries, s.carry)) });
+// NeoForge's own bucket models and masks, which final-data puts in atm10-pack: a mod of their own here, as the
+// whole pack's other content isn't loaded.
+const loader = join(fixture.run, 'neoforge-assets');
+mkdirSync(join(loader, 'assets'), { recursive: true });
+cpSync(join(carries, 'atm10-pack/assets/neoforge'), join(loader, 'assets/neoforge'), { recursive: true });
+writeFileSync(join(loader, 'horizon-mod.toml'), 'id = "carried_fluids_loader"\nname = "NeoForge assets"\nversion = "1"\napi = "0.2"\nside = "both"\ncapabilities = ["registries"]\nnamespaces = ["neoforge"]\n');
+fixture.extraMods.push(loader);
 const passed = (reply: any) => (reply.chat ?? []).some((line: string) => line.includes('Test passed'));
 try {
   const start = await fixture.start(), [px, py, pz] = start.player.position;
@@ -141,7 +152,37 @@ try {
     fixture.mark(`an empty bucket picks the ${s.fluid} source up`);
   }
 
+  // Slice 3: the buckets in the hotbar, beside an empty one.
+  await fixture.command('clear @s');
+  for (const [i, s] of samples.entries()) await fixture.replace(`hotbar.${i}`, s.bucket);
+  await fixture.replace(`hotbar.${samples.length}`, 'minecraft:bucket');
+  await fixture.raw('open-inventory');
+  const ui = await until(() => fixture.raw('ui'), u => u.screen === 'inventory' && u.widgets?.some((w: any) => w.id === `slot-${samples.length}`), 'inventory widgets');
+  const imagePath = join(fixture.run, 'buckets.png'); await fixture.raw(`screenshot ${imagePath}`);
+  const image = screenshot(imagePath), scale = Math.round(image.width / ui.gui_size[0]);
+  const crop = (index: number) => {
+    const node = ui.widgets.find((w: any) => w.id === `slot-${index}`); assert(node?.bounds, 'visible hotbar slot');
+    const out: number[][] = [];
+    for (let py2 = 0; py2 < 16; py2++) for (let px2 = 0; px2 < 16; px2++) {
+      const ix = Math.floor((node.bounds[0] + px2 + 0.5) * scale), iy = Math.floor((node.bounds[1] + py2 + 0.5) * scale);
+      const o = (iy * image.width + ix) * 4; out.push([image.pixels[o], image.pixels[o + 1], image.pixels[o + 2]]);
+    }
+    return out;
+  };
+  const empty = crop(samples.length);
+  for (const [i, s] of samples.entries()) {
+    const full = crop(i), fluid = full.filter((p, j) => p.some((v, c) => v !== empty[j][c]));
+    assert(fluid.length >= 12, `${s.bucket} draws its fluid layer (${fluid.length} pixels)`);
+    assert(!full.some(p => missing(p[0], p[1], p[2])), `${s.bucket} has its model and textures`);
+    if (s.fluid === 'mekanism:sulfuric_acid') {
+      // Mekanism's grey liquid texture under its yellow tint (0x82, 0x80, 0x2B).
+      const mean = [0, 1, 2].map(c => fluid.reduce((n, p) => n + p[c], 0) / fluid.length);
+      assert(mean[2] + 24 < mean[0] && mean[2] + 24 < mean[1], `${s.bucket}'s fluid takes its tint: ${mean.map(Math.round)}`);
+    }
+  }
+  await fixture.raw('close');
   fixture.assertHidden(await fixture.raw('status'));
+  fixture.mark('the carried buckets draw their fluid in the bucket (neoforge:fluid_container), the tinted one tinted');
   fixture.report('passed');
 } catch (error) { fixture.report('failed', error); throw error; }
 finally { await fixture.close(); }

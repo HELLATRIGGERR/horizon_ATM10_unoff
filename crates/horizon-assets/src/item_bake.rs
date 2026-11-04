@@ -2,11 +2,11 @@
 //! `builtin/generated` (`ItemModelGenerator`), with the display transforms
 //! and render properties a `CuboidItemModelWrapper` keeps.
 use crate::{
-    bake::{ModelQuad, bake_block_model, bake_flat_face},
+    bake::{ModelQuad, bake_block_model, bake_flat_face, default_uv},
     item_model::DisplayContext,
     json::Result,
     math::{Mat4, quaternion_xyz},
-    model::{Direction, DisplayTransform, GuiLight, ItemTransform, Material},
+    model::{Direction, DisplayTransform, FluidContainer, GuiLight, ItemTransform, Material},
     resolve::{ModelLibrary, ResolvedCuboidModel},
 };
 use std::{collections::BTreeSet, f32::consts::PI};
@@ -40,6 +40,23 @@ impl SpriteMask {
 pub trait SpriteLookup {
     /// `None` when the sprite is in neither atlas (the missing sprite stands in).
     fn mask(&self, sprite: &str) -> Option<SpriteMask>;
+    /// How a fluid container model draws `fluid` (a source or flowing fluid's
+    /// id); `None` for a fluid the game lacks, which `BuiltInRegistries.FLUID`
+    /// reads as empty: the container draws no fluid.
+    fn fluid(&self, fluid: &str) -> Option<FluidLook> {
+        let _ = fluid;
+        None
+    }
+}
+/// A fluid as `DynamicFluidContainerModel` draws it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FluidLook {
+    /// `IClientFluidTypeExtensions.getStillTexture()`: a block atlas sprite.
+    pub still: String,
+    /// `FluidType.getLightLevel`.
+    pub light_level: u8,
+    /// `FluidType.isLighterThanAir` (a density of 0 or less).
+    pub lighter_than_air: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +147,9 @@ pub fn bake_resolved(
             }
         }
     };
+    if let Some(container) = &model.fluid_container {
+        return bake_fluid_container(model, container, sprites);
+    }
     let quads = if model.uses_item_generator() {
         let mut quads = Vec::new();
         for (layer, slot) in ["layer0", "layer1", "layer2", "layer3", "layer4"]
@@ -190,6 +210,186 @@ pub fn bake_resolved(
         transforms,
     })
 }
+/// `DynamicFluidContainerModel.bake`: the `base` texture extruded as an
+/// item layer (tint index 0), the `fluid` mask's shape filled with the
+/// fluid's still texture (tint index 1, the item colour its fluid's tint
+/// gives through `DynamicFluidContainerModel.Colors`; full bright for a fluid
+/// that gives light), and the `cover` mask's shape over it (tint index 2)
+/// with the base texture or, when `cover_is_mask` is false, its own. Every
+/// layer draws translucent (NeoForge's `ITEM_UNSORTED_TRANSLUCENT`) and lit
+/// from the front (`withUseBlockLight(false)`); a gas turns upside down
+/// with `flip_gas`. The fluid and cover layers stand a little out of the
+/// base (`FLUID_TRANSFORM`, `COVER_TRANSFORM`: 1.002 and 1.004 along z).
+fn bake_fluid_container(
+    model: &ResolvedCuboidModel,
+    container: &FluidContainer,
+    sprites: &dyn SpriteLookup,
+) -> Result<BakedItemModel> {
+    // The sprite getter: an unknown texture is the missing sprite; every layer is translucent.
+    let sprite = |m: &Material| Material {
+        sprite: if m.sprite == MISSING_SPRITE || sprites.mask(&m.sprite).is_some() {
+            m.sprite.clone()
+        } else {
+            MISSING_SPRITE.to_owned()
+        },
+        force_translucent: true,
+    };
+    let mask_of = |m: &Material| {
+        sprites
+            .mask(&m.sprite)
+            .unwrap_or_else(|| SpriteMask::opaque(16, 16))
+    };
+    let base = model.material("base")?.map(sprite);
+    let fluid_mask = model.material("fluid")?.map(sprite);
+    let look = sprites.fluid(&container.fluid);
+    let fluid = look.as_ref().map(|l| {
+        sprite(&Material {
+            sprite: l.still.clone(),
+            force_translucent: true,
+        })
+    });
+    let cover = model
+        .material("cover")?
+        .filter(|_| !container.cover_is_mask || base.is_some())
+        .map(sprite);
+    let particle = model
+        .material("particle")?
+        .map(sprite)
+        .or_else(|| fluid.clone())
+        .or_else(|| base.clone())
+        .or_else(|| cover.clone().filter(|_| !container.cover_is_mask))
+        .unwrap_or(Material {
+            sprite: MISSING_SPRITE.to_owned(),
+            force_translucent: false,
+        });
+    let mut quads = Vec::new();
+    if let Some(base) = &base {
+        quads.extend(extrude_layer(&mask_of(base), base, 0)?);
+    }
+    if let (Some(template), Some(fluid), Some(look)) = (&fluid_mask, &fluid, &look) {
+        let mut layer = mask_elements(&mask_of(template), fluid, 1)?;
+        stand_out(&mut layer, 1.002);
+        if container.apply_fluid_luminosity && look.light_level > 0 {
+            // QuadTransformers.settingMaxEmissivity.
+            for quad in &mut layer {
+                quad.light_emission = 15;
+            }
+        }
+        quads.extend(layer);
+    }
+    if let Some(cover) = &cover {
+        let texture = if container.cover_is_mask {
+            base.as_ref()
+        } else {
+            Some(cover)
+        };
+        if let Some(texture) = texture {
+            let mut layer = mask_elements(&mask_of(cover), texture, 2)?;
+            stand_out(&mut layer, 1.004);
+            quads.extend(layer);
+        }
+    }
+    if container.flip_gas && look.is_some_and(|l| l.lighter_than_air) {
+        // `new Transformation(null, new Quaternionf(0, 0, 1, 0), null, null)`: half a turn about z.
+        for quad in &mut quads {
+            for p in &mut quad.positions {
+                (p[0], p[1]) = (1.0 - p[0], 1.0 - p[1]);
+            }
+            quad.facing = match quad.facing {
+                Direction::Up => Direction::Down,
+                Direction::Down => Direction::Up,
+                Direction::East => Direction::West,
+                Direction::West => Direction::East,
+                facing => facing,
+            };
+        }
+    }
+    let transforms = std::array::from_fn(|i| match &model.display.contexts[i] {
+        DisplayTransform::Explicit(Some(t)) => Some(t.clone()),
+        _ => None,
+    });
+    Ok(BakedItemModel {
+        quads,
+        uses_block_light: false,
+        particle,
+        transforms,
+    })
+}
+
+/// `FaceBakery`'s model rotation for a z scale about the block's centre.
+fn stand_out(quads: &mut [ModelQuad], scale: f32) {
+    for quad in quads {
+        for p in &mut quad.positions {
+            p[2] = 0.5 + (p[2] - 0.5) * scale;
+        }
+    }
+}
+
+/// `UnbakedGeometryHelper.createUnbakedItemMaskElements` baked with
+/// `material` (`bakeElements` with a getter that gives it for every
+/// texture): the mask's side faces as an item layer has them (its front and
+/// back left out), and over its opaque pixels (in any frame) rectangles
+/// 7.5 to 8.5 deep, each with all six faces at their default UVs. A run of
+/// opaque pixels grows down while the row below is opaque from its start to
+/// the first pixel past it; a run that reaches the right edge makes none.
+fn mask_elements(mask: &SpriteMask, material: &Material, layer: i32) -> Result<Vec<ModelQuad>> {
+    let mut quads = extrude_layer(mask, material, layer)?;
+    quads.drain(..2);
+    let (width, height) = (mask.width, mask.height);
+    let mut bits = vec![false; width * height];
+    for frame in &mask.frames {
+        for (bit, transparent) in bits.iter_mut().zip(frame) {
+            *bit |= !transparent;
+        }
+    }
+    for y in 0..height {
+        let mut start: Option<usize> = None;
+        for x in 0..width {
+            let opaque = bits[x + y * width];
+            if opaque != start.is_none() {
+                continue;
+            }
+            let Some(x_start) = start else {
+                start = Some(x);
+                continue;
+            };
+            let mut y_end = y + 1;
+            'expand: while y_end < height {
+                for x2 in x_start..=x {
+                    if !bits[x2 + y_end * width] {
+                        break 'expand;
+                    }
+                }
+                y_end += 1;
+            }
+            for i in x_start..x {
+                for j in y..y_end {
+                    bits[i + j * width] = false;
+                }
+            }
+            let (w, h) = (width as f32, height as f32);
+            let from = [
+                (16 * x_start) as f32 / w,
+                16.0 - (16 * y_end) as f32 / h,
+                7.5,
+            ];
+            let to = [(16 * x) as f32 / w, 16.0 - (16 * y) as f32 / h, 8.5];
+            for direction in Direction::ALL {
+                quads.push(bake_flat_face(
+                    from,
+                    to,
+                    default_uv(from, to, direction),
+                    direction,
+                    material.clone(),
+                    layer,
+                )?);
+            }
+            start = None;
+        }
+    }
+    Ok(quads)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Side {
     Up,
@@ -389,5 +589,103 @@ mod tests {
         );
         assert_eq!(baked.particle.sprite, "horizon_cit:item/cit");
         assert_eq!(baked.transforms[5].as_ref().unwrap().scale, [2.0; 3]);
+    }
+
+    /// A NeoForge bucket: `neoforge:item/bucket`'s base and fluid mask, the
+    /// leaf naming its fluid. The base is a 4x4 opaque square; the mask's
+    /// fluid is the 2x2 in its middle, and a pixel on its right edge.
+    struct Buckets;
+    impl SpriteLookup for Buckets {
+        fn mask(&self, sprite: &str) -> Option<SpriteMask> {
+            let (width, height) = (4, 4);
+            let frame = match sprite {
+                "minecraft:item/bucket" | "test:block/brine_still" => vec![false; 16],
+                #[rustfmt::skip]
+                "neoforge:item/mask/bucket_fluid" => vec![
+                    true, true,  true,  true,
+                    true, false, false, true,
+                    true, false, false, false,
+                    true, true,  true,  true,
+                ],
+                _ => return None,
+            };
+            Some(SpriteMask {
+                width,
+                height,
+                frames: vec![frame],
+            })
+        }
+        fn fluid(&self, fluid: &str) -> Option<FluidLook> {
+            (fluid == "test:brine").then(|| FluidLook {
+                still: "test:block/brine_still".into(),
+                light_level: 0,
+                lighter_than_air: false,
+            })
+        }
+    }
+    fn buckets() -> ModelLibrary {
+        ModelLibrary::with_item_generator(BTreeMap::from(
+            [
+                ("neoforge:item/default", r#"{"gui_light":"front","display":{"ground":{"scale":[0.5,0.5,0.5]}}}"#),
+                ("neoforge:item/bucket", r#"{"parent":"neoforge:item/default","textures":{"base":"item/bucket","fluid":"neoforge:item/mask/bucket_fluid"}}"#),
+                ("test:item/brine_bucket", r#"{"parent":"neoforge:item/bucket","loader":"neoforge:fluid_container","fluid":"test:brine"}"#),
+                ("test:item/gone_bucket", r#"{"parent":"neoforge:item/bucket","loader":"neoforge:fluid_container","fluid":"test:gone"}"#),
+            ]
+            .map(|(name, json)| (name.to_owned(), CuboidModel::from_json(json).unwrap())),
+        ))
+        .unwrap()
+    }
+    #[test]
+    fn a_fluid_container_masks_its_fluid_into_the_bucket() {
+        let library = buckets();
+        let bucket = bake_item_model(&library, &Buckets, "test:item/brine_bucket").unwrap();
+        let layer = |tint: i32| -> Vec<&ModelQuad> {
+            bucket
+                .quads
+                .iter()
+                .filter(|q| q.tint_index == tint)
+                .collect()
+        };
+        // The base as an item layer: front, back and the 16 edges of the square.
+        let base = layer(0);
+        assert_eq!(base.len(), 18);
+        assert!(
+            base.iter()
+                .all(|q| q.material.sprite == "minecraft:item/bucket")
+        );
+        // The fluid layer: the mask's 8 edges and 6 faces of the 2x2 run (from 4,4 to 12,12),
+        // none for the pixel on the right edge; the fluid's still texture, z scaled by 1.002.
+        let fluid = layer(1);
+        assert_eq!(
+            fluid.len(),
+            10 + 6,
+            "the edges of the 2x2 and its edge pixel, and one box"
+        );
+        assert!(
+            fluid
+                .iter()
+                .all(|q| q.material.sprite == "test:block/brine_still")
+        );
+        assert!(fluid.iter().all(|q| q.material.force_translucent));
+        let front = fluid.iter().find(|q| q.facing == Direction::South).unwrap();
+        let (xs, ys): (Vec<f32>, Vec<f32>) = front.positions.iter().map(|p| (p[0], p[1])).unzip();
+        assert_eq!(xs.iter().cloned().fold(f32::MAX, f32::min), 0.25);
+        assert_eq!(xs.iter().cloned().fold(f32::MIN, f32::max), 0.75);
+        assert_eq!(ys.iter().cloned().fold(f32::MAX, f32::min), 0.25);
+        assert_eq!(ys.iter().cloned().fold(f32::MIN, f32::max), 0.75);
+        let z = 0.5 + (8.5 / 16.0 - 0.5) * 1.002;
+        assert!(
+            front.positions.iter().all(|p| (p[2] - z).abs() < 1e-6),
+            "{:?}",
+            front.positions
+        );
+        // Front lit, the fluid's texture as the particle, the parent's display.
+        assert!(!bucket.uses_block_light);
+        assert_eq!(bucket.particle.sprite, "test:block/brine_still");
+        assert_eq!(bucket.transforms[6].as_ref().unwrap().scale, [0.5; 3]);
+        // A fluid the game lacks: the bucket alone.
+        let gone = bake_item_model(&library, &Buckets, "test:item/gone_bucket").unwrap();
+        assert_eq!(gone.quads.len(), 18);
+        assert_eq!(gone.particle.sprite, "minecraft:item/bucket");
     }
 }

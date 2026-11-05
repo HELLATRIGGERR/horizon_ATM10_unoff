@@ -2,8 +2,11 @@
 // Copyright (c) 2021 TeamAppliedEnergistics. LGPL-3.0-or-later; see LICENSE.
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod keys;
+pub use keys::{AmountFormat, KeyType, KeyTypeDef, KeyTypeSet, TypedKey};
+
 /// Host-provided identity. Component bytes must be canonical under Minecraft equality.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ItemKey {
     pub item_id: String,
     pub components: Vec<u8>,

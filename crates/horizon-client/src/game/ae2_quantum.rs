@@ -401,6 +401,21 @@ impl Game<'_> {
         let id=NodeIdentity{host:self.world.block_entities.incarnation(&local)?,part:None,outer:false};
         self.ae2_quantum_runtime.borrow().visual.get(&id).copied()
     }
+    /// `Locatables.quantumNetworkBridges().get(level, key)`: the formed
+    /// cluster registered under `key` (one registry for the server, so in any
+    /// loaded level), as its center's address. Only a registry that follows
+    /// the observed callbacks answers, as for the links between bridges.
+    #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+    pub(super) fn ae2_quantum_bridge(&self, key: i64) -> Option<super::ae2_global::GridAddress> {
+        let runtime = self.ae2_quantum_runtime.borrow();
+        let registry = if !runtime.source_invalid { &runtime.source_registry } else if runtime.active { &runtime.registry } else { return None };
+        let id = registry.locate(key)?;
+        let center = runtime.formed.iter().find_map(|(center, frame)| frame.get(center).is_some_and(|(node, _)| *node == id).then_some(*center))?;
+        let address = super::ae2_global::GridAddress::from_network(center)?;
+        let (dim, local) = address.local_parts()?;
+        // The center still the incarnation that registered.
+        (self.ae2_world_for(dim)?.block_entities.incarnation(&local) == Some(id.host)).then_some(address)
+    }
     pub(super) fn ae2_connect_quantum(&self, network: &mut Network) {
         // Process ordered unloads before comparing the registry to the live
         // physical scan; otherwise a normal chunk unload looks unobserved.
@@ -572,8 +587,8 @@ impl Game<'_> {
   use horizon_client::command::{Registries,Reader,SuggestionsBuilder,item::{parse_stack,suggest_stack}};
   let mut reg=Registries::default();reg.items.push("ae2:quantum_entangled_singularity".into());
   horizon_client::ae2_components::register(&mut reg);horizon_client::ae2_components::register(&mut reg);
-  assert_eq!(reg.persistent_components.len(),58,"registration is idempotent");
-  assert_eq!(reg.ids("minecraft:data_component_type").len(),58);
+  assert_eq!(reg.persistent_components.len(),59,"registration is idempotent");
+  assert_eq!(reg.ids("minecraft:data_component_type").len(),59);
   let prefix="ae2:quantum_entangled_singularity[ae2:entangled";
   let mut suggestions=SuggestionsBuilder::new(prefix,0);suggest_stack(&mut suggestions,&reg);
   assert!(suggestions.out.iter().any(|s|s.text=="ae2:entangled_singularity_id="));

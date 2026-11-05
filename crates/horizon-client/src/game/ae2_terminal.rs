@@ -2951,7 +2951,7 @@ impl Game<'_> {
                     .is_none_or(|ctx| self.ae2_wireless_tick(host, conn, ctx));
             let old_pos = pos;
             if connected {
-                if let Some((nearest, _)) = wireless
+                if let Some(nearest) = wireless
                     .as_ref()
                     .and_then(|ctx| self.ae2_wireless_nearest(host, conn, ctx))
                 {

@@ -32,8 +32,24 @@ impl GridAddress {
     pub(super) fn encoded(self) -> LocalPos {
         self.0
     }
+    /// This address as a menu's anchor, for whichever level is in place: its
+    /// encoded position lifted past every level's height. No level has a
+    /// block there, and [`Game::ae2_local_address`] reads it back, so a menu
+    /// keyed on a local position reaches a node in another level (a wireless
+    /// terminal's grid across dimensions).
+    pub(super) fn anchor(self) -> LocalPos {
+        (self.0.0, self.0.1 + ANCHOR, self.0.2)
+    }
+    pub(super) fn from_anchor(p: LocalPos) -> Option<Self> {
+        let a = Self((p.0, p.1.checked_sub(ANCHOR)?, p.2));
+        decode(a)?;
+        Some(a)
+    }
 }
 const STRIDE: i32 = 4096;
+/// Far above every encoded level ([`STRIDE`] each) and every network block
+/// position (a packed `BlockPos` has 12 bits of Y).
+const ANCHOR: i32 = 1 << 24;
 fn ordinal(dim: Dim) -> i32 {
     match dim {
         Dim::Overworld => 0,
@@ -77,8 +93,18 @@ pub(super) struct BlockSnapshot {
     monitors: super::ae2_storage_monitor_host::StorageMonitors,
 }
 impl Game<'_> {
+    /// A position of the level in place, or a node of another level named by
+    /// its anchor ([`GridAddress::anchor`]).
     pub(super) fn ae2_local_address(&self, p: LocalPos) -> Option<GridAddress> {
-        encode(self.dim, p)
+        GridAddress::from_anchor(p).or_else(|| encode(self.dim, p))
+    }
+    /// The position a menu keys on to reach `address`: its local position
+    /// when it is in the level in place, else its anchor.
+    pub(super) fn ae2_anchor(&self, address: GridAddress) -> LocalPos {
+        match decode(address) {
+            Some((dim, local)) if dim == self.dim => local,
+            _ => address.anchor(),
+        }
     }
     pub(super) fn ae2_dimension_address(&self, dim: Dim, p: LocalPos) -> Option<GridAddress> {
         encode(dim, p)
@@ -179,5 +205,20 @@ mod tests {
         }
         assert!(encode(Dim::End, (0, 320, 0)).is_none());
         assert!(decode(GridAddress((0, 512, 0))).is_none());
+    }
+    #[test]
+    fn anchors_name_any_level_and_no_local_position_reads_as_one() {
+        for dim in [Dim::Overworld, Dim::Nether, Dim::End, Dim::Spatial] {
+            for y in [-64, 0, 319] {
+                let address = encode(dim, (-30_000_000, y, 30_000_000)).unwrap();
+                assert_eq!(GridAddress::from_anchor(address.anchor()), Some(address));
+            }
+        }
+        // A level's own positions, and any a client can send, are never anchors.
+        for y in [-2048, -64, 0, 319, 2047, 3 * STRIDE + 319] {
+            assert_eq!(GridAddress::from_anchor((5, y, 5)), None, "{y}");
+        }
+        assert_eq!(GridAddress::from_anchor((0, ANCHOR + 4 * STRIDE, 0)), None, "no fifth level");
+        assert_eq!(GridAddress::from_anchor((0, i32::MAX, 0)), None);
     }
 }

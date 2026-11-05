@@ -798,6 +798,10 @@ mod tests {
             ("ae2wtlib:restock", Tag::Byte(0)),
             ("ae2wtlib:pick_block", Tag::Byte(1)),
             ("ae2wtlib:craft_if_missing", Tag::Byte(0)),
+            ("ae2wtlib:singularity", Tag::compound([
+                ("id", string("ae2:quantum_entangled_singularity")), ("count", Tag::Int(1)),
+                ("components", Tag::compound([("ae2:entangled_singularity_id", Tag::Long(731))])),
+            ])),
             ("ae2importexportcard:filter_config", Tag::compound([("", Tag::List(vec![generic()]))])),
             ("ae2importexportcard:selected_inventory_slots", Tag::IntArray(vec![0, 1, 2])),
             ("ae2importexportcard:selected_curio_slots", Tag::compound([("ring/0", Tag::Int(3))])),
@@ -847,7 +851,7 @@ mod tests {
         ];
         let expected: std::collections::BTreeSet<_> = crate::ae2_components::PERSISTENT_IDS.iter().copied().collect();
         assert_eq!(samples.iter().map(|(id, _)| *id).collect::<std::collections::BTreeSet<_>>(), expected);
-        assert_eq!(samples.len(), 58);
+        assert_eq!(samples.len(), 59);
         for (id, value) in &samples {
             crate::ae2_components::validate(id, value).unwrap_or_else(|error| panic!("invalid source-shaped sample for {id}: {error}"));
         }

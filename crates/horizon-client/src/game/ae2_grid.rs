@@ -567,7 +567,8 @@ impl Game<'_> {
             .is_some_and(|status| status.online)
     }
     pub(super) fn ae2_terminal_online(&self, pos: WorldPos) -> bool {
-        let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&pos) else {
+        // The anchor of a wireless menu may name a node in another level.
+        let Some(BlockEntity::Ae2(m)) = self.ae2_local_address(pos).and_then(|address| self.ae2_block_entity(address)) else {
             return false;
         };
         if m.kind != MachineKind::CableBus {

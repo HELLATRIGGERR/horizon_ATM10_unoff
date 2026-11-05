@@ -135,9 +135,7 @@ impl Game<'_> {
         if cards.is_empty() {
             return false;
         }
-        let Some((dim, target)) = ae2_wireless::target(&stack) else { return false };
-        let Some((anchor, _)) = self.ae2_wireless_reach(host, conn, &dim, target) else { return false };
-        let Some(address) = self.ae2_local_address(anchor) else { return false };
+        let Some(address) = self.ae2_wireless_reach(host, conn, &stack).map(|reach| reach.node) else { return false };
         let mut changed = false;
         for (ty, card) in cards {
             changed |= self.lan_iecard_tick_card(host, gi, source, ticker, address, ty, &card);

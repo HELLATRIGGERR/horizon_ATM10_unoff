@@ -65,6 +65,9 @@ impl QuantumRegistry {
         self.clusters.remove(&id);Ok(events)
     }
     pub fn sides(&self,id:NodeIdentity)->Option<(i64,i64)>{self.clusters.get(&id).map(|c|(c.side,c.other))}
+    /// `Locatables.quantumNetworkBridges().get(level, key)`: the cluster
+    /// registered under its signed frequency, in whichever level it is.
+    pub fn locate(&self,key:i64)->Option<NodeIdentity>{self.keys.get(&key).copied()}
     pub fn peer(&self,id:NodeIdentity)->Option<NodeIdentity>{self.clusters.get(&id).and_then(|c|c.peer)}
     /// Each actual connection exactly once, retaining its endpoints' identity.
     pub fn links(&self)->impl Iterator<Item=(NodeIdentity,NodeIdentity)> + '_ {
@@ -77,6 +80,7 @@ impl QuantumRegistry {
  #[test]fn three_real_source_callback_order_keeps_first_pair_and_does_not_promote_third(){
   let mut r=QuantumRegistry::default();for n in [20,0,10]{r.form(id(n)).unwrap();}
   assert!(r.update(id(20),42).unwrap().is_empty());assert_eq!(r.sides(id(20)),Some((-42,42)));
+  assert_eq!((r.locate(-42),r.locate(42)),(Some(id(20)),None),"a lone cluster is found by its own side");
   assert_eq!(r.update(id(0),42).unwrap(),vec![LinkEvent{a:id(0),b:id(20),added:true}]);
   assert_eq!(r.update(id(10),42).unwrap(),vec![]);assert_eq!(r.sides(id(10)),Some((0,0)));
   assert_eq!(r.update(id(20),0).unwrap(),vec![LinkEvent{a:id(20),b:id(0),added:false}]);

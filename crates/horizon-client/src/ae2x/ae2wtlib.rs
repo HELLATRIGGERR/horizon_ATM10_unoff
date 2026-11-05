@@ -8,6 +8,7 @@
 use super::defs::{Defs, TerminalKind, UniversalTerminal, WirelessTerminal};
 
 pub mod magnet;
+pub mod quantum;
 pub mod recipes;
 pub mod restock;
 
@@ -55,10 +56,12 @@ pub fn register(defs: &mut Defs) {
 
 /// `UpgradeHelper.addUpgrades`, once every addon's terminal is in: AE2's
 /// energy card up to each terminal's `upgradeCount`, up to
-/// `WUTHandler.getUpgradeCardCount` on the universal terminal. The Quantum
-/// Bridge Card comes with its slice.
+/// `WUTHandler.getUpgradeCardCount` on the universal terminal; then the
+/// cards queued before (`addUpgradeToAllTerminals`): the Quantum Bridge Card,
+/// one on each.
 pub fn add_upgrades(defs: &mut Defs) {
     defs.add_upgrade_to_all_terminals("ae2:energy_card", 0);
+    defs.add_upgrade_to_all_terminals(quantum::QUANTUM_BRIDGE_CARD, 1);
 }
 
 #[cfg(test)]

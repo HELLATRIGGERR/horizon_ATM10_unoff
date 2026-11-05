@@ -19,6 +19,7 @@ use horizon_world::nbt::{Compound, Tag};
 
 mod magnet;
 pub(in crate::game) mod magnet_screen;
+mod quantum;
 pub(in crate::game) mod restock;
 pub(in crate::game) mod settings_screen;
 pub(in crate::game) mod trash;

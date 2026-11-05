@@ -581,6 +581,23 @@ impl Game<'_> {
         }
         false
     }
+    /// An addon's link from a wireless item to its grid that takes over from
+    /// the access points (AE2WTLib's Quantum Bridge Card), in any level.
+    pub(super) fn ae2x_wireless_link(&self, stack: &horizon_client::items::ItemStack) -> Option<super::ae2_wireless::Reach> {
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(reach) = self.ae2wtlib_quantum_reach(stack) {
+            return Some(reach);
+        }
+        let _ = stack;
+        None
+    }
+    /// A link that recharges its item ([`super::ae2_wireless::Reach::recharge`]):
+    /// the item at guest `conn`'s `source` slot, from the grid of `node`.
+    pub(super) fn ae2x_wireless_recharge(&mut self, host: &mut super::lan::LanHost, conn: u32, source: usize, node: super::ae2_global::GridAddress) {
+        let _ = (&host, conn, source, node);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.ae2wtlib_recharge(host, conn, source, node);
+    }
     /// The item slot of the addon's wireless menu `conn` has open.
     pub(super) fn lan_ae2x_wireless_source(&self, conn: u32) -> Option<usize> {
         let _ = conn;

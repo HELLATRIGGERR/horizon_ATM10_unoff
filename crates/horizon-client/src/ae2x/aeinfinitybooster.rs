@@ -12,6 +12,8 @@ use std::sync::OnceLock;
 pub const NAMESPACE: &str = "aeinfinitybooster";
 /// `ModItems.INFINITY_CARD`: unlimited range in the access point's dimension.
 pub const INFINITY_CARD: &str = "aeinfinitybooster:infinity_card";
+/// `ModItems.DIMENSION_CARD`: unlimited range from any dimension.
+pub const DIMENSION_CARD: &str = "aeinfinitybooster:dimension_card";
 
 /// `aeinfinitybooster-common.toml`, `[general]` (`AEInfinityBoosterConfig`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -66,11 +68,12 @@ impl Config {
     }
 }
 
-/// The Infinity Range Booster: an active access point holding it gives a
-/// terminal in its dimension the signal of one 16 blocks away
-/// (`boostedDistance`: a squared distance of 256) however far it is; its
-/// menu shows an unlimited range and the configured drain. The Dimension
-/// Card comes with the cross-dimension slice.
+/// The two cards (`boostedDistance`): an active access point holding the
+/// Infinity Range Booster gives a terminal in its dimension the signal of one
+/// 16 blocks away (a squared distance of 256) however far it is; holding the
+/// Dimension Card, the signal of one 32 blocks away (1024) to a terminal in
+/// any dimension. Its menu shows an unlimited range and the configured drain
+/// of either; both keep its chunk loaded when the config says so.
 pub fn register(defs: &mut Defs) {
     let config = Config::get();
     defs.add_access_point_card(AccessPointCard {
@@ -78,6 +81,13 @@ pub fn register(defs: &mut Defs) {
         signal: 256.0,
         same_dimension: true,
         shown_drain: config.infinity_card_drain as f64,
+        chunk_loading: config.chunk_loading,
+    });
+    defs.add_access_point_card(AccessPointCard {
+        item: DIMENSION_CARD.to_owned(),
+        signal: 1024.0,
+        same_dimension: false,
+        shown_drain: config.dimension_card_drain as f64,
         chunk_loading: config.chunk_loading,
     });
 }
@@ -102,5 +112,8 @@ mod tests {
         let card = defs.access_point_card(INFINITY_CARD).unwrap();
         assert_eq!((card.signal, card.same_dimension), (256.0, true));
         assert!(defs.access_point_card("ae2:wireless_booster").is_none());
+        let card = defs.access_point_card(DIMENSION_CARD).unwrap();
+        assert!(defs.access_point_accepts(DIMENSION_CARD));
+        assert_eq!((card.signal, card.same_dimension, card.shown_drain, card.chunk_loading), (1024.0, false, 100.0, true));
     }
 }

@@ -124,10 +124,9 @@ impl Game<'_> {
         if !self.ae2wtlib_can_insert(g, &stack) {
             return false;
         }
-        // `inRange` and `getTargetGrid`: the access point the terminal reaches.
+        // `inRange` and `getTargetGrid`: the node the terminal reaches.
         let Some((_, terminal)) = located(g) else { return false };
-        let Some(anchor) = self.ae2_wireless_item_link(host, conn, terminal) else { return false };
-        let Some(address) = self.ae2_local_address(anchor) else { return false };
+        let Some(address) = self.ae2_wireless_item_link(host, conn, terminal).map(|reach| reach.node) else { return false };
         let snapshot = self.ae2_snapshot_blocks();
         let mut plan = crate::game::ae2_buses::FormationPlan::default();
         let inserted = match self

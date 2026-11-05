@@ -73,15 +73,14 @@ impl Game<'_> {
     /// player is creative) or without (Pick Block asks the grid alone).
     fn ae2wtlib_grid(&self, holder: &Holder, powered: bool) -> Option<GridAddress> {
         let terminal = holder.terminal.as_ref()?;
-        let (dim, target) = ae2_wireless::target(terminal)?;
-        let (anchor, distance) = self.ae2_wireless_reach_from(holder.position, &dim, target)?;
+        let reach = self.ae2_wireless_reach_from(holder.position, terminal)?;
         if powered {
-            let free = horizon_client::ae2_common_config::wireless().link.drain(distance) <= 0.0 || holder.creative;
+            let free = reach.drain <= 0.0 || holder.creative;
             if !free && !ae2_wireless::energy(terminal).is_ok_and(|(power, _)| power > 0.0) {
                 return None;
             }
         }
-        self.ae2_local_address(anchor)
+        Some(reach.node)
     }
     /// `getStorageService().getInventory().insert`, unpowered, the formation
     /// planes included: what the network took.
@@ -214,7 +213,7 @@ impl Game<'_> {
         let max = u64::from(self.res.items().stack_max(stack));
         if self.ae2wtlib_extract(address, stack, max, true) == 0 {
             let Ok(key) = ae2_lab::key(stack) else { return Pick::Nothing };
-            let craftable = self.ae2_address_parts(address).is_some_and(|(_, pos)| self.ae2_craftable_outputs(pos).contains(&key));
+            let craftable = self.ae2_craftable_outputs(self.ae2_anchor(address)).contains(&key);
             return if craft_if_missing && craftable { Pick::Craft(key) } else { Pick::Nothing };
         }
         if let Some(old) = to_replace {
@@ -241,7 +240,8 @@ impl Game<'_> {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
         let Some((slot, stack)) = located(&host.hub.guests[gi]) else { return };
         let Some((target_dim, target)) = ae2_wireless::target(stack) else { return };
-        let Some((anchor, _)) = self.ae2_wireless_reach(host, conn, &target_dim, target) else { return };
+        let Some(reach) = self.ae2_wireless_reach(host, conn, stack) else { return };
+        let anchor = self.ae2_anchor(reach.node);
         let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], slot) else { return };
         if let Some(terminal) = crafting() {
             wireless::set_current(stack, terminal);
@@ -294,10 +294,18 @@ impl Game<'_> {
         if g.creative() || !magnet::settings(ticking).2 {
             return;
         }
-        let holder = Holder::of_guest(g);
-        if !holder.terminal.as_ref().is_some_and(|t| magnet::settings(t).2) {
+        if !located(g).is_some_and(|(_, t)| magnet::settings(t).2) {
             return;
         }
+        // `inRange`'s `updateLinkStatus`: a bridge's link recharges the
+        // terminal first (`WTMenuHost.recharge`).
+        let conn = g.conn;
+        if let Some((slot, stack)) = located(g)
+            && let Some(reach) = self.ae2_wireless_reach(host, conn, stack).filter(|reach| reach.recharge)
+        {
+            self.ae2x_wireless_recharge(host, conn, slot, reach.node);
+        }
+        let holder = Holder::of_guest(&host.hub.guests[gi]);
         let Some(address) = self.ae2wtlib_grid(&holder, true) else { return };
         let Ok(stock) = self.ae2_grid_inventory_encoded(address) else { return };
         let stock: BTreeMap<_, _> = stock.into_iter().collect();

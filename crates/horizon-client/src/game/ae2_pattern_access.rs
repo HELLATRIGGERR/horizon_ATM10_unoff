@@ -573,7 +573,7 @@ impl Game<'_> {
             // WirelessTerminalMenuHost.tick: the nearest access point and the battery each tick.
             let mut pos=pos;
             let connected=match wireless.as_mut() {
-                Some(ctx)=>{let connected=self.ae2_wireless_tick(host,conn,ctx);if connected {if let Some((nearest,_))=self.ae2_wireless_nearest(host,conn,ctx){pos=nearest;}}connected},
+                Some(ctx)=>{let connected=self.ae2_wireless_tick(host,conn,ctx);if connected {if let Some(nearest)=self.ae2_wireless_nearest(host,conn,ctx){pos=nearest;}}connected},
                 None=>true,
             };
             let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.as_mut()) else{continue};

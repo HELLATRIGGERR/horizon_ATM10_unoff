@@ -133,13 +133,43 @@ replaced; the restock key turns it off and on; the stow key empties the hand int
 cobblestone from the network into the selected empty slot, and planks, which only a pattern makes, open the craft
 amount; the trash takes dirt and has none when it opens again.
 
+## Slice 5: the Quantum Bridge Card
+
+| AE2WTLib | Port |
+|---|---|
+| `AE2wtlibItems.QUANTUM_BRIDGE_CARD` (`createUpgradeCardItem`, a stack of one); `UpgradeHelper.addUpgradeToAllTerminals(QUANTUM_BRIDGE_CARD, 1)`, queued until `addUpgrades`: one on each terminal of the registry and on the universal terminal, none on AE2's own Wireless Terminal | the item (`content.json`), its recipe from the jar, the upgrade rows (`ae2x/ae2wtlib/quantum.rs`); it goes in by AE2's crafting-grid upgrade recipe, as the other cards |
+| `AE2wtlibComponents.SINGULARITY` (`ItemStack.OPTIONAL_CODEC`); `getQEFrequency`: empty `NoSingularity`, no `ENTANGLED_SINGULARITY_ID` `GenericInvalid` | the component (`quantum::singularity`), registered for commands |
+| `isQuantumLinked`: no card `NoUpgrade` (and a bad singularity as well, `GenericInvalid`); `findQuantumBridge`: `Locatables.quantumNetworkBridges().get(level, f)`, then `-f` (the registry is the server's, so the bridge may be in any dimension); no node or grid `BridgeNotFound`; the access point the item is linked to on another grid, when it is there (`getLinkedGrid`), `DifferentNetworks`; `NotPowered` | `game/ae2x/ae2wtlib/quantum.rs` over AE2's quantum registry (`ae2_quantum_bridge`, `QuantumRegistry::locate`: the cluster under a signed frequency, only while the registry follows the observed callbacks, as the bridges' own links do) |
+| `getActionableNode`: the bridge's node while it links, else the access point's; `updateLinkStatus`: the access point's status when it connects, else the bridge's | AE2's wireless reach asks the addons first (`ae2x_wireless_link`): a linked bridge is the node the item acts through, for the terminal menus, Pick Block, restock, the magnet's pickup and the Import and Export Cards; a node in another dimension is the menu's anchor by its address (`GridAddress::anchor`) |
+| `getPowerDrainPerTick`: 22.5 AE/t while linked (the bridge's 22 and a terminal part's 0.5), whatever the distance | the reach's drain, paid from the battery ten ticks at a time at AE2's usage multiplier |
+| `consumeIdlePower(SIMULATE)`, before and after: `recharge`, the battery's missing energy from the bridge's grid (`extractAEPower`, `PowerMultiplier.ONE`), never taking the grid below half of `getMaxStoredPower` | after each menu tick's drain, before its link status; when a menu opens; in restock's once-a-tick `inRange` (`lan_ae2wtlib_restock_amounts`) |
+
+Differences, known:
+
+- The singularity goes in by its component (`/give`, `/item`) only: AE2WTLib's slot is in `WCTMenu`'s, `WETMenu`'s and
+  `WATMenu`'s upgrade panel, which the port does not have yet.
+- A terminal opens only when it is linked to an access point, as the port's AE2 refuses an unlinked one; AE2WTLib opens a
+  card-carrying, unlinked terminal through the bridge alone.
+- AE2WTLib drains 22.5 AE/t and recharges while the bridge's grid is unpowered (`NotPowered`); here that bridge is no
+  link at all. Either way the terminal is disconnected.
+- The statuses are not shown: the port's terminal says only that the network is out of range. Their texts
+  (`chat.ae2wtlib.*`) are in the bundled API jar's `ae2wtlib_api` namespace, which the content does not carry.
+- The magnet's pickup (`insertStackInME`'s `inRange`) does not recharge; restock's and the open menu's do.
+- AE2WTLib keeps the bridge it found between ticks; the port looks it up each time (the same one, `f` tried first).
+- The bridge's chunk must stay loaded, as in AE2WTLib ("Is it in loaded chunks?"): a chunk loader, a spatial anchor or
+  `/forceload`.
+
+Tests: `horizon-client-lib` (`quantum`: the card's and the singularity's statuses, the slot through a save, the
+recharge's half, the card's rows), `ae2-network-core` (`locate`), `horizon-client` (anchors, the access points of other
+levels, the singularity among the component samples) and the world test `ae2-crossdim`: a wireless crafting terminal in
+the Nether, linked to an Overworld access point, opens nothing without the card; with it, it opens through the bridge
+and lists the Overworld network, its battery is recharged from 1,000 AE while the grid's dense energy cell goes down to
+half, then its menu drains 22.5 AE/t; restock fills a cobblestone stack placed in the Nether from the Overworld network.
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.3)
 
-- `WCTMenu`'s armour, off-hand and singularity slots, if the port takes AE2WTLib's own crafting terminal layout.
-- **Quantum Bridge Card** (`UpgradeHelper.addUpgradeToAllTerminals(QUANTUM_BRIDGE_CARD, 1)`): `WTMenuHost.isQuantumLinked`
-  (a singularity in `SINGULARITY`, the bridge by frequency, 22.5 AE/t, recharging from the network to half), sharing the
-  cross-dimension work with AEInfinityBooster's Dimension Card: both need the wireless path (`ae2_wireless_reach`, today
-  the guest's own dimension only) to reach a grid in another dimension; the magnet's `inRange` follows it.
+- `WCTMenu`'s armour, off-hand and singularity slots (the Quantum Bridge Card's singularity, today a component only), if
+  the port takes AE2WTLib's own crafting terminal layout.
 - **Curios** slot, when Horizon has accessory slots (`findTerminal` looks there first).
 - Other addons' terminals go into the universal terminal by the registry's rows: ME Requester's is in
   (`ae2/addons/merequester`); ExtendedAE's, Expanded AE's and Advanced AE's come with those addons.

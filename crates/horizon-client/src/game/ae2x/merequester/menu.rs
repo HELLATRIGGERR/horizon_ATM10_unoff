@@ -316,7 +316,7 @@ impl Game<'_> {
                 let nearest = if connected { self.ae2_wireless_nearest(host, conn, &ctx) } else { None };
                 if let Some(s) = self.ae2x.merequester.sessions.get_mut(&conn) {
                     s.connected = nearest.is_some();
-                    if let Some((pos, _)) = nearest {
+                    if let Some(pos) = nearest {
                         s.pos = pos;
                     }
                     s.wireless = Some(ctx);

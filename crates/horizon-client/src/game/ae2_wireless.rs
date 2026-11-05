@@ -3,8 +3,8 @@
 //! WirelessTerminalItem (LGPL-3.0-or-later). Which items are wireless
 //! terminals and what each opens is the definitions registry's
 //! (`horizon_client::ae2x::wireless`, AE2WTLib's `WTDefinition`).
-use super::{Game, lan::LanHost};
-use horizon_client::{ae2_world::MachineKind, ae2x::{defs::TerminalKind, wireless}, containers::BlockEntity, items::ItemStack};
+use super::{Game, ae2_global::GridAddress, lan::LanHost};
+use horizon_client::{ae2_world::MachineKind, ae2x::{defs::{AccessPointCard, TerminalKind}, wireless}, containers::BlockEntity, items::ItemStack};
 use horizon_world::nbt::Tag;
 pub(super) use horizon_client::ae2x::wireless::{charge_rate, energy, transfer_energy};
 type Pos = (i32, i32, i32);
@@ -149,41 +149,73 @@ pub(super) fn target(stack: &ItemStack) -> Option<(String, Pos)> {
 fn extract_menu_energy(stack: &mut ItemStack, amount: f64, multiplier: f64) -> Result<f64, String> {
     Ok(transfer_energy(stack, (amount * multiplier).min(f64::MAX), false, false)? / multiplier)
 }
+/// How a wireless item reaches its grid (`WirelessTerminalMenuHost.getActionableNode`):
+/// the node its menu acts through, in any loaded level (the nearest access
+/// point that answers, or an addon's link that takes over: AE2WTLib's quantum
+/// bridge), what its menu drains a tick (`getPowerDrainPerTick`), and whether
+/// the link recharges the item from that grid (AE2WTLib's `WTMenuHost.recharge`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct Reach {
+    pub node: GridAddress,
+    pub drain: f64,
+    pub recharge: bool,
+}
+/// `getAccessPointSignal` of one active access point for a player: its
+/// distance, or none when it does not answer. An addon's card in its booster
+/// slot answers with the card's signal however far the player is
+/// (AEInfinityBooster's `boostedDistance`): the Infinity Range Booster in the
+/// access point's level only, the Dimension Card from any level. Otherwise
+/// only an access point of the player's level within its range answers.
+fn access_point_signal(card: Option<&AccessPointCard>, range: f64, same_level: bool, at: Pos, position: [f64; 3]) -> Option<f64> {
+    if let Some(card) = card.filter(|card| same_level || !card.same_dimension) {
+        return Some(card.signal.sqrt());
+    }
+    if !same_level {
+        return None;
+    }
+    let d = (f64::from(at.0) - position[0]).powi(2) + (f64::from(at.1) - position[1]).powi(2) + (f64::from(at.2) - position[2]).powi(2);
+    (d < range.powi(2)).then_some(d.sqrt())
+}
 impl Game<'_> {
-    pub(super) fn ae2_wireless_nearest(
-        &self,
-        host: &LanHost,
-        conn: u32,
-        ctx: &WirelessContext,
-    ) -> Option<(Pos, f64)> {
+    /// The open menu's link: its anchor for the menu code, a position of the
+    /// level in place or a node of another level (`ae2_anchor`).
+    pub(super) fn ae2_wireless_nearest(&self, host: &LanHost, conn: u32, ctx: &WirelessContext) -> Option<Pos> {
+        self.ae2_wireless_link(host, conn, ctx).map(|reach| self.ae2_anchor(reach.node))
+    }
+    /// The open menu's item, still at its source, and how it reaches its grid.
+    fn ae2_wireless_link(&self, host: &LanHost, conn: u32, ctx: &WirelessContext) -> Option<Reach> {
         if !self.ae2_wireless_source_valid(host, conn, ctx) {
             return None;
         }
-        self.ae2_wireless_reach(host, conn, &ctx.target_dim, ctx.target)
+        let g = host.hub.guests.iter().find(|g| g.conn == conn)?;
+        self.ae2_wireless_reach(host, conn, source_stack(g, ctx.source)?)
     }
-    /// `updateConnectedAccessPoint`: the nearest access point the guest
-    /// reaches on the grid of the one an item is linked to, and its distance.
-    pub(super) fn ae2_wireless_reach(
-        &self,
-        host: &LanHost,
-        conn: u32,
-        target_dim: &str,
-        target: Pos,
-    ) -> Option<(Pos, f64)> {
+    /// `updateConnectedAccessPoint` for a wireless item a guest of the level
+    /// in place carries.
+    pub(super) fn ae2_wireless_reach(&self, host: &LanHost, conn: u32, stack: &ItemStack) -> Option<Reach> {
         let guest = host
             .hub
             .guests
             .iter()
             .find(|g| g.conn == conn && !g.spectator() && g.dimension == self.dim.id())?;
-        self.ae2_wireless_reach_from(guest.position, target_dim, target)
+        self.ae2_wireless_reach_from(guest.position, stack)
     }
-    /// [`Self::ae2_wireless_reach`] for a player at `position` in this level.
-    pub(super) fn ae2_wireless_reach_from(
-        &self,
-        position: [f64; 3],
-        target_dim: &str,
-        target: Pos,
-    ) -> Option<(Pos, f64)> {
+    /// [`Self::ae2_wireless_reach`] for a player at `position` in this level:
+    /// an addon's link first, else the nearest access point that answers on
+    /// the grid of the one the item is linked to.
+    pub(super) fn ae2_wireless_reach_from(&self, position: [f64; 3], stack: &ItemStack) -> Option<Reach> {
+        if let Some(reach) = self.ae2x_wireless_link(stack) {
+            return Some(reach);
+        }
+        let (target_dim, target) = target(stack)?;
+        let (node, distance) = self.ae2_access_point_reach(position, &target_dim, target)?;
+        let drain = horizon_client::ae2_common_config::wireless().link.drain(distance);
+        Some(Reach { node, drain, recharge: false })
+    }
+    /// The access points of the grid the item is linked to (any loaded
+    /// level, as `getLinkedGrid` resolves the link's dimension), the nearest
+    /// answer and its distance.
+    fn ae2_access_point_reach(&self, position: [f64; 3], target_dim: &str, target: Pos) -> Option<(GridAddress, f64)> {
         let dim = super::Dim::from_id(target_dim);
         if dim.id() != target_dim {
             return None;
@@ -196,6 +228,7 @@ impl Game<'_> {
         let net = self.ae2_network();
         let analysis = net.analyze().ok()?;
         let anchor = analysis.nodes.get(&target.network_pos())?;
+        let defs = horizon_client::ae2x::defs::get();
         analysis.components[anchor.component]
             .positions
             .iter()
@@ -203,11 +236,8 @@ impl Game<'_> {
                 if !analysis.nodes.get(p).is_some_and(|n| n.online) {
                     return None;
                 }
-                let address = super::ae2_global::GridAddress::from_network(*p)?;
+                let address = GridAddress::from_network(*p)?;
                 let (dim, local) = self.ae2_address_parts(address)?;
-                if dim != self.dim {
-                    return None;
-                }
                 let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(address) else {
                     return None;
                 };
@@ -217,31 +247,11 @@ impl Game<'_> {
                 // getBoosters: the booster slot's count, whatever it holds.
                 let slot = m.slots.first().and_then(Option::as_ref);
                 let boosters = slot.map_or(0, |s| s.count.min(64));
-                // An addon's card in the slot answers for the access point
-                // whatever the distance (AEInfinityBooster's
-                // `boostedDistance`); here the player is in its dimension.
-                if let Some(card) = slot.and_then(|s| horizon_client::ae2x::defs::get().access_point_card(&s.item)) {
-                    return Some((local, card.signal.sqrt()));
-                }
-                let d = (f64::from(local.0) - position[0]).powi(2)
-                    + (f64::from(local.1) - position[1]).powi(2)
-                    + (f64::from(local.2) - position[2]).powi(2);
-                (d < horizon_client::ae2_common_config::wireless()
-                    .link
-                    .range(boosters)
-                    .powi(2))
-                .then_some((local, d.sqrt()))
+                let card = slot.and_then(|s| defs.access_point_card(&s.item));
+                let range = horizon_client::ae2_common_config::wireless().link.range(boosters);
+                access_point_signal(card, range, dim == self.dim, local, position).map(|d| (address, d))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
-    }
-    fn ae2_wireless_distance(
-        &self,
-        host: &LanHost,
-        conn: u32,
-        ctx: &WirelessContext,
-    ) -> Option<f64> {
-        self.ae2_wireless_nearest(host, conn, ctx)
-            .map(|(_, distance)| distance)
     }
     pub(super) fn ae2_wireless_source_valid(
         &self,
@@ -277,14 +287,10 @@ impl Game<'_> {
         conn: u32,
         ctx: &WirelessContext,
     ) -> bool {
-        let Some(distance) = self.ae2_wireless_distance(host, conn, ctx) else {
+        let Some(reach) = self.ae2_wireless_link(host, conn, ctx) else {
             return false;
         };
-        if horizon_client::ae2_common_config::wireless()
-            .link
-            .drain(distance)
-            <= 0.0
-        {
+        if reach.drain <= 0.0 {
             return true;
         }
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else {
@@ -302,27 +308,38 @@ impl Game<'_> {
             .and_then(|s| energy(s).ok())
             .is_some_and(|(p, _)| p > 0.0)
     }
-    /// `WTMenuHost.inRange` with no menu open: the access point a carried
-    /// wireless item reaches (linked, in range, and powered unless the
-    /// guest is creative or the range costs nothing), the anchor of the grid
-    /// it acts on.
+    /// `WTMenuHost.inRange` with no menu open: how a carried wireless item
+    /// reaches its grid (linked, in range, and powered unless the guest is
+    /// creative or the link costs nothing).
     #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
-    pub(super) fn ae2_wireless_item_link(&self, host: &LanHost, conn: u32, stack: &ItemStack) -> Option<Pos> {
-        let (target_dim, target) = target(stack)?;
-        let (anchor, distance) = self.ae2_wireless_reach(host, conn, &target_dim, target)?;
-        let free = horizon_client::ae2_common_config::wireless().link.drain(distance) <= 0.0
-            || host.hub.guests.iter().any(|g| g.conn == conn && g.creative());
-        (free || energy(stack).is_ok_and(|(power, _)| power > 0.0)).then_some(anchor)
+    pub(super) fn ae2_wireless_item_link(&self, host: &LanHost, conn: u32, stack: &ItemStack) -> Option<Reach> {
+        let reach = self.ae2_wireless_reach(host, conn, stack)?;
+        let free = reach.drain <= 0.0 || host.hub.guests.iter().any(|g| g.conn == conn && g.creative());
+        (free || energy(stack).is_ok_and(|(power, _)| power > 0.0)).then_some(reach)
     }
+    /// The open menu's tick (`WirelessTerminalMenuHost.tick`): its link, the
+    /// drain (`consumeIdlePower(MODULATE)`), then the link status
+    /// (`updateLinkStatus`'s simulated drain, before and after which
+    /// AE2WTLib's link recharges the item).
     pub(super) fn ae2_wireless_tick(
         &mut self,
         host: &mut LanHost,
         conn: u32,
         ctx: &mut WirelessContext,
     ) -> bool {
-        let Some(distance) = self.ae2_wireless_distance(host, conn, ctx) else {
+        let Some(reach) = self.ae2_wireless_link(host, conn, ctx) else {
             return false;
         };
+        let drained = self.ae2_wireless_drain(host, conn, ctx, reach.drain);
+        if !reach.recharge {
+            return drained;
+        }
+        self.ae2x_wireless_recharge(host, conn, ctx.source, reach.node);
+        drained || self.ae2_wireless_validate(host, conn, ctx)
+    }
+    /// `ItemMenuHost.consumeIdlePower(MODULATE)` at `drain` AE a tick: ten
+    /// ticks paid at once from the item's battery.
+    fn ae2_wireless_drain(&mut self, host: &mut LanHost, conn: u32, ctx: &mut WirelessContext, drain: f64) -> bool {
         if host
             .hub
             .guests
@@ -336,9 +353,6 @@ impl Game<'_> {
             ctx.idle -= 1;
             return true;
         }
-        let drain = horizon_client::ae2_common_config::wireless()
-            .link
-            .drain(distance);
         if drain <= 0.0 {
             return self.ae2_wireless_validate(host, conn, ctx);
         }
@@ -354,6 +368,8 @@ impl Game<'_> {
         ctx.idle = (extracted / drain).ceil().clamp(0.0, 10.0) as u8;
         ctx.idle > 0
     }
+}
+impl Game<'_> {
     pub(super) fn lan_open_ae2_wireless(
         &mut self,
         host: &mut LanHost,
@@ -430,6 +446,11 @@ impl Game<'_> {
             idle: 0,
             source_owner,
         };
+        // The menu host's first link status: AE2WTLib's link recharges the
+        // item before its simulated drain.
+        if let Some(reach) = self.ae2_wireless_link(host, conn, &ctx).filter(|reach| reach.recharge) {
+            self.ae2x_wireless_recharge(host, conn, source, reach.node);
+        }
         if !self.ae2_wireless_validate(host, conn, &ctx) {
             self.as_guest(host, conn, |g| {
                 g.system_message(horizon_client::text::Text::literal(
@@ -438,7 +459,7 @@ impl Game<'_> {
             });
             return true;
         }
-        let Some((anchor, _)) = self.ae2_wireless_nearest(host, conn, &ctx) else {
+        let Some(anchor) = self.ae2_wireless_nearest(host, conn, &ctx) else {
             return true;
         };
         if ctx.kind == TerminalKind::PatternAccess {
@@ -506,6 +527,19 @@ mod tests {
         assert_eq!(enabled_key_types(&restored).unwrap(),(false,true));
         terminal.data_mut().set_other("ae2:enabled_key_types",Some(Tag::Int(2)));
         assert!(enabled_key_types(&terminal).is_err());
+    }
+    #[test]
+    fn access_points_of_other_levels_answer_only_with_a_card_for_any_dimension() {
+        let card = |signal: f64, same_dimension: bool| AccessPointCard { item: "card".into(), signal, same_dimension, shown_drain: 0.0, chunk_loading: true };
+        let (infinity, dimension) = (card(256.0, true), card(1024.0, false));
+        let (at, near, far) = ((0, 64, 0), [3.0, 64.0, 4.0], [10_000.5, 64.0, 0.5]);
+        assert_eq!(access_point_signal(None, 16.0, true, at, near), Some(5.0));
+        assert_eq!(access_point_signal(None, 16.0, true, at, far), None, "out of range");
+        assert_eq!(access_point_signal(None, 16.0, false, at, near), None, "AE2 alone answers its own level only");
+        assert_eq!(access_point_signal(Some(&infinity), 16.0, true, at, far), Some(16.0));
+        assert_eq!(access_point_signal(Some(&infinity), 16.0, false, at, near), None, "the Infinity card stays in its dimension");
+        assert_eq!(access_point_signal(Some(&dimension), 16.0, false, at, far), Some(32.0));
+        assert_eq!(access_point_signal(Some(&dimension), 16.0, true, at, near), Some(32.0), "the card's signal, however near");
     }
     #[test]
     fn menu_buffer_debits_configured_energy_and_returns_nominal_ticks() {

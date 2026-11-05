@@ -1,13 +1,15 @@
 {
   "namespace": "aeinfinitybooster",
   "name": "AEInfinityBooster",
-  "description": "AEInfinityBooster 2.1.0 for the AE2 port: the Infinity Range Booster (slice 1).",
+  "description": "AEInfinityBooster 2.1.0 for the AE2 port: the Infinity Range Booster (slice 1), the Dimension Card (slice 2).",
   "authors": ["Hexeption (AEInfinityBooster)"],
   "slices": [
-    "1: the Infinity Range Booster in the Wireless Access Point, same dimension"
+    "1: the Infinity Range Booster in the Wireless Access Point, same dimension",
+    "2: the Dimension Card: the access point answers terminals in any dimension"
   ],
   "items": {
-    "infinity_card": {"max_stack_size": 1}
+    "infinity_card": {"max_stack_size": 1},
+    "dimension_card": {"max_stack_size": 1}
   },
   "blocks": {},
   "pack_removed": {

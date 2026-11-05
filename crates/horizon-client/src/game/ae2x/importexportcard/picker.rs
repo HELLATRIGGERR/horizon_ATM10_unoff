@@ -6,7 +6,7 @@
 //! from AE2 Import Export Card by Ultramega,
 //! https://github.com/starforcraft/AE2-Import-Export-Card branch `1.21.1`
 //! (1.9.1), MIT; see `ae2/addons/ae2importexportcard/`.
-use crate::game::{Game, ae2_lab, ae2_wireless};
+use crate::game::{Game, ae2_lab};
 use horizon_client::{
     ae2x::{
         importexportcard::{self as iec, Config},
@@ -68,10 +68,8 @@ impl Game<'_> {
         if iec::find_card(&terminal, iec::BLOCK_PICKER_CARD).is_none() {
             return false;
         }
-        let Some((dim, target)) = ae2_wireless::target(&terminal) else { return false };
         let position = self.player.as_ref().map_or([0.0; 3], |p| [p.position.x, p.position.y, p.position.z]);
-        let Some((anchor, _)) = self.ae2_wireless_reach_from(position, &dim, target) else { return false };
-        let Some(address) = self.ae2_local_address(anchor) else { return false };
+        let Some(address) = self.ae2_wireless_reach_from(position, &terminal).map(|reach| reach.node) else { return false };
         let Ok(key) = ae2_lab::key(stack) else { return false };
         let max = self.res.items().stack_max(stack).max(1);
         // getAvailableCapacity: the main inventory's room for the item.

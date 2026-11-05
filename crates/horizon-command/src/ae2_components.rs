@@ -35,6 +35,9 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2wtlib:restock",
     "ae2wtlib:pick_block",
     "ae2wtlib:craft_if_missing",
+    // The terminal's singularity slot for the Quantum Bridge Card
+    // (`ItemStack.OPTIONAL_CODEC`).
+    "ae2wtlib:singularity",
     // AE2 Import Export Card (`ModDataComponents`): a card's filter
     // (`ConfigInventory` under ""), the inventory slots it works on
     // (`Codec.INT.listOf()`), the Curios slots it fills (`unboundedMap` of
@@ -170,6 +173,7 @@ pub fn validate_registered(
                     stack(entry.get("item").ok_or("Missing item")?, reg, depth)?;
                 }
             }
+            "ae2wtlib:singularity" if !matches!(t, Tag::Compound(m) if m.is_empty()) => stack(t, reg, depth)?,
             "ae2:encoded_stonecutting_pattern" => {
                 for key in ["input", "output"] {
                     stack(t.get(key).ok_or("Missing pattern item")?, reg, depth)?;
@@ -442,6 +446,7 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
             _ => 0,
         })),
         "ae2wtlib:pickup_mode" | "ae2wtlib:insert_mode" | "ae2wtlib:restock" | "ae2wtlib:pick_block" | "ae2wtlib:craft_if_missing" => boolean(t),
+        "ae2wtlib:singularity" => item(t, true, depth),
         "ae2importexportcard:filter_config" => Ok(Tag::Compound(map(t)?)),
         // NbtOps writes a list of ints as an int array.
         "ae2importexportcard:selected_inventory_slots" => {

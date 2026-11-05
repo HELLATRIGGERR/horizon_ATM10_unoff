@@ -86,8 +86,8 @@ feature = "ae2-ae2wtlib"
 content = "ae2wtlib"
 configs = ["ae2wtlib.toml"]
 
-# AEInfinityBooster: the Infinity Range Booster in the Wireless Access Point
-# (slice 1; ae2/addons/aeinfinitybooster).
+# AEInfinityBooster: the Infinity Range Booster and the Dimension Card in the
+# Wireless Access Point (slices 1-2; ae2/addons/aeinfinitybooster).
 [mods.aeinfinitybooster]
 name = "AEInfinityBooster"
 enabled = true

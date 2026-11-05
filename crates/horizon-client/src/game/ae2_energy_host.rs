@@ -20,6 +20,20 @@ impl Game<'_> {
         let service=live.energy.lifecycle.services.get(&live.energy.lifecycle.service_of(node)?)?;
         Some(serde_json::json!({"cached":service.cached.max(0.0),"age":service.age,"buffer":service.local(),"buffer_capacity":service.local_capacity(),"members":service.nodes(),"passive_suppressed":live.energy.passive_suppressed.get(&node).copied()}))
     }
+    /// `IEnergyService.getStoredPower` and `getMaxStoredPower` of the grid
+    /// the node at `address` is on.
+    #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+    pub(super) fn ae2_energy_levels(&self,address:super::ae2_global::GridAddress)->Option<(f64,f64)>{
+        if !self.ae2_sync_events(){return None}
+        let (dim,pos)=self.ae2_address_parts(address)?;
+        let world=self.ae2_world_for(dim)?;
+        let node=NodeIdentity{host:world.block_entities.incarnation(&pos)?,part:None,outer:false};
+        let mut live=self.ae2_live_events.borrow_mut();
+        if live.energy.failure.is_some(){return None}
+        let id=live.energy.lifecycle.service_of(node)?;
+        let service=live.energy.lifecycle.services.get_mut(&id)?;
+        Some((service.stored(),service.maximum()))
+    }
     /// Record a direct physical cell change after earlier node events have
     /// been drained. This is not a grid injection and does not raise the cache.
     pub(super) fn ae2_energy_store_changed(&self, address:super::ae2_global::GridAddress, legacy_before:Option<f64>) {

@@ -11,7 +11,7 @@ use std::{
     path::Path,
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct Facts {
     pub blocks: BTreeMap<String, Block>,
     pub items: BTreeMap<String, Item>,
@@ -28,6 +28,12 @@ pub struct Facts {
     pub fluids: BTreeMap<String, crate::fluids::Fluid>,
     #[serde(default)]
     pub fluid_types: BTreeMap<String, crate::fluids::FluidType>,
+    /// The run's dimensions, whether each is `ultraWarm`, and NeoForge's cauldron fluid contents of the namespaces
+    /// (`FluidFacts`, slice 7); empty in facts from before.
+    #[serde(default)]
+    pub ultrawarm: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub cauldrons: BTreeMap<String, crate::fluids::Cauldron>,
     /// What the pack's client run says of its fluids (`client-facts.json`), or none.
     #[serde(skip)]
     pub client: Option<crate::fluids::ClientFacts>,
@@ -957,6 +963,14 @@ fn declare_states(block: &Block, t: &Block, names: &[&str], pack: Option<&PackBl
 }
 
 impl Facts {
+    /// Its dimensions and cauldrons, as a fluid declaration reads them.
+    pub fn fluid_world(&self) -> crate::fluids::FluidWorld<'_> {
+        crate::fluids::FluidWorld {
+            ultrawarm: &self.ultrawarm,
+            cauldrons: &self.cauldrons,
+        }
+    }
+
     pub fn read(path: &Path) -> Result<Facts, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
         serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))

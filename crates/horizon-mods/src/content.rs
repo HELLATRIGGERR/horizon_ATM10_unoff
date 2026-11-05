@@ -493,13 +493,55 @@ pub struct MenuType {
 /// container (`native_block_entity_container`) may.
 pub const MAX_MENU_SLOTS: u16 = 256;
 
-/// The sounds a fluid's bucket makes (`FluidType.Properties.sound` with
-/// `SoundActions.BUCKET_FILL` and `BUCKET_EMPTY`).
+/// The sounds of a fluid's type (`FluidType.Properties.sound` with
+/// `SoundActions.BUCKET_FILL`, `BUCKET_EMPTY` and `FLUID_VAPORIZE`).
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct FluidSounds {
     pub bucket_fill: Option<String>,
     pub bucket_empty: Option<String>,
+    /// `onVaporize`'s sound; `block.fire.extinguish` when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fluid_vaporize: Option<String>,
+}
+
+/// Where a bucket of the fluid vaporizes instead of being placed
+/// (`FluidType.isVaporizedOnPlacement`, asked by `BucketItem.emptyContents`).
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FluidVaporizes {
+    /// `FluidType`'s own: where water evaporates (an `ultraWarm` dimension,
+    /// 26.3's `water_evaporates`) when the fluid is in `minecraft:water`.
+    #[default]
+    LikeWater,
+    /// Where water evaporates, whatever its tags (Create Dragons Plus' dyes).
+    Ultrawarm,
+    /// Nowhere (Mekanism's types).
+    Never,
+    /// Everywhere.
+    Always,
+}
+
+/// The cauldron that holds the fluid as NeoForge's `CauldronFluidContent`
+/// (`RegisterCauldronFluidContentEvent.register(block, fluid, totalAmount,
+/// levelProperty)`): a full one holds `total_amount` millibuckets over
+/// `max_level` levels of its `level_property` (one level without one).
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FluidCauldron {
+    /// One of the mod's blocks.
+    pub block: String,
+    pub total_amount: i32,
+    #[serde(default = "FluidCauldron::one")]
+    pub max_level: i32,
+    #[serde(default)]
+    pub level_property: Option<String>,
+}
+
+impl FluidCauldron {
+    fn one() -> i32 {
+        1
+    }
 }
 
 /// What a fluid's `FluidType` does to an entity in it (`canSwim`, `canDrownIn`,
@@ -612,11 +654,59 @@ pub struct Fluid {
     /// the fog's start and end, in blocks; the fog's own when left out.
     #[serde(default)]
     pub fog_range: Option<[f32; 2]>,
+    /// Where its bucket vaporizes (`isVaporizedOnPlacement`).
+    #[serde(default)]
+    pub vaporizes: FluidVaporizes,
+    /// The cauldron that holds it (`CauldronFluidContent`), if any.
+    #[serde(default)]
+    pub cauldron: Option<FluidCauldron>,
 }
 
 impl Fluid {
     /// The `block` of a fluid that has no `LiquidBlock`.
     pub const NO_BLOCK: &'static str = "minecraft:air";
+    /// NeoForge's milk (`NeoForgeMod.MILK`, `FLOWING_MILK` and `MILK_TYPE`),
+    /// which a mod turns on with `NeoForgeMod.enableMilkFluid()` (a content
+    /// mod's `milk_fluid`): a `BaseFlowingFluid` with no block whose bucket is
+    /// vanilla's milk bucket, its type `Properties.create().density(1024)
+    /// .viscosity(1024)` with the milk bucket's sounds, its client extension
+    /// NeoForge's `milk_still` and `milk_flowing` (`ClientNeoForgeMod`).
+    pub fn neoforge_milk() -> Self {
+        Self {
+            id: "minecraft:milk".into(),
+            flowing: "minecraft:flowing_milk".into(),
+            flows: true,
+            block: Self::NO_BLOCK.into(),
+            bucket: Some("minecraft:milk_bucket".into()),
+            still_texture: "neoforge:block/milk_still".into(),
+            flowing_texture: "neoforge:block/milk_flowing".into(),
+            overlay_texture: None,
+            tint: Self::white(),
+            translucent: false,
+            tick_rate: Self::tick_rate(),
+            slope_find_distance: Self::slope_find_distance(),
+            level_decrease_per_block: Self::level_decrease_per_block(),
+            explosion_resistance: Self::explosion_resistance(),
+            can_convert_to_source: false,
+            light_level: 0,
+            density: 1024,
+            temperature: Self::temperature(),
+            viscosity: 1024,
+            sounds: FluidSounds {
+                bucket_fill: Some("minecraft:item.bucket.fill_milk".into()),
+                bucket_empty: Some("minecraft:item.bucket.empty_milk".into()),
+                fluid_vaporize: None,
+            },
+            // `Util.makeDescriptionId("fluid_type", minecraft:milk)`.
+            description: "fluid_type.minecraft.milk".into(),
+            entity: FluidEntity::default(),
+            render_overlay: None,
+            fog_color: None,
+            fog_range: None,
+            vaporizes: FluidVaporizes::LikeWater,
+            cauldron: None,
+        }
+    }
     fn yes() -> bool {
         true
     }
@@ -684,6 +774,8 @@ pub struct Content {
     pub fluids: Vec<Fluid>,
     /// The namespaces it owns: the mod id, then the manifest's `namespaces`.
     pub namespaces: Vec<String>,
+    /// Its manifest's `milk_fluid`: it turns on NeoForge's milk.
+    pub milk_fluid: bool,
 }
 
 /// Reads a mod's content files ([`Content::reader`]).
@@ -783,6 +875,7 @@ impl Content {
             menu_types: Vec::new(),
             fluids: Vec::new(),
             namespaces: manifest.owned_namespaces().map(str::to_owned).collect(),
+            milk_fluid: manifest.milk_fluid,
         };
         content.check(manifest, declared, &mut reader)?;
         Ok(content)
@@ -802,6 +895,7 @@ impl Content {
             menu_types: Vec::new(),
             fluids: Vec::new(),
             namespaces: vec![namespace.to_owned()],
+            milk_fluid: false,
         }
     }
 
@@ -885,7 +979,7 @@ impl Content {
 
     /// No files: a mod with code only.
     pub fn is_empty(&self) -> bool {
-        self.files.is_empty()
+        self.files.is_empty() && !self.milk_fluid
     }
 
     /// One content file's bytes.
@@ -1257,6 +1351,29 @@ impl Content {
         }
         if fluid.light_level > 15 || !fluid.explosion_resistance.is_finite() {
             return Err("light_level is 0 to 15, explosion_resistance a number".into());
+        }
+        // `CauldronFluidContent.register`'s checks: one cauldron a block, a
+        // positive amount, levels from 1 (one without a level property).
+        if let Some(c) = &fluid.cauldron {
+            if !own(&c.block) || !self.blocks.iter().any(|b| b.id == c.block) {
+                return Err(format!(
+                    "cauldron {:?} is not one of this mod's blocks",
+                    c.block
+                ));
+            }
+            if self
+                .fluids
+                .iter()
+                .any(|f| f.cauldron.as_ref().is_some_and(|o| o.block == c.block))
+            {
+                return Err(format!(
+                    "cauldron {:?} already holds another fluid",
+                    c.block
+                ));
+            }
+            if c.total_amount <= 0 || c.max_level < 1 || (c.level_property.is_none() && c.max_level != 1) {
+                return Err("a cauldron holds a positive total_amount over max_level levels (1 without a level_property)".into());
+            }
         }
         Ok(fluid)
     }
@@ -1965,6 +2082,83 @@ capabilities = ["registries"]
             let e = hmod(case, MANIFEST_TEXT, files).unwrap_err();
             assert!(e.contains(why), "{case}: {e}");
         }
+    }
+
+    #[test]
+    fn a_fluid_says_where_it_vaporizes_and_which_cauldron_holds_it() {
+        const LIQUID: &[u8] = br#"{"template": "minecraft:water", "item": false}"#;
+        const CAULDRON: &[u8] = br#"{"template": "minecraft:cauldron", "item": false}"#;
+        let textures = r#""still_texture": "ruby:a", "flowing_texture": "ruby:b""#;
+        let with = |rest: &str| format!("{{{textures}{rest}}}");
+        let read = |case: &str, fluid: &str| {
+            let files: &[(&str, &[u8])] = &[
+                ("data/ruby/horizon/block/breath.json", LIQUID),
+                ("data/ruby/horizon/block/breath_cauldron.json", CAULDRON),
+                ("data/ruby/horizon/fluid/breath.json", fluid.as_bytes()),
+            ];
+            hmod(case, MANIFEST_TEXT, files)
+        };
+        // Left out: FluidType's own rule, the fire's sound, no cauldron.
+        let plain = read("fluid-plain", &with("")).unwrap();
+        let f = &plain.fluids[0];
+        assert_eq!((f.vaporizes, f.cauldron.as_ref(), f.sounds.fluid_vaporize.as_deref()), (FluidVaporizes::LikeWater, None, None));
+        // Create Dragons Plus' dragon's breath, as the oracle gave it.
+        let breath = with(
+            r#", "vaporizes": "ultrawarm", "sounds": {"fluid_vaporize": "minecraft:entity.dragon_fireball.explode"},
+            "cauldron": {"block": "ruby:breath_cauldron", "total_amount": 1000, "max_level": 4, "level_property": "level"}"#,
+        );
+        let content = read("fluid-breath", &breath).unwrap();
+        let f = &content.fluids[0];
+        assert_eq!(f.vaporizes, FluidVaporizes::Ultrawarm);
+        assert_eq!(f.sounds.fluid_vaporize.as_deref(), Some("minecraft:entity.dragon_fireball.explode"));
+        assert_eq!(
+            f.cauldron,
+            Some(FluidCauldron {
+                block: "ruby:breath_cauldron".into(),
+                total_amount: 1000,
+                max_level: 4,
+                level_property: Some("level".into())
+            })
+        );
+        for rule in ["never", "always"] {
+            assert!(read(&format!("fluid-{rule}"), &with(&format!(r#", "vaporizes": "{rule}""#))).is_ok());
+        }
+        // CauldronFluidContent.register's checks.
+        for (case, rest, why) in [
+            ("fluid-vaporizes", r#", "vaporizes": "sometimes""#, "unknown variant"),
+            ("fluid-cauldron-block", r#", "cauldron": {"block": "ruby:pot", "total_amount": 1000}"#, "not one of this mod's blocks"),
+            ("fluid-cauldron-amount", r#", "cauldron": {"block": "ruby:breath_cauldron", "total_amount": 0}"#, "positive total_amount"),
+            (
+                "fluid-cauldron-levels",
+                r#", "cauldron": {"block": "ruby:breath_cauldron", "total_amount": 1000, "max_level": 3}"#,
+                "without a level_property",
+            ),
+        ] {
+            let e = read(case, &with(rest)).unwrap_err();
+            assert!(e.contains(why), "{case}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_mod_turns_neoforges_milk_on() {
+        let milk = MANIFEST_TEXT.to_owned() + "milk_fluid = true
+";
+        let content = hmod("milk", &milk, &[]).unwrap();
+        assert!(content.milk_fluid && !content.is_empty(), "a mod with only the switch still counts");
+        assert!(!hmod("no-milk", MANIFEST_TEXT, &[]).unwrap().milk_fluid);
+        // NeoForgeMod.registerFluids and ClientNeoForgeMod, as the fluids-only oracle run read them in ATM10 8.4.
+        let m = Fluid::neoforge_milk();
+        assert_eq!((m.id.as_str(), m.flowing.as_str(), m.block.as_str()), ("minecraft:milk", "minecraft:flowing_milk", Fluid::NO_BLOCK));
+        assert_eq!(m.bucket.as_deref(), Some("minecraft:milk_bucket"));
+        assert_eq!((m.density, m.viscosity, m.temperature, m.light_level), (1024, 1024, 300, 0));
+        assert_eq!((m.tick_rate, m.slope_find_distance, m.level_decrease_per_block, m.explosion_resistance), (5, 4, 1, 1.0));
+        assert_eq!(
+            (m.sounds.bucket_fill.as_deref(), m.sounds.bucket_empty.as_deref()),
+            (Some("minecraft:item.bucket.fill_milk"), Some("minecraft:item.bucket.empty_milk"))
+        );
+        assert_eq!(m.description, "fluid_type.minecraft.milk");
+        assert_eq!((m.still_texture.as_str(), m.flowing_texture.as_str(), m.tint, m.translucent), ("neoforge:block/milk_still", "neoforge:block/milk_flowing", 0xFFFF_FFFF, false));
+        assert_eq!((m.vaporizes, m.entity), (FluidVaporizes::LikeWater, FluidEntity::default()));
     }
 
     #[test]

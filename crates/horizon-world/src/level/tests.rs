@@ -2428,6 +2428,49 @@ fn custom_shape_hook_observes_a_same_state_neighbor_update() {
     assert_eq!(w.level.observed_shapes.as_deref(),Some(&[(pos,neighbor)][..]));
 }
 
+/// NeoForge's `BucketItem.emptyContents`: a content mod's bucket whose type
+/// vaporizes where water evaporates (`test:sludge`, as Create Dragons Plus'
+/// dyes) hisses away in the Nether with its own FLUID_VAPORIZE sound and
+/// places nothing; water keeps 26.3's rule.
+#[test]
+fn a_mod_fluid_bucket_vaporizes_where_its_type_says() {
+    crate::mod_fluids::register_test_fluids();
+    let sludge = crate::fluid::FluidKind::from_name("test:sludge").unwrap();
+    let brine = crate::fluid::FluidKind::from_name("test:brine").unwrap();
+    assert!(BucketContent::Fluid(sludge).vaporizes(true) && !BucketContent::Fluid(sludge).vaporizes(false));
+    assert!(!BucketContent::Fluid(brine).vaporizes(true), "brine is in no water tag");
+    assert!(BucketContent::Fluid(crate::fluid::FluidKind::Water).vaporizes(true) && BucketContent::MobWater.vaporizes(true));
+    assert!(!BucketContent::Fluid(crate::fluid::FluidKind::Lava).vaporizes(true) && !BucketContent::Powder.vaporizes(true));
+    let mut w = world!();
+    let pos = BlockPos::new(0, 10, 0);
+    let air = w.b().air();
+    w.level.dimension = Dimension::Nether;
+    w.level.events.clear();
+    let emptied = w.f.behaviours.bucket_empty(
+        &mut w.level,
+        &mut w.ticks,
+        pos,
+        None,
+        BucketContent::Fluid(sludge),
+        "minecraft:item.bucket.empty_lava",
+        false,
+        false,
+    );
+    assert_eq!(emptied, Some(pos), "the bucket is emptied");
+    assert_eq!(w.get(pos), air, "nothing is placed");
+    let sounds: Vec<(&str, f32)> = w
+        .level
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            LevelEvent::Sound { sound, volume, .. } => Some((sound.as_ref(), *volume)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sounds, [("minecraft:block.lava.extinguish", 0.5)], "onVaporize's sound alone");
+    assert!(!w.level.events.iter().any(|e| matches!(e, LevelEvent::GameEvent { event: "minecraft:fluid_place", .. })));
+}
+
 #[test]
 fn clicked_bucket_pours_beside_a_refusing_block() {
     let mut w = world!();

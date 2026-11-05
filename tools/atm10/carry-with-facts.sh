@@ -13,6 +13,10 @@ cp "$ATM10_DATA/dump/pack-facts.json" oracle/pack-facts.json || exit 1
 # The client's facts of the fluids (oracle-client.sh), when there are some: without them no fluid is declared.
 rm -f oracle/client-facts.json
 [ -f "$ATM10_DATA/dump/client-facts.json" ] && cp "$ATM10_DATA/dump/client-facts.json" oracle/client-facts.json
+# A fluids-only run of the server's oracle (dump/fluid-facts.json, `horizon.oracle.fluids_only`), when there is one:
+# its fluids and types over each batch's (where a type vaporizes, the cauldrons).
+rm -f oracle/fluid-facts.json
+[ -f "$ATM10_DATA/dump/fluid-facts.json" ] && cp "$ATM10_DATA/dump/fluid-facts.json" oracle/fluid-facts.json
 # Lists written on Windows may end their lines with CR.
 keys() { tr -d '\015' < "$1"; }
 for k in $(keys all-keys.txt); do mkdir -p "mods/$k/carry"; done

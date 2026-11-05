@@ -32,6 +32,21 @@ impl BucketContent {
     pub fn is_water(self) -> bool {
         matches!(self, Self::Fluid(FluidKind::Water) | Self::MobWater)
     }
+    /// Whether emptying it where water evaporates or not
+    /// (`water_evaporates`, the Nether) hisses it away: water by 26.3's rule,
+    /// a content mod's fluid by its type's `isVaporizedOnPlacement`
+    /// (NeoForge's `BucketItem.emptyContents`); what makes the client's
+    /// smoke.
+    pub fn vaporizes(self, water_evaporates: bool) -> bool {
+        match self {
+            Self::Fluid(kind) => match kind.mod_fluid() {
+                Some(m) => m.is_vaporized_on_placement(water_evaporates),
+                None => water_evaporates && kind.is_water(),
+            },
+            Self::MobWater => water_evaporates,
+            Self::Powder | Self::Nothing => false,
+        }
+    }
 }
 
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
@@ -132,8 +147,28 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 self.bucket_empty(beside, None, content, sound, sneaking, creative)
             });
         }
+        let water_evaporates = self.level.dimension() == Dimension::Nether;
+        // NeoForge's `BucketItem.emptyContents`, before vanilla's water: the
+        // bucket's contained stack (a content mod's bucket is a
+        // `FluidBucketWrapper`) whose type `isVaporizedOnPlacement` here
+        // vaporizes, `FluidType.onVaporize`: its FLUID_VAPORIZE sound (else
+        // the fire's), the smoke on the client. Vanilla's water keeps 26.3's
+        // rule below.
+        if let BucketContent::Fluid(kind) = content
+            && let Some(m) = kind.mod_fluid()
+            && m.is_vaporized_on_placement(water_evaporates)
+        {
+            let pitch = 2.6 + (self.random().next_float() - self.random().next_float()) * 0.8;
+            self.emit(super::LevelEvent::Sound {
+                pos,
+                sound: m.vaporize_sound().into(),
+                volume: 0.5,
+                pitch,
+            });
+            return Some(pos);
+        }
         let water = matches!(fluid, FluidKind::Water | FluidKind::FlowingWater);
-        if water && self.level.dimension() == Dimension::Nether {
+        if water && water_evaporates {
             // WATER_EVAPORATES: the water hisses away.
             let pitch = 2.6 + (self.random().next_float() - self.random().next_float()) * 0.8;
             self.emit(super::LevelEvent::Sound {

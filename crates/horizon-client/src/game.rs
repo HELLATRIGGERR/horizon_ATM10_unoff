@@ -14187,9 +14187,18 @@ impl Game<'_> {
             let Some(emptied) = emptied else {
                 return Ok(UseResult::Fail);
             };
-            if self.dim == Dim::Nether && content.is_water() {
+            // Water where it evaporates, and a mod fluid its type vaporizes
+            // there (`FluidType.onVaporize`'s smoke on this client).
+            let vaporized = content.vaporizes(self.dim == Dim::Nether);
+            if vaporized {
                 self.evaporation_smoke([emptied.x, emptied.y, emptied.z]);
             }
+            let vaporize_sound = match content {
+                horizon_world::level::BucketContent::Fluid(kind) if vaporized => kind
+                    .mod_fluid()
+                    .map(|m| m.vaporize_sound().trim_start_matches("minecraft:").to_owned()),
+                _ => None,
+            };
             // `BucketItem.emptyContents` uses `playSound(player, …)`: the
             // actor's client already played the empty / evaporate sound from
             // its DryLevel prediction (#4684).
@@ -14200,7 +14209,10 @@ impl Game<'_> {
                 let mut keep = Vec::with_capacity(capture.len());
                 for entry in capture.drain(..) {
                     let name = entry.0.trim_start_matches("minecraft:");
-                    if name == want || name == "block.fire.extinguish" {
+                    if name == want
+                        || name == "block.fire.extinguish"
+                        || vaporize_sound.as_deref() == Some(name)
+                    {
                         self.guest_player_sounds.push(entry);
                     } else {
                         keep.push(entry);

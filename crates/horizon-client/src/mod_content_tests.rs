@@ -4723,7 +4723,15 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
                     "can_convert_to_source": true,
                     "entity": {"can_swim": false, "can_drown": false,
                         "motion_scale": 0.0023333333333333335, "fall_distance_modifier": 0.2,
-                        "can_extinguish": true}}"#,
+                        "can_extinguish": true},
+                    "sounds": {"fluid_vaporize": "minecraft:block.lava.extinguish"},
+                    "vaporizes": "ultrawarm",
+                    "cauldron": {"block": "test:sludge_cauldron", "total_amount": 1000,
+                        "max_level": 4, "level_property": "level"}}"#,
+            ),
+            (
+                "data/test/horizon/block/sludge_cauldron.json",
+                r#"{"template": "minecraft:water_cauldron", "item": false}"#,
             ),
             (
                 "data/c/tags/fluid/brine.json",
@@ -4879,4 +4887,41 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     let decl = &horizon_world::mod_fluids::mod_fluids()[0];
     assert_eq!(decl.source_tags, ["c:brine"], "the root's fluid tags");
     fs::remove_dir_all(&scratch).unwrap();
+}
+
+/// NeoForge's milk joins the fluids when a content mod turns it on
+/// (`milk_fluid`, as `NeoForgeMod.enableMilkFluid()`), with its bucket, and the
+/// convention tag `c:milk` names it.
+#[test]
+fn a_mod_turning_milk_on_adds_neoforges_milk() {
+    let mut on = Content::declared("cow");
+    on.milk_fluid = true;
+    let mods = vec![
+        ContentMod { id: "plain".into(), content: Content::declared("plain") },
+        ContentMod { id: "cow".into(), content: on },
+    ];
+    assert!(fluids(&mods[..1]).is_empty(), "no milk unless a mod asks");
+    let decls = fluids(&mods);
+    let ids: Vec<&str> = decls.iter().map(|f| f.id.as_str()).collect();
+    assert_eq!(ids, ["minecraft:milk"]);
+    let milk = mod_fluid(decls[0], &BTreeMap::new());
+    assert_eq!((milk.flowing.as_str(), milk.block.as_str()), ("minecraft:flowing_milk", "minecraft:air"));
+    assert_eq!(milk.bucket.as_deref(), Some("minecraft:milk_bucket"));
+    assert_eq!(milk.fill_sound.as_deref(), Some("minecraft:item.bucket.fill_milk"));
+    assert!(!milk.is_vaporized_on_placement(true), "milk is in no water tag");
+    // NeoForge's own c:milk (data/c/tags/fluid/milk.json) resolves once milk is known.
+    let root = std::env::temp_dir().join(format!("horizon-milk-tags-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("data/c/tags/fluid")).unwrap();
+    fs::write(
+        root.join("data/c/tags/fluid/milk.json"),
+        r##"{"values": [{"id": "minecraft:milk", "required": false}, {"id": "minecraft:flowing_milk", "required": false}, {"id": "#forge:milk", "required": false}]}"##,
+    )
+    .unwrap();
+    let known: BTreeSet<&str> = decls.iter().flat_map(|f| [f.id.as_str(), f.flowing.as_str()]).collect();
+    let tags = horizon_world::mod_fluids::fluid_tag_lists_in(&root, &|id| known.contains(id)).unwrap();
+    assert_eq!(tags["c:milk"], ["minecraft:milk", "minecraft:flowing_milk"]);
+    let none = horizon_world::mod_fluids::fluid_tag_lists_in(&root, &|_| false).unwrap();
+    assert!(none["c:milk"].is_empty(), "without milk c:milk names nothing");
+    fs::remove_dir_all(&root).unwrap();
 }

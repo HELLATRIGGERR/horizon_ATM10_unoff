@@ -1340,8 +1340,13 @@ fn fluids(
             continue;
         }
         let bucket_free = |item: &str| item_declared(item) && !buckets_used.contains(item);
-        match crate::fluids::declaration(&facts.fluids, &facts.fluid_types, client, full, &bucket_free) {
-            Ok(v) => {
+        match crate::fluids::declaration(&facts.fluids, &facts.fluid_types, facts.fluid_world(), client, full, &bucket_free) {
+            Ok(mut v) => {
+                // A cauldron the carry left out holds nothing.
+                let cauldron = v["cauldron"]["block"].as_str().and_then(|b| b.strip_prefix(&prefix));
+                if cauldron.is_some_and(|b| !blocks.contains_key(b)) {
+                    v.as_object_mut().map(|o| o.remove("cauldron"));
+                }
                 if let Some(bucket) = v["bucket"].as_str() {
                     buckets_used.insert(bucket.to_owned());
                 }

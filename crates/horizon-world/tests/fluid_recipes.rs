@@ -15,8 +15,8 @@ use std::sync::Once;
 
 /// The fluids these recipes name, by the ids and flowing ids the pack
 /// registers (`registries.json`), and the full pack's tags over them
-/// (`tags.jsonl`), with `c:milk` naming NeoForge's milk, which Horizon's
-/// registry lacks.
+/// (`tags.jsonl`), with NeoForge's milk as the game registers it once a
+/// content mod turns it on (`milk_fluid`, slice 7a: `content::Fluid::neoforge_milk`).
 fn registry() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
@@ -47,6 +47,12 @@ fn registry() {
                 "the_bumblezone:sugar_water_still",
                 "the_bumblezone:sugar_water_flowing",
             ),
+            ModFluid {
+                bucket: Some("minecraft:milk_bucket".into()),
+                density: 1024,
+                viscosity: 1024,
+                ..fluid("minecraft:milk", "minecraft:flowing_milk")
+            },
             // Modern Industrialization's fluids don't flow.
             fluid("modern_industrialization:heavy_water", ""),
             fluid("modern_industrialization:deuterium", ""),
@@ -303,9 +309,17 @@ fn create_mixes_typed_ingredients_and_fills_by_components() {
         water.test(&stack("minecraft:water", 250))
             && !water.test(&stack("the_bumblezone:sugar_water_still", 250))
     );
-    // NeoForge's milk is in the pack's c:milk; Horizon's registry has no milk, so the tag names nothing.
+    // NeoForge's milk, turned on by a pack mod, is in the pack's c:milk: the tag names it, its source alone a bucket.
     let milk = SizedFluidIngredient::parse_flat(&r["ingredients"][2]).unwrap();
-    assert!(milk.ingredient.has_no_fluids() && fluids_in_tag("c:milk").is_empty());
+    let in_tag: Vec<&str> = fluids_in_tag("c:milk").iter().map(|k| k.name()).collect();
+    assert_eq!(in_tag, ["minecraft:milk", "minecraft:flowing_milk"]);
+    assert!(milk.test(&stack("minecraft:milk", 250)) && !milk.test(&stack("minecraft:milk", 249)));
+    assert!(!milk.test(&stack("minecraft:water", 250)));
+    // A recipe naming the fluid itself reads too (FluidStack.CODEC's holderByNameCodec).
+    assert_eq!(
+        FluidStack::from_json(&json!({"id": "minecraft:milk", "amount": 1000})),
+        Ok(stack("minecraft:milk", 1000))
+    );
     assert_eq!(
         FluidStack::from_json(&r["results"][0]),
         Ok(stack("create:tea", 500))

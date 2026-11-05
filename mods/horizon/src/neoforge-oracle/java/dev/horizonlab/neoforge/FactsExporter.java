@@ -79,6 +79,29 @@ public final class FactsExporter {
                 new TreeSet<>(Arrays.asList(System.getProperty("horizon.oracle.namespaces", "").split(",")));
         namespaces.remove("");
         String dump = System.getProperty("horizon.oracle.dump");
+        if (Boolean.getBoolean("horizon.oracle.fluids_only")) {
+            // Only the server's fluid facts of every namespace (FluidFacts: fluids, types, cauldrons), no dump and
+            // no batches: a few minutes for a fluid probe instead of the whole pack's facts. The summary only says so.
+            try {
+                try (Writer w = Files.newBufferedWriter(out, StandardCharsets.UTF_8);
+                        JsonWriter json = new JsonWriter(w)) {
+                    json.beginObject();
+                    json.name("schema").value(1);
+                    json.name("minecraft").value(net.minecraft.SharedConstants.getCurrentVersion().getName());
+                    new FluidFacts(server.overworld(), id -> true, json).write();
+                    json.endObject();
+                }
+                if (dump != null) {
+                    Files.writeString(Path.of(dump, "summary.json"), "{\"fluids_only\": true}\n");
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(3);
+            }
+            System.out.println("horizon-oracle: wrote " + out);
+            server.halt(false);
+            return;
+        }
         if (dump != null) {
             // The whole pack's final data, before the facts: a heap too small for the facts keeps this.
             try {

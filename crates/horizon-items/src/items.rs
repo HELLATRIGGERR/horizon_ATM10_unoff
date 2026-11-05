@@ -2195,6 +2195,9 @@ pub fn bucket_contents(
         "minecraft:powder_snow_bucket" => {
             (C::Powder, "minecraft:item.bucket.empty_powder_snow", None)
         }
+        // `MilkBucketItem` is no `BucketItem`: it is drunk, whatever NeoForge's
+        // milk fluid makes its bucket (only fluid handlers read it).
+        "minecraft:milk_bucket" => return None,
         "minecraft:cod_bucket" => (C::MobWater, "minecraft:item.bucket.empty_fish", Some("cod")),
         "minecraft:salmon_bucket" => (
             C::MobWater,

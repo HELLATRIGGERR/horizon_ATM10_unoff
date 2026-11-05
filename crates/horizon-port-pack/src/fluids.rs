@@ -58,6 +58,86 @@ pub struct FluidType {
     /// the declaration as the oracle gives it.
     #[serde(default)]
     pub entity: Option<Map<String, Value>>,
+    /// `isVaporizedOnPlacement(level, pos, a bucket of it)` in each dimension of the run, by dimension id (slice 7);
+    /// none in facts from before it was asked.
+    #[serde(default)]
+    pub vaporized_on_placement: Option<BTreeMap<String, bool>>,
+}
+
+/// NeoForge's `CauldronFluidContent` of a cauldron block, as the server's run writes it (`cauldrons`).
+#[derive(Debug, Deserialize)]
+pub struct Cauldron {
+    pub fluid: String,
+    pub total_amount: i32,
+    pub max_level: i32,
+    #[serde(default)]
+    pub level_property: Option<String>,
+}
+
+/// What the server's run says of its world beyond each fluid and type: which of its dimensions are `ultraWarm`
+/// (what tells a type that vaporizes where water evaporates from one that always or never does) and its
+/// cauldrons. Empty in facts from before slice 7.
+#[derive(Clone, Copy)]
+pub struct FluidWorld<'a> {
+    pub ultrawarm: &'a BTreeMap<String, bool>,
+    pub cauldrons: &'a BTreeMap<String, Cauldron>,
+}
+
+/// The facts of a fluids-only run of the server's oracle (`horizon.oracle.fluids_only`, `fluid-facts.json`): every
+/// namespace's fluids and types with the questions later slices ask, and the world's. Laid over a batch's facts
+/// ([`FluidProbe::lay_over`]), its entries replace the batch's, so a fluid probe needs no run of the whole pack.
+#[derive(Debug, Default, Deserialize)]
+pub struct FluidProbe {
+    #[serde(default)]
+    pub fluids: BTreeMap<String, Fluid>,
+    #[serde(default)]
+    pub fluid_types: BTreeMap<String, FluidType>,
+    #[serde(default)]
+    pub ultrawarm: BTreeMap<String, bool>,
+    #[serde(default)]
+    pub cauldrons: BTreeMap<String, Cauldron>,
+}
+
+impl FluidProbe {
+    /// `fluid-facts.json`, or none.
+    pub fn read(path: &Path) -> Result<Option<FluidProbe>, String> {
+        if !path.exists() {
+            return Ok(None);
+        }
+        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Its fluids, types, dimensions and cauldrons in place of `facts`' own.
+    pub fn lay_over(self, facts: &mut crate::oracle::Facts) {
+        facts.fluids.extend(self.fluids);
+        facts.fluid_types.extend(self.fluid_types);
+        if !self.ultrawarm.is_empty() {
+            facts.ultrawarm = self.ultrawarm;
+        }
+        facts.cauldrons.extend(self.cauldrons);
+    }
+}
+
+/// The declaration's `vaporizes` from what the oracle answered in each dimension: `always`, `never`, or
+/// `ultrawarm` when it vaporizes exactly where water evaporates. None for an answer no rule names (Just Dire Things'
+/// portal fluid asks the biome), and for facts without the question: the declaration keeps `FluidType`'s own rule.
+fn vaporizes(ty: &FluidType, ultrawarm: &BTreeMap<String, bool>) -> Option<&'static str> {
+    let asked = ty
+        .vaporized_on_placement
+        .as_ref()
+        .filter(|a| !a.is_empty())?;
+    if asked.values().all(|v| *v) {
+        Some("always")
+    } else if asked.values().all(|v| !*v) {
+        Some("never")
+    } else if asked.iter().all(|(dim, v)| ultrawarm.get(dim) == Some(v)) {
+        Some("ultrawarm")
+    } else {
+        None
+    }
 }
 
 /// What only the pack's client says of its fluids (`client-facts.json`).
@@ -149,6 +229,7 @@ const MISSING: &str = "minecraft:missingno";
 pub fn declaration(
     fluids: &BTreeMap<String, Fluid>,
     types: &BTreeMap<String, FluidType>,
+    world: FluidWorld,
     client: &ClientFacts,
     id: &str,
     bucket_declared: &dyn Fn(&str) -> bool,
@@ -237,7 +318,7 @@ pub fn declaration(
     v.insert("temperature".into(), json!(ty.temperature));
     v.insert("viscosity".into(), json!(ty.viscosity));
     let mut sounds = Map::new();
-    for action in ["bucket_fill", "bucket_empty"] {
+    for action in ["bucket_fill", "bucket_empty", "fluid_vaporize"] {
         if let Some(sound) = ty.sounds.get(action) {
             sounds.insert(action.into(), json!(sound));
         }
@@ -273,6 +354,25 @@ pub fn declaration(
     }
     if let Some(range) = ext.fog_range {
         v.insert("fog_range".into(), json!(range));
+    }
+    // Slice 7: where its bucket vaporizes, and the cauldron of its namespace that holds it.
+    if let Some(rule) = vaporizes(ty, world.ultrawarm) {
+        v.insert("vaporizes".into(), json!(rule));
+    }
+    let own = |b: &str| b.split_once(':').map(|(n, _)| n) == Some(ns);
+    if let Some((block, c)) = world
+        .cauldrons
+        .iter()
+        .find(|(b, c)| c.fluid == id && own(b))
+    {
+        let mut cauldron = Map::new();
+        cauldron.insert("block".into(), json!(block));
+        cauldron.insert("total_amount".into(), json!(c.total_amount));
+        cauldron.insert("max_level".into(), json!(c.max_level));
+        if let Some(p) = &c.level_property {
+            cauldron.insert("level_property".into(), json!(p));
+        }
+        v.insert("cauldron".into(), Value::Object(cauldron));
     }
     Ok(Value::Object(v))
 }
@@ -372,7 +472,15 @@ mod tests {
     fn a_declaration_holds_the_oracles_values() {
         let (fluids, types, client) = facts();
         let yes = |_: &str| true;
-        let heavy = declaration(&fluids, &types, &client, "mekanism:heavy_water", &yes).unwrap();
+        let heavy = declaration(
+            &fluids,
+            &types,
+            world(),
+            &client,
+            "mekanism:heavy_water",
+            &yes,
+        )
+        .unwrap();
         // The file slice 1 wrote by hand from Mekanism's source, now from the two runs.
         let file: horizon_mods::content::Fluid = serde_json::from_value(heavy.clone()).unwrap();
         assert_eq!(file.tint, 0xFF0D_1455);
@@ -398,8 +506,15 @@ mod tests {
         assert_eq!(file.fog_color, Some([0.050980393, 0.078431375, 0.33333334]));
         assert_eq!(file.fog_range, Some([-8.0, 24.0]));
         // Titanium names its flowing fluid `<path>_flowing`, has no sounds and no overlay, and draws solid.
-        let latex =
-            declaration(&fluids, &types, &client, "industrialforegoing:latex", &yes).unwrap();
+        let latex = declaration(
+            &fluids,
+            &types,
+            world(),
+            &client,
+            "industrialforegoing:latex",
+            &yes,
+        )
+        .unwrap();
         let file: horizon_mods::content::Fluid = serde_json::from_value(latex).unwrap();
         assert_eq!(file.flowing, "industrialforegoing:latex_flowing");
         assert_eq!((file.tint, file.translucent), (0xFFFF_FFFF, false));
@@ -415,18 +530,28 @@ mod tests {
         // A bucket the content doesn't declare is left out; a flowing fluid and one that doesn't flow aren't
         // declared.
         let no = |_: &str| false;
-        let without = declaration(&fluids, &types, &client, "mekanism:heavy_water", &no).unwrap();
+        let without = declaration(
+            &fluids,
+            &types,
+            world(),
+            &client,
+            "mekanism:heavy_water",
+            &no,
+        )
+        .unwrap();
         assert!(without.get("bucket").is_none());
         let flowing = declaration(
             &fluids,
             &types,
+            world(),
             &client,
             "mekanism:flowing_heavy_water",
             &yes,
         );
         assert!(flowing.unwrap_err().contains("flowing fluid"));
         // A fluid that doesn't flow (Modern Industrialization's `MIFluid`): no flowing fluid, no liquid block.
-        let virtual_ = declaration(&fluids, &types, &client, "test:virtual", &yes).unwrap();
+        let virtual_ =
+            declaration(&fluids, &types, world(), &client, "test:virtual", &yes).unwrap();
         let file: horizon_mods::content::Fluid = serde_json::from_value(virtual_).unwrap();
         assert!(!file.flows);
         assert_eq!(
@@ -435,7 +560,7 @@ mod tests {
         );
         assert_eq!(file.still_texture, "test:block/virtual");
         // Nor one whose flowing fluid is itself (Iron's Spellbooks' inks).
-        let ink = declaration(&fluids, &types, &client, "test:ink", &yes).unwrap();
+        let ink = declaration(&fluids, &types, world(), &client, "test:ink", &yes).unwrap();
         assert_eq!(ink["flows"], json!(false));
     }
 
@@ -453,5 +578,116 @@ mod tests {
         assert_eq!(client.item_tints("industrialforegoing:latex_bucket"), None);
         assert_eq!(liquid_blocks(&fluids, "mekanism"), ["mekanism:heavy_water"]);
         assert!(liquid_blocks(&fluids, "test").is_empty());
+    }
+
+    /// Facts from before slice 7: no dimensions, no cauldrons.
+    fn world() -> FluidWorld<'static> {
+        static NONE: (BTreeMap<String, bool>, BTreeMap<String, Cauldron>) =
+            (BTreeMap::new(), BTreeMap::new());
+        FluidWorld {
+            ultrawarm: &NONE.0,
+            cauldrons: &NONE.1,
+        }
+    }
+
+    #[test]
+    fn a_fluid_probe_names_where_a_type_vaporizes_and_its_cauldron() {
+        // ATM10 8.4's fluids-only run: three of its 29 dimensions, Mekanism's type (never), Create Dragons Plus'
+        // dragon's breath (where water evaporates, with its own cauldron of four levels), Create Enchantment
+        // Industry's experience (always, by its config) and Just Dire Things' portal fluid (by biome).
+        let (mut fluids, mut types, mut client) = facts();
+        let probe: FluidProbe = serde_json::from_str(
+            r#"{
+            "fluids": {"create_dragons_plus:dragon_breath": {"type": "create_dragons_plus:dragon_breath",
+                "is_source": true, "source": "create_dragons_plus:dragon_breath",
+                "flowing": "create_dragons_plus:flowing_dragon_breath", "slope_find_distance": 2, "drop_off": 2,
+                "block": "create_dragons_plus:dragon_breath", "bucket": "create_dragons_plus:dragon_breath_bucket",
+                "tick_delay": 30, "explosion_resistance": 100.0}},
+            "fluid_types": {
+                "mekanism:heavy_water": {"description": "block.mekanism.heavy_water", "light_level": 0,
+                    "density": 1000, "temperature": 300, "viscosity": 1000,
+                    "vaporized_on_placement": {"minecraft:overworld": false, "minecraft:the_nether": false,
+                        "allthemodium:the_other": false}},
+                "create_dragons_plus:dragon_breath": {"description": "fluid.create_dragons_plus.dragon_breath",
+                    "light_level": 15, "density": 3000, "temperature": 300, "viscosity": 6000,
+                    "sounds": {"fluid_vaporize": "minecraft:block.fire.extinguish"},
+                    "vaporized_on_placement": {"minecraft:overworld": false, "minecraft:the_nether": true,
+                        "allthemodium:the_other": true}},
+                "test:experience": {"description": "x", "light_level": 0, "density": 1000, "temperature": 300,
+                    "viscosity": 1000, "vaporized_on_placement": {"minecraft:overworld": true,
+                    "minecraft:the_nether": true, "allthemodium:the_other": true}},
+                "test:portal": {"description": "p", "light_level": 0, "density": 1000, "temperature": 300,
+                    "viscosity": 1000, "vaporized_on_placement": {"minecraft:overworld": true,
+                    "minecraft:the_nether": true, "allthemodium:the_other": false}}
+            },
+            "ultrawarm": {"minecraft:overworld": false, "minecraft:the_nether": true, "allthemodium:the_other": true},
+            "cauldrons": {
+                "minecraft:water_cauldron": {"fluid": "minecraft:water", "total_amount": 1000, "max_level": 3,
+                    "level_property": "level"},
+                "create_dragons_plus:dragon_breath_cauldron": {"fluid": "create_dragons_plus:dragon_breath",
+                    "total_amount": 1000, "max_level": 4, "level_property": "level"}
+            }
+        }"#,
+        )
+        .unwrap();
+        let mut facts = crate::oracle::Facts::default();
+        facts.fluids = std::mem::take(&mut fluids);
+        facts.fluid_types = std::mem::take(&mut types);
+        probe.lay_over(&mut facts);
+        client.fluid_types.insert(
+            "create_dragons_plus:dragon_breath".into(),
+            serde_json::from_str(
+                r#"{"still": "create_dragons_plus:fluid/dragon_breath_still",
+                "flowing": "create_dragons_plus:fluid/dragon_breath_flow", "tint": -1}"#,
+            )
+            .unwrap(),
+        );
+        let yes = |_: &str| true;
+        let decl = |id: &str| {
+            declaration(
+                &facts.fluids,
+                &facts.fluid_types,
+                facts.fluid_world(),
+                &client,
+                id,
+                &yes,
+            )
+            .unwrap()
+        };
+        let heavy = decl("mekanism:heavy_water");
+        assert_eq!(heavy["vaporizes"], json!("never"));
+        assert_eq!(
+            heavy["sounds"],
+            Value::Null,
+            "the probe's type has no sounds: the batch's are replaced"
+        );
+        assert_eq!(heavy.get("cauldron"), None);
+        let breath = decl("create_dragons_plus:dragon_breath");
+        assert_eq!(breath["vaporizes"], json!("ultrawarm"));
+        assert_eq!(
+            breath["sounds"]["fluid_vaporize"],
+            json!("minecraft:block.fire.extinguish")
+        );
+        assert_eq!(
+            breath["cauldron"],
+            json!({"block": "create_dragons_plus:dragon_breath_cauldron", "total_amount": 1000, "max_level": 4,
+                "level_property": "level"})
+        );
+        let file: horizon_mods::content::Fluid = serde_json::from_value(breath).unwrap();
+        assert_eq!(
+            file.vaporizes,
+            horizon_mods::content::FluidVaporizes::Ultrawarm
+        );
+        assert_eq!(file.cauldron.unwrap().max_level, 4);
+        let (exp, portal) = (
+            &facts.fluid_types["test:experience"],
+            &facts.fluid_types["test:portal"],
+        );
+        assert_eq!(vaporizes(exp, &facts.ultrawarm), Some("always"));
+        assert_eq!(
+            vaporizes(portal, &facts.ultrawarm),
+            None,
+            "a rule of its own: FluidType's stays"
+        );
     }
 }

@@ -16,11 +16,13 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.material.FlowingFluid;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.material.Fluids;
 import net.neoforged.neoforge.common.SoundActions;
+import net.neoforged.neoforge.fluids.CauldronFluidContent;
 import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.fluids.FluidType;
 import net.neoforged.neoforge.registries.NeoForgeRegistries;
@@ -91,6 +93,36 @@ final class FluidFacts {
             }
         }
         json.endObject();
+        // The dimensions a type's isVaporizedOnPlacement is asked in, and which are ultraWarm (where vanilla's water
+        // evaporates): what tells a type that follows water from one that vaporizes everywhere or nowhere.
+        json.name("ultrawarm");
+        json.beginObject();
+        for (ServerLevel l : level.getServer().getAllLevels()) {
+            json.name(l.dimension().location().toString()).value(l.dimensionType().ultraWarm());
+        }
+        json.endObject();
+        cauldrons();
+    }
+
+    /** NeoForge's cauldron fluid contents of the namespaces' blocks ({@code CauldronFluidContent.getForBlock}: vanilla's
+     *  three and what mods registered by {@code RegisterCauldronFluidContentEvent}), each with its fluid, total amount
+     *  and levels. */
+    private void cauldrons() throws IOException {
+        json.name("cauldrons");
+        json.beginObject();
+        for (Block block : BuiltInRegistries.BLOCK) {
+            ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
+            CauldronFluidContent content = ours.test(id) ? CauldronFluidContent.getForBlock(block) : null;
+            if (content == null) continue;
+            json.name(id.toString());
+            json.beginObject();
+            json.name("fluid").value(key(content.fluid));
+            json.name("total_amount").value(content.totalAmount);
+            json.name("max_level").value(content.maxLevel);
+            json.name("level_property").value(content.levelProperty == null ? null : content.levelProperty.getName());
+            json.endObject();
+        }
+        json.endObject();
     }
 
     private void fluid(Fluid fluid, FluidType type) throws IOException, ReflectiveOperationException {
@@ -144,6 +176,21 @@ final class FluidFacts {
             FluidStack stack = new FluidStack(any, FluidType.BUCKET_VOLUME);
             json.name("can_convert_to_source").value(type.canConvertToSource(stack));
             json.name("can_hydrate").value(type.canHydrate(stack));
+            // isVaporizedOnPlacement(level, pos, a bucket of it) in each dimension, as BucketItem.emptyContents asks
+            // it: by default in an ultraWarm one for water's type or a fluid in minecraft:water, but a mod's type
+            // may say otherwise (Mekanism's never, Create Dragons Plus' dyes wherever water evaporates).
+            json.name("vaporized_on_placement");
+            json.beginObject();
+            for (ServerLevel l : level.getServer().getAllLevels()) {
+                boolean vaporized;
+                try {
+                    vaporized = type.isVaporizedOnPlacement(l, AT, stack);
+                } catch (RuntimeException e) {
+                    continue;
+                }
+                json.name(l.dimension().location().toString()).value(vaporized);
+            }
+            json.endObject();
         }
         json.name("sounds");
         json.beginObject();

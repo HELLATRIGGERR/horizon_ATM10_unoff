@@ -70,6 +70,125 @@ pub struct ModFluid {
     /// 12-chunk render distance: the fog's start and end in blocks, none to
     /// leave the fog's own.
     pub fog_range: Option<[f32; 2]>,
+    /// `SoundActions.FLUID_VAPORIZE`: `onVaporize`'s sound, none for
+    /// `block.fire.extinguish`.
+    pub vaporize_sound: Option<String>,
+    /// Where its bucket vaporizes (`FluidType.isVaporizedOnPlacement`).
+    pub vaporizes: Vaporizes,
+    /// The cauldron that holds it (`CauldronFluidContent`), none for none.
+    pub cauldron: Option<ModCauldron>,
+}
+
+/// Where a bucket of a fluid vaporizes instead of being placed: what its
+/// type's `FluidType.isVaporizedOnPlacement(level, pos, stack)` answers, by
+/// the NeoForge oracle (`ModFluid::is_vaporized_on_placement`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Vaporizes {
+    /// `FluidType`'s own: in an `ultraWarm` dimension (26.3's
+    /// `water_evaporates`) when the fluid it places is in `minecraft:water`.
+    #[default]
+    LikeWater,
+    /// In an `ultraWarm` dimension, whatever its tags.
+    Ultrawarm,
+    Never,
+    Always,
+}
+
+/// A mod's cauldron for its fluid, as `RegisterCauldronFluidContentEvent`
+/// registers one: `total_amount` millibuckets over `max_level` levels of
+/// `level_property` (one level without one).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModCauldron {
+    pub block: String,
+    pub total_amount: i32,
+    pub max_level: i32,
+    pub level_property: Option<String>,
+}
+
+/// NeoForge's `CauldronFluidContent`: a cauldron block, the fluid it holds
+/// (the empty one for the empty cauldron), the amount of a full one and its
+/// levels. Vanilla's three are `CauldronFluidContent.init`'s, the rest the
+/// mods' ([`ModCauldron`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CauldronFluidContent {
+    pub block: &'static str,
+    pub fluid: FluidKind,
+    pub total_amount: i32,
+    pub max_level: i32,
+    pub level_property: Option<&'static str>,
+}
+
+impl CauldronFluidContent {
+    /// `currentLevel(state)`: none for the empty cauldron, 1 without a level
+    /// property, else `level` (the state's value of [`Self::level_property`]).
+    pub fn current_level(&self, level: Option<i32>) -> i32 {
+        if self.fluid == FluidKind::Empty {
+            0
+        } else if self.level_property.is_none() {
+            1
+        } else {
+            level.unwrap_or(0)
+        }
+    }
+}
+
+/// `CauldronFluidContent.init`: the empty cauldron, water's in thirds and
+/// lava's whole, a bucket each.
+const VANILLA_CAULDRONS: [CauldronFluidContent; 3] = [
+    CauldronFluidContent {
+        block: "minecraft:cauldron",
+        fluid: FluidKind::Empty,
+        total_amount: 1000,
+        max_level: 1,
+        level_property: None,
+    },
+    CauldronFluidContent {
+        block: "minecraft:water_cauldron",
+        fluid: FluidKind::Water,
+        total_amount: 1000,
+        // `LayeredCauldronBlock.LEVEL`: 1 to 3.
+        max_level: 3,
+        level_property: Some("level"),
+    },
+    CauldronFluidContent {
+        block: "minecraft:lava_cauldron",
+        fluid: FluidKind::Lava,
+        total_amount: 1000,
+        max_level: 1,
+        level_property: None,
+    },
+];
+
+/// `CauldronFluidContent.getForBlock`: the cauldron `block` is, if any.
+pub fn cauldron_for_block(block: &str) -> Option<CauldronFluidContent> {
+    VANILLA_CAULDRONS
+        .iter()
+        .copied()
+        .find(|c| c.block == block)
+        .or_else(|| mod_cauldrons().find(|c| c.block == block))
+}
+
+/// `CauldronFluidContent.getForFluid`: the cauldron that holds `fluid` (that
+/// fluid itself: flowing water has none).
+pub fn cauldron_for_fluid(fluid: FluidKind) -> Option<CauldronFluidContent> {
+    VANILLA_CAULDRONS
+        .iter()
+        .copied()
+        .find(|c| c.fluid == fluid)
+        .or_else(|| mod_cauldrons().find(|c| c.fluid == fluid))
+}
+
+fn mod_cauldrons() -> impl Iterator<Item = CauldronFluidContent> {
+    mod_fluids().iter().filter_map(|m| {
+        let c = m.cauldron.as_ref()?;
+        Some(CauldronFluidContent {
+            block: c.block.as_str(),
+            fluid: kind_by_name(&m.id)?,
+            total_amount: c.total_amount,
+            max_level: c.max_level,
+            level_property: c.level_property.as_deref(),
+        })
+    })
 }
 
 /// `FluidType`'s say over an entity in it (each one `FluidType.canSwim(Entity)`
@@ -148,6 +267,9 @@ impl ModFluid {
             render_overlay: None,
             fog_color: None,
             fog_range: None,
+            vaporize_sound: None,
+            vaporizes: Vaporizes::LikeWater,
+            cauldron: None,
         }
     }
     /// Whether it is a `FlowingFluid`: one that doesn't (Modern
@@ -164,6 +286,28 @@ impl ModFluid {
             &self.flowing_tags
         };
         tags.iter().any(|t| t == tag)
+    }
+    /// `FluidType.isVaporizedOnPlacement(level, pos, stack)` for a bucket of
+    /// it (its source) in a level where water evaporates or not (26.3's
+    /// `water_evaporates`, NeoForge's `dimensionType().ultraWarm()`).
+    pub fn is_vaporized_on_placement(&self, water_evaporates: bool) -> bool {
+        match self.vaporizes {
+            // `getStateForPlacement(level, pos, stack).is(FluidTags.WATER)`:
+            // the stack's fluid's default state, its source.
+            Vaporizes::LikeWater => {
+                water_evaporates && self.source_tags.iter().any(|t| t == "minecraft:water")
+            }
+            Vaporizes::Ultrawarm => water_evaporates,
+            Vaporizes::Never => false,
+            Vaporizes::Always => true,
+        }
+    }
+    /// `FluidType.onVaporize`'s sound: `FLUID_VAPORIZE`, else
+    /// `SoundEvents.FIRE_EXTINGUISH`.
+    pub fn vaporize_sound(&self) -> &str {
+        self.vaporize_sound
+            .as_deref()
+            .unwrap_or("minecraft:block.fire.extinguish")
     }
 }
 
@@ -442,7 +586,9 @@ pub fn fluid_tag_lists_in(
 /// heavy water's: its overlay and fog too), and `test:sludge`, slower and
 /// thicker, which makes sources and is a molten metal to an entity (All the
 /// Ores': no swimming or drowning, lava's push), puts fires out and keeps a
-/// fifth of a fall. Not for the game.
+/// fifth of a fall, vaporizes where water evaporates with a sound of its own
+/// (Create Dragons Plus' dyes) and has a cauldron of four levels (its dragon's
+/// breath). Not for the game.
 #[doc(hidden)]
 pub fn register_test_fluids() {
     let brine = ModFluid {
@@ -477,6 +623,14 @@ pub fn register_test_fluids() {
             can_extinguish: true,
             ..FluidEntity::default()
         },
+        vaporize_sound: Some("minecraft:block.lava.extinguish".into()),
+        vaporizes: Vaporizes::Ultrawarm,
+        cauldron: Some(ModCauldron {
+            block: "test:sludge_cauldron".into(),
+            total_amount: 1000,
+            max_level: 4,
+            level_property: Some("level".into()),
+        }),
         ..ModFluid::new("test:sludge")
     };
     if !register_mod_fluids([brine.clone(), sludge.clone()]) {
@@ -517,6 +671,83 @@ mod tests {
         assert_eq!(FluidKind::Water.flowing(), FluidKind::FlowingWater);
         assert_eq!(FluidKind::FlowingLava.source(), FluidKind::Lava);
         assert_eq!(FluidKind::Empty.source(), FluidKind::Empty);
+    }
+
+    #[test]
+    fn a_type_vaporizes_where_its_oracle_says_and_cauldrons_hold_their_fluid() {
+        register_test_fluids();
+        let brine = FluidKind::from_name("test:brine").unwrap();
+        let sludge = FluidKind::from_name("test:sludge").unwrap();
+        // FluidType's own rule: only a fluid in minecraft:water, and only where water evaporates.
+        let mut water_tagged = brine.mod_fluid().unwrap().clone();
+        assert!(
+            !water_tagged.is_vaporized_on_placement(true),
+            "brine is in no water tag"
+        );
+        water_tagged.source_tags.push("minecraft:water".into());
+        assert!(water_tagged.is_vaporized_on_placement(true));
+        assert!(!water_tagged.is_vaporized_on_placement(false));
+        // A type of its own: where water evaporates, whatever its tags, with its own sound.
+        let m = sludge.mod_fluid().unwrap();
+        assert!(m.is_vaporized_on_placement(true) && !m.is_vaporized_on_placement(false));
+        assert_eq!(m.vaporize_sound(), "minecraft:block.lava.extinguish");
+        assert_eq!(
+            brine.mod_fluid().unwrap().vaporize_sound(),
+            "minecraft:block.fire.extinguish"
+        );
+        for (rule, nether, overworld) in [
+            (Vaporizes::Never, false, false),
+            (Vaporizes::Always, true, true),
+        ] {
+            let f = ModFluid {
+                vaporizes: rule,
+                ..m.clone()
+            };
+            assert_eq!(
+                (
+                    f.is_vaporized_on_placement(true),
+                    f.is_vaporized_on_placement(false)
+                ),
+                (nether, overworld)
+            );
+        }
+        // CauldronFluidContent: vanilla's three, then the mods'.
+        let water = cauldron_for_block("minecraft:water_cauldron").unwrap();
+        assert_eq!(
+            (
+                water.fluid,
+                water.total_amount,
+                water.max_level,
+                water.level_property
+            ),
+            (FluidKind::Water, 1000, 3, Some("level"))
+        );
+        assert_eq!(
+            cauldron_for_fluid(FluidKind::Lava).unwrap().block,
+            "minecraft:lava_cauldron"
+        );
+        assert_eq!(
+            cauldron_for_fluid(FluidKind::FlowingWater),
+            None,
+            "keyed by the fluid itself"
+        );
+        let empty = cauldron_for_block("minecraft:cauldron").unwrap();
+        assert_eq!(
+            (empty.fluid, empty.current_level(None)),
+            (FluidKind::Empty, 0)
+        );
+        let own = cauldron_for_fluid(sludge).unwrap();
+        assert_eq!(
+            (own.block, own.max_level, own.current_level(Some(2))),
+            ("test:sludge_cauldron", 4, 2)
+        );
+        assert_eq!(cauldron_for_block("test:sludge_cauldron"), Some(own));
+        assert_eq!(cauldron_for_fluid(brine), None);
+        assert_eq!(
+            cauldron_for_block("minecraft:powder_snow_cauldron"),
+            None,
+            "powder snow holds no fluid"
+        );
     }
 
     #[test]

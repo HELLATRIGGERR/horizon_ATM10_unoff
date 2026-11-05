@@ -5,7 +5,10 @@
 //! block entity answers through the hook points `native_fluid_handler_tanks`,
 //! `native_fluid_handler_fill` and `native_fluid_handler_drain`; one that
 //! answers none and declared tanks (`native_block_entity_fluids`, API 54) is
-//! read and moved by those tanks' rules. AE2's storage, import and export
+//! read and moved by those tanks' rules. A cauldron of NeoForge's
+//! `CauldronFluidContent` (vanilla's three and the mods' declared ones)
+//! answers on every side as its `CauldronWrapper`, in the level in place.
+//! AE2's storage, import and export
 //! buses reach blocks through this dispatcher, and `FluidUtil`'s container
 //! transfers (`native_fluid_interact`) through it and the item fluid helpers
 //! (`native_item_fluids.rs`).
@@ -28,6 +31,7 @@ use horizon_client::{
 use horizon_core::geometry::Direction;
 use horizon_world::fluid::FluidKind;
 use horizon_world::fluid_stack::{FluidStack, empty_sound, fill_sound};
+use horizon_world::mod_fluids::{CauldronFluidContent, cauldron_for_block, cauldron_for_fluid};
 use std::cell::RefCell;
 use std::sync::Arc;
 
@@ -221,7 +225,128 @@ fn declared_drain(
     FluidStack::new(kind, took)
 }
 
+/// A cauldron block as NeoForge's `CauldronWrapper` reads it: its
+/// `CauldronFluidContent` and `currentLevel(state)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Cauldron {
+    content: CauldronFluidContent,
+    level: i32,
+}
+
+/// The state a `CauldronWrapper` sets: a content's block at a level (the
+/// empty cauldron at 0).
+type CauldronLevel = (CauldronFluidContent, i32);
+
+/// `IntMath.gcd`.
+fn gcd(a: i32, b: i32) -> i32 {
+    if b == 0 { a.abs() } else { gcd(b, a % b) }
+}
+
+/// A content's increments: `totalAmount / d` millibuckets for `maxLevel / d`
+/// levels, `d` their greatest common divisor (water's: a whole bucket for
+/// its three levels; a dragon's breath cauldron's: 250 a level).
+fn increments(content: &CauldronFluidContent) -> (i32, i32) {
+    let d = gcd(content.max_level, content.total_amount).max(1);
+    (content.total_amount / d, content.max_level / d)
+}
+
+impl Cauldron {
+    /// `getFluidInTank(0)`: `totalAmount * currentLevel / maxLevel` of its
+    /// fluid; `getTankCapacity` is `totalAmount`.
+    fn tank(self) -> NativeFluidTankInfo {
+        let c = self.content;
+        let stack = FluidStack::new(c.fluid, c.total_amount * self.level / c.max_level.max(1));
+        let drainable = !stack.is_empty() && !self.drain(stack.amount()).0.is_empty();
+        NativeFluidTankInfo {
+            stack,
+            capacity: c.total_amount,
+            drainable,
+        }
+    }
+
+    /// `CauldronWrapper.fill`: whole increments of `resource`'s cauldron
+    /// (`getForFluid`, its fluid itself) into an empty one or one of the same
+    /// fluid, up to its last level; components are not asked. What it takes,
+    /// and the cauldron it leaves.
+    fn fill(self, resource: &FluidStack) -> (i32, Option<CauldronLevel>) {
+        if resource.is_empty() {
+            return (0, None);
+        }
+        let Some(insert) = cauldron_for_fluid(resource.fluid()) else {
+            return (0, None);
+        };
+        if self.content.fluid != FluidKind::Empty && !resource.is(self.content.fluid) {
+            return (0, None);
+        }
+        let (amount_step, level_step) = increments(&insert);
+        let inserted = (resource.amount() / amount_step)
+            .min((insert.max_level - self.level) / level_step.max(1));
+        if inserted <= 0 {
+            return (0, None);
+        }
+        (
+            inserted * amount_step,
+            Some((insert, self.level + inserted * level_step)),
+        )
+    }
+
+    /// `CauldronWrapper.drain(state, maxDrain, action)`: whole increments of
+    /// its fluid, down to the empty cauldron (`Blocks.CAULDRON`) at level 0.
+    fn drain(self, max: i32) -> (FluidStack, Option<CauldronLevel>) {
+        let c = self.content;
+        let (amount_step, level_step) = increments(&c);
+        let extracted = (max / amount_step).min(self.level / level_step.max(1));
+        let mut left = None;
+        if extracted > 0 {
+            let level = self.level - extracted * level_step;
+            left = Some(if level == 0 {
+                (cauldron_for_block("minecraft:cauldron").unwrap_or(c), 0)
+            } else {
+                (c, level)
+            });
+        }
+        (FluidStack::new(c.fluid, extracted * amount_step), left)
+    }
+}
+
 impl Game<'_> {
+    /// The cauldron at `pos` in level `dim`, as `CauldronWrapper` finds it:
+    /// a block of `CauldronFluidContent` (`getForBlock`) and its level. Only
+    /// in the level in place, as API 54's helpers act.
+    fn fluid_cauldron_at(&self, dim: Dim, pos: [i32; 3]) -> Option<Cauldron> {
+        if dim != self.dim {
+            return None;
+        }
+        let state = self.world.block(pos[0], pos[1], pos[2]);
+        let info = self.pack.assets.registry.state(state)?;
+        let content = cauldron_for_block(&info.name)?;
+        let level = content
+            .level_property
+            .and_then(|p| info.properties.get(p))
+            .and_then(|v| v.parse::<i32>().ok());
+        Some(Cauldron {
+            content,
+            level: content.current_level(level),
+        })
+    }
+
+    /// `CauldronWrapper.updateLevel` (and the drain's `Blocks.CAULDRON`):
+    /// `setBlockAndUpdate` of the content's block at `level`. Whether it was set.
+    fn cauldron_wrapper_set(&mut self, pos: [i32; 3], (content, level): CauldronLevel) -> bool {
+        let mut properties = std::collections::BTreeMap::new();
+        if let Some(p) = content.level_property {
+            properties.insert(p.to_owned(), level.to_string());
+        }
+        let state = horizon_world::chunk::BlockState {
+            name: content.block.to_owned(),
+            properties: properties.into(),
+        };
+        match self.pack.assets.registry.resolve(&state) {
+            Ok(id) => self.level_set(pos, id).is_ok(),
+            Err(_) => false,
+        }
+    }
+
     /// The tanks the block declared (`native_block_entity_fluids`) at `pos`
     /// in level `dim`.
     fn declared_fluid_tanks(&self, dim: Dim, pos: [i32; 3]) -> Option<Arc<ModFluidTanks>> {
@@ -241,6 +366,9 @@ impl Game<'_> {
         face: Option<Direction>,
     ) -> Option<Vec<NativeFluidTankInfo>> {
         let _call = Entered::enter((dim, pos, face, Op::Tanks))?;
+        if let Some(cauldron) = self.fluid_cauldron_at(dim, pos) {
+            return Some(vec![cauldron.tank()]);
+        }
         let key = (pos[0], pos[1], pos[2]);
         let world = self.fe_world(dim)?;
         let Some(BlockEntity::Mod(m)) = world.block_entities.get(&key) else {
@@ -292,8 +420,17 @@ impl Game<'_> {
         let Some(_call) = Entered::enter((dim, pos, face, Op::Fill)) else {
             return 0;
         };
-        let declared = self.declared_fluid_tanks(dim, pos);
         let amount = resource.amount();
+        if let Some(cauldron) = self.fluid_cauldron_at(dim, pos) {
+            let (filled, left) = cauldron.fill(resource);
+            if let Some(left) = left.filter(|_| !simulate)
+                && !self.cauldron_wrapper_set(pos, left)
+            {
+                return 0;
+            }
+            return filled.clamp(0, amount);
+        }
+        let declared = self.declared_fluid_tanks(dim, pos);
         self.with_fluid_entity(dim, pos, |game, entity| {
             let mut answer = None;
             game.native_fluid_handler_fill(
@@ -335,6 +472,20 @@ impl Game<'_> {
         let Some(_call) = Entered::enter((dim, pos, face, Op::Drain)) else {
             return FluidStack::EMPTY;
         };
+        if let Some(cauldron) = self.fluid_cauldron_at(dim, pos) {
+            // `drain(FluidStack)`: its fluid with no components, else nothing.
+            if resource.is_some_and(|r| !r.is(cauldron.content.fluid) || !r.components().is_empty())
+            {
+                return FluidStack::EMPTY;
+            }
+            let (drained, left) = cauldron.drain(limit);
+            if let Some(left) = left.filter(|_| !simulate)
+                && !self.cauldron_wrapper_set(pos, left)
+            {
+                return FluidStack::EMPTY;
+            }
+            return drained;
+        }
         let declared = self.declared_fluid_tanks(dim, pos);
         self.with_fluid_entity(dim, pos, |game, entity| {
             let mut answer = None;
@@ -940,5 +1091,66 @@ mod tests {
             (nearly_full.0.amount(), &*bucket.container.item),
             (1500, "minecraft:bucket")
         );
+    }
+
+    #[test]
+    fn a_cauldron_moves_whole_increments_as_neoforges_wrapper() {
+        horizon_world::mod_fluids::register_test_fluids();
+        let water = cauldron_for_block("minecraft:water_cauldron").unwrap();
+        let empty = cauldron_for_block("minecraft:cauldron").unwrap();
+        let lava = cauldron_for_block("minecraft:lava_cauldron").unwrap();
+        let c = |content, level| Cauldron { content, level };
+        let w = |n| FluidStack::new(FluidKind::Water, n);
+        let got = |(s, left): (FluidStack, Option<CauldronLevel>)| (s.fluid(), s.amount(), left);
+        // Water reads in thirds of a bucket but moves only whole buckets: gcd(3, 1000) = 1.
+        let t = c(water, 1).tank();
+        assert_eq!(
+            (t.stack.amount(), t.capacity, t.drainable),
+            (333, 1000, false)
+        );
+        let t = c(water, 3).tank();
+        assert_eq!((t.stack.amount(), t.drainable), (1000, true));
+        assert_eq!(got(c(water, 1).drain(1000)), (FluidKind::Empty, 0, None));
+        assert_eq!(got(c(water, 3).drain(999)), (FluidKind::Empty, 0, None));
+        assert_eq!(
+            got(c(water, 3).drain(5000)),
+            (FluidKind::Water, 1000, Some((empty, 0)))
+        );
+        assert_eq!(c(empty, 0).fill(&w(999)), (0, None));
+        assert_eq!(c(empty, 0).fill(&w(2500)), (1000, Some((water, 3))));
+        assert_eq!(
+            c(water, 1).fill(&w(1000)),
+            (0, None),
+            "a part-full cauldron takes no whole bucket"
+        );
+        assert_eq!(
+            c(water, 3).fill(&FluidStack::new(FluidKind::Lava, 1000)),
+            (0, None)
+        );
+        assert_eq!(
+            c(lava, 1).fill(&FluidStack::new(FluidKind::Lava, 1000)),
+            (0, None)
+        );
+        assert_eq!(
+            c(empty, 0).fill(&FluidStack::new(FluidKind::FlowingWater, 1000)),
+            (0, None),
+            "no cauldron holds flowing water"
+        );
+        assert_eq!(c(empty, 0).tank().stack, FluidStack::EMPTY);
+        // A mod's cauldron of four levels (Create Dragons Plus' dragon's breath): 250 mB a level.
+        let sludge = FluidKind::from_name("test:sludge").unwrap();
+        let own = cauldron_for_fluid(sludge).unwrap();
+        assert_eq!(
+            c(empty, 0).fill(&FluidStack::new(sludge, 600)),
+            (500, Some((own, 2)))
+        );
+        let t = c(own, 2).tank();
+        assert_eq!(
+            (t.stack.fluid(), t.stack.amount(), t.capacity, t.drainable),
+            (sludge, 500, 1000, true)
+        );
+        assert_eq!(got(c(own, 2).drain(300)), (sludge, 250, Some((own, 1))));
+        assert_eq!(got(c(own, 1).drain(1000)), (sludge, 250, Some((empty, 0))));
+        assert_eq!(c(own, 3).fill(&w(1000)), (0, None), "another fluid");
     }
 }

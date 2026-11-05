@@ -58,6 +58,13 @@ pub struct Manifest {
     /// accepted here, so the manifest keeps loading once it is promoted.
     #[serde(default)]
     pub experimental: Vec<Capability>,
+    /// Turns on NeoForge's milk fluid, as a mod calling
+    /// `NeoForgeMod.enableMilkFluid()` does: `minecraft:milk` and
+    /// `minecraft:flowing_milk` join the fluid registry
+    /// (`content::Fluid::neoforge_milk`), vanilla's milk bucket their bucket.
+    /// One content mod on that asks is enough.
+    #[serde(default)]
+    pub milk_fluid: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq)]

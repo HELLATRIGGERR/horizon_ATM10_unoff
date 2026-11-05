@@ -84,6 +84,9 @@ pub struct Summary {
     pub kubejs_fluids: usize,
     /// The loader's own assets the mods' models name (`neoforge:item/bucket` and its masks).
     pub loader_assets: usize,
+    /// NeoForge's milk fluid is in the run's fluid registry (a mod called `NeoForgeMod.enableMilkFluid()`): the pack
+    /// mod turns it on (`milk_fluid`).
+    pub milk_fluid: bool,
     pub kubejs_assets: usize,
     /// Namespaces of mods not carried: their port will own them.
     pub kubejs_assets_left_out: usize,
@@ -536,6 +539,10 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
             .unwrap_or_default();
         facts.pack = crate::oracle::PackFacts::read(&o.dump.join("pack-facts.json"))?;
         facts.client = crate::fluids::ClientFacts::read(&o.dump.join("client-facts.json"))?;
+        // A fluids-only run's facts over the batch's (slice 7).
+        if let Some(probe) = crate::fluids::FluidProbe::read(&o.dump.join("fluid-facts.json"))? {
+            probe.lay_over(&mut facts);
+        }
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;
         claimed.insert(PACK_ID.to_owned());
     }
@@ -626,20 +633,36 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
     claimed.remove(PACK_ID);
     s.namespaces = claimed.iter().cloned().collect();
     let namespaces: Vec<String> = claimed.iter().map(|n| format!("{n:?}")).collect();
+    s.milk_fluid = milk_registered(o.dump)?;
     let manifest = format!(
         "# Generated from the player's ATM10 instance by horizon-port-pack final-data, for local use only. Never commit.\n\
          id = {PACK_ID:?}\nname = \"atm10-pack\"\nversion = {:?}\napi = \"0.2\"\nside = \"both\"\n\
-         capabilities = [\"registries\"]\nnamespaces = [{}]\n",
+         capabilities = [\"registries\"]\nnamespaces = [{}]\n{}",
         pack_version(o.instance),
-        namespaces.join(", ")
+        namespaces.join(", "),
+        if s.milk_fluid { "milk_fluid = true\n" } else { "" }
     );
     sink.write(&pack.join(horizon_mods::manifest::MANIFEST), manifest.as_bytes())?;
     Ok(s)
 }
 
+/// Whether the run's fluid registry (`registries.json`) holds NeoForge's milk, which only a mod's
+/// `NeoForgeMod.enableMilkFluid()` puts there (in ATM10 8.4 the code of 16 jars names it: Create, Mekanism...).
+fn milk_registered(dump: &Path) -> Result<bool, String> {
+    let path = dump.join("registries.json");
+    let Ok(bytes) = fs::read(&path) else {
+        return Ok(false);
+    };
+    let registries: Value = serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(registries["minecraft:fluid"]
+        .as_array()
+        .is_some_and(|fluids| fluids.iter().any(|f| f == "minecraft:milk")))
+}
+
 /// NeoForge's own item models and their masks, from the loader's jar into `root`: the parents the mods' bucket
 /// models name (`neoforge:item/bucket`, `bucket_drip`, `default`) and the textures of their fluid layer
-/// (`neoforge:item/mask/bucket_fluid`...), which NeoForge's resources give every mod. Returns how many files.
+/// (`neoforge:item/mask/bucket_fluid`...), which NeoForge's resources give every mod; and its milk's still and
+/// flowing textures (`neoforge:block/milk_still`, `milk_flowing`, with their animations). Returns how many files.
 fn loader_assets(jar: &Path, root: &Path, sink: &mut Sink) -> Result<usize, String> {
     let file = fs::File::open(jar).map_err(|e| format!("{}: {e}", jar.display()))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("{}: {e}", jar.display()))?;
@@ -649,6 +672,7 @@ fn loader_assets(jar: &Path, root: &Path, sink: &mut Sink) -> Result<usize, Stri
         .filter(|n| {
             (n.starts_with("assets/neoforge/models/item/") && n.ends_with(".json"))
                 || (n.starts_with("assets/neoforge/textures/item/mask/") && n.ends_with(".png"))
+                || n.starts_with("assets/neoforge/textures/block/milk_")
         })
         .map(|n| n.into_owned())
         .collect();
@@ -763,7 +787,9 @@ fn kubejs_content(
             }
             let item_declared =
                 |item: &str| known.contains(item) && item.starts_with(&prefix) && !buckets_used.contains(item);
-            if let Ok(v) = crate::fluids::declaration(&facts.fluids, &facts.fluid_types, client, full, &item_declared) {
+            if let Ok(v) =
+                crate::fluids::declaration(&facts.fluids, &facts.fluid_types, facts.fluid_world(), client, full, &item_declared)
+            {
                 if let Some(bucket) = v["bucket"].as_str() {
                     buckets_used.insert(bucket.to_owned());
                 }

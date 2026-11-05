@@ -22,7 +22,7 @@ use horizon_core::{
 };
 use horizon_world::{
     fluid::FluidKind,
-    level::{BucketContent, PlaceContext, PlaceOutcome},
+    level::{PlaceContext, PlaceOutcome},
     registry::BlockStateId,
 };
 use std::sync::Arc;
@@ -1320,12 +1320,9 @@ impl Game<'_> {
         if emptied.is_none() {
             return Ok((self.dispense_default(pos, facing, stack), CLICK));
         }
-        if self.dim == super::Dim::Nether
-            && matches!(
-                content,
-                BucketContent::Fluid(FluidKind::Water) | BucketContent::MobWater
-            )
-        {
+        // Water where it evaporates, and a mod fluid its type vaporizes there
+        // (NeoForge's dispenser passes the bucket, so its type is asked).
+        if content.vaporizes(self.dim == super::Dim::Nether) {
             self.evaporation_smoke([target.0, target.1, target.2]);
         }
         if let Some(kind) = mob {

@@ -99,9 +99,14 @@ pub fn menu_types(mods: &[ContentMod]) -> Vec<&MenuType> {
     menus
 }
 
-/// The mods' fluids in registry order, by id as effects are.
+/// The mods' fluids in registry order, by id as effects are, with NeoForge's
+/// milk when a mod turns it on (`milk_fluid`, `NeoForgeMod.enableMilkFluid`).
 pub fn fluids(mods: &[ContentMod]) -> Vec<&Fluid> {
+    static MILK: std::sync::LazyLock<Fluid> = std::sync::LazyLock::new(Fluid::neoforge_milk);
     let mut fluids: Vec<&Fluid> = mods.iter().flat_map(|m| &m.content.fluids).collect();
+    if mods.iter().any(|m| m.content.milk_fluid) {
+        fluids.push(&MILK);
+    }
     fluids.sort_by(|a, b| a.id.cmp(&b.id));
     fluids
 }
@@ -112,6 +117,8 @@ pub fn mod_fluid(
     decl: &Fluid,
     tags: &BTreeMap<String, Vec<String>>,
 ) -> horizon_world::mod_fluids::ModFluid {
+    use horizon_mods::content::FluidVaporizes;
+    use horizon_world::mod_fluids::Vaporizes;
     let tags_of = |id: &str| tags.get(id).cloned().unwrap_or_default();
     horizon_world::mod_fluids::ModFluid {
         id: decl.id.clone(),
@@ -150,6 +157,19 @@ pub fn mod_fluid(
         render_overlay: decl.render_overlay.clone(),
         fog_color: decl.fog_color,
         fog_range: decl.fog_range,
+        vaporize_sound: decl.sounds.fluid_vaporize.clone(),
+        vaporizes: match decl.vaporizes {
+            FluidVaporizes::LikeWater => Vaporizes::LikeWater,
+            FluidVaporizes::Ultrawarm => Vaporizes::Ultrawarm,
+            FluidVaporizes::Never => Vaporizes::Never,
+            FluidVaporizes::Always => Vaporizes::Always,
+        },
+        cauldron: decl.cauldron.as_ref().map(|c| horizon_world::mod_fluids::ModCauldron {
+            block: c.block.clone(),
+            total_amount: c.total_amount,
+            max_level: c.max_level,
+            level_property: c.level_property.clone(),
+        }),
     }
 }
 

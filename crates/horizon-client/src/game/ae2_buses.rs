@@ -698,6 +698,9 @@ impl TransferHost for MixedHost<'_, '_> {
             None => self
                 .game
                 .ae2_interface_fluid_entries(address, self.face)
+                // A native block's fluid handler (a mod's tanks, a cauldron's
+                // `CauldronWrapper`): each tank it lists, as the fluid host's.
+                .or_else(|| self.game.ae2_mod_fluid_entries(address, self.face, false))
                 .unwrap_or_else(|| {
                     self.game
                         .ae2_tank_contents_encoded(address)
@@ -2049,7 +2052,11 @@ impl Game<'_> {
                     let Some(address) = self.ae2_local_address(adjacent) else {
                         continue;
                     };
-                    let loaded = self.ae2_block_entity(address).is_some();
+                    // A block entity, or a block whose fluid handler needs none
+                    // (NeoForge's `CauldronWrapper`): AE2's `canDoBusWork` asks
+                    // only that the target is loaded.
+                    let loaded = self.ae2_block_entity(address).is_some()
+                        || self.ae2_mod_fluid_supports(address, neighbor_face);
                     let fuzzy_mode =
                         str_field(data, "fuzzy_mode").unwrap_or_else(|| "ignore_all".into());
                     let key_types = bus_key_types(data);

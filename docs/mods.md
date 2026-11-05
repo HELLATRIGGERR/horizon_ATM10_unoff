@@ -64,6 +64,7 @@ api = "0.2"                  # content mods
 side = "both"
 capabilities = ["registries"]
 namespaces = []              # optional: more namespaces the mod's files use (below)
+milk_fluid = false           # optional: turn on NeoForge's milk fluid (docs/mod-fluids.md)
 ```
 
 Unknown keys are refused, so a typo is an error, not a silently ignored permission.

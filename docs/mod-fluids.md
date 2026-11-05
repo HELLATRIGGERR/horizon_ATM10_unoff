@@ -161,6 +161,38 @@ as a `FluidStack` against it. It was the cheapest honest one: the fork already r
 that is NeoForge's own codec, while the Mekanism machines the bundle runs take no fluid and its fluid recipes
 (`evaporating`, `rotary`, `separating`, `washing`, `reaction`) need chemicals or the evaporation multiblock first.
 
+**Vaporizing, cauldrons and milk (slice 7a).** NeoForge's `BucketItem.emptyContents` asks the bucket's contained
+stack (a content mod's bucket is a `FluidBucketWrapper`) before vanilla's water rule: where its type's
+`isVaporizedOnPlacement(level, pos, stack)` holds, `onVaporize` plays the type's `FLUID_VAPORIZE` sound (else the
+fire's, volume 0.5, pitch `2.6 + (r1 - r2) * 0.8` from the level's random) and the client puts out eight large smoke
+particles; nothing is placed and the bucket is emptied, by a player or a dispenser (NeoForge's dispenser passes the
+bucket too). `FluidType`'s own rule is an `ultraWarm` dimension (26.3's `water_evaporates`, the Nether here) and water's
+type or a fluid in `minecraft:water`; mods override it, so the declaration says what the oracle answered (`vaporizes`:
+`like_water`, the default, `ultrawarm`, `never` or `always`; `sounds.fluid_vaporize`), and `ModFluid::is_vaporized_on_placement`
+follows it. Vanilla's water keeps 26.3's rule unchanged. A cauldron is NeoForge's `CauldronFluidContent`: vanilla's three
+from `CauldronFluidContent.init` (the empty cauldron, water over the three levels of `LayeredCauldronBlock.LEVEL`, lava),
+each a bucket, and a mod's own from its fluid's declaration (`cauldron`: `block`, `total_amount`, `max_level`,
+`level_property`, `RegisterCauldronFluidContentEvent.register`'s checks: one cauldron a block, a positive amount, levels
+from 1); `mod_fluids::cauldron_for_block` and `cauldron_for_fluid` are `getForBlock` and `getForFluid` (the fluid itself:
+flowing water has none). The native fluid handler dispatcher answers for such a block on every side as its
+`CauldronWrapper`, in the level in place: one tank of `totalAmount * level / maxLevel`, filled and drained only in whole
+increments (`totalAmount / gcd` millibuckets for `maxLevel / gcd` levels: water a whole bucket for all three levels, so
+a cauldron two levels full gives nothing and a part-full one takes nothing; Create Dragons Plus' dragon's breath
+cauldron 250 mB a level), components not asked by `fill`, refused by `drain(FluidStack)`, a drained one the empty
+cauldron. AE2's buses meet it there: an import bus of 125 mB an operation takes nothing from a water cauldron, one with
+a speed card (8 operations) a whole bucket. Two gaps of slice 5 closed with it: the import bus (which takes items and
+fluids) now lists a native handler's tanks among its fluids, and an import or export bus works on a target without a
+block entity (AE2's `canDoBusWork` asks only that it is loaded); before, an import bus never drew from a native
+handler. API 54's own helpers keep their thirds. NeoForge's milk is
+`content::Fluid::neoforge_milk` (`NeoForgeMod.registerFluids` and `ClientNeoForgeMod`, the fluids-only run's values:
+density and viscosity 1024, the milk bucket's `item.bucket.fill_milk`/`empty_milk`, no block, `minecraft:milk_bucket`,
+`neoforge:block/milk_still` and `milk_flowing`), in the registry when a content mod's manifest says `milk_fluid = true`
+(as a mod's `NeoForgeMod.enableMilkFluid()`: in ATM10 8.4 the code of 16 jars names it, Create, Mekanism, Industrial
+Foregoing, Productive Bees, Functional Storage and KubeJS among them, and Cooking for Blockheads through Balm). `final-data` turns it on in `atm10-pack` when the dump's fluid
+registry holds `minecraft:milk`, with NeoForge's milk textures from the loader's jar; then recipes naming it read,
+`c:milk` names it, and the milk bucket is a `FluidBucketWrapper` of it to tanks and AE2, while its use stays
+`MilkBucketItem`'s (drunk, never placed: `bucket_contents` refuses it).
+
 **AE2 keys.** AE2 keeps keying fluids by id. `bucket_fluid` and `fluid_bucket` read the registry, so a mod fluid goes
 into and out of fluid cells, the ME Chest and terminals by its bucket, and its icon is its still texture with its tint.
 
@@ -185,7 +217,17 @@ fluids: `LiquidBlock`'s render shape is invisible), a fluid whose block another 
 another fluid or isn't on a liquid template, or whose numbers the flow can't take (a tick delay of 0) is left out with
 the reason in the carry report (`fluids_unknown`), and each bucket's item definition takes its item colours as
 `minecraft:constant` tints. `final-data` declares KubeJS's fluids the same way, and puts NeoForge's own item models and
-masks (`assets/neoforge/models/item/`, `textures/item/mask/`, from the loader's jar) in `atm10-pack`.
+masks (`assets/neoforge/models/item/`, `textures/item/mask/`, from the loader's jar) in `atm10-pack`. A question asked
+later needs no run of the whole pack: the server's oracle has a fluids-only mode (`-Dhorizon.oracle.fluids_only=true`,
+`HORIZON_ORACLE_JVM`: `FluidFacts` of every namespace, no dump or batches, 4 minutes for ATM10 8.4), whose `facts.json`,
+as `dump/fluid-facts.json`, the carry (`oracle/fluid-facts.json`, `FluidProbe::lay_over`) and `final-data` lay over each
+batch's fluids and types. Slice 7a's run added `isVaporizedOnPlacement` in each of the run's 29 dimensions (with which
+are `ultraWarm`: the Nether and Allthemodium's `the_other`) and the cauldron fluid contents: of 415 types 373 never
+vaporize, 39 where water evaporates (Create Dragons Plus' 35 dyes and dragon's breath, Create Enchantment Industry's
+infused dragon's breath, the Bumblezone's sugar water and Mahou Tsukai's murky water, in `minecraft:water`), one always
+(Create Enchantment Industry's experience, by its `experienceVaporizeOnPlacement`) and one by biome (Just Dire Things'
+portal fluid: true in 28 dimensions, not in the End; the carry names no rule for it and keeps `FluidType`'s); four
+cauldrons (vanilla's three, Create Dragons Plus' dragon's breath: 1000 mB over four levels).
 
 **Bucket models (slice 3).** NeoForge's `"loader": "neoforge:fluid_container"` (`DynamicFluidContainerModel`) is read
 with the model (`CuboidModel::fluid_container`: `fluid`, `flip_gas`, `cover_is_mask`, `apply_fluid_luminosity`, as its
@@ -247,7 +289,7 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
    side and not through the front, a storage bus filling it with lava only and listing none of it, an import bus taking
    nothing, Mekanism's saved form across a restart). Not yet: AE2's annihilation plane picking up fluid sources
    (`FluidPickupStrategy`) and P2P fluid tunnels and pattern providers reaching native handlers; vanilla's cauldrons as
-   NeoForge's `CauldronWrapper` handler (API 54's helpers read them; the dispatcher doesn't); Mekanism's machines'
+   NeoForge's `CauldronWrapper` handler (API 54's helpers read them; the dispatcher doesn't: slice 7a); Mekanism's machines'
    tanks, Modern Industrialization's and Industrial Foregoing's; a tank's contents in its item
    (`ContainedFluidOverrideHandler`).
 6. **Fluid ingredients and recipes (done).** As "Fluid ingredients" above. Tests: `horizon-world`
@@ -260,7 +302,33 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
    against the pack's 728 fluids), the game's `extendedae::machines` (the tank against the ingredient), and the world
    test `extendedae-crystal` (lava in the tank makes no fluix and spends no power; water does). Not yet: NeoForge's
    milk (`minecraft:milk`, enabled by a pack mod, in `c:milk`) is not in Horizon's registry, so recipes naming it don't
-   read and `c:milk` names nothing; Mekanism's fluid recipes wait for its chemicals.
-7. **The rest of `FluidType`.** Vaporizing in an ultrawarm dimension (`isVaporizedOnPlacement`), `FluidInteractionRegistry`
-   (mods' own lava-like interactions), dripstone and cauldrons, light from fluids, LOD and minimap colours, mod fluids
-   over the network to a client whose content differs, and AE2's Missing Content for a fluid the registry lacks.
+   read and `c:milk` names nothing (slice 7a); Mekanism's fluid recipes wait for its chemicals.
+7. **The rest of `FluidType`.** Split in two.
+   - **7a, vaporizing, cauldrons and milk (done).** As "Vaporizing, cauldrons and milk" above. ATM10 8.4 (4 November
+     2026): the whole pack carried again with slice 4's fields (`entity`, `render_overlay`, `fog_color`, `fog_range`:
+     409 declarations, all with entity facts, 166 fog colours, 96 fog ranges, 45 overlays; the load check takes the
+     289 mods with none refused); slice 7a's fields come from the fluids-only run and are in no shared carry yet. Tests:
+     `horizon-world` (`mod_fluids::tests`: the vaporize rules and the cauldron contents), `horizon-mods` (the
+     declaration's `vaporizes`, `cauldron` and their checks, the manifest's `milk_fluid`, NeoForge's milk),
+     `horizon-port-pack` (`fluids::tests::a_fluid_probe_names_where_a_type_vaporizes_and_its_cauldron`), the game's
+     `native_fluid_handler` (`CauldronWrapper`'s increments) and `mod_content` (milk and `c:milk`), and the world test
+     `tools/atm10/tests/mod-fluid-vaporize-cauldron.ts` (Create Dragons Plus' red dye placed in the overworld and
+     vaporized in the Nether, Mekanism's heavy water placed there, water evaporating as in 26.3; AE2's import buses
+     draining a full water cauldron and the dragon's breath cauldron and nothing from a part-full one or without a
+     speed card, an export bus filling an empty one; a milk bucket into a fluid cell as `minecraft:milk`). Not ported:
+     a type's own `onVaporize` (Create Enchantment Industry's experience orbs, Create Dragons Plus' dragon's breath
+     cloud, Just Dire Things' particles: they vaporize with `FluidType`'s sound and smoke), a rule by biome (Just Dire
+     Things' portal fluid), `FluidUtil.tryPlaceFluid`'s vaporizing (AE2's formation plane and mods' placers keep 26.3's
+     water rule), the smoke's `addAlwaysVisibleParticle`, NeoForge's milk bucket sounds (`item.bucket.fill_milk` and
+     `empty_milk` are NeoForge's own `assets/minecraft/sounds.json`, which no content mod may add: silent), a cauldron in
+     a level that isn't the one in place, `CauldronInteraction` for mods' cauldrons, and only a `BucketItem` whose class
+     is exactly NeoForge's gets a `FluidBucketWrapper` (Horizon gives every content mod's bucket one).
+   - **7b (next).** `FluidInteractionRegistry` (mods' own interactions between fluids and with blocks: 13 jars of ATM10
+     8.4 register some, Create, Create Dragons Plus, Create Enchantment Industry, All the Ores, Allthemodium, the
+     Aether, the Undergarden, the Bumblezone, Eternal Starlight, Astral Sorcery, XyCraft Machines and Sauce's
+     jar-in-jar builds; the oracle would export each interaction's fluids, block result and condition), dripstone
+     (`FluidType.Properties.addDripstoneDripping`: the Undergarden and KubeJS's API set it, Create Dragons Plus reads
+     `DripstoneDripInfo` into its cauldron; `PointedDripstoneBlock` asks `getDripInfo` for the fluid above), light from a
+     fluid's `light_level` in the light engine, LOD and minimap colours, mod fluids over the network to a client whose
+     content differs, AE2's Missing Content for a fluid the registry lacks, items in fluids (`setItemMovement`), boats
+     (`supportsBoating`, `canBoatInFluid`) and hydration (`canHydrate`: farmland, sponges, corals).

@@ -115,6 +115,11 @@ pub fn carry(
         }
         f.pack = oracle::PackFacts::read(&work.join("oracle/pack-facts.json"))?;
         f.client = crate::fluids::ClientFacts::read(&work.join("oracle/client-facts.json"))?;
+        // A fluids-only run's facts (`fluid-facts.json`) over the batch's: what a fluid probe asked since.
+        if let Some(probe) = crate::fluids::FluidProbe::read(&work.join("oracle/fluid-facts.json"))?
+        {
+            probe.lay_over(&mut f);
+        }
         log(format!(
             "oracle facts: {} blocks, {} items",
             f.blocks.len(),

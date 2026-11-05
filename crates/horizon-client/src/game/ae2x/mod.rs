@@ -15,6 +15,8 @@ pub(super) mod extendedae;
 pub(super) mod ae2wtlib;
 #[cfg(feature = "ae2-aeinfinitybooster")]
 pub(super) mod aeinfinitybooster;
+#[cfg(feature = "ae2-importexportcard")]
+pub(super) mod importexportcard;
 
 /// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
 /// Pattern Encoding Terminal, by itself or as the universal terminal's
@@ -277,6 +279,8 @@ pub(super) struct State {
     pub(super) aeinfinitybooster: aeinfinitybooster::State,
     #[cfg(feature = "ae2-ae2wtlib")]
     pub(super) ae2wtlib: ae2wtlib::State,
+    #[cfg(feature = "ae2-importexportcard")]
+    pub(super) importexportcard: importexportcard::State,
 }
 
 /// What an addon's pick from the network came to (AE2WTLib's Pick Block).
@@ -429,6 +433,8 @@ impl Game<'_> {
         self.tick_extendedae_machines();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
+        #[cfg(feature = "ae2-importexportcard")]
+        self.tick_iecard();
     }
 
     /// An addon machine on the grid: its node's kind, idle draw, channel
@@ -548,10 +554,13 @@ impl Game<'_> {
         false
     }
     /// A guest's tick, after its carried items' and before what it touches
-    /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2WTLib's hotbar
-    /// counts and magnet.
+    /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2 Import Export
+    /// Card's cards on its wireless terminals, AE2WTLib's hotbar counts and
+    /// magnet.
     pub(super) fn lan_ae2x_guest_tick(&mut self, host: &mut super::lan::LanHost, gi: usize) {
         let _ = (&host, gi);
+        #[cfg(feature = "ae2-importexportcard")]
+        self.lan_iecard_tick(host, gi);
         #[cfg(feature = "ae2-ae2wtlib")]
         self.lan_ae2wtlib_tick(host, gi);
     }
@@ -671,15 +680,22 @@ impl Game<'_> {
     /// What an addon adds to a wireless terminal's view (AE2WTLib's terminal
     /// settings and magnet mode on the crafting terminal).
     pub(super) fn lan_ae2x_wireless_view(&self, host: &super::lan::LanHost, conn: u32, ctx: &super::ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
+        let _ = (host, conn, ctx);
         #[cfg(feature = "ae2-ae2wtlib")]
-        {
-            self.lan_ae2wtlib_wireless_view(host, conn, ctx)
-        }
+        let view = self.lan_ae2wtlib_wireless_view(host, conn, ctx);
         #[cfg(not(feature = "ae2-ae2wtlib"))]
-        {
-            let _ = (host, conn, ctx);
-            None
-        }
+        let view: Option<serde_json::Value> = None;
+        // AE2 Import Export Card's cards, under their own key.
+        #[cfg(feature = "ae2-importexportcard")]
+        let view = match self.lan_iecard_wireless_view(host, conn, ctx) {
+            Some(cards) => {
+                let mut object = view.unwrap_or_else(|| serde_json::json!({}));
+                object["iecard"] = cards;
+                Some(object)
+            }
+            None => view,
+        };
+        view
     }
     /// A custom payload from a guest: true when an addon's channel.
     pub(super) fn lan_ae2x_payload(&mut self, host: &mut super::lan::LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
@@ -691,6 +707,11 @@ impl Game<'_> {
         #[cfg(feature = "ae2-merequester")]
         if channel.starts_with("merequester:") {
             self.lan_merequester_payload(host, conn, channel, data);
+            return true;
+        }
+        #[cfg(feature = "ae2-importexportcard")]
+        if channel == importexportcard::CARD_MENU {
+            self.lan_iecard_payload(host, conn, data);
             return true;
         }
         false
@@ -714,6 +735,10 @@ impl Game<'_> {
         #[cfg(feature = "ae2-merequester")]
         if words.first() == Some(&"requester") {
             return Some(self.ae2_requester_command(&words[1..]));
+        }
+        #[cfg(feature = "ae2-importexportcard")]
+        if words.first() == Some(&"iecard") {
+            return Some(self.ae2_iecard_command(&words[1..]));
         }
         None
     }

@@ -36,6 +36,9 @@ pub(super) enum Sub {
     Wireless,
     #[cfg(feature = "ae2-ae2wtlib")]
     Magnet,
+    /// AE2 Import Export Card's `UpgradeScreen` (0 import, 1 export).
+    #[cfg(feature = "ae2-importexportcard")]
+    IeCard(u8),
 }
 
 /// A checkbox or radio button of a sub screen.
@@ -140,6 +143,10 @@ impl Game<'_> {
         if state.key_types_open() {
             return Some(Sub::KeyTypes);
         }
+        #[cfg(feature = "ae2-importexportcard")]
+        if let Some(which) = self.iecard_sub() {
+            return Some(Sub::IeCard(which));
+        }
         #[cfg(feature = "ae2-ae2wtlib")]
         if state.wtlib_magnet && self.ae2wtlib_magnet_button() {
             return Some(Sub::Magnet);
@@ -159,6 +166,8 @@ impl Game<'_> {
             Sub::Wireless => self.ae2_addon_style("ae2wtlib", super::ae2x::ae2wtlib::settings_screen::STYLE),
             #[cfg(feature = "ae2-ae2wtlib")]
             Sub::Magnet => self.ae2wtlib_magnet_style(),
+            #[cfg(feature = "ae2-importexportcard")]
+            Sub::IeCard(which) => self.iecard_style(which),
         }
     }
 
@@ -166,6 +175,10 @@ impl Game<'_> {
     /// screen's height follows its checkboxes (`KeyTypeCheckboxes.populateScreen`).
     pub(super) fn ae2_term_sub_size(&self) -> Option<(i32, i32)> {
         let sub = self.ae2_term_sub()?;
+        #[cfg(feature = "ae2-importexportcard")]
+        if let Sub::IeCard(which) = sub {
+            return self.iecard_size(which);
+        }
         let (width, height) = self.ae2_term_sub_style(sub)?.size();
         if sub != Sub::KeyTypes {
             return Some((width, height));
@@ -222,6 +235,10 @@ impl Game<'_> {
         if sub == Sub::Magnet {
             return boxes;
         }
+        #[cfg(feature = "ae2-importexportcard")]
+        if matches!(sub, Sub::IeCard(_)) {
+            return boxes;
+        }
         #[cfg(feature = "ae2-ae2wtlib")]
         if sub == Sub::Wireless {
             let Some(settings) = self.remote.as_ref().and_then(|r| r.ae2_term.wtlib_settings) else {
@@ -261,6 +278,11 @@ impl Game<'_> {
 
     /// A press on a sub screen; it takes every press inside it.
     pub(super) fn ae2_term_sub_press(&mut self, sub: Sub, at: [f32; 2], right: bool) -> bool {
+        // AE2 Import Export Card's screens take right presses too.
+        #[cfg(feature = "ae2-importexportcard")]
+        if let Sub::IeCard(which) = sub {
+            return self.iecard_sub_press(which, at, right);
+        }
         if right {
             return true;
         }
@@ -277,6 +299,8 @@ impl Game<'_> {
                 Sub::Wireless => self.ae2_term_set_wtlib_settings(None),
                 #[cfg(feature = "ae2-ae2wtlib")]
                 Sub::Magnet => self.ae2_term_set_wtlib_magnet(false),
+                #[cfg(feature = "ae2-importexportcard")]
+                Sub::IeCard(_) => {}
             }
             return true;
         }
@@ -318,6 +342,11 @@ impl Game<'_> {
         let (Some(style), Some((w, h))) = (self.ae2_term_sub_style(sub), self.ae2_term_sub_size()) else {
             return;
         };
+        #[cfg(feature = "ae2-importexportcard")]
+        if let Sub::IeCard(which) = sub {
+            self.iecard_draw_sub(batch, which, ox, oy);
+            return;
+        }
         #[cfg(feature = "ae2-ae2wtlib")]
         if sub == Sub::Magnet {
             self.ae2wtlib_draw_magnet(batch, ox, oy);
@@ -374,6 +403,10 @@ impl Game<'_> {
         #[cfg(feature = "ae2-ae2wtlib")]
         if sub == Sub::Magnet {
             value["magnet"] = self.ae2wtlib_magnet_agent(origin);
+        }
+        #[cfg(feature = "ae2-importexportcard")]
+        if let Sub::IeCard(which) = sub {
+            value["iecard"] = self.iecard_agent(which, origin);
         }
         Some(value)
     }

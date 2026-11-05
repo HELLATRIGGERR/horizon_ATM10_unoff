@@ -65,3 +65,10 @@ is under its [LGPL 3.0](LICENSES/AE2-LGPL-3.0.txt); the files are listed in
 [addons/aeinfinitybooster/SOURCE_MANIFEST.json](addons/aeinfinitybooster/SOURCE_MANIFEST.json).
 Its assets, whose licence the mod does not state, are likewise generated
 locally from the player's jar and not distributed here.
+Code derived from [AE2 Import Export Card](https://github.com/starforcraft/AE2-Import-Export-Card)
+1.21.1-1.9.1 by Ultramega (branch `1.21.1`, commit `9187cf64095271d46ccc8a238be34223f19b250e`)
+is under its [MIT licence](LICENSES/AE2ImportExportCard-MIT.txt), combined in the same files
+with AE2's LGPL 3.0 code; the files are listed in
+[addons/ae2importexportcard/SOURCE_MANIFEST.json](addons/ae2importexportcard/SOURCE_MANIFEST.json).
+Its assets, whose licence the mod does not state, are generated locally from the
+player's jar and not distributed here.

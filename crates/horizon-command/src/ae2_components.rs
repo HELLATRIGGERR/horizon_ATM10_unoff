@@ -35,6 +35,14 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2wtlib:restock",
     "ae2wtlib:pick_block",
     "ae2wtlib:craft_if_missing",
+    // AE2 Import Export Card (`ModDataComponents`): a card's filter
+    // (`ConfigInventory` under ""), the inventory slots it works on
+    // (`Codec.INT.listOf()`), the Curios slots it fills (`unboundedMap` of
+    // `intRange(1, 45)`) and the Block Picker's amount (`Codec.INT`).
+    "ae2importexportcard:filter_config",
+    "ae2importexportcard:selected_inventory_slots",
+    "ae2importexportcard:selected_curio_slots",
+    "ae2importexportcard:block_picker_amount",
     "ae2:exported_custom_name",
     "ae2:exported_upgrades",
     "ae2:exported_settings",
@@ -434,6 +442,23 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
             _ => 0,
         })),
         "ae2wtlib:pickup_mode" | "ae2wtlib:insert_mode" | "ae2wtlib:restock" | "ae2wtlib:pick_block" | "ae2wtlib:craft_if_missing" => boolean(t),
+        "ae2importexportcard:filter_config" => Ok(Tag::Compound(map(t)?)),
+        // NbtOps writes a list of ints as an int array.
+        "ae2importexportcard:selected_inventory_slots" => {
+            Ok(Tag::IntArray(list(t)?.iter().map(integer).collect::<Result<_, _>>()?))
+        }
+        "ae2importexportcard:selected_curio_slots" => {
+            let mut slots = map(t)?;
+            for (_, value) in slots.iter_mut() {
+                let n = integer(value)?;
+                if !(1..=45).contains(&n) {
+                    return Err(format!("Value {n} outside of range [1:45]"));
+                }
+                *value = Tag::Int(n);
+            }
+            Ok(Tag::Compound(slots))
+        }
+        "ae2importexportcard:block_picker_amount" => Ok(Tag::Int(integer(&t)?)),
         "merequester:exported_requests" => {
             let Tag::List(rows) = &t else {
                 return Err("Not a list".into());

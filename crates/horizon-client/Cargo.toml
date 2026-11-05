@@ -126,6 +126,8 @@ ae2-extendedae = ["ae2-lab", "horizon-client-lib/ae2-extendedae"]
 ae2-ae2wtlib = ["ae2-lab", "horizon-client-lib/ae2-ae2wtlib"]
 # AEInfinityBooster 2.1.0 (ae2/addons/aeinfinitybooster).
 ae2-aeinfinitybooster = ["ae2-lab", "horizon-client-lib/ae2-aeinfinitybooster"]
+# AE2 Import Export Card 1.21.1-1.9.1 (ae2/addons/ae2importexportcard).
+ae2-importexportcard = ["ae2-lab", "horizon-client-lib/ae2-importexportcard"]
 default = ["audio", "controllers"]
 # Sound output. Without it (and `controllers`) the program links neither libasound nor libudev on
 # Linux: the server build (`--no-default-features`, released as horizon-engine; docs/server.md).

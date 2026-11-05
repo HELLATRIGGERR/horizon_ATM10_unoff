@@ -14,6 +14,8 @@ pub mod extendedae;
 pub mod ae2wtlib;
 #[cfg(feature = "ae2-aeinfinitybooster")]
 pub mod aeinfinitybooster;
+#[cfg(feature = "ae2-importexportcard")]
+pub mod importexportcard;
 
 /// Builds the registry, which installs the addon machines' block ids and
 /// the variants of AE2's machines: call before any world or block entity

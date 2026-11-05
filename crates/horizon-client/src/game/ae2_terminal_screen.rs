@@ -135,6 +135,10 @@ pub(super) struct TermState {
     /// AE2WTLib's `MagnetScreen` while it is open.
     #[cfg(feature = "ae2-ae2wtlib")]
     pub(super) wtlib_magnet: bool,
+    /// AE2 Import Export Card's screen while it is open: 0 the Import Card's,
+    /// 1 the Export Card's.
+    #[cfg(feature = "ae2-importexportcard")]
+    pub(super) iecard: Option<u8>,
 }
 
 impl TermState {
@@ -181,6 +185,10 @@ enum Widget {
     /// AE2WTLib's trash (`WCTScreen.trashButton`).
     #[cfg(feature = "ae2-ae2wtlib")]
     Trash,
+    /// AE2 Import Export Card's buttons (`MEStorageScreenMixin`): 0 import,
+    /// 1 export.
+    #[cfg(feature = "ae2-importexportcard")]
+    IeCard(u8),
 }
 
 /// The screen laid out for the window: its style, its storage rows and
@@ -546,6 +554,11 @@ impl Game<'_> {
             if sub == super::ae2_terminal_settings::Sub::Magnet {
                 return Some(self.ae2wtlib_magnet_slot_position(i).unwrap_or(hidden));
             }
+            // So do AE2 Import Export Card's screens.
+            #[cfg(feature = "ae2-importexportcard")]
+            if let super::ae2_terminal_settings::Sub::IeCard(which) = sub {
+                return Some(self.iecard_slot_position(which, i).unwrap_or(hidden));
+            }
             let _ = sub;
             return Some(hidden);
         }
@@ -743,6 +756,9 @@ impl Game<'_> {
         buttons.push(Widget::SortDir);
         buttons.push(Widget::Settings);
         buttons.push(Widget::Style);
+        // AE2 Import Export Card's, at the end of MEStorageScreen's constructor.
+        #[cfg(feature = "ae2-importexportcard")]
+        buttons.extend(self.iecard_buttons().into_iter().map(Widget::IeCard));
         // AE2WTLib's IUniversalTerminalCapable screens add the terminal selector last.
         if self.ae2_term_view().is_some_and(|v| v.universal.is_some()) {
             buttons.push(Widget::Terminal);
@@ -1106,6 +1122,8 @@ impl Game<'_> {
             Widget::MagnetFilter => self.ae2_term_set_wtlib_magnet(true),
             #[cfg(feature = "ae2-ae2wtlib")]
             Widget::Trash => self.ae2_send_payload(super::ae2x::ae2wtlib::trash::TRASH, vec![0]),
+            #[cfg(feature = "ae2-importexportcard")]
+            Widget::IeCard(which) => self.iecard_open(which),
             Widget::SelectTerminal(index) => {
                 let name = self.ae2_term_view().and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.get(index)).map(|t| t.0.clone());
                 if let Some(r) = self.remote.as_mut() {
@@ -1305,6 +1323,8 @@ impl Game<'_> {
             Widget::MagnetFilter => self.ae2wtlib_draw_magnet_button(batch, ox, oy, rect, mouse),
             #[cfg(feature = "ae2-ae2wtlib")]
             Widget::Trash => self.ae2wtlib_draw_trash_button(batch, ox, oy, rect, mouse),
+            #[cfg(feature = "ae2-importexportcard")]
+            Widget::IeCard(which) => self.iecard_draw_button(batch, ox, oy, rect, which, mouse),
             Widget::Style => {
                 let style = self.ae2_term().map_or(0, |s| s.style.min(3));
                 self.ae2_draw_icon_button(batch, ox, oy, rect, (i32::from(style) * 16, 208), mouse);
@@ -1462,6 +1482,11 @@ impl Game<'_> {
             return false;
         };
         if let Some(sub) = self.ae2_term_sub() {
+            // AE2 Import Export Card's marks over the inventory's items.
+            #[cfg(feature = "ae2-importexportcard")]
+            if let super::ae2_terminal_settings::Sub::IeCard(which) = sub {
+                return self.iecard_draw_over(batch, which);
+            }
             #[cfg(feature = "ae2-ae2wtlib")]
             if sub == super::ae2_terminal_settings::Sub::Magnet {
                 let (ox, oy) = self.inventory_origin(batch);
@@ -1508,6 +1533,8 @@ impl Game<'_> {
                 Widget::MagnetFilter => (tip("gui.ae2wtlib.Magnet"), Vec::new()),
                 #[cfg(feature = "ae2-ae2wtlib")]
                 Widget::Trash => (tip("gui.ae2wtlib.trash"), Vec::new()),
+                #[cfg(feature = "ae2-importexportcard")]
+                Widget::IeCard(which) => (self.iecard_button_tooltip(which), Vec::new()),
                 Widget::Style => {
                     let style = self.ae2_term().map_or(0, |s| s.style.min(3));
                     let name = ["Small", "Medium", "Tall", "Full"][usize::from(style)];

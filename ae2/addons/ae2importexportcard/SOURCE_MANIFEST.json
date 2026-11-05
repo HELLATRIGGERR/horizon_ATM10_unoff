@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "addon": "ae2importexportcard",
+  "name": "AE2 Import Export Card",
+  "version": "1.21.1-1.9.1",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/starforcraft/AE2-Import-Export-Card",
+    "tag": "none (branch 1.21.1)",
+    "commit": "9187cf64095271d46ccc8a238be34223f19b250e",
+    "license": "MIT",
+    "license_file": "LICENSE.txt at the commit"
+  },
+  "assets_license": "not stated (MIT covers the repository)",
+  "jar": {
+    "file": "ae2importexportcard-1.21.1-1.9.1.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "d9fadd2008358e3cc12295648e39424968110a2d70fd429d2c4541064ad4f6f0"
+  },
+  "verified": "the jar's classes are the commit's sources one for one, and its 45 asset and data files are the commit's byte for byte; the branch's later commits change French text only",
+  "requires": ["ae2 19.2.18"],
+  "bundles": ["GrandPower 3.0.2 (dev.technici4n, MIT, META-INF/jarjar): its ILongEnergyStorage is read for Applied Flux's energy only"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/importexportcard.rs",
+    "crates/horizon-client/src/game/ae2x/importexportcard/mod.rs",
+    "crates/horizon-client/src/game/ae2x/importexportcard/screen.rs"
+  ]
+}

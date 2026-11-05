@@ -517,6 +517,9 @@ pub fn get() -> &'static Defs {
         super::megacells::register_ae2wt(&mut defs);
         #[cfg(feature = "ae2-aeinfinitybooster")]
         super::aeinfinitybooster::register(&mut defs);
+        // AE2 Import Export Card's cards, on the terminals above.
+        #[cfg(feature = "ae2-importexportcard")]
+        super::importexportcard::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
         // variants of AE2's, for `Machine::for_block`, the crafting CPU
         // blocks' bytes and threads, and the energy cells' capacities.

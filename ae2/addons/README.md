@@ -36,6 +36,9 @@ Screen styles and GUI textures the addon ships under AE2's namespace, when `cont
 (`ae2_namespace`), go to `assets/<ns>/ae2/`, as a content mod owns its own namespace alone; the game
 looks there next to AE2's, folders included (MEGA's `guis/megacells/mega_interface.png` is the GUI atlas's
 `ae2:guis/megacells/mega_interface`, as in the jar). A block whose model needs a custom loader names the model to draw (`model`).
+The addon's own textures that its AE2 screens draw by a namespaced id (`own_gui_textures`: AE2 Import Export Card's
+`ae2importexportcard:textures/gui/upgrade_0.png`) are also kept under `assets/<ns>/ae2/textures/<ns>/`, the GUI
+atlas's `ae2:<ns>/gui/upgrade_0`.
 
 ## The definitions registry
 
@@ -56,6 +59,7 @@ tables built once on first use: AE2's own rows (`Defs::ae2`), then each built-in
 | energy cells: block id, AE2's kind, max power, charge rate, priority | `EnergyCellBlock(maxPower, chargeRate, priority)` with `EnergyCellBlockItem` (MEGA Cells' Superdense Energy Cell) | `ae2_world::energy_cell`: the block entity's stored-energy maximum (saves, placement, the grid device, the energy service's store and priority), its `fullness`, the item's capacity and charge rate in a Charger, its `ae2:fill_level` model property, the energy its drop keeps; each is also a machine variant of AE2's cell of its kind |
 | energy cards: card id, multiplier | `EnergyCardItem(properties, energyMultiplier)` (MEGA Cells' Greater Energy Card, 8) | `Upgrades.getEnergyCardMultiplier` of an item's cards: the batteries and charge rates of portable cells, wireless terminals, the colour applicator and the matter cannon; where a card fits is its upgrade rows' |
 | wireless terminals: name, item, menu kind, hotkey, upgrade slots, the universal terminal's component; the universal terminal: item, current-terminal component | AE2WTLib's `WTDefinition` (`AddTerminalEvent.builder`, MIT API) over AE2's `WirelessTerminalItem`s; `ItemWUT` | `ae2x::wireless`: which items are wireless terminals and what each opens (the universal one its current terminal), linking, battery, charge rate and card slots; the game's terminal, encoding terminal and Pattern Access menus on an item, item use and hotkeys |
+| cards on a card: an upgrade card that takes cards of its own and is no `IUpgradeableItem` | `Upgrades.add(card, host)` with an addon's card as the host (AE2 Import Export Card's Import and Export Cards) | the upgrade rows alone, so `upgrade_limit` answers while the card has no upgrade slots (`capacity` none: AE2's `add_item_upgrade` leaves it); its own cards are read and checked by the addon (`ae2x::importexportcard`) |
 | access point cards: item, signal, same dimension only, shown drain, chunk loading | AEInfinityBooster's mixins on `WirelessAccessPointBlockEntity`, `RestrictedInputSlot`, `WirelessTerminalMenuHost.getAccessPointSignal` and `WirelessAccessPointMenu` | the booster slot's filter, the terminal's nearest access point, the access point's screen; the game's `ae2x` keeps the chunk loaded |
 
 `ae2-cell-core::Tier` is a size in kilobytes, so a cell of any power-of-four tier up to 256M works

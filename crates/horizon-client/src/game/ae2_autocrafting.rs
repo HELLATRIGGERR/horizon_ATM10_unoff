@@ -2239,6 +2239,14 @@ mod recursive {
             let target=if fluid {fluid_name(key)} else {canon(&ae2_lab::prototype(key)?)};
             self.ae2_begin_recursive_target_on(pos,target,amount,cpu,false,Some(owner),Some((registry,plan)))
         }
+        /// A job nothing waits for (`submitJob(plan, null, null, false,
+        /// MachineSource)`: AE2 Import Export Card's Crafting Card): a
+        /// machine's request whose results go to the network.
+        #[cfg(feature = "ae2-importexportcard")]
+        pub(in crate::game) fn ae2_begin_unowned_craft(&mut self,pos:Pos,key:&ae2_cell_core::ItemKey,registry:&ExtendedRegistry,plan:&ae2_crafting_core::extended::Plan)->Result<GridAddress,String> {
+            let target=canon(&ae2_lab::prototype(key)?);
+            self.ae2_begin_recursive_target_on(pos,target,plan.amount,None,true,None,Some((registry,plan)))
+        }
         fn ae2_begin_recursive_target_on(
             &mut self,
             pos: Pos,

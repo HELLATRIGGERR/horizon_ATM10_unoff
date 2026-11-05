@@ -95,6 +95,16 @@ feature = "ae2-aeinfinitybooster"
 content = "aeinfinitybooster"
 configs = ["aeinfinitybooster-common.toml"]
 
+# AE2 Import Export Card: the Import and Export Cards in the wireless
+# terminals (slices 1-2; ae2/addons/ae2importexportcard). Its config
+# is a server config (`serverconfig/`); All the Mods 10 ships none.
+[mods.ae2importexportcard]
+name = "AE2 Import Export Card"
+enabled = true
+feature = "ae2-importexportcard"
+content = "ae2importexportcard"
+configs = ["ae2importexportcard-server.toml"]
+
 # AE2 addon: FE stored in ME cells and the Flux Accessor.
 [mods.appflux]
 name = "Applied Flux"

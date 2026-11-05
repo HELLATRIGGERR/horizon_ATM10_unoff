@@ -25,6 +25,10 @@ type Content = { namespace: string; name: string; description: string; authors: 
    * (a content mod owns its namespace alone): screen styles, GUI textures (`textures/guis/`) and other textures
    * (`textures/`, AE2WTLib's `wtlib/guis/`). */
   ae2_namespace?: { screens?: string[]; gui_textures?: string[]; textures?: string[] };
+  /** The addon's own textures (`assets/<ns>/textures/<path>`) that its AE2 screens draw by a namespaced id
+   * (`<ns>:textures/gui/...`, AE2 Import Export Card's): also kept under `assets/<ns>/ae2/textures/<ns>/`, where the
+   * GUI atlas finds them as `ae2:<ns>/<path>`. */
+  own_gui_textures?: string[];
   /** Jars the addon's jar bundles (`META-INF/jarjar/`, AE2WTLib's API): their files under AE2's namespace are read as
    * the addon jar's own. */
   nested_jars?: string[];
@@ -236,6 +240,7 @@ if (!help(usage)) {
   for (const screen of content.ae2_namespace?.screens ?? []) copy(ae2File(`screens/${screen}`), join(out, 'assets', ns, 'ae2/screens', screen));
   for (const texture of content.ae2_namespace?.gui_textures ?? []) copy(ae2File(`textures/guis/${texture}`), join(out, 'assets', ns, 'ae2/textures/guis', texture));
   for (const texture of content.ae2_namespace?.textures ?? []) copy(ae2File(`textures/${texture}`), join(out, 'assets', ns, 'ae2/textures', texture));
+  for (const texture of content.own_gui_textures ?? []) copy(join(assets, 'textures', texture), join(out, 'assets', ns, 'ae2/textures', ns, texture));
   // Files left for later slices: AE2's namespace (screens, GUI textures,
   // tags), which belong in content/ae2, the guide, data maps, advancements.
   const later = (label: string, dir: string) => { const n = walk(dir).length; if (n) report.deferred[label] = n; };

@@ -6,6 +6,10 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 162 adds the content's data files of one kind in every namespace (`native_data_files`, NeoForge's
+//! `ResourceManager.listResources`): a mod reads its own registries' entries that content mods declare as
+//! data (Mekanism's chemicals at `data/<ns>/mekanism/chemical/`) with `native_data`.
+//!
 //! API 160 adds fluid handlers on a mod block's block entity, by side, as NeoForge 1.21.1's
 //! `Capabilities.FluidHandler.BLOCK` (`IFluidHandler`), with fluids as `FluidStack`s of the registry:
 //! the hook points `native_fluid_handler_tanks`, `native_fluid_handler_fill`, `native_fluid_handler_drain`,
@@ -561,7 +565,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 160;
+pub(crate) const NATIVE_HOOKS_API: u32 = 162;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -7966,6 +7970,15 @@ impl Game<'_> {
         }
         fs::read(self.options.resources.join(path)).ok()
     }
+    /// The data files of kind `dir` (`mekanism/chemical`) in every namespace of
+    /// the game's resources, content mods' included, as NeoForge's
+    /// `ResourceManager.listResources(dir, path -> path.endsWith(".json"))`:
+    /// `data/<ns>/<dir>/<path>.json`, sub-folders too, sorted, for
+    /// `native_data` to read. Only relative paths of plain names; a world's own
+    /// data packs aren't in it. API 162.
+    pub(super) fn native_data_files(&self, dir: &str) -> Vec<String> {
+        data_files(&self.options.resources, dir)
+    }
     /// The block at `pos` (`mymod:cable`; air where nothing is loaded).
     /// API 20.
     pub(super) fn native_block(&self, pos: [i32; 3]) -> String {
@@ -9474,8 +9487,76 @@ fn mod_screen_opens(
     None
 }
 
+/// `native_data_files` over `root`: each namespace folder of `root/data`
+/// that has `dir`, walked through links (a content root links its mods'
+/// folders).
+fn data_files(root: &std::path::Path, dir: &str) -> Vec<String> {
+    let plain = |p: &str| !p.is_empty() && p != "." && p != ".." && !p.contains('\\') && !p.contains(':');
+    if !dir.split('/').all(plain) {
+        return Vec::new();
+    }
+    let data = root.join("data");
+    let mut out = Vec::new();
+    let Ok(namespaces) = fs::read_dir(&data) else {
+        return out;
+    };
+    for namespace in namespaces.flatten() {
+        let Some(ns) = namespace.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let mut folders = vec![(data.join(&ns).join(dir), String::new())];
+        while let Some((folder, rel)) = folders.pop() {
+            let Ok(entries) = fs::read_dir(&folder) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                    continue;
+                };
+                let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+                let path = entry.path();
+                if path.is_dir() {
+                    folders.push((path, child));
+                } else if name.ends_with(".json") {
+                    out.push(format!("data/{ns}/{dir}/{child}"));
+                }
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn data_files_lists_one_kind_in_every_namespace() {
+        let root = std::env::temp_dir().join(format!("horizon-data-files-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for file in [
+            "data/mekanism/mekanism/chemical/hydrogen.json",
+            "data/mekanism/mekanism/chemical/sub/oxygen.json",
+            "data/alltheores/mekanism/chemical/clean_tin.json",
+            "data/mekanism/mekanism/chemical/notes.txt",
+            "data/mekanism/recipe/x.json",
+        ] {
+            let path = root.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "{}").unwrap();
+        }
+        assert_eq!(
+            super::data_files(&root, "mekanism/chemical"),
+            [
+                "data/alltheores/mekanism/chemical/clean_tin.json",
+                "data/mekanism/mekanism/chemical/hydrogen.json",
+                "data/mekanism/mekanism/chemical/sub/oxygen.json",
+            ]
+        );
+        assert!(super::data_files(&root, "../x").is_empty());
+        assert!(super::data_files(&root, "nothing").is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn vanished_mobs_are_reported_by_kind() {
         use std::collections::HashSet;

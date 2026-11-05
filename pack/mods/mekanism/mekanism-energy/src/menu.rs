@@ -203,12 +203,15 @@ impl GeneratorView {
 
 /// A machine's buttons: its side configuration, as a cube's, and the upgrade
 /// window's uninstall (`GuiInteraction.REMOVE_UPGRADE`, `REMOVE_ALL_UPGRADE`)
-/// and the infuser's dump (`GuiDumpButton`).
+/// and the infuser's dump (`GuiDumpButton`), the separator's dump modes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MachineButton {
     Config(Button),
     Remove { upgrade: Upgrade, all: bool },
     Dump,
+    /// The separator's dump mode buttons (`GuiGasMode`, `PacketGuiInteract.NEXT_MODE`):
+    /// tank 0 (left) or 1 (right) to its next mode.
+    NextMode(u8),
 }
 
 impl MachineButton {
@@ -217,6 +220,7 @@ impl MachineButton {
             Self::Config(b) => b.id(),
             Self::Remove { upgrade, all } => (if all { 130 } else { 120 }) + upgrade.ordinal(),
             Self::Dump => 140,
+            Self::NextMode(tank) => 141 + i32::from(tank.min(1)),
         }
     }
 
@@ -225,6 +229,7 @@ impl MachineButton {
             120..=126 => Some(Self::Remove { upgrade: Upgrade::by_id(id - 120), all: false }),
             130..=136 => Some(Self::Remove { upgrade: Upgrade::by_id(id - 130), all: true }),
             140 => Some(Self::Dump),
+            141 | 142 => Some(Self::NextMode((id - 141) as u8)),
             _ => Button::from_id(id).map(Self::Config),
         }
     }
@@ -236,7 +241,7 @@ impl MachineButton {
 /// takes, 16 active, 17..23 / 23..29 / 29..35 the energy, item and chemical
 /// sides by `RelativeSide`, 35 items ejecting, 36..43 the upgrades installed by
 /// ordinal, 43 the upgrade slot's install progress, 44 the infuse type
-/// (`machine::infuse_number`), 45..49 its mB, 49..53 Joules taken in last
+/// (`ChemicalRegistry::number`), 45..49 its mB, 49..53 Joules taken in last
 /// tick, 53 its warnings (`WARN_*`), 54 whether it has chemical sides.
 pub const MACHINE_SLOTS: usize = 55;
 
@@ -319,10 +324,76 @@ impl MachineView {
     }
 }
 
+/// The separator's own data slots after a machine's (`MACHINE_SLOTS`): 0 its
+/// fluid's registry id (`FluidKind`, 0 empty), 1..3 its mB, 3 the left
+/// chemical (`ChemicalRegistry::number`), 4..8 its mB, 8 the right one, 9..13
+/// its mB, 13 and 14 the dump modes, 15..19 the Joules used last tick.
+pub const SEPARATOR_SLOTS: usize = 19;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SeparatorView {
+    pub fluid: u16,
+    pub fluid_amount: u32,
+    pub left: i32,
+    pub left_amount: u64,
+    pub right: i32,
+    pub right_amount: u64,
+    pub dump_left: i32,
+    pub dump_right: i32,
+    pub energy_used: u64,
+}
+
+impl SeparatorView {
+    pub fn pack(&self) -> Vec<i32> {
+        let mut out = Vec::with_capacity(SEPARATOR_SLOTS);
+        out.push(i32::from(self.fluid as i16));
+        push_bits(&mut out, u64::from(self.fluid_amount), 2);
+        out.push(self.left);
+        push_bits(&mut out, self.left_amount, 4);
+        out.push(self.right);
+        push_bits(&mut out, self.right_amount, 4);
+        out.push(self.dump_left);
+        out.push(self.dump_right);
+        push_bits(&mut out, self.energy_used, 4);
+        out
+    }
+
+    /// The view after a machine's slots in `data`.
+    pub fn unpack(data: &[i32]) -> Option<Self> {
+        let data = data.get(MACHINE_SLOTS..)?;
+        if data.len() < SEPARATOR_SLOTS {
+            return None;
+        }
+        let small = |at: usize| i32::from(data[at] as u16 as i16);
+        Some(Self {
+            fluid: data[0] as u16,
+            fluid_amount: read_bits(data, 1, 2) as u32,
+            left: small(3),
+            left_amount: read_bits(data, 4, 4),
+            right: small(8),
+            right_amount: read_bits(data, 9, 4),
+            dump_left: small(13),
+            dump_right: small(14),
+            energy_used: read_bits(data, 15, 4),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tier::CubeTier;
+
+    #[test]
+    fn the_separator_view_follows_a_machines() {
+        let view = SeparatorView { fluid: 2, fluid_amount: 24_000, left: 40, left_amount: 2400, right: 70, right_amount: 1200, dump_left: 1, dump_right: 2, energy_used: 102_400 };
+        let mut data = MachineView::default().pack();
+        data.extend(view.pack());
+        assert_eq!(data.len(), MACHINE_SLOTS + SEPARATOR_SLOTS);
+        assert_eq!(SeparatorView::unpack(&data), Some(view));
+        assert!(MachineView::unpack(&data).is_some());
+        assert_eq!(MachineButton::from_id(MachineButton::NextMode(1).id()), Some(MachineButton::NextMode(1)));
+    }
 
     #[test]
     fn data_slots_carry_longs_in_sixteen_bit_pieces() {

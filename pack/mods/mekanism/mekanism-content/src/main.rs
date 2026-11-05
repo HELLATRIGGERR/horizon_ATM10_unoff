@@ -41,6 +41,14 @@
 //!   finds its items and fluids by tag (`c:dusts/osmium`, `c:heavy_water`), as
 //!   the whole pack does.
 //!
+//! - With `--chemicals` (the NeoForge oracle's chemical facts, `facts.json` of
+//!   its chemicals-only run: docs/mekanism-chemicals.md), each chemical of the
+//!   content mod's namespace is declared at `data/<id>/mekanism/chemical/<path>.json`
+//!   (its icon, tint, bar colour, kind, `isGaseous`, radioactivity and
+//!   validation, solid tag, attributes in Mekanism's data map names, tags), and
+//!   its icon is copied where the game's GUI atlas takes it
+//!   (`textures/gui/chemical/<icon namespace>/<icon path>.png`) for gauges.
+//!
 //! The output is generated, never committed: Mekanism's files stay local.
 //! It may only replace a folder this tool made (`mekanism-content.json`).
 mod transmitter;
@@ -68,7 +76,7 @@ type Result<T> = std::result::Result<T, String>;
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let (mut carry, mut overlay, mut out, mut vanilla, mut pack) = (None, None, None, None, None);
+    let (mut carry, mut overlay, mut out, mut vanilla, mut pack, mut chemicals) = (None, None, None, None, None, None);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--carry" => carry = args.next().map(PathBuf::from),
@@ -76,8 +84,9 @@ fn main() {
             "--out" => out = args.next().map(PathBuf::from),
             "--vanilla" => vanilla = args.next().map(PathBuf::from),
             "--pack" => pack = args.next().map(PathBuf::from),
+            "--chemicals" => chemicals = args.next().map(PathBuf::from),
             "-h" | "--help" => {
-                println!("Usage: mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR] [--pack DIR]");
+                println!("Usage: mekanism-content --carry DIR --overlay DIR --out DIR [--vanilla DIR] [--pack DIR] [--chemicals FILE]");
                 return;
             }
             other => fail(&format!("unknown argument {other}")),
@@ -86,7 +95,7 @@ fn main() {
     let (Some(carry), Some(overlay), Some(out)) = (carry, overlay, out) else {
         fail("needs --carry, --overlay and --out");
     };
-    match build(&carry, &overlay, &out, vanilla.as_deref(), pack.as_deref()) {
+    match build(&carry, &overlay, &out, vanilla.as_deref(), pack.as_deref(), chemicals.as_deref()) {
         Ok(report) => println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default()),
         Err(e) => fail(&e),
     }
@@ -110,7 +119,7 @@ fn mod_id(carry: &Path) -> Result<String> {
         .ok_or_else(|| format!("{} names no id", path.display()))
 }
 
-fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack: Option<&Path>) -> Result<Value> {
+fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack: Option<&Path>, chemicals: Option<&Path>) -> Result<Value> {
     if !carry.join("horizon-mod.toml").is_file() {
         return Err(format!("{} is not a carried content mod", carry.display()));
     }
@@ -236,14 +245,128 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
             carry.display()
         );
     }
+    let (chemicals, chemical_sprites) = match chemicals {
+        Some(facts) => declare_chemicals(&read_json(facts)?, &id, carry, out)?,
+        None => (0, 0),
+    };
+    if chemicals == 0 && id == "mekanism" {
+        eprintln!("mekanism-content: no chemicals declared: pass --chemicals with the oracle's chemical facts (docs/mekanism-chemicals.md)");
+    }
     let report = json!({
         "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags, "fluids": fluids,
+        "chemicals": chemicals, "chemical_sprites": chemical_sprites,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
         "cubes": cubes, "cables": cables, "blocks": others, "loot_tables": loot, "recipes": recipes,
         "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;
     Ok(report)
+}
+
+/// The declaration of one chemical from the oracle's facts (`ChemicalFacts`):
+/// its attributes under Mekanism's data map names (`chemical_attribute_fuel`'s
+/// `burn_time` and `energy`, `radioactivity`, the coolants' other variant,
+/// enthalpy, conductivity and temperature), its tint and bar colour as
+/// `0xAARRGGBB`, its kind by its icon.
+fn chemical_declaration(fact: &Value) -> Result<Value> {
+    let texture = fact["texture"].as_str().ok_or("a chemical without an icon")?;
+    let path = texture.split_once(':').map_or(texture, |(_, p)| p);
+    let kind = ["infuse_type", "pigment", "slurry"]
+        .into_iter()
+        .find(|prefix| path.starts_with(&format!("{prefix}/")))
+        .unwrap_or("gas");
+    let hex = |v: &Value| v.as_i64().map(|n| format!("0x{:08X}", n as u32));
+    let mut attributes = Map::new();
+    let mut other = Vec::new();
+    for a in fact["attributes"].as_array().into_iter().flatten() {
+        match a["kind"].as_str().unwrap_or_default() {
+            "ChemicalFuel" => {
+                attributes.insert("fuel".into(), json!({ "burn_time": a["burnTicks"], "energy": a["energyPerTick"] }));
+            }
+            "ChemicalRadioactivity" => {
+                attributes.insert("radioactivity".into(), a["radioactivity"].clone());
+            }
+            "CooledCoolant" => {
+                attributes.insert(
+                    "cooled_coolant".into(),
+                    json!({ "heated": a["otherVariant"], "thermal_enthalpy": a["thermalEnthalpy"], "conductivity": a["conductivity"] }),
+                );
+            }
+            "HeatedCoolant" => {
+                attributes.insert(
+                    "heated_coolant".into(),
+                    json!({ "cooled": a["otherVariant"], "thermal_enthalpy": a["thermalEnthalpy"], "conductivity": a["conductivity"], "temperature": a["temperature"] }),
+                );
+            }
+            k => other.push(Value::String(k.to_owned())),
+        }
+    }
+    if !other.is_empty() {
+        attributes.insert("other".into(), Value::Array(other));
+    }
+    let mut decl = Map::new();
+    decl.insert("texture".into(), json!(texture));
+    let tint = hex(&fact["tint"]).ok_or("a chemical without a tint")?;
+    if let Some(color) = hex(&fact["color"]).filter(|c| *c != tint) {
+        decl.insert("color".into(), json!(color));
+    }
+    decl.insert("tint".into(), json!(tint));
+    decl.insert("kind".into(), json!(kind));
+    decl.insert("gaseous".into(), json!(fact["gaseous"].as_bool().unwrap_or(false)));
+    if fact["gaseous_builder"].as_bool() == Some(true) {
+        decl.insert("gaseous_builder".into(), json!(true));
+    }
+    decl.insert("validated".into(), json!(fact["validated"].as_bool().unwrap_or(false)));
+    if let Some(tag) = fact["solid_tag"].as_str() {
+        decl.insert("solid_tag".into(), json!(tag));
+    }
+    if !attributes.is_empty() {
+        decl.insert("attributes".into(), Value::Object(attributes));
+    }
+    decl.insert("tags".into(), fact["tags"].clone());
+    Ok(Value::Object(decl))
+}
+
+/// Declares the chemicals of `id`'s namespace from the oracle's `facts`
+/// (`data/<id>/mekanism/chemical/<path>.json`) and copies their icons into the
+/// GUI atlas (`assets/<id>/textures/gui/chemical/<icon ns>/<icon path>.png`),
+/// from this carry or a sibling carry of the icon's namespace. How many were
+/// declared and how many icons copied.
+fn declare_chemicals(facts: &Value, id: &str, carry: &Path, out: &Path) -> Result<(usize, usize)> {
+    let list = facts["chemicals"].as_object().ok_or("the chemical facts have no chemicals")?;
+    let (mut declared, mut sprites) = (0, 0);
+    let mut copied = std::collections::BTreeSet::new();
+    for (chemical, fact) in list {
+        let Some((ns, path)) = chemical.split_once(':') else {
+            continue;
+        };
+        if ns != id {
+            continue;
+        }
+        let decl = chemical_declaration(fact).map_err(|e| format!("{chemical}: {e}"))?;
+        write_json(&out.join("data").join(id).join("mekanism/chemical").join(format!("{path}.json")), &decl)?;
+        declared += 1;
+        let texture = decl["texture"].as_str().unwrap_or_default().to_owned();
+        let Some((tns, tpath)) = texture.split_once(':') else {
+            continue;
+        };
+        if !copied.insert(texture.clone()) {
+            continue;
+        }
+        let file = format!("assets/{tns}/textures/{tpath}.png");
+        let from = [Some(carry.to_path_buf()), carry.parent().map(|p| p.join(tns))]
+            .into_iter()
+            .flatten()
+            .map(|dir| dir.join(&file))
+            .find(|f| f.is_file());
+        if let Some(from) = from {
+            let to = out.join("assets").join(id).join("textures/gui/chemical").join(tns).join(format!("{tpath}.png"));
+            fs::create_dir_all(to.parent().unwrap_or(out)).map_err(|e| format!("{}: {e}", to.display()))?;
+            fs::copy(&from, &to).map_err(|e| format!("{}: {e}", from.display()))?;
+            sprites += 1;
+        }
+    }
+    Ok((declared, sprites))
 }
 
 /// The vanilla and convention block, item and fluid tags of `pack` (a `data/`
@@ -672,6 +795,21 @@ fn shaped_recipe(recipe: &Value) -> Result<Option<Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_chemical_is_declared_from_the_oracles_facts() {
+        let fact = json!({"texture": "mekanism:liquid/liquid", "tint": -1, "color": -1, "gaseous": true, "gaseous_builder": false,
+            "validated": false, "solid_tag": null, "radioactivity": 0.0,
+            "attributes": [{"kind": "ChemicalFuel", "burnTicks": 1, "energyPerTick": 200}], "tags": ["mekanism:gaseous"]});
+        let decl = chemical_declaration(&fact).unwrap();
+        assert_eq!(decl, json!({"texture": "mekanism:liquid/liquid", "tint": "0xFFFFFFFF", "kind": "gas", "gaseous": true, "validated": false,
+            "attributes": {"fuel": {"burn_time": 1, "energy": 200}}, "tags": ["mekanism:gaseous"]}));
+        let slurry = json!({"texture": "mekanism:slurry/clean", "tint": 5, "color": 7, "gaseous": false, "validated": false,
+            "solid_tag": "c:ores/iron", "attributes": [{"kind": "CooledCoolant", "otherVariant": "mekanism:superheated_sodium", "thermalEnthalpy": 5.0, "conductivity": 1.0}], "tags": []});
+        let decl = chemical_declaration(&slurry).unwrap();
+        assert_eq!((decl["kind"].as_str(), decl["color"].as_str(), decl["solid_tag"].as_str()), (Some("slurry"), Some("0x00000007"), Some("c:ores/iron")));
+        assert_eq!(decl["attributes"]["cooled_coolant"]["heated"], "mekanism:superheated_sodium");
+    }
 
     #[test]
     fn pack_tags_bring_the_mods_own_entries() {

@@ -1,18 +1,20 @@
-# Mekanism's energy, its first processing machines and Mekanism Generators'
-# Solar and Heat Generators as a native mod of this fork (horizon-mixins
-# bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
+# Mekanism's energy, its first processing machines, its chemicals (the
+# registry, tanks, the chemical handler and the Electrolytic Separator) and
+# Mekanism Generators' Solar and Heat Generators as a native mod of this fork
+# (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12, 14-20, 23, 26,
 # 42, 47, 60, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
-# `native_dimension_type`), 159 (`native_cooking_recipes`) and 160 (`FluidStack`), so it builds on
-# any Horizon with hooks API 160 or later: it pins no revision (horizon-mixins
+# `native_dimension_type`), 159 (`native_cooking_recipes`), 160 (`FluidStack`) and 162
+# (`native_data_files`, the content's chemical declarations), so it builds on
+# any Horizon with hooks API 162 or later: it pins no revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.
 [mod]
 id = "mekanism"
-version = "0.8.0"
+version = "0.9.0"
 priority = 100
 
 [[crate]]
@@ -30,6 +32,12 @@ id = "machines"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_machines"
 source = "runtime/mek_machines.rs"
+
+[[module]]
+id = "chemicals"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_chemicals"
+source = "runtime/mek_chemicals.rs"
 
 [[module]]
 id = "ui"

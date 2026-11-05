@@ -16,8 +16,11 @@
 //! Generator (`heat`) fill stores of their own and eject like a cube.
 //! Mekanism's first processing machines (`machine`: the Enrichment Chamber,
 //! Crusher, Energized Smelter and Metallurgic Infuser) run recipes on their
-//! Joules at the pace their upgrades set.
+//! Joules at the pace their upgrades set. Mekanism 10.7's chemicals
+//! (`chemical`: the registry, stacks, tanks and the chemical handler by side)
+//! fill the infuser's tank and the Electrolytic Separator's (`separator`).
 //! Nothing here knows the game: the native mod's helpers bring the world.
+pub mod chemical;
 pub mod config;
 pub mod container;
 pub mod cube;
@@ -28,6 +31,7 @@ pub mod heat;
 pub mod machine;
 pub mod menu;
 pub mod network;
+pub mod separator;
 pub mod sides;
 pub mod sky;
 pub mod solar;

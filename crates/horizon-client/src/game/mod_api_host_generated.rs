@@ -305,6 +305,9 @@ impl Host for super::Game<'_> {
     fn data(&self, path: &str) -> Option<Vec<u8>> {
         self.native_data(path)
     }
+    fn data_files(&self, dir: &str) -> Vec<String> {
+        self.native_data_files(dir)
+    }
     fn block(&self, pos: [i32; 3]) -> String {
         self.native_block(pos)
     }

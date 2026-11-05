@@ -756,6 +756,16 @@ pub trait Host {
         let _ = path;
         unimplemented!("Host::data")
     }
+    /// The data files of kind `dir` (`mekanism/chemical`) in every namespace of
+    /// the game's resources, content mods' included, as NeoForge's
+    /// `ResourceManager.listResources(dir, path -> path.endsWith(".json"))`:
+    /// `data/<ns>/<dir>/<path>.json`, sub-folders too, sorted, for
+    /// `native_data` to read. Only relative paths of plain names; a world's own
+    /// data packs aren't in it. API 162.
+    fn data_files(&self, dir: &str) -> Vec<String> {
+        let _ = dir;
+        unimplemented!("Host::data_files")
+    }
     /// The block at `pos` (`mymod:cable`; air where nothing is loaded).
     /// API 20.
     fn block(&self, pos: [i32; 3]) -> String {

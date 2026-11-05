@@ -293,6 +293,10 @@
       "target": "horizon_client::game::native_hooks::Game<'_>::native_data"
     },
     {
+      "name": "data_files",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_data_files"
+    },
+    {
       "name": "block",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_block"
     },

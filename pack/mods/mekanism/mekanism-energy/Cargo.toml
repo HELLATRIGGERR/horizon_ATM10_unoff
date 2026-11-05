@@ -6,4 +6,5 @@ license = "MIT"
 description = "Mekanism 10.7's energy rules (Joules, tiers, the even split, FE at the edges) for the pack's Mekanism port"
 
 [dependencies]
+serde_json = "1"
 toml = "1"

@@ -79,6 +79,29 @@ public final class FactsExporter {
                 new TreeSet<>(Arrays.asList(System.getProperty("horizon.oracle.namespaces", "").split(",")));
         namespaces.remove("");
         String dump = System.getProperty("horizon.oracle.dump");
+        if (Boolean.getBoolean("horizon.oracle.chemicals_only")) {
+            // Only Mekanism's chemical registry (ChemicalFacts, docs/mekanism-chemicals.md), no dump and no batches,
+            // as the fluids-only mode: a few minutes for the pack's chemicals.
+            try {
+                try (Writer w = Files.newBufferedWriter(out, StandardCharsets.UTF_8);
+                        JsonWriter json = new JsonWriter(w)) {
+                    json.beginObject();
+                    json.name("schema").value(1);
+                    json.name("minecraft").value(net.minecraft.SharedConstants.getCurrentVersion().getName());
+                    new ChemicalFacts(json).write();
+                    json.endObject();
+                }
+                if (dump != null) {
+                    Files.writeString(Path.of(dump, "summary.json"), "{\"chemicals_only\": true}\n");
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(3);
+            }
+            System.out.println("horizon-oracle: wrote " + out);
+            server.halt(false);
+            return;
+        }
         if (Boolean.getBoolean("horizon.oracle.fluids_only")) {
             // Only the server's fluid facts of every namespace (FluidFacts: fluids, types, cauldrons), no dump and
             // no batches: a few minutes for a fluid probe instead of the whole pack's facts. The summary only says so.

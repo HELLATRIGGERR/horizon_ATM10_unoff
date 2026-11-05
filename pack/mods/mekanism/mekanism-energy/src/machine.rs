@@ -9,8 +9,11 @@
 //! side configuration (`TileComponentConfig`) says which faces take energy,
 //! which take and give items and where the ejector (`TileComponentEjector`)
 //! puts what they made. The infuser's tank holds one infuse type, a chemical
-//! (Mekanism 10.7's `MekanismChemicals`), filled from items by
-//! `mekanism:chemical_conversion` recipes.
+//! (`crate::chemical`: a `BasicChemicalTank` of 1000 mB), filled from items by
+//! `mekanism:chemical_conversion` recipes and by other blocks through its
+//! chemical sides. The Electrolytic Separator (`crate::separator`) shares
+//! their energy, upgrades and side configuration, with a fluid and two
+//! chemical tanks of its own.
 use crate::container::{Automation, EnergyContainer};
 use crate::sides::{DataType, Direction, RelativeSide};
 
@@ -35,6 +38,9 @@ pub enum MachineKind {
     EnergizedSmelter,
     /// `mekanism:metallurgic_infuser`, `mekanism:metallurgic_infusing` recipes.
     MetallurgicInfuser,
+    /// `mekanism:electrolytic_separator`, `mekanism:separating` recipes
+    /// (`TileEntityElectrolyticSeparator`: no progress, operations a tick).
+    ElectrolyticSeparator,
 }
 
 /// Where a machine keeps its items: Mekanism's own slot order (input,
@@ -43,8 +49,11 @@ pub enum MachineKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Slots {
     pub infusion: Option<usize>,
+    /// The separator's fluid slot is its `input`; its outputs are chemical
+    /// item slots (left `output`, right `output2`).
     pub input: usize,
     pub output: usize,
+    pub output2: Option<usize>,
     pub energy: usize,
     pub upgrade: usize,
     pub upgrade_out: usize,
@@ -52,7 +61,7 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 4] = [Self::EnrichmentChamber, Self::Crusher, Self::EnergizedSmelter, Self::MetallurgicInfuser];
+    pub const ALL: [Self; 5] = [Self::EnrichmentChamber, Self::Crusher, Self::EnergizedSmelter, Self::MetallurgicInfuser, Self::ElectrolyticSeparator];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -60,6 +69,7 @@ impl MachineKind {
             Self::Crusher => "mekanism:crusher",
             Self::EnergizedSmelter => "mekanism:energized_smelter",
             Self::MetallurgicInfuser => "mekanism:metallurgic_infuser",
+            Self::ElectrolyticSeparator => "mekanism:electrolytic_separator",
         }
     }
 
@@ -74,6 +84,7 @@ impl MachineKind {
             Self::Crusher => "crusher",
             Self::EnergizedSmelter => "energizedSmelter",
             Self::MetallurgicInfuser => "metallurgicInfuser",
+            Self::ElectrolyticSeparator => "electrolyticSeparator",
         }
     }
 
@@ -84,34 +95,47 @@ impl MachineKind {
             Self::Crusher => "mekanism:crushing",
             Self::EnergizedSmelter => "minecraft:smelting",
             Self::MetallurgicInfuser => "mekanism:metallurgic_infusing",
+            Self::ElectrolyticSeparator => "mekanism:separating",
         }
     }
 
-    /// `UsageConfig`'s default Joules a tick.
+    /// `UsageConfig`'s default Joules a tick (the separator's comes from
+    /// hydrogen's fuel instead: `crate::separator::energy_per_tick`).
     pub fn default_usage(self) -> u64 {
-        50
+        if self.separates() { 400 } else { 50 }
     }
 
     /// `StorageConfig`'s default Joules held.
     pub fn default_storage(self) -> u64 {
-        20_000
+        if self.separates() { 160_000 } else { 20_000 }
+    }
+
+    pub fn separates(self) -> bool {
+        self == Self::ElectrolyticSeparator
+    }
+
+    /// A machine of `TileEntityProgressMachine`, whose recipes take ticks.
+    pub fn progresses(self) -> bool {
+        !self.separates()
     }
 
     pub fn infuses(self) -> bool {
         self == Self::MetallurgicInfuser
     }
 
-    /// Whether its block shows `active` (`AttributeStateActive`): the infuser's
-    /// model has no such state.
+    /// Whether its block shows `active` (`AttributeStateActive`): the
+    /// infuser's and the separator's models have no such state.
     pub fn shows_active(self) -> bool {
-        !self.infuses()
+        !self.infuses() && !self.separates()
     }
 
     pub fn slots(self) -> Slots {
         if self.infuses() {
-            Slots { infusion: Some(0), input: 1, output: 2, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
+            Slots { infusion: Some(0), input: 1, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
+        } else if self.separates() {
+            Slots { infusion: None, input: 0, output: 1, output2: Some(2), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
         } else {
-            Slots { infusion: None, input: 0, output: 1, energy: 2, upgrade: 3, upgrade_out: 4, count: 5 }
+            Slots { infusion: None, input: 0, output: 1, output2: None, energy: 2, upgrade: 3, upgrade_out: 4, count: 5 }
         }
     }
 
@@ -119,9 +143,24 @@ impl MachineKind {
     /// `setupItemIOConfig`, and `setupItemIOExtraConfig` with the infuser's
     /// infusion slot as `EXTRA`.
     pub fn item_supports(self, data: DataType) -> bool {
+        if self.separates() {
+            // `INPUT`, `OUTPUT_1`, `OUTPUT_2`, `INPUT_OUTPUT` and `ENERGY` slot infos.
+            return matches!(data, DataType::None | DataType::Input | DataType::Output1 | DataType::Output2 | DataType::InputOutput | DataType::Energy);
+        }
         match data {
             DataType::None | DataType::Input | DataType::Output | DataType::InputOutput | DataType::Energy => true,
             DataType::Extra => self.infuses(),
+            _ => false,
+        }
+    }
+
+    /// The chemical side types it has tanks for: the infuser's
+    /// `setupIOConfig(CHEMICAL, tank, RIGHT)`, the separator's `OUTPUT_1`
+    /// (left tank) and `OUTPUT_2` (right tank).
+    pub fn chemical_supports(self, data: DataType) -> bool {
+        match self {
+            Self::MetallurgicInfuser => chemical_supports(data),
+            Self::ElectrolyticSeparator => matches!(data, DataType::None | DataType::Output1 | DataType::Output2),
             _ => false,
         }
     }
@@ -130,6 +169,16 @@ impl MachineKind {
     /// (right output, back energy, the rest input) and the infuser's
     /// `EXTRA_MACHINE` (its bottom the infusion slot).
     pub fn default_items(self) -> [DataType; 6] {
+        if self.separates() {
+            // `TWO_OUTPUT_ITEM`.
+            return RelativeSide::ALL.map(|side| match side {
+                RelativeSide::Front => DataType::Input,
+                RelativeSide::Left => DataType::Output1,
+                RelativeSide::Right => DataType::Output2,
+                RelativeSide::Back => DataType::Energy,
+                _ => DataType::None,
+            });
+        }
         RelativeSide::ALL.map(|side| match side {
             RelativeSide::Right => DataType::Output,
             RelativeSide::Back => DataType::Energy,
@@ -138,9 +187,24 @@ impl MachineKind {
         })
     }
 
-    /// The infuser's chemical config (`OUT_NO_EJECT`: right output, the rest input).
+    /// The chemical config its item comes with: the infuser's `OUT_NO_EJECT`
+    /// (right output, the rest input), the separator's `TWO_OUTPUT` (left
+    /// `OUTPUT_1`, right `OUTPUT_2`, ejecting).
     pub fn default_chemicals(self) -> Option<[DataType; 6]> {
-        self.infuses().then(|| RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input }))
+        match self {
+            Self::MetallurgicInfuser => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input })),
+            Self::ElectrolyticSeparator => Some(RelativeSide::ALL.map(|s| match s {
+                RelativeSide::Left => DataType::Output1,
+                RelativeSide::Right => DataType::Output2,
+                _ => DataType::None,
+            })),
+            _ => None,
+        }
+    }
+
+    /// Its fluid config: the separator's `INPUT_ONLY`.
+    pub fn default_fluids(self) -> Option<[DataType; 6]> {
+        self.separates().then_some([DataType::Input; 6])
     }
 }
 
@@ -466,72 +530,19 @@ pub fn eject_faces(items: &[DataType; 6], facing: Direction) -> Vec<Direction> {
         .collect()
 }
 
-/// The infuse types (`MekanismChemicals`), with their tint (`registerInfuse`).
-pub const INFUSE_TYPES: [(&str, u32); 8] = [
-    ("mekanism:carbon", 0x2C2C2C),
-    ("mekanism:redstone", 0xB30505),
-    ("mekanism:diamond", 0x6CEDD8),
-    ("mekanism:refined_obsidian", 0x7C00ED),
-    ("mekanism:bio", 0x5A4630),
-    ("mekanism:fungi", 0x74656A),
-    ("mekanism:gold", 0xF2CD67),
-    ("mekanism:tin", 0xCCCCD9),
-];
-
-/// An infuse type's number on the menu's data slots: 1 and up as
-/// [`INFUSE_TYPES`], 0 for none, 255 for another chemical.
-pub fn infuse_number(chemical: Option<&str>) -> i32 {
-    match chemical {
-        None => 0,
-        Some(id) => INFUSE_TYPES.iter().position(|(c, _)| *c == id).map_or(255, |i| i as i32 + 1),
-    }
-}
-
-pub fn infuse_of_number(n: i32) -> Option<(&'static str, u32)> {
-    usize::try_from(n - 1).ok().and_then(|i| INFUSE_TYPES.get(i)).copied()
-}
-
-/// The infuser's tank (`BasicChemicalTank`): one chemical at a time.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Tank {
-    pub chemical: Option<String>,
-    pub amount: u64,
-}
-
-impl Tank {
-    /// A conversion's output, `amount` of `chemical`, goes in whole or not at
-    /// all (`ChemicalInventorySlot.fillTankOrConvert`: `insert` must leave
-    /// nothing): the same chemical or an empty tank, and room for all of it.
-    pub fn fill(&mut self, chemical: &str, amount: u64, capacity: u64) -> bool {
-        if amount == 0 || self.chemical.as_deref().is_some_and(|c| c != chemical) && self.amount > 0 {
-            return false;
-        }
-        if capacity.saturating_sub(self.amount) < amount {
-            return false;
-        }
-        self.chemical = Some(chemical.to_owned());
-        self.amount += amount;
-        true
-    }
-
-    /// `shrinkStack`: what an operation used; an empty tank holds nothing.
-    pub fn drain(&mut self, amount: u64) {
-        self.amount = self.amount.saturating_sub(amount);
-        if self.amount == 0 {
-            self.chemical = None;
-        }
-    }
-}
-
 /// A machine's side configuration (`TileComponentConfig`, the ejector's
-/// switch): energy, items and the infuser's chemicals by `RelativeSide`.
-/// Only items can eject: energy and chemical sides have `setCanEject(false)`.
+/// switch): energy, items, chemicals (the infuser's, the separator's) and
+/// fluids (the separator's) by `RelativeSide`. Energy sides and the infuser's
+/// chemical sides never eject (`setCanEject(false)`); the separator's
+/// chemicals do by default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SideConfig {
     pub energy: [DataType; 6],
     pub items: [DataType; 6],
     pub chemicals: Option<[DataType; 6]>,
+    pub fluids: Option<[DataType; 6]>,
     pub items_eject: bool,
+    pub chemicals_eject: bool,
 }
 
 impl SideConfig {
@@ -542,7 +553,9 @@ impl SideConfig {
             energy: [DataType::Input; 6],
             items: kind.default_items(),
             chemicals: kind.default_chemicals(),
+            fluids: kind.default_fluids(),
             items_eject: false,
+            chemicals_eject: kind.separates(),
         }
     }
 
@@ -552,13 +565,14 @@ impl SideConfig {
         use crate::menu::{Button, Kind};
         let before = *self;
         let item_supports = |d: DataType| kind.item_supports(d);
+        let chemical_kind_supports = |d: DataType| kind.chemical_supports(d);
         let (sides, supports): (&mut [DataType; 6], &dyn Fn(DataType) -> bool) = match button {
             Button::Page(_) => return false,
             Button::Side { kind: k, .. } | Button::Eject(k) | Button::Clear { kind: k, .. } => match k {
                 Kind::Energy => (&mut self.energy, &energy_supports),
                 Kind::Items => (&mut self.items, &item_supports),
                 Kind::Chemicals => match self.chemicals.as_mut() {
-                    Some(c) => (c, &chemical_supports),
+                    Some(c) => (c, &chemical_kind_supports),
                     None => return false,
                 },
             },
@@ -570,6 +584,7 @@ impl SideConfig {
                 }
             }
             Button::Eject(Kind::Items) => self.items_eject = !self.items_eject,
+            Button::Eject(Kind::Chemicals) if kind.separates() => self.chemicals_eject = !self.chemicals_eject,
             Button::Clear { forward, .. } => {
                 let shared = sides.iter().all(|t| *t == sides[0]).then_some(sides[0]);
                 let target = match shared {
@@ -738,18 +753,27 @@ mod tests {
     }
 
     #[test]
-    fn the_infusion_tank_holds_one_type_and_fills_whole() {
-        let mut tank = Tank::default();
-        assert!(tank.fill("mekanism:carbon", 20, INFUSE_TANK));
-        assert!(!tank.fill("mekanism:fungi", 10, INFUSE_TANK), "another type waits");
-        tank.amount = 990;
-        assert!(!tank.fill("mekanism:carbon", 20, INFUSE_TANK), "no partial fill");
-        tank.amount = 980;
-        assert!(tank.fill("mekanism:carbon", 20, INFUSE_TANK));
-        tank.drain(1000);
-        assert_eq!(tank, Tank::default());
-        assert_eq!(infuse_number(Some("mekanism:fungi")), 6);
-        assert_eq!(infuse_of_number(6).map(|t| t.0), Some("mekanism:fungi"));
-        assert_eq!(infuse_number(Some("mekanism:oxygen")), 255);
+    fn the_separator_has_mekanisms_side_configs() {
+        use DataType::*;
+        let sep = MachineKind::ElectrolyticSeparator;
+        assert_eq!(MachineKind::of_block("mekanism:electrolytic_separator"), Some(sep));
+        // Front, left, right, back, top, bottom.
+        assert_eq!(sep.default_items(), [Input, Output1, Output2, Energy, None, None]);
+        assert_eq!(sep.default_chemicals(), Some([None, Output1, Output2, None, None, None]));
+        assert_eq!(sep.default_fluids(), Some([Input; 6]));
+        let config = SideConfig::new(sep);
+        assert!(config.chemicals_eject && !config.items_eject);
+        assert!(!SideConfig::new(MachineKind::MetallurgicInfuser).chemicals_eject);
+        let cycle: Vec<DataType> = std::iter::successors(Some(None), |t: &DataType| Some(t.next(|d| sep.chemical_supports(d)))).take(4).collect();
+        assert_eq!(cycle, [None, Output1, Output2, None]);
+        use crate::menu::{Button, Kind};
+        let mut config = SideConfig::new(sep);
+        assert!(config.press(sep, Button::Eject(Kind::Chemicals)));
+        assert!(!config.chemicals_eject);
+        let infuser = MachineKind::MetallurgicInfuser;
+        let mut config = SideConfig::new(infuser);
+        assert!(!config.press(infuser, Button::Eject(Kind::Chemicals)), "the infuser's chemicals never eject");
+        assert_eq!((sep.slots().output2, sep.slots().count, sep.shows_active()), (Some(2), 6, false));
+        assert_eq!((sep.default_storage(), sep.config_key()), (160_000, "electrolyticSeparator"));
     }
 }

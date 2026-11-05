@@ -1,24 +1,27 @@
 // Mekanism's first processing machines in the game (support module
 // `crate::game::mek_machines` of the `mekanism` native bundle): the
-// Enrichment Chamber, the Crusher, the Energized Smelter and the Metallurgic
-// Infuser. Their rules are the bundle's crate (`mekanism_energy::machine`,
-// MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
-// module is the glue: their block entities and saved compound in Mekanism's
-// names, their slots (input, output, energy, the upgrade component's two),
-// the recipes they read from the world's tables (`native_recipes_of_type`
-// for Mekanism's types, `native_cooking_recipes` of hook points API 159 for
-// the smelter), each tick in `TileEntityMekanism.tickServer` order (upgrades
-// in, the active state's delay, the item ejector, the energy slot, the
-// infusion slot, the recipe), Joules from cables, cubes and Forge Energy on
-// the faces their energy config opens, and `/mek probe`. A machine's cached
-// recipe and its upgrade slot's progress are kept here by position, not
-// saved, as Mekanism keeps them in its block entity. No borrow of that state
-// is held across a call into the game.
+// Enrichment Chamber, the Crusher, the Energized Smelter, the Metallurgic
+// Infuser and the Electrolytic Separator. Their rules are the bundle's crate
+// (`mekanism_energy::machine`, `chemical` and `separator`, MIT, from Mekanism
+// 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this module is the glue:
+// their block entities and saved compound in Mekanism's names, their slots
+// (input, output, energy, the upgrade component's two), the recipes they read
+// from the world's tables (`native_recipes_of_type` for Mekanism's types,
+// `native_cooking_recipes` of hook points API 159 for the smelter), each tick
+// in `TileEntityMekanism.tickServer` order (upgrades in, the active state's
+// delay, the ejector, the energy slot, the infusion or fluid slot, the
+// recipe, the separator's dumps), Joules from cables, cubes and Forge Energy
+// on the faces their energy config opens, their chemical tanks as a chemical
+// handler by side (`mek_chemicals`), the separator's fluid tank as a fluid
+// handler (hook points API 160), and `/mek probe`. A machine's cached recipe
+// and its upgrade slot's progress are kept here by position, not saved, as
+// Mekanism keeps them in its block entity. No borrow of that state is held
+// across a call into the game.
 
 use super::{
-    Game,
+    Game, mek_chemicals,
     mek_world::{self, ENERGY, ITEM},
-    native_hooks::NativeFeInfo,
+    native_hooks::{NativeFeInfo, NativeFluidTankInfo},
 };
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
@@ -26,15 +29,22 @@ use horizon_client::{
     items::ItemStack,
 };
 use horizon_core::geometry::Direction as Face;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_world::{
+    fluid_ingredient::SizedFluidIngredient,
+    fluid_stack::FluidStack,
+    nbt::{Compound, Tag},
+};
 use mekanism_energy::{
+    chemical::{self, ChemicalHandler, ChemicalRegistry, ChemicalStack, ChemicalStackIngredient, ChemicalTank, SidedTanks, TankRules},
     config::EnergyConfig,
     container::{Automation, EnergyContainer},
     fe::{self, Conversion, StrictEnergy},
     heat::Activity,
-    machine::{self, Inputs, MachineKind, SideConfig, Tank, Upgrade, UpgradeSlot, Upgrades},
-    menu::{self, MachineButton, MachineView},
-    sides::{DataType, Direction},
+    machine::{self, Inputs, MachineKind, SideConfig, Upgrade, UpgradeSlot, Upgrades},
+    menu::{self, MachineButton, MachineView, SeparatorView},
+    separator::{self, GasMode, Separation},
+    sides::{DataType, Direction, RelativeSide},
+    split,
 };
 use serde_json::Value;
 use std::{
@@ -44,8 +54,12 @@ use std::{
     sync::RwLock,
 };
 
-/// `TransmissionType.CHEMICAL`'s ordinal in `component_config`.
+/// `TransmissionType`'s ordinals in `component_config`: `FLUID` and `CHEMICAL`.
+const FLUID: u8 = 1;
 const CHEMICAL: u8 = 2;
+
+/// `TileEntityMetallurgicInfuser.MAX_INFUSE`: the infusion tank, in mB.
+const INFUSE_TANK: i64 = 1000;
 
 // ---- Recipes -------------------------------------------------------------------
 
@@ -64,23 +78,34 @@ impl ItemIn {
 }
 
 /// A machine recipe: `ItemStackToItemStackRecipe`, or with a chemical
-/// (`ItemStackChemicalToItemStackRecipe`, the chemicals it takes and how many mB).
+/// (`ItemStackChemicalToItemStackRecipe`, its `ChemicalStackIngredient`).
 #[derive(Clone, Debug)]
 struct Recipe {
     id: String,
     input: ItemIn,
-    chemical: Option<(Vec<String>, u64)>,
+    chemical: Option<ChemicalStackIngredient>,
     output: ItemStack,
 }
 
 impl Recipe {
-    fn chemical_fits(&self, tank: &Tank) -> bool {
-        match (&self.chemical, &tank.chemical) {
-            (None, _) => true,
-            (Some((kinds, _)), Some(held)) => kinds.iter().any(|k| k == held),
-            (Some(_), None) => false,
+    /// Whether the chemical `held` (none: an empty tank) is the recipe's.
+    fn chemical_fits(&self, held: Option<&str>, registry: &ChemicalRegistry) -> bool {
+        match &self.chemical {
+            None => true,
+            Some(c) => held.is_some() && c.test_type(held, registry),
         }
     }
+}
+
+/// `ElectrolysisRecipe` (`mekanism:separating`): a fluid in, two chemicals
+/// out, and its energy multiplier.
+#[derive(Clone, Debug)]
+struct SeparatingRecipe {
+    id: String,
+    input: SizedFluidIngredient,
+    left: ChemicalStack,
+    right: ChemicalStack,
+    energy_multiplier: u64,
 }
 
 /// `ItemStackToChemicalRecipe` (`mekanism:chemical_conversion`) and
@@ -88,8 +113,7 @@ impl Recipe {
 #[derive(Clone, Debug)]
 struct ChemicalConversion {
     input: ItemIn,
-    chemical: String,
-    amount: u64,
+    output: ChemicalStack,
 }
 
 #[derive(Clone, Debug)]
@@ -104,16 +128,18 @@ struct Book {
     /// Where each table was when this was made (its slice, by address and length).
     stamp: Vec<(usize, usize)>,
     recipes: HashMap<MachineKind, Vec<Rc<Recipe>>>,
+    separating: Vec<Rc<SeparatingRecipe>>,
     conversions: Vec<ChemicalConversion>,
     energy: Vec<EnergyConversion>,
 }
 
-const TYPES: [&str; 5] = [
+const TYPES: [&str; 6] = [
     "mekanism:enriching",
     "mekanism:crushing",
     "mekanism:metallurgic_infusing",
     "mekanism:chemical_conversion",
     "mekanism:energy_conversion",
+    "mekanism:separating",
 ];
 
 thread_local! {
@@ -126,14 +152,16 @@ thread_local! {
     static LIVE: RefCell<HashMap<(String, [i32; 3]), Live>> = RefCell::new(HashMap::new());
 }
 
-/// What the slots of each kind take, for `native_block_entity_slot_accepts`,
-/// which may be asked on any thread with no world at hand: made where the
-/// recipes are read.
+/// What the slots and tanks of each kind take, for
+/// `native_block_entity_slot_accepts` and the fluid handler, which may be
+/// asked with no world at hand: made where the recipes are read.
 #[derive(Default)]
 struct Takes {
     inputs: HashMap<MachineKind, HashSet<String>>,
     infusion: HashSet<String>,
     energy: HashSet<String>,
+    /// The separating recipes' inputs (`containsRecipe` of the fluid tank).
+    separating: Vec<SizedFluidIngredient>,
 }
 
 static TAKES: RwLock<Option<Takes>> = RwLock::new(None);
@@ -148,6 +176,8 @@ struct Live {
     upgrade_stack: Option<(String, u32)>,
     /// `TileComponentEjector.tickDelay`.
     eject_delay: u32,
+    /// The separator's recipe last used, for the probe.
+    separating: Option<String>,
 }
 
 /// An ingredient's JSON as Mekanism's 1.21.1 recipes write it: `{item}` or
@@ -191,17 +221,9 @@ fn item_in(game: &Game<'_>, v: &Value) -> Option<ItemIn> {
     Some(ItemIn { items: items_of(game, v)?, count })
 }
 
-/// A chemical ingredient (`ChemicalStackIngredient`): `{chemical}` or a chemical
-/// `{tag}`, with an `amount`. Mekanism's infuse type tags each hold the
-/// chemical of their own name (`data/mekanism/tags/mekanism/chemical/`), which
-/// ATM10 leaves as they are, so a tag is read as that chemical.
-fn chemical_in(v: &Value) -> Option<(Vec<String>, u64)> {
-    let amount = v.get("amount").and_then(Value::as_u64).filter(|a| *a > 0)?;
-    let id = v.get("chemical").or_else(|| v.get("tag")).and_then(Value::as_str)?;
-    Some((vec![id.to_owned()], amount))
-}
-
-/// Makes the book again from the world's tables when one changed.
+/// Makes the book again from the world's tables when one changed. A chemical
+/// ingredient or stack the registry can't read leaves its recipe out, as
+/// Mekanism's codecs fail the recipe.
 fn refresh_book(game: &Game<'_>) {
     let cooking = game.native_cooking_recipes();
     let mut stamp: Vec<(usize, usize)> = TYPES
@@ -215,10 +237,13 @@ fn refresh_book(game: &Game<'_>) {
     if BOOK.with(|b| b.borrow().stamp == stamp) {
         return;
     }
+    let registry = mek_chemicals::registry(game);
     let mut book = Book { stamp, ..Book::default() };
     for kind in MachineKind::ALL {
         let list: Vec<Rc<Recipe>> = if kind == MachineKind::EnergizedSmelter {
             smelting(cooking)
+        } else if kind.separates() {
+            Vec::new()
         } else {
             game.native_recipes_of_type(kind.recipe_type())
                 .iter()
@@ -229,7 +254,7 @@ fn refresh_book(game: &Game<'_>) {
                         if j.get("per_tick_usage").and_then(Value::as_bool) == Some(true) {
                             return None;
                         }
-                        (item_in(game, &j["item_input"])?, Some(chemical_in(&j["chemical_input"])?))
+                        (item_in(game, &j["item_input"])?, Some(ChemicalStackIngredient::from_json(&j["chemical_input"], &registry).ok()?))
                     } else {
                         (item_in(game, &j["input"])?, None)
                     };
@@ -240,17 +265,26 @@ fn refresh_book(game: &Game<'_>) {
         };
         book.recipes.insert(kind, list);
     }
+    book.separating = game
+        .native_recipes_of_type("mekanism:separating")
+        .iter()
+        .filter_map(|r| {
+            let j = &*r.json;
+            Some(Rc::new(SeparatingRecipe {
+                id: r.id.clone(),
+                input: SizedFluidIngredient::parse_flat(&j["input"]).ok()?,
+                left: ChemicalStack::from_json(&j["left_chemical_output"], &registry).ok()?,
+                right: ChemicalStack::from_json(&j["right_chemical_output"], &registry).ok()?,
+                energy_multiplier: j.get("energy_multiplier").map_or(Some(1), Value::as_u64)?.max(1),
+            }))
+        })
+        .collect();
     book.conversions = game
         .native_recipes_of_type("mekanism:chemical_conversion")
         .iter()
         .filter_map(|r| {
             let j = &*r.json;
-            let out = &j["output"];
-            Some(ChemicalConversion {
-                input: item_in(game, &j["input"])?,
-                chemical: out.get("id").and_then(Value::as_str)?.to_owned(),
-                amount: out.get("amount").and_then(Value::as_u64).filter(|a| *a > 0)?,
-            })
+            Some(ChemicalConversion { input: item_in(game, &j["input"])?, output: ChemicalStack::from_json(&j["output"], &registry).ok()? })
         })
         .collect();
     book.energy = game
@@ -261,10 +295,7 @@ fn refresh_book(game: &Game<'_>) {
             Some(EnergyConversion { input: item_in(game, &j["input"])?, joules: j["output"].as_u64().filter(|o| *o > 0)? })
         })
         .collect();
-    let infused: HashSet<&str> = book.recipes[&MachineKind::MetallurgicInfuser]
-        .iter()
-        .flat_map(|r| r.chemical.iter().flat_map(|(k, _)| k.iter().map(String::as_str)))
-        .collect();
+    let infusing = &book.recipes[&MachineKind::MetallurgicInfuser];
     let takes = Takes {
         inputs: book
             .recipes
@@ -274,10 +305,11 @@ fn refresh_book(game: &Game<'_>) {
         infusion: book
             .conversions
             .iter()
-            .filter(|c| infused.contains(c.chemical.as_str()))
+            .filter(|c| infusing.iter().any(|r| r.chemical_fits(c.output.id(), &registry)))
             .flat_map(|c| c.input.items.iter().cloned())
             .collect(),
         energy: book.energy.iter().flat_map(|e| e.input.items.iter().cloned()).collect(),
+        separating: book.separating.iter().map(|r| r.input.clone()).collect(),
     };
     if let Ok(mut t) = TAKES.write() {
         *t = Some(takes);
@@ -305,32 +337,45 @@ fn smelting(cooking: &[Cooking]) -> Vec<Rc<Recipe>> {
 
 /// `findFirstRecipe`: the first recipe of `kind` (in file order) that takes
 /// `input`, and the infuser's that also takes what its tank holds.
-fn find(kind: MachineKind, input: &ItemStack, tank: &Tank) -> Option<Rc<Recipe>> {
+fn find(kind: MachineKind, input: &ItemStack, held: Option<&str>, registry: &ChemicalRegistry) -> Option<Rc<Recipe>> {
     BOOK.with(|b| {
         b.borrow()
             .recipes
             .get(&kind)?
             .iter()
-            .find(|r| r.input.takes(input) && (!kind.infuses() || tank.amount > 0 && r.chemical_fits(tank)))
+            .find(|r| r.input.takes(input) && (!kind.infuses() || r.chemical_fits(held, registry)))
             .cloned()
     })
 }
 
 /// `containsRecipeBA(input, chemical)`: whether a recipe takes `chemical` with
-/// the item in the input slot (any recipe when it is empty).
-fn infuser_takes(input: Option<&ItemStack>, chemical: &str) -> bool {
+/// the item in the input slot (any recipe when it is empty); with no input
+/// that is `containsRecipeB`.
+fn infuser_takes(input: Option<&ItemStack>, chemical: Option<&str>, registry: &ChemicalRegistry) -> bool {
     BOOK.with(|b| {
         b.borrow().recipes.get(&MachineKind::MetallurgicInfuser).is_some_and(|list| {
-            list.iter().any(|r| {
-                r.chemical.as_ref().is_some_and(|(k, _)| k.iter().any(|c| c == chemical)) && input.is_none_or(|s| r.input.takes(s))
-            })
+            list.iter().any(|r| r.chemical_fits(chemical, registry) && input.is_none_or(|s| r.input.takes(s)))
         })
     })
 }
 
+/// `findFirstRecipe` of the separator: the first separating recipe whose
+/// ingredient takes the fluid in its tank.
+fn find_separating(fluid: &FluidStack) -> Option<Rc<SeparatingRecipe>> {
+    if fluid.is_empty() {
+        return None;
+    }
+    BOOK.with(|b| b.borrow().separating.iter().find(|r| r.input.ingredient.test(fluid)).cloned())
+}
+
+/// The fluid tank's validator (`containsRecipe`): a fluid a separating recipe takes.
+fn separates_fluid(fluid: &FluidStack) -> bool {
+    TAKES.read().ok().and_then(|t| t.as_ref().map(|t| t.separating.iter().any(|i| i.ingredient.test(fluid)))).unwrap_or(false)
+}
+
 // ---- The saved compound -----------------------------------------------------------
 
-/// A machine as its block entity saves it.
+/// A machine as its block entity saves it, but for its tanks.
 #[derive(Clone, Debug, PartialEq)]
 struct Saved {
     energy: u64,
@@ -338,8 +383,9 @@ struct Saved {
     upgrades: Upgrades,
     sides: SideConfig,
     facing: Direction,
-    tank: Tank,
     activity: Activity,
+    /// The separator's `dump_left` and `dump_right`.
+    dumps: [GasMode; 2],
 }
 
 fn key(name: &str) -> horizon_world::nbt::JavaString {
@@ -354,8 +400,16 @@ fn read(nbt: &Compound, kind: MachineKind) -> Saved {
         if let Some(chemicals) = sides.chemicals.as_mut() {
             mek_world::sides_of(config, CHEMICAL, chemicals);
         }
+        if let Some(fluids) = sides.fluids.as_mut() {
+            mek_world::sides_of(config, FLUID, fluids);
+        }
         if let Some(v) = mek_world::number(config.get(&key(&format!("eject{ITEM}")))) {
             sides.items_eject = v != 0;
+        }
+        if kind.separates()
+            && let Some(v) = mek_world::number(config.get(&key(&format!("eject{CHEMICAL}"))))
+        {
+            sides.chemicals_eject = v != 0;
         }
     }
     let mut upgrades = Upgrades::default();
@@ -370,29 +424,15 @@ fn read(nbt: &Compound, kind: MachineKind) -> Saved {
             }
         }
     }
-    let mut tank = Tank::default();
-    if let Some(Tag::List(list)) = nbt.get(&key("chemical_tanks")) {
-        for entry in list {
-            if let Tag::Compound(t) = entry
-                && mek_world::number(t.get(&key("tank"))).unwrap_or(0) == 0
-                && let Some(Tag::Compound(stored)) = t.get(&key("stored"))
-                && let Some(Tag::String(id)) = stored.get(&key("id"))
-            {
-                let amount = mek_world::number(stored.get(&key("amount"))).unwrap_or(0).max(0) as u64;
-                if amount > 0 {
-                    tank = Tank { chemical: Some(id.to_string_lossy()), amount };
-                }
-            }
-        }
-    }
+    let dump = |name: &str| mek_world::number(nbt.get(&key(name))).map_or(GasMode::Idle, |v| GasMode::by_id(v as i32));
     Saved {
         energy: mek_world::saved_energy(nbt).unwrap_or(0),
         progress: mek_world::number(nbt.get(&key("progress"))).unwrap_or(0).clamp(0, i64::from(i32::MAX)) as u32,
         upgrades,
         sides,
         facing: mek_world::generator_facing(nbt),
-        tank,
         activity: mek_world::read_activity(nbt),
+        dumps: [dump("dump_left"), dump("dump_right")],
     }
 }
 
@@ -405,19 +445,28 @@ fn write_sides(nbt: &mut Compound, saved: &Saved) {
         config.insert(key(&format!("config{kind}")), Tag::IntArray(sides.iter().map(|t| t.id()).collect()));
     };
     put(ENERGY, &saved.sides.energy, false);
-    put(ITEM, &saved.sides.items, saved.sides.items_eject);
-    if let Some(chemicals) = &saved.sides.chemicals {
-        put(CHEMICAL, chemicals, false);
+    if let Some(fluids) = &saved.sides.fluids {
+        put(FLUID, fluids, false);
     }
+    if let Some(chemicals) = &saved.sides.chemicals {
+        put(CHEMICAL, chemicals, saved.sides.chemicals_eject);
+    }
+    put(ITEM, &saved.sides.items, saved.sides.items_eject);
     nbt.insert(key("component_config"), Tag::Compound(config));
 }
 
 /// Everything else that changed since `before`, in Mekanism's names.
-fn write(nbt: &mut Compound, saved: &Saved, before: &Saved) {
+fn write(nbt: &mut Compound, saved: &Saved, before: &Saved, kind: MachineKind) {
     if saved.energy != before.energy || !nbt.contains_key(&key("energy_containers")) && saved.energy > 0 {
         mek_world::write_energy(nbt, saved.energy);
     }
-    if saved.progress != before.progress || !nbt.contains_key(&key("progress")) {
+    if kind.separates() {
+        // `writeSustainedData`: the dump modes as their ordinals; no progress.
+        if saved.dumps != before.dumps || !nbt.contains_key(&key("dump_left")) {
+            nbt.insert(key("dump_left"), Tag::Int(saved.dumps[0].id()));
+            nbt.insert(key("dump_right"), Tag::Int(saved.dumps[1].id()));
+        }
+    } else if saved.progress != before.progress || !nbt.contains_key(&key("progress")) {
         nbt.insert(key("progress"), Tag::Int(saved.progress.min(i32::MAX as u32) as i32));
     }
     if saved.upgrades != before.upgrades {
@@ -440,25 +489,29 @@ fn write(nbt: &mut Compound, saved: &Saved, before: &Saved) {
     if saved.sides != before.sides || saved.facing != before.facing || !nbt.contains_key(&key("component_config")) {
         write_sides(nbt, saved);
     }
-    if saved.tank != before.tank {
-        match &saved.tank.chemical {
-            Some(id) if saved.tank.amount > 0 => {
-                let mut stored = Compound::new();
-                stored.insert(key("id"), Tag::String(key(id)));
-                stored.insert(key("amount"), Tag::Long(saved.tank.amount.min(i64::MAX as u64) as i64));
-                let mut tank = Compound::new();
-                tank.insert(key("tank"), Tag::Byte(0));
-                tank.insert(key("stored"), Tag::Compound(stored));
-                nbt.insert(key("chemical_tanks"), Tag::List(vec![Tag::Compound(tank)]));
-            }
-            _ => {
-                nbt.remove(&key("chemical_tanks"));
-            }
-        }
-    }
     if saved.activity != before.activity || !nbt.contains_key(&key("active_state")) {
         mek_world::write_activity(nbt, saved.activity);
     }
+}
+
+/// A machine's chemical tanks, as `chemical_tanks` holds them: the infuser's
+/// infusion tank (1000 mB), the separator's left and right (2400 each).
+fn read_chemicals(nbt: &Compound, kind: MachineKind, registry: &ChemicalRegistry) -> Vec<ChemicalTank> {
+    let capacities: &[i64] = match kind {
+        MachineKind::MetallurgicInfuser => &[INFUSE_TANK],
+        MachineKind::ElectrolyticSeparator => &[separator::MAX_GAS, separator::MAX_GAS],
+        _ => &[],
+    };
+    mek_chemicals::read_tanks(nbt, capacities.len(), registry)
+        .into_iter()
+        .zip(capacities)
+        .map(|(stored, &capacity)| ChemicalTank::with(capacity, stored))
+        .collect()
+}
+
+fn write_chemicals(nbt: &mut Compound, tanks: &[ChemicalTank]) {
+    let stacks: Vec<ChemicalStack> = tanks.iter().map(|t| t.stored.clone()).collect();
+    mek_chemicals::write_tanks(nbt, &stacks);
 }
 
 /// The machine's energy store: its capacity by its energy upgrades
@@ -486,8 +539,8 @@ pub(super) fn new_entity(kind: MachineKind) -> (String, Compound) {
         upgrades: Upgrades::default(),
         sides: SideConfig::new(kind),
         facing: Direction::North,
-        tank: Tank::default(),
         activity: Activity::default(),
+        dumps: [GasMode::Idle; 2],
     };
     let mut nbt = Compound::new();
     write_sides(&mut nbt, &saved);
@@ -498,29 +551,38 @@ pub(super) fn new_entity(kind: MachineKind) -> (String, Compound) {
 /// component's input and output, in a 3x3 menu whose other slots the screen
 /// leaves out. Container faces are a block's, not a machine's facing: every
 /// face reaches the input, energy and output slots (and the infuser's
-/// infusion slot); hoppers put into the first ones, as `slot_accepts` lets
-/// them, and take from the output.
+/// infusion slot, the separator's fluid slot); hoppers put into the first
+/// ones, as `slot_accepts` lets them, and take from the outputs.
 pub(super) fn container(kind: MachineKind) -> ModContainer {
     let s = kind.slots();
     let mut inputs = vec![s.input, s.energy];
     inputs.extend(s.infusion);
+    let mut outputs = vec![s.output];
+    outputs.extend(s.output2);
     let mut faces = inputs.clone();
-    faces.push(s.output);
+    faces.extend(&outputs);
     faces.sort_unstable();
-    ModContainer { slots: 9, faces: std::array::from_fn(|_| faces.clone()), inputs, outputs: vec![s.output], menu: Some("minecraft:generic_3x3".into()) }
+    ModContainer { slots: 9, faces: std::array::from_fn(|_| faces.clone()), inputs, outputs, menu: Some("minecraft:generic_3x3".into()) }
 }
 
 /// `native_block_entity_slot_accepts`: the input slot takes what a recipe
-/// takes (`InputInventorySlot`'s `containsRecipe`), the energy slot what
-/// converts to energy (`EnergyInventorySlot.fillOrConvert`), the infusion slot
-/// what converts to an infuse type a recipe uses, the upgrade slot the
-/// upgrades the machine takes; nothing goes into an output slot. Before a world
-/// has read its recipes (a LAN guest's prediction), inputs pass.
+/// takes (`InputInventorySlot`'s `containsRecipe`; the separator's fluid slot
+/// a bucket of a fluid it separates, `FluidInventorySlot.fill`), the energy
+/// slot what converts to energy (`EnergyInventorySlot.fillOrConvert`), the
+/// infusion slot what converts to an infuse type a recipe uses, the upgrade
+/// slot the upgrades the machine takes; nothing goes into an output slot (the
+/// separator's take chemical items, which aren't ported). Before a world has
+/// read its recipes (a LAN guest's prediction), inputs pass.
 pub(super) fn slot_accepts(kind: MachineKind, slot: usize, stack: &ItemStack, accepts: &mut bool) {
     let s = kind.slots();
     let item = &*stack.item;
     let known = |pick: &dyn Fn(&Takes) -> bool| TAKES.read().ok().and_then(|t| t.as_ref().map(pick)).unwrap_or(true);
-    let ok = if slot == s.input {
+    let ok = if slot == s.input && kind.separates() {
+        known(&|t| {
+            horizon_world::fluid_stack::bucket_fluid(item)
+                .is_some_and(|f| t.separating.iter().any(|i| i.ingredient.test(&FluidStack::new(f, 1000))))
+        })
+    } else if slot == s.input {
         known(&|t| t.inputs.get(&kind).is_some_and(|i| i.contains(item)))
     } else if Some(slot) == s.infusion {
         known(&|t| t.infusion.contains(item))
@@ -575,21 +637,33 @@ pub(super) fn clear() {
 
 // ---- The tick ---------------------------------------------------------------------
 
+/// The infuser's tank rules (`TileEntityMetallurgicInfuser.getInitialChemicalTanks`:
+/// `BasicChemicalTank.createModern(1000, alwaysTrueBi, containsRecipeBA(input, type),
+/// containsRecipeB, ...)` with the default attribute validator), run with `use_them`.
+fn with_infuser_rules<R>(input: Option<&ItemStack>, registry: &ChemicalRegistry, use_them: impl FnOnce(&TankRules<'_>) -> R) -> R {
+    let can_insert = |s: &ChemicalStack, _: Automation| infuser_takes(input, s.id(), registry);
+    let valid = |s: &ChemicalStack| infuser_takes(None, s.id(), registry) && registry.passes_default(s);
+    use_them(&TankRules { can_extract: &chemical::always, can_insert: &can_insert, valid: &valid })
+}
+
 /// `native_block_entity_tick` of a machine: `TileEntityMekanism.tickServer`
 /// (the upgrade component, the active state's delay) and `onUpdateServer`
 /// (`TileEntityConfigurableMachine`'s ejector, then the energy slot, the
-/// infuser's infusion slot and the recipe), then the menu's data slots.
-/// Redstone control is IGNORED, the default.
+/// infuser's infusion slot and the recipe, or the separator's), then the
+/// menu's data slots. Redstone control is IGNORED, the default.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, kind: MachineKind) {
     let (config, _) = mek_world::energy_config();
     let dimension = game.native_dimension();
     refresh_book(game);
+    let registry = mek_chemicals::registry(game);
     let slots = kind.slots();
     let multiplier = config.machines.max_upgrade_multiplier;
     let (usage, _) = config.machines.of(kind);
     let before = read(&entity.nbt, kind);
     let mut saved = before.clone();
     saved.facing = game.native_block_property(pos, "facing").and_then(|f| Direction::from_name(&f)).unwrap_or(Direction::North);
+    let tanks_before = read_chemicals(&entity.nbt, kind, &registry);
+    let mut tanks = tanks_before.clone();
     let id = live_key(dimension, pos);
     let mut live = LIVE.with(|l| l.borrow_mut().remove(&id)).unwrap_or_default();
 
@@ -612,8 +686,15 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         mek_world::show_active(game, pos, changed, &mut shown);
     }
 
-    // The ejector: what the output slot holds, out of the faces whose item type outputs.
-    if saved.sides.items_eject {
+    // The ejector: the separator's chemicals every tick (CHEMICAL comes before
+    // ITEM), then what the output slot holds, out of the faces whose item type
+    // outputs, every half second.
+    if kind.separates() && saved.sides.chemicals_eject
+        && let Some(sides) = saved.sides.chemicals
+    {
+        eject_chemicals(game, pos, saved.facing, &sides, &mut tanks, saved.dumps, config.machines.chemical_auto_eject);
+    }
+    if saved.sides.items_eject && !kind.separates() {
         if live.eject_delay == 0 {
             eject_items(game, pos, entity, slots.output, &machine::eject_faces(&saved.sides.items, saved.facing));
             live.eject_delay = machine::EJECT_DELAY;
@@ -636,18 +717,36 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
             shrink(entity, slots.energy, conversion.input.count);
         }
     }
-    // The infusion slot: an item that converts to an infuse type a recipe takes.
+
+    if kind.separates() {
+        let used = tick_separator(game, entity, &saved, &mut tanks, &mut store, &mut live, &registry, &config);
+        finish_tick(game, pos, entity, kind, saved, &before, &tanks, &tanks_before, store, used, &registry, id, live);
+        return;
+    }
+
+    // The infusion slot: an item that converts to an infuse type a recipe takes
+    // (`ChemicalInventorySlot.fillTankOrConvert`: all of it fits, or nothing).
     if let Some(infusion) = slots.infusion
         && let Some(stack) = stack_in(entity, infusion).cloned()
-        && saved.tank.amount < machine::INFUSE_TANK
+        && let Some(tank) = tanks.first_mut()
+        && tank.needed() > 0
     {
         let found = BOOK.with(|b| b.borrow().conversions.iter().find(|c| c.input.takes(&stack)).cloned());
+        let input = stack_in(entity, slots.input).cloned();
         if let Some(conversion) = found
             && stack.count >= conversion.input.count
-            && infuser_takes(stack_in(entity, slots.input), &conversion.chemical)
-            && saved.tank.fill(&conversion.chemical, conversion.amount, machine::INFUSE_TANK)
         {
-            shrink(entity, infusion, conversion.input.count);
+            let fits = with_infuser_rules(input.as_ref(), &registry, |rules| {
+                if tank.insert(&conversion.output, true, Automation::Internal, rules).is_empty() {
+                    tank.insert(&conversion.output, false, Automation::Internal, rules);
+                    true
+                } else {
+                    false
+                }
+            });
+            if fits {
+                shrink(entity, infusion, conversion.input.count);
+            }
         }
     }
 
@@ -656,13 +755,14 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     let per_tick = saved.upgrades.energy_per_tick(usage, multiplier);
     let baseline = if kind.infuses() { saved.upgrades.operations_per_tick(machine::BASE_TICKS, multiplier) } else { 1 };
     let input = stack_in(entity, slots.input).cloned();
+    let held = tanks.first().and_then(|t| t.stored.id().map(str::to_owned));
     let edition = EDITION.get();
     let cached = live.recipe.as_ref().filter(|(e, _)| *e == edition).map(|(_, r)| r.clone());
-    let valid = |r: &Recipe| input.as_ref().is_some_and(|i| r.input.takes(i)) && r.chemical_fits(&saved.tank);
+    let valid = |r: &Recipe| input.as_ref().is_some_and(|i| r.input.takes(i)) && r.chemical_fits(held.as_deref(), &registry);
     let mut warnings = 0;
     let recipe = match cached {
         Some(r) if valid(r.as_ref()) => Some(r),
-        old => match input.as_ref().and_then(|i| find(kind, i, &saved.tank)) {
+        old => match input.as_ref().and_then(|i| find(kind, i, held.as_deref(), &registry)) {
             Some(found) => {
                 // A first cache takes the saved progress (`loadSavedData`); another starts at 0.
                 saved.progress = if old.is_none() { machine::resumed(saved.progress, required) } else { 0 };
@@ -682,11 +782,16 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     };
     let mut active = None;
     if let Some(recipe) = recipe {
-        let held = input.as_ref().filter(|i| recipe.input.takes(i)).map_or(0, |i| i.count);
-        let mut inputs = Inputs::of(held, recipe.input.count);
-        if let Some((_, amount)) = &recipe.chemical {
-            let fits = recipe.chemical_fits(&saved.tank);
-            let chemical = if fits { Inputs::of(saved.tank.amount.min(u64::from(u32::MAX)) as u32, (*amount).min(u64::from(u32::MAX)) as u32) } else { Inputs::Mismatched };
+        let count = input.as_ref().filter(|i| recipe.input.takes(i)).map_or(0, |i| i.count);
+        let mut inputs = Inputs::of(count, recipe.input.count);
+        if let Some(ingredient) = &recipe.chemical {
+            let tank = tanks.first();
+            let chemical = match tank {
+                Some(t) if recipe.chemical_fits(t.stored.id(), &registry) => {
+                    Inputs::of(t.stored().clamp(0, i64::from(u32::MAX)) as u32, ingredient.amount.clamp(0, i64::from(u32::MAX)) as u32)
+                }
+                _ => Inputs::Mismatched,
+            };
             inputs = inputs.both(chemical);
         }
         let output = stack_in(entity, slots.output);
@@ -701,8 +806,12 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         let ran = machine::process(&mut saved.progress, required, &mut store, per_tick, baseline, inputs, room, true);
         if ran.finished {
             shrink(entity, slots.input, recipe.input.count * ran.operations);
-            if let Some((_, amount)) = &recipe.chemical {
-                saved.tank.drain(amount * u64::from(ran.operations));
+            // `infusionInputHandler.use`: the tank's own extract.
+            if let Some(ingredient) = &recipe.chemical
+                && let Some(tank) = tanks.first_mut()
+            {
+                let amount = ingredient.amount.saturating_mul(i64::from(ran.operations));
+                with_infuser_rules(input.as_ref(), &registry, |rules| tank.extract(amount, false, Automation::Internal, rules));
             }
             let made = recipe.output.count * ran.operations;
             match entity.items.get_mut(slots.output) {
@@ -720,9 +829,22 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
             mek_world::show_active(game, pos, changed, &mut shown);
         }
     }
-    write(&mut entity.nbt, &saved, &before);
+    write(&mut entity.nbt, &saved, &before, kind);
+    if tanks != tanks_before {
+        write_chemicals(&mut entity.nbt, &tanks);
+    }
     let input_joules = mek_world::take_received(pos);
-    entity.data = MachineView {
+    let mut view = machine_view(&saved, &store, per_tick, required, &tanks, &registry, input_joules, warnings);
+    view.upgrade_ticks = live.upgrade.ticks;
+    entity.data = view.pack();
+    LIVE.with(|l| l.borrow_mut().insert(id, live));
+}
+
+/// A machine's view on its menu's data slots.
+#[allow(clippy::too_many_arguments)]
+fn machine_view(saved: &Saved, store: &EnergyContainer, per_tick: u64, required: u32, tanks: &[ChemicalTank], registry: &ChemicalRegistry, input: u64, warnings: i32) -> MachineView {
+    let infusion = tanks.first().filter(|_| saved.sides.fluids.is_none());
+    MachineView {
         stored: saved.energy,
         capacity: store.capacity,
         per_tick,
@@ -734,14 +856,199 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         chemicals: saved.sides.chemicals,
         items_eject: saved.sides.items_eject,
         upgrades: saved.upgrades,
-        upgrade_ticks: live.upgrade.ticks,
-        infuse: machine::infuse_number(saved.tank.chemical.as_deref()),
-        infused: saved.tank.amount,
-        input: input_joules,
+        upgrade_ticks: 0,
+        infuse: infusion.map_or(0, |t| registry.number(t.stored.id())),
+        infused: infusion.map_or(0, |t| t.stored().max(0) as u64),
+        input,
         warnings,
     }
-    .pack();
+}
+
+/// What the separator's tick did, for its view.
+struct Separated {
+    per_tick: u64,
+    energy_used: u64,
+    warnings: i32,
+    active: bool,
+    fluid: FluidStack,
+}
+
+/// `TileEntityElectrolyticSeparator.onUpdateServer` after the ejector and the
+/// energy slot: the fluid slot fills the tank (`FluidInventorySlot.fillTank`),
+/// the recipe runs (`OneInputCachedRecipe.separating`), then each output tank
+/// dumps by its mode (`handleTank`). Its output slots hold chemical items,
+/// which aren't ported: they drain nothing.
+#[allow(clippy::too_many_arguments)]
+fn tick_separator(
+    game: &mut Game<'_>,
+    entity: &mut ModBlockEntity,
+    saved: &Saved,
+    tanks: &mut [ChemicalTank],
+    store: &mut EnergyContainer,
+    live: &mut Live,
+    registry: &ChemicalRegistry,
+    config: &EnergyConfig,
+) -> Separated {
+    let slots = MachineKind::ElectrolyticSeparator.slots();
+    let mut fluid = mek_world::saved_tank(&entity.nbt);
+    // The fluid slot: a container of a fluid it separates empties into the tank,
+    // a bucket only whole, when the tank is empty or holds the same fluid.
+    if let Some(stack) = stack_in(entity, slots.input).cloned()
+        && stack.count == 1
+        && fluid.amount() < separator::MAX_FLUID
+        && let Some(held) = game.native_item_fluid(&stack)
+        && let Some(held_stack) = held.fluid.as_deref().and_then(|f| FluidStack::of(f, held.amount))
+        && separates_fluid(&held_stack)
+        && (fluid.is_empty() || FluidStack::is_same_fluid_same_components(&fluid, &held_stack))
+    {
+        let room = separator::MAX_FLUID - fluid.amount().max(0);
+        let whole = horizon_world::fluid_stack::bucket_fluid(&stack.item).is_some();
+        let n = if whole { if held.amount <= room { held.amount } else { 0 } } else { held.amount.min(room) };
+        if n > 0
+            && let Some((_, took, after)) = game.native_item_fluid_drain(&stack, n)
+            && took > 0
+        {
+            fluid = if fluid.is_empty() { held_stack.copy_with_amount(took) } else { fluid.copy_with_amount(fluid.amount() + took) };
+            if let Some(cell) = entity.items.get_mut(slots.input) {
+                *cell = Some(after).filter(|s| s.count > 0);
+            }
+        }
+    }
+    let (baseline, dump_rate) = separator::speed(saved.upgrades.get(Upgrade::Speed));
+    let ratio = config.machines.dump_excess_keep_ratio;
+    let density = registry.get("mekanism:hydrogen").and_then(|c| c.fuel).map_or(0, |f| f.energy_density());
+    let recipe = find_separating(&fluid);
+    live.separating = recipe.as_ref().map(|r| r.id.clone());
+    let per_tick = separator::energy_per_tick(density, recipe.as_ref().map_or(1, |r| r.energy_multiplier));
+    let mut out = Separated { per_tick, energy_used: 0, warnings: 0, active: false, fluid: FluidStack::EMPTY };
+    if let Some(recipe) = &recipe {
+        let can = separator::can_function((saved.dumps[0], &tanks[0]), (saved.dumps[1], &tanks[1]), ratio);
+        let separation = Separation { input: i64::from(recipe.input.amount), left: recipe.left.clone(), right: recipe.right.clone() };
+        let (left, right) = tanks.split_at_mut(1);
+        let (ran, used) = separator::process(&separation, i64::from(fluid.amount()), &mut left[0], &mut right[0], store, per_tick, baseline, can);
+        if used > 0 {
+            let rest = fluid.amount() - used.min(i64::from(i32::MAX)) as i32;
+            fluid = if rest > 0 { fluid.copy_with_amount(rest) } else { FluidStack::EMPTY };
+        }
+        if ran.short_energy {
+            out.warnings |= menu::WARN_ENERGY;
+        }
+        if ran.left_full || ran.right_full {
+            out.warnings |= menu::WARN_OUTPUT;
+        }
+        if ran.short_input {
+            out.warnings |= menu::WARN_NO_RECIPE;
+        }
+        out.energy_used = ran.energy;
+        out.active = ran.operations > 0;
+    } else if !fluid.is_empty() {
+        out.warnings |= menu::WARN_NO_RECIPE;
+    }
+    for (tank, mode) in tanks.iter_mut().zip(saved.dumps) {
+        separator::handle_tank(tank, mode, dump_rate, config.machines.chemical_auto_eject, ratio);
+    }
+    out.fluid = fluid;
+    out
+}
+
+/// The separator's tick from its recipe on: the store, the activity, the saved
+/// compound and its view.
+#[allow(clippy::too_many_arguments)]
+fn finish_tick(
+    _game: &mut Game<'_>,
+    pos: [i32; 3],
+    entity: &mut ModBlockEntity,
+    kind: MachineKind,
+    mut saved: Saved,
+    before: &Saved,
+    tanks: &[ChemicalTank],
+    tanks_before: &[ChemicalTank],
+    store: EnergyContainer,
+    separated: Separated,
+    registry: &ChemicalRegistry,
+    id: (String, [i32; 3]),
+    live: Live,
+) {
+    let (config, _) = mek_world::energy_config();
+    saved.energy = store.stored;
+    saved.activity.set(separated.active, false, config.deactivation_delay);
+    write(&mut entity.nbt, &saved, before, kind);
+    if tanks != tanks_before {
+        write_chemicals(&mut entity.nbt, tanks);
+    }
+    if separated.fluid != mek_world::saved_tank(&entity.nbt) {
+        mek_world::write_tank(&mut entity.nbt, &separated.fluid);
+    }
+    let input = mek_world::take_received(pos);
+    let mut data = machine_view(&saved, &store, separated.per_tick, 0, tanks, registry, input, separated.warnings);
+    data.upgrade_ticks = live.upgrade.ticks;
+    let mut data = data.pack();
+    data.extend(separator_view(&saved, tanks, &separated.fluid, registry, separated.energy_used).pack());
+    entity.data = data;
     LIVE.with(|l| l.borrow_mut().insert(id, live));
+}
+
+fn separator_view(saved: &Saved, tanks: &[ChemicalTank], fluid: &FluidStack, registry: &ChemicalRegistry, energy_used: u64) -> SeparatorView {
+    let tank = |i: usize| tanks.get(i).map_or((0, 0), |t| (registry.number(t.stored.id()), t.stored().max(0) as u64));
+    let ((left, left_amount), (right, right_amount)) = (tank(0), tank(1));
+    SeparatorView {
+        fluid: if fluid.is_empty() { 0 } else { fluid.fluid().id() },
+        fluid_amount: fluid.amount().max(0) as u32,
+        left,
+        left_amount,
+        right,
+        right_amount,
+        dump_left: saved.dumps[0].id(),
+        dump_right: saved.dumps[1].id(),
+        energy_used,
+    }
+}
+
+/// The separator's chemical ejector (`TileComponentEjector.eject` with
+/// `ChemicalUtil.emit`): each output tank that isn't dumping
+/// (`setCanTankEject`) gives up to `rate` a tick, split evenly among the
+/// chemical handlers on the faces its config type (`OUTPUT_1` the left tank,
+/// `OUTPUT_2` the right) is on, as the separator itself (`INTERNAL`).
+fn eject_chemicals(game: &mut Game<'_>, pos: [i32; 3], facing: Direction, sides: &[DataType; 6], tanks: &mut [ChemicalTank], dumps: [GasMode; 2], rate: i64) {
+    let rules = separator::output_rules();
+    for (i, data) in [(0, DataType::Output1), (1, DataType::Output2)] {
+        let Some(tank) = tanks.get_mut(i) else {
+            continue;
+        };
+        if tank.is_empty() || dumps[i] == GasMode::Dumping {
+            continue;
+        }
+        let faces: Vec<Direction> = Direction::ALL
+            .into_iter()
+            .filter(|&d| sides[RelativeSide::from_directions(facing, d).index()] == data)
+            .collect();
+        if faces.is_empty() {
+            continue;
+        }
+        let offered = tank.extract(rate, true, Automation::Internal, &rules);
+        if offered.is_empty() {
+            continue;
+        }
+        let targets: Vec<Direction> = faces
+            .into_iter()
+            .filter(|&f| {
+                mek_chemicals::with_handler(game, mek_world::beside(pos, f), Some(f.opposite()), |h| h.insert(&offered, true).amount() < offered.amount())
+                    == Some(true)
+            })
+            .collect();
+        if targets.is_empty() {
+            continue;
+        }
+        let sent = split::send_to_acceptors(targets.len(), offered.amount().max(0) as u64, |t, amount, simulate| {
+            let face = targets[t];
+            let stack = offered.copy_with_amount(amount.min(i64::MAX as u64) as i64);
+            mek_chemicals::with_handler(game, mek_world::beside(pos, face), Some(face.opposite()), |h| h.insert(&stack, simulate).amount().max(0) as u64)
+                .unwrap_or(amount)
+        });
+        if sent > 0 {
+            tank.extract(sent.min(i64::MAX as u64) as i64, false, Automation::Internal, &rules);
+        }
+    }
 }
 
 /// `TileComponentEjector.outputItems`: the output slot's stack goes to each
@@ -863,18 +1170,120 @@ pub(super) fn fe_transfer(
     *moved = Some(i64::from(fe));
 }
 
+// ---- Chemicals and fluids from outside ---------------------------------------------
+
+/// The chemical handler of a machine through `face` (`Capabilities.CHEMICAL`
+/// over `ConfigChemicalTankHolder` and `ProxyChemicalHandler`): the tanks its
+/// chemical config puts on that side, taking in on an input side, giving out on
+/// an output side (`ChemicalSlotInfo`'s `canInput`, `canOutput`), as another
+/// block (`EXTERNAL`); the null side reads every tank and changes nothing. None
+/// for a side whose type is `NONE` and for a machine without chemicals. What
+/// `use_it` changed is saved.
+pub(super) fn chemical_handler<R>(
+    entity: &mut ModBlockEntity,
+    face: Option<Direction>,
+    registry: &ChemicalRegistry,
+    use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R,
+) -> Option<R> {
+    let kind = kind_of(&entity.id)?;
+    let saved = read(&entity.nbt, kind);
+    let config = saved.sides.chemicals?;
+    let mut tanks = read_chemicals(&entity.nbt, kind, registry);
+    let (shown, can_insert, can_extract): (Vec<usize>, bool, bool) = match face {
+        None => ((0..tanks.len()).collect(), false, false),
+        Some(f) => match (kind, config[RelativeSide::from_directions(saved.facing, f).index()]) {
+            (MachineKind::MetallurgicInfuser, DataType::Input) => (vec![0], true, false),
+            (MachineKind::MetallurgicInfuser, DataType::Output) => (vec![0], false, true),
+            (MachineKind::MetallurgicInfuser, DataType::InputOutput) => (vec![0], true, true),
+            (MachineKind::ElectrolyticSeparator, DataType::Output1) => (vec![0], false, true),
+            (MachineKind::ElectrolyticSeparator, DataType::Output2) => (vec![1], false, true),
+            _ => return None,
+        },
+    };
+    let before = tanks.clone();
+    let input = stack_in(entity, kind.slots().input).cloned();
+    let answer = {
+        let run = |rules: &TankRules<'_>| {
+            let list = tanks.iter_mut().enumerate().filter(|(i, _)| shown.contains(i)).map(|(_, t)| (t, rules)).collect();
+            let mut handler = SidedTanks { tanks: list, side: face.is_some(), can_insert, can_extract };
+            use_it(&mut handler)
+        };
+        if kind.infuses() { with_infuser_rules(input.as_ref(), registry, |rules| run(rules)) } else { run(&separator::output_rules()) }
+    };
+    if tanks != before {
+        write_chemicals(&mut entity.nbt, &tanks);
+    }
+    Some(answer)
+}
+
+/// The separator's fluid tank through `face` (`FluidTankHelper.forSideWithConfig`:
+/// its fluid config's `INPUT` sides, every side by default): None for any
+/// other machine or a closed side; else whether that side is the null one.
+fn separator_fluid_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<bool> {
+    let kind = kind_of(&entity.id).filter(|k| k.separates())?;
+    let saved = read(&entity.nbt, kind);
+    let fluids = saved.sides.fluids?;
+    match face {
+        None => Some(false),
+        Some(f) => (fluids[RelativeSide::from_directions(saved.facing, mek_world::mek_direction(f)).index()] == DataType::Input).then_some(true),
+    }
+}
+
+/// `native_fluid_handler_tanks` of the separator: its input tank (24 000 mB),
+/// which no other block drains (`BasicFluidTank.input`: `notExternal`).
+pub(super) fn fluid_tanks(entity: &ModBlockEntity, face: Option<Face>, tanks: &mut Option<Vec<NativeFluidTankInfo>>) -> bool {
+    if separator_fluid_side(entity, face).is_none() {
+        return false;
+    }
+    *tanks = Some(vec![NativeFluidTankInfo { stack: mek_world::saved_tank(&entity.nbt), capacity: separator::MAX_FLUID, drainable: false }]);
+    true
+}
+
+/// `native_fluid_handler_fill` of the separator: a fluid a separating recipe
+/// takes (`containsRecipe`), into an empty tank or one of the same fluid, what
+/// fits; the null side's proxy takes nothing.
+pub(super) fn fluid_fill(entity: &mut ModBlockEntity, face: Option<Face>, resource: &FluidStack, simulate: bool, filled: &mut Option<i32>) -> bool {
+    let Some(side) = separator_fluid_side(entity, face) else {
+        return false;
+    };
+    let tank = mek_world::saved_tank(&entity.nbt);
+    let same = tank.is_empty() || FluidStack::is_same_fluid_same_components(&tank, resource);
+    let took = if side && same && !resource.is_empty() && separates_fluid(resource) {
+        resource.amount().min(separator::MAX_FLUID - tank.amount().max(0)).max(0)
+    } else {
+        0
+    };
+    if took > 0 && !simulate {
+        let after = if tank.is_empty() { resource.copy_with_amount(took) } else { tank.copy_with_amount(tank.amount() + took) };
+        mek_world::write_tank(&mut entity.nbt, &after);
+    }
+    *filled = Some(took);
+    true
+}
+
+/// `native_fluid_handler_drain` of the separator: nothing leaves (`notExternal`).
+pub(super) fn fluid_drain(entity: &ModBlockEntity, face: Option<Face>, drained: &mut Option<FluidStack>) -> bool {
+    if separator_fluid_side(entity, face).is_none() {
+        return false;
+    }
+    *drained = Some(FluidStack::EMPTY);
+    true
+}
+
 // ---- Buttons and probes ---------------------------------------------------------------
 
 /// `native_menu_button` of a machine: its side configuration (energy, items,
-/// the infuser's chemicals), the upgrade window's uninstall, which puts the
-/// upgrades in the upgrade output slot as far as they fit
-/// (`TileComponentUpgrade.removeUpgrade`), and the infuser's dump.
+/// chemicals), the upgrade window's uninstall, which puts the upgrades in the
+/// upgrade output slot as far as they fit (`TileComponentUpgrade.removeUpgrade`),
+/// the infuser's dump (`IHasDumpButton.dump`: its tank emptied) and the
+/// separator's dump modes (`nextMode`).
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
     let (Some(kind), Some(button)) = (kind_of(&entity.id), MachineButton::from_id(id)) else {
         return;
     };
     let before = read(&entity.nbt, kind);
     let mut saved = before.clone();
+    let mut dumped = false;
     match button {
         MachineButton::Config(b) => {
             saved.sides.press(kind, b);
@@ -906,19 +1315,33 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
                 }
             }
         }
-        MachineButton::Dump => saved.tank = Tank::default(),
+        MachineButton::Dump if kind.infuses() => dumped = entity.nbt.remove(&key("chemical_tanks")).is_some(),
+        MachineButton::NextMode(tank) if kind.separates() => {
+            let t = usize::from(tank.min(1));
+            saved.dumps[t] = saved.dumps[t].next();
+        }
+        _ => {}
     }
-    if saved != before {
-        write(&mut entity.nbt, &saved, &before);
+    if saved != before || dumped {
+        write(&mut entity.nbt, &saved, &before, kind);
         let mut view = MachineView::unpack(&entity.data).unwrap_or_default();
+        let extra = SeparatorView::unpack(&entity.data);
         view.energy = saved.sides.energy;
         view.items = saved.sides.items;
         view.chemicals = saved.sides.chemicals;
         view.items_eject = saved.sides.items_eject;
         view.upgrades = saved.upgrades;
-        view.infuse = machine::infuse_number(saved.tank.chemical.as_deref());
-        view.infused = saved.tank.amount;
-        entity.data = view.pack();
+        if dumped {
+            view.infuse = 0;
+            view.infused = 0;
+        }
+        let mut data = view.pack();
+        if let Some(mut extra) = extra {
+            extra.dump_left = saved.dumps[0].id();
+            extra.dump_right = saved.dumps[1].id();
+            data.extend(extra.pack());
+        }
+        entity.data = data;
     }
 }
 
@@ -928,19 +1351,24 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
         return serde_json::json!({ "pos": pos, "id": id, "error": "not a machine" });
     };
     let (config, from_files) = mek_world::energy_config();
+    let registry = mek_chemicals::registry(game);
     let saved = read(nbt, kind);
     let view = MachineView::unpack(data).unwrap_or_default();
     let live = LIVE.with(|l| l.borrow().get(&live_key(game.native_dimension(), pos)).cloned()).unwrap_or_default();
     let names = |sides: &[DataType; 6]| -> serde_json::Map<String, serde_json::Value> {
-        mekanism_energy::sides::RelativeSide::ALL.iter().map(|s| (s.name().to_owned(), sides[s.index()].name().into())).collect()
+        RelativeSide::ALL.iter().map(|s| (s.name().to_owned(), sides[s.index()].name().into())).collect()
     };
     let slots: Vec<serde_json::Value> = items
         .iter()
         .take(kind.slots().count)
         .map(|s| s.as_ref().map_or(serde_json::Value::Null, |s| serde_json::json!({ "item": &*s.item, "count": s.count })))
         .collect();
+    let tanks: Vec<serde_json::Value> = read_chemicals(nbt, kind, &registry)
+        .iter()
+        .map(|t| serde_json::json!({ "chemical": t.stored.id(), "amount": t.stored(), "capacity": t.capacity }))
+        .collect();
     let (usage, storage) = config.machines.of(kind);
-    serde_json::json!({
+    let mut out = serde_json::json!({
         "pos": pos,
         "id": id,
         "energy": saved.energy,
@@ -951,17 +1379,29 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
         "active": saved.activity.current,
         "shown_active": game.native_block_property(pos, "active").as_deref() == Some("true"),
         "facing": saved.facing.name(),
-        "recipe": live.recipe.as_ref().map(|(_, r)| r.id.clone()),
+        "recipe": live.recipe.as_ref().map(|(_, r)| r.id.clone()).or(live.separating.clone()),
         "upgrades": Upgrade::ALL.iter().filter(|u| saved.upgrades.get(**u) > 0).map(|u| (u.name().to_owned(), saved.upgrades.get(*u).into())).collect::<serde_json::Map<String, serde_json::Value>>(),
         "upgrade_ticks": live.upgrade.ticks,
         "energy_config": names(&saved.sides.energy),
         "item_config": names(&saved.sides.items),
         "item_eject": saved.sides.items_eject,
         "chemical_config": saved.sides.chemicals.as_ref().map(names),
-        "tank": { "chemical": saved.tank.chemical, "amount": saved.tank.amount },
+        "chemical_eject": saved.sides.chemicals_eject,
+        "fluid_config": saved.sides.fluids.as_ref().map(names),
+        "tank": tanks.first().cloned(),
+        "tanks": tanks,
         "slots": slots,
         "warnings": view.warnings,
-        "config": { "from_files": from_files, "usage": usage, "storage": storage, "max_upgrade_multiplier": config.machines.max_upgrade_multiplier },
-        "recipes": BOOK.with(|b| b.borrow().recipes.get(&kind).map_or(0, Vec::len)),
-    })
+        "config": { "from_files": from_files, "usage": usage, "storage": storage, "max_upgrade_multiplier": config.machines.max_upgrade_multiplier,
+                    "chemical_auto_eject": config.machines.chemical_auto_eject, "dump_excess_keep_ratio": config.machines.dump_excess_keep_ratio },
+        "recipes": BOOK.with(|b| if kind.separates() { b.borrow().separating.len() } else { b.borrow().recipes.get(&kind).map_or(0, Vec::len) }),
+    });
+    if kind.separates() {
+        let fluid = mek_world::saved_tank(nbt);
+        let extra = SeparatorView::unpack(data).unwrap_or_default();
+        out["fluid"] = serde_json::json!({ "id": (!fluid.is_empty()).then(|| fluid.fluid().name()), "amount": fluid.amount() });
+        out["dumps"] = serde_json::json!([saved.dumps[0].name(), saved.dumps[1].name()]);
+        out["energy_used"] = extra.energy_used.into();
+    }
+    out
 }

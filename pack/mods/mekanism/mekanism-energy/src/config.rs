@@ -55,11 +55,16 @@ impl Default for EnergyConfig {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MachinesConfig {
     /// Joules a tick of each machine, in `MachineKind::ALL` order, 0 or more.
-    pub usage: [u64; 4],
+    pub usage: [u64; 5],
     /// Joules each machine holds, 1 or more.
-    pub storage: [u64; 4],
+    pub storage: [u64; 5],
     /// `maxUpgradeMultiplier`: how far eight upgrades of a kind go, more than 1.
     pub max_upgrade_multiplier: f64,
+    /// `general.toml` `[auto_eject] chemical`: mB a tick a block ejects of
+    /// each chemical tank, and the most a tank dumping excess loses a tick, 1 or more.
+    pub chemical_auto_eject: i64,
+    /// `[auto_eject] dumpExcessKeepRatio`: what a tank dumping excess keeps, 0.001..=1.
+    pub dump_excess_keep_ratio: f64,
 }
 
 impl Default for MachinesConfig {
@@ -68,6 +73,8 @@ impl Default for MachinesConfig {
             usage: MachineKind::ALL.map(MachineKind::default_usage),
             storage: MachineKind::ALL.map(MachineKind::default_storage),
             max_upgrade_multiplier: 10.0,
+            chemical_auto_eject: 1024,
+            dump_excess_keep_ratio: 0.85,
         }
     }
 }
@@ -79,6 +86,17 @@ impl MachinesConfig {
             && v > 1
         {
             config.max_upgrade_multiplier = v as f64;
+        }
+        let eject = general.and_then(|g| g.get("auto_eject")).and_then(toml::Value::as_table);
+        if let Some(v) = eject.and_then(|e| e.get("chemical")).and_then(toml::Value::as_integer)
+            && v >= 1
+        {
+            config.chemical_auto_eject = v;
+        }
+        if let Some(v) = eject.and_then(|e| e.get("dumpExcessKeepRatio")).and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
+            && (0.001..=1.0).contains(&v)
+        {
+            config.dump_excess_keep_ratio = v;
         }
         for (i, kind) in MachineKind::ALL.into_iter().enumerate() {
             if let Some(v) = usage.and_then(|t| t.get(kind.config_key())).and_then(toml::Value::as_integer)
@@ -352,6 +370,10 @@ mod tests {
     fn atm10_machine_files_override_the_defaults() {
         // ATM10 8.4's general.toml, machine-usage.toml and machine-storage.toml, the keys this port reads.
         let general: toml::Table = "maxUpgradeMultiplier = 16
+[auto_eject]
+fluid = 1024
+chemical = 1024
+dumpExcessKeepRatio = 0.85
 ".parse().unwrap();
         let usage: toml::Table = "enrichmentChamber = 50
 crusher = 50
@@ -365,6 +387,8 @@ energizedSmelter = 20000
 ".parse().unwrap();
         let m = MachinesConfig::from_tables(Some(&general), Some(&usage), Some(&storage));
         assert_eq!(m.max_upgrade_multiplier, 16.0);
+        assert_eq!((m.chemical_auto_eject, m.dump_excess_keep_ratio), (1024, 0.85));
+        assert_eq!(m.of(MachineKind::ElectrolyticSeparator), (400, 160_000), "Mekanism's own defaults");
         assert_eq!(m.of(MachineKind::Crusher), (50, 20_000));
         assert_eq!(MachinesConfig::from_tables(None, None, None).max_upgrade_multiplier, 10.0, "Mekanism's own default");
         let odd: toml::Table = "crusher = 0

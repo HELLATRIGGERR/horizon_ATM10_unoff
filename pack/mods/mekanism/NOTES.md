@@ -31,9 +31,20 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   handler (`fluid_handler_tanks`, `fluid_handler_fill`, `fluid_handler_drain`): every side but the front, lava from any
   block, none out; its fuel slot fills it through the item's fluid handler; `fluid_tanks` is read and written as a
   `FluidStack`. World test `heat-generator-tank` (AE2's export, storage and import buses against it).
-- Next: S10 (the NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`; the machines' next tier (factories, the Osmium Compressor,
-  Combiner, Purification Chamber) on the same `machine` crate module, energy items charging machines, chemicals as a
-  capability for the infuser's tank.
+- Chemicals, slice 1 (`docs/mekanism-chemicals.md`, branch `feat/mek-chemicals-1`, hook points API 162): the
+  `mekanism:chemical` registry from the content's declarations (`data/<ns>/mekanism/chemical/`, written by
+  `mekanism-content --chemicals` from the server oracle's chemicals-only run, `ChemicalFacts`: 112 chemicals in ATM10
+  8.4, Mekanism's 64 and Generators' 3 declared), listed with the engine's new `native_data_files`;
+  `mekanism_energy::chemical` (stacks and their saved and recipe codecs, `BasicChemicalTank`, the chemical handler by
+  side, ingredients, the ejector's split) and `separator`; the Metallurgic Infuser's tank as a real chemical tank behind
+  its chemical sides; the Electrolytic Separator (fluid tank and fluid handler, two output tanks, dump modes,
+  ejection, upgrades, screen), its numbers measured on NeoForge over RCON (local `chem-work/separator`). World tests
+  `electrolytic-separator`, `infuser-chemical-tank`; `/mek chemical <pos> <face|none> ...` and `/mek chemicals [id]`.
+- Next: chemicals slices 2-7 (`docs/mekanism-chemicals.md`: chemical tanks and items, Pressurized Tubes, more chemical
+  machines, radiation, Applied Mekanistics after AE2's key type registry, the rest of the pack's chemicals); S10 (the
+  NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`;
+  the machines' next tier (factories, the Osmium Compressor, Combiner, Purification Chamber) on the same `machine`
+  crate module, energy items charging machines.
 
 ## How to run
 
@@ -41,6 +52,10 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
     bash /c/PET/atm10-work/wait-slot.sh 3   # before each cargo command or game start
     export MEK_JOBS=3 ATM10_DIR='C:\Users\User\curseforge\minecraft\Instances\All the Mods 10 - ATM10' AE2_TEST_STARTUP_MS=600000
     bun run pack/scripts/mekanism.ts content units stage build world   # MEK_TESTS=energy-cube-tiers picks one
+
+The chemicals come from the server oracle's chemicals-only run (`-Dhorizon.oracle.chemicals_only=true` in
+`HORIZON_ORACLE_JVM` with `tools/neoforge_oracle.py pack`, about 5 minutes): pass its `facts.json` as `MEK_CHEMICALS`
+to the `content` step, or the content mods declare none and the infuser and separator find no recipe.
 
 The carries come from the player's jars: `horizon-port-pack carry <work> --resources <prepared 26.3> mekanism
 mekanismgenerators` on a work folder imported from the ATM10 instance (see `pack/scripts/mekanism.ts` for the paths it

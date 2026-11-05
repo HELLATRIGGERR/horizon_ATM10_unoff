@@ -13,6 +13,8 @@
 //                                                    .local/horizon-client/26.3 of this or the main checkout
 //   MEK_PACK         the full pack's own carry, whose tags of `minecraft`, `c`... name Mekanism's blocks and items
 //                                                    `atm10-pack` beside MEK_CARRY, if there is one
+//   MEK_CHEMICALS    the NeoForge oracle's chemical facts (`facts.json` of its chemicals-only run,
+//                    docs/mekanism-chemicals.md), declared into the content mods; none: no chemicals
 //   MEK_STAGE        the staged, modded source       <base>/stage-mek
 //   MEK_TARGET       the staged game's target dir    <base>/.build/target-mek-game
 //   MEK_TOOL_TARGET  target dir of the pack's crates <base>/.build/target-mek
@@ -86,9 +88,10 @@ const steps: Record<string, () => Promise<void>> = {
     // A full pack's carries keep the tags of the namespaces no mod owns in the pack's own carry.
     const pack = env('MEK_PACK', join(dirname(carry), 'atm10-pack'));
     const packArgs = existsSync(join(pack, 'data')) ? ['--pack', pack] : [];
+    const chemicals = process.env.MEK_CHEMICALS ? ['--chemicals', resolve(process.env.MEK_CHEMICALS)] : [];
     for (const [from, to] of [[carry, content], [genCarry, genContent]]) {
       await run(['cargo', 'run', '--offline', '-q', '-j', jobs, '--manifest-path', join(bundle, 'mekanism-content/Cargo.toml'), '--target-dir', toolTarget,
-        '--', '--carry', from, '--overlay', join(bundle, 'content'), '--out', to, '--vanilla', vanilla, ...packArgs]);
+        '--', '--carry', from, '--overlay', join(bundle, 'content'), '--out', to, '--vanilla', vanilla, ...packArgs, ...chemicals]);
     }
   },
   async units() {

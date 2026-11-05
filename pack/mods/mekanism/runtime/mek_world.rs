@@ -1259,7 +1259,7 @@ fn generator_store(nbt: &Compound, kind: GeneratorKind, config: &EnergyConfig) -
 /// amount: 1000}}]` (`IExtendedFluidTank.serializeNBT`, `stored` a
 /// `FluidStack.save`), left out when empty; a fluid the registry lacks reads
 /// as empty, as `FluidStack.parseOptional` reads it.
-fn saved_tank(nbt: &Compound) -> FluidStack {
+pub(super) fn saved_tank(nbt: &Compound) -> FluidStack {
     let Some(Tag::List(list)) = nbt.get(&key("fluid_tanks")) else {
         return FluidStack::EMPTY;
     };
@@ -1274,7 +1274,7 @@ fn saved_tank(nbt: &Compound) -> FluidStack {
         .unwrap_or(FluidStack::EMPTY)
 }
 
-fn write_tank(nbt: &mut Compound, tank: &FluidStack) {
+pub(super) fn write_tank(nbt: &mut Compound, tank: &FluidStack) {
     let Some(stored) = tank.save() else {
         nbt.remove(&key("fluid_tanks"));
         return;
@@ -1314,7 +1314,7 @@ pub(super) fn fluid_tanks(
     entity: &ModBlockEntity,
     tanks: &mut Option<Vec<NativeFluidTankInfo>>,
 ) {
-    if tanks.is_some() || heat_tank_side(entity, face).is_none() {
+    if tanks.is_some() || mek_machines::fluid_tanks(entity, face, tanks) || heat_tank_side(entity, face).is_none() {
         return;
     }
     let (config, _) = energy_config();
@@ -1338,7 +1338,7 @@ pub(super) fn fluid_fill(
     simulate: bool,
     filled: &mut Option<i32>,
 ) {
-    if filled.is_some() {
+    if filled.is_some() || mek_machines::fluid_fill(entity, face, resource, simulate, filled) {
         return;
     }
     let Some(side) = heat_tank_side(entity, face) else {
@@ -1376,7 +1376,7 @@ pub(super) fn fluid_drain(
     _simulate: bool,
     drained: &mut Option<FluidStack>,
 ) {
-    if drained.is_some() {
+    if drained.is_some() || mek_machines::fluid_drain(entity, face, drained) {
         return;
     }
     let Some(side) = heat_tank_side(entity, face) else {
@@ -1765,6 +1765,9 @@ impl StrictEnergy for GeneratorSide {
 pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek probe <pos:block_pos>", 2));
     commands.push(NativeCommand::op("mek connection <pos:block_pos> <side:word> <type:word>", 2));
+    commands.push(NativeCommand::op("mek chemical <pos:block_pos> <args:text>", 2));
+    commands.push(NativeCommand::op("mek chemicals", 2));
+    commands.push(NativeCommand::op("mek chemicals <id:word>", 2));
 }
 
 /// A coordinate of the command line: a number, or `~`/`~n` from the player.
@@ -1801,6 +1804,16 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
                 _ => serde_json::json!({ "error": "usage: /mek connection <x> <y> <z> <side> <type>" }),
             }
         }
+        Some("chemical") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            let rest: Vec<&str> = words.collect();
+            match at {
+                (Some(x), Some(y), Some(z)) => super::mek_chemicals::command(game, [x, y, z], &rest),
+                _ => serde_json::json!({ "error": "usage: /mek chemical <x> <y> <z> <face|none> ..." }),
+            }
+        }
+        Some("chemicals") => super::mek_chemicals::registry_command(game, words.next()),
         _ => serde_json::json!({ "error": "usage: /mek probe <x> <y> <z>" }),
     };
     let mut answer = answer;

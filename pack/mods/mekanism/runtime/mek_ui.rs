@@ -7,9 +7,10 @@
 // Solar and Heat Generators' screens (`GuiSolarGenerator`, `GuiHeatGenerator`)
 // are drawn the same way, with Mekanism Generators' textures for the sun, and
 // so are the processing machines' (`GuiElectricMachine`,
-// `GuiMetallurgicInfuser`): their slots, progress, power bar, the infuser's
-// infusion bar and dump button, the side configuration with energy, item and
-// chemical pages, and the upgrade window. A machine's slots fill its panel,
+// `GuiMetallurgicInfuser`, `GuiElectrolyticSeparator`): their slots, progress,
+// power bar, the infuser's infusion bar and dump button, the separator's
+// fluid and chemical gauges and dump modes, the side configuration with
+// energy, item and chemical pages, and the upgrade window. A machine's slots fill its panel,
 // so its windows open beside it, on the left, and the upgrade component's
 // two slots sit in a holder on the right, under the upgrade tab (Mekanism
 // shows them only in its upgrade window).
@@ -24,15 +25,17 @@
 // It also writes a cube item's tooltip (stored energy and capacity) and its
 // energy bar, from the energy its custom data keeps (`mek_world::item_data`).
 
-use super::{Game, native_hooks::NativeScreen};
+use super::{Game, mek_chemicals, native_hooks::NativeScreen};
 use horizon_client::{hud::HudBatch, items::ItemStack, text::Text};
+use horizon_world::fluid::FluidKind;
 use mekanism_energy::{
     config::{self, EnergyConfig},
     cube,
     display,
     generator::GeneratorKind,
     machine::{self, MachineKind, Upgrade},
-    menu::{Button, GeneratorView, Kind, MachineButton, MachineView, View},
+    menu::{Button, GeneratorView, Kind, MachineButton, MachineView, SeparatorView, View},
+    separator::{self, GasMode},
     sides::{DataType, RelativeSide},
     tier::CubeTier,
 };
@@ -262,7 +265,7 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         return;
     }
     if let Some(kind) = MachineKind::of_block(block) {
-        lines.extend(machine_tip(kind, &MachineView::unpack(data).unwrap_or_default(), &settings(), at));
+        lines.extend(machine_tip(kind, data, &settings(), at));
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -421,7 +424,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         let cursor = game.native_cursor();
         let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
         let mut pen = Pen { game, batch, origin, cursor };
-        draw_machine(&mut pen, kind, &MachineView::unpack(data).unwrap_or_default(), &settings());
+        draw_machine(&mut pen, kind, data, &settings());
         return;
     }
     let Some(tier) = CubeTier::of_block(block) else {
@@ -653,14 +656,32 @@ const UPGRADE_SLOTS: [[f32; 2]; 2] = [[181.0, 39.0], [181.0, 61.0]];
 const MACHINE_WINDOW: Rect = [-134.0, 2.0, 104.0, 81.0];
 /// The infuser's dump button (`GuiDumpButton`).
 const DUMP: Rect = [16.0, 59.0, 21.0, 10.0];
-/// `GuiVerticalPowerBar` of each: the electric machines' at y 16, the infuser's at 15.
+/// `GuiVerticalPowerBar` of each: the electric machines' at y 16, the infuser's
+/// and the separator's at 15.
 fn machine_power_bar(kind: MachineKind) -> Rect {
-    if kind.infuses() { [164.0, 15.0, 6.0, 54.0] } else { [164.0, 16.0, 6.0, 54.0] }
+    if kind.infuses() || kind.separates() { [164.0, 15.0, 6.0, 54.0] } else { [164.0, 16.0, 6.0, 54.0] }
 }
-/// `GuiProgress`: `BAR` at (86, 38), the infuser's `RIGHT` at (72, 47).
+/// `GuiProgress`: `BAR` at (86, 38), the infuser's `RIGHT` at (72, 47); the
+/// separator has none that fills (`BI`, drawn as its arrows).
 fn machine_progress(kind: MachineKind) -> Rect {
-    if kind.infuses() { [72.0, 47.0, 32.0, 8.0] } else { [86.0, 38.0, 25.0, 9.0] }
+    if kind.separates() {
+        [0.0, 0.0, 0.0, 0.0]
+    } else if kind.infuses() {
+        [72.0, 47.0, 32.0, 8.0]
+    } else {
+        [86.0, 38.0, 25.0, 9.0]
+    }
 }
+/// The separator's gauges (`GuiFluidGauge` STANDARD at (5, 10), the left and
+/// right `GuiChemicalGauge` SMALL at (58, 18) and (100, 18)) and its dump mode
+/// buttons (`GuiGasMode` at (7, 72) and (159, 72)).
+const FLUID_GAUGE: Rect = [5.0, 10.0, 18.0, 60.0];
+const LEFT_GAUGE: Rect = [58.0, 18.0, 18.0, 30.0];
+const RIGHT_GAUGE: Rect = [100.0, 18.0, 18.0, 30.0];
+const LEFT_MODE: Rect = [7.0, 72.0, 10.0, 10.0];
+const RIGHT_MODE: Rect = [159.0, 72.0, 10.0, 10.0];
+/// The infuser's tank, in mB (`MAX_INFUSE`).
+const INFUSE_TANK: f64 = 1000.0;
 /// `GuiChemicalBar` of the infuser's tank: its frame (the bar inside is 4x52).
 const INFUSE_BAR: Rect = [7.0, 15.0, 6.0, 54.0];
 
@@ -669,6 +690,8 @@ const INFUSE_BAR: Rect = [7.0, 15.0, 6.0, 54.0];
 fn machine_slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
     let mut slots: Vec<Option<[f32; 2]>> = if kind.infuses() {
         vec![Some([17.0, 35.0]), Some([51.0, 43.0]), Some([109.0, 43.0]), Some([143.0, 35.0])]
+    } else if kind.separates() {
+        vec![Some([26.0, 35.0]), Some([59.0, 52.0]), Some([101.0, 52.0]), Some([143.0, 35.0])]
     } else {
         vec![Some([64.0, 17.0]), Some([116.0, 35.0]), Some([64.0, 53.0])]
     };
@@ -814,34 +837,61 @@ fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &Energ
     if inside(machine_power_bar(kind), at) {
         return Some(MachineHit::Tip(vec![display::fraction(view.stored, view.capacity, settings)]));
     }
-    if inside(machine_progress(kind), at) {
+    if kind.progresses() && inside(machine_progress(kind), at) {
         let share = if view.required == 0 { 0.0 } else { f64::from(view.progress) / f64::from(view.required) };
         return Some(MachineHit::Tip(vec![format!("Progress: {}%", (share * 100.0).floor())]));
     }
     if kind.infuses() && inside(INFUSE_BAR, at) {
-        let line = match machine::infuse_of_number(view.infuse) {
-            _ if view.infused == 0 => "Empty".to_owned(),
-            Some((id, _)) => format!("{}: {} mB", infuse_name(id), display::thousands(view.infused)),
-            None => format!("{} mB", display::thousands(view.infused)),
-        };
-        return Some(MachineHit::Tip(vec![line]));
+        return Some(MachineHit::Tip(vec![chemical_line(view.infuse, view.infused)]));
     }
     None
 }
 
-/// An infuse type's name (`chemical.mekanism.<name>`).
-fn infuse_name(id: &str) -> &'static str {
-    match id {
-        "mekanism:carbon" => "Carbon",
-        "mekanism:redstone" => "Redstone",
-        "mekanism:diamond" => "Diamond",
-        "mekanism:refined_obsidian" => "Refined Obsidian",
-        "mekanism:bio" => "Biomass",
-        "mekanism:fungi" => "Fungi",
-        "mekanism:gold" => "Gold",
-        "mekanism:tin" => "Tin",
-        _ => "Chemical",
+/// A chemical tank's tooltip line: its chemical's name and mB, or "Empty".
+fn chemical_line(number: i32, amount: u64) -> String {
+    if amount == 0 {
+        return "Empty".to_owned();
     }
+    match mek_chemicals::loaded().as_deref().and_then(|r| r.by_number(number).map(mek_chemicals::name)) {
+        Some(name) => format!("{name}: {} mB", display::thousands(amount)),
+        None => format!("{} mB", display::thousands(amount)),
+    }
+}
+
+/// A chemical's bar colour (`getColorRepresentation`), grey when unknown.
+fn chemical_color(game: &Game<'_>, number: i32) -> u32 {
+    mek_chemicals::registry(game).by_number(number).map_or(0x808080, |c| c.color & 0xFF_FFFF)
+}
+
+/// The separator's own hits: its gauges' tooltips and its dump mode buttons.
+fn separator_hit(extra: &SeparatorView, at: [f32; 2]) -> Option<MachineHit> {
+    let mode = |m: i32| match GasMode::by_id(m) {
+        GasMode::Idle => "Idle",
+        GasMode::DumpingExcess => "Dumping Excess",
+        GasMode::Dumping => "Dumping",
+    };
+    if inside(LEFT_MODE, at) {
+        return Some(MachineHit::Press(MachineButton::NextMode(0)));
+    }
+    if inside(RIGHT_MODE, at) {
+        return Some(MachineHit::Press(MachineButton::NextMode(1)));
+    }
+    if inside(FLUID_GAUGE, at) {
+        let line = if extra.fluid_amount == 0 {
+            "Empty".to_owned()
+        } else {
+            let name = FluidKind::from_id(u32::from(extra.fluid)).map_or("Fluid", |f| if f == FluidKind::Water { "Water" } else { f.name() });
+            format!("{name}: {} mB", display::thousands(u64::from(extra.fluid_amount)))
+        };
+        return Some(MachineHit::Tip(vec![line]));
+    }
+    if inside(LEFT_GAUGE, at) {
+        return Some(MachineHit::Tip(vec![chemical_line(extra.left, extra.left_amount), format!("Mode: {}", mode(extra.dump_left))]));
+    }
+    if inside(RIGHT_GAUGE, at) {
+        return Some(MachineHit::Tip(vec![chemical_line(extra.right, extra.right_amount), format!("Mode: {}", mode(extra.dump_right))]));
+    }
+    None
 }
 
 fn upgrade_name(upgrade: Upgrade) -> &'static str {
@@ -869,7 +919,8 @@ fn upgrade_effect(upgrade: Upgrade, installed: u32, settings: &EnergyConfig) -> 
 fn machine_click(kind: MachineKind, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
     let view = MachineView::unpack(data).unwrap_or_default();
     let page = PAGE.with(Cell::get);
-    let Some(MachineHit::Press(pressed)) = machine_hit(kind, page, &view, &settings(), at, right) else {
+    let own = if page == 0 { SeparatorView::unpack(data).and_then(|extra| separator_hit(&extra, at)) } else { None };
+    let Some(MachineHit::Press(pressed)) = own.or_else(|| machine_hit(kind, page, &view, &settings(), at, right)) else {
         return;
     };
     if let MachineButton::Config(Button::Page(p)) = pressed {
@@ -878,8 +929,18 @@ fn machine_click(kind: MachineKind, data: &[i32], at: [f32; 2], right: bool, but
     *button = Some(pressed.id());
 }
 
-fn machine_tip(kind: MachineKind, view: &MachineView, settings: &EnergyConfig, at: [f32; 2]) -> Vec<String> {
+fn machine_tip(kind: MachineKind, data: &[i32], settings: &EnergyConfig, at: [f32; 2]) -> Vec<String> {
     let page = PAGE.with(Cell::get);
+    let view = &MachineView::unpack(data).unwrap_or_default();
+    if page == 0
+        && let Some(extra) = SeparatorView::unpack(data)
+    {
+        match separator_hit(&extra, at) {
+            Some(MachineHit::Tip(tip)) => return tip,
+            Some(MachineHit::Press(_)) => return vec!["Dump mode (click: next)".into()],
+            None => {}
+        }
+    }
     if inside(CONFIG_BUTTON, at) {
         return vec!["Side Configuration".into()];
     }
@@ -895,6 +956,7 @@ fn machine_tip(kind: MachineKind, view: &MachineView, settings: &EnergyConfig, a
         Some(MachineHit::Press(b)) => vec![
             match b {
                 MachineButton::Dump => "Dump",
+                MachineButton::NextMode(_) => "Dump mode",
                 MachineButton::Remove { .. } => "Uninstall (right click: all)",
                 MachineButton::Config(Button::Page(0)) => "Close",
                 MachineButton::Config(Button::Page(1)) => "Energy",
@@ -911,8 +973,49 @@ fn machine_tip(kind: MachineKind, view: &MachineView, settings: &EnergyConfig, a
     }
 }
 
-/// `GuiElectricMachine` / `GuiMetallurgicInfuser` and their windows.
-fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, settings: &EnergyConfig) {
+/// A gauge (`GuiGauge`): its frame, what it holds from the bottom in `rgb`, and
+/// its scale over it.
+fn gauge(pen: &mut Pen<'_, '_>, r: Rect, level: f64, rgb: u32, scale: &str) {
+    pen.nine("gauge/normal", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], r);
+    let inner = r[3] - 2.0;
+    let h = (level.clamp(0.0, 1.0) * f64::from(inner)) as i32 as f32;
+    if h > 0.0 {
+        pen.fill([r[0] + 1.0, r[1] + 1.0 + inner - h, r[2] - 2.0, h], 0xFF00_0000 | rgb);
+    }
+    pen.whole(scale, [16.0, r[3] - 2.0], [r[0] + 1.0, r[1] + 1.0, 16.0, r[3] - 2.0]);
+}
+
+/// The fluid's colour in a gauge: water's, else its type's tint.
+fn fluid_color(fluid: u16) -> u32 {
+    match FluidKind::from_id(u32::from(fluid)) {
+        Some(FluidKind::Water) | Some(FluidKind::FlowingWater) | None => 0x3F76E4,
+        Some(f) => horizon_world::mod_fluids::mod_fluids().iter().find(|m| m.id == f.name()).map_or(0x808080, |m| m.tint & 0xFF_FFFF),
+    }
+}
+
+/// `GuiElectrolyticSeparator`'s own elements: the fluid gauge, the two
+/// chemical gauges and the dump mode buttons.
+fn draw_separator(pen: &mut Pen<'_, '_>, extra: &SeparatorView) {
+    gauge(pen, FLUID_GAUGE, f64::from(extra.fluid_amount) / f64::from(separator::MAX_FLUID), fluid_color(extra.fluid), "gauge/standard");
+    let max = separator::MAX_GAS as f64;
+    let left = chemical_color(pen.game, extra.left);
+    let right = chemical_color(pen.game, extra.right);
+    gauge(pen, LEFT_GAUGE, extra.left_amount as f64 / max, left, "gauge/small");
+    gauge(pen, RIGHT_GAUGE, extra.right_amount as f64 / max, right, "gauge/small");
+    for (r, mode) in [(LEFT_MODE, extra.dump_left), (RIGHT_MODE, extra.dump_right)] {
+        let name = match GasMode::by_id(mode) {
+            GasMode::Idle => "gas_mode_idle",
+            GasMode::DumpingExcess => "gas_mode_excess",
+            GasMode::Dumping => "gas_mode_dump",
+        };
+        pen.whole(name, [10.0, 10.0], r);
+    }
+}
+
+/// `GuiElectricMachine` / `GuiMetallurgicInfuser` / `GuiElectrolyticSeparator`
+/// and their windows.
+fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings: &EnergyConfig) {
+    let view = &MachineView::unpack(data).unwrap_or_default();
     let page = PAGE.with(Cell::get);
     pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, 176.0, 166.0]);
     // The tabs: side configuration (left), energy (left, bottom), upgrades (right).
@@ -935,7 +1038,7 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, se
     let s = kind.slots();
     for (i, at) in machine_slots(kind).into_iter().take(s.count - 2).enumerate() {
         let Some([x, y]) = at else { continue };
-        let (frame, overlay) = if i == s.output {
+        let (frame, overlay) = if i == s.output || Some(i) == s.output2 {
             ("output", None)
         } else if i == s.energy {
             ("power", Some("overlay_power"))
@@ -961,7 +1064,11 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, se
     let progress = machine_progress(kind);
     let share = if view.required == 0 { 0.0 } else { (f64::from(view.progress) / f64::from(view.required)).min(1.0) };
     let [px, py, pw, ph] = progress;
-    if kind.infuses() {
+    if kind.separates() {
+        if let Some(extra) = SeparatorView::unpack(data) {
+            draw_separator(pen, &extra);
+        }
+    } else if kind.infuses() {
         pen.sprite("progress/right", [0.0, 0.0, pw, ph], progress);
         let done = (share * f64::from(pw)) as i32 as f32;
         if done > 0.0 {
@@ -980,10 +1087,10 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, se
         // The infusion bar (`GuiChemicalBar`): the infuse type's colour from
         // the bottom (Mekanism tints its texture with it), and the dump button.
         pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], INFUSE_BAR);
-        let level = (view.infused as f64 / machine::INFUSE_TANK as f64).min(1.0);
+        let level = (view.infused as f64 / INFUSE_TANK).min(1.0);
         let h = (level * 52.0) as i32 as f32;
         if h > 0.0 {
-            let tint = machine::infuse_of_number(view.infuse).map_or(0x808080, |(_, tint)| tint);
+            let tint = chemical_color(pen.game, view.infuse);
             pen.fill([INFUSE_BAR[0] + 1.0, INFUSE_BAR[1] + 53.0 - h, 4.0, h], 0xFF00_0000 | tint);
         }
         pen.sprite("dump", [0.0, 0.0, 21.0, 10.0], DUMP);

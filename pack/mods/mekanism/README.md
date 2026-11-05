@@ -1,7 +1,7 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its first processing machines and Mekanism Generators' Solar and Heat Generators for All the
-Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+Mekanism's energy blocks, its first processing machines, its chemicals and Mekanism Generators' Solar and Heat
+Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -54,7 +54,18 @@ assets when `mekanism-content` is given them.
 - Their energy slot turns redstone into Joules (`mekanism:energy_conversion`) when it all fits; the infuser's infusion
   slot turns items into its infuse type (`mekanism:chemical_conversion`: carbon, redstone, diamond, refined obsidian,
   bio, fungi, gold, tin), one item a tick, into a 1000 mB tank of one type, used when an operation ends.
-- Their side configuration (energy, items, the infuser's chemicals), as the cubes': energy in on the faces that take
+- Mekanism 10.7's chemicals (`docs/mekanism-chemicals.md`): the `mekanism:chemical` registry, each chemical as the
+  NeoForge oracle saw it (icon, tint, kind, fuel, radioactivity, coolants, tags), declared by `mekanism-content` in
+  the content mods (`data/<ns>/mekanism/chemical/`) and read with hook points API 162 (`native_data_files`);
+  chemical stacks and tanks in Mekanism's saved form; the chemical handler of the bundle's blocks by side
+  (`IChemicalHandler`): the infuser's tank takes an infuse type a recipe takes on its input sides and gives it out of
+  its right side.
+- The Electrolytic Separator: water (any fluid a `mekanism:separating` recipe takes) in a 24 000 mB tank, filled by
+  fluid handlers on its fluid input sides and by a bucket in its slot, into hydrogen (left) and oxygen (right) tanks
+  of 2400 mB, `2^speed` operations a tick of 400 J (twice hydrogen's fuel density), dump modes (idle, dumping excess,
+  dumping), its outputs ejected to the chemical handlers on its left and right, its screen with gauges and dump
+  buttons.
+- Their side configuration (energy, items, the infuser's and the separator's chemicals), as the cubes': energy in on the faces that take
   it, from cables, cubes and Forge Energy; the item ejector puts the output into the blocks on the faces whose type
   outputs, every 11 ticks (`TileComponentEjector`); hoppers fill the input with what a recipe takes.
 - `facing` from placement and `active` (light 8) in their blocks, `active` going off after `blockDeactivationDelay`;
@@ -92,9 +103,10 @@ assets when `mekanism-content` is given them.
   comes to the same. Redstone control stays IGNORED; energy items (batteries, cubes) don't charge a machine yet.
 - A machine placed with `/setblock` has its item's side config here; Java's has every side `NONE` until set.
 - Item slots are saved in the game's `Items` list, not Mekanism's `items`, and the upgrade slots there too.
-- The infuser's infusion bar is the infuse type's colour, where Mekanism tints its texture; chemical tanks and
-  chemical items (other than conversions) wait for chemicals as a capability. Per-tick infusing (`per_tick_usage`),
-  which ATM10's recipes don't use, isn't ported.
+- The infuser's infusion bar and the separator's gauges are the chemical's colour, where Mekanism tints its texture;
+  chemical items (other than conversions) aren't ported. Per-tick infusing (`per_tick_usage`), which ATM10's recipes
+  don't use, isn't ported. The separator's fluid sides stay at their default (every side input), its output slots
+  take nothing; `docs/mekanism-chemicals.md` lists the chemicals' own differences.
 - A tag-based recipe takes what the tag holds in the world: with only Mekanism's content mods, the pack's `c:` and
   `minecraft:` tags (in ATM10's `atm10-pack` carry) hold just Mekanism's own items, which `mekanism-content --pack`
   copies in, so a recipe on another mod's items does nothing there.

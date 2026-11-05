@@ -702,13 +702,21 @@ const DUMP: Rect = [16.0, 59.0, 21.0, 10.0];
 /// `GuiVerticalPowerBar` of each: the electric machines' at y 16, the infuser's
 /// and the separator's at 15.
 fn machine_power_bar(kind: MachineKind) -> Rect {
-    if kind.infuses() || kind.separates() { [164.0, 15.0, 6.0, 54.0] } else { [164.0, 16.0, 6.0, 54.0] }
+    if kind.oxidizes() || kind.infuses_chemicals() {
+        super::mek_chem_machines::POWER_BAR
+    } else if kind.infuses() || kind.separates() {
+        [164.0, 15.0, 6.0, 54.0]
+    } else {
+        [164.0, 16.0, 6.0, 54.0]
+    }
 }
 /// `GuiProgress`: `BAR` at (86, 38), the infuser's `RIGHT` at (72, 47); the
 /// separator has none that fills (`BI`, drawn as its arrows).
 fn machine_progress(kind: MachineKind) -> Rect {
-    if kind.separates() {
+    if kind.separates() || kind.infuses_chemicals() {
         [0.0, 0.0, 0.0, 0.0]
+    } else if kind.oxidizes() {
+        [64.0, 40.0, 48.0, 8.0]
     } else if kind.infuses() {
         [72.0, 47.0, 32.0, 8.0]
     } else {
@@ -731,7 +739,9 @@ const INFUSE_BAR: Rect = [7.0, 15.0, 6.0, 54.0];
 /// Where Mekanism puts a machine's slots (the item's top left), then the
 /// upgrade component's two.
 fn machine_slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
-    let mut slots: Vec<Option<[f32; 2]>> = if kind.infuses() {
+    let mut slots: Vec<Option<[f32; 2]>> = if kind.oxidizes() || kind.infuses_chemicals() {
+        super::mek_chem_machines::slots(kind)
+    } else if kind.infuses() {
         vec![Some([17.0, 35.0]), Some([51.0, 43.0]), Some([109.0, 43.0]), Some([143.0, 35.0])]
     } else if kind.separates() {
         vec![Some([26.0, 35.0]), Some([59.0, 52.0]), Some([101.0, 52.0]), Some([143.0, 35.0])]
@@ -821,7 +831,7 @@ pub(super) enum MachineHit {
 }
 
 fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &EnergyConfig, at: [f32; 2], right: bool) -> Option<MachineHit> {
-    if let Some(hit) = window_hit(page, view, settings, at, right, 176.0) {
+    if let Some(hit) = window_hit(page, view, kind.upgrades(), settings, at, right, 176.0) {
         return hit;
     }
     if kind.infuses() && inside(DUMP, at) {
@@ -844,7 +854,7 @@ fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &Energ
 /// panel's width, the upgrade tab beside it): the side configuration and
 /// upgrade windows, their tab buttons and the energy tab. `Some(None)` is a
 /// window's empty part; none, nothing of these.
-pub(super) fn window_hit(page: u8, view: &MachineView, settings: &EnergyConfig, at: [f32; 2], right: bool, width: f32) -> Option<Option<MachineHit>> {
+pub(super) fn window_hit(page: u8, view: &MachineView, upgrades: &[Upgrade], settings: &EnergyConfig, at: [f32; 2], right: bool, width: f32) -> Option<Option<MachineHit>> {
     let press = |b: Button| Some(MachineHit::Press(MachineButton::Config(b)));
     let window = machine_window(view);
     if let Some(side_kind) = page_kind(page) {
@@ -872,7 +882,7 @@ pub(super) fn window_hit(page: u8, view: &MachineView, settings: &EnergyConfig, 
         }
     }
     if page == 4 {
-        for (i, upgrade) in machine::MACHINE_UPGRADES.into_iter().enumerate() {
+        for (i, upgrade) in upgrades.iter().copied().enumerate() {
             if inside(uninstall_button(window, i), at) {
                 return Some(Some(MachineHit::Press(MachineButton::Remove { upgrade, all: right })));
             }
@@ -979,7 +989,7 @@ fn upgrade_effect(upgrade: Upgrade, installed: u32, settings: &EnergyConfig) -> 
 fn machine_click(kind: MachineKind, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
     let view = MachineView::unpack(data).unwrap_or_default();
     let page = PAGE.with(Cell::get);
-    let own = if page == 0 { SeparatorView::unpack(data).and_then(|extra| separator_hit(&extra, at)) } else { None };
+    let own = if page == 0 && kind.separates() { SeparatorView::unpack(data).and_then(|extra| separator_hit(&extra, at)) } else { None };
     let Some(MachineHit::Press(pressed)) = own.or_else(|| machine_hit(kind, page, &view, &settings(), at, right)) else {
         return;
     };
@@ -993,6 +1003,13 @@ fn machine_tip(kind: MachineKind, data: &[i32], settings: &EnergyConfig, at: [f3
     let page = PAGE.with(Cell::get);
     let view = &MachineView::unpack(data).unwrap_or_default();
     if page == 0
+        && (kind.oxidizes() || kind.infuses_chemicals())
+        && let Some(tip) = super::mek_chem_machines::tip(kind, view, data, at)
+    {
+        return tip;
+    }
+    if page == 0
+        && kind.separates()
         && let Some(extra) = SeparatorView::unpack(data)
     {
         match separator_hit(&extra, at) {
@@ -1101,12 +1118,18 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
         pen.slot(frame, overlay, x - 1.0, y - 1.0);
     }
 
+    if kind.oxidizes() || kind.infuses_chemicals() {
+        super::mek_chem_machines::draw(pen, kind, view, data);
+    }
     // The power bar (`GuiVerticalPowerBar`): the energy from the bottom.
     let bar = machine_power_bar(kind);
-    pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], bar);
+    let vertical = !kind.oxidizes() && !kind.infuses_chemicals();
+    if vertical {
+        pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], bar);
+    }
     let level = if view.capacity == 0 { 0.0 } else { view.stored as f64 / view.capacity as f64 };
     let filled = (level * 52.0) as i32;
-    if filled > 0 {
+    if filled > 0 && vertical {
         let h = filled as f32;
         pen.sprite("bar/vertical_power", [0.0, 0.0, 4.0, h], [bar[0] + 1.0, bar[1] + bar[3] - 1.0 - h, 4.0, h]);
     }
@@ -1115,7 +1138,9 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     let progress = machine_progress(kind);
     let share = if view.required == 0 { 0.0 } else { (f64::from(view.progress) / f64::from(view.required)).min(1.0) };
     let [px, py, pw, ph] = progress;
-    if kind.separates() {
+    if !vertical {
+        // Drawn with their gauges (`mek_chem_machines::draw`).
+    } else if kind.separates() {
         if let Some(extra) = SeparatorView::unpack(data) {
             draw_separator(pen, &extra);
         }
@@ -1157,7 +1182,7 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     pen.centered(&title, 0.0, 176.0, 6.0, TITLE);
     pen.text("Inventory", [8.0, 72.0], TITLE);
 
-    draw_windows(pen, view, page, settings);
+    draw_windows(pen, view, kind.upgrades(), page, settings);
 }
 
 /// A machine screen's tabs, its panel `width` wide: side configuration
@@ -1187,7 +1212,7 @@ pub(super) fn upgrade_slots(width: f32) -> [[f32; 2]; 2] {
 }
 
 /// A machine screen's side configuration and upgrade windows, left of its panel.
-pub(super) fn draw_windows(pen: &mut Pen<'_, '_>, view: &MachineView, page: u8, settings: &EnergyConfig) {
+pub(super) fn draw_windows(pen: &mut Pen<'_, '_>, view: &MachineView, upgrades: &[Upgrade], page: u8, settings: &EnergyConfig) {
     let window = machine_window(view);
     let [wx, wy, ww, wh] = window;
     if let Some(side_kind) = page_kind(page) {
@@ -1234,7 +1259,7 @@ pub(super) fn draw_windows(pen: &mut Pen<'_, '_>, view: &MachineView, page: u8, 
         pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], window);
         pen.image_button("button/close", 12.0, at_window(window, [4.0, 4.0, 8.0, 8.0]), true);
         pen.centered("Upgrades", wx, ww, wy + 4.0, TITLE);
-        for (i, upgrade) in machine::MACHINE_UPGRADES.into_iter().enumerate() {
+        for (i, upgrade) in upgrades.iter().copied().enumerate() {
             let row = upgrade_row(window, i);
             pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], row);
             let at = [pen.origin[0] + row[0] + 2.0, pen.origin[1] + row[1] + 2.0];

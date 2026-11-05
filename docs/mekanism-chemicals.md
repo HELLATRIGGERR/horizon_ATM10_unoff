@@ -170,6 +170,23 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   and ATM10's configs (`chem-work/m4`, g1 and g2): 1000 mB of hydrogen burns 15, 15, 14, 14 mB a tick (3000 J each),
   18 000 mB 256 then 253; 1500 J of room take 7 mB; an energy cube on its front gets 400, 102 400, 99 000, 49 800 J;
   hydrogen from a tank on its side goes in, oxygen doesn't; a basic tank item in its fuel slot gives 1000 mB a tick.
+- **The Chemical Oxidizer** (slice 4, `TileEntityChemicalOxidizer`, `mekanism_energy::chemical_machine`, runtime
+  `mek_chem_machines` beside `mek_machines`): a progress machine of 100 ticks (`chemicalOxidizer`: 200 J a tick,
+  80 000 J) turning an item into a chemical (`mekanism:oxidizing`, `ItemStackToChemicalRecipe`) in a 10 000 mB
+  `BasicChemicalTank.output`; a tank without room for the output waits with its progress. Its chemical config is
+  `setupOutputConfig(CHEMICAL, tank, RIGHT)` (`CHEMICAL_OUT_MACHINE`'s `RIGHT_OUTPUT`, ejecting `chemicalAutoEjectRate`
+  a tick), its output slot a `ChemicalInventorySlot.drain`. Measured (`chem-work/m4` o1): a sulfur dust makes 100 mB
+  of sulfur dioxide on the hundredth tick of 200 J; 8 speed and 8 energy upgrades take 6 ticks of 3200 J; it ejects
+  1024 mB a tick out of its right (west, facing north); its output slot fills a basic tank item 1000 mB a tick.
+- **The Chemical Infuser** (slice 4, `TileEntityChemicalInfuser`): two `inputModern` tanks (left and right, 10 000
+  mB, each taking what a recipe takes with what the other holds, `EitherSideChemical.containsRecipe`) and a centre
+  `output` tank, `mekanism:chemical_infusing` recipes (`ChemicalChemicalToChemicalRecipe`, found and run either way
+  round), `2^speed` operations a tick of `chemicalInfuser` Joules (200, times the speed and energy upgrades' factor)
+  each, as far as the Joules, both inputs and the output's room allow; `CHEMICAL_INFUSING` config (left `INPUT_1`,
+  right `INPUT_2`, front `OUTPUT`, the centre ejecting), its left and right slots `fill`, its output slot `drain`.
+  Measured (o1): hydrogen and chlorine make 1 mB of hydrogen chloride for 200 J a tick either way round; 3 speed
+  upgrades 8 operations of 1600 J; 8 as far as 80 000 J go (one of 51 200 J); a full output, an empty input or 150 J
+  stop it; the centre ejects out of its front; its right took oxygen and then its left no chlorine.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -201,7 +218,8 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    (`network::tests`: one chemical a network, two that touch without joining, the oracle's shares),
    `mekanism-content` (`transmitter::tests`), the world test `pressurized-tube`.
 4. **More chemical machines.** The Gas-Burning Generator (done: as above; the world test `gas-burning-generator`,
-   `mekanism-energy`'s `gas::tests`). The Chemical Oxidizer (items to chemicals), Chemical Infuser (two chemicals to one),
+   `mekanism-energy`'s `gas::tests`), the Chemical Oxidizer (items to chemicals) and Chemical Infuser (two chemicals to
+   one) (done: as above; the world test `chemical-oxidizer-infuser`, `chemical_machine::tests`, `machine` and `menu`).
    Chemical Injection Chamber and Purification Chamber (item and chemical per tick, `ItemStackConstantChemical...`),
    Rotary Condensentrator (fluid and chemical both ways), the brine recipe's sodium and chlorine, the Gas-Burning
    Generator (hydrogen and ethene by their fuel attribute).

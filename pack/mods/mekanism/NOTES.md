@@ -86,7 +86,9 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
 - Chemicals, slice 4 (branch `feat/mek-chemicals-4`, no new hook point): the Gas-Burning Generator
   (`mekanism_energy::gas`, runtime `mek_gas`; `GeneratorKind::GasBurning` in `mek_world`'s generators), measured on a
   NeoForge oracle with Mekanism Generators as well (local `chem-work/oracle4`, driven by `chem-work/m4/*.py`). World
-  test `gas-burning-generator`.
+  test `gas-burning-generator`. The Chemical Oxidizer and Chemical Infuser (`mekanism_energy::chemical_machine`,
+  runtime `mek_chem_machines`, two `MachineKind`s sharing `mek_machines`' block entity, energy, config, handler and
+  probe). World test `chemical-oxidizer-infuser`.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),

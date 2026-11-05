@@ -64,6 +64,9 @@ assets when `mekanism-content` is given them.
   chemical stacks and tanks in Mekanism's saved form; the chemical handler of the bundle's blocks by side
   (`IChemicalHandler`): the infuser's tank takes an infuse type a recipe takes on its input sides and gives it out of
   its right side.
+- The Chemical Oxidizer (an item into a chemical, `mekanism:oxidizing`, 100 ticks, out of its right) and the Chemical
+  Infuser (two chemicals into one, `mekanism:chemical_infusing`, `2^speed` operations a tick, out of its front), with
+  their chemical item slots, side configuration, ejectors and screens.
 - Basic, Advanced, Elite, Ultimate and Creative Chemical Tanks (`tiers.toml` `[chemical_tanks]`): a chemical in the
   block entity, ejected at the tier's output a tick out of the output sides, dump modes, side configuration (chemicals
   and items), the drain and fill slots that move chemicals to and from tank items, the screen, placement facing, and

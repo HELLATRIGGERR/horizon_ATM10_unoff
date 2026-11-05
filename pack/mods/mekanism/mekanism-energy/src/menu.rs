@@ -418,6 +418,41 @@ impl SeparatorView {
     }
 }
 
+/// The Chemical Infuser's own data slots after a machine's (`MACHINE_SLOTS`,
+/// `GuiChemicalInfuser`): its left, right and centre tanks, each a chemical
+/// (`ChemicalRegistry::number`) and 4 slots of mB, then 4 of the Joules used
+/// last tick.
+pub const INFUSER_SLOTS: usize = 19;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct InfuserView {
+    /// Left, right, centre: chemical and mB.
+    pub tanks: [(i32, u64); 3],
+    pub energy_used: u64,
+}
+
+impl InfuserView {
+    pub fn pack(&self) -> Vec<i32> {
+        let mut out = Vec::with_capacity(INFUSER_SLOTS);
+        for (chemical, amount) in self.tanks {
+            out.push(chemical);
+            push_bits(&mut out, amount, 4);
+        }
+        push_bits(&mut out, self.energy_used, 4);
+        out
+    }
+
+    /// The view after a machine's slots in `data`.
+    pub fn unpack(data: &[i32]) -> Option<Self> {
+        let data = data.get(MACHINE_SLOTS..)?;
+        if data.len() < INFUSER_SLOTS {
+            return None;
+        }
+        let tank = |at: usize| (i32::from(data[at] as u16 as i16), read_bits(data, at + 1, 4));
+        Some(Self { tanks: [tank(0), tank(5), tank(10)], energy_used: read_bits(data, 15, 4) })
+    }
+}
+
 /// A chemical tank's screen (`GuiChemicalTank`): slots 0..4 its mB, 4..8 its
 /// capacity, 8 its chemical (`ChemicalRegistry::number`), 9 its dump mode,
 /// 10 creative, 11..17 the chemical sides by `RelativeSide`, 17 chemicals
@@ -602,5 +637,16 @@ mod tests {
         assert_eq!(wire.len(), GENERATOR_SLOTS + GAS_SLOTS);
         assert_eq!((GeneratorView::unpack(&wire), GasView::unpack(&wire)), (Some(view), Some(gas)));
         assert_eq!(GasView::unpack(&wire[..GENERATOR_SLOTS]), None);
+    }
+
+    #[test]
+    fn the_chemical_infusers_view_survives_the_wire() {
+        let machine = MachineView { chemicals: Some([DataType::Output; 6]), ..MachineView::default() };
+        let infuser = InfuserView { tanks: [(12, 997), (5, 997), (13, 3)], energy_used: 12_800 };
+        let mut data = machine.pack();
+        data.extend(infuser.pack());
+        let wire: Vec<i32> = data.iter().map(|&v| i32::from(v as i16)).collect();
+        assert_eq!(wire.len(), MACHINE_SLOTS + INFUSER_SLOTS);
+        assert_eq!((MachineView::unpack(&wire), InfuserView::unpack(&wire)), (Some(machine), Some(infuser)));
     }
 }

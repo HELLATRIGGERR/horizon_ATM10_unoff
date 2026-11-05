@@ -18,7 +18,7 @@ use mekanism_energy::{
     config::EnergyConfig,
     display,
     factory::{self, FactoryTier, FactoryView, ProcessKind},
-    machine::MachineKind,
+    machine::{self, MachineKind},
     menu::{MACHINE_SLOTS, MachineButton, MachineView},
 };
 use std::cell::Cell;
@@ -177,7 +177,7 @@ enum Hit {
 
 fn hit(kind: ProcessKind, page: u8, view: &MachineView, extra: &FactoryView, settings: &EnergyConfig, at: [f32; 2], right: bool) -> Option<Hit> {
     let g = geometry(kind);
-    if let Some(found) = mek_ui::window_hit(page, view, settings, at, right, g.width) {
+    if let Some(found) = mek_ui::window_hit(page, view, &machine::MACHINE_UPGRADES, settings, at, right, g.width) {
         return found.map(Hit::Machine);
     }
     if kind.is_factory() && inside(SORT_BUTTON, at) {
@@ -320,5 +320,5 @@ pub(super) fn draw(game: &Game<'_>, kind: ProcessKind, data: &[i32], batch: &mut
     let title = pen.game.native_screen_title().unwrap_or_default();
     pen.centered(&title, 0.0, g.width, g.title_y, mek_ui::TITLE);
     pen.text("Inventory", g.label, mek_ui::TITLE);
-    mek_ui::draw_windows(pen, &view, page, &settings);
+    mek_ui::draw_windows(pen, &view, &machine::MACHINE_UPGRADES, page, &settings);
 }

@@ -931,7 +931,7 @@ pub(super) fn beside_panel(r: Rect, width: f32) -> Rect {
 }
 
 /// A chemical tank's tooltip line: its chemical's name and mB, or "Empty".
-fn chemical_line(number: i32, amount: u64) -> String {
+pub(super) fn chemical_line(number: i32, amount: u64) -> String {
     if amount == 0 {
         return "Empty".to_owned();
     }
@@ -942,7 +942,7 @@ fn chemical_line(number: i32, amount: u64) -> String {
 }
 
 /// A chemical's bar colour (`getColorRepresentation`), grey when unknown.
-fn chemical_color(game: &Game<'_>, number: i32) -> u32 {
+pub(super) fn chemical_color(game: &Game<'_>, number: i32) -> u32 {
     mek_chemicals::registry(game).by_number(number).map_or(0x808080, |c| c.color & 0xFF_FFFF)
 }
 

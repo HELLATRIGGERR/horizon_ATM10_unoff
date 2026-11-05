@@ -6,7 +6,7 @@ move them, its items carry them, Mekanism Generators burns hydrogen and fuses de
 them through Applied Mekanistics. ATM10 8.4 registers 112 chemicals: Mekanism's 64, All the Ores' 26 slurries,
 Allthemodium's 6, Mekanism More Machines' (`mekmm`) 6, KubeJS's 4, Mekanism Generators' 3, XyCraft World's 2 and
 Starbunclemania's source gas. Everything here lives in the Mekanism bundle (`pack/mods/mekanism`); the engine gained
-one generic helper (hook points API 162); slices 2 to 5 need no hook point.
+one generic helper (hook points API 162); slices 2 to 6 need no hook point.
 
 ## What there was
 
@@ -253,6 +253,33 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   fluid slot fills or empties a container by the mode, the container to the slot below; the mode button toggles it
   (`NEXT_MODE`). Measured (c1): 1 mB of hydrogen into liquid hydrogen a tick for 50 J, 3 speed upgrades 8 of 400 J,
   1 mB a tick back.
+- **The chemical factories** (slice 6, `TileEntityItemStackChemicalToItemStackFactory`, `mekanism_energy::factory`
+  on `advanced`'s rules, runtime `mek_factories`): the Basic to Ultimate compressing, purifying, injecting and
+  infusing factories, 3 to 9 processes of their machine's recipes on one store of `max(storage / 2, usage) *
+  processes` Joules (`Factory.setMachineData`) and one chemical tank of 210 mB a process, the infusing factory's 1000
+  (`getInitialChemicalTanks`), filled by a chemical slot after the processes (`fillOrConvert`, slot 6 of a basic
+  one), its use so far by process (`used_so_far`, a long array). A per-tick recipe
+  (`ItemStackConstantChemicalToObjectCachedRecipe`) takes each process's use a tick out of the shared tank in process
+  order, a process short of it waiting with its progress: `constantUse` of `baseTotalUsage` for compressing,
+  `inversePoisson` of the mean multiplier for purifying and injecting (`useStatisticalMechanics`:
+  `randomizedConsumption` and those two); an infusing recipe takes its amount with the item, and a process short of
+  it starts over (its ingredient matches nothing below its amount: `mismatchedRecipe`). The compressing and infusing
+  factories' tank gives on their output sides (`createModern`, `setupIOConfig(CHEMICAL, tank, RIGHT)` without
+  ejecting), the purifying and injecting ones' only takes (`inputModern`, `setupInputConfig`); their side configs
+  and upgrades are their machines' (`ADVANCED_MACHINE`, `ADVANCED_MACHINE_INPUT_ONLY`; the chambers' factories take
+  chemical upgrades), their screen `GuiFactory` 11 pixels taller with the chemical bar (7, 76) and its dump button.
+  Tier installers turn the Osmium Compressor, Purification Chamber, Chemical Injection Chamber and Metallurgic
+  Infuser into their basic factories, and a factory into the next tier, with the tank, the chemical slot and the use
+  so far (`AdvancedMachineUpgradeData`: the machine's into process 0). Measured on the oracle (`chem-work/m6` f1 to
+  f3): basic compressing and purifying factories store 120 000 J, injecting 240 000, infusing 30 000 (an ultimate
+  three times that); an osmium ingot's 200 mB fill a basic compressing factory from 430 to 630 and not from 431, an
+  ultimate one's to 1890, redstone's 10 mB a basic infusing one's to 3000 and an ultimate's to 9000; a basic
+  compressing factory with a dust a process takes 1 mB and 100 J a process a tick (`used_so_far` `[1, 1, 1]`) and
+  gives three ingots on the 200th tick, 30 of its 630 mB left; with 8 speed upgrades 16 mB and 25 600 J a process,
+  only the first process on the second tick, then none (short of Joules); 2 mB run the first two processes, the third
+  waits; the purifying and injecting factories took 528 and 544 mB in 200 ticks, 0 to 3 a process a tick, about 1/16 on
+  average with 8 chemical upgrades; a basic infusing factory takes 10 mB with each item on the 200th tick, and with 15
+  mB the first process finishes and the others start over.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -295,15 +322,18 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    content mod of its carry (`mekanism-content` with the oracle's facts and no overlay of its own:
    `MEK_ATO_CONTENT_DIR`), so its 65 recipes of the chain load. Tests: `mekanism-energy` (`ore::tests`,
    `rotary::tests`: the oracle's numbers), `mekanism-content` (another carry's chemicals), the world tests `ore-chain`
-   (an ore through the three into All the Ores' crystals) and `rotary-condensentrator`. Left: the compressing,
-   purifying, injecting and infusing factories (`mekmach2`'s `factory` on `advanced`: one shared chemical tank and a
-   `used_so_far` long array); Mekanism has no factory of the ore chain's machines.
-6. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
+   (an ore through the three into All the Ores' crystals) and `rotary-condensentrator`. Mekanism has no factory of
+   the ore chain's machines.
+6. **The chemical factories (done).** As above: `factory`'s compressing, purifying, injecting and infusing types
+   and their tank, slot and per-process use, `mek_factories` running them on `advanced::process`, their installers
+   from the four machines, their screens and chemical handler. Tests: `mekanism-energy` (`factory::tests`), the world
+   test `chemical-factories`.
+7. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
    polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`.
-7. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
+8. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
    bus over `IChemicalHandler` (then a hook point, as fluids' API 160), Mekanistic Routers' and Pipez' chemical
    transfer.
-8. **The rest of the pack's chemicals.** The carry declares each mod's chemicals in its own content (All the Ores',
+9. **The rest of the pack's chemicals.** The carry declares each mod's chemicals in its own content (All the Ores',
    which the content step declares for now, Allthemodium's, `mekmm`'s, KubeJS's in `atm10-pack`).
 
 ## Differences from Java
@@ -349,4 +379,7 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   rotary's fluid slot moves to the slot below one at a time, as Java's; a stack of mod containers is filled or emptied
   one item a tick.
 - All the Ores' slurries come from a content mod the content step makes of its carry (its namespace, its chemicals
-  from the oracle's facts), not from the carry itself (slice 8).
+  from the oracle's facts), not from the carry itself (slice 9).
+- The chemical factories' random draws come from the bundle's own random source, as the chambers'. Their chemical
+  slot takes only chemical tank items holding a chemical (alone) and what converts to a chemical their recipes
+  take; hoppers fill it and take nothing out.

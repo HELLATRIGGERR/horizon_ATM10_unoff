@@ -101,14 +101,20 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   (`mekanism-content` with `--chemicals` and no overlay of its own; `MEK_ATO_CONTENT_DIR`). Measured on the oracle
   with Mekanism's own iron recipes (local `chem-work/m5/c1.py`). World tests `ore-chain` (All the Ores' aluminium:
   needs `MEK_ATO_CONTENT_DIR`) and `rotary-condensentrator`.
-- Next: chemicals slices 6-8 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
+- Chemicals, slice 6 (branch `feat/mek-chemicals-6`, on the transmitters, no new hook point): the compressing,
+  purifying, injecting and infusing factories (`mekanism_energy::factory`'s four more `FactoryType`s with their
+  tank per process and use, run by `runtime/mek_factories.rs` on `advanced::process`; their tank a chemical handler
+  through `mek_chemicals::with_handler`, their screen's chemical bar in `mek_factory_ui`), tier installers from the
+  Osmium Compressor, Purification Chamber, Chemical Injection Chamber and Metallurgic Infuser. Measured on the oracle
+  (local `chem-work/m6/f1.py` to `f3.py`; blocks at x 62 and beyond in f1 sat outside its force-loaded chunks and
+  never ticked, so f3 repeats them). World test `chemical-factories` (needs All the Ores' carry beside `MEK_CARRY`).
+- Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical
   Sorter on `transporter::round_robin`, hoppers into transporters, redstone sensitivity), the Fluid Tank's screen
   and item, the Configurator's mode key;
-  the chemical machines' factories (the compressing, purifying, injecting and infusing ones), other energy items
-  charging machines.
+  other energy items charging machines.
 
 ## How to run
 

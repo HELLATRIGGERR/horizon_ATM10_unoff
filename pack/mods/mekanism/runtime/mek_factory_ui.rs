@@ -3,10 +3,12 @@
 // bundle), drawn like Mekanism 10.7's `GuiCombiner`, `GuiPrecisionSawmill` and
 // `GuiFactory` with Mekanism's own GUI textures, on `mek_ui`'s pen, tabs and
 // windows: their slots, power bar and progress (a factory's down arrow for
-// each process), a factory's sorting tab (`GuiSortingTab`), and the side
-// configuration and upgrade windows as the other machines have them. The
-// ultimate factory is 34 pixels wider, the sawing factory 21 taller, as Mekanism
-// draws them; the upgrade component's slots sit beside the panel's right edge.
+// each process), a factory's sorting tab (`GuiSortingTab`), a chemical
+// factory's chemical bar and dump button, and the side configuration and
+// upgrade windows as the other machines have them. The ultimate factory is 34
+// pixels wider, the sawing factory 21 taller and the chemical ones 11, as
+// Mekanism draws them; the upgrade component's slots sit beside the panel's
+// right edge.
 
 use super::{
     Game,
@@ -18,7 +20,7 @@ use mekanism_energy::{
     config::EnergyConfig,
     display,
     factory::{self, FactoryTier, FactoryView, ProcessKind},
-    machine::{self, MachineKind},
+    machine::MachineKind,
     menu::{MACHINE_SLOTS, MachineButton, MachineView},
 };
 use std::cell::Cell;
@@ -44,6 +46,9 @@ struct Geometry {
     progress: Vec<Rect>,
     /// The combiner's and the sawmill's up arrow (`GuiUpArrow`).
     arrow: Option<[f32; 2]>,
+    /// A chemical factory's `GuiChemicalBar` (horizontal, its frame) and
+    /// `GuiDumpButton`.
+    chemical_bar: Option<(Rect, Rect)>,
 }
 
 fn geometry(kind: ProcessKind) -> Geometry {
@@ -74,6 +79,7 @@ fn geometry(kind: ProcessKind) -> Geometry {
                 slots,
                 progress: vec![[86.0, 38.0, 25.0, 9.0]],
                 arrow: Some([68.0, 38.0]),
+                chemical_bar: None,
             }
         }
         ProcessKind::Machine(_) => {
@@ -97,6 +103,7 @@ fn geometry(kind: ProcessKind) -> Geometry {
                 slots,
                 progress: vec![[78.0, 38.0, 25.0, 9.0]],
                 arrow: Some([60.0, 38.0]),
+                chemical_bar: None,
             }
         }
         ProcessKind::Factory(f) => {
@@ -127,10 +134,27 @@ fn geometry(kind: ProcessKind) -> Geometry {
             let up = mek_ui::upgrade_slots(width);
             put(layout.upgrade, up[0]);
             put(layout.upgrade_out, up[1]);
-            let inventory_y = if sawing { 105.0 } else { 85.0 };
+            // `hasSecondaryResourceBar`: the chemical bar at (7, 76), 138 (172) by 4
+            // inside its frame, the dump button at (148, 76) (182); 11 taller.
+            let chemical = f.kind.uses_chemical();
+            let inventory_y = if chemical {
+                95.0
+            } else if sawing {
+                105.0
+            } else {
+                85.0
+            };
+            let bar_width = if ultimate { 172.0 } else { 138.0 };
+            let chemical_bar = chemical.then(|| ([7.0, 76.0, bar_width + 2.0, 6.0], [if ultimate { 182.0 } else { 148.0 }, 76.0, 21.0, 10.0]));
             Geometry {
                 width,
-                height: if sawing { 187.0 } else { 166.0 },
+                height: if chemical {
+                    177.0
+                } else if sawing {
+                    187.0
+                } else {
+                    166.0
+                },
                 inventory: [if ultimate { 26.0 } else { 8.0 }, inventory_y],
                 label: [if ultimate { 26.0 } else { 8.0 }, inventory_y - 10.0],
                 title_y: 4.0,
@@ -138,6 +162,7 @@ fn geometry(kind: ProcessKind) -> Geometry {
                 slots,
                 progress,
                 arrow: None,
+                chemical_bar,
             }
         }
     }
@@ -177,11 +202,19 @@ enum Hit {
 
 fn hit(kind: ProcessKind, page: u8, view: &MachineView, extra: &FactoryView, settings: &EnergyConfig, at: [f32; 2], right: bool) -> Option<Hit> {
     let g = geometry(kind);
-    if let Some(found) = mek_ui::window_hit(page, view, &machine::MACHINE_UPGRADES, settings, at, right, g.width) {
+    if let Some(found) = mek_ui::window_hit(page, view, kind.upgrades(), settings, at, right, g.width) {
         return found.map(Hit::Machine);
     }
     if kind.is_factory() && inside(SORT_BUTTON, at) {
         return Some(Hit::Sort);
+    }
+    if let Some((bar, dump)) = g.chemical_bar {
+        if inside(dump, at) {
+            return Some(Hit::Machine(MachineHit::Press(MachineButton::Dump)));
+        }
+        if inside(bar, at) {
+            return Some(Hit::Machine(MachineHit::Tip(vec![mek_ui::chemical_line(view.infuse, view.infused)])));
+        }
     }
     if inside(g.power_bar, at) {
         return Some(Hit::Machine(MachineHit::Tip(vec![display::fraction(view.stored, view.capacity, settings)])));
@@ -275,6 +308,19 @@ pub(super) fn draw(game: &Game<'_>, kind: ProcessKind, data: &[i32], batch: &mut
         pen.whole("slot/output_wide", [42.0, 26.0], [111.0, 30.0, 42.0, 26.0]);
     }
 
+    // A chemical factory's tank (`GuiChemicalBar`, horizontal): its chemical's
+    // colour from the left (Mekanism tints its texture with it), and the dump button.
+    if let (Some((bar, dump)), Some(capacity)) = (g.chemical_bar, kind.chemical_capacity()) {
+        pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], bar);
+        let level = (view.infused as f64 / capacity.max(1) as f64).min(1.0);
+        let w = (level * f64::from(bar[2] - 2.0)) as i32 as f32;
+        if w > 0.0 {
+            let tint = mek_ui::chemical_color(pen.game, view.infuse);
+            pen.fill([bar[0] + 1.0, bar[1] + 1.0, w, 4.0], 0xFF00_0000 | tint);
+        }
+        pen.sprite("dump", [0.0, 0.0, 21.0, 10.0], dump);
+    }
+
     // The power bar (`GuiVerticalPowerBar`): the energy from the bottom.
     let bar = g.power_bar;
     pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], bar);
@@ -320,5 +366,5 @@ pub(super) fn draw(game: &Game<'_>, kind: ProcessKind, data: &[i32], batch: &mut
     let title = pen.game.native_screen_title().unwrap_or_default();
     pen.centered(&title, 0.0, g.width, g.title_y, mek_ui::TITLE);
     pen.text("Inventory", g.label, mek_ui::TITLE);
-    mek_ui::draw_windows(pen, &view, &machine::MACHINE_UPGRADES, page, &settings);
+    mek_ui::draw_windows(pen, &view, kind.upgrades(), page, &settings);
 }

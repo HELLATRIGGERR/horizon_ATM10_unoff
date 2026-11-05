@@ -173,6 +173,8 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
             super::mek_tanks::chemical_handler(m, face, &registry, use_it)
         } else if super::mek_gas::is_gas(&m.id) {
             super::mek_gas::chemical_handler(m, face, &registry, use_it)
+        } else if super::mek_factories::has_chemicals(&m.id) {
+            super::mek_factories::chemical_handler(m, face, &registry, use_it)
         } else {
             mek_machines::chemical_handler(m, face, &registry, use_it)
         }

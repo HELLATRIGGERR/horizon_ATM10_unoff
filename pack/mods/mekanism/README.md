@@ -99,8 +99,9 @@ assets when `mekanism-content` is given them.
   that comes by chance, rolled each operation (`BasicChanceOutput`: the oracle's 200 operations at 25 % gave 43
   sawdust); it waits while its secondary slot can't take the most the recipe gives.
 - The Basic, Advanced, Elite and Ultimate factories of smelting, enriching, crushing, combining and sawing
-  (`TileEntityFactory`): 3, 5, 7 and 9 processes in Mekanism's slot order (input, output and the sawing factories'
-  secondary by process, the combining factory's shared extra slot, the energy slot), each with its own recipe and
+  (`TileEntityFactory`), and of compressing, purifying, injecting and infusing: 3, 5, 7 and 9 processes in Mekanism's
+  slot order (input, output and the sawing factories' secondary by process, the combining factory's shared extra
+  slot or the chemical factories' chemical slot, the energy slot), each with its own recipe and
   progress (the saved `progress` int array) on one store of `max(storage / 2, usage) * processes` Joules (30 000,
   50 000, 70 000 and 90 000 J of a smelting factory on ATM10; 60 000 J of a basic combining factory), each process
   taking the machine's Joules a tick in turn, so the last ones wait when the store runs short; a factory's recipe for
@@ -108,10 +109,16 @@ assets when `mekanism-content` is given them.
   machines', their screens like `GuiFactory` (a down arrow of progress for each process, the ultimate's 34 pixels
   wider panel, the sawing factories' 21 pixels taller one) with the sorting tab (`GuiSortingTab`): sorting on, the
   inputs are spread evenly over the processes whenever their slots changed (`sortInventory`), in multiples of what an
-  operation takes, empty processes joining the kinds that can fill more of them.
+  operation takes, empty processes joining the kinds that can fill more of them. The chemical factories share one
+  tank of 210 mB a process (the infusing one's 1000), filled by their chemical slot and on their machines' chemical
+  sides, its chemical taken a tick by each process as their machines take it (the compressing one's 200 mB an
+  operation spread over its ticks, the purifying and injecting ones' drawn at random) or, infusing, with the item; a
+  chemical bar and dump button on their 11 pixels taller screens.
 - Tier installers (hook points API 165: `native_use_item_on` with `native_used_stack`, `native_instabuild`,
   `native_default_state`): a sneaking player's basic installer turns an Enrichment Chamber, Crusher, Energized
-  Smelter, Combiner or Precision Sawmill into the basic factory of its type, an advanced, elite or ultimate one a
+  Smelter, Combiner, Precision Sawmill, Osmium Compressor, Purification Chamber, Chemical Injection Chamber or
+  Metallurgic Infuser into the basic factory of its type (with its chemical tank, chemical slot and use so far), an
+  advanced, elite or ultimate one a
   factory into the next tier, with what it held (`MachineUpgradeData`): each process's input, outputs and progress,
   the energy and extra slots, the upgrades and the upgrade slots, the side configuration and ejecting, the sorting,
   the facing, and its Joules up to the new block's own store (`setEnergy` before the upgrades are read). The
@@ -200,10 +207,9 @@ assets when `mekanism-content` is given them.
   secondary once; Mekanism's `handleOutput` gives it `operations` times over.
 - A `/data merge` of a machine's or factory's `progress` sets it; Mekanism's cached recipe keeps counting its own
   ticks (the oracle's factory took 29 more ticks of 800 J after its progress was merged to 0).
-- Factories are full blocks without Mekanism's shapes (`BlockShapes`), like the infuser. The infusing factory (and
-  the compressing, injecting and purifying ones of the chemical machines) isn't ported, so an installer leaves the
-  Metallurgic Infuser as it is; nor are tier installers on energy cubes, tanks and bins. Java refuses an installer
-  while a player has the block's screen open; this port doesn't check.
+- Factories are full blocks without Mekanism's shapes (`BlockShapes`), like the infuser. Tier installers on energy
+  cubes, tanks and bins aren't ported. Java refuses an installer while a player has the block's screen open; this
+  port doesn't check.
 - A creative energy cube's item without saved energy counts as full here, as its drops are; on Java one without the
   `mekanism:energy` component holds nothing (Mekanism's own creative cube items always carry it). Other energy
   items (batteries, Forge Energy items) don't charge machines yet.

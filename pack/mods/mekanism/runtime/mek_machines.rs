@@ -801,6 +801,17 @@ pub(super) fn slot_accepts(kind: MachineKind, slot: usize, stack: &ItemStack, ac
     }
 }
 
+/// Whether the chemical slot of `kind` (an advanced machine's, the infuser's
+/// infusion slot) or of its factory takes `stack` (`ChemicalInventorySlot.fillOrConvert`):
+/// a chemical tank item holding a chemical, alone, or what converts to a
+/// chemical its recipes take. Before a world has read its recipes, anything.
+pub(super) fn extra_slot_takes(kind: MachineKind, stack: &ItemStack) -> bool {
+    let item = &*stack.item;
+    let chemical_item = super::mek_tanks::tier_of(item).is_some() && stack.count == 1 && super::mek_tanks::item_holds(stack);
+    let known = |pick: &dyn Fn(&Takes) -> bool| TAKES.read().ok().and_then(|t| t.as_ref().map(pick)).unwrap_or(true);
+    chemical_item || if kind.infuses() { known(&|t| t.infusion.contains(item)) } else { known(&|t| t.extras.get(&kind).is_some_and(|e| e.contains(item))) }
+}
+
 pub(super) fn stack_in(entity: &ModBlockEntity, slot: usize) -> Option<&ItemStack> {
     entity.items.get(slot).and_then(Option::as_ref).filter(|s| s.count > 0)
 }
@@ -872,7 +883,8 @@ thread_local! {
     ));
 }
 
-fn draw_random() -> f64 {
+/// A draw in [0, 1) of the chambers' (and their factories') own random source.
+pub(super) fn draw_random() -> f64 {
     RNG.with(|r| {
         let mut rng = r.get();
         let v = rng.next_f64();

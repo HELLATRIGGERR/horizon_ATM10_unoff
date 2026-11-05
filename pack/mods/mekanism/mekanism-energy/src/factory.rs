@@ -6,7 +6,10 @@
 //! a main output and a secondary one by chance (`SawmillRecipe.ChanceOutput`).
 //! A factory (`TileEntityFactory`, `FactoryTier`) runs 3, 5, 7 or 9 processes
 //! of its machine's recipes side by side: smelting, enriching, crushing,
-//! combining (one extra slot for all) and sawing. It stores
+//! combining (one extra slot for all) and sawing, and compressing, purifying,
+//! injecting and infusing (`TileEntityItemStackChemicalToItemStackFactory`:
+//! one chemical tank and its slot for all, the chemical each process takes a
+//! tick by `crate::advanced`'s rules, its use so far by process). It stores
 //! `max(storage / 2, usage) * processes` Joules (`Factory.setMachineData`),
 //! each process takes the machine's Joules a tick, and it may sort its inputs
 //! evenly over its processes (`sortInventory`). A Tier Installer
@@ -62,10 +65,24 @@ pub enum FactoryType {
     Crushing,
     Combining,
     Sawing,
+    Compressing,
+    Purifying,
+    Injecting,
+    Infusing,
 }
 
 impl FactoryType {
-    pub const ALL: [Self; 5] = [Self::Smelting, Self::Enriching, Self::Crushing, Self::Combining, Self::Sawing];
+    pub const ALL: [Self; 9] = [
+        Self::Smelting,
+        Self::Enriching,
+        Self::Crushing,
+        Self::Combining,
+        Self::Sawing,
+        Self::Compressing,
+        Self::Purifying,
+        Self::Injecting,
+        Self::Infusing,
+    ];
 
     /// `getRegistryNameComponent`.
     pub fn name(self) -> &'static str {
@@ -75,6 +92,10 @@ impl FactoryType {
             Self::Crushing => "crushing",
             Self::Combining => "combining",
             Self::Sawing => "sawing",
+            Self::Compressing => "compressing",
+            Self::Purifying => "purifying",
+            Self::Injecting => "injecting",
+            Self::Infusing => "infusing",
         }
     }
 
@@ -86,11 +107,39 @@ impl FactoryType {
             Self::Crushing => MachineKind::Crusher,
             Self::Combining => MachineKind::Combiner,
             Self::Sawing => MachineKind::PrecisionSawmill,
+            Self::Compressing => MachineKind::OsmiumCompressor,
+            Self::Purifying => MachineKind::PurificationChamber,
+            Self::Injecting => MachineKind::ChemicalInjectionChamber,
+            Self::Infusing => MachineKind::MetallurgicInfuser,
         }
     }
 
     pub fn of_base(kind: MachineKind) -> Option<Self> {
         Self::ALL.into_iter().find(|t| t.base() == kind)
+    }
+
+    /// `TileEntityItemStackChemicalToItemStackFactory`'s types: an item and a
+    /// chemical in, one chemical tank for all its processes.
+    pub fn uses_chemical(self) -> bool {
+        matches!(self, Self::Compressing | Self::Purifying | Self::Injecting | Self::Infusing)
+    }
+
+    /// `allowExtractingChemical`: the compressing and infusing factories'
+    /// tanks give on their output sides (`setupIOConfig(CHEMICAL, tank,
+    /// RIGHT)`, `createModern`); the purifying and injecting ones' only to the
+    /// factory (`setupInputConfig`, `inputModern`: `notExternal`).
+    pub fn gives_chemical(self) -> bool {
+        matches!(self, Self::Compressing | Self::Infusing)
+    }
+
+    /// `getInitialChemicalTanks`: what the tank holds a process (the
+    /// infusing factory's 1000 mB, the others' 210, as their machines').
+    pub fn tank_per_process(self) -> Option<i64> {
+        match self {
+            Self::Infusing => Some(1000),
+            t if t.uses_chemical() => Some(crate::advanced::MAX_GAS),
+            _ => None,
+        }
     }
 }
 
@@ -114,6 +163,11 @@ impl FactoryKind {
 
     pub fn all() -> impl Iterator<Item = Self> {
         FactoryTier::ALL.into_iter().flat_map(|tier| FactoryType::ALL.into_iter().map(move |kind| Self { tier, kind }))
+    }
+
+    /// Its chemical tank's capacity: `tank_per_process` times its processes.
+    pub fn chemical_capacity(self) -> Option<i64> {
+        self.kind.tank_per_process().map(|each| each * self.tier.processes() as i64)
     }
 }
 
@@ -143,14 +197,16 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// The layout of any machine of `crate::machine` (one process).
+    /// The layout of any machine of `crate::machine` (one process): the
+    /// combiner's extra input, the infuser's infusion slot and an advanced
+    /// machine's chemical slot are its extra slot.
     pub fn of_machine(kind: MachineKind) -> Self {
         let s = kind.slots();
         Self {
             inputs: vec![s.input],
             outputs: vec![s.output],
             secondaries: s.output2.filter(|_| kind == MachineKind::PrecisionSawmill).into_iter().collect(),
-            extra: s.infusion.filter(|_| kind == MachineKind::Combiner),
+            extra: s.infusion.filter(|_| kind == MachineKind::Combiner || kind.infuses() || kind.advanced()),
             energy: s.energy,
             upgrade: s.upgrade,
             upgrade_out: s.upgrade_out,
@@ -160,12 +216,13 @@ impl Layout {
 
     /// `TileEntityItemToItemFactory.addSlots` (input, output by process),
     /// `TileEntitySawingFactory`'s (input, output, secondary), the combining
-    /// factory's extra slot after them, the energy slot last.
+    /// factory's extra slot after them (and the chemical factories' chemical
+    /// slot, `ChemicalInventorySlot.fillOrConvert`), the energy slot last.
     pub fn of_factory(factory: FactoryKind) -> Self {
         let n = factory.tier.processes();
         let per = if factory.kind == FactoryType::Sawing { 3 } else { 2 };
         let mut next = per * n;
-        let extra = (factory.kind == FactoryType::Combining).then(|| {
+        let extra = (factory.kind == FactoryType::Combining || factory.kind.uses_chemical()).then(|| {
             next += 1;
             next - 1
         });
@@ -270,6 +327,19 @@ impl ProcessKind {
         self.base() == MachineKind::PrecisionSawmill
     }
 
+    /// A factory of an item and a chemical: its chemical tank's capacity.
+    pub fn chemical_capacity(self) -> Option<i64> {
+        match self {
+            Self::Machine(_) => None,
+            Self::Factory(factory) => factory.chemical_capacity(),
+        }
+    }
+
+    /// The upgrades it takes: its machine's (`setFrom(origMachine, AttributeUpgradeSupport)`).
+    pub fn upgrades(self) -> &'static [crate::machine::Upgrade] {
+        self.base().upgrades()
+    }
+
     pub fn layout(self) -> Layout {
         match self {
             Self::Machine(kind) => Layout::of_machine(kind),
@@ -304,7 +374,6 @@ pub fn installer(item: &str) -> Option<(Option<FactoryTier>, FactoryTier)> {
 /// What a tier installer of `item` makes of the block `id` (`AttributeUpgradeable.upgradeResult`):
 /// a factory machine becomes the basic factory of its type, a factory the next
 /// tier; the installer's from tier must be the block's (`baseTier == fromTier`).
-/// The Metallurgic Infuser's factory isn't ported, so the infuser stays.
 pub fn upgraded(id: &str, item: &str) -> Option<String> {
     let (from, to) = installer(item)?;
     if let Some(factory) = FactoryKind::of_block(id) {
@@ -315,7 +384,8 @@ pub fn upgraded(id: &str, item: &str) -> Option<String> {
 }
 
 /// The layout of any block an installer reads: a machine of `crate::machine`
-/// (the chamber, crusher and smelter) or one of these.
+/// (the chamber, crusher and smelter, the advanced machines, the infuser) or
+/// one of these.
 pub fn layout_of(id: &str) -> Option<Layout> {
     match ProcessKind::of_block(id) {
         Some(kind) => Some(kind.layout()),
@@ -499,8 +569,9 @@ mod tests {
         let basic = FactoryKind { tier: FactoryTier::Basic, kind: FactoryType::Smelting };
         assert_eq!(basic.id(), "mekanism:basic_smelting_factory");
         assert_eq!(FactoryKind::of_block("mekanism:ultimate_sawing_factory"), Some(FactoryKind { tier: FactoryTier::Ultimate, kind: FactoryType::Sawing }));
-        assert_eq!(FactoryKind::of_block("mekanism:basic_infusing_factory"), None, "not ported");
-        assert_eq!(FactoryKind::all().count(), 20);
+        assert_eq!(FactoryKind::of_block("mekanism:basic_infusing_factory"), Some(FactoryKind { tier: FactoryTier::Basic, kind: FactoryType::Infusing }));
+        assert_eq!(FactoryKind::of_block("mekanism:basic_dissolving_factory"), None, "no such factory");
+        assert_eq!(FactoryKind::all().count(), 36);
         // Measured on NeoForge: process i of an item-to-item factory at 2i, 2i + 1; the ultimate's energy slot 18.
         let ultimate = Layout::of_factory(FactoryKind { tier: FactoryTier::Ultimate, kind: FactoryType::Smelting });
         assert_eq!((ultimate.inputs[8], ultimate.outputs[8], ultimate.energy, ultimate.count), (16, 17, 18, 21));
@@ -543,7 +614,12 @@ mod tests {
         assert_eq!(upgraded("mekanism:basic_combining_factory", "mekanism:advanced_tier_installer").as_deref(), Some("mekanism:advanced_combining_factory"));
         assert_eq!(upgraded("mekanism:basic_combining_factory", "mekanism:elite_tier_installer"), None);
         assert_eq!(upgraded("mekanism:ultimate_smelting_factory", "mekanism:ultimate_tier_installer"), None);
-        assert_eq!(upgraded("mekanism:metallurgic_infuser", "mekanism:basic_tier_installer"), None, "no infusing factory yet");
+        assert_eq!(upgraded("mekanism:metallurgic_infuser", "mekanism:basic_tier_installer").as_deref(), Some("mekanism:basic_infusing_factory"));
+        assert_eq!(upgraded("mekanism:osmium_compressor", "mekanism:basic_tier_installer").as_deref(), Some("mekanism:basic_compressing_factory"));
+        assert_eq!(upgraded("mekanism:purification_chamber", "mekanism:basic_tier_installer").as_deref(), Some("mekanism:basic_purifying_factory"));
+        assert_eq!(upgraded("mekanism:chemical_injection_chamber", "mekanism:basic_tier_installer").as_deref(), Some("mekanism:basic_injecting_factory"));
+        assert_eq!(upgraded("mekanism:elite_injecting_factory", "mekanism:ultimate_tier_installer").as_deref(), Some("mekanism:ultimate_injecting_factory"));
+        assert_eq!(upgraded("mekanism:chemical_dissolution_chamber", "mekanism:basic_tier_installer"), None, "Mekanism has no such factory");
         assert_eq!(upgraded("mekanism:electrolytic_separator", "mekanism:basic_tier_installer"), None);
         // A chamber's input, output, energy and upgrade slots to process 0 of the factory.
         let chamber = layout_of("mekanism:enrichment_chamber").unwrap();
@@ -558,6 +634,36 @@ mod tests {
         let advanced = layout_of("mekanism:advanced_combining_factory").unwrap();
         assert_eq!(combining.transfer(&advanced)[..3], [(0, 0), (2, 2), (4, 4)]);
         assert_eq!(combining.transfer(&advanced)[6], (6, 10), "the extra slot");
+        // An advanced machine's chemical slot and the infuser's infusion slot are the factory's chemical slot.
+        let compressor = layout_of("mekanism:osmium_compressor").unwrap();
+        let compressing = layout_of("mekanism:basic_compressing_factory").unwrap();
+        assert_eq!(compressor.transfer(&compressing), [(0, 0), (2, 1), (1, 6), (3, 7), (4, 8), (5, 9)]);
+        let infuser = layout_of("mekanism:metallurgic_infuser").unwrap();
+        let infusing = layout_of("mekanism:basic_infusing_factory").unwrap();
+        assert_eq!(infuser.transfer(&infusing), [(1, 0), (2, 1), (0, 6), (3, 7), (4, 8), (5, 9)]);
+    }
+
+    #[test]
+    fn the_chemical_factories_share_one_tank() {
+        let of = |tier, kind| FactoryKind { tier, kind };
+        // `getInitialChemicalTanks`: 210 mB a process, the infusing factory's 1000.
+        assert_eq!(of(FactoryTier::Basic, FactoryType::Compressing).chemical_capacity(), Some(630));
+        assert_eq!(of(FactoryTier::Ultimate, FactoryType::Purifying).chemical_capacity(), Some(1890));
+        assert_eq!(of(FactoryTier::Advanced, FactoryType::Injecting).chemical_capacity(), Some(1050));
+        assert_eq!(of(FactoryTier::Basic, FactoryType::Infusing).chemical_capacity(), Some(3000));
+        assert_eq!(of(FactoryTier::Ultimate, FactoryType::Infusing).chemical_capacity(), Some(9000));
+        assert_eq!(of(FactoryTier::Basic, FactoryType::Combining).chemical_capacity(), None);
+        // Its chemical slot after the processes, as the combining factory's extra slot.
+        let basic = Layout::of_factory(of(FactoryTier::Basic, FactoryType::Infusing));
+        assert_eq!((basic.inputs.clone(), basic.outputs.clone(), basic.extra, basic.energy, basic.count), (vec![0, 2, 4], vec![1, 3, 5], Some(6), 7, 10));
+        let ultimate = Layout::of_factory(of(FactoryTier::Ultimate, FactoryType::Compressing));
+        assert_eq!((ultimate.extra, ultimate.energy, ultimate.upgrade, ultimate.menu()), (Some(18), 19, 20, ("minecraft:generic_9x3", 27)));
+        assert!(FactoryType::Compressing.gives_chemical() && FactoryType::Infusing.gives_chemical());
+        assert!(!FactoryType::Purifying.gives_chemical() && !FactoryType::Injecting.gives_chemical());
+        // The chambers' factories take chemical upgrades, as their machines.
+        let purifying = ProcessKind::Factory(of(FactoryTier::Basic, FactoryType::Purifying));
+        assert!(purifying.upgrades().contains(&crate::machine::Upgrade::Chemical));
+        assert!(!ProcessKind::Factory(of(FactoryTier::Basic, FactoryType::Compressing)).upgrades().contains(&crate::machine::Upgrade::Chemical));
     }
 
     fn slot(key: &'static str, count: u32) -> Option<SortSlot<&'static str>> {

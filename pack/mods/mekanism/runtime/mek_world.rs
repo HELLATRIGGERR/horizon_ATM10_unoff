@@ -899,7 +899,7 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
 /// (`UniversalCable.write`), left out at zero.
 /// A block with a chemical handler: tubes beside it look again as it comes and goes.
 fn has_chemicals(id: &str) -> bool {
-    super::mek_tanks::tier_of(id).is_some() || mek_machines::kind_of(id).is_some_and(|k| k.default_chemicals().is_some()) || super::mek_gas::is_gas(id)
+    super::mek_tanks::tier_of(id).is_some() || mek_machines::kind_of(id).is_some_and(|k| k.default_chemicals().is_some()) || super::mek_gas::is_gas(id) || mek_factories::has_chemicals(id)
 }
 
 pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut Compound) {

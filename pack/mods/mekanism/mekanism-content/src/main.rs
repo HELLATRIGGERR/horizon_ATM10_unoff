@@ -20,6 +20,11 @@
 //!   Mekanism's OBJ transmitter model (`mekanism:transmitter`, the small one
 //!   with its own textures) converted to a multipart blockstate
 //!   (`transmitter`); its carried loot and shaped recipe stay.
+//! - Each mechanical pipe and logistical transporter gets the large OBJ
+//!   transmitter model converted the same way (`transmitter_large`).
+//! - Each fluid tank keeps its carried block models, its item model becomes
+//!   the block's, and it drops plain with a shaped upgrade recipe, as a
+//!   chemical tank.
 //! - Each chemical tank keeps its carried model; its loot table drops it
 //!   plain and its `mekanism:mek_data` upgrade recipe becomes shaped, as a
 //!   cube's (the native mod gives the drop its contents).
@@ -152,6 +157,8 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
     let mut cables = Vec::new();
     let mut tubes = Vec::new();
     let mut tanks = Vec::new();
+    let mut large = Vec::new();
+    let mut fluid_tanks = Vec::new();
     let mut others = Vec::new();
     let mut files = 0;
     let blocks = overlay.join("data").join(&id).join("horizon/block");
@@ -179,6 +186,47 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
                 files += 1;
             }
             tubes.push(block.to_owned());
+            continue;
+        }
+        if let Some((kind, tier)) = ["mechanical_pipe", "logistical_transporter"]
+            .into_iter()
+            .find_map(|kind| Some((kind, block.strip_suffix(&format!("_{kind}"))?)))
+        {
+            for (path, value) in large_files(carry, kind, tier)? {
+                write_json(&out.join(path), &value)?;
+                files += 1;
+            }
+            large.push(block.to_owned());
+            continue;
+        }
+        if let Some(tier) = block.strip_suffix("_fluid_tank") {
+            // Its carried block models stay; its `builtin/entity` item model becomes the block's, its drop is plain
+            // and its `mek_data` upgrade recipe a shaped one, as a chemical tank's.
+            let models = carry.join("assets/mekanism/models");
+            let mut item = json!({ "parent": "mekanism:block/fluid_tank" });
+            if let Ok(carried) = read_json(&models.join(format!("item/{block}.json")))
+                && let Some(display) = carried.get("display")
+            {
+                item["display"] = display.clone();
+            }
+            write_json(&out.join(format!("assets/mekanism/models/item/{block}.json")), &item)?;
+            files += 1;
+            let loot_path = format!("data/mekanism/loot_table/blocks/{block}.json");
+            if !overlay.join(&loot_path).exists()
+                && let Ok(table) = read_json(&carry.join(&loot_path))
+            {
+                write_json(&out.join(&loot_path), &plain_drop(&table))?;
+                loot.push(block.to_owned());
+            }
+            let recipe_path = format!("data/mekanism/recipe/fluid_tank/{tier}.json");
+            if !overlay.join(&recipe_path).exists()
+                && let Ok(recipe) = read_json(&carry.join(&recipe_path))
+                && let Some(shaped) = shaped_recipe(&recipe)?
+            {
+                write_json(&out.join(&recipe_path), &shaped)?;
+                recipes.push(block.to_owned());
+            }
+            fluid_tanks.push(block.to_owned());
             continue;
         }
         if let Some(tier) = block.strip_suffix("_chemical_tank") {
@@ -291,7 +339,7 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
         "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags, "fluids": fluids,
         "chemicals": chemicals, "chemical_sprites": chemical_sprites,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
-        "cubes": cubes, "cables": cables, "tubes": tubes, "chemical_tanks": tanks, "blocks": others, "loot_tables": loot, "recipes": recipes,
+        "cubes": cubes, "cables": cables, "tubes": tubes, "large_transmitters": large, "chemical_tanks": tanks, "fluid_tanks": fluid_tanks, "blocks": others, "loot_tables": loot, "recipes": recipes,
         "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;
@@ -749,6 +797,25 @@ fn small_files(carry: &Path, kind: &str, tier: &str) -> Result<Vec<(String, Valu
     let objects = transmitter::parse_obj(&read(models.join("block/transmitter_small.obj.mek"))?, &materials, flip_v)
         .map_err(|e| format!("transmitter_small.obj.mek: {e}"))?;
     transmitter::small_models(kind, tier, &objects, texture("side")?, texture("center_down")?, small.get("display"))
+}
+
+/// A large transmitter's (`mechanical_pipe`, `logistical_transporter`) models
+/// of one tier, from the carried large OBJ model and its texture names (a
+/// transporter's coloured glass is left out: `TransmitterBakedModel` draws it
+/// only for a transporter with a colour, which a model can't ask).
+fn large_files(carry: &Path, kind: &str, tier: &str) -> Result<Vec<(String, Value)>> {
+    let models = carry.join("assets/mekanism/models");
+    let large = read_json(&models.join("block/transmitter/large/large.json"))?;
+    let own = read_json(&models.join(format!("block/transmitter/large/{kind}/{tier}.json")))?;
+    let texture = |name: &str| -> Result<&str> {
+        own["textures"][name].as_str().ok_or_else(|| format!("the {tier} {kind} model has no texture {name}"))
+    };
+    let read = |path: PathBuf| fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()));
+    let materials = transmitter::parse_mtl(&read(models.join("block/transmitter_large.mtl"))?);
+    let flip_v = large["flip_v"].as_bool().unwrap_or(false);
+    let objects = transmitter::parse_obj(&read(models.join("block/transmitter_large.obj.mek"))?, &materials, flip_v)
+        .map_err(|e| format!("transmitter_large.obj.mek: {e}"))?;
+    transmitter::sized_models("large", kind, tier, &objects, texture("side")?, texture("center_down")?, large.get("display"))
 }
 
 /// The block's loot table without its item modifiers: Mekanism copies its

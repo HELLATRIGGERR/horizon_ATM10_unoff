@@ -61,6 +61,13 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   `OUT_NO_EJECT`); their factories are the same class with another recipe type. Tier installers also upgrade energy
   cubes, fluid and chemical tanks and bins (`AttributeUpgradeable` on those blocks), not ported. The Configurator's
   modes (`ItemConfigurator`) would replace `/mek connection`; multiblocks stay out.
+- Transmitters, part 1 (branch `feat/mekanism-transmitters`, no new hook point): the Mechanical Pipes
+  (`mekanism_energy::transmitter` for their tiers and settings, `network` as the tubes', runtime `mek_pipes`) and the
+  Fluid Tanks as their sources and sinks (`fluid_tank`, runtime `mek_fluid_tanks`); `mek_transmit` is where
+  `mek_world`'s hooks hand pipes, tanks, transporters and the Configurator over, one line each. Measured on the
+  private oracle (`mekm2-work/oracle`, x3 and x3b): pull 250/1000/8000/32 000 mB a tick by tier, two full basic pipes
+  2000 each, an active tank's output split by a normal up side, push and none taking nothing, a pull side sending
+  nothing back, one fluid a network. World test `mechanical-pipe`.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`;

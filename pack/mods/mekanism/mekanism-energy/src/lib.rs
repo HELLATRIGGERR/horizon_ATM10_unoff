@@ -24,6 +24,9 @@
 //! The Combiner, the Precision Sawmill and the factories (`factory`) run
 //! their recipes in processes of their own on one store, and tier
 //! installers turn a machine into a factory and a factory into the next tier.
+//! Mechanical Pipes move fluids in networks as the tubes do (`network`, with
+//! `transmitter`'s tiers), between Fluid Tanks (`fluid_tank`) and any block with
+//! a fluid handler.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod chemical;
 pub mod chemical_tank;
@@ -33,6 +36,7 @@ pub mod cube;
 pub mod display;
 pub mod factory;
 pub mod fe;
+pub mod fluid_tank;
 pub mod generator;
 pub mod heat;
 pub mod machine;
@@ -44,6 +48,7 @@ pub mod sky;
 pub mod solar;
 pub mod split;
 pub mod tier;
+pub mod transmitter;
 
 /// Java's `(long) d` for the energy maths: NaN is 0, the rest saturates.
 pub(crate) fn clamp_to_long(d: f64) -> i64 {

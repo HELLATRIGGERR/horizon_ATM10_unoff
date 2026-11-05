@@ -21,6 +21,8 @@ pub const DIRECTIONS: [&str; 6] = ["down", "up", "north", "south", "west", "east
 const CONNECTIONS: [&str; 3] = ["normal", "push", "pull"];
 /// A side with something connected.
 const CONNECTED: &str = "normal|push|pull";
+/// How near an axis a face's normal must be to be laid flat on it.
+const SNAP: f64 = 0.95;
 const NORMALS: [[f64; 3]; 6] = [[0., -1., 0.], [0., 1., 0.], [0., 0., -1.], [0., 0., 1.], [-1., 0., 0.], [1., 0., 0.]];
 
 /// One axis-aligned quad of the model: its direction, corners (position and
@@ -72,10 +74,21 @@ pub fn parse_obj(text: &str, materials: &HashMap<String, String>, flip_v: bool) 
                     corners[i] = ([pos[0], pos[1], pos[2]], [uv[0], if flip_v { 1.0 - uv[1] } else { uv[1] }]);
                 }
                 let normal = normal.ok_or_else(|| at("a face without a normal".to_owned()))?;
-                let direction = NORMALS
-                    .iter()
-                    .position(|d| (0..3).all(|i| (d[i] - normal[i]).abs() < 1e-6))
-                    .ok_or_else(|| at(format!("{object}: a face that isn't axis-aligned")))?;
+                let direction = match NORMALS.iter().position(|d| (0..3).all(|i| (d[i] - normal[i]).abs() < 1e-6)) {
+                    Some(d) => d,
+                    // The large model's push and pull rings have bevels a tenth of a turn off an axis: such a face
+                    // becomes the rectangle around it laid flat on its axis at its corners' mean, as a model element
+                    // must be, each corner taking the texture coordinates of the corner nearest it.
+                    None => {
+                        let d = NORMALS
+                            .iter()
+                            .position(|d| (0..3).any(|i| d[i] != 0.0 && d[i] * normal[i] >= SNAP))
+                            .ok_or_else(|| at(format!("{object}: a face that isn't axis-aligned")))?;
+                        let axis = (0..3).find(|i| NORMALS[d][*i] != 0.0).unwrap_or(0);
+                        corners = bounding_rectangle(&corners, axis);
+                        d
+                    }
+                };
                 let texture = materials
                     .get(&material)
                     .ok_or_else(|| at(format!("{object}: no texture for material {material}")))?
@@ -86,6 +99,30 @@ pub fn parse_obj(text: &str, materials: &HashMap<String, String>, flip_v: bool) 
         }
     }
     Ok(objects)
+}
+
+/// The rectangle around `corners` on the plane across `axis`, at their mean
+/// along it, each of its corners with the texture coordinates of the nearest.
+fn bounding_rectangle(corners: &[([f64; 3], [f64; 2]); 4], axis: usize) -> [([f64; 3], [f64; 2]); 4] {
+    let (a, b) = ((axis + 1) % 3, (axis + 2) % 3);
+    let lo = |i: usize| corners.iter().map(|(p, _)| p[i]).fold(f64::INFINITY, f64::min);
+    let hi = |i: usize| corners.iter().map(|(p, _)| p[i]).fold(f64::NEG_INFINITY, f64::max);
+    let mean = corners.iter().map(|(p, _)| p[axis]).sum::<f64>() / 4.0;
+    let at = |va: f64, vb: f64| {
+        let mut p = [0.0; 3];
+        p[axis] = mean;
+        p[a] = va;
+        p[b] = vb;
+        let nearest = corners
+            .iter()
+            .min_by(|x, y| {
+                let d = |q: &[f64; 3]| (q[a] - va).powi(2) + (q[b] - vb).powi(2);
+                d(&x.0).total_cmp(&d(&y.0))
+            })
+            .map_or([0.0; 2], |c| c.1);
+        (p, nearest)
+    };
+    [at(lo(a), lo(b)), at(hi(a), lo(b)), at(hi(a), hi(b)), at(lo(a), hi(b))]
 }
 
 /// `material -> map_Kd` of an `.mtl` file.
@@ -142,6 +179,13 @@ fn values(quad: &Quad, axis: usize) -> Vec<f64> {
 /// around a ring tile it like a pinwheel. Its texture mapping continues the
 /// trapezoid's, which is linear in the two axes.
 fn squared(quad: &Quad) -> Result<Quad> {
+    squared_with(quad, false)
+}
+
+/// [`squared`], `lenient` about a trapezoid's texture: the large model's
+/// rings map a trapezoid onto a whole rectangle of texture, which no affine
+/// mapping does, and there the outer edge's mapping is taken.
+fn squared_with(quad: &Quad, lenient: bool) -> Result<Quad> {
     let n = NORMALS[quad.direction];
     let flat = (0..3).find(|i| n[*i] != 0.0).unwrap_or(0);
     let (a, b) = ((flat + 1) % 3, (flat + 2) % 3);
@@ -183,7 +227,7 @@ fn squared(quad: &Quad) -> Result<Quad> {
         std::array::from_fn(|i| outer[0].1[i] + along[i] * (pe - outer[0].0[e]) + cross[i] * (pw - outer_w))
     };
     let check = map(inner[1].0[e], inner_w);
-    if !near(check[0], inner[1].1[0]) || !near(check[1], inner[1].1[1]) {
+    if !lenient && (!near(check[0], inner[1].1[0]) || !near(check[1], inner[1].1[1])) {
         return Err(format!("a {name} trapezoid's texture isn't linear"));
     }
     // n x outward, along the edge: which end takes its corner.
@@ -208,7 +252,12 @@ fn squared(quad: &Quad) -> Result<Quad> {
 
 /// The element of one quad: zero thick along its direction, one face.
 pub fn element(quad: &Quad) -> Result<Value> {
-    let quad = &squared(quad)?;
+    element_with(quad, false)
+}
+
+/// [`element`], lenient as [`squared_with`] is.
+fn element_with(quad: &Quad, lenient: bool) -> Result<Value> {
+    let quad = &squared_with(quad, lenient)?;
     let pos = |i: usize| quad.corners.map(|(p, _)| p[i]);
     let (mut from, mut to) = ([0.0; 3], [0.0; 3]);
     for i in 0..3 {
@@ -256,6 +305,17 @@ pub fn element(quad: &Quad) -> Result<Value> {
                 "faces": faces,
             }));
         }
+    }
+    if lenient {
+        // A laid-flat bevel: the box of its texture coordinates.
+        let lo = |i: usize| uv.iter().map(|c| c[i]).fold(f64::MAX, f64::min);
+        let hi = |i: usize| uv.iter().map(|c| c[i]).fold(f64::MIN, f64::max);
+        let mut face = Map::new();
+        face.insert("uv".into(), json!([px(lo(0)), px(lo(1)), px(hi(0)), px(hi(1))]));
+        face.insert("texture".into(), json!(quad.texture));
+        let mut faces = Map::new();
+        faces.insert(DIRECTIONS[quad.direction].to_owned(), Value::Object(face));
+        return Ok(json!({ "from": from.map(px), "to": to.map(px), "faces": faces }));
     }
     Err(format!("a {} quad's texture is slanted", DIRECTIONS[quad.direction]))
 }
@@ -333,8 +393,23 @@ pub fn small_models(
     center: &str,
     display: Option<&Value>,
 ) -> Result<Vec<(String, Value)>> {
+    sized_models("small", kind, tier, objects, side, center, display)
+}
+
+/// [`small_models`] of a transmitter of either size (`small`, `large`: the
+/// mechanical pipes' and logistical transporters' OBJ model, of the same 24
+/// objects).
+pub fn sized_models(
+    size: &str,
+    kind: &str,
+    tier: &str,
+    objects: &BTreeMap<String, Vec<Quad>>,
+    side: &str,
+    center: &str,
+    display: Option<&Value>,
+) -> Result<Vec<(String, Value)>> {
     let block = format!("{tier}_{kind}");
-    let dir = format!("block/transmitter/small/{kind}/{tier}");
+    let dir = format!("block/transmitter/{size}/{kind}/{tier}");
     let textures = json!({ "side": side, "center": center, "particle": center });
     let quads = |name: String| -> Result<Vec<Quad>> {
         let found = objects.get(&name).ok_or_else(|| format!("the model has no object {name}"))?;
@@ -347,7 +422,8 @@ pub fn small_models(
             })
             .collect())
     };
-    let elements = |list: &[Quad]| -> Result<Vec<Value>> { list.iter().map(element).collect() };
+    let lenient = size == "large";
+    let elements = |list: &[Quad]| -> Result<Vec<Value>> { list.iter().map(|q| element_with(q, lenient)).collect() };
     let model = |list: &[Quad]| -> Result<Value> { Ok(json!({ "textures": textures, "elements": elements(list)? })) };
     let mut files = Vec::new();
     let mut multipart = Vec::new();
@@ -642,6 +718,14 @@ f 1/1/1 3/2/1 4/3/1 2/4/1
         assert!(state["multipart"][0]["apply"]["model"].as_str().unwrap().starts_with("mekanism:block/transmitter/small/pressurized_tube/elite/"));
         let (_, item) = files.iter().find(|(p, _)| p.ends_with("models/item/elite_pressurized_tube.json")).unwrap();
         assert_eq!(item["textures"]["side"], "mekanism:block/models/multipart/elite_pressurized_tube_vertical");
+    }
+
+    #[test]
+    fn a_pipe_is_the_large_model_in_its_own_folder() {
+        let files = sized_models("large", "mechanical_pipe", "basic", &whole_model(), "mekanism:p", "mekanism:c", None).unwrap();
+        assert_eq!(files.iter().filter(|(p, _)| p.contains("/transmitter/large/mechanical_pipe/basic/")).count(), 36);
+        let (_, state) = files.iter().find(|(p, _)| p.ends_with("blockstates/basic_mechanical_pipe.json")).unwrap();
+        assert!(state["multipart"][0]["apply"]["model"].as_str().unwrap().starts_with("mekanism:block/transmitter/large/mechanical_pipe/basic/"));
     }
 
     #[test]

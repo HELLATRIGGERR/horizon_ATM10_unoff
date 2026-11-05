@@ -169,6 +169,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     mek_machines::clear();
     super::mek_tubes::clear();
     mek_factories::clear();
+    super::mek_transmit::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -264,7 +265,7 @@ fn write_config(nbt: &mut Compound, cube: &CubeState) {
 /// `native_block_entity`: a cube's entity, with the item's default config.
 /// A creative cube saves no energy, so it counts as full.
 pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
-    if entity.is_some() {
+    if entity.is_some() || super::mek_transmit::new_entity(block, entity) {
         return;
     }
     if GeneratorKind::of_block(block).is_some() {
@@ -307,6 +308,7 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
         || GeneratorKind::of_block(block).is_some()
         || mek_machines::kind_of(block).is_some()
         || super::mek_tanks::tier_of(block).is_some()
+        || super::mek_transmit::ticks(block)
     {
         *ticks = true;
     }
@@ -496,6 +498,9 @@ fn hand_over(
 /// Energy blocks alike; then the menu's data slots. Redstone control is
 /// IGNORED, the default; the slots hold no energy items yet.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
+    if super::mek_transmit::tick(game, pos, entity) {
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         tick_generator(game, pos, entity, kind);
         return;
@@ -821,6 +826,9 @@ fn write_connections(nbt: &mut Compound, connections: &[Connection; 6]) {
 /// the share it saved (`registerOrphanTransmitter`); the cables around a cube
 /// that came look at it again.
 pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity) {
+    if super::mek_transmit::loaded(dimension, pos, entity) {
+        return;
+    }
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
@@ -852,6 +860,9 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
 /// Unloading, it takes what its save holds with it (`onChunkUnloaded`); broken,
 /// it takes nothing and the rest of the network keeps the energy.
 pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) {
+    if super::mek_transmit::unloaded(dimension, pos, entity, removed) {
+        return;
+    }
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
@@ -891,6 +902,9 @@ fn has_chemicals(id: &str) -> bool {
 }
 
 pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut Compound) {
+    if super::mek_transmit::saved(dimension, pos, id, nbt) {
+        return;
+    }
     if super::mek_tubes::tier_of(id).is_some() {
         super::mek_tubes::saved(dimension, pos, nbt);
         return;
@@ -913,6 +927,7 @@ pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut C
 /// `native_block_changed`: every block set; the cables beside it look again.
 pub(super) fn block_set(pos: [i32; 3]) {
     super::mek_tubes::block_set(pos);
+    super::mek_transmit::block_set(pos);
     if ANY_CABLES.get() {
         SET_BLOCKS.with(|s| s.borrow_mut().push(pos));
     }
@@ -1089,6 +1104,9 @@ fn set_connection(game: &mut Game<'_>, pos: [i32; 3], side: &str, connection: &s
         return serde_json::json!({ "error": "no such connection" });
     };
     if let Some(answer) = super::mek_tubes::set_connection(game, pos, face, connection) {
+        return answer;
+    }
+    if let Some(answer) = super::mek_transmit::set_connection(game, pos, face, connection) {
         return answer;
     }
     let dimension = game.native_dimension();
@@ -1332,6 +1350,7 @@ pub(super) fn joined(game: &mut Game<'_>, dimension: &str, entity: u32, kind: &s
 pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     tick_cables(game, dimension);
     super::mek_tubes::level_ticked(game, dimension);
+    super::mek_transmit::level_ticked(game, dimension);
     let due = LOOKED_AT.get().is_none_or(|at| at.elapsed() >= Duration::from_secs(1));
     if due {
         LOOKED_AT.set(Some(Instant::now()));
@@ -1434,7 +1453,11 @@ pub(super) fn fluid_tanks(
     entity: &ModBlockEntity,
     tanks: &mut Option<Vec<NativeFluidTankInfo>>,
 ) {
-    if tanks.is_some() || mek_machines::fluid_tanks(entity, face, tanks) || heat_tank_side(entity, face).is_none() {
+    if tanks.is_some()
+        || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
+        || mek_machines::fluid_tanks(entity, face, tanks)
+        || heat_tank_side(entity, face).is_none()
+    {
         return;
     }
     let (config, _) = energy_config();
@@ -1458,7 +1481,10 @@ pub(super) fn fluid_fill(
     simulate: bool,
     filled: &mut Option<i32>,
 ) {
-    if filled.is_some() || mek_machines::fluid_fill(entity, face, resource, simulate, filled) {
+    if filled.is_some()
+        || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
+        || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
+    {
         return;
     }
     let Some(side) = heat_tank_side(entity, face) else {
@@ -1496,7 +1522,10 @@ pub(super) fn fluid_drain(
     _simulate: bool,
     drained: &mut Option<FluidStack>,
 ) {
-    if drained.is_some() || mek_machines::fluid_drain(entity, face, drained) {
+    if drained.is_some()
+        || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, _simulate, drained)
+        || mek_machines::fluid_drain(entity, face, drained)
+    {
         return;
     }
     let Some(side) = heat_tank_side(entity, face) else {
@@ -1984,6 +2013,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if super::mek_tubes::tier_of(&id).is_some() {
         return super::mek_tubes::probe(game, pos);
+    }
+    if let Some(answer) = super::mek_transmit::probe(game, pos, &id) {
+        return answer;
     }
     if let Some(tier) = CableTier::of_block(&id) {
         return probe_cable(game, pos, &id, tier);

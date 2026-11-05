@@ -1,7 +1,7 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, and Mekanism Generators' Solar and Heat
-Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes and Fluid Tanks,
+and Mekanism Generators' Solar and Heat Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -106,6 +106,17 @@ assets when `mekanism-content` is given them.
 - `facing` from placement and `active` (light 8) in their blocks, `active` going off after `blockDeactivationDelay`;
   their screens like Mekanism's (`GuiElectricMachine`, `GuiMetallurgicInfuser`) with the side configuration and upgrade
   windows.
+- Basic, Advanced, Elite and Ultimate Mechanical Pipes (`[transmitters.fluid]`, runtime `mek_pipes`): networks of one
+  fluid as the tubes' (`network` with a fluid as its content: its id, or the id and a number for one with components),
+  connecting to any block with a fluid handler on the touching side (hook points API 160: the bundle's tanks and
+  machines, cauldrons, AE2), emitting to all of them each tick with the even split, pulling through a pull side at
+  the tier's pull amount (250, 1000, 8000, 32 000 mB on ATM10) when all of it fits, each pipe's share saved as
+  `fluid`, the network a fluid handler on each side for the blocks around it (normal and pull sides take in, normal
+  and push give out); the large OBJ transmitter model as a multipart blockstate.
+- Basic to Creative Fluid Tanks (`[fluid_tanks]`, `mekanism_energy::fluid_tank`, runtime `mek_fluid_tanks`), as the
+  pipes' sources and sinks: one tank on every side that other blocks fill and drain without a rate limit, giving
+  down at its output a tick while active (`active_state`; at most what a fluid tank below still takes), a creative
+  tank keeping what it gives and voiding what it gets; saved as Mekanism saves it (`fluid_tanks`).
 
 ## Differences from Mekanism
 
@@ -160,3 +171,10 @@ assets when `mekanism-content` is given them.
 - A tag-based recipe takes what the tag holds in the world: with only Mekanism's content mods, the pack's `c:` and
   `minecraft:` tags (in ATM10's `atm10-pack` carry) hold just Mekanism's own items, which `mekanism-content --pack`
   copies in, so a recipe on another mod's items does nothing there.
+- Pipe networks split their buffer and their saved shares by position (Mekanism: `HashMap` order): the oracle's three
+  basic pipes holding 4750 saved 1583, 1584, 1583, here 1584, 1583, 1583. Two pipes pulling different fluids into one
+  empty network in the same tick: the one first by position wins here, Mekanism's block entity order there. The
+  large model's bevels (a tenth of a turn off an axis) are flat rectangles here and its rings' trapezoids keep the
+  outer edge's texture mapping. Pipes don't show their fluid, and redstone sensitivity isn't ported.
+- Fluid tanks have no screen, slots, edit mode or item that keeps their fluid (they drop plain); a fill that doesn't
+  fit doesn't overflow into a tank above, and their light is only `active`'s.

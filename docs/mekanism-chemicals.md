@@ -187,6 +187,28 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   Measured (o1): hydrogen and chlorine make 1 mB of hydrogen chloride for 200 J a tick either way round; 3 speed
   upgrades 8 operations of 1600 J; 8 as far as 80 000 J go (one of 51 200 J); a full output, an empty input or 150 J
   stop it; the centre ejects out of its front; its right took oxygen and then its left no chlorine.
+- **The advanced machines** (slice 4, `TileEntityAdvancedElectricMachine`, `mekanism_energy::advanced`, three more
+  `MachineKind`s in `mek_machines`): the Osmium Compressor (`mekanism:compressing`, 100 J, 80 000 J), the
+  Purification Chamber (`mekanism:purifying`, 200 J, 80 000 J) and the Chemical Injection Chamber
+  (`mekanism:injecting`, 400 J, 160 000 J): an item and a chemical in, an item out, 200 ticks; a tank of 210 mB
+  (`createModern(210, ..., containsRecipeBA(input, gas), containsRecipeB)`) filled by its chemical slot
+  (`fillOrConvert`: a chemical item, else a `mekanism:chemical_conversion` that fits whole: an osmium ingot 200 mB,
+  flint 10 of oxygen, salt 2 of hydrogen chloride). A `per_tick_usage` recipe (all of ATM10's) takes its amount times
+  a multiplier drawn each tick (`ItemStackConstantChemicalToObjectCachedRecipe`), the last tick's with the item
+  (`finishProcessing`); `used_so_far` is saved and starts over only when an operation ends. The compressor's
+  multiplier is `constantUse` of `baseTotalUsage` (200, or `round(200 * 16^(speed/8 - chemical/8))` for a machine
+  taking chemical upgrades): what is left spread over the ticks left, so an ingot takes 200 mB whatever its speed and
+  energy upgrades. The chambers take chemical upgrades and, with `randomizedConsumption` (machine-usage.toml; ATM10's
+  file predates it, so Mekanism's default, on), draw `StatUtils.inversePoisson(16^(2 speed/8 - chemical/8))` a tick:
+  0 to 3 mB with no upgrades (0.91 on average); speed upgrades raise what an operation takes (8 of them: 256 a tick
+  on average, more than the tank, so it stalls), chemical upgrades lower it, energy upgrades change nothing. A tank
+  short of the recipe's amount or of the tick's draw waits with the progress. The compressor's chemical config is
+  `setupIOConfig` (`OUT_NO_EJECT`: its right gives, the rest take), the chambers' `setupInputConfig` (every side
+  takes, nothing gives: `allowExtractingChemical` is off while they draw at random). Measured (`chem-work/m4` a1): the
+  compressor 1 mB a tick for 200 ticks of 100 J, 16 a tick for 12 with 8 speed upgrades, 4 a tick for 50 with 4
+  speed and 8 energy; an empty tank keeps the progress; an ingot goes in only when all 200 fit; the purification
+  chamber took 186 and the injection chamber 165 mB in 200 ticks, 0 to 3 a tick; with 8 speed upgrades nothing in 24
+  ticks; with 8 chemical upgrades 16 in 200.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -219,10 +241,12 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    `mekanism-content` (`transmitter::tests`), the world test `pressurized-tube`.
 4. **More chemical machines.** The Gas-Burning Generator (done: as above; the world test `gas-burning-generator`,
    `mekanism-energy`'s `gas::tests`), the Chemical Oxidizer (items to chemicals) and Chemical Infuser (two chemicals to
-   one) (done: as above; the world test `chemical-oxidizer-infuser`, `chemical_machine::tests`, `machine` and `menu`).
-   Chemical Injection Chamber and Purification Chamber (item and chemical per tick, `ItemStackConstantChemical...`),
-   Rotary Condensentrator (fluid and chemical both ways), the brine recipe's sodium and chlorine, the Gas-Burning
-   Generator (hydrogen and ethene by their fuel attribute).
+   one) (done: as above; the world test `chemical-oxidizer-infuser`, `chemical_machine::tests`, `machine` and `menu`),
+   the Osmium Compressor, Purification Chamber and Chemical Injection Chamber (done: as above; the world test
+   `advanced-machines`, `advanced::tests`, `machine`, `config`). Left for slice 5: the ore chain's Chemical
+   Dissolution Chamber, Chemical Washer and Chemical Crystallizer (with All the Ores' and Mekanism's slurries), the
+   Rotary Condensentrator (fluid and chemical both ways), the factories' compressing, purifying and injecting
+   (`mekmach2`'s factories, on `advanced`).
 5. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
    polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`.
 6. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
@@ -242,6 +266,15 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
 - Its fluid slot empties a container only when it is alone in the slot.
 - The fluid gauge is water's blue or a mod fluid's tint, not the fluid's texture.
 - Redstone control stays IGNORED, as for the other machines.
+- The Gas-Burning Generator's energy slot charges nothing (items keep no energy yet); its max output after a load is
+  twice its tank's fuel's Joules a tick, as Java's `recheckOutput`, and a fill by another block into an empty tank is
+  noticed at its next tick, not at once.
+- The oxidizer's and chemical infuser's output slot items leave by their item ejector once full (as the
+  separator's); hoppers take none out.
+- The chambers' chemical config is the randomized one whatever `randomizedConsumption` says (with it off Mekanism
+  gives them the compressor's `setupIOConfig`); their draws come from the bundle's own random source, not the game's.
+- A machine short of a tick's Joules waits without looking at its inputs (Java may still reset the progress when
+  its errors change that tick).
 - A chemical tank's slots take only chemical tank items (alone; the fill slot one holding a chemical), whatever the
   tank holds, as `native_block_entity_slot_accepts` sees no block entity; hoppers fill them and take nothing out.
   The infuser's infusion slot takes any tank item holding a chemical. No other chemical items (jetpacks, scuba

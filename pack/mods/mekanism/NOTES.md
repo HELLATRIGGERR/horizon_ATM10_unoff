@@ -88,15 +88,19 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   NeoForge oracle with Mekanism Generators as well (local `chem-work/oracle4`, driven by `chem-work/m4/*.py`). World
   test `gas-burning-generator`. The Chemical Oxidizer and Chemical Infuser (`mekanism_energy::chemical_machine`,
   runtime `mek_chem_machines`, two `MachineKind`s sharing `mek_machines`' block entity, energy, config, handler and
-  probe). World test `chemical-oxidizer-infuser`.
+  probe). World test `chemical-oxidizer-infuser`. The Osmium Compressor, Purification Chamber and Chemical Injection
+  Chamber (`mekanism_energy::advanced`: the per-tick chemical use, constant or drawn at random; three more
+  `MachineKind`s in `mek_machines`). World test `advanced-machines` (loads All the Ores' carry beside `MEK_CARRY`,
+  or `MEK_ATO_CARRY`, for the chambers' clumps and shards). Slice 5 of the doc keeps the ore chain (dissolution,
+  washer, crystallizer) and the Rotary Condensentrator.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical
   Sorter on `transporter::round_robin`, hoppers into transporters, redstone sensitivity), the Fluid Tank's screen
   and item, the Configurator's mode key;
-  the chemical machines and their factories (the Osmium Compressor, Purification Chamber, Chemical Injection Chamber,
-  the infusing factory), other energy items charging machines.
+  the chemical machines' factories (the compressing, purifying, injecting and infusing ones), other energy items
+  charging machines.
 
 ## How to run
 

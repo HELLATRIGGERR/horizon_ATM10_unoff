@@ -1,0 +1,31 @@
+{
+  "template": "minecraft:beacon",
+  "properties": {
+    "hardness": 3.5,
+    "explosion_resistance": 16,
+    "requires_tool": true,
+    "sounds": "minecraft:iron_block",
+    "push_reaction": "IMMOVEABLE",
+    "map_color": 59,
+    "light": 0,
+    "no_occlusion": false,
+    "can_occlude": true,
+    "skylight_down": false,
+    "light_dampening": 15,
+    "solid": true,
+    "redstone_conductor": true,
+    "suffocating": true
+  },
+  "state_properties": {
+    "facing": { "type": "enum", "values": ["north", "south", "west", "east"] },
+    "active": { "type": "boolean" }
+  },
+  "default_state": {
+    "facing": "north",
+    "active": "false"
+  },
+  "light_emission": {
+    "active=true": 8
+  },
+  "components": { "minecraft:rarity": "common" }
+}

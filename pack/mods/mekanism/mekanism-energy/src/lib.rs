@@ -22,7 +22,8 @@
 //! fill the infuser's tank and the Electrolytic Separator's (`separator`), the
 //! Chemical Tanks and the items that keep their contents (`chemical_tank`),
 //! and the Pressurized Tubes' networks (`network`, one chemical a network);
-//! the Chemical Oxidizer and Chemical Infuser make chemicals (`chemical_machine`).
+//! the Chemical Oxidizer and Chemical Infuser make chemicals (`chemical_machine`),
+//! and the advanced machines take one a tick (`advanced`).
 //! The Combiner, the Precision Sawmill and the factories (`factory`) run
 //! their recipes in processes of their own on one store, and tier
 //! installers turn a machine into a factory and a factory into the next tier.
@@ -32,6 +33,7 @@
 //! along the cheapest paths to the inventories that take them. The
 //! Configurator's modes (`configurator`) set sides, colours and facings.
 //! Nothing here knows the game: the native mod's helpers bring the world.
+pub mod advanced;
 pub mod chemical;
 pub mod chemical_machine;
 pub mod chemical_tank;

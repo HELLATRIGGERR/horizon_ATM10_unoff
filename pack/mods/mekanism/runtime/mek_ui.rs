@@ -8,7 +8,8 @@
 // are drawn the same way, with Mekanism Generators' textures for the sun (the
 // Gas-Burning Generator's own elements are `mek_gas`'s), and
 // so are the processing machines' (`GuiElectricMachine`,
-// `GuiMetallurgicInfuser`, `GuiElectrolyticSeparator`): their slots, progress,
+// `GuiMetallurgicInfuser`, `GuiElectrolyticSeparator`, `GuiAdvancedElectricMachine`
+// with its chemical bar): their slots, progress,
 // power bar, the infuser's infusion bar and dump button, the separator's
 // fluid and chemical gauges and dump modes, the side configuration with
 // energy, item and chemical pages, and the upgrade window. A machine's slots fill its panel,
@@ -735,12 +736,17 @@ const RIGHT_MODE: Rect = [159.0, 72.0, 10.0, 10.0];
 const INFUSE_TANK: f64 = 1000.0;
 /// `GuiChemicalBar` of the infuser's tank: its frame (the bar inside is 4x52).
 const INFUSE_BAR: Rect = [7.0, 15.0, 6.0, 54.0];
+/// `GuiChemicalBar` of an advanced machine's tank at (68, 36), 6x12.
+const ADVANCED_BAR: Rect = [68.0, 36.0, 6.0, 12.0];
 
 /// Where Mekanism puts a machine's slots (the item's top left), then the
 /// upgrade component's two.
 fn machine_slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
     let mut slots: Vec<Option<[f32; 2]>> = if kind.oxidizes() || kind.infuses_chemicals() {
         super::mek_chem_machines::slots(kind)
+    } else if kind.advanced() {
+        // `GuiAdvancedElectricMachine`: input, chemical, output, energy.
+        vec![Some([64.0, 17.0]), Some([64.0, 53.0]), Some([116.0, 35.0]), Some([39.0, 35.0])]
     } else if kind.infuses() {
         vec![Some([17.0, 35.0]), Some([51.0, 43.0]), Some([109.0, 43.0]), Some([143.0, 35.0])]
     } else if kind.separates() {
@@ -844,7 +850,7 @@ fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &Energ
         let share = if view.required == 0 { 0.0 } else { f64::from(view.progress) / f64::from(view.required) };
         return Some(MachineHit::Tip(vec![format!("Progress: {}%", (share * 100.0).floor())]));
     }
-    if kind.infuses() && inside(INFUSE_BAR, at) {
+    if (kind.infuses() && inside(INFUSE_BAR, at)) || (kind.advanced() && inside(ADVANCED_BAR, at)) {
         return Some(MachineHit::Tip(vec![chemical_line(view.infuse, view.infused)]));
     }
     None
@@ -1151,7 +1157,18 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
             pen.sprite("progress/right", [0.0, ph, done, ph], [px, py, done, ph]);
         }
     } else {
-        pen.whole("up_arrow", [8.0, 10.0], [68.0, 38.0, 8.0, 10.0]);
+        if kind.advanced() {
+            // The chemical bar between the input and chemical slots, its chemical's colour from the bottom.
+            pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], ADVANCED_BAR);
+            let level = (view.infused as f64 / mekanism_energy::advanced::MAX_GAS as f64).min(1.0);
+            let h = (level * 10.0) as i32 as f32;
+            if h > 0.0 {
+                let tint = chemical_color(pen.game, view.infuse);
+                pen.fill([ADVANCED_BAR[0] + 1.0, ADVANCED_BAR[1] + 11.0 - h, 4.0, h], 0xFF00_0000 | tint);
+            }
+        } else {
+            pen.whole("up_arrow", [8.0, 10.0], [68.0, 38.0, 8.0, 10.0]);
+        }
         pen.sprite("progress/bar", [0.0, 0.0, pw, ph], progress);
         let done = (share * f64::from(pw - 2.0)) as i32 as f32;
         if done > 0.0 {

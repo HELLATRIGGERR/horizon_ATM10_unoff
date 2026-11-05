@@ -73,6 +73,10 @@ pub struct MachinesConfig {
     pub chemical_auto_eject: i64,
     /// `[auto_eject] dumpExcessKeepRatio`: what a tank dumping excess keeps, 0.001..=1.
     pub dump_excess_keep_ratio: f64,
+    /// `machine-usage.toml` `randomizedConsumption`: the purification and
+    /// injection chambers draw their chemical a tick at random (Mekanism's
+    /// default, which ATM10's file, written before the option, leaves as it is).
+    pub randomized_consumption: bool,
 }
 
 impl Default for MachinesConfig {
@@ -83,6 +87,7 @@ impl Default for MachinesConfig {
             max_upgrade_multiplier: 10.0,
             chemical_auto_eject: 1024,
             dump_excess_keep_ratio: 0.85,
+            randomized_consumption: true,
         }
     }
 }
@@ -105,6 +110,9 @@ impl MachinesConfig {
             && (0.001..=1.0).contains(&v)
         {
             config.dump_excess_keep_ratio = v;
+        }
+        if let Some(v) = usage.and_then(|t| t.get("randomizedConsumption")).and_then(toml::Value::as_bool) {
+            config.randomized_consumption = v;
         }
         for (i, kind) in MachineKind::ALL.into_iter().enumerate() {
             if let Some(v) = usage.and_then(|t| t.get(kind.config_key())).and_then(toml::Value::as_integer)
@@ -467,6 +475,13 @@ energizedSmelter = 20000
         let one: toml::Table = "maxUpgradeMultiplier = 1
 ".parse().unwrap();
         assert_eq!(MachinesConfig::from_tables(Some(&one), None, None).max_upgrade_multiplier, 10.0);
+        // ATM10's machine-usage.toml has no `randomizedConsumption`: Mekanism's default, on.
+        let atm10: toml::Table = "osmiumCompressor = 100\npurificationChamber = 200\nchemicalInjectionChamber = 400\n".parse().unwrap();
+        let m = MachinesConfig::from_tables(None, Some(&atm10), None);
+        assert!(m.randomized_consumption);
+        assert_eq!(m.of(MachineKind::ChemicalInjectionChamber), (400, 160_000));
+        let off: toml::Table = "randomizedConsumption = false\n".parse().unwrap();
+        assert!(!MachinesConfig::from_tables(None, Some(&off), None).randomized_consumption);
     }
 
     #[test]

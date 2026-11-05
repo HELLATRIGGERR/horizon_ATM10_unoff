@@ -41,6 +41,13 @@ pub enum MachineKind {
     /// `mekanism:electrolytic_separator`, `mekanism:separating` recipes
     /// (`TileEntityElectrolyticSeparator`: no progress, operations a tick).
     ElectrolyticSeparator,
+    /// `mekanism:osmium_compressor`, `mekanism:compressing` recipes
+    /// (`TileEntityAdvancedElectricMachine`: `crate::advanced`).
+    OsmiumCompressor,
+    /// `mekanism:purification_chamber`, `mekanism:purifying` recipes.
+    PurificationChamber,
+    /// `mekanism:chemical_injection_chamber`, `mekanism:injecting` recipes.
+    ChemicalInjectionChamber,
     /// `mekanism:chemical_oxidizer`, `mekanism:oxidizing` recipes
     /// (`TileEntityChemicalOxidizer`: an item in, a chemical out; `crate::chemical_machine`).
     ChemicalOxidizer,
@@ -75,12 +82,15 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 12] = [
         Self::EnrichmentChamber,
         Self::Crusher,
         Self::EnergizedSmelter,
         Self::MetallurgicInfuser,
         Self::ElectrolyticSeparator,
+        Self::OsmiumCompressor,
+        Self::PurificationChamber,
+        Self::ChemicalInjectionChamber,
         Self::ChemicalOxidizer,
         Self::ChemicalInfuser,
         Self::Combiner,
@@ -94,6 +104,9 @@ impl MachineKind {
             Self::EnergizedSmelter => "mekanism:energized_smelter",
             Self::MetallurgicInfuser => "mekanism:metallurgic_infuser",
             Self::ElectrolyticSeparator => "mekanism:electrolytic_separator",
+            Self::OsmiumCompressor => "mekanism:osmium_compressor",
+            Self::PurificationChamber => "mekanism:purification_chamber",
+            Self::ChemicalInjectionChamber => "mekanism:chemical_injection_chamber",
             Self::ChemicalOxidizer => "mekanism:chemical_oxidizer",
             Self::ChemicalInfuser => "mekanism:chemical_infuser",
             Self::Combiner => "mekanism:combiner",
@@ -113,6 +126,9 @@ impl MachineKind {
             Self::EnergizedSmelter => "energizedSmelter",
             Self::MetallurgicInfuser => "metallurgicInfuser",
             Self::ElectrolyticSeparator => "electrolyticSeparator",
+            Self::OsmiumCompressor => "osmiumCompressor",
+            Self::PurificationChamber => "purificationChamber",
+            Self::ChemicalInjectionChamber => "chemicalInjectionChamber",
             Self::ChemicalOxidizer => "chemicalOxidizer",
             Self::ChemicalInfuser => "chemicalInfuser",
             Self::Combiner => "combiner",
@@ -128,6 +144,9 @@ impl MachineKind {
             Self::EnergizedSmelter => "minecraft:smelting",
             Self::MetallurgicInfuser => "mekanism:metallurgic_infusing",
             Self::ElectrolyticSeparator => "mekanism:separating",
+            Self::OsmiumCompressor => "mekanism:compressing",
+            Self::PurificationChamber => "mekanism:purifying",
+            Self::ChemicalInjectionChamber => "mekanism:injecting",
             Self::ChemicalOxidizer => "mekanism:oxidizing",
             Self::ChemicalInfuser => "mekanism:chemical_infusing",
             Self::Combiner => "mekanism:combining",
@@ -139,8 +158,9 @@ impl MachineKind {
     /// hydrogen's fuel instead: `crate::separator::energy_per_tick`).
     pub fn default_usage(self) -> u64 {
         match self {
-            Self::ElectrolyticSeparator => 400,
-            Self::ChemicalOxidizer | Self::ChemicalInfuser => 200,
+            Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber => 400,
+            Self::OsmiumCompressor => 100,
+            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser => 200,
             _ => 50,
         }
     }
@@ -148,8 +168,8 @@ impl MachineKind {
     /// `StorageConfig`'s default Joules held.
     pub fn default_storage(self) -> u64 {
         match self {
-            Self::ElectrolyticSeparator => 160_000,
-            Self::ChemicalOxidizer | Self::ChemicalInfuser => 80_000,
+            Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber => 160_000,
+            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser => 80_000,
             Self::Combiner => 40_000,
             _ => 20_000,
         }
@@ -164,6 +184,19 @@ impl MachineKind {
         !self.separates() && !self.infuses_chemicals()
     }
 
+    /// The advanced machines (`TileEntityAdvancedElectricMachine`, `crate::advanced`):
+    /// an item and a chemical in, an item out.
+    pub fn advanced(self) -> bool {
+        matches!(self, Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalInjectionChamber)
+    }
+
+    /// The purification and injection chambers: they take chemical upgrades
+    /// (`DEFAULT_ADVANCED_MACHINE_UPGRADES`) and draw their chemical at random
+    /// (`useStatisticalMechanics`, with `randomizedConsumption`).
+    pub fn takes_chemical_upgrades(self) -> bool {
+        matches!(self, Self::PurificationChamber | Self::ChemicalInjectionChamber)
+    }
+
     pub fn oxidizes(self) -> bool {
         self == Self::ChemicalOxidizer
     }
@@ -174,12 +207,12 @@ impl MachineKind {
 
     /// The upgrades it takes (`AttributeUpgradeSupport`).
     pub fn upgrades(self) -> &'static [Upgrade] {
-        &MACHINE_UPGRADES
+        if self.takes_chemical_upgrades() { &ADVANCED_MACHINE_UPGRADES } else { &MACHINE_UPGRADES }
     }
 
     /// Whether its chemical config can eject (`setCanEject`): the separator's,
     /// the oxidizer's and the chemical infuser's; the metallurgic infuser's
-    /// never.
+    /// and the advanced machines' never.
     pub fn chemicals_eject(self) -> bool {
         matches!(self, Self::ElectrolyticSeparator | Self::ChemicalOxidizer | Self::ChemicalInfuser)
     }
@@ -195,9 +228,10 @@ impl MachineKind {
     }
 
     /// Whether its items have an `EXTRA` slot (`setupItemIOExtraConfig`): the
-    /// infuser's infusion slot, the combiner's extra input.
+    /// infuser's infusion slot, the combiner's extra input, an advanced
+    /// machine's chemical slot.
     pub fn has_extra_slot(self) -> bool {
-        matches!(self, Self::MetallurgicInfuser | Self::Combiner)
+        matches!(self, Self::MetallurgicInfuser | Self::Combiner) || self.advanced()
     }
 
     /// Whether its block shows `active` (`AttributeStateActive`): the
@@ -211,10 +245,11 @@ impl MachineKind {
             Slots { infusion: Some(0), input: 1, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
         } else if self.separates() || self == Self::PrecisionSawmill {
             Slots { infusion: None, input: 0, output: 1, output2: Some(2), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
-        } else if self.infuses_chemicals() || self == Self::Combiner {
+        } else if self.infuses_chemicals() || self.advanced() || self == Self::Combiner {
             // The chemical infuser's left (`input`) and right (`infusion`) fill
             // slots, then its output's drain slot and energy (`getInitialInventory`);
-            // the combiner's main input, extra input, output, energy
+            // an advanced machine's input, chemical slot, output and energy; the
+            // combiner's main input, extra input, output, energy
             // (`TileEntityCombiner.getInitialInventory`).
             Slots { infusion: Some(1), input: 0, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
         } else {
@@ -247,6 +282,10 @@ impl MachineKind {
         match self {
             Self::MetallurgicInfuser => chemical_supports(data),
             Self::ElectrolyticSeparator => matches!(data, DataType::None | DataType::Output1 | DataType::Output2),
+            // `setupIOConfig(CHEMICAL, tank, RIGHT)`; the chambers' `setupInputConfig`
+            // (`allowExtractingChemical` is off while they draw at random).
+            Self::OsmiumCompressor => chemical_supports(data),
+            Self::PurificationChamber | Self::ChemicalInjectionChamber => matches!(data, DataType::None | DataType::Input),
             // `setupOutputConfig(CHEMICAL, tank, RIGHT)`.
             Self::ChemicalOxidizer => matches!(data, DataType::None | DataType::Output),
             Self::ChemicalInfuser => matches!(data, DataType::None | DataType::Input1 | DataType::Input2 | DataType::Output | DataType::InputOutput),
@@ -297,6 +336,10 @@ impl MachineKind {
                 RelativeSide::Right => DataType::Output2,
                 _ => DataType::None,
             })),
+            // `ADVANCED_MACHINE`'s `OUT_NO_EJECT`.
+            Self::OsmiumCompressor => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input })),
+            // `ADVANCED_MACHINE_INPUT_ONLY`.
+            Self::PurificationChamber | Self::ChemicalInjectionChamber => Some([DataType::Input; 6]),
             // `CHEMICAL_OUT_MACHINE`'s `RIGHT_OUTPUT`, ejecting.
             Self::ChemicalOxidizer => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::None })),
             // `TWO_INPUT_AND_OUT`, ejecting.
@@ -391,6 +434,8 @@ impl Upgrade {
 
 /// `AttributeUpgradeSupport.DEFAULT_MACHINE_UPGRADES`, which all four take.
 pub const MACHINE_UPGRADES: [Upgrade; 3] = [Upgrade::Speed, Upgrade::Energy, Upgrade::Muffling];
+/// `DEFAULT_ADVANCED_MACHINE_UPGRADES`: the purification and injection chambers'.
+pub const ADVANCED_MACHINE_UPGRADES: [Upgrade; 4] = [Upgrade::Speed, Upgrade::Energy, Upgrade::Muffling, Upgrade::Chemical];
 
 /// The upgrades a machine has installed (`TileComponentUpgrade.upgrades`), by
 /// ordinal.
@@ -883,6 +928,27 @@ mod tests {
         assert!(!config.press(infuser, Button::Eject(Kind::Chemicals)), "the infuser's chemicals never eject");
         assert_eq!((sep.slots().output2, sep.slots().count, sep.shows_active()), (Some(2), 6, false));
         assert_eq!((sep.default_storage(), sep.config_key()), (160_000, "electrolyticSeparator"));
+    }
+
+    #[test]
+    fn the_advanced_machines_have_mekanisms_side_configs() {
+        use DataType::*;
+        let co = MachineKind::OsmiumCompressor;
+        let pu = MachineKind::PurificationChamber;
+        assert_eq!(MachineKind::of_block("mekanism:chemical_injection_chamber"), Some(MachineKind::ChemicalInjectionChamber));
+        // `EXTRA_MACHINE` items; the compressor's `OUT_NO_EJECT`, the chambers' `INPUT_ONLY` chemicals.
+        assert_eq!(co.default_items(), [Input, Input, Output, Energy, Input, Extra]);
+        assert_eq!(co.default_chemicals(), Some([Input, Input, Output, Input, Input, Input]));
+        assert_eq!(pu.default_chemicals(), Some([Input; 6]));
+        assert!(!SideConfig::new(co).chemicals_eject && co.shows_active() && co.progresses());
+        assert_eq!((co.slots().input, co.slots().infusion, co.slots().output, co.slots().energy, co.slots().count), (0, Some(1), 2, 3, 6));
+        let cycle: Vec<DataType> = std::iter::successors(Some(None), |t: &DataType| Some(t.next(|d| pu.chemical_supports(d)))).take(3).collect();
+        assert_eq!(cycle, [None, Input, None], "the chambers' chemicals only go in");
+        assert_eq!((co.upgrades().len(), pu.upgrades().len()), (3, 4), "the chambers take chemical upgrades");
+        assert_eq!(
+            [co, pu, MachineKind::ChemicalInjectionChamber].map(|k| (k.default_usage(), k.default_storage())),
+            [(100, 80_000), (200, 80_000), (400, 160_000)]
+        );
     }
 
     #[test]

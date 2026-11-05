@@ -67,6 +67,10 @@ assets when `mekanism-content` is given them.
 - The Chemical Oxidizer (an item into a chemical, `mekanism:oxidizing`, 100 ticks, out of its right) and the Chemical
   Infuser (two chemicals into one, `mekanism:chemical_infusing`, `2^speed` operations a tick, out of its front), with
   their chemical item slots, side configuration, ejectors and screens.
+- The Osmium Compressor, Purification Chamber and Chemical Injection Chamber: an item and a chemical (a 210 mB tank
+  filled from chemical items and conversions in their chemical slot) into an item in 200 ticks, the chemical taken
+  every tick: the compressor's 200 mB an operation spread over its ticks, the chambers' drawn at random
+  (`randomizedConsumption`), more with speed upgrades and less with chemical upgrades.
 - Basic, Advanced, Elite, Ultimate and Creative Chemical Tanks (`tiers.toml` `[chemical_tanks]`): a chemical in the
   block entity, ejected at the tier's output a tick out of the output sides, dump modes, side configuration (chemicals
   and items), the drain and fill slots that move chemicals to and from tank items, the screen, placement facing, and

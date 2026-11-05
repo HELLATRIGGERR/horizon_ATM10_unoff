@@ -1,7 +1,10 @@
 // Mekanism's first processing machines in the game (support module
 // `crate::game::mek_machines` of the `mekanism` native bundle): the
 // Enrichment Chamber, the Crusher, the Energized Smelter, the Metallurgic
-// Infuser and the Electrolytic Separator, and the glue the Chemical Oxidizer
+// Infuser, the Electrolytic Separator and the advanced machines (the Osmium
+// Compressor, Purification Chamber and Chemical Injection Chamber, with
+// their chemical tank and per-tick use: `mekanism_energy::advanced`), and the
+// glue the Chemical Oxidizer
 // and Chemical Infuser share with them (their own ticks are
 // `mek_chem_machines`'). Their rules are the bundle's crate
 // (`mekanism_energy::machine`, `chemical` and `separator`, MIT, from Mekanism
@@ -37,6 +40,7 @@ use horizon_world::{
     nbt::{Compound, Tag},
 };
 use mekanism_energy::{
+    advanced::{self, ChemicalUse, Rng},
     chemical::{self, ChemicalHandler, ChemicalRegistry, ChemicalStack, ChemicalStackIngredient, ChemicalTank, SidedTanks, TankRules},
     chemical_machine,
     chemical_tank::{self, OwnTank},
@@ -88,6 +92,8 @@ struct Recipe {
     input: ItemIn,
     chemical: Option<ChemicalStackIngredient>,
     output: ItemStack,
+    /// `perTickUsage`: the chemical taken every tick (`ItemStackConstantChemicalToObjectCachedRecipe`).
+    per_tick: bool,
 }
 
 impl Recipe {
@@ -155,7 +161,7 @@ struct Book {
     chemical_infusing: Vec<Rc<ChemicalInfusing>>,
 }
 
-const TYPES: [&str; 8] = [
+const TYPES: [&str; 11] = [
     "mekanism:enriching",
     "mekanism:crushing",
     "mekanism:metallurgic_infusing",
@@ -164,6 +170,9 @@ const TYPES: [&str; 8] = [
     "mekanism:separating",
     "mekanism:oxidizing",
     "mekanism:chemical_infusing",
+    "mekanism:compressing",
+    "mekanism:purifying",
+    "mekanism:injecting",
 ];
 
 thread_local! {
@@ -183,6 +192,8 @@ thread_local! {
 struct Takes {
     inputs: HashMap<MachineKind, HashSet<String>>,
     infusion: HashSet<String>,
+    /// What each advanced machine's chemical slot converts (`fillOrConvert`).
+    extras: HashMap<MachineKind, HashSet<String>>,
     energy: HashSet<String>,
     /// The separating recipes' inputs (`containsRecipe` of the fluid tank).
     separating: Vec<SizedFluidIngredient>,
@@ -273,9 +284,10 @@ pub(super) fn refresh_book(game: &Game<'_>) {
                 .iter()
                 .filter_map(|r| {
                     let j = &*r.json;
-                    let (input, chemical) = if kind.infuses() {
-                        // Per-tick infusing (`per_tick_usage`) isn't ported; ATM10 has none.
-                        if j.get("per_tick_usage").and_then(Value::as_bool) == Some(true) {
+                    let per_tick = j.get("per_tick_usage").and_then(Value::as_bool) == Some(true);
+                    let (input, chemical) = if kind.infuses() || kind.advanced() {
+                        // Per-tick infusing isn't ported; ATM10 has none.
+                        if kind.infuses() && per_tick {
                             return None;
                         }
                         (item_in(game, &j["item_input"])?, Some(ChemicalStackIngredient::from_json(&j["chemical_input"], &registry).ok()?))
@@ -283,7 +295,7 @@ pub(super) fn refresh_book(game: &Game<'_>) {
                         (item_in(game, &j["input"])?, None)
                     };
                     let output = game.native_recipe_result(&j["output"])?;
-                    Some(Rc::new(Recipe { id: r.id.clone(), input, chemical, output }))
+                    Some(Rc::new(Recipe { id: r.id.clone(), input, chemical, output, per_tick }))
                 })
                 .collect()
         };
@@ -355,6 +367,20 @@ pub(super) fn refresh_book(game: &Game<'_>) {
             .filter(|c| infusing.iter().any(|r| r.chemical_fits(c.output.id(), &registry)))
             .flat_map(|c| c.input.items.iter().cloned())
             .collect(),
+        extras: MachineKind::ALL
+            .into_iter()
+            .filter(|k| k.advanced())
+            .map(|k| {
+                let list = &book.recipes[&k];
+                let items = book
+                    .conversions
+                    .iter()
+                    .filter(|c| list.iter().any(|r| r.chemical_fits(c.output.id(), &registry)))
+                    .flat_map(|c| c.input.items.iter().cloned())
+                    .collect();
+                (k, items)
+            })
+            .collect(),
         energy: book.energy.iter().flat_map(|e| e.input.items.iter().cloned()).collect(),
         separating: book.separating.iter().map(|r| r.input.clone()).collect(),
     };
@@ -377,6 +403,7 @@ fn smelting(cooking: &[Cooking]) -> Vec<Rc<Recipe>> {
                 input: ItemIn { items: c.ingredient.0.clone(), count: 1 },
                 chemical: None,
                 output: c.result.clone(),
+                per_tick: false,
             })
         })
         .collect()
@@ -390,7 +417,7 @@ fn find(kind: MachineKind, input: &ItemStack, held: Option<&str>, registry: &Che
             .recipes
             .get(&kind)?
             .iter()
-            .find(|r| r.input.takes(input) && (!kind.infuses() || r.chemical_fits(held, registry)))
+            .find(|r| r.input.takes(input) && (!(kind.infuses() || kind.advanced()) || r.chemical_fits(held, registry)))
             .cloned()
     })
 }
@@ -399,8 +426,14 @@ fn find(kind: MachineKind, input: &ItemStack, held: Option<&str>, registry: &Che
 /// the item in the input slot (any recipe when it is empty); with no input
 /// that is `containsRecipeB`.
 fn infuser_takes(input: Option<&ItemStack>, chemical: Option<&str>, registry: &ChemicalRegistry) -> bool {
+    takes_chemical(MachineKind::MetallurgicInfuser, input, chemical, registry)
+}
+
+/// `containsRecipeBA` / `containsRecipeB` of a machine with an item and a
+/// chemical recipe (the metallurgic infuser, the advanced machines).
+fn takes_chemical(kind: MachineKind, input: Option<&ItemStack>, chemical: Option<&str>, registry: &ChemicalRegistry) -> bool {
     BOOK.with(|b| {
-        b.borrow().recipes.get(&MachineKind::MetallurgicInfuser).is_some_and(|list| {
+        b.borrow().recipes.get(&kind).is_some_and(|list| {
             list.iter().any(|r| r.chemical_fits(chemical, registry) && input.is_none_or(|s| r.input.takes(s)))
         })
     })
@@ -484,6 +517,8 @@ pub(super) struct Saved {
     pub(super) activity: Activity,
     /// The separator's `dump_left` and `dump_right`.
     pub(super) dumps: [GasMode; 2],
+    /// An advanced machine's `used_so_far`: its chemical taken this operation.
+    pub(super) used_so_far: i64,
 }
 
 fn key(name: &str) -> horizon_world::nbt::JavaString {
@@ -531,6 +566,7 @@ fn read(nbt: &Compound, kind: MachineKind) -> Saved {
         facing: mek_world::generator_facing(nbt),
         activity: mek_world::read_activity(nbt),
         dumps: [dump("dump_left"), dump("dump_right")],
+        used_so_far: mek_world::number(nbt.get(&key("used_so_far"))).unwrap_or(0).max(0),
     }
 }
 
@@ -567,6 +603,9 @@ fn write(nbt: &mut Compound, saved: &Saved, before: &Saved, kind: MachineKind) {
     } else if kind.progresses() && (saved.progress != before.progress || !nbt.contains_key(&key("progress"))) {
         nbt.insert(key("progress"), Tag::Int(saved.progress.min(i32::MAX as u32) as i32));
     }
+    if kind.advanced() && (saved.used_so_far != before.used_so_far || !nbt.contains_key(&key("used_so_far"))) {
+        nbt.insert(key("used_so_far"), Tag::Long(saved.used_so_far));
+    }
     if saved.upgrades != before.upgrades {
         let list: Vec<Tag> = Upgrade::ALL
             .iter()
@@ -599,6 +638,7 @@ pub(super) fn read_chemicals(nbt: &Compound, kind: MachineKind, registry: &Chemi
         MachineKind::MetallurgicInfuser => &[INFUSE_TANK],
         MachineKind::ElectrolyticSeparator => &[separator::MAX_GAS, separator::MAX_GAS],
         MachineKind::ChemicalOxidizer => &[chemical_machine::OXIDIZER_TANK],
+        k if k.advanced() => &[advanced::MAX_GAS],
         MachineKind::ChemicalInfuser => &[chemical_machine::INFUSER_TANK; 3],
         _ => &[],
     };
@@ -643,6 +683,7 @@ pub(super) fn new_entity(kind: MachineKind) -> (String, Compound) {
         facing: Direction::North,
         activity: Activity::default(),
         dumps: [GasMode::Idle; 2],
+        used_so_far: 0,
     };
     let mut nbt = Compound::new();
     write_sides(&mut nbt, &saved);
@@ -706,6 +747,10 @@ pub(super) fn slot_accepts(kind: MachineKind, slot: usize, stack: &ItemStack, ac
         })
     } else if slot == s.input {
         known(&|t| t.inputs.get(&kind).is_some_and(|i| i.contains(item)))
+    } else if Some(slot) == s.infusion && kind.advanced() {
+        // `ChemicalInventorySlot.fillOrConvert`: a chemical item holding a chemical, or what converts.
+        let chemical_item = super::mek_tanks::tier_of(item).is_some() && stack.count == 1 && super::mek_tanks::item_holds(stack);
+        chemical_item || known(&|t| t.extras.get(&kind).is_some_and(|e| e.contains(item)))
     } else if Some(slot) == s.infusion {
         // A chemical tank item holding a chemical fills the tank (`fillTankOrConvert`).
         let chemical_item = super::mek_tanks::tier_of(item).is_some() && stack.count == 1 && super::mek_tanks::item_holds(stack);
@@ -716,7 +761,7 @@ pub(super) fn slot_accepts(kind: MachineKind, slot: usize, stack: &ItemStack, ac
     } else if slot == s.energy {
         known(&|t| t.energy.contains(item)) || mekanism_energy::tier::CubeTier::of_block(item).is_some()
     } else if slot == s.upgrade {
-        Upgrade::of_item(item).is_some_and(|u| machine::MACHINE_UPGRADES.contains(&u))
+        Upgrade::of_item(item).is_some_and(|u| kind.upgrades().contains(&u))
     } else {
         false
     };
@@ -771,6 +816,37 @@ fn with_infuser_rules<R>(input: Option<&ItemStack>, registry: &ChemicalRegistry,
     let can_insert = |s: &ChemicalStack, _: Automation| infuser_takes(input, s.id(), registry);
     let valid = |s: &ChemicalStack| infuser_takes(None, s.id(), registry) && registry.passes_default(s);
     use_them(&TankRules { can_extract: &chemical::always, can_insert: &can_insert, valid: &valid })
+}
+
+/// The tank rules of a machine with an item and a chemical recipe: the
+/// infuser's, or an advanced machine's (`BasicChemicalTank.createModern(210,
+/// canExtract, containsRecipeBA(input, gas), containsRecipeB, ...)`: the
+/// compressor's chemical leaves on its output sides, the chambers' only to
+/// the machine, `notExternal`).
+fn with_tank_rules<R>(kind: MachineKind, input: Option<&ItemStack>, registry: &ChemicalRegistry, use_it: impl FnOnce(&TankRules<'_>) -> R) -> R {
+    if !kind.advanced() {
+        return with_infuser_rules(input, registry, use_it);
+    }
+    let can_insert = |s: &ChemicalStack, _: Automation| takes_chemical(kind, input, s.id(), registry);
+    let valid = |s: &ChemicalStack| takes_chemical(kind, None, s.id(), registry) && registry.passes_default(s);
+    let can_extract: &dyn Fn(&ChemicalStack, Automation) -> bool = if kind.takes_chemical_upgrades() { &chemical::not_external } else { &chemical::always };
+    use_it(&TankRules { can_extract, can_insert: &can_insert, valid: &valid })
+}
+
+thread_local! {
+    /// The advanced chambers' draws (`StatUtils`' own `RandomSource`).
+    static RNG: Cell<Rng> = Cell::new(Rng::new(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0x9E37_79B9, |d| d.as_nanos() as u64),
+    ));
+}
+
+fn draw_random() -> f64 {
+    RNG.with(|r| {
+        let mut rng = r.get();
+        let v = rng.next_f64();
+        r.set(rng);
+        v
+    })
 }
 
 /// `native_block_entity_tick` of a machine: `TileEntityMekanism.tickServer`
@@ -912,7 +988,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         && tank.needed() > 0
     {
         let input = stack_in(entity, slots.input).cloned();
-        filled = with_infuser_rules(input.as_ref(), &registry, |rules| {
+        filled = with_tank_rules(kind, input.as_ref(), &registry, |rules| {
             super::mek_tanks::with_slot_item(entity, infusion, &registry, &config, |item| {
                 chemical_tank::fill_from_item(item, &mut OwnTank { tank, rules, block: None })
             })
@@ -929,7 +1005,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         if let Some(conversion) = found
             && stack.count >= conversion.input.count
         {
-            let fits = with_infuser_rules(input.as_ref(), &registry, |rules| {
+            let fits = with_tank_rules(kind, input.as_ref(), &registry, |rules| {
                 if tank.insert(&conversion.output, true, Automation::Internal, rules).is_empty() {
                     tank.insert(&conversion.output, false, Automation::Internal, rules);
                     true
@@ -946,7 +1022,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     // The recipe (`RecipeCacheLookupMonitor.updateAndProcess`).
     let required = saved.upgrades.ticks(machine::BASE_TICKS, multiplier);
     let per_tick = saved.upgrades.energy_per_tick(usage, multiplier);
-    let baseline = if kind.infuses() { saved.upgrades.operations_per_tick(machine::BASE_TICKS, multiplier) } else { 1 };
+    let baseline = if kind.infuses() || kind.advanced() { saved.upgrades.operations_per_tick(machine::BASE_TICKS, multiplier) } else { 1 };
     let input = stack_in(entity, slots.input).cloned();
     let held = tanks.first().and_then(|t| t.stored.id().map(str::to_owned));
     let edition = EDITION.get();
@@ -996,7 +1072,32 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         if per_tick > store.stored {
             warnings |= menu::WARN_ENERGY;
         }
-        let ran = machine::process(&mut saved.progress, required, &mut store, per_tick, baseline, inputs, room, true);
+        let ran = if kind.advanced() && recipe.per_tick {
+            // `ItemStackConstantChemicalToObjectCachedRecipe`: the chemical a tick.
+            let usage = ChemicalUse::of(&saved.upgrades, kind.takes_chemical_upgrades(), config.machines.randomized_consumption, multiplier);
+            let draw = usage.draw(saved.used_so_far, required, saved.progress, draw_random());
+            let amount = recipe.chemical.as_ref().map_or(0, |c| c.amount);
+            let stored = tanks.first().filter(|t| recipe.chemical_fits(t.stored.id(), &registry)).map_or(0, ChemicalTank::stored);
+            let item = Inputs::of(count, recipe.input.count);
+            let ran = advanced::process(&mut saved.progress, &mut saved.used_so_far, required, &mut store, per_tick, baseline, item, (stored, amount), draw, room);
+            if ran.chemical > 0
+                && let Some(tank) = tanks.first_mut()
+            {
+                tank.shrink_stack(ran.chemical, false);
+            }
+            if ran.finished {
+                shrink(entity, slots.input, recipe.input.count * ran.operations);
+                let made = recipe.output.count * ran.operations;
+                match entity.items.get_mut(slots.output) {
+                    Some(Some(out)) => out.count += made,
+                    Some(cell) => *cell = Some(ItemStack { count: made, ..recipe.output.clone() }),
+                    None => {}
+                }
+            }
+            machine::Ran { operations: ran.operations, finished: false, energy: ran.energy }
+        } else {
+            machine::process(&mut saved.progress, required, &mut store, per_tick, baseline, inputs, room, true)
+        };
         if ran.finished {
             shrink(entity, slots.input, recipe.input.count * ran.operations);
             // `infusionInputHandler.use`: the tank's own extract.
@@ -1004,7 +1105,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
                 && let Some(tank) = tanks.first_mut()
             {
                 let amount = ingredient.amount.saturating_mul(i64::from(ran.operations));
-                with_infuser_rules(input.as_ref(), &registry, |rules| tank.extract(amount, false, Automation::Internal, rules));
+                with_tank_rules(kind, input.as_ref(), &registry, |rules| tank.extract(amount, false, Automation::Internal, rules));
             }
             let made = recipe.output.count * ran.operations;
             match entity.items.get_mut(slots.output) {
@@ -1414,6 +1515,10 @@ pub(super) fn chemical_handler<R>(
             (MachineKind::ElectrolyticSeparator, DataType::Output1) => (vec![0], false, true),
             (MachineKind::ElectrolyticSeparator, DataType::Output2) => (vec![1], false, true),
             (MachineKind::ChemicalOxidizer, DataType::Output) => (vec![0], false, true),
+            (MachineKind::OsmiumCompressor, DataType::Input) => (vec![0], true, false),
+            (MachineKind::OsmiumCompressor, DataType::Output) => (vec![0], false, true),
+            (MachineKind::OsmiumCompressor, DataType::InputOutput) => (vec![0], true, true),
+            (MachineKind::PurificationChamber | MachineKind::ChemicalInjectionChamber, DataType::Input) => (vec![0], true, false),
             (MachineKind::ChemicalInfuser, DataType::Input1) => (vec![0], true, false),
             (MachineKind::ChemicalInfuser, DataType::Input2) => (vec![1], true, false),
             (MachineKind::ChemicalInfuser, DataType::Output) => (vec![2], false, true),
@@ -1438,7 +1543,7 @@ pub(super) fn chemical_handler<R>(
             let mut handler = SidedTanks { tanks: list, side: face.is_some(), can_insert, can_extract };
             use_it(&mut handler)
         };
-        if kind.infuses() { with_infuser_rules(input.as_ref(), registry, |rules| run(rules)) } else { run(&separator::output_rules()) }
+        if kind.infuses() || kind.advanced() { with_tank_rules(kind, input.as_ref(), registry, |rules| run(rules)) } else { run(&separator::output_rules()) }
     };
     if tanks != before {
         write_chemicals(&mut entity.nbt, &tanks);
@@ -1641,6 +1746,10 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
             }
         }),
     });
+    if kind.advanced() {
+        out["used_so_far"] = saved.used_so_far.into();
+        out["randomized"] = (kind.takes_chemical_upgrades() && config.machines.randomized_consumption).into();
+    }
     if kind.infuses_chemicals()
         && let Some(extra) = menu::InfuserView::unpack(data)
     {

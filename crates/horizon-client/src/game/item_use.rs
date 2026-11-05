@@ -122,6 +122,9 @@ impl Game<'_> {
         if result != before {
             *self.held_mut() = result.filter(|s| s.count > 0);
         }
+        // The event's other listeners (an addon's restock).
+        #[cfg(feature = "ae2-lab")]
+        self.ae2x_use_finished(stack);
     }
     /// `LivingEntityUseItemEvent.Tick` for `stack` in use `ticks` so far, as
     /// `updatingUsingItem` starts: a mod may change the ticks left, which

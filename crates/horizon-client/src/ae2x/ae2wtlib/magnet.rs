@@ -141,6 +141,12 @@ pub fn apply_settings(stack: &mut ItemStack, pick_block: bool, restock: bool, ma
     crate::ae2_stack_identity::synchronize_tracked(stack);
 }
 
+/// `RestockHotkeyAction`: restock set on or off.
+pub fn set_restock(stack: &mut ItemStack, on: bool) {
+    stack.data_mut().set_other(RESTOCK, Some(Tag::Byte(i8::from(on))));
+    crate::ae2_stack_identity::synchronize_tracked(stack);
+}
+
 /// What `WirelessTerminalSettingsScreen` shows: pick block, craft if
 /// missing, restock, and the mode as `getMagnetMode` gives it.
 pub fn settings(stack: &ItemStack) -> (bool, bool, bool, MagnetMode) {

@@ -178,6 +178,9 @@ enum Widget {
     WirelessSettings,
     #[cfg(feature = "ae2-ae2wtlib")]
     MagnetFilter,
+    /// AE2WTLib's trash (`WCTScreen.trashButton`).
+    #[cfg(feature = "ae2-ae2wtlib")]
+    Trash,
 }
 
 /// The screen laid out for the window: its style, its storage rows and
@@ -289,7 +292,7 @@ fn styles(resources: &std::path::Path) -> &'static [Option<ScreenStyle>; 4] {
 }
 
 /// `ReadableNumberConverter.format(long, width)`.
-fn readable(number: u64, width: usize) -> String {
+pub(super) fn readable(number: u64, width: usize) -> String {
     let text = number.to_string();
     if text.len() <= width {
         return text;
@@ -754,6 +757,10 @@ impl Game<'_> {
         if self.ae2wtlib_magnet_button() {
             buttons.push(Widget::MagnetFilter);
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.ae2wtlib_settings_button() {
+            buttons.push(Widget::Trash);
+        }
         buttons.into_iter().enumerate().map(|(i, b)| (b, [x - 2 - 16, y + 2 + i as i32 * 22, 16, 16])).collect()
     }
 
@@ -1097,6 +1104,8 @@ impl Game<'_> {
             Widget::WirelessSettings => self.ae2wtlib_open_settings(),
             #[cfg(feature = "ae2-ae2wtlib")]
             Widget::MagnetFilter => self.ae2_term_set_wtlib_magnet(true),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Widget::Trash => self.ae2_send_payload(super::ae2x::ae2wtlib::trash::TRASH, vec![0]),
             Widget::SelectTerminal(index) => {
                 let name = self.ae2_term_view().and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.get(index)).map(|t| t.0.clone());
                 if let Some(r) = self.remote.as_mut() {
@@ -1294,6 +1303,8 @@ impl Game<'_> {
             Widget::WirelessSettings => self.ae2_draw_icon_button(batch, ox, oy, rect, (32, 64), mouse),
             #[cfg(feature = "ae2-ae2wtlib")]
             Widget::MagnetFilter => self.ae2wtlib_draw_magnet_button(batch, ox, oy, rect, mouse),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Widget::Trash => self.ae2wtlib_draw_trash_button(batch, ox, oy, rect, mouse),
             Widget::Style => {
                 let style = self.ae2_term().map_or(0, |s| s.style.min(3));
                 self.ae2_draw_icon_button(batch, ox, oy, rect, (i32::from(style) * 16, 208), mouse);
@@ -1495,6 +1506,8 @@ impl Game<'_> {
                 Widget::WirelessSettings => (tip("gui.ae2wtlib.wireless_terminal_settings_title"), Vec::new()),
                 #[cfg(feature = "ae2-ae2wtlib")]
                 Widget::MagnetFilter => (tip("gui.ae2wtlib.Magnet"), Vec::new()),
+                #[cfg(feature = "ae2-ae2wtlib")]
+                Widget::Trash => (tip("gui.ae2wtlib.trash"), Vec::new()),
                 Widget::Style => {
                     let style = self.ae2_term().map_or(0, |s| s.style.min(3));
                     let name = ["Small", "Medium", "Tall", "Full"][usize::from(style)];

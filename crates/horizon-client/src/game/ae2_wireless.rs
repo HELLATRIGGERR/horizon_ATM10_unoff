@@ -175,6 +175,15 @@ impl Game<'_> {
             .guests
             .iter()
             .find(|g| g.conn == conn && !g.spectator() && g.dimension == self.dim.id())?;
+        self.ae2_wireless_reach_from(guest.position, target_dim, target)
+    }
+    /// [`Self::ae2_wireless_reach`] for a player at `position` in this level.
+    pub(super) fn ae2_wireless_reach_from(
+        &self,
+        position: [f64; 3],
+        target_dim: &str,
+        target: Pos,
+    ) -> Option<(Pos, f64)> {
         let dim = super::Dim::from_id(target_dim);
         if dim.id() != target_dim {
             return None;
@@ -214,9 +223,9 @@ impl Game<'_> {
                 if let Some(card) = slot.and_then(|s| horizon_client::ae2x::defs::get().access_point_card(&s.item)) {
                     return Some((local, card.signal.sqrt()));
                 }
-                let d = (f64::from(local.0) - guest.position[0]).powi(2)
-                    + (f64::from(local.1) - guest.position[1]).powi(2)
-                    + (f64::from(local.2) - guest.position[2]).powi(2);
+                let d = (f64::from(local.0) - position[0]).powi(2)
+                    + (f64::from(local.1) - position[1]).powi(2)
+                    + (f64::from(local.2) - position[2]).powi(2);
                 (d < horizon_client::ae2_common_config::wireless()
                     .link
                     .range(boosters)

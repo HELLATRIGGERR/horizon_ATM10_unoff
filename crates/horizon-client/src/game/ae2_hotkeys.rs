@@ -47,8 +47,12 @@ fn candidates(action: Action, inventory: &[Option<ItemStack>]) -> Vec<usize> {
 /// slot order, a universal terminal holding the terminal at once, else the
 /// first of the terminal's own items (the main inventory, armour, off hand).
 pub(super) fn locate(g: &horizon_client::lan::guest::Guest, terminal: &horizon_client::ae2x::defs::WirelessTerminal) -> Option<usize> {
-    let stacks = (0..g.inventory.len()).map(|slot| (slot, g.inventory[slot].as_ref()))
-        .chain(std::iter::once((super::shield::OFFHAND_SLOT, g.offhand.as_ref())));
+    locate_in(&g.inventory, g.offhand.as_ref(), terminal)
+}
+/// [`locate`] over a player's inventory and off hand.
+pub(super) fn locate_in(inventory: &[Option<ItemStack>], offhand: Option<&ItemStack>, terminal: &horizon_client::ae2x::defs::WirelessTerminal) -> Option<usize> {
+    let stacks = (0..inventory.len()).map(|slot| (slot, inventory[slot].as_ref()))
+        .chain(std::iter::once((super::shield::OFFHAND_SLOT, offhand)));
     let mut found = None;
     for (slot, stack) in stacks {
         let Some(stack) = stack.filter(|s| horizon_client::ae2x::wireless::has_terminal(s, terminal)) else { continue };

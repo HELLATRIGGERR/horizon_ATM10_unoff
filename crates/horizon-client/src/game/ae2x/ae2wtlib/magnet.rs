@@ -27,18 +27,16 @@ pub(in crate::game) const TERMINAL_SETTINGS: &str = "ae2wtlib:terminal_settings"
 /// insert mode, copy up, copy down, switch) and its filter slots' presses
 /// (5, the filter: 0 pickup, 1 insert, the slot).
 pub(in crate::game) const MAGNET_MENU: &str = "ae2wtlib:magnet_menu";
-/// `AE2wtlibTags.NO_RESTOCK`.
-const NO_RESTOCK: &str = "ae2wtlib:no_restock";
 
 /// `WTDefinitions.CRAFTING`: the magnet's terminal.
-fn crafting() -> Option<&'static WirelessTerminal> {
+pub(super) fn crafting() -> Option<&'static WirelessTerminal> {
     defs::get().wireless_terminal_named("crafting")
 }
 
 /// `CraftingTerminalHandler.getCraftingTerminal`: `WUTHandler.findTerminal`
 /// for the crafting terminal (a universal terminal holding it first), its
 /// slot and stack.
-fn located(g: &Guest) -> Option<(usize, &ItemStack)> {
+pub(super) fn located(g: &Guest) -> Option<(usize, &ItemStack)> {
     let slot = ae2_hotkeys::locate(g, crafting()?)?;
     Some((slot, ae2_wireless::source_stack(g, slot)?))
 }
@@ -46,7 +44,7 @@ fn located(g: &Guest) -> Option<(usize, &ItemStack)> {
 /// The first stack `Inventory.tick` ticks that `ItemWCT.inventoryTick`
 /// runs for (the crafting terminal, or a universal terminal holding it):
 /// `MagnetHandler.handle` answers once a tick, for that one.
-fn ticking(g: &Guest) -> Option<&ItemStack> {
+pub(super) fn ticking(g: &Guest) -> Option<&ItemStack> {
     let terminal = crafting()?;
     g.inventory.iter().flatten().chain(g.offhand.as_ref()).find(|s| wireless::has_terminal(s, terminal))
 }
@@ -110,7 +108,7 @@ impl Game<'_> {
     /// `no_restock`, the same as one in the hotbar.
     fn ae2wtlib_restocking(&self, g: &Guest, stack: &ItemStack) -> bool {
         let items = self.res.items();
-        if items.item_tags.get(NO_RESTOCK).is_some_and(|tag| tag.contains(&*stack.item)) || items.stack_max(stack) == 1 {
+        if items.item_tags.get(horizon_client::ae2x::ae2wtlib::restock::NO_RESTOCK).is_some_and(|tag| tag.contains(&*stack.item)) || items.stack_max(stack) == 1 {
             return false;
         }
         g.inventory.iter().take(9).flatten().any(|held| held.same_item_same_components(stack))

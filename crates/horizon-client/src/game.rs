@@ -7130,6 +7130,11 @@ impl Game<'_> {
             return Ok(true);
         }
         if !on_block && &*stack.item == "minecraft:bow" {
+            // NeoForge's ArrowNockEvent (an addon's restock of the ammo).
+            #[cfg(feature = "ae2-lab")]
+            if let Some(slot) = self.projectile_slot("minecraft:bow") {
+                self.ae2x_restock_slot(slot);
+            }
             if self.creative || self.projectile_slot("minecraft:bow").is_some() {
                 self.start_using_item();
             }
@@ -8979,6 +8984,12 @@ impl Game<'_> {
                                 g.inventory[slot as usize].as_ref()
                             };
                             if let Some(stack) = stack {
+                                #[cfg(feature = "ae2-lab")]
+                                if let Some(count) = g.ae2x_hotbar_count(stack) {
+                                    g.draw_item_model(batch, stack, x as f32, y as f32);
+                                    g.draw_item_decorations(batch, stack, x as f32, y as f32, Some(count));
+                                    continue;
+                                }
                                 g.draw_item(batch, stack, x as f32, y as f32);
                             }
                         }
@@ -14686,6 +14697,11 @@ impl Game<'_> {
         let mut charge = i32::try_from(ticks).unwrap_or(i32::MAX);
         let mut canceled = false;
         self.native_arrow_loose(stack, has_ammo, &mut charge, &mut canceled);
+        // ArrowLooseEvent's other listeners (an addon's restock of the ammo).
+        #[cfg(feature = "ae2-lab")]
+        if !canceled && let Some(slot) = arrow_slot {
+            self.ae2x_restock_slot(slot);
+        }
         let Some(power) = item_use::bow_release_power(has_ammo, charge, canceled) else {
             return;
         };

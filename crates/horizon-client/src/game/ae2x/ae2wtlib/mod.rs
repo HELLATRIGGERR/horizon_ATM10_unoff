@@ -1,6 +1,7 @@
 //! AE2WTLib 19.5.1 in the game (feature `ae2-ae2wtlib`): the wireless
 //! pattern encoding terminal's state in its item, the universal
-//! terminal's packets, and the Magnet Card (`magnet`). Derived from AE2WTLib by Mari023 (`WETMenuHost`,
+//! terminal's packets, the Magnet Card (`magnet`), Restock and Pick Block
+//! (`restock`) and the trash (`trash`). Derived from AE2WTLib by Mari023 (`WETMenuHost`,
 //! `CycleTerminalPacket`, `SelectTerminalPacket`),
 //! https://github.com/Mari023/AE2WirelessTerminalLibrary tag `19.5.1`, MIT,
 //! and AE2 19.2.18 `PatternEncodingLogic` (LGPL-3.0-or-later); see
@@ -18,13 +19,35 @@ use horizon_world::nbt::{Compound, Tag};
 
 mod magnet;
 pub(in crate::game) mod magnet_screen;
+pub(in crate::game) mod restock;
 pub(in crate::game) mod settings_screen;
+pub(in crate::game) mod trash;
 
 /// AE2WTLib's hotkeys after AE2's (`key.ae2.<id>`): the two terminals'
 /// (`WTDefinitionBuilder.hotkeyName`, answered by the terminal locating
-/// service) and the Magnet Card's (`MagnetHotkeyAction`). Restock and stow
-/// come with their slice.
-pub(in crate::game) const HOTKEYS: &[&str] = &["wireless_pattern_encoding_terminal", "wireless_pattern_access_terminal", magnet::MAGNET_HOTKEY];
+/// service), then `onAe2Initialized`'s restock, magnet and stow actions.
+pub(in crate::game) const HOTKEYS: &[&str] = &[
+    "wireless_pattern_encoding_terminal",
+    "wireless_pattern_access_terminal",
+    restock::RESTOCK_HOTKEY,
+    magnet::MAGNET_HOTKEY,
+    restock::STOW_HOTKEY,
+];
+
+/// What the game keeps for AE2WTLib while it runs; nothing of it is saved.
+#[derive(Default)]
+pub(in crate::game) struct State {
+    /// This client's `CraftingTerminalHandler.restockAbleItems`: the
+    /// network's amount of each item it carries, by item id.
+    pub(in crate::game) restock_amounts: std::collections::BTreeMap<String, u64>,
+    /// The trash menus open on this server, by connection.
+    pub(in crate::game) trash: std::collections::HashMap<u32, trash::Session>,
+    /// The window this client draws as the trash.
+    pub(in crate::game) trash_window: Option<i32>,
+    /// The guests a restock changed a slot of in their turn, to be sent
+    /// their inventory (`UpdateRestockPacket`).
+    pub(in crate::game) resync: std::collections::HashSet<u32>,
+}
 
 /// `CycleTerminalPacket` (one byte: the right button, backwards).
 pub(in crate::game) const CYCLE_TERMINAL: &str = "ae2wtlib:cycle_terminal";
@@ -255,7 +278,20 @@ impl Game<'_> {
     /// AE2WTLib's own hotkey actions (the terminals' are the locating
     /// service's, before them): true when one ran.
     pub(in crate::game) fn lan_ae2wtlib_hotkey(&mut self, host: &mut LanHost, conn: u32, id: &str) -> bool {
-        id == magnet::MAGNET_HOTKEY && self.lan_ae2wtlib_magnet_hotkey(host, conn)
+        match id {
+            magnet::MAGNET_HOTKEY => self.lan_ae2wtlib_magnet_hotkey(host, conn),
+            restock::RESTOCK_HOTKEY => self.lan_ae2wtlib_restock_hotkey(host, conn),
+            restock::STOW_HOTKEY => self.lan_ae2wtlib_stow_hotkey(host, conn),
+            _ => false,
+        }
+    }
+    /// `ItemWCT.inventoryTick` once a server tick (`MagnetHandler.handle`):
+    /// the hotbar's counts, then the magnet.
+    pub(in crate::game) fn lan_ae2wtlib_tick(&mut self, host: &mut LanHost, gi: usize) {
+        self.lan_ae2wtlib_resync(host, gi);
+        let Some(ticking) = host.hub.guests.get(gi).and_then(magnet::ticking).cloned() else { return };
+        self.lan_ae2wtlib_restock_amounts(host, gi, &ticking);
+        self.lan_ae2wtlib_magnet_tick(host, gi);
     }
     /// The universal terminal's packets and the terminal settings.
     pub(in crate::game) fn lan_ae2wtlib_payload(&mut self, host: &mut LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
@@ -266,6 +302,10 @@ impl Game<'_> {
             }
             magnet::MAGNET_MENU => {
                 self.lan_ae2wtlib_magnet_menu(host, conn, data);
+                true
+            }
+            trash::TRASH => {
+                self.lan_ae2wtlib_trash_payload(host, conn, data);
                 true
             }
             CYCLE_TERMINAL => {

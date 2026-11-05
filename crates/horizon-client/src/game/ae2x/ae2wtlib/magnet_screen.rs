@@ -28,6 +28,7 @@ const ICON_YES: (i32, i32) = (32, 16);
 const ICON_UP: (i32, i32) = (32, 32);
 const ICON_DOWN: (i32, i32) = (32, 48);
 const ICON_SWITCH: (i32, i32) = (32, 64);
+const ICON_TRASH: (i32, i32) = (0, 32);
 const BUTTON_BACKGROUND: [i32; 4] = [63, 0, 16, 17];
 const BUTTON_BACKGROUND_HOVERED: [i32; 4] = [95, 1, 16, 16];
 /// The two filters' slot semantics (`AE2wtlibSlotSemantics`).
@@ -168,6 +169,16 @@ impl Game<'_> {
         self.ae2_icon(batch, if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND }, (18, 20), x - 1.0, y + lift);
         let icons = Image { texture: ICONS.into(), texture_size: (128, 128), src: None };
         self.ae2_blit(batch, &icons, [ICON_MAGNET.0, ICON_MAGNET.1, 16, 16], x, y + 1.0 + lift);
+    }
+    /// `WCTScreen`'s Trash button (`Icon.TRASH`), as the Magnet Filter's.
+    pub(in crate::game) fn ae2wtlib_draw_trash_button(&self, batch: &mut HudBatch, ox: f32, oy: f32, rect: [i32; 4], mouse: [f32; 2]) {
+        use crate::game::ae2_screens::icon;
+        let hover = inside(rect, mouse);
+        let lift = if hover { 1.0 } else { 0.0 };
+        let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);
+        self.ae2_icon(batch, if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND }, (18, 20), x - 1.0, y + lift);
+        let icons = Image { texture: ICONS.into(), texture_size: (128, 128), src: None };
+        self.ae2_blit(batch, &icons, [ICON_TRASH.0, ICON_TRASH.1, 16, 16], x, y + 1.0 + lift);
     }
     /// The hovered part's tooltip: a button's message, a filter's item.
     pub(in crate::game) fn ae2wtlib_magnet_tooltip(&self, at: [f32; 2]) -> Option<String> {

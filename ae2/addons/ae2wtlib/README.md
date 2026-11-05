@@ -35,9 +35,10 @@ Differences, known:
 - The terminals' own hotkeys (`wireless_pattern_encoding_terminal`, `wireless_pattern_access_terminal`) got their key
   mappings with slice 3; AE2's `wireless_terminal` key finds the universal terminal.
 - The wireless encoding terminal shows no key-type button (AE2's `KeyTypeSelectionHost` would show it).
-- AE2WTLib's own menus (`WCTMenu` with the armour, trash, magnet and singularity slots and the scrolling upgrade panel)
-  are not ported: the universal terminal opens AE2's terminal menus, and its cards go in by AE2's crafting-grid upgrade
-  recipe. The creative tab's charged universal terminal is not listed.
+- AE2WTLib's own menus (`WCTMenu` with the armour and singularity slots and the scrolling upgrade panel) are not
+  ported: the universal terminal opens AE2's terminal menus, and its cards go in by AE2's crafting-grid upgrade recipe;
+  the magnet's and trash's buttons came with slices 3 and 4. The creative tab's charged universal terminal is not
+  listed.
 
 Tests: `horizon-client-lib` (the rows, the universal terminal's order, upgrade slots, battery, merging and charge rate),
 `horizon-client` (the encoding logic's NBT form, the component ids) and the world test `ae2wtlib-terminals`: the
@@ -99,17 +100,42 @@ what the pickup filter allows from 11 blocks away into the inventory; with picku
 and the insert filter keeps dirt in the inventory; without the magnet a touched stack still goes in and a far one stays;
 the settings screen sets the magnet's two bits.
 
+## Slice 4: Restock, Pick Block, hotbar counts and the trash
+
+| AE2WTLib | Port |
+|---|---|
+| `AE2wtlibEvents.restock(player, item, now, setStack)`: not creative, `item` not empty nor `ae2wtlib:no_restock` (in the jar: `#powah:reactors`, optional), `CraftingTerminalHandler.inRange` and its terminal's `restock`; the network fills the slot to `item.getMaxStackSize()`, `extract` from (or `insert` into, past a stack) `getStorageService().getInventory()`, unpowered; a slot holding another item is left; `UpdateRestockPacket` | `ae2x/ae2wtlib/restock.rs` (the move), `game/ae2x/ae2wtlib/restock.rs` (the player): run with the acting player's state in the game's (`as_guest`), its terminal found as the magnet finds it, the network the terminal's access point reaches (in range, and powered unless the range is free or the player creative); the guest's inventory goes to its client after the packet or tick that restocked it, as `UpdateRestockPacket` does (a slot back at the count the client last heard of is no change to the tick's sync) |
+| `ServerPlayerGameModeMixin` (`useItemOn` returns: `original.copy()`, the hand), NeoForge's `RightClickBlock` (lowest priority, as `useItemOn` starts) and `EntityInteractSpecific` (the hand) | engine hooks around the guest's `use_item` in `UseItemOn` and before its `Interact` (`lan_actions.rs`), through `ae2x_restock_slot` / `ae2x_use_on_returned`; a hand left empty or holding something else is not restocked, as `original.copy()` of a used-up stack is empty |
+| `LivingEntityUseItemEvent.Finish` (`getItem()` before, `getResultStack()`) | after the mods' Finish in `use_item_finished` (`item_use.rs`): a used-up stack is filled again, a bowl is left |
+| `ArrowNockEvent` and `ArrowLooseEvent` with ammo: `player.getProjectile(bow)` restocked in place | in `BowItem.use`'s and `releaseUsing`'s places (`game.rs`), the ammo slot before the arrow is drawn |
+| `ServerPlayerMixin.restockDrop`: `drop(boolean)` dropped something and the selected stack is not empty | after the guest's drop key (`PlayerAction` 4 and 5) |
+| `MagnetHandler.sendRestockAble` (once a tick, before the magnet, from `ItemWCT.inventoryTick`): with restock on and in range, each item the player carries (inventory, armour, off hand; the first stack's key, not `no_restock`) and the network's amount (`getCachedInventory`), `RestockAmountPacket` | `lan_ae2wtlib_tick` before the magnet; `ae2wtlib:restock_amounts` (a JSON object of item to amount) |
+| `GuiMixin.restockOverlay` (`Gui.renderSlot`, not creative, restock on in the client's terminal, `count != 1`, an item the server counted): `ReadableNumberConverter.format(count + network, 3)` in place of the count | the hotbar's slots and the off hand (`game.rs`); `horizon-ctl inventory` lists them as `hotbar_counts` |
+| `MinecraftMixin.pickBlock` (none in the inventory, not creative nor spectator) and `PickBlockPacket`; `AE2wtlibEvents.pickBlock`: `pick_block` on, `getTargetGrid` (range only), `getSuitableHotbarSlot`, its stack must fit into the network (simulated), the network's `getMaxStackSize` of the item (simulated, then real), the slot selected; none there: with `craft_if_missing` and a pattern for it (`getCraftingFor`), `CraftAmountMenu.open(player, locator, what, 1)` | 26.3 picks on the server (`handlePickItemFromBlock`/`FromEntity`, `tryPickItem`), so the hook is there (`guest_pick_item`) and there is no packet; the amount screen is AE2's (`lan_open_terminal_craft_confirm`) on the crafting terminal, whose back button opens it |
+| `RestockHotkeyAction` (`ae2wtlib_restock`: restock turned, `Restock: On/Off` in the action bar) and `StowHotkeyAction` (`ae2wtlib_stow`: in range, the main hand's stack into the network, not `isNotReplaceableByPickAction`, which NeoForge answers with `isEnchanted`) | the server's hotkey handler; key mappings `key.ae2.ae2wtlib_restock` and `key.ae2.ae2wtlib_stow` (unbound) |
+| `TrashMenu`/`TrashScreen` (`screens/wtlib/trash.json`, `wtlib/guis/trash.png`) from `WCTScreen`'s trash button (`Icon.TRASH`): 27 slots of the menu host's `AppEngInternalInventory`, saved nowhere, the player's inventory, the back button (`returnToMainMenu`) | a `generic_9x3` window with a chest's rules (`game/ae2x/ae2wtlib/trash.rs`), drawn from the style; `ae2wtlib:trash` (0 open, 1 back); what it holds is gone when it closes or goes back |
+
+Differences, known:
+
+- AE2 machines whose menus the port opens before the item's use (`ae2-lab`'s own paths in `UseItemOn`) are not
+  restocked around: in Java the `RightClickBlock` restock fills the held stack on any right click of a block.
+- Restock and the hotbar's amounts read the network as it stands; AE2's `getCachedInventory` may lag a tick.
+- Pick Block's craft amount turns a universal terminal to its crafting terminal (the amount screen's back button opens
+  that); AE2WTLib leaves its current terminal and its back button opens that.
+- The trash button sits on the terminal's left toolbar with the settings and magnet buttons.
+- `CraftingTerminalHandler` keeps the client's counts until the crafting terminal is gone; here they stay shown only
+  while the client holds one with restock on.
+
+Tests: `horizon-client-lib` (`restock`: the move, the excess, the slot left, the hotbar count) and the world test
+`ae2wtlib-restock`: the hotbar shows a stack and the network's stock; placing a block fills the stack from the network
+(54 before the use, 1 after), the drop key replaces the dropped one, a golden apple eaten and an arrow shot are
+replaced; the restock key turns it off and on; the stow key empties the hand into the network; a pick takes a stack of
+cobblestone from the network into the selected empty slot, and planks, which only a pattern makes, open the craft
+amount; the trash takes dirt and has none when it opens again.
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.3)
 
-- **Restock and Pick Block** (slice 4): `AE2wtlibEvents.restock` after `useItemOn`, right-clicks on blocks and entities,
-  item use finishing, arrows and the drop key (`ServerPlayerGameModeMixin`, `ServerPlayerMixin`, the NeoForge events):
-  native hooks have the inventory tick (API 39) but none of these points, so they are engine hooks; `RestockAmountPacket`
-  once a tick for the hotbar counts (`GuiMixin`), `UpdateRestockPacket`; `pickBlock` (`MinecraftMixin`: the client's
-  pick-block path, then `PickBlockPacket`; `craft_if_missing` opens `CraftAmountMenu`). The restock key and
-  `StowHotkeyAction`. The settings screen already writes `restock`, `pick_block` and `craft_if_missing`, and pickups
-  already honour restock.
-- **Trash screen** (`TrashMenu`), with `WCTMenu`'s armour and singularity slots if the port takes AE2WTLib's own crafting
-  terminal layout.
+- `WCTMenu`'s armour, off-hand and singularity slots, if the port takes AE2WTLib's own crafting terminal layout.
 - **Quantum Bridge Card** (`UpgradeHelper.addUpgradeToAllTerminals(QUANTUM_BRIDGE_CARD, 1)`): `WTMenuHost.isQuantumLinked`
   (a singularity in `SINGULARITY`, the bridge by frequency, 22.5 AE/t, recharging from the network to half), sharing the
   cross-dimension work with AEInfinityBooster's Dimension Card: both need the wireless path (`ae2_wireless_reach`, today

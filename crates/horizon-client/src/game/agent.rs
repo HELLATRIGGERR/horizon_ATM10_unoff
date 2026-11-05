@@ -766,7 +766,8 @@ impl Game<'_> {
 
     pub(super) fn inventory_value(&self) -> Value {
         let armor = ["head", "chest", "legs", "feet"];
-        json!({
+        #[cfg_attr(not(feature = "ae2-lab"), allow(unused_mut))]
+        let mut v = json!({
             "selected": self.selected + 1,
             "held": self.held().map(|s| self.stack_value(s)),
             "hotbar": (0..9).map(|i| self.slot_value(i, &self.inventory[i])).collect::<Vec<_>>(),
@@ -779,7 +780,14 @@ impl Game<'_> {
             "offhand": self.slot_value(504, &self.offhand),
             "carried": self.carried.as_ref().map(|s| self.stack_value(s)),
             "counts": self.inventory_counts(),
-        })
+        });
+        // The counts the hotbar shows in place of its stacks' (an addon's:
+        // AE2WTLib's restock).
+        #[cfg(feature = "ae2-lab")]
+        {
+            v["hotbar_counts"] = json!((0..9).map(|i| self.inventory[i].as_ref().and_then(|s| self.ae2x_hotbar_count(s))).collect::<Vec<_>>());
+        }
+        v
     }
 
     fn screen_value(&mut self) -> Value {

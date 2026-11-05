@@ -1806,6 +1806,13 @@ impl Game<'_> {
 
     /// A packet from a guest that the hub does not handle itself.
     pub(super) fn lan_guest_packet(&mut self, host: &mut LanHost, conn: u32, packet: S) {
+        self.lan_guest_packet_inner(host, conn, packet);
+        // What an addon changed in the guest's turn, told at once (AE2WTLib's
+        // UpdateRestockPacket).
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2x_after_packet(host, conn);
+    }
+    fn lan_guest_packet_inner(&mut self, host: &mut LanHost, conn: u32, packet: S) {
         #[cfg(feature = "ae2-lab")]
         let _formation_guests = self.ae2_formation_guest_scope(host);
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else {
@@ -1981,7 +1988,13 @@ impl Game<'_> {
                 }
                 4 | 5 => {
                     if !spectator {
-                        self.as_guest(host, conn, |g| g.drop_held(a.action == 4));
+                        self.as_guest(host, conn, |g| {
+                            let before = g.inventory[g.selected].as_ref().map_or(0, |s| s.count);
+                            g.drop_held(a.action == 4);
+                            #[cfg(feature = "ae2-lab")]
+                            g.ae2x_dropped(before);
+                            let _ = before;
+                        });
                     }
                 }
                 // RELEASE_USE_ITEM: ServerPlayer.releaseUsingItem, with the
@@ -2468,6 +2481,14 @@ impl Game<'_> {
                     let heard = self.audio.capture.as_ref().map_or(0, Vec::len);
                     let used = self.as_guest(host, conn, |g| {
                         let attempt = g.was_block_placement_attempt(hand);
+                        // ServerPlayerGameMode.useItemOn: NeoForge's
+                        // RightClickBlock as it starts (an addon's restock).
+                        #[cfg(feature = "ae2-lab")]
+                        let before = g.with_hand(hand, |g| {
+                            let slot = g.held_slot();
+                            g.ae2x_restock_slot(slot);
+                            g.stack_in(slot).cloned()
+                        });
                         g.forced_hit = Some(hit);
                         g.guest_use = Some(GuestUse::OnBlock(hand));
                         let swings = g.swings_started;
@@ -2482,6 +2503,12 @@ impl Game<'_> {
                                 .unwrap_or_else(|| ItemStack::new("minecraft:air", 0));
                             g.trigger_any_block_use(p.pos, &stack);
                         }
+                        // useItemOn returns (an addon's restock).
+                        #[cfg(feature = "ae2-lab")]
+                        g.with_hand(hand, |g| {
+                            let slot = g.held_slot();
+                            g.ae2x_use_on_returned(slot, before.as_ref());
+                        });
                         g.forced_hit = None;
                         g.guest_use = None;
                         (g.swings_started != swings, consumed, attempt, passed)
@@ -2664,6 +2691,12 @@ impl Game<'_> {
                         location: p.location,
                     };
                     let swung = self.as_guest(host, conn, |g| {
+                        // NeoForge's EntityInteractSpecific (an addon's restock).
+                        #[cfg(feature = "ae2-lab")]
+                        g.with_hand(hand, |g| {
+                            let slot = g.held_slot();
+                            g.ae2x_restock_slot(slot);
+                        });
                         g.guest_use = Some(GuestUse::Entity(hand, target));
                         let swings = g.swings_started;
                         let _ = g.use_item();
@@ -3226,6 +3259,8 @@ impl Game<'_> {
         let Some((uuid, name)) = host.hub.guest(conn).map(|g| (g.uuid, g.name.clone())) else {
             return;
         };
+        #[cfg(feature = "ae2-lab")]
+        let mut craft = None;
         let picked = self.as_guest(host, conn, |g| {
             let stack = stack(g)?;
             let infinite = g.creative;
@@ -3234,14 +3269,32 @@ impl Game<'_> {
             if cancel {
                 return None;
             }
-            horizon_client::pick_item::pick(
+            let found = horizon_client::pick_item::pick(
                 &mut g.inventory[..36],
                 &mut g.selected,
                 &stack,
                 infinite,
             );
+            // AE2WTLib's MinecraftMixin.pickBlock, where 26.3's server picks.
+            #[cfg(feature = "ae2-lab")]
+            if !found && !infinite {
+                return match g.ae2x_pick_from_network(&stack) {
+                    Some(super::ae2x::NetworkPick::Picked) => Some(()),
+                    Some(super::ae2x::NetworkPick::Craft(key)) => {
+                        craft = Some(key);
+                        None
+                    }
+                    None => Some(()),
+                };
+            }
+            let _ = found;
             Some(())
         });
+        #[cfg(feature = "ae2-lab")]
+        if let Some(key) = craft {
+            self.lan_ae2x_pick_craft(host, conn, key);
+            return;
+        }
         if picked.flatten().is_some()
             && let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn)
         {

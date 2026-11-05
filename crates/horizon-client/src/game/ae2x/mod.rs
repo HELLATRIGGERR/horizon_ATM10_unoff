@@ -275,6 +275,17 @@ pub(super) struct State {
     pub(super) extendedae: extendedae::State,
     #[cfg(feature = "ae2-aeinfinitybooster")]
     pub(super) aeinfinitybooster: aeinfinitybooster::State,
+    #[cfg(feature = "ae2-ae2wtlib")]
+    pub(super) ae2wtlib: ae2wtlib::State,
+}
+
+/// What an addon's pick from the network came to (AE2WTLib's Pick Block).
+#[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+pub(super) enum NetworkPick {
+    /// The stack is in the hotbar, selected.
+    Picked,
+    /// None there: the craft amount menu for this key.
+    Craft(ae2_cell_core::ItemKey),
 }
 
 impl Game<'_> {
@@ -482,6 +493,10 @@ impl Game<'_> {
         if self.lan_merequester_click(host, conn, click) {
             return true;
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.lan_ae2wtlib_trash_click(host, conn, click) {
+            return true;
+        }
         false
     }
     /// The client closed window `window`: true when it was an addon's.
@@ -493,6 +508,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-merequester")]
         if self.lan_merequester_closed(host, conn, Some(window)) {
+            return true;
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.lan_ae2wtlib_trash_closed(host, conn, Some(window)) {
             return true;
         }
         false
@@ -508,11 +527,83 @@ impl Game<'_> {
         false
     }
     /// A guest's tick, after its carried items' and before what it touches
-    /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2WTLib's magnet.
+    /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2WTLib's hotbar
+    /// counts and magnet.
     pub(super) fn lan_ae2x_guest_tick(&mut self, host: &mut super::lan::LanHost, gi: usize) {
         let _ = (&host, gi);
         #[cfg(feature = "ae2-ae2wtlib")]
-        self.lan_ae2wtlib_magnet_tick(host, gi);
+        self.lan_ae2wtlib_tick(host, gi);
+    }
+
+    /// After a guest's packet: what an addon tells the guest at once (the
+    /// slots AE2WTLib's restock changed).
+    pub(super) fn lan_ae2x_after_packet(&mut self, host: &mut super::lan::LanHost, conn: u32) {
+        let _ = (&host, conn);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
+            self.lan_ae2wtlib_resync(host, gi);
+        }
+    }
+
+    // The acting player's events (a guest's turn): AE2WTLib's Restock and
+    // Pick Block, which its mixins and NeoForge's events start.
+
+    /// A restock of the acting player's slot as it stands
+    /// (`PlayerInteractEvent.RightClickBlock` as `useItemOn` starts,
+    /// `EntityInteractSpecific`, `ArrowNockEvent`, `ArrowLooseEvent`).
+    pub(super) fn ae2x_restock_slot(&mut self, slot: usize) {
+        let _ = slot;
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.ae2wtlib_restock_slot(slot);
+    }
+    /// `ServerPlayerGameMode.useItemOn` returned: the hand's slot and the
+    /// stack it held as the use began.
+    pub(super) fn ae2x_use_on_returned(&mut self, slot: usize, before: Option<&horizon_client::items::ItemStack>) {
+        let _ = (slot, before);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.ae2wtlib_use_on_returned(slot, before);
+    }
+    /// `LivingEntityUseItemEvent.Finish` of `item` (as it was before its
+    /// use finished), after the mods'.
+    pub(super) fn ae2x_use_finished(&mut self, item: &horizon_client::items::ItemStack) {
+        let _ = item;
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.ae2wtlib_use_finished(item);
+    }
+    /// `ServerPlayer.drop(boolean)` returned: `before` is how many the
+    /// selected slot held.
+    pub(super) fn ae2x_dropped(&mut self, before: u32) {
+        let _ = before;
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.ae2wtlib_dropped(before);
+    }
+    /// `tryPickItem` found `stack` nowhere and the player has no infinite
+    /// materials: an addon may bring it from the network.
+    pub(super) fn ae2x_pick_from_network(&mut self, stack: &horizon_client::items::ItemStack) -> Option<NetworkPick> {
+        let _ = stack;
+        #[cfg(feature = "ae2-ae2wtlib")]
+        match self.ae2wtlib_pick_block(stack) {
+            ae2wtlib::restock::Pick::Picked => return Some(NetworkPick::Picked),
+            ae2wtlib::restock::Pick::Craft(key) => return Some(NetworkPick::Craft(key)),
+            ae2wtlib::restock::Pick::Nothing => {}
+        }
+        None
+    }
+    /// The craft amount menu a pick asked for.
+    pub(super) fn lan_ae2x_pick_craft(&mut self, host: &mut super::lan::LanHost, conn: u32, key: ae2_cell_core::ItemKey) {
+        let _ = (&host, conn, &key);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.lan_ae2wtlib_pick_craft(host, conn, key);
+    }
+    /// The count this client's hotbar shows for `stack` in place of its own
+    /// (AE2WTLib's `GuiMixin`).
+    pub(super) fn ae2x_hotbar_count(&self, stack: &horizon_client::items::ItemStack) -> Option<String> {
+        let _ = stack;
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(text) = self.ae2wtlib_hotbar_count(stack) {
+            return Some(text);
+        }
+        None
     }
     /// `ItemEntityPickupEvent.Pre` for item entity `index` touching a guest:
     /// true when an addon took some of its stack (AE2WTLib's pickup into
@@ -583,6 +674,8 @@ impl Game<'_> {
         self.lan_megacells_sync_chains(host);
         #[cfg(feature = "ae2-merequester")]
         self.lan_refresh_merequester(host);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.lan_refresh_ae2wtlib_trash(host);
     }
 
     /// `/ae2 <addon> ...`: none when no addon has the command.
@@ -654,6 +747,18 @@ impl Game<'_> {
         if self.merequester_payload(channel, data) {
             return true;
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        match channel {
+            ae2wtlib::restock::RESTOCK_AMOUNTS => {
+                self.ae2wtlib_restock_amounts_payload(data);
+                return true;
+            }
+            ae2wtlib::trash::TRASH_WINDOW => {
+                self.ae2wtlib_trash_window_payload(data);
+                return true;
+            }
+            _ => {}
+        }
         false
     }
     /// The open addon screen's size.
@@ -662,12 +767,20 @@ impl Game<'_> {
         if let Some(size) = self.merequester_screen_size() {
             return Some(size);
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(size) = self.ae2wtlib_trash_size() {
+            return Some(size);
+        }
         None
     }
     /// The slots the open addon screen shows.
     pub(super) fn ae2x_slots(&self) -> Option<Vec<usize>> {
         #[cfg(feature = "ae2-merequester")]
         if let Some(slots) = self.merequester_slots() {
+            return Some(slots);
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(slots) = self.ae2wtlib_trash_slots() {
             return Some(slots);
         }
         None
@@ -679,6 +792,10 @@ impl Game<'_> {
         if let Some(at) = self.merequester_slot_position(i) {
             return Some(at);
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(at) = self.ae2wtlib_trash_slot_position(i) {
+            return Some(at);
+        }
         None
     }
     /// Draws the open addon screen's background and widgets: true then.
@@ -686,6 +803,10 @@ impl Game<'_> {
         let _ = (&batch, ox, oy);
         #[cfg(feature = "ae2-merequester")]
         if self.merequester_draw(batch, ox, oy) {
+            return true;
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.ae2wtlib_draw_trash(batch, ox, oy) {
             return true;
         }
         false
@@ -696,6 +817,10 @@ impl Game<'_> {
         let _ = (at, right);
         #[cfg(feature = "ae2-merequester")]
         if self.merequester_press(at, right) {
+            return true;
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if !right && self.ae2wtlib_trash_press(at) {
             return true;
         }
         false
@@ -728,12 +853,20 @@ impl Game<'_> {
         if self.merequester_tooltip(batch) {
             return true;
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.ae2wtlib_trash_tooltip(batch) {
+            return true;
+        }
         false
     }
     /// The open addon screen for the control socket's `screen` reply.
     pub(super) fn ae2x_agent_value(&self) -> Option<serde_json::Value> {
         #[cfg(feature = "ae2-merequester")]
         if let Some(value) = self.merequester_agent_value() {
+            return Some(value);
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if let Some(value) = self.ae2wtlib_trash_agent() {
             return Some(value);
         }
         None

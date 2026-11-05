@@ -9,6 +9,7 @@ use super::defs::{Defs, TerminalKind, UniversalTerminal, WirelessTerminal};
 
 pub mod magnet;
 pub mod recipes;
+pub mod restock;
 
 pub const NAMESPACE: &str = "ae2wtlib";
 /// `AE2wtlibItems.UNIVERSAL_TERMINAL`.

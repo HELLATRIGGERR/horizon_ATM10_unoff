@@ -408,8 +408,20 @@ pub fn sized_models(
     center: &str,
     display: Option<&Value>,
 ) -> Result<Vec<(String, Value)>> {
-    let block = format!("{tier}_{kind}");
-    let dir = format!("block/transmitter/{size}/{kind}/{tier}");
+    models_for(size, &format!("{tier}_{kind}"), &format!("block/transmitter/{size}/{kind}/{tier}"), objects, side, center, display)
+}
+
+/// [`sized_models`] of block `block` (under `assets/mekanism/`), its part models in `dir`: one without tiers, as the
+/// Restrictive Transporter.
+pub fn models_for(
+    size: &str,
+    block: &str,
+    dir: &str,
+    objects: &BTreeMap<String, Vec<Quad>>,
+    side: &str,
+    center: &str,
+    display: Option<&Value>,
+) -> Result<Vec<(String, Value)>> {
     let textures = json!({ "side": side, "center": center, "particle": center });
     let quads = |name: String| -> Result<Vec<Quad>> {
         let found = objects.get(&name).ok_or_else(|| format!("the model has no object {name}"))?;

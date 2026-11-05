@@ -1926,6 +1926,7 @@ pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek chemicals", 2));
     commands.push(NativeCommand::op("mek chemicals <id:word>", 2));
     commands.push(NativeCommand::op("mek install <pos:block_pos> <installer:word>", 2));
+    super::mek_transmit::commands(commands);
 }
 
 /// A coordinate of the command line: a number, or `~`/`~n` from the player.
@@ -1987,7 +1988,16 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
                 _ => serde_json::json!({ "error": "usage: /mek install <x> <y> <z> <tier installer>" }),
             }
         }
-        _ => serde_json::json!({ "error": "usage: /mek probe <x> <y> <z>" }),
+        _ => {
+            // The transmitters' own (`/mek color`).
+            let all: Vec<&str> = command.split_whitespace().skip(1).collect();
+            let p = player.position;
+            let at = match (coordinate(all.get(1).copied(), p[0]), coordinate(all.get(2).copied(), p[1]), coordinate(all.get(3).copied(), p[2])) {
+                (Some(x), Some(y), Some(z)) => Some([x, y, z]),
+                _ => None,
+            };
+            super::mek_transmit::perform(game, &all, at).unwrap_or_else(|| serde_json::json!({ "error": "usage: /mek probe <x> <y> <z>" }))
+        }
     };
     let mut answer = answer;
     let n = ANSWERS.get() + 1;

@@ -68,6 +68,15 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   private oracle (`mekm2-work/oracle`, x3 and x3b): pull 250/1000/8000/32 000 mB a tick by tier, two full basic pipes
   2000 each, an active tank's output split by a normal up side, push and none taking nothing, a pull side sending
   nothing back, one fluid a network. World test `mechanical-pipe`.
+- Transmitters, part 2 (hook points API 166: `native_sneaking`, `native_insert_slots`, `native_pop_resource`): the
+  Logistical Transporters (`mekanism_energy::transporter`: colours, stacks, requests, the predicted insert with the
+  stacks on their way, A*, idle and home paths, the pull's delay, `round_robin`; runtime `mek_transporters`).
+  Measured on the oracle (x4): first pull on the second tick then every 11, arrivals on ticks 59/29/14/5 over three
+  transporters by tier, the near chest of one slot taking two pulls of 32 and the far one the rest, a blocked stack
+  turning home at 50 in the last transporter (idle, westward, with no home), colours, the last slot pulled first.
+  World test `logistical-transporter`. Learned: transporter stacks save no path (`initiatedPath` false, worked out
+  again on the first tick), `delayCount` never resets, a stack moving into a transporter that already ticked waits
+  a tick.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`;

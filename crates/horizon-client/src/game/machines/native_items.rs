@@ -20,9 +20,35 @@ pub(crate) struct NativeContainerSlot {
     pub(crate) can_take: bool,
 }
 
+/// A slot of a container as a side reaches it for putting a stack in
+/// (`native_insert_slots`).
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NativeInsertSlot {
+    /// Its number.
+    pub(crate) slot: usize,
+    pub(crate) stack: Option<ItemStack>,
+    /// Whether it takes the stack (`Container.canPlaceItem`, a furnace's
+    /// `canPlaceItemThroughFace`, a mod's `inputs` and slot rule).
+    pub(crate) accepts: bool,
+    /// How many of the stack's item it holds at most.
+    pub(crate) max: u32,
+}
+
 /// Whether a mod can take items from this container (`native_item_source`).
 fn takes_from(view: &View) -> bool {
     !matches!(view.kind, Kind::Composter(_)) && view.len() > 0
+}
+
+/// The most of `stack`'s item slot `slot` of `view` holds, as `tryMoveInItem`
+/// fills it.
+fn insert_max(c: &super::Containers<'_>, view: &View, slot: usize, stack: &ItemStack) -> u32 {
+    #[cfg(feature = "ae2-lab")]
+    if let Some((_, max)) = c.ae2_slot(view, slot).and_then(|(kind, index)| super::ae2_capabilities::ae2_slot_insert(kind, index, stack)) {
+        return max;
+    }
+    let _ = (view, slot);
+    c.max_stack(stack)
 }
 
 // Native mods use these; nothing in Horizon does.
@@ -131,6 +157,34 @@ impl Game<'_> {
                         stack: stack.cloned(),
                         can_take: stack.is_some_and(|s| c.can_take(&view, slot, s, face)),
                     }
+                })
+                .collect(),
+        )
+    }
+    /// The slots of the container at `pos` that `native_insert_item` puts a
+    /// stack into through its side `face` (`HopperBlockEntity.addItem`'s, in
+    /// that order), with what each holds, whether it takes `stack` and up to
+    /// how many of it: what an `IItemHandler` of that side tells by
+    /// `isItemValid` and `getSlotLimit`, for a mod to work out what a
+    /// container will take before it sends anything. None where no container
+    /// is (as `native_container_slots`, and for a composter). API 166.
+    pub(in crate::game) fn native_insert_slots(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Direction,
+        stack: &ItemStack,
+    ) -> Option<Vec<NativeInsertSlot>> {
+        let view = self.native_item_source(dimension, pos)?;
+        let c = self.containers();
+        Some(
+            view.slots_to_add(Some(face))
+                .into_iter()
+                .map(|slot| NativeInsertSlot {
+                    slot,
+                    stack: c.get(&view, slot).cloned(),
+                    accepts: c.can_place(&view, slot, stack),
+                    max: insert_max(&c, &view, slot, stack),
                 })
                 .collect(),
         )

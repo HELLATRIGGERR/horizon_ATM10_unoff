@@ -1,17 +1,18 @@
 # Mekanism's energy, its processing machines and factories, its chemicals (the
 # registry, tanks, the chemical handler, the Electrolytic Separator, the
 # Chemical Tanks and their items, the Pressurized Tubes), its Mechanical Pipes,
-# Fluid Tanks, and
+# Fluid Tanks and Logistical Transporters, and
 # Mekanism Generators' Solar and Heat Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12-20, 23, 26,
-# 42, 47, 60, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
+# 42, 45, 47, 60, 71, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
 # `native_dimension_type`), 159 (`native_cooking_recipes`), 160 (`FluidStack`, the fluid handler helpers), 162
 # (`native_data_files`, the content's chemical declarations), 165 (`native_used_stack`,
-# `native_instabuild`, `native_default_state`: the tier installers), so it builds on
-# any Horizon with hooks API 165 or later: it pins no revision (horizon-mixins
+# `native_instabuild`, `native_default_state`: the tier installers) and 166 (`native_sneaking`,
+# `native_insert_slots`, `native_pop_resource`: the transporters), so it builds on
+# any Horizon with hooks API 166 or later: it pins no revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.
@@ -77,6 +78,12 @@ id = "fluid-tanks"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_fluid_tanks"
 source = "runtime/mek_fluid_tanks.rs"
+
+[[module]]
+id = "transporters"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_transporters"
+source = "runtime/mek_transporters.rs"
 
 [[module]]
 id = "transmit"
@@ -481,5 +488,31 @@ kind = "HEAD"
 helper = "hooks/entity_level_listened.rs"
 bindings = [
   { name = "listened", ty = "&mut bool", value = "&mut *listened" },
+]
+
+[[injection]]
+id = "block-entity-update-tag"
+hook = "block_entity_update_tag"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_update_tag.rs"
+bindings = [
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "tag", ty = "&mut Option<horizon_world::nbt::Compound>", value = "&mut *tag" },
+]
+
+[[injection]]
+id = "block-entity-submit"
+hook = "block_entity_submit"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_submit.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "block", ty = "&str", value = "block" },
+  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "draw", ty = "&mut crate::game::native_block_entity_draw::BlockEntityDraw", value = "&mut *draw" },
 ]
 

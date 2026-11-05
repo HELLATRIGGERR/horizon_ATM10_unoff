@@ -26,7 +26,8 @@
 //! installers turn a machine into a factory and a factory into the next tier.
 //! Mechanical Pipes move fluids in networks as the tubes do (`network`, with
 //! `transmitter`'s tiers), between Fluid Tanks (`fluid_tank`) and any block with
-//! a fluid handler.
+//! a fluid handler. Logistical Transporters (`transporter`) send item stacks
+//! along the cheapest paths to the inventories that take them.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod chemical;
 pub mod chemical_tank;
@@ -49,6 +50,7 @@ pub mod solar;
 pub mod split;
 pub mod tier;
 pub mod transmitter;
+pub mod transporter;
 
 /// Java's `(long) d` for the energy maths: NaN is 0, the rest saturates.
 pub(crate) fn clamp_to_long(d: f64) -> i64 {

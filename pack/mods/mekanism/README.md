@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes and Fluid Tanks,
+Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters,
 and Mekanism Generators' Solar and Heat Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
@@ -117,6 +117,21 @@ assets when `mekanism-content` is given them.
   pipes' sources and sinks: one tank on every side that other blocks fill and drain without a rate limit, giving
   down at its output a tick while active (`active_state`; at most what a fluid tank below still takes), a creative
   tank keeping what it gives and voiding what it gets; saved as Mekanism saves it (`fluid_tanks`).
+- Basic, Advanced, Elite and Ultimate Logistical Transporters (`[transmitters.items]`, `mekanism_energy::transporter`,
+  runtime `mek_transporters`, hook points API 166): stacks travel through touching transporters as moving items,
+  the tier's speed in hundredths of a block a tick (5, 10, 20, 50), each on the cheapest path (A* over
+  `ULTIMATE.speed / speed` a transporter) to an inventory of the network that takes it, the stacks already on their
+  way there counting against its room (`TransporterManager`); a pull side takes up to the tier's pull amount (1,
+  16, 32, 64) of one kind, the last slot first, every 11 ticks while that works, waiting longer each time it
+  doesn't; a stack whose target stops taking it looks again past half way and at the end of each transporter,
+  goes home (`HOME`) or wanders the network (idle) until one takes it. A transporter of a colour joins no
+  transporter of another and takes only stacks of its colour; a pulled stack takes its puller's. The containers
+  around them (chests, furnaces, the bundle's machines) are their inventories through the container helpers and
+  `native_insert_slots`; a machine's item ejector puts its output into one on a path. Their stacks and colour are
+  saved as Mekanism saves them (`items`, `color`), a broken one's dropped (`native_pop_resource`), and clients draw
+  each stack where it travels (`native_block_entity_update_tag`, `native_block_entity_submit`). `/mek color` sets a
+  transporter's colour as the Configurator does. `transporter::round_robin` is `getNewRRPath`'s choice, ready for
+  the Logistical Sorter.
 
 ## Differences from Mekanism
 
@@ -178,3 +193,11 @@ assets when `mekanism-content` is given them.
   outer edge's texture mapping. Pipes don't show their fluid, and redstone sensitivity isn't ported.
 - Fluid tanks have no screen, slots, edit mode or item that keeps their fluid (they drop plain); a fill that doesn't
   fit doesn't overflow into a tank above, and their light is only `active`'s.
+- Transporters' targets and paths of equal cost go by position (Mekanism: hash order); paths are found afresh each
+  time (Mekanism caches them, `PathfinderCache`). They tick after the level's block entities (Mekanism: in its
+  ticker order among them), each in the order it came, as Mekanism's do among themselves. Only pull sides and the
+  bundle's machines' ejectors put stacks into them: hoppers and other mods' blocks can't yet (no hook point for an
+  item handler of a mod block that takes a stack on a path). A machine's ejector colours and strict input aren't
+  ported, nor the coloured glass of a transporter's model (its colour shows in the Configurator's messages), nor
+  the Diversion and Restrictive Transporters or the Logistical Sorter. Clients get a transporter's stacks when
+  they change and move them on by its speed a tick from the frame they first draw them.

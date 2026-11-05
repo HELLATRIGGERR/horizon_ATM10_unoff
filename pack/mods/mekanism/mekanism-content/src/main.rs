@@ -188,6 +188,14 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
             tubes.push(block.to_owned());
             continue;
         }
+        if block == "restrictive_transporter" {
+            for (path, value) in large_files(carry, "restrictive_transporter", "")? {
+                write_json(&out.join(path), &value)?;
+                files += 1;
+            }
+            large.push(block.to_owned());
+            continue;
+        }
         if let Some((kind, tier)) = ["mechanical_pipe", "logistical_transporter"]
             .into_iter()
             .find_map(|kind| Some((kind, block.strip_suffix(&format!("_{kind}"))?)))
@@ -806,7 +814,9 @@ fn small_files(carry: &Path, kind: &str, tier: &str) -> Result<Vec<(String, Valu
 fn large_files(carry: &Path, kind: &str, tier: &str) -> Result<Vec<(String, Value)>> {
     let models = carry.join("assets/mekanism/models");
     let large = read_json(&models.join("block/transmitter/large/large.json"))?;
-    let own = read_json(&models.join(format!("block/transmitter/large/{kind}/{tier}.json")))?;
+    // A kind without tiers (the Restrictive Transporter) has one model of its own name.
+    let own_path = if tier.is_empty() { format!("block/transmitter/large/{kind}.json") } else { format!("block/transmitter/large/{kind}/{tier}.json") };
+    let own = read_json(&models.join(own_path))?;
     let texture = |name: &str| -> Result<&str> {
         own["textures"][name].as_str().ok_or_else(|| format!("the {tier} {kind} model has no texture {name}"))
     };
@@ -815,6 +825,10 @@ fn large_files(carry: &Path, kind: &str, tier: &str) -> Result<Vec<(String, Valu
     let flip_v = large["flip_v"].as_bool().unwrap_or(false);
     let objects = transmitter::parse_obj(&read(models.join("block/transmitter_large.obj.mek"))?, &materials, flip_v)
         .map_err(|e| format!("transmitter_large.obj.mek: {e}"))?;
+    if tier.is_empty() {
+        let dir = format!("block/transmitter/large/{kind}");
+        return transmitter::models_for("large", kind, &dir, &objects, texture("side")?, texture("center_down")?, large.get("display"));
+    }
     transmitter::sized_models("large", kind, tier, &objects, texture("side")?, texture("center_down")?, large.get("display"))
 }
 

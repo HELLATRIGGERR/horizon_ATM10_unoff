@@ -6,6 +6,12 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 166 adds whether the acting player sneaks (`native_sneaking`, `Player.isShiftKeyDown`: a mod's tool acts
+//! otherwise then), a container's slots as a side reaches them for putting a stack in (`native_insert_slots`: what
+//! each holds, whether it takes the stack and up to how many, `IItemHandler.isItemValid` and `getSlotLimit`, so a mod
+//! predicts what an inventory will take as `native_insert_item` would put it in), and `native_pop_resource`
+//! (`Block.popResource`: a stack dropped at a block): Mekanism's Logistical Transporters and its Configurator.
+//!
 //! API 165 adds what a mod's item used on a block needs to act as the item's `useOn`: the stack in the hand
 //! that acts (`native_used_stack`, `getItemInHand(hand)`, to use it up), whether the player builds without
 //! using items up (`native_instabuild`, `Abilities.instabuild`), and a block's default state by name
@@ -570,7 +576,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 165;
+pub(crate) const NATIVE_HOOKS_API: u32 = 166;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -7353,6 +7359,21 @@ impl Game<'_> {
     /// the game doesn't know. API 165.
     pub(super) fn native_default_state(&self, name: &str) -> Option<BlockStateId> {
         self.pack.assets.registry.default_state(name)
+    }
+    /// Whether the acting player sneaks (`Player.isShiftKeyDown`) where
+    /// `native_use_item_on` and `native_use_item` run: a wrench dismantles
+    /// then, a configurator changes what it would show. False with no player
+    /// in place. API 166.
+    pub(super) fn native_sneaking(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| p.shift_key_down)
+    }
+    /// `Block.popResource(level, pos, stack)` in the level in place: `stack`
+    /// as an item entity at a random point of the block at `pos`, as a broken
+    /// block's drops come (none while `doTileDrops` is off). API 166.
+    pub(super) fn native_pop_resource(&mut self, pos: [i32; 3], stack: ItemStack) {
+        if stack.count > 0 {
+            self.pop_resource(pos, stack);
+        }
     }
     /// Whether the player left mod `mod_id` on in Options > Mods. A mod
     /// turned off does nothing (check this first in each hook) until the

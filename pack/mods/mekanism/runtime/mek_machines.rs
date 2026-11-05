@@ -1138,7 +1138,12 @@ pub(super) fn eject_items(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBl
         let Some(stack) = stack_in(entity, slot).cloned() else {
             return;
         };
-        let rest = game.native_insert_item(mek_world::beside(pos, face), mek_world::engine_face(face.opposite()), stack);
+        // A logistical transporter takes it on a path (its `CursedTransporterItemHandler`), any other block as a hopper's target.
+        let at = mek_world::beside(pos, face);
+        let rest = match super::mek_transporters::insert_from(game, at, pos, stack.clone()) {
+            Some(rest) => Some(rest),
+            None => game.native_insert_item(at, mek_world::engine_face(face.opposite()), stack),
+        };
         if let Some(cell) = entity.items.get_mut(slot) {
             *cell = rest.filter(|r| r.count > 0);
         }

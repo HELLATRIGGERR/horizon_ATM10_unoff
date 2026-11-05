@@ -65,4 +65,51 @@ tables built once on first use: AE2's own rows (`Defs::ae2`), then each built-in
 `ae2-cell-core::Tier` is a size in kilobytes, so a cell of any power-of-four tier up to 256M works
 with the verified byte maths. The game reaches an addon's behaviour through `game/ae2x/mod.rs` alone (its tick, grid node, block
 state, menus, screen, item uses, part models and `/ae2` commands). One exception: a variant's screen is a layout of AE2's
-own screen code, so `game/ae2_screens.rs` takes the addon's layouts as a child module (`addon_layout`). Next table, as its addons need it: key types.
+own screen code, so `game/ae2_screens.rs` takes the addon's layouts as a child module (`addon_layout`).
+
+## Key types
+
+AE2's `AEKeyType` registry (`ae2:keytypes`): what a stack's key is, beside its identity. AE2 registers
+items (`ae2:i`, raw id 0) and fluids (`ae2:f`, raw id 1) first, as `AppEngBase.registerKeyTypes` does; an
+addon registers its own after them, once, before its content is used (Applied Flux's `appflux:flux`,
+Applied Mekanistics' chemicals). A key stays an `ItemKey` (id and canonical component bytes); its
+`KeyType` travels beside it wherever AE2's `AEKey.getType()` would be asked: `GenericStack.key_type`,
+`CellConfig.key_type`, the cell definitions' `key_type`, a cell's stored keys of other types, the crafting
+CPU's byte scale, a bus state's channel, the selections of an import bus and a wireless terminal.
+
+| Piece | Where | AE2 |
+|---|---|---|
+| Id, description, amounts, unit, fuzzy ranges | `ae2_cell_core::KeyTypeDef`, `keys::register` | `AEKeyType` (`getId`, `getDescription`, `getAmountPerOperation`, `getAmountPerByte`, `getAmountPerUnit`, `getUnitSymbol`, `supportsFuzzyRangeSearch`), `AEKeyTypes.register` |
+| Amount text | `KeyType::format_amount` (`AmountFormat::Full`, `Slot`, `SlotLargeFont`) | `AEKeyType.formatAmount`, `ReadableNumberConverter` |
+| Sets of types | `KeyTypeSet` | `KeyTypeSelection`, `ae2:enabled_key_types` |
+| A key with its type | `TypedKey` | `AEKey` |
+| Saved form of a key | `horizon_client::ae2_key_types::KeyCodec` (`id_components_*` for a key of an id and components) | `AEKeyType.codec()` |
+| Icon in item slots | `KeyBehaviour.icon` | `AEKeyRendering.register` |
+| Ids the game knows | `KeyBehaviour.known` (an unknown one loads as Missing Content) | the registry lookup of `AEKey.MAP_CODEC` |
+| Items that hold the type | `KeyBehaviour.container`: `ContainerStrategy` (contained, fill, drain) | `ContainerItemStrategies.register` |
+| Import, export, storage bus, formation | the game's `ae2_key_strategies::register` (`ImportStrategy`, `ExportStrategy`, `ExternalStorageStrategy`, `PlacementStrategy`) | `StackWorldBehaviors.register*Strategy` |
+
+`horizon_client::ae2_key_types::register(def, behaviour)` registers both halves; registering the same
+definition again returns the same type, another definition under a taken id is refused. The raw id is
+the order of registration and never saved: saves name a type by its id (`#t` in a `GenericStack`, AE2's
+`enabledKeyTypes` of an import bus, `ae2:enabled_key_types` of a wireless terminal), so a world saved with
+an addon's type and loaded without it keeps the stack as Missing Content that saves back unchanged. A bus
+state's JSON keeps `"Item"` and `"Fluid"` for AE2's two.
+
+What reaches a key of an addon's type, and what doesn't yet:
+
+- **Storage**: a basic cell of the type (a `CellDef` with its `key_type`) holds it with the type's bytes,
+  in AE2's form only (`ae2:storage_cell_inv`); drives, the ME Chest, cell docks, the IO Port and portable
+  cells read and write it (`ae2_cell_codec::read_any_cell_checked`, `write_any_cell`). The grid's storage of
+  the type is its cells' (`game/ae2_key_storage.rs`: `ae2_grid_keys_encoded`, `ae2_grid_key_move`), paid in
+  AE per `getAmountPerOperation`; creative and fixed cells may name its keys.
+- **Terminals**: the ME and wireless terminals list every type (`horizon:key/<type id>|<id>` stands for an
+  addon type's key in the listing), sort it in its units, show it with its icon and amount, and filter it
+  with the key-type buttons, which list every registered type.
+- **Buses**: an import bus selects among the types with an import strategy; import and export buses move
+  an addon type's keys through its `ImportStrategy` / `ExportStrategy`.
+- **Not yet**: storage buses and formation planes mount items and fluids only (their strategy slots are
+  registered but not read); patterns, the crafting CPU's escrow and the Pattern Provider's queue hold items
+  and fluids only; the terminal's fill and drain gestures use the bucket strategy of fluids, not an addon
+  type's `ContainerStrategy`; the native workbench keeps an addon type's filter in AE2's `GenericStack` form
+  (`stack`).

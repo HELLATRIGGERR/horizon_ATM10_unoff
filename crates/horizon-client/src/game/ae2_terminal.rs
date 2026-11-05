@@ -8197,6 +8197,38 @@ mod terminal_filter_tests {
         let result=terminal_filter_entries(&mixed,&[],2,false,0,"",&display,&matches);
         assert_eq!(result,vec![(key("ae2:alpha"),1),(key("ae2:zeta"),1),(key("minecraft:apple"),1)]);
     }
+    /// A third key type, registered from this test as an addon registers
+    /// its own, is listed beside items and fluids: its own marker, its units
+    /// for the amount order, its filter and its label.
+    #[test]
+    fn a_third_key_type_is_listed_beside_items_and_fluids() {
+        use horizon_client::ae2_key_types::{self as types, KeyBehaviour, KeyCodec, KeyTypeDef};
+        let def=KeyTypeDef{amount_per_operation:50,amount_per_byte:1000,amount_per_unit:100,unit_symbol:Some("Sp"),
+            ..KeyTypeDef::new("keytypes_test:spark","gui.keytypes_test.sparks")};
+        let spark=types::register(def,KeyBehaviour{codec:KeyCodec{decode:types::id_components_decode,encode:types::id_components_encode},
+            icon:|_|ItemStack::new("minecraft:glowstone_dust",1),known:None,container:None}).unwrap();
+        let plain=|id:&str|ae2_cell_core::ItemKey{item_id:id.into(),components:vec![]};
+        let stone=(key_marker(KeyType::ITEMS,&plain("minecraft:stone")),2);
+        let water=(key_marker(KeyType::FLUIDS,&plain("minecraft:water")),1500);
+        let red=(key_marker(spark,&plain("keytypes_test:red")),1250);
+        assert_eq!(water.0,fluid_marker(&plain("minecraft:water")),"fluids keep their marker");
+        assert_eq!(marker_key(&red.0),TypedKey::new(spark,plain("keytypes_test:red")));
+        assert_eq!(marker_key(&stone.0),TypedKey::item(plain("minecraft:stone")));
+        assert!(is_item_marker(&stone.0) && !is_item_marker(&water.0) && !is_item_marker(&red.0));
+        let all=vec![stone.clone(),water.clone(),red.clone()];
+        // The key-type buttons: each type alone, or several.
+        assert_eq!(terminal_key_types(&all,KeyTypeSet::of(&[spark])),vec![red.clone()]);
+        assert_eq!(terminal_key_types(&all,KeyTypeSet::of(&[KeyType::ITEMS,spark])),vec![stone.clone(),red.clone()]);
+        assert_eq!(terminal_key_types(&all,KeyTypeSet::all()),all);
+        // Repo's AMOUNT order compares units: 1.5 buckets, 2 items, 12.5 sparks.
+        let sorted=terminal_filter_entries(&all,&[],1,false,0,"",&|key|key.item_id.clone(),&|_,_|true);
+        assert_eq!(sorted,vec![water.clone(),stone.clone(),red.clone()]);
+        // The label of the visible types names a third type by its description.
+        let label=key_types_label(KeyTypeSet::of(&[KeyType::ITEMS,spark]),&|kind|if kind==spark {"Sparks".into()} else {"Items".into()});
+        assert_eq!(label,"Items, Sparks");
+        assert_eq!(key_types_label(KeyTypeSet::of(&[KeyType::ITEMS,KeyType::FLUIDS]),&|_|String::new()),"Items and fluids");
+        assert_eq!(spark.format_amount(red.1,ae2_cell_core::AmountFormat::Full),"12.5 Sp");
+    }
     #[test]
     fn wireless_type_filter_keeps_item_and_fluid_keys_distinct() {
         let item=ae2_cell_core::ItemKey{item_id:"minecraft:oak_log".into(),components:vec![]};

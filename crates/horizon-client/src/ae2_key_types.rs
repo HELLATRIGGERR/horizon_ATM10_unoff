@@ -232,6 +232,119 @@ pub fn known_id(kind: KeyType, id: &str, items: impl Fn(&str) -> bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ae2_generic_stack::{self as generic, GenericStack};
+    use ae2_cell_core::{Action, Cell, CellConfig, Tier};
+
+    /// A third key type only these tests register, as an addon would: its own
+    /// amounts, unit and icon. Registering it again is the same type.
+    fn spark() -> KeyType {
+        let def = KeyTypeDef {
+            amount_per_operation: 50,
+            amount_per_byte: 1000,
+            amount_per_unit: 100,
+            unit_symbol: Some("Sp"),
+            ..KeyTypeDef::new("keytypes_test:spark", "gui.keytypes_test.sparks")
+        };
+        let behaviour = KeyBehaviour {
+            codec: KeyCodec { decode: id_components_decode, encode: id_components_encode },
+            icon: |_| ItemStack::new("minecraft:glowstone_dust", 1),
+            known: Some(|id| id.starts_with("keytypes_test:")),
+            container: None,
+        };
+        register(def, behaviour).unwrap()
+    }
+    fn spark_key(name: &str) -> ItemKey {
+        ItemKey { item_id: format!("keytypes_test:{name}"), components: Vec::new() }
+    }
+    /// An item through its whole saved path: NBT, network bytes and back.
+    fn saved(stack: &ItemStack) -> ItemStack {
+        let bytes = nbt::write_network(&save::item_to_nbt(stack), Limits::default()).unwrap();
+        save::item_from_nbt(&nbt::read_network(&bytes, Limits::default()).unwrap().0).unwrap()
+    }
+
+    #[test]
+    fn an_addon_key_type_flows_through_a_cell_and_its_saved_form() {
+        let kind = spark();
+        assert_eq!(spark(), kind, "registered once");
+        assert!(KeyType::all().contains(&kind) && kind.raw_id() >= 2);
+        assert_eq!((behaviour(kind).icon)(&spark_key("red")).item.as_ref(), "minecraft:glowstone_dust");
+        // A 1K cell of the type: 1,024 bytes, 8 a type, 1,000 sparks a byte.
+        let mut cell = Cell::new(CellConfig::basic(Tier::K1, kind, 7));
+        let red = spark_key("red");
+        assert_eq!(cell.insert(&red, 2_000_000, Action::Simulate), 1_016_000);
+        assert_eq!(cell.insert(&red, 1_500, Action::Modulate), 1_500);
+        assert_eq!(cell.used_bytes(), 8 + 2, "1,500 sparks take two bytes");
+        assert_eq!(cell.extract(&red, 400, Action::Modulate), 400);
+        assert_eq!(cell.count(&red), 1_100);
+        // AE2's form names the type in `#t`, and a stored item of another
+        // type stays extractable beside it.
+        let stone = crate::ae2_cell_codec::key(&ItemStack::new("minecraft:stone", 1)).unwrap();
+        let mut source = crate::ae2_cell_codec::cell_source(&cell).unwrap();
+        source.push(generic::encode(&GenericStack::item(stone.clone(), 3)).unwrap());
+        assert_eq!(source[0], Tag::compound([("#t", Tag::String("keytypes_test:spark".into())), ("id", Tag::String("keytypes_test:red".into())), ("#", Tag::Long(1_100))]));
+        let mut holder = ItemStack::new("ae2:item_storage_cell_1k", 1);
+        holder.data_mut().set_other("ae2:storage_cell_inv", Some(Tag::List(source.clone())));
+        let restored = saved(&holder);
+        let list = restored.data().unwrap().other("ae2:storage_cell_inv").unwrap().clone();
+        let known = |id: &str, kind: KeyType| known_id(kind, id, |_| true);
+        let mut cell = crate::ae2_cell_codec::cell_from_source(CellConfig::basic(Tier::K1, kind, 7), &list, &known).unwrap();
+        assert_eq!(cell.count(&red), 1_100);
+        assert_eq!(cell.other_entries().collect::<Vec<_>>(), vec![(KeyType::ITEMS, &stone, &3)]);
+        assert_eq!(cell.extract_of(KeyType::ITEMS, &stone, 3, Action::Modulate), 3);
+        assert_eq!(cell.insert(&stone, 1, Action::Simulate), 1, "the same key bytes, but this type's");
+        // A wrapped stack of the type, as menus carry it.
+        let wrapped = generic::wrap(&GenericStack { key: red.clone(), key_type: kind, amount: 250 }).unwrap();
+        let unwrapped = generic::unwrap_item_stack(&saved(&wrapped)).unwrap().unwrap();
+        assert_eq!((unwrapped.key_type, unwrapped.key, unwrapped.amount), (kind, red.clone(), 250));
+        // Its amounts in its units.
+        assert_eq!(kind.format_amount(1_250, AmountFormat::Full), "12.5 Sp");
+        assert_eq!(kind.format_amount(1_250, AmountFormat::Slot), "12.5");
+        // Its own `known`: an id it does not know is Missing Content.
+        let foreign = Tag::compound([("#t", Tag::String("keytypes_test:spark".into())), ("id", Tag::String("other:thing".into())), ("#", Tag::Long(9))]);
+        let missing = generic::decode_tolerant_checked(&foreign, known).unwrap().unwrap();
+        assert_eq!((missing.key_type, missing.key.item_id.as_str()), (KeyType::ITEMS, "ae2:missing_content"));
+        assert_eq!(generic::encode(&missing).unwrap(), foreign, "saved back as it was");
+        // Its marker, where the port names a key by an id.
+        let marker = addon_marker(kind, &red);
+        assert_eq!(parse_addon_marker(&marker), Some(TypedKey::new(kind, red)));
+        assert_eq!(parse_addon_marker(&spark_key("plain")), None);
+    }
+
+    #[test]
+    fn saved_key_types_round_trip_and_an_unknown_one_is_kept_byte_for_byte() {
+        let water = crate::ae2_cell_codec::fluid_key("minecraft:water");
+        let stone = crate::ae2_cell_codec::key(&ItemStack::new("minecraft:stone", 1)).unwrap();
+        let red = spark_key("red");
+        let stacks = [GenericStack::item(stone.clone(), 64), GenericStack::fluid(water.clone(), 1_500), GenericStack { key: red, key_type: spark(), amount: 7 }];
+        for stack in &stacks {
+            let tag = generic::encode(stack).unwrap();
+            assert_eq!(tag.get("#t"), Some(&Tag::String(stack.key_type.id().into())));
+            let bytes = nbt::write_network(&tag, Limits::default()).unwrap();
+            let back = generic::decode(&nbt::read_network(&bytes, Limits::default()).unwrap().0).unwrap().unwrap();
+            assert_eq!(&back, stack);
+            assert_eq!(generic::encode(&back).unwrap(), tag);
+        }
+        // A world saved with an addon's type, loaded without the addon: the
+        // stack is Missing Content that saves back unchanged (AE2's codec).
+        let gone = Tag::compound([("#t", Tag::String("removed:energy".into())), ("id", Tag::String("removed:fe".into())), ("#", Tag::Long(12))]);
+        let missing = generic::decode_tolerant(&gone).unwrap().unwrap();
+        assert_eq!((missing.key_type, missing.key.item_id.as_str(), missing.amount), (KeyType::ITEMS, "ae2:missing_content", 12));
+        assert_eq!(generic::encode(&missing).unwrap(), gone);
+        // In a cell, beside an item and a fluid, through the item's own save.
+        let mut cell = ItemStack::new("ae2:item_storage_cell_1k", 1);
+        let source: Vec<Tag> = [generic::encode(&stacks[0]).unwrap(), generic::encode(&stacks[1]).unwrap(), gone.clone()].into();
+        cell.data_mut().set_other("ae2:storage_cell_inv", Some(Tag::List(source.clone())));
+        let mut contents = crate::ae2_cell_codec::read_cell(&saved(&cell)).unwrap();
+        assert_eq!(contents.count(&stone), 64);
+        assert_eq!(contents.other_count(KeyType::FLUIDS, &water), 1_500);
+        assert_eq!(contents.insert(&stone, 1, Action::Modulate), 1);
+        crate::ae2_cell_codec::write_cell(&mut cell, &contents).unwrap();
+        let Some(Tag::List(entries)) = saved(&cell).data().and_then(|data| data.other("ae2:storage_cell_inv")).cloned() else { panic!("no cell inventory") };
+        assert!(entries.iter().any(|entry| entry.get("id") == Some(&Tag::String("minecraft:stone".into())) && entry.get("#") == Some(&Tag::Long(65))));
+        assert!(entries.contains(&source[1]), "the fluid stays as saved");
+        assert!(entries.contains(&gone), "the unknown type's stack stays as saved");
+    }
+
     #[test]
     fn built_in_behaviour_is_items_and_buckets() {
         let water = crate::ae2_cell_codec::fluid_key("minecraft:water");

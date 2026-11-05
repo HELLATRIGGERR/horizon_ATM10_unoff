@@ -54,6 +54,15 @@ pub enum MachineKind {
     /// `mekanism:chemical_infuser`, `mekanism:chemical_infusing` recipes
     /// (`TileEntityChemicalInfuser`: two chemicals in, one out, operations a tick).
     ChemicalInfuser,
+    /// `mekanism:chemical_dissolution_chamber`, `mekanism:dissolution` recipes
+    /// (an item and a chemical a tick in, a chemical out; `crate::ore`).
+    ChemicalDissolutionChamber,
+    /// `mekanism:chemical_washer`, `mekanism:washing` recipes (a fluid and a
+    /// chemical in, a chemical out, operations a tick; `crate::ore`).
+    ChemicalWasher,
+    /// `mekanism:chemical_crystallizer`, `mekanism:crystallizing` recipes (a
+    /// chemical in, an item out; `crate::ore`).
+    ChemicalCrystallizer,
     /// `mekanism:combiner`, `mekanism:combining` recipes (`TileEntityCombiner`:
     /// a main and an extra item in, an item out; `crate::factory`).
     Combiner,
@@ -82,7 +91,7 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 15] = [
         Self::EnrichmentChamber,
         Self::Crusher,
         Self::EnergizedSmelter,
@@ -93,6 +102,9 @@ impl MachineKind {
         Self::ChemicalInjectionChamber,
         Self::ChemicalOxidizer,
         Self::ChemicalInfuser,
+        Self::ChemicalDissolutionChamber,
+        Self::ChemicalWasher,
+        Self::ChemicalCrystallizer,
         Self::Combiner,
         Self::PrecisionSawmill,
     ];
@@ -109,6 +121,9 @@ impl MachineKind {
             Self::ChemicalInjectionChamber => "mekanism:chemical_injection_chamber",
             Self::ChemicalOxidizer => "mekanism:chemical_oxidizer",
             Self::ChemicalInfuser => "mekanism:chemical_infuser",
+            Self::ChemicalDissolutionChamber => "mekanism:chemical_dissolution_chamber",
+            Self::ChemicalWasher => "mekanism:chemical_washer",
+            Self::ChemicalCrystallizer => "mekanism:chemical_crystallizer",
             Self::Combiner => "mekanism:combiner",
             Self::PrecisionSawmill => "mekanism:precision_sawmill",
         }
@@ -131,6 +146,9 @@ impl MachineKind {
             Self::ChemicalInjectionChamber => "chemicalInjectionChamber",
             Self::ChemicalOxidizer => "chemicalOxidizer",
             Self::ChemicalInfuser => "chemicalInfuser",
+            Self::ChemicalDissolutionChamber => "chemicalDissolutionChamber",
+            Self::ChemicalWasher => "chemicalWasher",
+            Self::ChemicalCrystallizer => "chemicalCrystallizer",
             Self::Combiner => "combiner",
             Self::PrecisionSawmill => "precisionSawmill",
         }
@@ -149,6 +167,9 @@ impl MachineKind {
             Self::ChemicalInjectionChamber => "mekanism:injecting",
             Self::ChemicalOxidizer => "mekanism:oxidizing",
             Self::ChemicalInfuser => "mekanism:chemical_infusing",
+            Self::ChemicalDissolutionChamber => "mekanism:dissolution",
+            Self::ChemicalWasher => "mekanism:washing",
+            Self::ChemicalCrystallizer => "mekanism:crystallizing",
             Self::Combiner => "mekanism:combining",
             Self::PrecisionSawmill => "mekanism:sawing",
         }
@@ -158,9 +179,9 @@ impl MachineKind {
     /// hydrogen's fuel instead: `crate::separator::energy_per_tick`).
     pub fn default_usage(self) -> u64 {
         match self {
-            Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber => 400,
+            Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 400,
             Self::OsmiumCompressor => 100,
-            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser => 200,
+            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher => 200,
             _ => 50,
         }
     }
@@ -168,8 +189,8 @@ impl MachineKind {
     /// `StorageConfig`'s default Joules held.
     pub fn default_storage(self) -> u64 {
         match self {
-            Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber => 160_000,
-            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser => 80_000,
+            Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 160_000,
+            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher => 80_000,
             Self::Combiner => 40_000,
             _ => 20_000,
         }
@@ -181,7 +202,7 @@ impl MachineKind {
 
     /// A machine of `TileEntityProgressMachine`, whose recipes take ticks.
     pub fn progresses(self) -> bool {
-        !self.separates() && !self.infuses_chemicals()
+        !self.separates() && !self.infuses_chemicals() && !self.washes()
     }
 
     /// The advanced machines (`TileEntityAdvancedElectricMachine`, `crate::advanced`):
@@ -194,7 +215,25 @@ impl MachineKind {
     /// (`DEFAULT_ADVANCED_MACHINE_UPGRADES`) and draw their chemical at random
     /// (`useStatisticalMechanics`, with `randomizedConsumption`).
     pub fn takes_chemical_upgrades(self) -> bool {
-        matches!(self, Self::PurificationChamber | Self::ChemicalInjectionChamber)
+        matches!(self, Self::PurificationChamber | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber)
+    }
+
+    pub fn dissolves(self) -> bool {
+        self == Self::ChemicalDissolutionChamber
+    }
+
+    pub fn washes(self) -> bool {
+        self == Self::ChemicalWasher
+    }
+
+    pub fn crystallizes(self) -> bool {
+        self == Self::ChemicalCrystallizer
+    }
+
+    /// The machines of slice 5 (`crate::ore`), whose ticks are the runtime's
+    /// `mek_ore_machines`.
+    pub fn ore_chain(self) -> bool {
+        self.dissolves() || self.washes() || self.crystallizes()
     }
 
     pub fn oxidizes(self) -> bool {
@@ -214,7 +253,10 @@ impl MachineKind {
     /// the oxidizer's and the chemical infuser's; the metallurgic infuser's
     /// and the advanced machines' never.
     pub fn chemicals_eject(self) -> bool {
-        matches!(self, Self::ElectrolyticSeparator | Self::ChemicalOxidizer | Self::ChemicalInfuser)
+        matches!(
+            self,
+            Self::ElectrolyticSeparator | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalDissolutionChamber | Self::ChemicalWasher
+        )
     }
 
     pub fn infuses(self) -> bool {
@@ -231,17 +273,22 @@ impl MachineKind {
     /// infuser's infusion slot, the combiner's extra input, an advanced
     /// machine's chemical slot.
     pub fn has_extra_slot(self) -> bool {
-        matches!(self, Self::MetallurgicInfuser | Self::Combiner) || self.advanced()
+        matches!(self, Self::MetallurgicInfuser | Self::Combiner | Self::ChemicalDissolutionChamber) || self.advanced()
     }
 
     /// Whether its block shows `active` (`AttributeStateActive`): the
     /// infuser's and the separator's models have no such state.
     pub fn shows_active(self) -> bool {
-        !self.infuses() && !self.separates() && !self.oxidizes() && !self.infuses_chemicals()
+        !self.infuses() && !self.separates() && !self.oxidizes() && !self.infuses_chemicals() && !self.ore_chain()
     }
 
     pub fn slots(self) -> Slots {
-        if self.infuses() {
+        if self.washes() {
+            // Its fluid slot, the fluid slot's output, the slurry output's drain
+            // slot and energy (`TileEntityChemicalWasher.getInitialInventory`).
+            return Slots { infusion: None, input: 0, output: 2, output2: Some(1), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 };
+        }
+        if self.infuses() || self.dissolves() {
             Slots { infusion: Some(0), input: 1, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
         } else if self.separates() || self == Self::PrecisionSawmill {
             Slots { infusion: None, input: 0, output: 1, output2: Some(2), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
@@ -289,6 +336,10 @@ impl MachineKind {
             // `setupOutputConfig(CHEMICAL, tank, RIGHT)`.
             Self::ChemicalOxidizer => matches!(data, DataType::None | DataType::Output),
             Self::ChemicalInfuser => matches!(data, DataType::None | DataType::Input1 | DataType::Input2 | DataType::Output | DataType::InputOutput),
+            // `setupIOConfig(CHEMICAL, input, output, RIGHT)`.
+            Self::ChemicalDissolutionChamber | Self::ChemicalWasher => chemical_supports(data),
+            // `setupInputConfig(CHEMICAL, inputTank)`.
+            Self::ChemicalCrystallizer => matches!(data, DataType::None | DataType::Input),
             _ => false,
         }
     }
@@ -349,13 +400,19 @@ impl MachineKind {
                 RelativeSide::Front => DataType::Output,
                 _ => DataType::None,
             })),
+            // `DISSOLUTION`'s and `WASHER`'s `OUT_EJECT`: right output, the rest input, ejecting.
+            Self::ChemicalDissolutionChamber | Self::ChemicalWasher => {
+                Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input }))
+            }
+            // `CRYSTALLIZER`'s `INPUT_ONLY`.
+            Self::ChemicalCrystallizer => Some([DataType::Input; 6]),
             _ => None,
         }
     }
 
-    /// Its fluid config: the separator's `INPUT_ONLY`.
+    /// Its fluid config: the separator's and the washer's `INPUT_ONLY`.
     pub fn default_fluids(self) -> Option<[DataType; 6]> {
-        self.separates().then_some([DataType::Input; 6])
+        (self.separates() || self.washes()).then_some([DataType::Input; 6])
     }
 }
 

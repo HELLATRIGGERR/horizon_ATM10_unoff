@@ -71,6 +71,11 @@ assets when `mekanism-content` is given them.
   filled from chemical items and conversions in their chemical slot) into an item in 200 ticks, the chemical taken
   every tick: the compressor's 200 mB an operation spread over its ticks, the chambers' drawn at random
   (`randomizedConsumption`), more with speed upgrades and less with chemical upgrades.
+- The ore chain: the Chemical Dissolution Chamber (an ore and sulfuric acid drawn at random every tick into 1000 mB
+  of a dirty slurry in 100 ticks of 400 J), the Chemical Washer (`2^speed` operations a tick of water and a dirty
+  slurry into the clean one, its water from fluid handlers and buckets) and the Chemical Crystallizer (200 mB of a
+  clean slurry into a crystal in 200 ticks), on ATM10's recipes: All the Ores' slurries, clumps and crystals, its
+  slurries declared in a content mod of its carry. Each ejects its output tank out of its right.
 - Basic, Advanced, Elite, Ultimate and Creative Chemical Tanks (`tiers.toml` `[chemical_tanks]`): a chemical in the
   block entity, ejected at the tier's output a tick out of the output sides, dump modes, side configuration (chemicals
   and items), the drain and fill slots that move chemicals to and from tank items, the screen, placement facing, and
@@ -201,7 +206,7 @@ assets when `mekanism-content` is given them.
   items (batteries, Forge Energy items) don't charge machines yet.
 - The infuser's infusion bar and the separator's gauges are the chemical's colour, where Mekanism tints its texture;
   chemical items other than the Chemical Tanks aren't ported. Per-tick infusing (`per_tick_usage`), which ATM10's
-  recipes don't use, isn't ported. The separator's fluid sides stay at their default (every side input);
+  recipes don't use, isn't ported. The separator's and the washer's fluid sides stay at their defaults;
   `docs/mekanism-chemicals.md` lists the chemicals' own differences (tank slots, tube networks joining).
 - A tag-based recipe takes what the tag holds in the world: with only Mekanism's content mods, the pack's `c:` and
   `minecraft:` tags (in ATM10's `atm10-pack` carry) hold just Mekanism's own items, which `mekanism-content --pack`

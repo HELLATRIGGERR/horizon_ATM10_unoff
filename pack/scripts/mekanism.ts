@@ -15,6 +15,9 @@
 //                                                    `atm10-pack` beside MEK_CARRY, if there is one
 //   MEK_CHEMICALS    the NeoForge oracle's chemical facts (`facts.json` of its chemicals-only run,
 //                    docs/mekanism-chemicals.md), declared into the content mods; none: no chemicals
+//   MEK_ATO_CARRY    All the Ores' carry, whose slurries the ore chain meets  `alltheores` beside MEK_CARRY
+//   MEK_ATO_CONTENT_DIR  its content mod with its chemicals declared (only with MEK_CHEMICALS)
+//                                                    <base>/.build/content/alltheores
 //   MEK_STAGE        the staged, modded source       <base>/stage-mek
 //   MEK_TARGET       the staged game's target dir    <base>/.build/target-mek-game
 //   MEK_TOOL_TARGET  target dir of the pack's crates <base>/.build/target-mek
@@ -34,6 +37,8 @@ const carry = env('MEK_CARRY', join(base, 'ports/atm10/mods/mekanism/carry'));
 const content = env('MEK_CONTENT_DIR', join(base, '.build/content/mekanism'));
 const genCarry = env('MEKGEN_CARRY', join(base, 'ports/atm10/mods/mekanismgenerators/carry'));
 const genContent = env('MEKGEN_CONTENT_DIR', join(base, '.build/content/mekanismgenerators'));
+const atoCarry = env('MEK_ATO_CARRY', join(dirname(carry), 'alltheores'));
+const atoContent = env('MEK_ATO_CONTENT_DIR', join(base, '.build/content/alltheores'));
 const stage = env('MEK_STAGE', join(base, 'stage-mek'));
 const target = env('MEK_TARGET', join(base, '.build/target-mek-game'));
 const toolTarget = env('MEK_TOOL_TARGET', join(base, '.build/target-mek'));
@@ -89,7 +94,10 @@ const steps: Record<string, () => Promise<void>> = {
     const pack = env('MEK_PACK', join(dirname(carry), 'atm10-pack'));
     const packArgs = existsSync(join(pack, 'data')) ? ['--pack', pack] : [];
     const chemicals = process.env.MEK_CHEMICALS ? ['--chemicals', resolve(process.env.MEK_CHEMICALS)] : [];
-    for (const [from, to] of [[carry, content], [genCarry, genContent]]) {
+    const mods = [[carry, content], [genCarry, genContent]];
+    // All the Ores' slurries (the ore chain's) are declared in a content mod of its carry.
+    if (chemicals.length && existsSync(join(atoCarry, 'horizon-mod.toml'))) mods.push([atoCarry, atoContent]);
+    for (const [from, to] of mods) {
       await run(['cargo', 'run', '--offline', '-q', '-j', jobs, '--manifest-path', join(bundle, 'mekanism-content/Cargo.toml'), '--target-dir', toolTarget,
         '--', '--carry', from, '--overlay', join(bundle, 'content'), '--out', to, '--vanilla', vanilla, ...packArgs, ...chemicals]);
     }
@@ -117,7 +125,7 @@ const steps: Record<string, () => Promise<void>> = {
     const binary = join(target, `fast/horizon-client${exe}`);
     if (!existsSync(binary)) throw new Error(`No staged build at ${binary}; run the build step.`);
     const harness = {
-      ...process.env, AE2_TEST_BINARY: binary, MEK_CONTENT_DIR: content, MEKGEN_CONTENT_DIR: genContent,
+      ...process.env, AE2_TEST_BINARY: binary, MEK_CONTENT_DIR: content, MEKGEN_CONTENT_DIR: genContent, MEK_ATO_CONTENT_DIR: atoContent,
       AE2_RESOURCES: process.env.AE2_RESOURCES ?? prepared('.local/resources/26.3'),
       AE2_CONTENT_DIR: process.env.AE2_CONTENT_DIR ?? prepared('content/ae2'),
       AE2_TEST_STARTUP_MS: process.env.AE2_TEST_STARTUP_MS ?? '600000',

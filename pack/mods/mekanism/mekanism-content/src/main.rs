@@ -59,6 +59,9 @@
 //!   validation, solid tag, attributes in Mekanism's data map names, tags), and
 //!   its icon is copied where the game's GUI atlas takes it
 //!   (`textures/gui/chemical/<icon namespace>/<icon path>.png`) for gauges.
+//!   Another mod's carry with chemicals of its own (All the Ores' slurries),
+//!   which the overlay has nothing for, becomes a content mod of that carry
+//!   with its chemicals declared the same way.
 //!
 //! The output is generated, never committed: Mekanism's files stay local.
 //! It may only replace a folder this tool made (`mekanism-content.json`).
@@ -135,7 +138,9 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
         return Err(format!("{} is not a carried content mod", carry.display()));
     }
     let id = mod_id(carry)?;
-    if !overlay.join("data").join(&id).is_dir() {
+    // Another mod's carry (All the Ores') has no overlay of its own: it is
+    // copied with the chemicals of its namespace declared.
+    if !overlay.join("data").join(&id).is_dir() && chemicals.is_none() {
         return Err(format!("{} has no data/{id}/", overlay.display()));
     }
     prepare(out)?;
@@ -949,6 +954,29 @@ mod tests {
         let decl = chemical_declaration(&slurry).unwrap();
         assert_eq!((decl["kind"].as_str(), decl["color"].as_str(), decl["solid_tag"].as_str()), (Some("slurry"), Some("0x00000007"), Some("c:ores/iron")));
         assert_eq!(decl["attributes"]["cooled_coolant"]["heated"], "mekanism:superheated_sodium");
+    }
+
+    #[test]
+    fn another_carry_gets_its_own_chemicals_declared() {
+        // All the Ores' carry: no overlay of its own, its slurries from the oracle's facts.
+        let dir = std::env::temp_dir().join(format!("mekanism-content-ato-{}", std::process::id()));
+        let (carry, overlay, out) = (dir.join("alltheores"), dir.join("overlay"), dir.join("out"));
+        fs::create_dir_all(carry.join("data/alltheores/recipe")).unwrap();
+        fs::create_dir_all(overlay.join("data/mekanism")).unwrap();
+        fs::write(carry.join("horizon-mod.toml"), "id = \"alltheores\"
+name = \"x\"
+").unwrap();
+        let slurry = json!({"texture": "mekanism:slurry/dirty", "tint": 5, "color": 5, "gaseous": false, "validated": false,
+            "solid_tag": "c:ores/aluminum", "attributes": [], "tags": []});
+        let facts = dir.join("facts.json");
+        write_json(&facts, &json!({"chemicals": {"alltheores:dirty_aluminum": slurry, "mekanism:hydrogen": slurry}})).unwrap();
+        assert!(build(&carry, &overlay, &out, None, None, None).is_err(), "without chemicals it needs an overlay");
+        let report = build(&carry, &overlay, &out, None, None, Some(&facts)).unwrap();
+        assert_eq!((report["id"].as_str(), report["chemicals"].as_u64()), (Some("alltheores"), Some(1)));
+        let decl = read_json(&out.join("data/alltheores/mekanism/chemical/dirty_aluminum.json")).unwrap();
+        assert_eq!((decl["kind"].as_str(), decl["solid_tag"].as_str()), (Some("slurry"), Some("c:ores/aluminum")));
+        assert!(!out.join("data/mekanism").exists(), "only its own namespace");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

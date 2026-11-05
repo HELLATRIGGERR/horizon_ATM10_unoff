@@ -703,7 +703,9 @@ const DUMP: Rect = [16.0, 59.0, 21.0, 10.0];
 /// `GuiVerticalPowerBar` of each: the electric machines' at y 16, the infuser's
 /// and the separator's at 15.
 fn machine_power_bar(kind: MachineKind) -> Rect {
-    if kind.oxidizes() || kind.infuses_chemicals() {
+    if kind.ore_chain() {
+        super::mek_ore_machines::power_bar(kind)
+    } else if kind.oxidizes() || kind.infuses_chemicals() {
         super::mek_chem_machines::POWER_BAR
     } else if kind.infuses() || kind.separates() {
         [164.0, 15.0, 6.0, 54.0]
@@ -714,7 +716,7 @@ fn machine_power_bar(kind: MachineKind) -> Rect {
 /// `GuiProgress`: `BAR` at (86, 38), the infuser's `RIGHT` at (72, 47); the
 /// separator has none that fills (`BI`, drawn as its arrows).
 fn machine_progress(kind: MachineKind) -> Rect {
-    if kind.separates() || kind.infuses_chemicals() {
+    if kind.separates() || kind.infuses_chemicals() || kind.ore_chain() {
         [0.0, 0.0, 0.0, 0.0]
     } else if kind.oxidizes() {
         [64.0, 40.0, 48.0, 8.0]
@@ -742,7 +744,9 @@ const ADVANCED_BAR: Rect = [68.0, 36.0, 6.0, 12.0];
 /// Where Mekanism puts a machine's slots (the item's top left), then the
 /// upgrade component's two.
 fn machine_slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
-    let mut slots: Vec<Option<[f32; 2]>> = if kind.oxidizes() || kind.infuses_chemicals() {
+    let mut slots: Vec<Option<[f32; 2]>> = if kind.ore_chain() {
+        super::mek_ore_machines::slots(kind)
+    } else if kind.oxidizes() || kind.infuses_chemicals() {
         super::mek_chem_machines::slots(kind)
     } else if kind.advanced() {
         // `GuiAdvancedElectricMachine`: input, chemical, output, energy.
@@ -1015,6 +1019,12 @@ fn machine_tip(kind: MachineKind, data: &[i32], settings: &EnergyConfig, at: [f3
         return tip;
     }
     if page == 0
+        && kind.ore_chain()
+        && let Some(tip) = super::mek_ore_machines::tip(kind, view, data, at)
+    {
+        return tip;
+    }
+    if page == 0
         && kind.separates()
         && let Some(extra) = SeparatorView::unpack(data)
     {
@@ -1074,7 +1084,7 @@ fn gauge(pen: &mut Pen<'_, '_>, r: Rect, level: f64, rgb: u32, scale: &str) {
 }
 
 /// The fluid's colour in a gauge: water's, else its type's tint.
-fn fluid_color(fluid: u16) -> u32 {
+pub(super) fn fluid_color(fluid: u16) -> u32 {
     match FluidKind::from_id(u32::from(fluid)) {
         Some(FluidKind::Water) | Some(FluidKind::FlowingWater) | None => 0x3F76E4,
         Some(f) => horizon_world::mod_fluids::mod_fluids().iter().find(|m| m.id == f.name()).map_or(0x808080, |m| m.tint & 0xFF_FFFF),
@@ -1107,6 +1117,10 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     let page = PAGE.with(Cell::get);
     pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, 176.0, 166.0]);
     draw_tabs(pen, view, settings, 176.0);
+    if kind.washes() {
+        // `GuiSideHolder` of the washer's fluid slots, beside the panel.
+        pen.holder(super::mek_ore_machines::WASHER_HOLDER, false);
+    }
 
     // The slots: Mekanism's, coloured by what their side type is (`SlotType.get`).
     let s = kind.slots();
@@ -1127,9 +1141,12 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     if kind.oxidizes() || kind.infuses_chemicals() {
         super::mek_chem_machines::draw(pen, kind, view, data);
     }
+    if kind.ore_chain() {
+        super::mek_ore_machines::draw(pen, kind, view, data);
+    }
     // The power bar (`GuiVerticalPowerBar`): the energy from the bottom.
     let bar = machine_power_bar(kind);
-    let vertical = !kind.oxidizes() && !kind.infuses_chemicals();
+    let vertical = !kind.oxidizes() && !kind.infuses_chemicals() && !kind.ore_chain();
     if vertical {
         pen.nine("bar/base", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], bar);
     }
@@ -1145,7 +1162,7 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     let share = if view.required == 0 { 0.0 } else { (f64::from(view.progress) / f64::from(view.required)).min(1.0) };
     let [px, py, pw, ph] = progress;
     if !vertical {
-        // Drawn with their gauges (`mek_chem_machines::draw`).
+        // Drawn with their gauges (`mek_chem_machines::draw`, `mek_ore_machines::draw`).
     } else if kind.separates() {
         if let Some(extra) = SeparatorView::unpack(data) {
             draw_separator(pen, &extra);

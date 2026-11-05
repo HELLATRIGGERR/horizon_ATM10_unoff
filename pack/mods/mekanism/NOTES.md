@@ -91,10 +91,16 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   probe). World test `chemical-oxidizer-infuser`. The Osmium Compressor, Purification Chamber and Chemical Injection
   Chamber (`mekanism_energy::advanced`: the per-tick chemical use, constant or drawn at random; three more
   `MachineKind`s in `mek_machines`). World test `advanced-machines` (loads All the Ores' carry beside `MEK_CARRY`,
-  or `MEK_ATO_CARRY`, for the chambers' clumps and shards). Slice 5 of the doc keeps the ore chain (dissolution,
-  washer, crystallizer) and the Rotary Condensentrator.
-- Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
-  after AE2's key type registry, the rest of the pack's chemicals); S10 (the
+  or `MEK_ATO_CARRY`, for the chambers' clumps and shards).
+- Chemicals, slice 5 (branch `feat/mek-chemicals-5`, on machines 2, no new hook point): the Chemical Dissolution
+  Chamber, Chemical Washer and Chemical Crystallizer (`mekanism_energy::ore`), three `MachineKind`s run by
+  `runtime/mek_ore_machines.rs` on `mek_machines`' block entity, energy, config, chemical and fluid handlers (the
+  washer's fluid tank beside the separator's) and probe. All the Ores' slurries: the content step makes a content mod of its carry with them declared
+  (`mekanism-content` with `--chemicals` and no overlay of its own; `MEK_ATO_CONTENT_DIR`). Measured on the oracle
+  with Mekanism's own iron recipes (local `chem-work/m5/c1.py`). World tests `ore-chain` (All the Ores' aluminium:
+  needs `MEK_ATO_CONTENT_DIR`).
+- Next: chemicals slices 6-8 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
+  registry, the rest of the pack's chemicals), the Rotary Condensentrator; S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical
   Sorter on `transporter::round_robin`, hoppers into transporters, redstone sensitivity), the Fluid Tank's screen

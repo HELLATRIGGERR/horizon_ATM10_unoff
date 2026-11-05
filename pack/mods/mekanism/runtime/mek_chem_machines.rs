@@ -284,7 +284,7 @@ pub(super) fn slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
     }
 }
 
-fn gauge(pen: &mut Pen<'_, '_>, r: Rect, number: i32, amount: u64, capacity: i64) {
+pub(super) fn gauge(pen: &mut Pen<'_, '_>, r: Rect, number: i32, amount: u64, capacity: i64) {
     let rgb = mek_chemicals::registry(pen.game).by_number(number).map_or(0x808080, |c| c.color & 0xFF_FFFF);
     pen.nine("gauge/normal", [0.0, 0.0, 5.0, 5.0], [2.0, 2.0], r);
     let inner = r[3] - 2.0;
@@ -325,7 +325,7 @@ pub(super) fn draw(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView,
     }
 }
 
-fn tank_line(number: i32, amount: u64) -> String {
+pub(super) fn tank_line(number: i32, amount: u64) -> String {
     if amount == 0 {
         return "Empty".to_owned();
     }

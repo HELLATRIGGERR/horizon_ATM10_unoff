@@ -84,8 +84,8 @@ mod interface_memory {
         let items=interface_config(machine)?;let fluids=interface_fluid_config(machine)?;
         let mut source_config=Vec::with_capacity(9);
         for i in 0..9 {
-            let stack=if let Some(item)=items[i].as_ref(){Some(horizon_client::ae2_generic_stack::GenericStack{key:horizon_client::ae2_cell_codec::key(item)?,fluid:false,amount:i64::from(item.count)})}
-                else {fluids[i].as_ref().map(|(key,amount)|horizon_client::ae2_generic_stack::GenericStack{key:key.clone(),fluid:true,amount:*amount as i64})};
+            let stack=if let Some(item)=items[i].as_ref(){Some(horizon_client::ae2_generic_stack::GenericStack::item(horizon_client::ae2_cell_codec::key(item)?, i64::from(item.count)))}
+                else {fluids[i].as_ref().map(|(key,amount)|horizon_client::ae2_generic_stack::GenericStack::fluid(key.clone(), *amount as i64))};
             source_config.push(match stack{Some(stack)=>horizon_client::ae2_generic_stack::encode(&stack)?,None=>Tag::Compound(Compound::new())});
         }
         let source_fuzzy=saved.fuzzy.clone().ok_or("missing snapshot fuzzy")?;
@@ -292,7 +292,7 @@ mod interface_memory {
                 for (i,value) in source.iter().take(9).enumerate(){
                     let Some(value)=value else{continue};
                     let amount=if value.amount<=0 {if old_items[i].is_none()&&old_fluids[i].is_none(){1}else{continue}}else{value.amount};
-                    if value.fluid {fluids.push(Tag::compound([("Slot",Tag::Byte(i as i8)),("fluid",Tag::String(value.key.item_id.as_str().into())),("components",Tag::ByteArray(value.key.components.clone())),("amount",Tag::Long(amount.min(super::super::ae2_interface::INTERFACE_FLUID_CAPACITY as i64)))]));}
+                    if value.key_type==ae2_cell_core::KeyType::FLUIDS {fluids.push(Tag::compound([("Slot",Tag::Byte(i as i8)),("fluid",Tag::String(value.key.item_id.as_str().into())),("components",Tag::ByteArray(value.key.components.clone())),("amount",Tag::Long(amount.min(super::super::ae2_interface::INTERFACE_FLUID_CAPACITY as i64)))]));}
                     else {let mut item=horizon_client::ae2_cell_codec::prototype(&value.key)?;item.count=amount.min(i64::from(item_limit(&item).max(1))) as u32;items[i]=Some(item);}
                 }
                 staged.config.insert(ITEM_CONFIG.into(),save::encode_items(&items));staged.config.insert(FLUID_CONFIG.into(),Tag::List(fluids));wake=true;

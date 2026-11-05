@@ -3039,12 +3039,12 @@ impl Menu {
     #[cfg(feature = "ae2-lab")]
     fn ae2_wrapped_stack_click(&mut self, env: &Env, s:usize, primary:bool)->bool {
         let Some(wrapper)=self.slot(s).cloned().filter(|item|item.item.as_ref()=="ae2:wrapped_generic_stack") else{return false;};
-        let decoded=crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper,&|id,fluid|fluid || env.items.get(id).is_some());
+        let decoded=crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper,&|id,kind|crate::ae2_key_types::known_id(kind,id,|id|env.items.get(id).is_some()));
         let value=match decoded {
             Ok(Some(value))=>value,
             Ok(None)|Err(_)=>{self.set_by_player(env,s,None);return true;},
         };
-        if !primary || !value.fluid {return true;}
+        if !primary || value.key_type!=crate::ae2_key_types::KeyType::FLUIDS {return true;}
         let Some(carried)=self.carried.clone().filter(|item|item.item.as_ref()=="minecraft:bucket" && item.same_item_same_components(&ItemStack::new("minecraft:bucket",1))) else{return true;};
         if !value.key.components.is_empty() {return true;}
         let Some(result)=crate::ae2_cell_codec::fluid_bucket(&value.key.item_id) else{return true;};
@@ -3519,7 +3519,7 @@ pub(crate) mod tests {
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
         let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
-        let value=crate::ae2_generic_stack::GenericStack{key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500};
+        let value=crate::ae2_generic_stack::GenericStack::fluid(crate::ae2_cell_codec::fluid_key("minecraft:water"), 1500);
         let wrapper=crate::ae2_generic_stack::wrap(&value).unwrap();let mut menu=Menu::new(Kind::Chest(1));
         menu.set_slot(&env,0,Some(wrapper.clone()));menu.click(&env,0,0,Input::Pickup).unwrap();
         assert!(menu.carried.is_none());assert_eq!(menu.slot(0),Some(&wrapper));

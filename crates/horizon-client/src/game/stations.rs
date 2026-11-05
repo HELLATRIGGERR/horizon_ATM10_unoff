@@ -2183,12 +2183,15 @@ impl Game<'_> {
                 lines.push((horizon_client::text::Text::literal(format!("Upgrade: {name}")),rgba(170,170,170,255)));
             }
             for (key,count,channel) in preview.entries {
-                let fluid=channel==ae2_cell_core::Channel::Fluid;
-                let name=if fluid {self.pack.names.display_item(&key.item_id)} else {
+                let name=if channel!=ae2_cell_core::KeyType::ITEMS {self.pack.names.display_item(&key.item_id)} else {
                     horizon_client::ae2_cell_codec::prototype(&key).ok().and_then(|item|item.custom_name())
                         .unwrap_or_else(||self.pack.names.display_item(&key.item_id))
                 };
-                let amount=if fluid {format!("{count} mB")}else{count.to_string()};
+                let amount=match channel {
+                    ae2_cell_core::KeyType::ITEMS=>count.to_string(),
+                    ae2_cell_core::KeyType::FLUIDS=>format!("{count} mB"),
+                    other=>other.format_amount(count,ae2_cell_core::AmountFormat::Full),
+                };
                 lines.push((horizon_client::text::Text::literal(format!("{name}: {amount}")),rgba(170,170,170,255)));
             }
             if preview.has_more {lines.push((horizon_client::text::Text::literal("…"),rgba(170,170,170,255)));}

@@ -61,8 +61,10 @@ fn card_light_model() -> BakedItemModel {
     BakedItemModel {quads,uses_block_light:false,particle:material,transforms:Default::default()}
 }
 
+/// The key a wrapped generic stack draws (`AEKeyRendering`): an item, a
+/// fluid by its id, or a key of an addon's type, drawn as its type's icon.
 #[derive(Debug,PartialEq)]
-pub enum WrappedKey { Item(ItemStack), Fluid(String) }
+pub enum WrappedKey { Item(ItemStack), Fluid(String), Other(ae2_cell_core::TypedKey) }
 
 fn valid_id(id:&str) -> bool {
     let Some((ns,path))=id.split_once(':') else {return false;};
@@ -94,7 +96,12 @@ pub fn wrapped_key(stack:&ItemStack) -> Option<WrappedKey> {
             crate::save::item_from_nbt(&Tag::compound(fields)).map(WrappedKey::Item)
         }
         "ae2:f" => Some(WrappedKey::Fluid(id)),
-        _ => None,
+        kind => {
+            let kind=crate::ae2_key_types::KeyType::get(kind).filter(|kind|kind.raw_id()>=2)?;
+            let fields=match value {Tag::Compound(map)=>map.clone(),_=>return None};
+            let key=(crate::ae2_key_types::behaviour(kind).codec.decode)(&fields).ok()?;
+            Some(WrappedKey::Other(ae2_cell_core::TypedKey::new(kind,key)))
+        }
     }
 }
 

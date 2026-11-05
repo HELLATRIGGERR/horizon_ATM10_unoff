@@ -29,8 +29,8 @@ impl Action {
             // portable cells of the key type, AE2's then the addons'
             // (MEGACells.initStorageCells), last registered first.
             Self::ItemCell | Self::FluidCell => {
-                let channel = if self == Self::ItemCell { ae2_cell_core::Channel::Item } else { ae2_cell_core::Channel::Fluid };
-                let order: Vec<_> = horizon_client::ae2x::defs::get().portable_cells().filter(|cell| cell.channel == channel).collect();
+                let channel = if self == Self::ItemCell { ae2_cell_core::KeyType::ITEMS } else { ae2_cell_core::KeyType::FLUIDS };
+                let order: Vec<_> = horizon_client::ae2x::defs::get().portable_cells().filter(|cell| cell.key_type == channel).collect();
                 order.iter().rev().position(|cell| cell.id == item)
             }
         }

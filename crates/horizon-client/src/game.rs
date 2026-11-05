@@ -132,6 +132,8 @@ mod ae2_grid;
 #[cfg(feature = "ae2-lab")]
 mod ae2_storage_order;
 #[cfg(feature = "ae2-lab")]
+mod ae2_key_storage;
+#[cfg(feature = "ae2-lab")]
 mod ae2_key_strategies;
 #[cfg(feature = "ae2-lab")]
 mod ae2_event_live;

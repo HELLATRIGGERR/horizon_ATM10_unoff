@@ -10,12 +10,12 @@ const USAGE: &str = "usage: /ae2 requester status|set|toggle|clear x y z [row] [
 /// `minecraft:stick` is an item, `fluid:minecraft:water` a fluid.
 fn parse_key(word: &str) -> Result<Key, String> {
     if let Some(id) = word.strip_prefix("fluid:") {
-        return Ok(Key { key: ae2_cell_core::ItemKey { item_id: id.into(), components: Vec::new() }, fluid: true });
+        return Ok(Key { key: ae2_cell_core::ItemKey { item_id: id.into(), components: Vec::new() }, key_type: ae2_cell_core::KeyType::FLUIDS });
     }
-    Ok(Key { key: ae2_lab::key(&ItemStack::new(word, 1))?, fluid: false })
+    Ok(Key::item(ae2_lab::key(&ItemStack::new(word, 1))?))
 }
 fn key_json(key: Option<&Key>) -> Value {
-    key.map_or(Value::Null, |k| json!({"id": k.key.item_id, "fluid": k.fluid}))
+    key.map_or(Value::Null, |k| json!({"id": k.key.item_id, "fluid": (k.key_type==ae2_cell_core::KeyType::FLUIDS)}))
 }
 
 impl Game<'_> {

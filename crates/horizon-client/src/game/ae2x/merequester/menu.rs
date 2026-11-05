@@ -63,15 +63,15 @@ fn suitable(stack: &ItemStack) -> Option<(Key, i64)> {
         return None;
     }
     if let Ok(Some(generic)) = ae2_generic_stack::unwrap_item_stack(stack) {
-        let amount = if generic.fluid { generic.amount } else { generic.amount.max(1) };
-        return Some((Key { key: generic.key, fluid: generic.fluid }, amount));
+        let amount = if generic.key_type==ae2_cell_core::KeyType::FLUIDS { generic.amount } else { generic.amount.max(1) };
+        return Some((Key { key: generic.key, key_type: generic.key_type }, amount));
     }
-    Some((Key { key: ae2_lab::key(stack).ok()?, fluid: false }, i64::from(stack.count)))
+    Some((Key::item(ae2_lab::key(stack).ok()?), i64::from(stack.count)))
 }
 /// What a ghost slot shows: the item, or the fluid wrapped.
 fn shown(key: &Key) -> Option<ItemStack> {
-    if key.fluid {
-        ae2_generic_stack::wrap(&GenericStack { key: key.key.clone(), fluid: true, amount: 0 }).ok()
+    if key.key_type==ae2_cell_core::KeyType::FLUIDS {
+        ae2_generic_stack::wrap(&GenericStack::fluid(key.key.clone(), 0)).ok()
     } else {
         ae2_lab::prototype(&key.key).ok()
     }
@@ -152,7 +152,7 @@ impl Game<'_> {
     }
     /// A key's name as the terminal's search reads it.
     pub(in crate::game) fn merequester_key_name(&self, key: &Key) -> String {
-        if key.fluid {
+        if key.key_type==ae2_cell_core::KeyType::FLUIDS {
             return self.pack.names.display_item(&key.key.item_id);
         }
         ae2_lab::prototype(&key.key)
@@ -271,7 +271,7 @@ impl Game<'_> {
                 Line::Row { requester, index } => {
                     let q = &loaded[*requester].requests[*index];
                     json!({"r": requester, "i": index, "on": q.state, "amount": q.amount, "batch": q.batch,
-                        "status": q.client_status.name(), "key": q.key.is_some(), "fluid": q.key.as_ref().is_some_and(|k| k.fluid)})
+                        "status": q.client_status.name(), "key": q.key.is_some(), "fluid": q.key.as_ref().is_some_and(|k| k.key_type==ae2_cell_core::KeyType::FLUIDS)})
                 }
             })
             .collect();
@@ -391,7 +391,7 @@ impl Game<'_> {
             // EMPTY_ITEM: a right click with a filled bucket asks for its fluid.
             (Input::Pickup, 1) if carried.and_then(|c| ae2_fluids::bucket_fluid(&c.item)).is_some() => {
                 let fluid = ae2_fluids::bucket_fluid(&carried?.item)?;
-                set(self, Some((Key { key: ae2_fluids::fluid_key(fluid), fluid: true }, 1000)));
+                set(self, Some((Key { key: ae2_fluids::fluid_key(fluid), key_type: ae2_cell_core::KeyType::FLUIDS }, 1000)));
             }
             // PICKUP_OR_SET_DOWN: the cursor's stack, or nothing.
             (Input::Pickup, 0) => set(self, carried.and_then(suitable)),
@@ -401,7 +401,7 @@ impl Game<'_> {
             (Input::QuickMove, 0) => set(self, None),
             // CREATIVE_DUPLICATE: a full stack of the row's item.
             (Input::Clone, _) if creative && carried.is_none() => {
-                let key = request.key.as_ref().filter(|k| !k.fluid)?;
+                let key = request.key.as_ref().filter(|k| k.key_type == ae2_cell_core::KeyType::ITEMS)?;
                 let mut item = ae2_lab::prototype(&key.key).ok()?;
                 item.count = self.res.items().stack_max(&item);
                 return Some(Some(item));

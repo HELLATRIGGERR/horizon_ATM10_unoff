@@ -284,6 +284,15 @@ const COLORS: &[&str] = &[
     "green",
     "fluix",
 ];
+/// `AEKeyType.CODEC`: the id of a registered key type (`ae2:keytypes`).
+fn key_type(t: Tag) -> Result<Tag, String> {
+    let s = string(&t)?;
+    if ae2_cell_core::KeyType::get(&s).is_some() {
+        Ok(t)
+    } else {
+        Err(format!("Unknown registry key in ResourceKey[minecraft:root / ae2:keytypes]: {s}"))
+    }
+}
 fn enum_value(t: Tag, values: &[&str]) -> Result<Tag, String> {
     let s = string(&t)?;
     if values.contains(&s.as_str()) {
@@ -369,7 +378,7 @@ fn generic(t: Tag, depth: usize) -> Result<Tag, String> {
     field(&mut m, "#", |t| Ok(Tag::Long(number(&t)?)))?;
     let original = m.clone();
     let key = (|| {
-        field(&mut m, "#t", |t| enum_value(t, &["ae2:i", "ae2:f"]))?;
+        field(&mut m, "#t", key_type)?;
         field(&mut m, "id", resource)?;
         if let Some(components) = m.remove(&"components".into()) {
             m.insert("components".into(), patch(components, depth)?);
@@ -528,7 +537,7 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
         "ae2:enabled_key_types" => Ok(Tag::List(
             list(t)?
                 .into_iter()
-                .map(|t| enum_value(t, &["ae2:i", "ae2:f"]))
+                .map(key_type)
                 .collect::<Result<_, _>>()?,
         )),
         "ae2:exported_settings" => {

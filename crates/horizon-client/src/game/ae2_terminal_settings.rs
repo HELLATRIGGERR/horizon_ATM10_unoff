@@ -54,11 +54,22 @@ pub(super) enum Check {
     AutoFocus,
     SyncWithExternal,
     ClearExternal,
-    Items,
-    Fluids,
+    /// `KeyTypeSelectionScreen`'s box of a key type, by registration order.
+    KeyType(usize),
     /// AE2WTLib's settings, by box.
     #[cfg(feature = "ae2-ae2wtlib")]
     Wireless(usize),
+}
+
+/// A check's name in the screen's state: AE2's two key types as `Items` and
+/// `Fluids`, another type by its id.
+fn check_name(check: Check) -> String {
+    match check {
+        Check::KeyType(0) => "Items".into(),
+        Check::KeyType(1) => "Fluids".into(),
+        Check::KeyType(i) => ae2_cell_core::KeyType::all().get(i).map_or_else(|| format!("KeyType({i})"), |kind| kind.id().to_owned()),
+        other => format!("{other:?}"),
+    }
 }
 
 /// A checkbox as the screen shows it.
@@ -95,7 +106,7 @@ fn toggled(settings: ClientSettings, check: Check) -> ClientSettings {
         Check::AutoFocus => next.auto_focus_search ^= true,
         Check::SyncWithExternal => next.sync_with_external_search ^= true,
         Check::ClearExternal => next.clear_external_search_on_open ^= true,
-        Check::Items | Check::Fluids => {}
+        Check::KeyType(_) => {}
         #[cfg(feature = "ae2-ae2wtlib")]
         Check::Wireless(_) => {}
     }
@@ -215,11 +226,13 @@ impl Game<'_> {
         if sub == Sub::KeyTypes {
             // KeyTypeSelectionScreen.updateBeforeRender: the last selected
             // type can't be turned off.
-            let types = self.ae2_term_key_types().unwrap_or([false, false]);
+            let types = self.ae2_term_key_types().unwrap_or_default();
             let selected = types.iter().filter(|on| **on).count();
             let (x, top) = style.widgets.get("keytypes").map_or((10, 20), |w| w.position.resolve(w.width, 0));
-            for (i, (check, key)) in [(Check::Items, "gui.ae2.Items"), (Check::Fluids, "gui.ae2.Fluids")].into_iter().enumerate() {
-                let label = tip(key);
+            // `AEKeyType.getDescription` of each type.
+            for (i, kind) in ae2_cell_core::KeyType::all().into_iter().enumerate().take(types.len()) {
+                let check = Check::KeyType(i);
+                let label = tip(kind.description());
                 let width = KEY_TYPE_LABEL_ROOM + HudBatch::text_width(&self.gui.atlas, &label) as i32;
                 boxes.push(CheckBox {
                     check,
@@ -315,9 +328,8 @@ impl Game<'_> {
         };
         self.audio.play_button_click();
         match pressed.check {
-            // KeyTypeSelectionMenu.selectKeyType: the menu's places 0 and 1.
-            Check::Items => self.ae2_send_menu_button(0, 0),
-            Check::Fluids => self.ae2_send_menu_button(1, 0),
+            // KeyTypeSelectionMenu.selectKeyType: the menu's place of the type.
+            Check::KeyType(index) => self.ae2_send_menu_button(index as i16, 0),
             #[cfg(feature = "ae2-ae2wtlib")]
             Check::Wireless(index) => {
                 if let Some(settings) = self.remote.as_ref().and_then(|r| r.ae2_term.wtlib_settings) {
@@ -391,7 +403,7 @@ impl Game<'_> {
         let checks: Vec<serde_json::Value> = self
             .ae2_term_sub_checks(sub)
             .into_iter()
-            .map(|c| serde_json::json!({"check": format!("{:?}", c.check), "rect": rect(c.rect), "selected": c.selected, "active": c.active, "radio": c.radio, "label": c.label}))
+            .map(|c| serde_json::json!({"check": check_name(c.check), "rect": rect(c.rect), "selected": c.selected, "active": c.active, "radio": c.radio, "label": c.label}))
             .collect();
         let (w, h) = self.ae2_term_sub_size()?;
         #[allow(unused_mut)]
@@ -429,6 +441,6 @@ mod tests {
         assert_eq!(toggled(external, Check::UseExternalSearch), external);
         assert!(!toggled(external, Check::UseInternalSearch).use_external_search);
         // Key types are the server's, not client settings.
-        assert_eq!(toggled(settings, Check::Fluids), settings);
+        assert_eq!(toggled(settings, Check::KeyType(1)), settings);
     }
 }

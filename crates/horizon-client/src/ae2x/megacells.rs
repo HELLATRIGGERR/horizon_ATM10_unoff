@@ -20,7 +20,7 @@ use ae2_cell_core::ItemKey;
 use ae2_megacells_core::{Big, BulkCell, BulkData, Chains};
 use horizon_world::nbt::Tag;
 use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind, MachineVariant};
-use ae2_cell_core::{Channel, Tier};
+use ae2_cell_core::{KeyType, Tier};
 
 pub const NAMESPACE: &str = "megacells";
 
@@ -123,7 +123,7 @@ pub const COMPRESSION_CUTOFF: &str = "megacells:compression_cutoff";
 /// The cell's [`BulkData`] from its stack's components; `known` says which
 /// item ids the game has (an unknown stored item reads as AE2's missing
 /// content, as `AEKey.CODEC` recovers it).
-pub fn bulk_data(stack: &ItemStack, known: &dyn Fn(&str, bool) -> bool) -> Result<BulkData, String> {
+pub fn bulk_data(stack: &ItemStack, known: &dyn Fn(&str,KeyType)->bool) -> Result<BulkData, String> {
     let data = stack.data();
     let component = |id: &str| data.and_then(|data| data.other(id));
     let item = match component(BULK_ITEM) {
@@ -132,7 +132,7 @@ pub fn bulk_data(stack: &ItemStack, known: &dyn Fn(&str, bool) -> bool) -> Resul
             let mut generic = key.clone();
             generic.insert("#".into(), Tag::Long(0));
             let value = crate::ae2_generic_stack::decode_tolerant_checked(&Tag::Compound(generic), known)?.ok_or("empty bulk item")?;
-            if value.fluid {
+            if value.key_type != KeyType::ITEMS {
                 return Err("a bulk cell holds items".into());
             }
             Some(value.key)
@@ -162,7 +162,7 @@ pub fn store_bulk_data(stack: &mut ItemStack, data: &BulkData) -> Result<(), Str
     let item = match &data.item {
         None => None,
         Some(key) => {
-            let Tag::Compound(mut generic) = crate::ae2_generic_stack::encode(&crate::ae2_generic_stack::GenericStack { key: key.clone(), fluid: false, amount: 0 })? else {
+            let Tag::Compound(mut generic) = crate::ae2_generic_stack::encode(&crate::ae2_generic_stack::GenericStack::item(key.clone(), 0))? else {
                 return Err("invalid bulk item".into());
             };
             generic.remove(&"#".into());
@@ -178,7 +178,7 @@ pub fn store_bulk_data(stack: &mut ItemStack, data: &BulkData) -> Result<(), Str
 }
 
 /// `BulkCellItem.getConfigInventory(is).getKey(0)`: the one filter, an item.
-pub fn bulk_filter(stack: &ItemStack, known: &dyn Fn(&str, bool) -> bool) -> Result<Option<ItemKey>, String> {
+pub fn bulk_filter(stack: &ItemStack, known: &dyn Fn(&str,KeyType)->bool) -> Result<Option<ItemKey>, String> {
     let settings = crate::ae2_cell_codec::cell_settings_checked(stack, known)?;
     let Some(Tag::List(filters)) = settings.get(&"filters".into()) else { return Err("invalid cell filters".into()) };
     let slots = crate::ae2_cell_codec::decode_view_filter_slots(filters)?;
@@ -196,7 +196,7 @@ pub fn compression_installed(stack: &ItemStack) -> bool {
 
 /// `BulkCellItem.Handler.getCellInventory`: the cell of a Bulk Item Cell
 /// stack, over `chains`; an error for any other stack.
-pub fn bulk_cell(stack: &ItemStack, chains: &Chains, known: &dyn Fn(&str, bool) -> bool) -> Result<BulkCell, String> {
+pub fn bulk_cell(stack: &ItemStack, chains: &Chains, known: &dyn Fn(&str,KeyType)->bool) -> Result<BulkCell, String> {
     if stack.item.as_ref() != BULK_ITEM_CELL || stack.count != 1 {
         return Err("not a bulk item cell".into());
     }
@@ -227,7 +227,7 @@ pub fn set_chains(chains: Chains) -> u64 {
 
 /// `BulkCellInventory.canFitInsideCell`: no filter, no stored item, no units.
 pub fn bulk_fits_inside(stack: &ItemStack) -> bool {
-    let known = |_: &str, _: bool| true;
+    let known = |_: &str, _: KeyType| true;
     stack.count == 1
         && bulk_filter(stack, &known).is_ok_and(|filter| filter.is_none())
         && bulk_data(stack, &known).is_ok_and(|data| data.item.is_none() && data.unit_count.is_none_or(|n| n.is_zero()))
@@ -300,15 +300,15 @@ pub fn hover_line(id: &str) -> Option<(&'static str, u32)> {
 /// fluids, tier)`, so 27 to 63 item types from 1M to 256M; `getIdleDrain`
 /// 1.0, `getAEMaxPower` 8 times and `getChargeRate` twice AE2's portable
 /// cell's; the drive model is the tier's cell's (`initStorageCellModels`).
-pub fn portable_cell(tier: Tier, channel: Channel) -> CellDef {
+pub fn portable_cell(tier: Tier, channel: KeyType) -> CellDef {
     let size = size(tier);
     let (kind, types) = match channel {
-        Channel::Item => ("item", 18 + (tier.index() as usize - 5) * 9),
-        Channel::Fluid => ("fluid", 18),
+        KeyType::ITEMS => ("item", 18 + (tier.index() as usize - 5) * 9),
+        _ => ("fluid", 18),
     };
     CellDef {
         id: format!("{NAMESPACE}:portable_{kind}_cell_{size}"),
-        channel,
+        key_type: channel,
         tier,
         types,
         idle_drain: 1.0,
@@ -382,10 +382,10 @@ pub fn register(defs: &mut Defs) {
         defs.add_component(&format!("{NAMESPACE}:cell_component_{size}"), tier);
         // MEGAItems.itemCell / fluidCell: BasicStorageCell(idleDrain 0.5 * index,
         // tier.bytes() / 1024 KiB, tier.bytes() / 128 per type, 63 or 18 types).
-        for (kind, channel, types) in [("item", Channel::Item, 63), ("fluid", Channel::Fluid, 18)] {
+        for (kind, channel, types) in [("item", KeyType::ITEMS, 63), ("fluid", KeyType::FLUIDS, 18)] {
             let cell = CellDef {
                 id: format!("{NAMESPACE}:{kind}_storage_cell_{size}"),
-                channel,
+                key_type: channel,
                 tier,
                 types,
                 idle_drain: 0.5 * f64::from(tier.index()),
@@ -402,7 +402,7 @@ pub fn register(defs: &mut Defs) {
         }
     }
     // MEGAItems.itemPortable / fluidPortable, after the cells (`CELLS` order).
-    for channel in [Channel::Item, Channel::Fluid] {
+    for channel in [KeyType::ITEMS, KeyType::FLUIDS] {
         for tier in TIERS {
             let cell = portable_cell(tier, channel);
             // MEGACells.initUpgrades: the storage cell cards, and the Greater
@@ -609,11 +609,11 @@ mod tests {
             (Tier::M64, "64m", 54, 33_554_432),
             (Tier::M256, "256m", 63, 134_217_728),
         ] {
-            for (kind, channel, types, slots) in [("item", Channel::Item, item_types, 4), ("fluid", Channel::Fluid, 18, 3)] {
+            for (kind, channel, types, slots) in [("item", KeyType::ITEMS, item_types, 4), ("fluid", KeyType::FLUIDS, 18, 3)] {
                 let id = format!("megacells:portable_{kind}_cell_{size}");
                 let cell = defs.portable_cell(&id).unwrap_or_else(|| panic!("{id}"));
                 let config = cell.config();
-                assert_eq!((config.channel, config.max_types(), config.total_bytes(), config.bytes_per_type()), (channel, types, bytes, bytes / 64), "{id}");
+                assert_eq!((config.key_type, config.max_types(), config.total_bytes(), config.bytes_per_type()), (channel, types, bytes, bytes / 64), "{id}");
                 assert!(config.portable);
                 assert_eq!((cell.idle_drain, cell.battery_scale, cell.charge_scale), (1.0, 8.0, 2.0), "{id}");
                 assert_eq!(cell.drive_model, format!("megacells:block/drive/cells/{size}_{kind}_cell"));
@@ -621,7 +621,7 @@ mod tests {
                 for card in ["ae2:inverter_card", "ae2:equal_distribution_card", "ae2:void_card"] {
                     assert_eq!(defs.upgrade_limit(card, &id), 1, "{card} on {id}");
                 }
-                assert_eq!(defs.upgrade_limit("ae2:fuzzy_card", &id), usize::from(channel == Channel::Item));
+                assert_eq!(defs.upgrade_limit("ae2:fuzzy_card", &id), usize::from(channel == KeyType::ITEMS));
                 assert_eq!((defs.upgrade_limit(GREATER_ENERGY_CARD, &id), defs.upgrade_limit("ae2:energy_card", &id)), (2, 0));
             }
         }
@@ -634,7 +634,7 @@ mod tests {
         let key = ae2_cell_core::ItemKey { item_id: "minecraft:cobblestone".into(), components: Vec::new() };
         assert_eq!(one.insert(&key, u64::MAX, ae2_cell_core::Action::Modulate), 4_128_768);
         // The hotkeys' order: AE2's portable item cells, then MEGA's, by tier.
-        let order: Vec<&str> = defs.portable_cells().filter(|c| c.channel == Channel::Item).map(|c| c.id.as_str()).collect();
+        let order: Vec<&str> = defs.portable_cells().filter(|c| c.key_type == KeyType::ITEMS).map(|c| c.id.as_str()).collect();
         assert_eq!(order.first().copied(), Some("ae2:portable_item_cell_1k"));
         assert_eq!(&order[4..], ["ae2:portable_item_cell_256k", "megacells:portable_item_cell_1m", "megacells:portable_item_cell_4m",
             "megacells:portable_item_cell_16m", "megacells:portable_item_cell_64m", "megacells:portable_item_cell_256m"]);

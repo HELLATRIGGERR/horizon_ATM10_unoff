@@ -2,7 +2,8 @@
 //! Inventories remain real world block entities; the host snapshots block
 //! entities before each transfer to preserve contents on an error.
 use super::{Game, ae2_lab};
-use ae2_machines_core::{BusState, Channel, Direction, Key, Redstone, TransferHost};
+use ae2_cell_core::{KeyType, KeyTypeSet};
+use ae2_machines_core::{BusState, Direction, Key, Redstone, TransferHost};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack, save};
 use horizon_core::random::RandomSource;
 use horizon_world::nbt::{Compound, Tag};
@@ -165,7 +166,7 @@ pub(super) fn bus_state(part: &Compound) -> Result<BusState, String> {
     let mut bus = if let Some(s) = str_field(part, "state_json") {
         serde_json::from_str(&s).map_err(|e| format!("bad bus state: {e}"))?
     } else {
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         if let Some(Tag::List(filters)) = part.get(&"filters".into()) {
             for (i, tag) in filters.iter().enumerate().take(bus.config.len()) {
                 if let Some(stack) = save::item_from_nbt(tag) {
@@ -175,7 +176,7 @@ pub(super) fn bus_state(part: &Compound) -> Result<BusState, String> {
         }
         bus
     };
-    if bus.channel != Channel::Item || bus.config.len() > 63 {
+    if bus.channel != KeyType::ITEMS || bus.config.len() > 63 {
         return Err("unsupported bus channel or invalid filter state".into());
     }
     let own = str_field(part, "id").ok_or("missing bus part id")?;
@@ -589,7 +590,7 @@ impl TransferHost for Host<'_, '_> {
 /// Dispatches each actual resource key to its matching capability while one
 /// BusState owns the source operation budget and per-slot schedule.
 struct MixedHost<'a, 'g> {
-    key_types: [bool; 2],
+    key_types: KeyTypeSet,
     game: &'a mut Game<'g>,
     cable: (i32, i32, i32),
     target: (i32, i32, i32),
@@ -627,36 +628,52 @@ impl Game<'_> {
     }
 }
 
-/// An import bus's `KeyTypeSelection`: items, fluids. Both when never set.
-pub(super) fn bus_key_types(part: &Compound) -> [bool; 2] {
-    match part.get(&"key_types".into()) {
-        Some(Tag::Byte(bits)) if bits & 3 != 0 => [bits & 1 != 0, bits & 2 != 0],
-        _ => [true, true],
-    }
+/// An import bus's `KeyTypeSelection` over the types with an import
+/// strategy (`hasImportStrategyTypeFilter`): AE2's `enabledKeyTypes` list of
+/// ids, or the port's older `key_types` bits (1 items, 2 fluids). Every
+/// selectable type when never set, or when nothing selectable is left.
+pub(super) fn bus_key_types(part: &Compound) -> KeyTypeSet {
+    let allowed = KeyTypeSet::of(&super::ae2_key_strategies::with_import_strategy());
+    let selected = match (part.get(&"enabledKeyTypes".into()), part.get(&"key_types".into())) {
+        (Some(Tag::List(ids)), _) => ids.iter().filter_map(|id| match id {
+            Tag::String(id) => KeyType::get(&id.to_string().ok()?),
+            _ => None,
+        }).collect(),
+        (_, Some(Tag::Byte(bits))) => KeyTypeSet::from_bits(u128::from(*bits as u8)),
+        _ => allowed,
+    };
+    let selected = KeyTypeSet::from_bits(selected.bits() & allowed.bits());
+    if selected.is_empty() { allowed } else { selected }
+}
+/// `KeyTypeSelection.writeToNBT`: the enabled types' ids.
+pub(super) fn store_bus_key_types(part: &mut Compound, types: KeyTypeSet) {
+    part.remove(&"key_types".into());
+    part.insert("enabledKeyTypes".into(), Tag::List(types.iter().map(|kind| Tag::String(kind.id().into())).collect()));
 }
 
 /// One more or less of a key type, never leaving none.
-pub(super) fn toggle_key_type(types: [bool; 2], index: usize) -> [bool; 2] {
-    let mut next = types;
-    next[index] = !next[index];
-    if next == [false, false] { types } else { next }
+pub(super) fn toggle_key_type(types: KeyTypeSet, kind: KeyType) -> KeyTypeSet {
+    let next = types.with(kind, !types.contains(kind));
+    if next.is_empty() { types } else { next }
 }
 
-fn fluid_bus_key(key: &Key) -> bool {
+/// A bus key's type. The bus's keys carry no type of their own: an addon
+/// type's key is its marker (`ae2_key_types::addon_marker`), and a key that
+/// names no item and is a valid fluid id is a fluid's.
+fn bus_key_type(key: &Key) -> KeyType {
     let key = ae2_cell_core::ItemKey::from(key);
-    super::ae2_fluids::valid_fluid_id(&key.item_id) && ae2_lab::prototype(&key).is_err()
+    if let Some(typed) = horizon_client::ae2_key_types::parse_addon_marker(&key) {
+        return typed.key_type;
+    }
+    if super::ae2_fluids::valid_fluid_id(&key.item_id) && ae2_lab::prototype(&key).is_err() { KeyType::FLUIDS } else { KeyType::ITEMS }
+}
+fn fluid_bus_key(key: &Key) -> bool {
+    bus_key_type(key) == KeyType::FLUIDS
 }
 impl TransferHost for MixedHost<'_, '_> {
     type Error = String;
     fn amount_per_operation(&self, key: &Key) -> Option<u64> {
-        Some(
-            if fluid_bus_key(key) {
-                Channel::Fluid
-            } else {
-                Channel::Item
-            }
-            .amount_per_operation(),
-        )
+        Some(bus_key_type(key).amount_per_operation())
     }
     fn random_slot(&mut self, bound: usize) -> usize {
         if bound == 0 {
@@ -686,7 +703,7 @@ impl TransferHost for MixedHost<'_, '_> {
             .ae2_item_p2p_candidates(address, self.face)
             .unwrap_or_else(|| self.game.ae2_native_item_candidates(address, self.face))
             .iter()
-            .filter(|_| self.key_types[0])
+            .filter(|_| self.key_types.contains(KeyType::ITEMS))
             .filter_map(|s| {
                 ae2_lab::key(s)
                     .ok()
@@ -713,13 +730,20 @@ impl TransferHost for MixedHost<'_, '_> {
         result.extend(
             fluids
                 .into_iter()
-                .filter(|_| self.key_types[1])
+                .filter(|_| self.key_types.contains(KeyType::FLUIDS))
                 .map(|(key, amount)| (Key::from(&key), amount)),
         );
+        // `StackImportFacade`: an addon type's import strategy, when selected.
+        for kind in self.key_types.iter().filter(|kind| !matches!(*kind, KeyType::ITEMS | KeyType::FLUIDS)) {
+            if let Some(import) = super::ae2_key_strategies::addon(kind).import {
+                result.extend((import.offered)(self.game, address, self.face).into_iter()
+                    .map(|(key, amount)| (Key::from(&horizon_client::ae2_key_types::addon_marker(kind, &key)), amount)));
+            }
+        }
         result
     }
     fn fuzzy_matches(&self, a: &Key, b: &Key) -> bool {
-        if fluid_bus_key(a) {
+        if bus_key_type(a) != KeyType::ITEMS {
             a.id == b.id
         } else {
             let max = self.game.res.items().get(&a.id).map_or(0, |i| i.max_damage);
@@ -727,6 +751,13 @@ impl TransferHost for MixedHost<'_, '_> {
         }
     }
     fn fuzzy_candidates(&self, filter: &Key) -> Vec<Key> {
+        let kind = bus_key_type(filter);
+        if !matches!(kind, KeyType::ITEMS | KeyType::FLUIDS) {
+            return self.game.ae2_grid_keys(self.cable, kind).unwrap_or_default().into_iter()
+                .map(|(key, _)| Key::from(&horizon_client::ae2_key_types::addon_marker(kind, &key)))
+                .filter(|key| self.fuzzy_matches(filter, key))
+                .collect();
+        }
         if fluid_bus_key(filter) {
             self.game
                 .ae2_grid_fluids(self.cable)
@@ -751,6 +782,15 @@ impl TransferHost for MixedHost<'_, '_> {
         key: &Key,
         limit: u64,
     ) -> Result<u64, String> {
+        if let Some(typed) = horizon_client::ae2_key_types::parse_addon_marker(&ae2_cell_core::ItemKey::from(key)) {
+            // An addon type's `StackImportStrategy` / `StackExportStrategy`.
+            let strategies = super::ae2_key_strategies::addon(typed.key_type);
+            let (Some(cable), Some(target)) = (self.game.ae2_local_address(self.cable), self.game.ae2_local_address(self.target)) else { return Ok(0) };
+            return match direction {
+                Direction::Import => strategies.import.map_or(Ok(0), |s| (s.transfer)(self.game, cable, target, self.face, &typed.key, limit)),
+                Direction::Export => strategies.export.map_or(Ok(0), |s| (s.transfer)(self.game, cable, target, self.face, &typed.key, limit)),
+            };
+        }
         let craft = std::mem::take(&mut self.craft);
         if fluid_bus_key(key) {
             let mut host = FluidHost {
@@ -2258,17 +2298,26 @@ mod tests {
     }
     #[test]
     fn import_key_types_default_to_both_and_never_reach_none() {
+        let (items, fluids) = (KeyType::ITEMS, KeyType::FLUIDS);
+        let both = KeyTypeSet::of(&[items, fluids]);
         let mut part = Compound::new();
-        assert_eq!(bus_key_types(&part), [true, true]);
+        assert_eq!(bus_key_types(&part), both);
         part.insert("key_types".into(), Tag::Byte(1));
-        assert_eq!(bus_key_types(&part), [true, false]);
+        assert_eq!(bus_key_types(&part), KeyTypeSet::of(&[items]));
         part.insert("key_types".into(), Tag::Byte(2));
-        assert_eq!(bus_key_types(&part), [false, true]);
+        assert_eq!(bus_key_types(&part), KeyTypeSet::of(&[fluids]));
         part.insert("key_types".into(), Tag::Byte(0));
-        assert_eq!(bus_key_types(&part), [true, true]);
-        assert_eq!(toggle_key_type([true, true], 1), [true, false]);
-        assert_eq!(toggle_key_type([true, false], 0), [true, false]);
-        assert_eq!(toggle_key_type([true, false], 1), [true, true]);
+        assert_eq!(bus_key_types(&part), both);
+        assert_eq!(toggle_key_type(both, fluids), KeyTypeSet::of(&[items]));
+        assert_eq!(toggle_key_type(KeyTypeSet::of(&[items]), items), KeyTypeSet::of(&[items]));
+        assert_eq!(toggle_key_type(KeyTypeSet::of(&[items]), fluids), both);
+        // AE2's own form wins over the older bits, and round-trips.
+        store_bus_key_types(&mut part, KeyTypeSet::of(&[fluids]));
+        assert_eq!(part.get(&"enabledKeyTypes".into()), Some(&Tag::List(vec![Tag::String("ae2:f".into())])));
+        assert!(part.get(&"key_types".into()).is_none());
+        assert_eq!(bus_key_types(&part), KeyTypeSet::of(&[fluids]));
+        part.insert("enabledKeyTypes".into(), Tag::List(vec![Tag::String("removed:type".into())]));
+        assert_eq!(bus_key_types(&part), both, "nothing selectable left: every type");
     }
 
     #[test]
@@ -2293,7 +2342,7 @@ mod tests {
         assert_eq!(target((1, 2, 3), "north"), Some((1, 2, 2)));
         assert_eq!(target((1, 2, 3), "east"), Some((2, 2, 3)));
         assert_eq!(target((1, 2, 3), "bogus"), None);
-        let mut state = BusState::new(Channel::Item);
+        let mut state = BusState::new(KeyType::ITEMS);
         state.speed_cards = 2;
         state.next_slot = 4;
         let json = serde_json::to_string(&state).unwrap();

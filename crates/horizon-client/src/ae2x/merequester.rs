@@ -7,7 +7,7 @@
 //! `ae2-merequester-core`, the game's side in `game/ae2x/merequester/`.
 use super::defs::{Defs, PartDef};
 use crate::{ae2_generic_stack::{self, GenericStack}, ae2_world::{ExtMachine, Machine}, items::ItemStack};
-use ae2_cell_core::ItemKey;
+use ae2_cell_core::{ItemKey, KeyType};
 use horizon_world::nbt::{Compound, Tag};
 use std::sync::OnceLock;
 
@@ -112,16 +112,19 @@ pub fn register_ae2wt(defs: &mut Defs) {
     });
 }
 
-/// A row's key: an item or a fluid (`AEKey`).
+/// A row's key (`AEKey`): its identity and key type.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Key {
     pub key: ItemKey,
-    pub fluid: bool,
+    pub key_type: KeyType,
 }
 impl Key {
+    pub fn item(key: ItemKey) -> Self {
+        Self { key, key_type: KeyType::ITEMS }
+    }
     /// `AEKey.getAmountPerUnit`: a bucket for fluids.
     pub fn amount_per_unit(&self) -> i64 {
-        if self.fluid { 1000 } else { 1 }
+        self.key_type.amount_per_unit() as i64
     }
 }
 /// A job's crafting link: the CPU's grid address (`GridAddress.encoded`).
@@ -134,7 +137,7 @@ const STORAGE_MANAGER_ID: &str = "storage_manager";
 
 /// `AEKey.toTagGeneric`: the generic stack's compound without its amount.
 pub fn key_tag(key: &Key) -> Option<Tag> {
-    let tag = ae2_generic_stack::encode(&GenericStack { key: key.key.clone(), fluid: key.fluid, amount: 0 }).ok()?;
+    let tag = ae2_generic_stack::encode(&GenericStack { key: key.key.clone(), key_type: key.key_type, amount: 0 }).ok()?;
     let Tag::Compound(mut data) = tag else { return None };
     data.remove(&"#".into());
     Some(Tag::Compound(data))
@@ -145,7 +148,7 @@ pub fn key_from_tag(tag: &Tag) -> Option<Key> {
     let mut data = data.clone();
     data.insert("#".into(), Tag::Long(0));
     let stack = ae2_generic_stack::decode(&Tag::Compound(data)).ok()??;
-    Some(Key { key: stack.key, fluid: stack.fluid })
+    Some(Key { key: stack.key, key_type: stack.key_type })
 }
 fn long(tag: Option<&Tag>) -> i64 {
     crate::save::number(tag).unwrap_or(0)
@@ -306,13 +309,13 @@ pub fn import_component(r: &mut Requester, tag: &Tag) -> bool {
 }
 
 /// `StorageManager.addDrops`: each buffer's key, its buffered and pending
-/// amount. A fluid drops nothing.
+/// amount. A key of another type than items drops nothing.
 fn key_drops(machine: &Machine) -> Vec<(ItemStack, u64)> {
     let r = read(&machine.config, Config::get().requests);
     r.storages
         .iter()
         .filter_map(|s| {
-            let key = s.key.as_ref().filter(|k| !k.fluid)?;
+            let key = s.key.as_ref().filter(|k| k.key_type == KeyType::ITEMS)?;
             let amount = u64::try_from(s.buffer_amount() + s.pending).ok().filter(|n| *n > 0)?;
             Some((crate::ae2_cell_codec::prototype(&key.key).ok()?, amount))
         })
@@ -324,7 +327,7 @@ mod tests {
     use super::*;
 
     fn item(id: &str) -> Key {
-        Key { key: crate::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap(), fluid: false }
+        Key::item(crate::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap())
     }
 
     #[test]
@@ -342,7 +345,7 @@ mod tests {
         r.requests[0].update_key(Some((item("minecraft:stick"), 100)), 1);
         r.requests[0].update_batch(64);
         r.requests[1].update_state(false);
-        let water = Key { key: ItemKey { item_id: "minecraft:water".into(), components: Vec::new() }, fluid: true };
+        let water = Key { key: ItemKey { item_id: "minecraft:water".into(), components: Vec::new() }, key_type: KeyType::FLUIDS };
         r.requests[2].update_key(Some((water.clone(), 5000)), water.amount_per_unit());
         r.storages[0].update(item("minecraft:stick"), 12);
         r.storages[0].pending = 3;

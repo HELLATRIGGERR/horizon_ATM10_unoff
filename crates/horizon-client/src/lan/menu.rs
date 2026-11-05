@@ -552,10 +552,10 @@ fn pickup(view: &mut View, slot: i32, button: i32, rules: &dyn Rules, drops:&mut
 #[cfg(feature="ae2-lab")]
 fn wrapped_stack_click(view:&mut View,i:usize,right:bool,rules:&dyn Rules,drops:&mut Vec<ItemStack>)->bool {
     let Some(wrapper)=view.get(i).filter(|item|item.item.as_ref()=="ae2:wrapped_generic_stack") else{return false;};
-    let value=match crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper,&|id,fluid|fluid||rules.items().get(id).is_some()) {
+    let value=match crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper,&|id,kind|crate::ae2_key_types::known_id(kind,id,|id|rules.items().get(id).is_some())) {
         Ok(Some(value))=>value,Ok(None)|Err(_)=>{view.set(i,None);return true;},
     };
-    if right || !value.fluid {return true;}
+    if right || value.key_type!=crate::ae2_key_types::KeyType::FLUIDS {return true;}
     let Some(carried)=view.guest.carried.clone().filter(|item|item.item.as_ref()=="minecraft:bucket" && item.same_item_same_components(&ItemStack::new("minecraft:bucket",1))) else{return true;};
     if !value.key.components.is_empty(){return true;}
     let Some(result)=crate::ae2_cell_codec::fluid_bucket(&value.key.item_id) else{return true;};
@@ -952,9 +952,7 @@ mod tests {
     #[test]
     fn guest_chest_wrapped_fluid_fills_one_bucket_without_pickup_or_duplication() {
         let Some(rules)=rules() else{return;};let mut g=guest();
-        let wrapped=crate::ae2_generic_stack::wrap(&crate::ae2_generic_stack::GenericStack{
-            key:crate::ae2_cell_codec::fluid_key("minecraft:water"),fluid:true,amount:1500,
-        }).unwrap();
+        let wrapped=crate::ae2_generic_stack::wrap(&crate::ae2_generic_stack::GenericStack::fluid(crate::ae2_cell_codec::fluid_key("minecraft:water"), 1500,)).unwrap();
         let mut chest=vec![Some(wrapped.clone())];let mut drag=None;
         let mut view=View{guest:&mut g,container:Some(&mut chest),shulker:false,hidden:&[]};
         click(&mut view,&mut drag,0,0,input::PICKUP,&rules);

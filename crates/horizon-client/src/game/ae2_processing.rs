@@ -2145,7 +2145,7 @@ fn source_processing_view(pattern: &ItemStack) -> Option<Result<SourceProcessing
                 if value.amount <= 0 || value.key.item_id == "ae2:missing_content" {
                     return Err("invalid processing ingredient".into());
                 }
-                if value.fluid {
+                if value.key_type==ae2_cell_core::KeyType::FLUIDS {
                     fluids[index] = Some(PatternFluid { key: value.key, amount: value.amount as u64 });
                 } else {
                     let mut stack = horizon_client::ae2_cell_codec::prototype(&value.key)?;
@@ -2167,13 +2167,8 @@ fn source_processing_slots(items: &[Option<ItemStack>], fluids: &[Option<Pattern
     if items.len() != fluids.len() { return Err("processing slot count mismatch".into()); }
     items.iter().zip(fluids).map(|(item, fluid)| match (item, fluid) {
         (None, None) => Ok(None),
-        (Some(item), None) if item.count > 0 => Ok(Some(GenericStack {
-            key: horizon_client::ae2_cell_codec::key(item)?, fluid: false, amount: i64::from(item.count),
-        })),
-        (None, Some(fluid)) if fluid.amount > 0 => Ok(Some(GenericStack {
-            key: fluid.key.clone(), fluid: true,
-            amount: i64::try_from(fluid.amount).map_err(|_| "processing fluid amount exceeds source limit")?,
-        })),
+        (Some(item), None) if item.count > 0 => Ok(Some(GenericStack::item(horizon_client::ae2_cell_codec::key(item)?, i64::from(item.count),))),
+        (None, Some(fluid)) if fluid.amount > 0 => Ok(Some(GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).map_err(|_| "processing fluid amount exceeds source limit")?,))),
         _ => Err("invalid processing slot".into()),
     }).collect()
 }
@@ -2187,9 +2182,7 @@ fn write_source_processing(pattern: &mut ItemStack, items_in: &[Option<ItemStack
 }
 fn has_unrepresentable_fluid(values: &[Option<PatternFluid>]) -> bool {
     values.iter().flatten().any(|fluid| {
-        let generic = horizon_client::ae2_generic_stack::GenericStack {
-            key: fluid.key.clone(), fluid: true, amount: i64::try_from(fluid.amount).unwrap_or(i64::MAX),
-        };
+        let generic = horizon_client::ae2_generic_stack::GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).unwrap_or(i64::MAX),);
         !fluid.key.components.is_empty() && horizon_client::ae2_generic_stack::encode(&generic).is_err()
     })
 }

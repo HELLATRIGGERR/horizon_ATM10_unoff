@@ -504,7 +504,8 @@ impl Game<'_> {
                 view.fuzzy_card=has("ae2:fuzzy_card");
                 view.redstone_card=has("ae2:redstone_card");
                 view.crafting_card=has("ae2:crafting_card");
-                view.key_types=super::ae2_buses::bus_key_types(data);
+                let selected=super::ae2_buses::bus_key_types(data);
+                view.key_types=super::ae2_key_strategies::with_import_strategy().into_iter().take(super::ae2_part_screens::KEY_TYPES_MAX).map(|kind|selected.contains(kind)).collect();
                 if kind=="ae2:storage_bus" {view.connected=self.ae2_part_connected(pos,face);}
             }
         }
@@ -549,9 +550,10 @@ impl Game<'_> {
                 let room=state.slots();
                 for (slot,key) in state.config.iter_mut().take(room).zip(keys) {*slot=Some(key);}
             }
-            p if kind=="ae2:import_bus" && (KEY_TYPES_PLACE..KEY_TYPES_PLACE+2).contains(&p) => {
-                let next=super::ae2_buses::toggle_key_type(super::ae2_buses::bus_key_types(&data),p-KEY_TYPES_PLACE);
-                data.insert("key_types".into(),Tag::Byte(i8::from(next[0])|i8::from(next[1])<<1));
+            p if kind=="ae2:import_bus" && (KEY_TYPES_PLACE..KEY_TYPES_PLACE+super::ae2_part_screens::KEY_TYPES_MAX).contains(&p) => {
+                let Some(&kind)=super::ae2_key_strategies::with_import_strategy().get(p-KEY_TYPES_PLACE) else{return};
+                let next=super::ae2_buses::toggle_key_type(super::ae2_buses::bus_key_types(&data),kind);
+                super::ae2_buses::store_bus_key_types(&mut data,next);
             }
             _ => return,
         }
@@ -625,7 +627,7 @@ impl Game<'_> {
             let index = session.page * 36 + slot;
             if index < state.slots() {
                 let held = self.carried.as_ref();
-                let wrapped=held.map(|item|super::ae2_encoding::wrapped_ghost(item,&|id,fluid|fluid||self.res.items().get(id).is_some())).transpose();
+                let wrapped=held.map(|item|super::ae2_encoding::wrapped_ghost(item,&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()))).transpose();
                 let selected=match wrapped {
                     Ok(Some(Some(super::ae2_encoding::WrappedGhost::Fluid(fluid))))=>Some(Key::from(&fluid.key)),
                     Ok(Some(Some(super::ae2_encoding::WrappedGhost::Item(item))))=>super::ae2_lab::key(&item).ok().as_ref().map(Key::from),
@@ -1252,7 +1254,7 @@ impl Game<'_> {
             if matches!(button,2|3) && held.is_none() {
                 return true;
             }
-            let wrapped=held.map(|item|super::ae2_encoding::wrapped_ghost(item,&|id,fluid|fluid||self.res.items().get(id).is_some())).transpose();
+            let wrapped=held.map(|item|super::ae2_encoding::wrapped_ghost(item,&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()))).transpose();
             let fluid=if button==1 {held.and_then(|held|super::ae2_fluids::bucket_fluid(&held.item)).map(super::ae2_fluids::fluid_key)}else{None};
             let next=if let Some(fluid)=fluid {Some(EmitterFilter::Fluid(fluid))}else{match wrapped {
                 Ok(Some(Some(super::ae2_encoding::WrappedGhost::Fluid(fluid))))=>Some(EmitterFilter::Fluid(fluid.key)),

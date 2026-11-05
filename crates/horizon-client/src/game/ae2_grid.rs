@@ -808,7 +808,8 @@ impl Game<'_> {
         for stack in &self.ae2_grid_cells_encoded(pos)? {
             if let Ok(keys) = self.ae2_creative_cell_keys(stack) {
                 for key in keys {
-                    if let super::ae2_storage_devices::CreativeCellKey::Item(k) = key {
+                    if key.key_type == ae2_cell_core::KeyType::ITEMS {
+                        let k = key.key;
                         let n = total.entry(k).or_default();
                         *n = n
                             .checked_add(horizon_client::ae2_cell_codec::creative_cell_amount(stack))
@@ -817,7 +818,7 @@ impl Game<'_> {
                 }
             }
             if let Ok(c) = self.ae2_read_cell(stack) {
-                for (k, v) in c.entries_for(ae2_cell_core::Channel::Item) {
+                for (k, v) in c.entries_for(ae2_cell_core::KeyType::ITEMS) {
                     let n = total.entry(k.clone()).or_default();
                     *n = n.checked_add(*v).ok_or("network item count overflow")?;
                 }
@@ -1029,15 +1030,15 @@ impl Game<'_> {
             }
             for mount in cells.iter().filter(|mount|mount.priority==priority){
                 if left==0{break}
-                if self.ae2_cell_preferred(mount,&k,false)?{
-                    let (moved,updated)=self.ae2_cell_storage_change(mount,&k,left,false,true,simulate)?;left-=moved;
+                if self.ae2_cell_preferred(mount,&k,ae2_cell_core::KeyType::ITEMS)?{
+                    let (moved,updated)=self.ae2_cell_storage_change(mount,&k,left,ae2_cell_core::KeyType::ITEMS,true,simulate)?;left-=moved;
                     if let Some(updated)=updated{changes.push((mount.clone(),updated));}
                 }else{late_cells.push(mount);}
             }
             for mount in late_buses{if left==0{break}left-=self.ae2_storage_insert(mount,input,left,simulate,formation)?;}
             for mount in late_cells{
                 if left==0{break}
-                let (moved,updated)=self.ae2_cell_storage_change(mount,&k,left,false,true,simulate)?;left-=moved;
+                let (moved,updated)=self.ae2_cell_storage_change(mount,&k,left,ae2_cell_core::KeyType::ITEMS,true,simulate)?;left-=moved;
                 if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             // FormationPlane's InWorldStorage has the default nonpreferred
@@ -1192,7 +1193,7 @@ impl Game<'_> {
             }
             for mount in cells.iter().filter(|mount|mount.priority==priority){
                 if left==0{break}
-                let (moved,updated)=self.ae2_cell_storage_change(mount,k,left,false,false,false)?;left-=moved;
+                let (moved,updated)=self.ae2_cell_storage_change(mount,k,left,ae2_cell_core::KeyType::ITEMS,false,false)?;left-=moved;
                 if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             if left==0{break}

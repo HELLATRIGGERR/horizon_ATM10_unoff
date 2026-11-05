@@ -30,13 +30,21 @@ pub(super) const CLEAR_PLACE: usize = 200;
 pub(super) const PARTITION_PLACE: usize = 201;
 /// `addOpenPriorityButton`.
 pub(super) const PRIORITY_PLACE: usize = 202;
-/// An import bus's key types: items, then fluids (`KeyTypeSelection`).
+/// An import bus's key types, in the order of the types with an import
+/// strategy (`KeyTypeSelection`): items, fluids, then an addon's.
 pub(super) const KEY_TYPES_PLACE: usize = 203;
+/// The most key types the selection screen shows.
+pub(super) const KEY_TYPES_MAX: usize = 16;
 /// `KeyTypeSelectionScreen`: the generated background's width, its boxes.
 const KEY_TYPES_WIDTH: i32 = 200;
 const CHECKBOX_SIZE: i32 = 14;
 const CHECKBOX_SPACING: i32 = CHECKBOX_SIZE + 6;
-const KEY_TYPE_NAMES: [&str; 2] = ["gui.ae2.Items", "gui.ae2.Fluids"];
+/// The types an import bus selects from (`hasImportStrategyTypeFilter`).
+fn selectable_key_types() -> Vec<ae2_cell_core::KeyType> {
+    let mut types = super::ae2_key_strategies::with_import_strategy();
+    types.truncate(KEY_TYPES_MAX);
+    types
+}
 /// The menu place the toolbar's key type button stands for: no server click.
 const KEY_TYPES_BUTTON: usize = usize::MAX;
 /// `NumberEntryWidget`'s buttons from the widget's top left, in entry order:
@@ -107,8 +115,9 @@ pub(super) struct PartView {
     pub(super) connected: Option<String>,
     /// A level emitter set to a fluid: its field is in buckets.
     pub(super) fluid: bool,
-    /// An import bus's key types: items, fluids.
-    pub(super) key_types: [bool; 2],
+    /// An import bus's key types, one each of [`selectable_key_types`]:
+    /// whether it is on.
+    pub(super) key_types: Vec<bool>,
     #[serde(skip)]
     pub(super) stacks: Vec<Option<ItemStack>>,
 }
@@ -293,9 +302,9 @@ impl Game<'_> {
     }
 
     /// The boxes of `KeyTypeSelectionScreen`, in the order of the key types.
-    fn ae2_part_key_type_rects(&self, style: &ScreenStyle) -> [[i32; 4]; 2] {
+    fn ae2_part_key_type_rects(&self, style: &ScreenStyle) -> Vec<[i32; 4]> {
         let [x, y, _, _] = widget(style, "keytypes", (160, 0)).unwrap_or([10, 20, 160, 0]);
-        [0, 1].map(|i| [x, y + i * CHECKBOX_SPACING, 22, CHECKBOX_SIZE])
+        (0..selectable_key_types().len() as i32).map(|i| [x, y + i * CHECKBOX_SPACING, 22, CHECKBOX_SIZE]).collect()
     }
 
     fn ae2_part_key_types_back(&self, style: &ScreenStyle) -> [i32; 4] {
@@ -317,7 +326,8 @@ impl Game<'_> {
         }
         for (i, rect) in self.ae2_part_key_type_rects(style).into_iter().enumerate() {
             let on = v.key_types.iter().filter(|on| **on).count();
-            if inside(rect, at) && !(v.key_types[i] && on == 1) {
+            let selected = v.key_types.get(i).copied().unwrap_or(false);
+            if inside(rect, at) && !(selected && on == 1) {
                 self.audio.play_button_click();
                 self.ae2_send_menu_button((KEY_TYPES_PLACE + i) as i16, 0);
                 return true;
@@ -336,14 +346,18 @@ impl Game<'_> {
         let on = v.key_types.iter().filter(|on| **on).count();
         let boxes = Image { texture: "guis/checkbox".into(), texture_size: (64, 64), src: None };
         let mouse = [self.cursor.0 - ox, self.cursor.1 - oy];
+        let types = selectable_key_types();
         for (i, rect) in self.ae2_part_key_type_rects(style).into_iter().enumerate() {
-            let active = !(v.key_types[i] && on == 1);
+            let selected = v.key_types.get(i).copied().unwrap_or(false);
+            let active = !(selected && on == 1);
             let hover = active && inside(rect, mouse);
-            let src = [if hover { 22 } else { 0 }, if v.key_types[i] { 40 } else { 28 }, 22, 12];
+            let src = [if hover { 22 } else { 0 }, if selected { 40 } else { 28 }, 22, 12];
             let alpha = if active { 255 } else { 128 };
             self.ae2_blit_to(batch, &boxes, src, [ox + rect[0] as f32, oy + rect[1] as f32, 22.0, 12.0], rgba(255, 255, 255, alpha));
             let color = argb(style.color(if active { "DEFAULT_TEXT_COLOR" } else { "MUTED_TEXT_COLOR" }));
-            let name = self.translate(KEY_TYPE_NAMES[i], KEY_TYPE_NAMES[i]);
+            // `AEKeyType.getDescription`.
+            let description = types[i].description();
+            let name = self.translate(description, description);
             batch.text(&self.gui.atlas, &name, ox + (rect[0] + 26) as f32, oy + (rect[1] + 4) as f32, color, false);
         }
         let title = self.translate("gui.ae2.ConfigureImportedTypes", "Configure Imported Types");
@@ -696,7 +710,7 @@ impl Game<'_> {
         let key_types = self.ae2_part_key_types_open().then(|| self.ae2_part_key_types_style()).flatten().map(|s| {
             serde_json::json!({
                 "back": rect(self.ae2_part_key_types_back(s)),
-                "boxes": self.ae2_part_key_type_rects(s).map(rect),
+                "boxes": self.ae2_part_key_type_rects(s).into_iter().map(rect).collect::<Vec<_>>(),
                 "selected": v.key_types,
             })
         });
@@ -721,7 +735,7 @@ impl Game<'_> {
 /// `KeyTypeSelectionScreen.setHeight`: the boxes' top, a box for each of the
 /// two key types, and the padding.
 fn key_types_size() -> (i32, i32) {
-    (KEY_TYPES_WIDTH, 20 + KEY_TYPE_NAMES.len() as i32 * CHECKBOX_SPACING + 6)
+    (KEY_TYPES_WIDTH, 20 + selectable_key_types().len() as i32 * CHECKBOX_SPACING + 6)
 }
 
 #[cfg(test)]

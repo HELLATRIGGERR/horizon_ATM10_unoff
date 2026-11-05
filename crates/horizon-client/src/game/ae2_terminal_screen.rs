@@ -53,7 +53,11 @@ pub(super) enum Kind {
 struct Entry {
     amount: u64,
     craftable: bool,
+    /// What stands for a key of another type than items: the key wrapped
+    /// (`GenericStack.wrapInItemStack`), drawn as its type draws it.
     fluid: Option<ItemStack>,
+    /// The key's type, for its amount's units.
+    key_type: ae2_cell_core::KeyType,
 }
 
 /// The encoding panel as the server has it.
@@ -96,7 +100,8 @@ pub(super) struct RepoView {
     sort: u8,
     view: u8,
     descending: bool,
-    types: Option<[bool; 2]>,
+    /// Each registered key type, in registration order: whether it shows.
+    types: Option<Vec<bool>>,
     chest: bool,
     jobs: usize,
     panel: Option<Panel>,
@@ -348,9 +353,10 @@ fn decimal_down(value: f64, digits: usize) -> String {
     out
 }
 
-/// `AEKeyType.formatAmount(amount, SLOT)`: buckets for fluids.
+/// `AEKeyType.formatAmount(amount, SLOT)`: buckets for fluids, an addon
+/// type's own units.
 fn slot_amount(entry: &Entry, large: bool) -> String {
-    amount_text(entry.amount, entry.fluid.is_some(), large)
+    entry.key_type.format_amount(entry.amount, if large { ae2_cell_core::AmountFormat::SlotLargeFont } else { ae2_cell_core::AmountFormat::Slot })
 }
 
 fn amount_text(amount: u64, fluid: bool, large: bool) -> String {
@@ -373,18 +379,24 @@ fn parse_view(data: &[u8]) -> Option<(i64, RepoView)> {
             .take(TERMINAL_MAX_ROWS * 9)
             .map(|e| {
                 let e = e.as_array()?;
+                // [amount, craftable, a fluid's or other key's id, an addon type's id]
+                let key_type = match (e.get(2)?.as_str(), e.get(3).and_then(|t| t.as_str())) {
+                    (None, _) => ae2_cell_core::KeyType::ITEMS,
+                    (Some(_), None) => ae2_cell_core::KeyType::FLUIDS,
+                    (Some(_), Some(kind)) => ae2_cell_core::KeyType::get(kind)?,
+                };
                 let fluid = e.get(2)?.as_str().and_then(|id| {
                     let key = ae2_cell_core::ItemKey { item_id: id.to_owned(), components: Vec::new() };
-                    horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack { key, fluid: true, amount: 1 }).ok()
+                    horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack { key, key_type, amount: 1 }).ok()
                 });
-                Some(Entry { amount: e.first()?.as_u64()?, craftable: e.get(1)?.as_bool()?, fluid })
+                Some(Entry { amount: e.first()?.as_u64()?, craftable: e.get(1)?.as_bool()?, fluid, key_type })
             })
             .collect()
     });
     let extra = v.get("extra").and_then(|e| e.as_array()).map_or_else(Vec::new, |list| {
         list.iter().take(TERMINAL_MAX_ROWS * 9).map(|s| s.as_str().and_then(|s| horizon_client::item_data::parse_stack(s).ok().flatten())).collect()
     });
-    let types = v.get("types").and_then(|t| t.as_array()).and_then(|t| Some([t.first()?.as_bool()?, t.get(1)?.as_bool()?]));
+    let types = v.get("types").and_then(|t| t.as_array()).and_then(|t| t.iter().map(|on| on.as_bool()).collect::<Option<Vec<_>>>());
     let universal = v.get("universal").filter(|u| u.is_object()).map(|u| Universal {
         current: u.get("current").and_then(|c| c.as_str()).unwrap_or_default().to_owned(),
         terminals: u.get("terminals").and_then(|t| t.as_array()).map_or_else(Vec::new, |list| {
@@ -521,8 +533,8 @@ impl Game<'_> {
     }
 
     /// The key types a wireless terminal shows.
-    pub(super) fn ae2_term_key_types(&self) -> Option<[bool; 2]> {
-        self.ae2_term_view()?.types
+    pub(super) fn ae2_term_key_types(&self) -> Option<Vec<bool>> {
+        self.ae2_term_view()?.types.clone()
     }
 
     /// The stack of shown storage entry `index`: its menu place's, or what
@@ -1655,6 +1667,9 @@ impl Game<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn water_type(view: &RepoView, i: usize) -> Option<ae2_cell_core::KeyType> {
+        view.entries.get(i)?.as_ref().map(|e| e.key_type)
+    }
 
     #[test]
     fn the_view_carries_fluids_rows_past_the_places_and_the_key_type_editor() {
@@ -1662,7 +1677,7 @@ mod tests {
         let empty = horizon_client::item_data::canon_stack(None);
         let data = serde_json::json!({
             "window": 3, "row": 2, "total": 9, "overlay": true, "key_type_edit": true,
-            "entries": [[5, false, null], [2000, true, "minecraft:water"], null],
+            "entries": [[5, false, null], [2000, true, "minecraft:water"], null, [7, false, "keytypes_test:spark", "keytypes_test:unknown"]],
             "extra": [extra, empty],
             "encoding": {"mode": 1, "craftable": [0, 4]},
         });
@@ -1674,6 +1689,8 @@ mod tests {
         let water = entry(1).unwrap().fluid.as_ref().unwrap();
         assert_eq!(water.item.as_ref(), "ae2:wrapped_generic_stack");
         assert!(entry(2).is_none());
+        assert_eq!(water_type(&view, 1), Some(ae2_cell_core::KeyType::FLUIDS));
+        assert!(entry(3).is_none(), "a type this game does not have shows nothing");
         assert_eq!(view.extra.len(), 2);
         assert_eq!(view.extra[0].as_ref().map(|s| (s.item.as_ref(), s.count)), Some(("minecraft:stone", 3)));
         assert!(view.extra[1].is_none());

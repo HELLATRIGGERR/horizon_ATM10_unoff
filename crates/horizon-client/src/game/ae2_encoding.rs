@@ -8,9 +8,9 @@ use horizon_world::nbt::Tag;
 /// physical carrier; preserve both its key components and stored amount.
 #[derive(Clone,Debug,PartialEq)]
 pub(super) enum WrappedGhost {Item(ItemStack), Fluid(PatternFluid)}
-pub(super) fn wrapped_ghost(stack:&ItemStack,known:&dyn Fn(&str,bool)->bool)->Result<Option<WrappedGhost>,String> {
+pub(super) fn wrapped_ghost(stack:&ItemStack,known:&dyn Fn(&str,ae2_cell_core::KeyType)->bool)->Result<Option<WrappedGhost>,String> {
     let Some(value)=horizon_client::ae2_generic_stack::unwrap_item_stack_checked(stack,known)? else{return Ok(None);};
-    if value.fluid {return Ok(Some(WrappedGhost::Fluid(PatternFluid{key:value.key,amount:value.amount.max(0) as u64})));}
+    if value.key_type==ae2_cell_core::KeyType::FLUIDS {return Ok(Some(WrappedGhost::Fluid(PatternFluid{key:value.key,amount:value.amount.max(0) as u64})));}
     let mut item=horizon_client::ae2_cell_codec::prototype(&value.key)?;
     item.count=value.amount.clamp(1,i64::from(i32::MAX)) as u32;
     Ok(Some(WrappedGhost::Item(item)))
@@ -18,7 +18,7 @@ pub(super) fn wrapped_ghost(stack:&ItemStack,known:&dyn Fn(&str,bool)->bool)->Re
 
 /// Decode the carried stack once. The boolean records whether its configured
 /// quantity came from a wrapped stack rather than its physical carrier count.
-pub(super) fn cursor_ghost(stack:Option<&ItemStack>,known:&dyn Fn(&str,bool)->bool)->Result<Option<(WrappedGhost,bool)>,String> {
+pub(super) fn cursor_ghost(stack:Option<&ItemStack>,known:&dyn Fn(&str,ae2_cell_core::KeyType)->bool)->Result<Option<(WrappedGhost,bool)>,String> {
     let Some(stack)=stack else{return Ok(None)};
     Ok(Some(match wrapped_ghost(stack,known)? {
         Some(value)=>(value,true),
@@ -225,13 +225,13 @@ mod tests {
     fn wrapped_ghosts_preserve_inner_identity_amount_and_components() {
         let component=Tag::compound([("minecraft:custom_data",Tag::compound([("variant",Tag::String("warm".into()))]))]);
         let bytes=horizon_world::nbt::write_network(&component,horizon_world::nbt::Limits::default()).unwrap();
-        let value=horizon_client::ae2_generic_stack::GenericStack{key:ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components:bytes},fluid:true,amount:1750};
+        let value=horizon_client::ae2_generic_stack::GenericStack::fluid(ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components:bytes},1750);
         let physical=horizon_client::ae2_generic_stack::wrap(&value).unwrap();
         assert_eq!(wrapped_ghost(&physical,&|_,_|true).unwrap(),Some(WrappedGhost::Fluid(PatternFluid{key:value.key,amount:1750})));
         assert_eq!(physical.count,1);
         let mut physical_item=ItemStack::new("minecraft:oak_log",1);physical_item.data_mut().custom_name=Some(horizon_client::item_data::text_name("marked"));
         let key=horizon_client::ae2_cell_codec::key(&physical_item).unwrap();
-        let wrapped=horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack{key,fluid:false,amount:5}).unwrap();
+        let wrapped=horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack::item(key, 5)).unwrap();
         physical_item.count=5;assert_eq!(wrapped_ghost(&wrapped,&|_,_|true).unwrap(),Some(WrappedGhost::Item(physical_item.clone())));
         let mut state=EncodingState::default();state.inputs[0]=Some(physical_item);
         state.fluid_inputs[1]=Some(PatternFluid{key:ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components:vec![]},amount:1750});

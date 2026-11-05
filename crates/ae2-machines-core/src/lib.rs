@@ -1,20 +1,29 @@
 // Derived from AE2 1.21.1, db17504a86128fdf3dae31f5fb7a112a646e0b93.
 // Copyright (c) 2021 TeamAppliedEnergistics. LGPL-3.0-or-later; see LICENSE.
-use ae2_cell_core::ItemKey;
+use ae2_cell_core::{ItemKey, KeyType};
 use serde::{Deserialize, Serialize};
 
 pub mod stored_energy;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Channel {
-    Item,
-    Fluid,
-}
-impl Channel {
-    pub fn amount_per_operation(self) -> u64 {
-        match self {
-            Self::Item => 1,
-            Self::Fluid => 125,
+/// A bus state's key type in its saved JSON: `"Item"` and `"Fluid"` for
+/// AE2's two, as the port wrote them before the key-type registry, and a
+/// registered type's id for any other.
+mod key_type_json {
+    use ae2_cell_core::KeyType;
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(kind: &KeyType, out: S) -> Result<S::Ok, S::Error> {
+        out.serialize_str(match *kind {
+            KeyType::ITEMS => "Item",
+            KeyType::FLUIDS => "Fluid",
+            other => other.id(),
+        })
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(input: D) -> Result<KeyType, D::Error> {
+        let name = String::deserialize(input)?;
+        match name.as_str() {
+            "Item" => Ok(KeyType::ITEMS),
+            "Fluid" => Ok(KeyType::FLUIDS),
+            id => KeyType::get(id).ok_or_else(|| serde::de::Error::custom(format!("unknown key type {id}"))),
         }
     }
 }
@@ -105,7 +114,8 @@ pub trait TransferHost {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BusState {
-    pub channel: Channel,
+    #[serde(with = "key_type_json")]
+    pub channel: KeyType,
     pub config: Vec<Option<Key>>,
     pub speed_cards: u8,
     pub capacity_cards: u8,
@@ -126,7 +136,7 @@ fn one() -> u64 {
     1
 }
 impl BusState {
-    pub fn new(channel: Channel) -> Self {
+    pub fn new(channel: KeyType) -> Self {
         Self {
             channel,
             config: vec![None; 63],
@@ -316,7 +326,7 @@ impl BusState {
 }
 /// AE2 StorageHelper powered extraction affordability. Host must additionally
 /// debit the corresponding AE power atomically and apply its configured multiplier.
-pub fn powered_export_limit(retrieved: u64, available_ae: f64, channel: Channel) -> u64 {
+pub fn powered_export_limit(retrieved: u64, available_ae: f64, channel: KeyType) -> u64 {
     let factor = channel.amount_per_operation() as f64;
     ((available_ae.max(0.0) * factor + 0.9) as u64).min(retrieved)
 }
@@ -450,6 +460,14 @@ pub fn annihilation_tick(
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+    #[test]
+    fn saved_bus_states_keep_their_channel_names() {
+        let json = serde_json::to_string(&BusState::new(KeyType::ITEMS)).unwrap();
+        assert!(json.contains("\"channel\":\"Item\""), "{json}");
+        let fluid = json.replace("\"Item\"", "\"Fluid\"");
+        assert_eq!(serde_json::from_str::<BusState>(&fluid).unwrap().channel, KeyType::FLUIDS);
+        assert!(serde_json::from_str::<BusState>(&json.replace("\"Item\"", "\"nope:x\"")).is_err());
+    }
     fn k(id: &str) -> Key {
         Key {
             id: id.into(),
@@ -533,7 +551,7 @@ mod tests {
                 self.0.transfer_atomic(d, key, limit)
             }
         }
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         bus.speed_cards = 1;
         let mut import = Mixed(Host::default());
         import.0.outside.insert(k("diamond"), 3);
@@ -590,7 +608,7 @@ mod tests {
             indices: [1, 0, 1].into(),
             seen: Vec::new(),
         };
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         bus.schedule = Schedule::Random;
         bus.config.truncate(3);
         bus.config[0] = Some(k("a"));
@@ -646,7 +664,7 @@ mod tests {
             only: false,
         };
         host.inner.network.insert(k("available"), 3);
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         bus.speed_cards = 1;
         bus.config[0] = Some(k("available"));
         bus.config[1] = Some(k("missing"));
@@ -694,7 +712,7 @@ mod tests {
                 Ok(0)
             }
         }
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         bus.schedule = Schedule::RoundRobin;
         bus.fuzzy = true;
         bus.config[0] = Some(k("blocked"));
@@ -716,7 +734,7 @@ mod tests {
         let mut host = Host::default();
         host.outside.insert(k("a"), 100);
         host.outside.insert(k("b"), 100);
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         bus.speed_cards = 1;
         bus.config[0] = Some(k("b"));
         assert_eq!(
@@ -741,7 +759,7 @@ mod tests {
         let mut host = Host::default();
         host.network.insert(k("a"), 10);
         host.network.insert(k("b"), 10);
-        let mut bus = BusState::new(Channel::Item);
+        let mut bus = BusState::new(KeyType::ITEMS);
         bus.config[0] = Some(k("a"));
         bus.config[1] = Some(k("b"));
         bus.schedule = Schedule::RoundRobin;
@@ -816,10 +834,10 @@ mod tests {
     fn fluid_factor_storage_filter_and_emitter_boundary() {
         let mut host = Host::default();
         host.outside.insert(k("water"), 1000);
-        let mut bus = BusState::new(Channel::Fluid);
+        let mut bus = BusState::new(KeyType::FLUIDS);
         bus.tick(Direction::Import, true, true, &mut host).unwrap();
         assert_eq!(host.network.get(&k("water")), Some(&125));
-        assert_eq!(powered_export_limit(1000, 2.0, Channel::Fluid), 250);
+        assert_eq!(powered_export_limit(1000, 2.0, KeyType::FLUIDS), 250);
         let mut storage = StorageBus {
             priority: 0,
             access: Access::ReadWrite,

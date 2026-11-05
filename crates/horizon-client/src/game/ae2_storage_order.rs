@@ -1,6 +1,6 @@
 //! AE2 storage priority and physical cell mounts shared by item/fluid routing.
-use super::{Game,ae2_global::GridAddress,ae2_lab,ae2_fluids};
-use ae2_cell_core::ItemKey;
+use super::{Game,ae2_global::GridAddress};
+use ae2_cell_core::{ItemKey,KeyType,TypedKey};
 use horizon_client::{ae2_world::MachineKind,containers::BlockEntity,items::ItemStack};
 use horizon_world::nbt::Tag;
 
@@ -82,11 +82,10 @@ impl Game<'_> {
         }
         self.ae2_mark_modified(mount.address);
     }
-    pub(super) fn ae2_cell_preferred(&self,mount:&CellMount,key:&ItemKey,fluid:bool)->Result<bool,String>{
+    pub(super) fn ae2_cell_preferred(&self,mount:&CellMount,key:&ItemKey,kind:KeyType)->Result<bool,String>{
         let stack=self.ae2_mounted_cell_stack(mount)?;
         if let Ok(keys)=self.ae2_creative_cell_keys(&stack){
-            let key=if fluid{super::ae2_storage_devices::CreativeCellKey::Fluid(key.clone())}else{super::ae2_storage_devices::CreativeCellKey::Item(key.clone())};
-            return Ok(keys.contains(&key));
+            return Ok(keys.contains(&TypedKey::new(kind,key.clone())));
         }
         // DriveWatcher is an MEInventoryHandler: its simulated extraction
         // makes existing keys preferred. ME Chest's ChestMonitorHandler is
@@ -96,13 +95,10 @@ impl Game<'_> {
         // An addon handler's cell: the chest's delegating wrapper asks the
         // cell; a DriveWatcher asks it after its simulated extraction, which
         // finds nothing the cell would not prefer (MEGA's bulk cell).
-        if let Some(cell)=self.ae2x_handler_cell(&stack){return Ok(!fluid && cell.is_ok_and(|cell|cell.is_preferred_storage_for(key)))}
+        if let Some(cell)=self.ae2x_handler_cell(&stack){return Ok(kind==KeyType::ITEMS && cell.is_ok_and(|cell|cell.is_preferred_storage_for(key)))}
         if mount.kind!=MachineKind::Drive && mount.part.is_none(){return Ok(false)}
         let cell=self.ae2_read_cell(&stack);
-        Ok(cell.is_ok_and(|cell| {
-            let primary=(cell.config().channel==ae2_cell_core::Channel::Fluid)==fluid;
-            if primary {cell.count(key)>0} else {cell.other_count(key)>0}
-        }))
+        Ok(cell.is_ok_and(|cell|cell.count_of(kind,key)>0))
     }
     pub(super) fn ae2_item_bus_preferred(&mut self,mount:&super::ae2_buses::StorageMount,key:&ItemKey)->Result<bool,String>{
         let mut delegate=mount.clone();delegate.access=ae2_machines_core::Access::ReadWrite;
@@ -116,17 +112,16 @@ impl Game<'_> {
     }
     /// One physical cell operation. Only the enclosing transaction commits the
     /// returned stack; simulation never mutates the original item or power.
-    pub(super) fn ae2_cell_storage_change(&self,mount:&CellMount,key:&ItemKey,amount:u64,fluid:bool,insert:bool,simulate:bool)->Result<(u64,Option<ItemStack>),String>{
-        use ae2_cell_core::{Action,Channel};
+    pub(super) fn ae2_cell_storage_change(&self,mount:&CellMount,key:&ItemKey,amount:u64,kind:KeyType,insert:bool,simulate:bool)->Result<(u64,Option<ItemStack>),String>{
+        use ae2_cell_core::Action;
         if amount==0{return Ok((0,None))}
         let stack=self.ae2_mounted_cell_stack(mount)?;
         if let Ok(keys)=self.ae2_creative_cell_keys(&stack){
-            let wanted=if fluid{super::ae2_storage_devices::CreativeCellKey::Fluid(key.clone())}else{super::ae2_storage_devices::CreativeCellKey::Item(key.clone())};
-            return Ok((if keys.contains(&wanted){amount}else{0},None))
+            return Ok((if keys.contains(&TypedKey::new(kind,key.clone())){amount}else{0},None))
         }
         if let Some(cell)=self.ae2x_handler_cell(&stack){
             let Ok(mut cell)=cell else{return Ok((0,None))};
-            if fluid{return Ok((0,None))}
+            if kind!=KeyType::ITEMS{return Ok((0,None))}
             let action=if simulate{Action::Simulate}else{Action::Modulate};
             let moved=if insert{cell.insert(key,amount,action)}else{cell.extract(key,amount,action)};
             let updated=if moved>0&&!simulate{let mut updated=stack;cell.store(&mut updated)?;Some(updated)}else{None};
@@ -134,15 +129,17 @@ impl Game<'_> {
         }
         let cell=self.ae2_read_cell(&stack);
         let Ok(mut cell)=cell else{return Ok((0,None))};
-        let primary=(cell.config().channel==Channel::Fluid)==fluid;
+        // `BasicCellInventory.insert` takes only its own type; extraction
+        // reaches the stored keys of any type.
+        let primary=cell.config().key_type==kind;
         if insert && !primary{return Ok((0,None))}
         let action=if simulate{Action::Simulate}else{Action::Modulate};
         let moved=if insert{
-            if fluid{cell.insert(key,amount,action)}else{self.ae2_cell_insert(&mut cell,key,amount,action)}
-        }else if primary {cell.extract(key,amount,action)}else{cell.extract_other(key,amount,action)};
+            if kind==KeyType::ITEMS{self.ae2_cell_insert(&mut cell,key,amount,action)}else{cell.insert(key,amount,action)}
+        }else{cell.extract_of(kind,key,amount,action)};
         let updated=if moved>0&&!simulate{
             let mut updated=stack;
-            if cell.config().channel==Channel::Fluid{ae2_fluids::write_fluid_cell(&mut updated,&cell)?;}else{ae2_lab::write_cell(&mut updated,&cell)?;}
+            horizon_client::ae2_cell_codec::write_any_cell(&mut updated,&cell)?;
             Some(updated)
         }else{None};
         Ok((moved,updated))

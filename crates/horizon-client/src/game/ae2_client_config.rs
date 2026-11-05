@@ -88,11 +88,11 @@ fn parse(text: &str) -> Result<ClientSettings, String> {
 #[derive(Debug)]
 pub(super) struct CellPreview {
     pub upgrades: Vec<horizon_client::items::ItemStack>,
-    pub entries: Vec<(ae2_cell_core::ItemKey,u64,ae2_cell_core::Channel)>,
+    pub entries: Vec<(ae2_cell_core::ItemKey,u64,ae2_cell_core::KeyType)>,
     pub has_more: bool,
 }
 pub(super) fn cell_preview(stack:&horizon_client::items::ItemStack, settings:ClientSettings) -> Option<CellPreview> {
-    use ae2_cell_core::{Channel,FilterMode};
+    use ae2_cell_core::{KeyType,FilterMode};
     use horizon_client::{ae2_cell_codec as codec,ae2_upgrade_inventory};
     use horizon_world::nbt::Tag;
     let id=stack.item.as_ref();
@@ -106,11 +106,11 @@ pub(super) fn cell_preview(stack:&horizon_client::items::ItemStack, settings:Cli
     } else {Vec::new()};
     let mut entries=Vec::new();
     if settings.show_cell_content {
-        for channel in [Channel::Item,Channel::Fluid] {
+        for channel in [KeyType::ITEMS,KeyType::FLUIDS] {
             entries.extend(cell.entries_for(channel).map(|(key,n)|(key.clone(),*n,channel)));
         }
         if let Some(filter)=cell.config().filter.as_ref().filter(|f|f.mode==FilterMode::Whitelist) {
-            let channel=cell.config().channel;
+            let channel=cell.config().key_type;
             for key in &filter.keys {
                 if !entries.iter().any(|(existing,_,kind)|existing==key && *kind==channel) {entries.push((key.clone(),0,channel));}
             }
@@ -127,7 +127,7 @@ impl super::Game<'_> {
     /// content as `StorageCellTooltipComponent` takes them.
     pub(super) fn ae2_handler_cell_preview(&self, stack:&horizon_client::items::ItemStack, settings:ClientSettings) -> Option<CellPreview> {
         let (upgrades,content)=self.ae2x_cell_preview(stack,settings.show_cell_upgrades,settings.show_cell_content)?;
-        let mut entries:Vec<_>=content.into_iter().map(|(key,n)|(key,n,ae2_cell_core::Channel::Item)).collect();
+        let mut entries:Vec<_>=content.into_iter().map(|(key,n)|(key,n,ae2_cell_core::KeyType::ITEMS)).collect();
         let has_more=entries.len()>settings.max_cell_content_shown;
         entries.truncate(settings.max_cell_content_shown);
         Some(CellPreview {upgrades,entries,has_more})
@@ -221,7 +221,7 @@ mod tests {
     }
     #[test]
     fn preview_keeps_each_mixed_content_channel() {
-        use ae2_cell_core::Channel;
+        use ae2_cell_core::KeyType;
         use horizon_client::items::ItemStack;
         use horizon_world::nbt::Tag;
         let mut stack=ItemStack::new("ae2:item_storage_cell_1k",1);
@@ -229,8 +229,8 @@ mod tests {
         let fluid=Tag::compound([("#t",Tag::String("ae2:f".into())),("id",Tag::String("minecraft:water".into())),("#",Tag::Long(1000))]);
         stack.data_mut().set_other("ae2:storage_cell_inv",Some(Tag::List(vec![item,fluid])));
         let preview=cell_preview(&stack,ClientSettings::default()).unwrap();
-        assert!(preview.entries.iter().any(|(key,n,channel)|key.item_id=="minecraft:diamond" && *n==3 && *channel==Channel::Item));
-        assert!(preview.entries.iter().any(|(key,n,channel)|key.item_id=="minecraft:water" && *n==1000 && *channel==Channel::Fluid));
+        assert!(preview.entries.iter().any(|(key,n,channel)|key.item_id=="minecraft:diamond" && *n==3 && *channel==KeyType::ITEMS));
+        assert!(preview.entries.iter().any(|(key,n,channel)|key.item_id=="minecraft:water" && *n==1000 && *channel==KeyType::FLUIDS));
     }
     #[test]
     fn preview_limits_and_switches_preserve_actual_cell_contents() {

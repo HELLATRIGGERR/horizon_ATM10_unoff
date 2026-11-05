@@ -105,7 +105,7 @@ impl Game<'_> {
     /// stack, its stored item's id checked against the game's items.
     pub(in crate::game) fn megacells_bulk_cell(&self, stack: &ItemStack) -> Result<BulkStack, String> {
         let chains = self.megacells_chains();
-        let known = |id: &str, fluid: bool| self.ae2_known_cell_key(id, fluid);
+        let known = |id: &str, kind: ae2_cell_core::KeyType| self.ae2_known_cell_key(id, kind);
         Ok(BulkStack { cell: rows::bulk_cell(stack, &chains, &known)? })
     }
 
@@ -174,7 +174,7 @@ pub(in crate::game) mod tests {
     #[test]
     fn the_bulk_cell_keeps_its_count_in_megas_components() {
         horizon_client::ae2x::install();
-        let known = |_: &str, _: bool| true;
+        let known = |_: &str, _: ae2_cell_core::KeyType| true;
         let cobble = key("minecraft:cobblestone");
         let mut stack = bulk(Some("minecraft:cobblestone"));
         let mut cell = rows::bulk_cell(&stack, &Chains::default(), &known).unwrap();
@@ -240,7 +240,7 @@ pub(in crate::game) mod tests {
     #[test]
     fn the_tooltip_follows_append_hover_text() {
         use horizon_client::text::{GRAY, YELLOW};
-        let known = |_: &str, _: bool| true;
+        let known = |_: &str, _: ae2_cell_core::KeyType| true;
         let empty = rows::bulk_cell(&bulk(None), &Chains::default(), &known).unwrap();
         let expected: Vec<(String, Option<u32>)> = ["Empty", "NotPartitioned", "Compression"].iter().map(|key| (key.to_string(), Some(GRAY))).collect();
         assert_eq!(lines(&empty), expected);

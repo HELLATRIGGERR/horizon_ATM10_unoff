@@ -174,9 +174,14 @@ impl Config {
             }
         })
     }
-    /// `ServerConfig.allowsExport` of an item or fluid key.
-    pub fn allows_export(&self, id: &str, fluid: bool) -> bool {
-        let blocked = if fluid { &self.blocked_fluids } else { &self.blocked_items };
+    /// `ServerConfig.allowsExport` of a key: its id on the blocked items or
+    /// fluids; a key of another type is never blocked.
+    pub fn allows_export(&self, id: &str, kind: ae2_cell_core::KeyType) -> bool {
+        let blocked = match kind {
+            ae2_cell_core::KeyType::ITEMS => &self.blocked_items,
+            ae2_cell_core::KeyType::FLUIDS => &self.blocked_fluids,
+            _ => return true,
+        };
         !blocked.iter().any(|b| b == id)
     }
 }
@@ -331,7 +336,7 @@ pub fn cycle_fuzzy_mode(card: &mut ItemStack, backwards: bool) -> FuzzyMode {
 /// matches nothing, so without the inverter nothing passes.
 pub fn passes_filter(what: &GenericStack, filter: &[Option<GenericStack>], fuzzy: bool, invert: bool, fuzzy_equals: impl Fn(&GenericStack, &GenericStack) -> bool) -> bool {
     let matches = filter.iter().flatten().any(|entry| {
-        entry.fluid == what.fluid
+        entry.key_type == what.key_type
             && entry.key.item_id == what.key.item_id
             && if fuzzy { fuzzy_equals(what, entry) } else { entry.key == what.key }
     });
@@ -414,7 +419,7 @@ mod tests {
     use super::*;
 
     fn item(id: &str) -> GenericStack {
-        GenericStack { key: crate::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap(), fluid: false, amount: 0 }
+        GenericStack::item(crate::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap(), 0)
     }
 
     #[test]
@@ -446,8 +451,8 @@ mod tests {
         assert!(!config.allow_energy_export);
         assert_eq!(config.blocked_items, ["minecraft:diamond"]);
         assert!(config.blocked_fluids.is_empty());
-        assert!(!config.allows_export("minecraft:diamond", false));
-        assert!(config.allows_export("minecraft:diamond", true), "the fluids' list is another");
+        assert!(!config.allows_export("minecraft:diamond", ae2_cell_core::KeyType::ITEMS));
+        assert!(config.allows_export("minecraft:diamond", ae2_cell_core::KeyType::FLUIDS), "the fluids' list is another");
     }
 
     #[test]
@@ -509,7 +514,7 @@ mod tests {
         named.key.components = vec![1, 2];
         assert!(!passes_filter(&named, &filter, false, false, never), "components count without the Fuzzy Card");
         assert!(passes_filter(&named, &filter, true, false, |_, _| true));
-        let fluid = GenericStack { fluid: true, ..cobble.clone() };
+        let fluid = GenericStack { key_type: ae2_cell_core::KeyType::FLUIDS, ..cobble.clone() };
         assert!(!passes_filter(&fluid, &filter, false, false, never), "a fluid is not the item");
     }
 

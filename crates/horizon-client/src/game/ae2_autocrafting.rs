@@ -1361,8 +1361,8 @@ mod recursive {
                 .component;
             let mut registry = ExtendedRegistry::default();
             registry.set_resource_classifier(|key| {
-                if parse_fluid(key).is_some() {ae2_crafting_core::extended::ResourceKind::Fluid}
-                else {ae2_crafting_core::extended::ResourceKind::Item}
+                if parse_fluid(key).is_some() {ae2_crafting_core::extended::KeyType::FLUIDS}
+                else {ae2_crafting_core::extended::KeyType::ITEMS}
             });
             if super::super::ae2_event_live::cpu_formation_enabled() {
                 registry.set_emittable(self.ae2_crafting_emittable_keys(pos)?)

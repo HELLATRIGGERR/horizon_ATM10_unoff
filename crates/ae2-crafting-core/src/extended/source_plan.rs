@@ -705,7 +705,7 @@ mod tests {
         let mut seed=0x4a17e2_u64;
         for case in 0..800 {
             let mut registry=Registry::default();
-            if rng(&mut seed)%2==0 {registry.set_resource_classifier(|key|if key=="k5"{ResourceKind::Fluid}else{ResourceKind::Item});}
+            if rng(&mut seed)%2==0 {registry.set_resource_classifier(|key|if key=="k5"{KeyType::FLUIDS}else{KeyType::ITEMS});}
             if rng(&mut seed)%3==0 {registry.set_emittable([format!("k{}",rng(&mut seed)%6)]).unwrap();}
             let count=3+(rng(&mut seed)%5) as usize;
             for index in 0..count {
@@ -785,7 +785,7 @@ mod tests {
     }
     #[test]
     fn fluid_template_is_primary_and_can_fall_back_to_a_real_bucket() {
-        let classify=|key:&str|if key=="water" {ResourceKind::Fluid}else{ResourceKind::Item};
+        let classify=|key:&str|if key=="water" {KeyType::FLUIDS}else{KeyType::ITEMS};
         let fluid_input=SourceInput{encoded:"water_bucket".into(),primary:"water".into(),remaining:BTreeMap::new()};
         let mut only=Registry::default();only.set_resource_classifier(classify);
         only.register(Pattern{id:"only".into(),inputs:vec![Ingredient{choices:inv(&[("water",1000)])}],outputs:inv(&[("result",1)])}).unwrap();

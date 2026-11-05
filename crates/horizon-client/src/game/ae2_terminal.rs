@@ -1,6 +1,7 @@
 //! Local ME terminal: virtual views of authoritative drive-cell storage.
 //! No display stack is ever stored in a block entity or treated as an item.
 use super::{Game, ae2_lab};
+use ae2_cell_core::{KeyType, KeyTypeSet, TypedKey};
 use horizon_client::{items::ItemStack, menu::Input, text::Text};
 use horizon_protocol::packets::play::{self, Clientbound as C};
 use horizon_world::nbt::Tag;
@@ -97,7 +98,7 @@ mod terminal_view_tests {
 fn terminal_stack_key(stack:&ItemStack)->Option<ae2_cell_core::ItemKey> {
     if stack.item.as_ref()=="ae2:wrapped_generic_stack" {
         let wrapped=horizon_client::ae2_generic_stack::unwrap_item_stack(stack).ok()??;
-        return Some(if wrapped.fluid {fluid_marker(&wrapped.key)} else {wrapped.key});
+        return Some(key_marker(wrapped.key_type,&wrapped.key));
     }
     horizon_client::ae2_cell_codec::key(stack).ok()
 }
@@ -127,10 +128,10 @@ pub(in crate::game) fn navigation(label: &str) -> ItemStack {
 fn encoding_item_icon(item:&ItemStack,max:u32)->Option<ItemStack> {
     if item.count<=max.max(1) {return Some(item.clone());}
     let key=horizon_client::ae2_cell_codec::key(item).ok()?;
-    horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack{key,fluid:false,amount:i64::from(item.count)}).ok()
+    horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack::item(key, i64::from(item.count))).ok()
 }
 fn encoding_fluid_icon(fluid:&super::ae2_processing::PatternFluid)->Option<ItemStack> {
-    let value=horizon_client::ae2_generic_stack::GenericStack{key:fluid.key.clone(),fluid:true,amount:i64::try_from(fluid.amount).ok()?};
+    let value=horizon_client::ae2_generic_stack::GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).ok()?);
     horizon_client::ae2_generic_stack::wrap(&value).ok().or_else(||{
         let id=super::ae2_fluids::fluid_bucket(&fluid.key.item_id).unwrap_or("minecraft:bucket");
         let mut item=ItemStack::new(id,1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("{} mB {}",fluid.amount,fluid.key.item_id)));Some(item)
@@ -158,6 +159,27 @@ fn fluid_marker(key: &ae2_cell_core::ItemKey) -> ae2_cell_core::ItemKey {
         item_id: format!("horizon:crafting_fluid/{}", key.item_id),
         components: key.components.clone(),
     }
+}
+/// The terminal lists every key under one id: an item as itself, a fluid as
+/// `horizon:crafting_fluid/<id>`, a key of an addon's type as
+/// `horizon:key/<type id>|<id>`; the components stay the key's own.
+fn key_marker(kind: KeyType, key: &ae2_cell_core::ItemKey) -> ae2_cell_core::ItemKey {
+    match kind {
+        KeyType::ITEMS => key.clone(),
+        KeyType::FLUIDS => fluid_marker(key),
+        other => horizon_client::ae2_key_types::addon_marker(other, key),
+    }
+}
+/// The key a listed id stands for, with its type.
+fn marker_key(key: &ae2_cell_core::ItemKey) -> TypedKey {
+    if let Some(fluid) = marker_fluid(key) {
+        return TypedKey::fluid(fluid);
+    }
+    horizon_client::ae2_key_types::parse_addon_marker(key).unwrap_or_else(|| TypedKey::item(key.clone()))
+}
+/// A listed id that stands for an item.
+fn is_item_marker(key: &ae2_cell_core::ItemKey) -> bool {
+    marker_key(key).key_type == KeyType::ITEMS
 }
 fn marker_fluid(key: &ae2_cell_core::ItemKey) -> Option<ae2_cell_core::ItemKey> {
     Some(ae2_cell_core::ItemKey {
@@ -229,7 +251,8 @@ fn terminal_filter_entries(
             (namespace.to_lowercase(), name.to_lowercase())
         });
     } else if sort == 1 {
-        let units=|(key,amount):&(ae2_cell_core::ItemKey,u64)|*amount as f64 / if marker_fluid(key).is_some(){1000.0}else{1.0};
+        // Repo's AMOUNT order compares the amounts in units (`getAmountPerUnit`).
+        let units=|(key,amount):&(ae2_cell_core::ItemKey,u64)|*amount as f64 / marker_key(key).key_type.amount_per_unit() as f64;
         out.sort_by(|a,b|units(a).total_cmp(&units(b)));
     } else {
         out.sort_by_cached_key(|(key,_)|display_name(key).to_lowercase());
@@ -240,16 +263,26 @@ fn terminal_filter_entries(
     out
 }
 fn terminal_key_types(
-    entries:&[(ae2_cell_core::ItemKey,u64)], enabled:(bool,bool),
+    entries:&[(ae2_cell_core::ItemKey,u64)], enabled:KeyTypeSet,
 ) -> Vec<(ae2_cell_core::ItemKey,u64)> {
-    entries.iter().filter(|(key,_)|if marker_fluid(key).is_some(){enabled.1}else{enabled.0}).cloned().collect()
+    entries.iter().filter(|(key,_)|enabled.contains(marker_key(key).key_type)).cloned().collect()
 }
-fn wireless_key_types(host:&super::lan::LanHost,conn:u32,ctx:Option<&super::ae2_wireless::WirelessContext>)->(bool,bool) {
-    let Some(ctx)=ctx else{return (true,true);};
+fn wireless_key_types(host:&super::lan::LanHost,conn:u32,ctx:Option<&super::ae2_wireless::WirelessContext>)->KeyTypeSet {
+    let Some(ctx)=ctx else{return KeyTypeSet::all();};
     host.hub.guests.iter().find(|guest|guest.conn==conn)
         .and_then(|guest|toolbox_stack(guest,ctx.source))
         .and_then(|stack|super::ae2_wireless::enabled_key_types(stack).ok())
-        .unwrap_or((false,false))
+        .unwrap_or(KeyTypeSet::EMPTY)
+}
+/// The visible types' label: AE2's two by their old names, others by
+/// their descriptions (`AEKeyType.getDescription`).
+fn key_types_label(enabled:KeyTypeSet,describe:&dyn Fn(KeyType)->String)->String {
+    let (items,fluids)=(KeyType::ITEMS,KeyType::FLUIDS);
+    if enabled==KeyTypeSet::of(&[items,fluids]) {return "Items and fluids".into();}
+    if enabled==KeyTypeSet::of(&[items]) {return "Items".into();}
+    if enabled==KeyTypeSet::of(&[fluids]) {return "Fluids".into();}
+    if enabled.is_empty() {return "None".into();}
+    enabled.iter().map(describe).collect::<Vec<_>>().join(", ")
 }
 /// Repo.addEntriesToView places pinned keys in a separate first row, ahead of
 /// search and view filters. Repeat that row on each native page and reserve
@@ -357,10 +390,14 @@ pub(super) fn ae2_hand_menu_kind(kind:horizon_client::ae2_world::MachineKind)->b
 }
 impl Game<'_> {
     fn ae2_terminal_display_name(&self,key:&ae2_cell_core::ItemKey,language:&horizon_client::lang::Language)->String {
-        let fluid=marker_fluid(key);
-        let id=fluid.as_ref().map_or(key.item_id.as_str(),|fluid|fluid.item_id.as_str());
+        let typed=marker_key(key);
+        let id=typed.key.item_id.as_str();
         let (namespace,path)=id.split_once(':').unwrap_or(("minecraft",id));
-        if let Some(stack)=fluid.is_none().then(||ae2_lab::prototype(key).ok()).flatten() {
+        if typed.key_type!=KeyType::ITEMS && typed.key_type!=KeyType::FLUIDS {
+            // An addon's key: its id's item or plain name.
+            return language.get(&format!("item.{namespace}.{path}")).map(str::to_owned).unwrap_or_else(||path.replace('_'," "));
+        }
+        if let Some(stack)=(typed.key_type==KeyType::ITEMS).then(||ae2_lab::prototype(key).ok()).flatten() {
             let text=stack.custom_name_component().map(|tag|horizon_protocol::text::plain(tag,language.map()))
                 .or_else(||stack.custom_name())
                 .or_else(||stack.data().and_then(|data|data.other("minecraft:item_name")).map(|tag|horizon_protocol::text::plain(tag,language.map())))
@@ -374,11 +411,12 @@ impl Game<'_> {
     }
     fn ae2_terminal_search_matches(&self,key:&ae2_cell_core::ItemKey,query:&str,include_mod:bool,language:&horizon_client::lang::Language)->bool {
         if query.trim().is_empty() {return true;}
-        let fluid=marker_fluid(key);
-        let id=fluid.as_ref().map_or(key.item_id.as_str(),|fluid|fluid.item_id.as_str());
+        let typed=marker_key(key);
+        let fluid=(typed.key_type==KeyType::FLUIDS).then_some(&typed.key);
+        let id=typed.key.item_id.as_str();
         let (namespace,_path)=id.split_once(':').unwrap_or(("minecraft",id));
         let mod_name=match namespace {"minecraft"=>"Minecraft","ae2"=>"Applied Energistics 2",other=>other};
-        let stack=if fluid.is_none() {ae2_lab::prototype(key).ok()}else{None};
+        let stack=if typed.key_type==KeyType::ITEMS {ae2_lab::prototype(key).ok()}else{None};
         let display=self.ae2_terminal_display_name(key,language);
         let mut tooltip=display.clone();
         if query.contains('$') {
@@ -396,7 +434,7 @@ impl Game<'_> {
             }
             if include_mod {tooltip.push('\n');tooltip.push_str(mod_name);}
         }
-        let tags=if query.contains('#') {
+        let tags=if query.contains('#') && matches!(typed.key_type,KeyType::ITEMS|KeyType::FLUIDS) {
             let all=if fluid.is_some() {&self.res.recipes().fluid_tags}else{&self.res.items().item_tags};
             all.iter().filter(|(_,values)|values.contains(id)).map(|(tag,_)|tag.clone()).collect::<Vec<_>>()
         }else{Vec::new()};
@@ -408,9 +446,9 @@ impl Game<'_> {
     fn ae2_view_permits(&self,key:&ae2_cell_core::ItemKey,part:Option<super::ae2_parts::PartAddress>,scope:horizon_client::ae2_cell_codec::ViewCellScope)->bool {
         let Some(part)=part else{return true;};let Some(machine)=self.ae2_part_machine(part).ok().flatten() else{return false;};
         let Ok(cells)=super::ae2_parts::ae2_terminal_view_cells(&machine) else{return false;};
-        let fluid=marker_fluid(key);let key=fluid.as_ref().unwrap_or(key);let mut positive=false;let mut matched=false;
+        let typed=marker_key(key);let mut positive=false;let mut matched=false;
         for cell in cells.iter().flatten() {
-            let Ok(m)=self.ae2_view_cell_match(cell,key,fluid.is_some(),scope) else{return false;};
+            let Ok(m)=self.ae2_view_cell_match(cell,&typed.key,typed.key_type,scope) else{return false;};
             if !m.configured {continue;}if m.inverted && m.matches {return false;}if !m.inverted {positive=true;matched|=m.matches;}
         }
         !positive || matched
@@ -444,7 +482,7 @@ impl Game<'_> {
         limit: u64,
         insert: bool,
     ) -> Result<u64, String> {
-        use ae2_cell_core::{Action,Channel};
+        use ae2_cell_core::{Action,KeyType};
         use horizon_client::containers::BlockEntity;
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&pos) else {
             return Err("missing ME chest".into());
@@ -455,39 +493,33 @@ impl Game<'_> {
         };
         let usage = horizon_client::ae2_common_config::gameplay().usage_multiplier;
         let battery = m.energy.max(0.0) / usage;
-        let fluid = marker_fluid(key);
-        let physical_key = fluid.as_ref().unwrap_or(key);
+        let typed = marker_key(key);
+        let physical_key = &typed.key;
         let creative = self.ae2_creative_cell_keys(&stack).ok();
-        let creative_accepts = creative.as_ref().is_some_and(|keys| {
-            keys.iter().any(|entry| match (entry, fluid.is_some()) {
-                (super::ae2_storage_devices::CreativeCellKey::Item(k), false) => k == physical_key,
-                (super::ae2_storage_devices::CreativeCellKey::Fluid(k), true) => k == physical_key,
-                _ => false,
-            })
-        });
-        let is_fluid = fluid.is_some();
-        let channel = if is_fluid { Channel::Fluid } else { Channel::Item };
+        let creative_accepts = creative.as_ref().is_some_and(|keys| keys.contains(&typed));
+        let is_fluid = typed.key_type == KeyType::FLUIDS;
+        let channel = typed.key_type;
         // A cell of an addon's own handler (MEGA's bulk cell) holds items alone.
         let mut handler = if creative.is_some() { None } else { self.ae2x_handler_cell(&stack).transpose()? };
         let mut cell = if creative.is_some() || handler.is_some() { None } else { Some(self.ae2_read_cell(&stack)?) };
         // The physical cell only accepts its own channel. A foreign-channel
         // key restored from source data is nevertheless recoverable.
-        if insert && cell.as_ref().is_some_and(|cell|cell.config().channel!=channel) {return Ok(0);}
+        if insert && cell.as_ref().is_some_and(|cell|cell.config().key_type!=channel) {return Ok(0);}
         let possible = if let Some(handler) = handler.as_mut() {
-            if is_fluid {0} else if insert {handler.insert(physical_key, limit, Action::Simulate)} else {handler.extract(physical_key, limit, Action::Simulate)}
+            if channel!=KeyType::ITEMS {0} else if insert {handler.insert(physical_key, limit, Action::Simulate)} else {handler.extract(physical_key, limit, Action::Simulate)}
         } else if let Some(cell) = cell.as_mut() {
             if insert {
                 self.ae2_cell_insert(cell, physical_key, limit, Action::Simulate)
             } else {
-                if cell.config().channel==channel {cell.extract(physical_key,limit,Action::Simulate)}
-                else {cell.extract_other(physical_key,limit,Action::Simulate)}
+                cell.extract_of(channel,physical_key,limit,Action::Simulate)
             }
         } else if creative_accepts {
             limit
         } else {
             0
         };
-        let per_unit = if is_fluid { 1.0 / 125.0 } else { 1.0 };
+        // StorageHelper: one AE pays for `getAmountPerOperation` of the key.
+        let per_unit = 1.0 / channel.amount_per_operation() as f64;
         let grid = self.ae2_take_power(pos, possible as f64 * per_unit, true);
         if is_fluid && (possible < limit || grid + battery < limit as f64 * per_unit) {
             return Ok(0);
@@ -508,18 +540,13 @@ impl Game<'_> {
             if insert {
                 self.ae2_cell_insert(cell, physical_key, amount, Action::Modulate)
             } else {
-                if cell.config().channel==channel {cell.extract(physical_key,amount,Action::Modulate)}
-                else {cell.extract_other(physical_key,amount,Action::Modulate)}
+                cell.extract_of(channel,physical_key,amount,Action::Modulate)
             }
         } else {
             amount
         };
         if let Some(cell) = cell.as_ref() {
-            if cell.config().channel==Channel::Fluid {
-                super::ae2_fluids::write_fluid_cell(&mut stack, cell)?;
-            } else {
-                ae2_lab::write_cell(&mut stack, cell)?;
-            }
+            horizon_client::ae2_cell_codec::write_any_cell(&mut stack, cell)?;
         }
         let paid_grid = self.ae2_take_power(pos, moved as f64 * per_unit, false);
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
@@ -584,27 +611,21 @@ impl Game<'_> {
                 let amount = horizon_client::ae2_cell_codec::creative_cell_amount(stack);
                 return Ok(keys
                     .into_iter()
-                    .map(|entry| match entry {
-                        super::ae2_storage_devices::CreativeCellKey::Item(key) => {
-                            (key, amount)
-                        }
-                        super::ae2_storage_devices::CreativeCellKey::Fluid(key) => {
-                            (fluid_marker(&key), amount)
-                        }
-                    })
+                    .map(|entry| (key_marker(entry.key_type, &entry.key), amount))
                     .collect());
             }
-            use ae2_cell_core::Channel;
+            use ae2_cell_core::KeyType;
             if let Some(cell)=self.ae2x_handler_cell(stack) {
                 return Ok(cell?.available_stacks().into_iter().filter(|(_,n)|*n>0).collect());
             }
             let cell=self.ae2_read_cell(stack)?;
-            let mut entries:Vec<_>=cell.entries_for(Channel::Item).map(|(k,n)|(k.clone(),*n)).collect();
-            entries.extend(cell.entries_for(Channel::Fluid).map(|(k,n)|(fluid_marker(k),*n)));
+            let mut entries=Vec::new();
+            for kind in KeyType::all() {entries.extend(cell.entries_for(kind).map(|(k,n)|(key_marker(kind,k),*n)));}
             return Ok(entries);
         }
-        let mut entries = self.ae2_grid_inventory(pos)?;
-        entries.extend(self.ae2_grid_fluids(pos)?.into_iter().map(|(key,amount)|(fluid_marker(&key),amount)));
+        // MEStorageMenu lists every key type's stacks (`getAvailableStacks`).
+        let mut entries=Vec::new();
+        for (typed,amount) in self.ae2_grid_all_keys(pos)? {entries.push((key_marker(typed.key_type,&typed.key),amount));}
         for key in self.ae2_craftable_outputs(pos) {
             if !entries.iter().any(|(existing, _)| *existing == key) {
                 entries.push((key, 0));
@@ -921,7 +942,7 @@ impl Game<'_> {
         let page=if state.processing {session.encoding_page.min(8)}else{0};
         let fluid_mode=session.encoding_fluid_mode;let fluid_amount=session.encoding_fluid_amount;
         let selected_fluid=session.encoding_selected_fluid;let pos=session.pos;
-        let cursor=super::ae2_encoding::cursor_ghost(self.carried.as_ref(),&|id,fluid|fluid||self.res.items().get(id).is_some());
+        let cursor=super::ae2_encoding::cursor_ghost(self.carried.as_ref(),&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()));
         let fluids=if state.processing && fluid_mode {self.ae2_grid_fluids(pos).unwrap_or_default()}else{Vec::new()};
         let selected=encoding_selected_fluid(self.carried.as_ref(),fluid_amount,selected_fluid,&fluids);
         match slot {
@@ -1283,6 +1304,14 @@ impl Game<'_> {
         }
         let (key, amount) = entries.get(page * page_size + index)?;
         if key.item_id.is_empty() {return None;}
+        let typed = marker_key(key);
+        if !matches!(typed.key_type, KeyType::ITEMS | KeyType::FLUIDS) {
+            // An addon's key: its type's icon, named with the amount in its units.
+            let mut icon = (horizon_client::ae2_key_types::behaviour(typed.key_type).icon)(&typed.key);
+            icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(format!("{}: {}", typed.key.item_id,
+                typed.key_type.format_amount(*amount, ae2_cell_core::AmountFormat::Full))));
+            return Some(icon);
+        }
         if let Some(fluid) = marker_fluid(key) {
             let id = super::ae2_fluids::fluid_bucket(&fluid.item_id).unwrap_or("minecraft:bucket");
             let mut icon = ItemStack::new(id, 1);
@@ -1323,7 +1352,7 @@ impl Game<'_> {
             }
             return Ok(());
         }
-        let Some(key)=key.filter(|key|marker_fluid(key).is_none()) else{return Ok(())};
+        let Some(key)=key.filter(|key|is_item_marker(key)) else{return Ok(())};
         if let Some(carried)=self.carried.as_ref() {
             if carried.count>=self.res.items().stack_max(carried) || horizon_client::ae2_cell_codec::key(carried).ok().as_ref()!=Some(key) {return Ok(());}
         }
@@ -1385,7 +1414,7 @@ impl Game<'_> {
                         // isn't stored (or while only craftables are shown); a left click on a fluid fills a
                         // container instead, and a shift click always moves the stored stack.
                         let only_craftable=self.ae2_local_terminal.as_ref().is_some_and(|s|s.view==2);
-                        let left=input==Input::Pickup && button==0 && fluid.is_none() && self.carried.is_none() && (*count==0 || only_craftable);
+                        let left=input==Input::Pickup && button==0 && is_item_marker(key) && self.carried.is_none() && (*count==0 || only_craftable);
                         if craftable && (input==Input::Clone || left) {
                             self.ae2_open_local_craft_confirm(pos,fluid.clone().unwrap_or_else(||key.clone()),fluid.is_some());
                             return true;
@@ -1460,7 +1489,7 @@ impl Game<'_> {
             // cursor and leaves the network's stock alone (craftable keys were sent to the amount screen).
             if clone {
                 if let Some((key, _)) = entries.get(self.ae2_terminal_page * page_size + index).filter(|_| index < page_size) {
-                    if self.creative && marker_fluid(key).is_none() {
+                    if self.creative && is_item_marker(key) {
                         let mut stack = ae2_lab::prototype(key)?;
                         stack.count = self.res.items().stack_max(&stack);
                         self.carried = Some(stack);
@@ -1484,8 +1513,8 @@ impl Game<'_> {
             if self.ae2_local_chest(pos) {
                 let selected = entries.get(self.ae2_terminal_page * page_size + index);
                 let supports_fluid = matches!(self.world.block_entities.get(&pos), Some(horizon_client::containers::BlockEntity::Ae2(m)) if m.slots.first().and_then(Option::as_ref).is_some_and(|stack|
-                    self.ae2_read_cell(stack).is_ok_and(|cell|cell.config().channel==ae2_cell_core::Channel::Fluid || cell.entries_for(ae2_cell_core::Channel::Fluid).next().is_some())
-                    || self.ae2_creative_cell_keys(stack).is_ok_and(|keys| keys.iter().any(|key| matches!(key, super::ae2_storage_devices::CreativeCellKey::Fluid(_))))));
+                    self.ae2_read_cell(stack).is_ok_and(|cell|cell.config().key_type==ae2_cell_core::KeyType::FLUIDS || cell.entries_for(ae2_cell_core::KeyType::FLUIDS).next().is_some())
+                    || self.ae2_creative_cell_keys(stack).is_ok_and(|keys| keys.iter().any(|key| key.key_type==ae2_cell_core::KeyType::FLUIDS))));
                 if input == Input::Pickup && supports_fluid {
                     if let Some(cursor) = self
                         .carried
@@ -1521,7 +1550,7 @@ impl Game<'_> {
                         }
                     }
                 }
-                if selected.is_some_and(|(key, _)| marker_fluid(key).is_some()) {
+                if selected.is_some_and(|(key, _)| !is_item_marker(key)) {
                     return Ok(());
                 }
             }
@@ -1530,7 +1559,7 @@ impl Game<'_> {
                 // slot with room for it, the main inventory before the hotbar as AE2's quick-move priorities order
                 // them; the slot a wireless terminal is used from stays locked. Fluids are not moved.
                 if let Some((key, count)) = entries.get(self.ae2_terminal_page * page_size + index) {
-                    if marker_fluid(key).is_none() && *count > 0 {
+                    if is_item_marker(key) && *count > 0 {
                         let exemplar = ae2_lab::prototype(key)?;
                         let max = self.res.items().stack_max(&exemplar);
                         let locked = self.ae2_wireless_power;
@@ -1572,7 +1601,7 @@ impl Game<'_> {
                 if *count == 0 {
                     // A click on a fluid fills a container (MEStorageScreen's FILL_ITEM); only the middle click
                     // and the amount screen request one.
-                    if marker_fluid(key).is_some() {
+                    if !is_item_marker(key) {
                         return Ok(());
                     }
                     let cpu = self.ae2_begin_recursive_craft(pos, key, craft_amount)?;
@@ -2613,9 +2642,7 @@ impl Game<'_> {
             "Craft amount: {craft_amount}; click to edit"
         )));
         if wireless.is_some() {
-            let label = match enabled_types {
-                (true,true)=>"Items and fluids",(true,false)=>"Items",(false,true)=>"Fluids",(false,false)=>"None",
-            };
+            let label = key_types_label(enabled_types,&|kind|self.translate(kind.description(),kind.id()));
             items[52] = Some(navigation(&format!("Visible types: {label}; click to configure, shift-click to cycle")));
         }
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.chest_identity.is_some()) {
@@ -2765,9 +2792,13 @@ impl Game<'_> {
         }
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.key_type_edit) {
             items[..54].fill(None);
-            items[0]=Some(navigation(if enabled_types.0 {"Items: enabled"}else{"Items: disabled"}));
-            items[1]=Some(navigation(if enabled_types.1 {"Fluids: enabled"}else{"Fluids: disabled"}));
-            items[2]=Some(navigation("Back to storage"));
+            // KeyTypeSelectionScreen: a box per type, then the back tab.
+            let types=KeyType::all();
+            for (i,kind) in types.iter().enumerate().take(53) {
+                let name=match *kind {KeyType::ITEMS=>"Items".to_owned(),KeyType::FLUIDS=>"Fluids".to_owned(),other=>self.translate(other.description(),other.id())};
+                items[i]=Some(navigation(&format!("{name}: {}",if enabled_types.contains(*kind) {"enabled"}else{"disabled"})));
+            }
+            items[types.len().min(53)]=Some(navigation("Back to storage"));
         }
         let key_type_edit=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.key_type_edit);
         let storage_view=!craft_amount_edit && !search_edit && !key_type_edit;
@@ -2779,7 +2810,15 @@ impl Game<'_> {
         // MEStorageScreen's view of the entries the menu carries: amounts and
         // craftability for the size labels, and the settings its toolbar shows.
         let entries:Vec<serde_json::Value>=(0..view_size).map(|i|displayed.get(i).filter(|(key,_)|!key.item_id.is_empty())
-            .map_or(serde_json::Value::Null,|(key,amount)|serde_json::json!([amount,craftable.contains(key),marker_fluid(key).map(|fluid|fluid.item_id)]))).collect();
+            .map_or(serde_json::Value::Null,|(key,amount)|{
+                // [amount, craftable, a fluid's or other type's id, an addon type's id]
+                let typed=marker_key(key);
+                match typed.key_type {
+                    KeyType::ITEMS=>serde_json::json!([amount,craftable.contains(key),null]),
+                    KeyType::FLUIDS=>serde_json::json!([amount,craftable.contains(key),typed.key.item_id]),
+                    other=>serde_json::json!([amount,craftable.contains(key),typed.key.item_id,other.id()]),
+                }
+            })).collect();
         // The entries past the menu's places travel with the view.
         let extra:Vec<_>=(page_size..view_size).map(|i|horizon_client::item_data::canon_stack(self.ae2_terminal_display(i,0,&displayed,view_size).as_ref())).collect();
         let jobs=if connected {self.ae2_recursive_jobs(pos).len()} else {0};
@@ -2806,7 +2845,7 @@ impl Game<'_> {
             "extra":if storage_view {extra} else {Vec::new()},
             "key_type_edit":key_type_edit,
             "sort":sort_mode,"view":filter_mode,"descending":sort_descending,
-            "types":wireless.as_ref().filter(|_|!encoding_view).map(|_|[enabled_types.0,enabled_types.1]),"priority":chest,"jobs":jobs,
+            "types":wireless.as_ref().filter(|_|!encoding_view).map(|_|KeyType::all().into_iter().map(|kind|enabled_types.contains(kind)).collect::<Vec<_>>()),"priority":chest,"jobs":jobs,
             "universal":wireless.as_ref().and_then(|ctx|self.lan_wireless_universal_view(host,conn,ctx)),
             "addon":wireless.as_ref().and_then(|ctx|self.lan_ae2x_wireless_view(host,conn,ctx)),
         });
@@ -4143,10 +4182,11 @@ impl Game<'_> {
                 if let Some(guest)=host.hub.guests.iter_mut().find(|guest|guest.conn==conn) {
                     if let Some(stack)=toolbox_stack_mut(guest,ctx.source) {
                         if let Ok(current)=super::ae2_wireless::enabled_key_types(stack) {
-                            let next=if editing && input==Input::Pickup && matches!(p.slot,0|1) {
-                                Some(super::ae2_wireless::toggle_key_type(current,p.slot==1))
+                            let types=KeyType::all();
+                            let next=if editing && input==Input::Pickup && (0..types.len().min(53)).contains(&(p.slot as usize)) && p.slot>=0 {
+                                Some(super::ae2_wireless::toggle_key_type(current,types[p.slot as usize]))
                             } else if !editing && type_control && input==Input::QuickMove {
-                                Some(super::ae2_wireless::cycle_key_types(current))
+                                Some(super::ae2_wireless::cycle_key_types(current,KeyTypeSet::all()))
                             } else {None};
                             if let Some(next)=next { if super::ae2_wireless::store_enabled_key_types(stack,next).is_ok(){selection=Some(next);} }
                         }
@@ -4154,7 +4194,7 @@ impl Game<'_> {
                 }
                 if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()) {
                     if !editing && type_control && input==Input::Pickup {t.key_type_edit=true;t.search_edit=false;t.craft_amount_edit=false;}
-                    if editing && input==Input::Pickup && p.slot==2 {t.key_type_edit=false;}
+                    if editing && input==Input::Pickup && p.slot as usize==KeyType::all().len().min(53) {t.key_type_edit=false;}
                     if selection.is_some(){t.page=0;}
                     t.craft_drag=None;t.wireless_drag=None;t.toolbox_drag=None;
                 }
@@ -4692,7 +4732,7 @@ impl Game<'_> {
                 if p.button==2 {if let Some(item)=held.as_mut(){item.count=1;}}
                 let drag=matches!(p.button,2|3);
                 let available_fluids = self.ae2_grid_fluids(pos).unwrap_or_default();
-                let cursor=super::ae2_encoding::cursor_ghost(held.as_ref(),&|id,fluid|fluid||self.res.items().get(id).is_some());
+                let cursor=super::ae2_encoding::cursor_ghost(held.as_ref(),&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()));
                 let allowed=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.special_mode==0 || (t.special_mode==1 && p.slot<3) || (t.special_mode==2 && p.slot==0));
                 if allowed {if let Some(t) = host
                     .play
@@ -4727,7 +4767,7 @@ impl Game<'_> {
                 if p.button==2 {if let Some(item)=held.as_mut(){item.count=1;}}
                 let drag=matches!(p.button,2|3);
                 let available_fluids = self.ae2_grid_fluids(pos).unwrap_or_default();
-                let cursor=super::ae2_encoding::cursor_ghost(held.as_ref(),&|id,fluid|fluid||self.res.items().get(id).is_some());
+                let cursor=super::ae2_encoding::cursor_ghost(held.as_ref(),&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()));
                 if let Some(t) = host
                     .play
                     .get_mut(&conn)
@@ -5017,7 +5057,7 @@ impl Game<'_> {
                 // MEStorageScreen: a middle click, or a left click with an empty cursor on an item that isn't
                 // stored (or while only craftables are shown); a left click on a fluid fills a container
                 // instead, and a shift click always moves the stored stack.
-                let left=input==Input::Pickup && button==0 && marker_fluid(key).is_none() && empty_cursor && (*count==0 || only_craftable);
+                let left=input==Input::Pickup && button==0 && is_item_marker(key) && empty_cursor && (*count==0 || only_craftable);
                 if craftable.contains(key) && (input==Input::Clone || left) {
                     let fluid=marker_fluid(key);
                     let is_fluid=fluid.is_some();
@@ -6432,7 +6472,7 @@ impl Game<'_> {
             }
             let mut item=super::ae2_interface::interface_config(&machine)?[index].clone();
             let mut fluid=super::ae2_interface::interface_fluid_config(&machine)?[index].as_ref().map(|(key,amount)|super::ae2_processing::PatternFluid{key:key.clone(),amount:*amount});
-            let held=super::ae2_encoding::cursor_ghost(cursor.as_ref(),&|id,fluid|fluid||self.res.items().get(id).is_some())?;
+            let held=super::ae2_encoding::cursor_ghost(cursor.as_ref(),&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()))?;
             let max_for=|item:&ItemStack|self.ae2_config_item_max(item);
             let displayed_max=item.as_ref().map_or(64,&max_for);
             let item_capacity=held.as_ref().and_then(|(value,_)|if let super::ae2_encoding::WrappedGhost::Item(item)=value {Some(max_for(item))}else{None}).or_else(||item.as_ref().map(&max_for)).unwrap_or(64);
@@ -8162,10 +8202,11 @@ mod terminal_filter_tests {
         let item=ae2_cell_core::ItemKey{item_id:"minecraft:oak_log".into(),components:vec![]};
         let fluid=fluid_marker(&ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components:vec![]});
         let all=vec![(item.clone(),2),(fluid.clone(),1000)];
-        assert_eq!(terminal_key_types(&all,(true,false)),vec![(item.clone(),2)]);
-        assert_eq!(terminal_key_types(&all,(false,true)),vec![(fluid.clone(),1000)]);
-        assert!(terminal_key_types(&all,(false,false)).is_empty());
-        let pinned=terminal_pinned_entries(&all,terminal_key_types(&all,(true,false)),&[fluid.clone()],45);
+        let (items,fluids)=(KeyTypeSet::of(&[KeyType::ITEMS]),KeyTypeSet::of(&[KeyType::FLUIDS]));
+        assert_eq!(terminal_key_types(&all,items),vec![(item.clone(),2)]);
+        assert_eq!(terminal_key_types(&all,fluids),vec![(fluid.clone(),1000)]);
+        assert!(terminal_key_types(&all,KeyTypeSet::EMPTY).is_empty());
+        let pinned=terminal_pinned_entries(&all,terminal_key_types(&all,items),&[fluid.clone()],45);
         assert_eq!(pinned[0],(fluid,1000),"pinned keys remain visible independent of ordinary filters");
     }
     #[test]

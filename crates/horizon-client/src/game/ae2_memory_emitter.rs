@@ -30,8 +30,8 @@ mod emitter_memory {
         // ConfigInventory.setStack stores CONFIG_TYPES keys with amount zero.
         let source_filter=match state.filter.as_ref(){
             None=>Tag::Compound(Compound::new()),
-            Some(EmitterFilter::Item(stack))=>horizon_client::ae2_generic_stack::encode(&horizon_client::ae2_generic_stack::GenericStack{key:horizon_client::ae2_cell_codec::key(stack)?,fluid:false,amount:0})?,
-            Some(EmitterFilter::Fluid(key))=>horizon_client::ae2_generic_stack::encode(&horizon_client::ae2_generic_stack::GenericStack{key:key.clone(),fluid:true,amount:0})?,
+            Some(EmitterFilter::Item(stack))=>horizon_client::ae2_generic_stack::encode(&horizon_client::ae2_generic_stack::GenericStack::item(horizon_client::ae2_cell_codec::key(stack)?, 0))?,
+            Some(EmitterFilter::Fluid(key))=>horizon_client::ae2_generic_stack::encode(&horizon_client::ae2_generic_stack::GenericStack::fluid(key.clone(), 0))?,
         };
         let mut body=Compound::new();body.insert("source".into(),Tag::String(SOURCE.into()));
         body.insert("reporting_value".into(),Tag::Long(state.threshold));
@@ -93,7 +93,7 @@ mod emitter_memory {
                 let filter=match data.other("ae2:exported_config_inv"){
                     None=>None,Some(Tag::List(entries))=>{
                         let first=if let Some(tag)=entries.first(){horizon_client::ae2_generic_stack::decode_tolerant(tag)?}else{None};
-                        Some(match first {None=>None,Some(value) if value.fluid=>Some(EmitterFilter::Fluid(value.key)),Some(value)=>Some(EmitterFilter::Item(horizon_client::ae2_cell_codec::prototype(&value.key)?))})
+                        Some(match first {None=>None,Some(value) if value.key_type==ae2_cell_core::KeyType::FLUIDS=>Some(EmitterFilter::Fluid(value.key)),Some(value)=>Some(EmitterFilter::Item(horizon_client::ae2_cell_codec::prototype(&value.key)?))})
                     },_=>return Err("invalid exported config inventory".into()),
                 };
                 let name=if matching{match data.other("ae2:exported_custom_name"){

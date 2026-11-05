@@ -22,7 +22,8 @@ impl Game<'_> {
         for item in &self.ae2_grid_cells_encoded(pos)? {
             if let Ok(keys) = self.ae2_creative_cell_keys(item) {
                 for key in keys {
-                    if let super::ae2_storage_devices::CreativeCellKey::Fluid(k) = key {
+                    if key.key_type == ae2_cell_core::KeyType::FLUIDS {
+                        let k = key.key;
                         let total = totals.entry(k).or_default();
                         *total = total
                             .checked_add(horizon_client::ae2_cell_codec::creative_cell_amount(item))
@@ -31,7 +32,7 @@ impl Game<'_> {
                 }
             }
             let Ok(cell) = self.ae2_read_cell(item) else { continue; };
-            for (key, amount) in cell.entries_for(ae2_cell_core::Channel::Fluid) {
+            for (key, amount) in cell.entries_for(ae2_cell_core::KeyType::FLUIDS) {
                 let total = totals.entry(key.clone()).or_default();
                 *total = total.checked_add(*amount).ok_or("fluid amount overflow")?;
             }
@@ -237,8 +238,8 @@ impl Game<'_> {
             }
             for mount in cells.iter().filter(|mount|mount.priority==priority){
                 if left==0{break}
-                if insert&&!self.ae2_cell_preferred(mount,key,true)?{late_cells.push(mount);continue}
-                let (accepted,updated)=self.ae2_cell_storage_change(mount,key,left,true,insert,simulate)?;left-=accepted;
+                if insert&&!self.ae2_cell_preferred(mount,key,ae2_cell_core::KeyType::FLUIDS)?{late_cells.push(mount);continue}
+                let (accepted,updated)=self.ae2_cell_storage_change(mount,key,left,ae2_cell_core::KeyType::FLUIDS,insert,simulate)?;left-=accepted;
                 if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             for mount in late_buses{
@@ -248,7 +249,7 @@ impl Game<'_> {
             }
             for mount in late_cells{
                 if left==0{break}
-                let (accepted,updated)=self.ae2_cell_storage_change(mount,key,left,true,insert,simulate)?;left-=accepted;
+                let (accepted,updated)=self.ae2_cell_storage_change(mount,key,left,ae2_cell_core::KeyType::FLUIDS,insert,simulate)?;left-=accepted;
                 if let Some(updated)=updated{changes.push((mount.clone(),updated));}
             }
             if insert && left>0 { left-=self.ae2_form_fluids(pos,key,left,priority,plan)?; }

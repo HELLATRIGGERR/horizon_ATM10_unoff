@@ -52,11 +52,6 @@ impl Tier {
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Channel {
-    Item,
-    Fluid,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilterMode {
     Whitelist,
     Blacklist,
@@ -86,7 +81,8 @@ pub enum ToolCell {
 pub struct CellConfig {
     pub tier: Tier,
     pub tool: Option<ToolCell>,
-    pub channel: Channel,
+    /// `IBasicCellItem.getKeyType`: the one type the cell takes in.
+    pub key_type: KeyType,
     pub portable: bool,
     /// `IBasicCellItem.getTotalTypes`: how many distinct keys the cell holds.
     pub types: usize,
@@ -98,12 +94,12 @@ pub struct CellConfig {
     pub void_excess: bool,
 }
 impl CellConfig {
-    /// A `BasicStorageCell` of `channel` holding `types` distinct keys.
-    pub fn basic(tier: Tier, channel: Channel, types: usize) -> Self {
+    /// A `BasicStorageCell` of `key_type` holding `types` distinct keys.
+    pub fn basic(tier: Tier, key_type: KeyType, types: usize) -> Self {
         Self {
             tier,
             tool: None,
-            channel,
+            key_type,
             portable: false,
             types,
             filter: None,
@@ -113,28 +109,28 @@ impl CellConfig {
             void_excess: false,
         }
     }
-    /// A `PortableCellItem` of `channel`: half the bytes of its tier.
-    pub fn portable(tier: Tier, channel: Channel, types: usize) -> Self {
+    /// A `PortableCellItem` of `key_type`: half the bytes of its tier.
+    pub fn portable(tier: Tier, key_type: KeyType, types: usize) -> Self {
         Self {
             portable: true,
-            ..Self::basic(tier, channel, types)
+            ..Self::basic(tier, key_type, types)
         }
     }
     /// AE2's item cell: 63 types.
     pub fn item(tier: Tier) -> Self {
-        Self::basic(tier, Channel::Item, 63)
+        Self::basic(tier, KeyType::ITEMS, 63)
     }
     /// AE2's fluid cell: 18 types.
     pub fn fluid(tier: Tier) -> Self {
-        Self::basic(tier, Channel::Fluid, 18)
+        Self::basic(tier, KeyType::FLUIDS, 18)
     }
     /// AE2's portable item cell: `63 - 9 * tier.index()` types.
     pub fn portable_item(tier: Tier) -> Self {
-        Self::portable(tier, Channel::Item, 63usize.saturating_sub(9 * tier.index() as usize))
+        Self::portable(tier, KeyType::ITEMS, 63usize.saturating_sub(9 * tier.index() as usize))
     }
     /// AE2's portable fluid cell: 18 types.
     pub fn portable_fluid(tier: Tier) -> Self {
-        Self::portable(tier, Channel::Fluid, 18)
+        Self::portable(tier, KeyType::FLUIDS, 18)
     }
     pub fn matter_cannon() -> Self {
         Self {
@@ -166,11 +162,9 @@ impl CellConfig {
         }
         self.tier.kilobytes() * 8
     }
+    /// `keyType.getAmountPerByte()`.
     pub fn amount_per_byte(&self) -> u64 {
-        match self.channel {
-            Channel::Item => 8,
-            Channel::Fluid => 8000,
-        }
+        self.key_type.amount_per_byte()
     }
     pub fn max_types(&self) -> usize {
         if let Some(tool) = self.tool {
@@ -239,9 +233,9 @@ pub enum RestoreError {
 pub struct Cell {
     config: CellConfig,
     items: BTreeMap<ItemKey, u64>,
-    /// Stored keys outside the cell's insertion channel remain distinct even
-    /// if their host key bytes happen to equal a key in the primary channel.
-    other_items: BTreeMap<ItemKey, u64>,
+    /// Stored keys of other types than the cell's: they remain distinct even
+    /// if their host key bytes happen to equal a key of the cell's own type.
+    other_items: BTreeMap<(KeyType, ItemKey), u64>,
     total_items: u64,
 }
 impl Cell {
@@ -269,12 +263,12 @@ impl Cell {
     ) -> Result<Self, RestoreError> {
         Self::from_entries_with_other(config, entries, std::iter::empty())
     }
-    /// Restore both source key channels in one physical cell. The other
-    /// channel can be extracted but cannot be inserted by this cell type.
+    /// Restore keys of the cell's type and of other types in one physical
+    /// cell. The others can be extracted but cannot be inserted by this cell.
     pub fn from_entries_with_other(
         config: CellConfig,
         entries: impl IntoIterator<Item = (ItemKey, u64)>,
-        other_entries: impl IntoIterator<Item = (ItemKey, u64)>,
+        other_entries: impl IntoIterator<Item = (KeyType, ItemKey, u64)>,
     ) -> Result<Self, RestoreError> {
         Self::restore_entries(config, entries, other_entries, true)
     }
@@ -283,32 +277,36 @@ impl Cell {
     pub fn from_source_entries_with_other(
         config: CellConfig,
         entries: impl IntoIterator<Item = (ItemKey, u64)>,
-        other_entries: impl IntoIterator<Item = (ItemKey, u64)>,
+        other_entries: impl IntoIterator<Item = (KeyType, ItemKey, u64)>,
     ) -> Result<Self, RestoreError> {
         Self::restore_entries(config, entries, other_entries, false)
     }
     fn restore_entries(
         config: CellConfig,
         entries: impl IntoIterator<Item = (ItemKey, u64)>,
-        other_entries: impl IntoIterator<Item = (ItemKey, u64)>,
+        other_entries: impl IntoIterator<Item = (KeyType, ItemKey, u64)>,
         strict: bool,
     ) -> Result<Self, RestoreError> {
+        let own = config.key_type;
         let mut cell = Self::new(config);
-        let tagged = entries.into_iter().map(|(key,amount)|(false,key,amount))
-            .chain(other_entries.into_iter().map(|(key,amount)|(true,key,amount)));
-        for (other, key, amount) in tagged {
+        let tagged = entries.into_iter().map(|(key,amount)|(own,key,amount))
+            .chain(other_entries);
+        for (kind, key, amount) in tagged {
             if amount == 0 {
                 return Err(RestoreError::ZeroAmount);
             }
-            let items = if other { &mut cell.other_items } else { &mut cell.items };
-            if items.contains_key(&key) {
+            let fresh = if kind == own {
+                cell.items.insert(key, amount).is_none()
+            } else {
+                cell.other_items.insert((kind, key), amount).is_none()
+            };
+            if !fresh {
                 return Err(RestoreError::DuplicateKey);
             }
             cell.total_items = cell
                 .total_items
                 .checked_add(amount)
                 .ok_or(RestoreError::Overflow)?;
-            items.insert(key, amount);
             if strict && cell.stored_types() > cell.config.max_types() {
                 return Err(RestoreError::TooManyTypes);
             }
@@ -331,14 +329,27 @@ impl Cell {
     pub fn count(&self, key: &ItemKey) -> u64 {
         self.items.get(key).copied().unwrap_or(0)
     }
-    pub fn other_entries(&self) -> impl Iterator<Item = (&ItemKey, &u64)> {
-        self.other_items.iter()
+    /// The stored keys of other types than the cell's.
+    pub fn other_entries(&self) -> impl Iterator<Item = (KeyType, &ItemKey, &u64)> {
+        self.other_items.iter().map(|((kind, key), amount)| (*kind, key, amount))
     }
-    pub fn entries_for(&self, channel: Channel) -> impl Iterator<Item = (&ItemKey, &u64)> {
-        if self.config.channel==channel {self.items.iter()} else {self.other_items.iter()}
+    /// The stored keys of `key_type`, the cell's own or another.
+    pub fn entries_for(&self, key_type: KeyType) -> impl Iterator<Item = (&ItemKey, &u64)> {
+        let own = self.config.key_type == key_type;
+        self.items.iter().filter(move |_| own).chain(
+            self.other_items
+                .iter()
+                .filter(move |((kind, _), _)| !own && *kind == key_type)
+                .map(|((_, key), amount)| (key, amount)),
+        )
     }
-    pub fn other_count(&self, key: &ItemKey) -> u64 {
-        self.other_items.get(key).copied().unwrap_or(0)
+    /// How much of `key` of another type than the cell's it holds.
+    pub fn other_count(&self, key_type: KeyType, key: &ItemKey) -> u64 {
+        self.other_items.get(&(key_type, key.clone())).copied().unwrap_or(0)
+    }
+    /// How much of `key` of `key_type` it holds, the cell's own type or another.
+    pub fn count_of(&self, key_type: KeyType, key: &ItemKey) -> u64 {
+        if key_type == self.config.key_type { self.count(key) } else { self.other_count(key_type, key) }
     }
     pub fn stored_types(&self) -> usize {
         self.items.len() + self.other_items.len()
@@ -367,9 +378,11 @@ impl Cell {
     }
     /// Return accepted amount. With void enabled this may exceed actual stored amount.
     pub fn insert(&mut self, key: &ItemKey, amount: u64, action: Action) -> u64 {
-        let fluid = self.config.channel == Channel::Fluid;
+        // `fuzzyEquals` of a type without fuzzy range search compares the
+        // primary key alone, whatever the mode.
+        let ranges = self.config.key_type.supports_fuzzy_range_search();
         self.insert_with_fuzzy_match(key, amount, action, |a, b, mode| {
-            (fluid || mode == FuzzyMode::IgnoreAll) && a.item_id == b.item_id
+            (!ranges || mode == FuzzyMode::IgnoreAll) && a.item_id == b.item_id
         })
     }
     /// Host resolves registry-backed durability for non-default fuzzy partitions.
@@ -423,16 +436,21 @@ impl Cell {
         extracted
     }
     /// `BasicCellInventory.extract` permits already-stored keys regardless
-    /// of channel; only insertion checks the physical cell's channel.
-    pub fn extract_other(&mut self, key: &ItemKey, amount: u64, action: Action) -> u64 {
-        let current = self.other_count(key);
+    /// of type; only insertion checks the physical cell's key type.
+    pub fn extract_other(&mut self, key_type: KeyType, key: &ItemKey, amount: u64, action: Action) -> u64 {
+        let current = self.other_count(key_type, key);
         let extracted = amount.min(current);
         if extracted > 0 && action == Action::Modulate {
-            if extracted == current { self.other_items.remove(key); }
-            else { self.other_items.insert(key.clone(), current - extracted); }
+            let slot = (key_type, key.clone());
+            if extracted == current { self.other_items.remove(&slot); }
+            else { self.other_items.insert(slot, current - extracted); }
             self.total_items -= extracted;
         }
         extracted
+    }
+    /// Extract `key` of `key_type`, the cell's own type or another.
+    pub fn extract_of(&mut self, key_type: KeyType, key: &ItemKey, amount: u64, action: Action) -> u64 {
+        if key_type == self.config.key_type { self.extract(key, amount, action) } else { self.extract_other(key_type, key, amount, action) }
     }
 }
 
@@ -482,22 +500,25 @@ mod tests {
         let key=ItemKey{item_id:"same:id".into(),components:vec![1,2]};
         let config=CellConfig::fluid(Tier::K1);
         let expected=2*config.bytes_per_type()+1012_u64.div_ceil(config.amount_per_byte());
-        let mut cell=Cell::from_entries_with_other(config,[(key.clone(),1000)],[(key.clone(),12)]).unwrap();
-        assert_eq!(cell.count(&key),1000);assert_eq!(cell.other_count(&key),12);
+        let items=KeyType::ITEMS;
+        let mut cell=Cell::from_entries_with_other(config,[(key.clone(),1000)],[(items,key.clone(),12)]).unwrap();
+        assert_eq!(cell.count(&key),1000);assert_eq!(cell.other_count(items,&key),12);
+        assert_eq!(cell.count_of(KeyType::FLUIDS,&key),1000);assert_eq!(cell.count_of(items,&key),12);
         assert_eq!(cell.stored_types(),2);assert_eq!(cell.total_items(),1012);assert_eq!(cell.used_bytes(),expected);
-        assert_eq!(cell.extract_other(&key,5,Action::Simulate),5);assert_eq!(cell.other_count(&key),12);
-        assert_eq!(cell.extract_other(&key,5,Action::Modulate),5);assert_eq!(cell.other_count(&key),7);
+        assert_eq!(cell.extract_other(items,&key,5,Action::Simulate),5);assert_eq!(cell.other_count(items,&key),12);
+        assert_eq!(cell.extract_other(items,&key,5,Action::Modulate),5);assert_eq!(cell.other_count(items,&key),7);
         assert_eq!(cell.count(&key),1000);assert_eq!(cell.total_items(),1007);
-        assert_eq!(cell.extract_other(&key,7,Action::Modulate),7);assert_eq!(cell.stored_types(),1);
+        assert_eq!(cell.entries_for(items).collect::<Vec<_>>(),vec![(&key,&7)]);
+        assert_eq!(cell.extract_of(items,&key,7,Action::Modulate),7);assert_eq!(cell.stored_types(),1);
     }
     #[test]
     fn source_foreign_keys_count_toward_the_shared_type_limit() {
         let primary=(0..9).map(|index|(key(index),1)).collect::<Vec<_>>();
-        let other=(9..18).map(|index|(key(index),1)).collect::<Vec<_>>();
+        let other=(9..18).map(|index|(KeyType::ITEMS,key(index),1)).collect::<Vec<_>>();
         let mut cell=Cell::from_entries_with_other(CellConfig::fluid(Tier::K1),primary,other).unwrap();
         assert_eq!(cell.stored_types(),18);assert!(!cell.can_hold_new_type());
         assert_eq!(cell.insert(&key(99),1,Action::Modulate),0);
-        assert_eq!(cell.extract_other(&key(9),1,Action::Modulate),1);
+        assert_eq!(cell.extract_other(KeyType::ITEMS,&key(9),1,Action::Modulate),1);
         assert!(cell.can_hold_new_type());assert_eq!(cell.insert(&key(99),1,Action::Modulate),1);
     }
     #[test]
@@ -809,11 +830,11 @@ mod extended_tests {
     }
     #[test]
     fn explicit_type_counts_are_kept_between_one_and_sixty_three() {
-        assert_eq!(CellConfig::basic(Tier::M1, Channel::Item, 27).max_types(), 27);
-        assert_eq!(CellConfig::basic(Tier::M1, Channel::Item, 0).max_types(), 1);
-        assert_eq!(CellConfig::basic(Tier::M1, Channel::Item, 99).max_types(), 63);
+        assert_eq!(CellConfig::basic(Tier::M1, KeyType::ITEMS, 27).max_types(), 27);
+        assert_eq!(CellConfig::basic(Tier::M1, KeyType::ITEMS, 0).max_types(), 1);
+        assert_eq!(CellConfig::basic(Tier::M1, KeyType::ITEMS, 99).max_types(), 63);
         // MEGAPortableCell: 18 + (index - 5) * 9 item types, half the bytes.
-        let portable = CellConfig::portable(Tier::M1, Channel::Item, 27);
+        let portable = CellConfig::portable(Tier::M1, KeyType::ITEMS, 27);
         assert_eq!((portable.total_bytes(), portable.max_types()), (512 << 10, 27));
     }
     #[test]

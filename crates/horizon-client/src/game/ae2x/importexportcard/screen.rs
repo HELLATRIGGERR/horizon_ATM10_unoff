@@ -445,7 +445,7 @@ impl Game<'_> {
     fn iecard_draw_key(&self, batch: &mut HudBatch, id: &str, fluid: bool, x: f32, y: f32) {
         let stack = if fluid {
             let key = horizon_client::ae2_cell_codec::fluid_key(id);
-            horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack { key, fluid: true, amount: 0 }).ok()
+            horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack::fluid(key, 0)).ok()
         } else {
             Some(ItemStack::new(id, 1))
         };

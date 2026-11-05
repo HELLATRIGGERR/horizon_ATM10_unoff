@@ -6,6 +6,7 @@
 use super::{Game, ae2_global::GridAddress, lan::LanHost};
 use horizon_client::{ae2_world::MachineKind, ae2x::{defs::{AccessPointCard, TerminalKind}, wireless}, containers::BlockEntity, items::ItemStack};
 use horizon_world::nbt::Tag;
+use ae2_cell_core::{KeyType, KeyTypeSet};
 pub(super) use horizon_client::ae2x::wireless::{charge_rate, energy, transfer_energy};
 type Pos = (i32, i32, i32);
 #[derive(Clone, Debug)]
@@ -21,41 +22,47 @@ pub(super) struct WirelessContext {
     // equal replacement. This identity survives changes to its battery.
     pub source_owner: horizon_client::ae2_stack_identity::StackRef,
 }
-/// KeyTypeSelection.forStack: absence enables every native type; an explicit
-/// empty selection stays empty until the player selects a type.
-pub(super) fn enabled_key_types(stack: &ItemStack) -> Result<(bool, bool), String> {
+/// KeyTypeSelection.forStack (`keyType -> true`): absence enables every
+/// registered type; an explicit empty selection stays empty until the player
+/// selects a type. An id no type holds is left out.
+pub(super) fn enabled_key_types(stack: &ItemStack) -> Result<KeyTypeSet, String> {
     if !wireless::host(stack) { return Err("not a wireless terminal".into()); }
-    let Some(value) = stack.data().and_then(|data|data.other("ae2:enabled_key_types")) else {return Ok((true,true));};
+    let Some(value) = stack.data().and_then(|data|data.other("ae2:enabled_key_types")) else {return Ok(KeyTypeSet::all());};
     let Tag::List(entries)=value else {return Err("invalid enabled key types".into());};
-    let mut enabled=(false,false);
+    let mut enabled=KeyTypeSet::EMPTY;
     for entry in entries {
         let Tag::String(name)=entry else {return Err("invalid enabled key type".into());};
-        match name.to_string().map_err(|e|e.to_string())?.as_str() {
-            "ae2:i" => enabled.0=true,
-            "ae2:f" => enabled.1=true,
-            _ => {},
-        }
+        if let Some(kind)=KeyType::get(&name.to_string().map_err(|e|e.to_string())?) {enabled.insert(kind);}
     }
     Ok(enabled)
 }
-pub(super) fn store_enabled_key_types(stack: &mut ItemStack, enabled:(bool,bool)) -> Result<(),String> {
+/// `stack.set(ENABLED_KEY_TYPES, enabledSet())`, in registration order.
+pub(super) fn store_enabled_key_types(stack: &mut ItemStack, enabled:KeyTypeSet) -> Result<(),String> {
     if !wireless::host(stack) { return Err("not a wireless terminal".into()); }
-    let mut values=Vec::new();
-    if enabled.0 {values.push(Tag::String("ae2:i".into()));}
-    if enabled.1 {values.push(Tag::String("ae2:f".into()));}
+    let values=enabled.iter().map(|kind|Tag::String(kind.id().into())).collect();
     stack.data_mut().set_other("ae2:enabled_key_types",Some(Tag::List(values)));
     horizon_client::ae2_stack_identity::synchronize_tracked(stack);
     Ok(())
 }
-/// Clicking a checkbox cannot disable the final selected type.
-pub(super) fn toggle_key_type(enabled:(bool,bool), fluid:bool) -> (bool,bool) {
-    let (item,liquid)=enabled;
-    if fluid {(item, if liquid && !item {true} else {!liquid})}
-    else {(if item && !liquid {true} else {!item},liquid)}
+/// `KeyTypeSelection.setEnabled`: clicking a checkbox cannot disable the
+/// final selected type.
+pub(super) fn toggle_key_type(enabled:KeyTypeSet, kind:KeyType) -> KeyTypeSet {
+    let on=enabled.contains(kind);
+    if on && enabled.len()<=1 {enabled} else {enabled.with(kind,!on)}
 }
-/// KeyTypeSelectionButton's shift-click cycles all, item, fluid, all.
-pub(super) fn cycle_key_types(enabled:(bool,bool)) -> (bool,bool) {
-    match enabled {(true,true)=>(true,false),(true,false)=>(false,true),(false,true)=>(true,true),(false,false)=>(true,false)}
+/// `KeyTypeSelectionButton.getNextSelection` over `all`: from every type to
+/// the first alone, from several to every type, from one to the next, and
+/// from the last back to every type.
+pub(super) fn cycle_key_types(enabled:KeyTypeSet, all:KeyTypeSet) -> KeyTypeSet {
+    let types:Vec<KeyType>=all.iter().collect();
+    let Some(&first)=types.first() else{return enabled};
+    let selected:Vec<KeyType>=enabled.iter().filter(|kind|all.contains(*kind)).collect();
+    match selected.as_slice() {
+        [] => KeyTypeSet::of(&[first]),
+        [one] if types.len()>1 => types.iter().position(|kind|kind==one).and_then(|at|types.get(at+1)).map_or(all,|next|KeyTypeSet::of(&[*next])),
+        _ if selected.len()==types.len() => KeyTypeSet::of(&[first]),
+        _ => all,
+    }
 }
 fn custom(stack: &ItemStack) -> Result<horizon_world::nbt::Compound, String> {
     match stack.data().and_then(|d| d.other("minecraft:custom_data")) {
@@ -509,22 +516,29 @@ mod tests {
     use super::*;
     #[test]
     fn source_key_types_default_empty_toggle_cycle_and_persist() {
+        let (items,fluids)=(KeyType::ITEMS,KeyType::FLUIDS);
+        let set=|types:&[KeyType]|KeyTypeSet::of(types);
         let mut terminal=ItemStack::new("ae2:wireless_terminal",1);
-        assert_eq!(enabled_key_types(&terminal).unwrap(),(true,true));
+        let all=enabled_key_types(&terminal).unwrap();
+        assert!(all.contains(items) && all.contains(fluids));
         let owner=horizon_client::ae2_stack_identity::StackRef::capture(&mut terminal);
-        store_enabled_key_types(&mut terminal,(false,false)).unwrap();
+        store_enabled_key_types(&mut terminal,KeyTypeSet::EMPTY).unwrap();
         assert!(owner.tracks(&terminal));
-        assert_eq!(enabled_key_types(&terminal).unwrap(),(false,false));
-        assert_eq!(toggle_key_type((false,false),false),(true,false));
-        assert_eq!(toggle_key_type((true,false),false),(true,false));
-        assert_eq!(toggle_key_type((true,false),true),(true,true));
-        assert_eq!(cycle_key_types((true,true)),(true,false));
-        assert_eq!(cycle_key_types((true,false)),(false,true));
-        assert_eq!(cycle_key_types((false,true)),(true,true));
-        store_enabled_key_types(&mut terminal,(false,true)).unwrap();
+        assert_eq!(enabled_key_types(&terminal).unwrap(),KeyTypeSet::EMPTY);
+        assert_eq!(toggle_key_type(KeyTypeSet::EMPTY,items),set(&[items]));
+        assert_eq!(toggle_key_type(set(&[items]),items),set(&[items]));
+        assert_eq!(toggle_key_type(set(&[items]),fluids),set(&[items,fluids]));
+        // AE2's two types, as KeyTypeSelectionButton cycles them.
+        let both=set(&[items,fluids]);
+        assert_eq!(cycle_key_types(both,both),set(&[items]));
+        assert_eq!(cycle_key_types(set(&[items]),both),set(&[fluids]));
+        assert_eq!(cycle_key_types(set(&[fluids]),both),both);
+        store_enabled_key_types(&mut terminal,set(&[fluids])).unwrap();
         let saved=horizon_client::save::item_to_nbt(&terminal);
         let restored=horizon_client::save::item_from_nbt(&saved).unwrap();
-        assert_eq!(enabled_key_types(&restored).unwrap(),(false,true));
+        assert_eq!(enabled_key_types(&restored).unwrap(),set(&[fluids]));
+        terminal.data_mut().set_other("ae2:enabled_key_types",Some(Tag::List(vec![Tag::String("ae2:f".into()),Tag::String("removed:type".into())])));
+        assert_eq!(enabled_key_types(&terminal).unwrap(),set(&[fluids]),"an id no type holds is left out");
         terminal.data_mut().set_other("ae2:enabled_key_types",Some(Tag::Int(2)));
         assert!(enabled_key_types(&terminal).is_err());
     }

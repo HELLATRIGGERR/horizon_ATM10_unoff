@@ -85,8 +85,9 @@ const ARMOR: [&str; 4] = ["feet", "legs", "chest", "head"];
 impl Game<'_> {
     /// `AEKey.fuzzyEquals`: a fluid has no damage, so its primary key is all.
     fn iecard_fuzzy(&self, a: &GenericStack, b: &GenericStack, mode: FuzzyMode) -> bool {
-        if a.fluid || b.fluid {
-            return a.fluid == b.fluid && a.key.item_id == b.key.item_id;
+        // `fuzzyEquals` of a type without fuzzy ranges: the primary key alone.
+        if a.key_type!=ae2_cell_core::KeyType::ITEMS || b.key_type!=ae2_cell_core::KeyType::ITEMS {
+            return a.key_type == b.key_type && a.key.item_id == b.key.item_id;
         }
         let (ka, kb) = (ae2_machines_core::Key::from(&a.key), ae2_machines_core::Key::from(&b.key));
         let max = self.res.items().get(&ka.id).map_or(0, |i| i.max_damage);
@@ -176,7 +177,7 @@ impl Game<'_> {
         let Some(item) = host.hub.guests.get(gi).and_then(|g| slot(g, index)).cloned().flatten().filter(|s| s.count > 0) else { return false };
         // FluidBucketWrapper: a lone bucket drains whole or not at all.
         if let Some(fluid) = bucket_fluid(&item.item).filter(|_| item.count == 1 && crate::game::ae2_fluids::plain_bucket(&item)) {
-            let what = GenericStack { key: fluid_key(fluid), fluid: true, amount: 0 };
+            let what = GenericStack::fluid(fluid_key(fluid), 0);
             if iec::passes_filter(&what, filter, fuzzy, invert, |a, b| self.iecard_fuzzy(a, b, mode))
                 && self.ae2_grid_fluid_insert_encoded(address, &what.key, BUCKET, true).unwrap_or(0) >= BUCKET
                 && self.ae2_grid_fluid_insert_encoded(address, &what.key, BUCKET, false).unwrap_or(0) > 0
@@ -191,7 +192,7 @@ impl Game<'_> {
             }
         }
         let Ok(key) = ae2_lab::key(&item) else { return false };
-        let what = GenericStack { key, fluid: false, amount: 0 };
+        let what = GenericStack::item(key, 0);
         if !iec::passes_filter(&what, filter, fuzzy, invert, |a, b| self.iecard_fuzzy(a, b, mode)) {
             return false;
         }
@@ -225,7 +226,7 @@ impl Game<'_> {
     ) -> bool {
         let Some(Some(wanted)) = filter.get(chosen - 1) else { return false };
         let config = Config::get();
-        if !config.allows_export(&wanted.key.item_id, wanted.fluid) {
+        if !config.allows_export(&wanted.key.item_id, wanted.key_type) {
             return false;
         }
         let key = if fuzzy {
@@ -236,11 +237,11 @@ impl Game<'_> {
         } else {
             wanted.clone()
         };
-        if !config.allows_export(&key.key.item_id, key.fluid) || index == source {
+        if !config.allows_export(&key.key.item_id, key.key_type) || index == source {
             return false;
         }
         let speed = iec::installed(upgrades, SPEED_CARD) > 0;
-        if key.fluid {
+        if key.key_type==ae2_cell_core::KeyType::FLUIDS {
             return self.lan_iecard_export_fluid(host, gi, index, address, &key, speed);
         }
         self.lan_iecard_export_item(host, gi, index, ticker, address, &key, wanted, upgrades, speed)
@@ -249,14 +250,14 @@ impl Game<'_> {
     /// `resolveExportKey` with the Fuzzy Card: `getCachedInventory().findFuzzy`,
     /// the first allowed key, in the port's listing order.
     fn iecard_resolve_fuzzy(&self, address: GridAddress, wanted: &GenericStack, mode: FuzzyMode) -> Option<GenericStack> {
-        let stock = if wanted.fluid { self.ae2_grid_fluids_encoded(address).ok()? } else { self.ae2_grid_inventory_encoded(address).ok()? };
+        let stock = self.ae2_grid_keys_encoded(address, wanted.key_type).ok()?;
         let config = Config::get();
         stock
             .into_iter()
             .filter(|(_, n)| *n > 0)
-            .map(|(key, _)| GenericStack { key, fluid: wanted.fluid, amount: 0 })
+            .map(|(key, _)| GenericStack { key, key_type: wanted.key_type, amount: 0 })
             .find(|candidate| {
-                candidate.key.item_id == wanted.key.item_id && self.iecard_fuzzy(candidate, wanted, mode) && config.allows_export(&candidate.key.item_id, candidate.fluid)
+                candidate.key.item_id == wanted.key.item_id && self.iecard_fuzzy(candidate, wanted, mode) && config.allows_export(&candidate.key.item_id, candidate.key_type)
             })
     }
 
@@ -359,7 +360,7 @@ impl Game<'_> {
     /// has finished, is submitted (`submitJob` with no requester, a
     /// `MachineSource`), and a new one begins (`CRAFT_LESS`) for `amount`.
     fn iecard_request_craft(&mut self, ticker: &str, address: GridAddress, key: &GenericStack, amount: u64, upgrades: &[Option<ItemStack>]) {
-        if key.fluid || !Config::get().allows_export(&key.key.item_id, key.fluid) || iec::installed(upgrades, CRAFTING_CARD) == 0 {
+        if key.key_type==ae2_cell_core::KeyType::FLUIDS || !Config::get().allows_export(&key.key.item_id, key.key_type) || iec::installed(upgrades, CRAFTING_CARD) == 0 {
             return;
         }
         // An unfinished calculation leaves everything as it is.
@@ -372,7 +373,7 @@ impl Game<'_> {
         }
         if let Some(done) = self.ae2x.importexportcard.crafts.remove(ticker)
             && let Some(Ok((plan, _))) = done.result
-            && Config::get().allows_export(&done.key.item_id, false)
+            && Config::get().allows_export(&done.key.item_id, ae2_cell_core::KeyType::ITEMS)
             && !plan.simulated
             && !(plan.steps.is_empty() && plan.emitted.is_empty())
             && let Err(error) = self.ae2_begin_unowned_craft(done.pos, &done.key, &done.registry, &plan)
@@ -435,7 +436,7 @@ impl Game<'_> {
                 let upgrades = iec::card_upgrades(&card, ty);
                 let filters: Vec<serde_json::Value> = iec::filter(&card, iec::MAX_FILTER_SLOT_COUNT)
                     .into_iter()
-                    .map(|slot| slot.map_or(serde_json::Value::Null, |s| serde_json::json!({"id": s.key.item_id, "fluid": s.fluid})))
+                    .map(|slot| slot.map_or(serde_json::Value::Null, |s| serde_json::json!({"id": s.key.item_id, "fluid": (s.key_type==ae2_cell_core::KeyType::FLUIDS)})))
                     .collect();
                 serde_json::json!({
                     "filters": filters,
@@ -585,10 +586,10 @@ impl Game<'_> {
             return stored;
         }
         let Ok(key) = ae2_lab::key(&stack) else { return false };
-        let what = GenericStack { key, fluid: false, amount: 0 };
+        let what = GenericStack::item(key, 0);
         self.iecard_edit_card(host, gi, source, ty, |card| {
             let mut slots = iec::filter(card, iec::MAX_FILTER_SLOT_COUNT);
-            if slots.iter().flatten().any(|s| !s.fluid && s.key == what.key) {
+            if slots.iter().flatten().any(|s| s.key_type!=ae2_cell_core::KeyType::FLUIDS && s.key == what.key) {
                 return;
             }
             if let Some(empty) = slots.iter_mut().find(|s| s.is_none()) {
@@ -622,8 +623,8 @@ impl Game<'_> {
                 let index: usize = index.parse().ok().filter(|i| *i < iec::MAX_FILTER_SLOT_COUNT).ok_or("bad filter index")?;
                 let key = match *id {
                     "-" => None,
-                    id if rest.first() == Some(&"fluid") => Some(GenericStack { key: fluid_key(id), fluid: true, amount: 0 }),
-                    id => Some(GenericStack { key: ae2_lab::key(&ItemStack::new(id, 1))?, fluid: false, amount: 0 }),
+                    id if rest.first() == Some(&"fluid") => Some(GenericStack::fluid(fluid_key(id), 0)),
+                    id => Some(GenericStack::item(ae2_lab::key(&ItemStack::new(id, 1))?, 0)),
                 };
                 let Some(Some(stack)) = self.inventory.get_mut(slot) else { return Err("no terminal".into()) };
                 let edited = iec::edit_card(stack, ty.card(), |card| {
@@ -662,9 +663,9 @@ fn fake_slot_press(current: Option<GenericStack>, carried: Option<&ItemStack>, r
     if right
         && let Some(fluid) = carried.and_then(|c| bucket_fluid(&c.item))
     {
-        return Some(GenericStack { key: fluid_key(fluid), fluid: true, amount: 0 });
+        return Some(GenericStack::fluid(fluid_key(fluid), 0));
     }
-    let item = || carried.and_then(|c| ae2_lab::key(c).ok()).map(|key| GenericStack { key, fluid: false, amount: 0 });
+    let item = || carried.and_then(|c| ae2_lab::key(c).ok()).map(|key| GenericStack::item(key, 0));
     match (right, current) {
         (false, _) => item(),
         (true, Some(_)) => None,
@@ -680,13 +681,13 @@ mod tests {
     fn a_filter_slot_takes_the_cursor_and_a_bucket_its_fluid() {
         let cobble = ItemStack::new("minecraft:cobblestone", 5);
         let set = fake_slot_press(None, Some(&cobble), false).unwrap();
-        assert_eq!((set.key.item_id.as_str(), set.fluid, set.amount), ("minecraft:cobblestone", false, 0));
+        assert_eq!((set.key.item_id.as_str(), set.key_type, set.amount), ("minecraft:cobblestone", ae2_cell_core::KeyType::ITEMS, 0));
         assert_eq!(fake_slot_press(Some(set.clone()), None, false), None, "an empty cursor clears");
         assert_eq!(fake_slot_press(Some(set.clone()), Some(&cobble), true), None, "right: a set slot clears");
         assert_eq!(fake_slot_press(None, Some(&cobble), true).unwrap().key.item_id, "minecraft:cobblestone");
         let water = fake_slot_press(None, Some(&ItemStack::new("minecraft:water_bucket", 1)), true).unwrap();
-        assert_eq!((water.key.item_id.as_str(), water.fluid), ("minecraft:water", true));
+        assert_eq!((water.key.item_id.as_str(), water.key_type), ("minecraft:water", ae2_cell_core::KeyType::FLUIDS));
         let bucket = fake_slot_press(None, Some(&ItemStack::new("minecraft:water_bucket", 1)), false).unwrap();
-        assert!(!bucket.fluid, "a left press sets the bucket item");
+        assert_eq!(bucket.key_type, ae2_cell_core::KeyType::ITEMS, "a left press sets the bucket item");
     }
 }

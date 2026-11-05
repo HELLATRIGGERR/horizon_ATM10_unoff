@@ -171,8 +171,8 @@ mod tests {
         }).unwrap();
         assert!(!snapshot.same_definitions(&changed));
         registry.set_resource_classifier(|key|if key=="water" {
-            crate::extended::ResourceKind::Fluid
-        } else {crate::extended::ResourceKind::Item});
+            crate::extended::KeyType::FLUIDS
+        } else {crate::extended::KeyType::ITEMS});
         assert!(!snapshot.same_definitions(&registry));
     }
 

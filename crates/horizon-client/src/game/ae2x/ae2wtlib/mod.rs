@@ -107,7 +107,7 @@ fn read_stacks(data: &Compound, name: &str, items: &mut [Option<ItemStack>], flu
         if amount == 0 {
             continue;
         }
-        if stack.fluid {
+        if stack.key_type==ae2_cell_core::KeyType::FLUIDS {
             fluids[slot] = Some(PatternFluid { key: stack.key, amount });
         } else {
             let mut item = horizon_client::ae2_cell_codec::prototype(&stack.key)?;
@@ -123,8 +123,8 @@ fn write_stacks(data: &mut Compound, name: &str, items: &[Option<ItemStack>], fl
     let mut list = Vec::new();
     for slot in 0..items.len() {
         let stack = match (&items[slot], fluids.get(slot).and_then(Option::as_ref)) {
-            (Some(item), _) => Some(GenericStack { key: horizon_client::ae2_cell_codec::key(item)?, fluid: false, amount: i64::from(item.count) }),
-            (None, Some(fluid)) => Some(GenericStack { key: fluid.key.clone(), fluid: true, amount: i64::try_from(fluid.amount).map_err(|_| "fluid amount too large")? }),
+            (Some(item), _) => Some(GenericStack::item(horizon_client::ae2_cell_codec::key(item)?, i64::from(item.count))),
+            (None, Some(fluid)) => Some(GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).map_err(|_| "fluid amount too large")?)),
             (None, None) => None,
         };
         list.push(match stack {

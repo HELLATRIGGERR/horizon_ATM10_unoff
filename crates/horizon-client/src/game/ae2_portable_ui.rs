@@ -1,7 +1,7 @@
 //! Item-backed portable storage menus. The displayed slots are views; the
 //! authoritative contents and energy remain in the player's actual cell item.
 use super::{Game, Screen, ae2_fluids, ae2_interactions, ae2_lab};
-use ae2_cell_core::{Action, Cell, Channel, ItemKey};
+use ae2_cell_core::{Action, Cell, KeyType, ItemKey};
 use horizon_client::{items::ItemStack, menu::Input, text::Text};
 use horizon_world::nbt::Tag;
 
@@ -14,52 +14,46 @@ pub(super) struct PortableDrag {
 }
 
 /// A `PortableCellItem` of the registry (AE2's or an addon's) for fluids or for items.
-fn portable_channel(s: &ItemStack, channel: Channel) -> bool {
-    horizon_client::ae2x::defs::get().portable_cell(&s.item).is_some_and(|cell| cell.channel == channel)
+fn portable_channel(s: &ItemStack, channel: KeyType) -> bool {
+    horizon_client::ae2x::defs::get().portable_cell(&s.item).is_some_and(|cell| cell.key_type == channel)
 }
 fn portable_fluid(s: &ItemStack) -> bool {
-    portable_channel(s, Channel::Fluid)
+    portable_channel(s, KeyType::FLUIDS)
 }
 fn portable_item(s: &ItemStack) -> bool {
-    portable_channel(s, Channel::Item)
+    portable_channel(s, KeyType::ITEMS)
 }
 fn read(s: &ItemStack) -> Result<Cell, String> {
-    if portable_fluid(s) {
-        ae2_fluids::read_fluid_cell(s)
-    } else if portable_item(s) {
-        ae2_lab::read_cell(s)
+    if horizon_client::ae2x::defs::get().portable_cell(&s.item).is_some() {
+        horizon_client::ae2_cell_codec::read_any_cell_checked(s, &|_, _| true)
     } else {
         Err("portable cell moved".into())
     }
 }
 fn write(s: &mut ItemStack, c: &Cell) -> Result<(), String> {
-    if portable_fluid(s) {
-        ae2_fluids::write_fluid_cell(s, c)
-    } else {
-        ae2_lab::write_cell(s, c)
-    }
+    horizon_client::ae2_cell_codec::write_any_cell(s, c)
 }
 /// MEStorageMenu.isKeyVisible filters item-backed basic-cell views to the
 /// physical cell's key type. Foreign keys remain in the cell for other hosts.
-fn portable_cell_entries(cell:&Cell)->Vec<(ItemKey,u64,Channel)> {
-    let channel=cell.config().channel;
+fn portable_cell_entries(cell:&Cell)->Vec<(ItemKey,u64,KeyType)> {
+    let channel=cell.config().key_type;
     cell.entries_for(channel).map(|(key,count)|(key.clone(),*count,channel)).collect()
 }
-type PortableViewKey=(ItemKey,Channel);
-fn portable_view_keys(entries:&[(ItemKey,u64,Channel)],page:usize)->Vec<Option<PortableViewKey>> {
+type PortableViewKey=(ItemKey,KeyType);
+fn portable_view_keys(entries:&[(ItemKey,u64,KeyType)],page:usize)->Vec<Option<PortableViewKey>> {
     let page=page.min(entries.len().saturating_sub(1)/PAGE);
     (0..PAGE).map(|slot|entries.get(page*PAGE+slot).map(|(key,_,channel)|(key.clone(),*channel))).collect()
 }
 fn portable_view_revision_matches(
     revisions:&std::collections::VecDeque<(i32,Vec<Option<PortableViewKey>>)>,state:i32,
-    entries:&[(ItemKey,u64,Channel)],page:usize,slot:usize,
+    entries:&[(ItemKey,u64,KeyType)],page:usize,slot:usize,
 )->bool {
     let visible=portable_view_keys(entries,page);
     revisions.iter().rev().find(|(revision,_)|*revision==state)
         .is_some_and(|(_,shown)|shown.get(slot).zip(visible.get(slot)).is_some_and(|(old,new)|old==new))
 }
-fn portable_extract(cell:&mut Cell,key:&ItemKey,amount:u64,channel:Channel,action:Action)->u64 {
-    if cell.config().channel==channel {cell.extract(key,amount,action)} else {cell.extract_other(key,amount,action)}
+fn portable_extract(cell:&mut Cell,key:&ItemKey,amount:u64,channel:KeyType,action:Action)->u64 {
+    cell.extract_of(channel,key,amount,action)
 }
 /// Source BasicCellInventory permits empty ordinary cells and rejects populated ones.
 /// Unknown/invalid storage cells fail closed.
@@ -97,7 +91,7 @@ impl Game<'_> {
         *self.stack_in_mut(source) = Some(stack);
         Ok(())
     }
-    fn portable_entries(&self, source: usize) -> Result<Vec<(ItemKey, u64, Channel)>, String> {
+    fn portable_entries(&self, source: usize) -> Result<Vec<(ItemKey, u64, KeyType)>, String> {
         let cell = self.ae2_read_cell(&self.portable_stack(source)?)?;
         Ok(portable_cell_entries(&cell))
     }
@@ -106,7 +100,7 @@ impl Game<'_> {
         _source: usize,
         page: usize,
         index: usize,
-        entries: &[(ItemKey, u64, Channel)],
+        entries: &[(ItemKey, u64, KeyType)],
     ) -> Option<ItemStack> {
         if index == 45 && page > 0 {
             return Some(nav("Previous page"));
@@ -118,7 +112,7 @@ impl Game<'_> {
             return None;
         }
         let (key, n, channel) = entries.get(page * PAGE + index)?;
-        let fluid = *channel == Channel::Fluid;
+        let fluid = *channel == KeyType::FLUIDS;
         let mut stack = if fluid {
             ItemStack::new(
                 ae2_fluids::fluid_bucket(&key.item_id).unwrap_or("minecraft:bucket"),
@@ -241,12 +235,12 @@ impl Game<'_> {
         let Some(slot) = slot else { return Ok(()) };
         let mut stack = self.portable_stack(source)?;
         let mut cell = self.ae2_read_cell(&stack)?;
-        let fluid = cell.config().channel == Channel::Fluid;
+        let fluid = cell.config().key_type == KeyType::FLUIDS;
         let entries = portable_cell_entries(&cell);
         *page = (*page).min(entries.len().saturating_sub(1) / PAGE);
         if (300..354).contains(&slot) {
             if input == Input::Clone && self.creative && self.carried.is_none() {
-                if let Some((key, _, Channel::Item)) = entries
+                if let Some((key, _, KeyType::ITEMS)) = entries
                     .get(*page * PAGE + slot - 300)
                     .filter(|_| slot - 300 < PAGE)
                 {
@@ -273,7 +267,7 @@ impl Game<'_> {
             if index >= PAGE {
                 return Ok(());
             }
-            let selected_fluid=entries.get(*page*PAGE+index).is_some_and(|(_,_,channel)|*channel==Channel::Fluid);
+            let selected_fluid=entries.get(*page*PAGE+index).is_some_and(|(_,_,channel)|*channel==KeyType::FLUIDS);
             let inserting_fluid=fluid && self.carried.as_ref().is_some_and(|held|ae2_fluids::bucket_fluid(&held.item).is_some());
             if selected_fluid || inserting_fluid {
                 if input == Input::QuickMove { return Ok(()); }
@@ -283,7 +277,7 @@ impl Game<'_> {
                 if self.carried.is_some() {
                     return Ok(());
                 }
-                let Some((key, available, Channel::Item)) = entries.get(*page * PAGE + index) else {
+                let Some((key, available, KeyType::ITEMS)) = entries.get(*page * PAGE + index) else {
                     return Ok(());
                 };
                 let mut item = ae2_lab::prototype(key)?;
@@ -297,7 +291,7 @@ impl Game<'_> {
                 let before = self.inventory.clone();
                 let leftover = self.give(item.clone()).map_or(0, |s| u64::from(s.count));
                 self.inventory = before.clone();
-                let moved = portable_extract(&mut cell,key,requested-leftover,Channel::Item,Action::Modulate);
+                let moved = portable_extract(&mut cell,key,requested-leftover,KeyType::ITEMS,Action::Modulate);
                 if moved == 0 {
                     return Ok(());
                 }
@@ -339,7 +333,7 @@ impl Game<'_> {
                     ..carried
                 });
                 *self.stack_in_mut(source) = Some(stack);
-            } else if let Some((key, available, Channel::Item)) = entries.get(*page * PAGE + index) {
+            } else if let Some((key, available, KeyType::ITEMS)) = entries.get(*page * PAGE + index) {
                 let mut item = ae2_lab::prototype(key)?;
                 let max = self.res.items().stack_max(&item);
                 let available = u64::from(max).min(*available);
@@ -349,7 +343,7 @@ impl Game<'_> {
                     available
                 };
                 let limit = self.portable_transfer_cost(&stack, requested, 1.0)?;
-                let got = portable_extract(&mut cell,key,limit,Channel::Item,Action::Modulate);
+                let got = portable_extract(&mut cell,key,limit,KeyType::ITEMS,Action::Modulate);
                 if got == 0 {
                     return Ok(());
                 }
@@ -452,7 +446,7 @@ impl Game<'_> {
         source: usize,
         stack: &mut ItemStack,
         cell: &mut Cell,
-        entries: &[(ItemKey, u64, Channel)],
+        entries: &[(ItemKey, u64, KeyType)],
         page: usize,
         index: usize,
     ) -> Result<(), String> {
@@ -468,7 +462,7 @@ impl Game<'_> {
             if bucket.item.as_ref() != "minecraft:bucket" {
                 return Err("use an empty bucket".into());
             }
-            let (key, amount, Channel::Fluid) = entries
+            let (key, amount, KeyType::FLUIDS) = entries
                 .get(page * PAGE + index)
                 .ok_or("fluid entry unavailable")? else { return Err("fluid entry unavailable".into()); };
             if *amount < 1000 || !key.components.is_empty() {
@@ -484,9 +478,9 @@ impl Game<'_> {
             return Err("portable cell lacks power".into());
         }
         let moved = if insert {
-            if cell.config().channel!=Channel::Fluid {0} else {cell.insert(&key,1000,Action::Simulate)}
+            if cell.config().key_type!=KeyType::FLUIDS {0} else {cell.insert(&key,1000,Action::Simulate)}
         } else {
-            portable_extract(cell,&key,1000,Channel::Fluid,Action::Simulate)
+            portable_extract(cell,&key,1000,KeyType::FLUIDS,Action::Simulate)
         };
         if moved != 1000 {
             return Err("portable cell cannot transfer a full bucket".into());
@@ -512,7 +506,7 @@ impl Game<'_> {
         let committed = if insert {
             cell.insert(&key, 1000, Action::Modulate)
         } else {
-            portable_extract(cell,&key,1000,Channel::Fluid,Action::Modulate)
+            portable_extract(cell,&key,1000,KeyType::FLUIDS,Action::Modulate)
         };
         if committed != 1000 {
             self.inventory = before_inventory;
@@ -911,10 +905,10 @@ mod mixed_portable_tests {
     fn queued_portable_click_requires_the_same_visible_key() {
         let water=ItemKey{item_id:"minecraft:water".into(),components:vec![]};
         let lava=ItemKey{item_id:"minecraft:lava".into(),components:vec![]};
-        let old=vec![(water.clone(),2000,Channel::Fluid)];
+        let old=vec![(water.clone(),2000,KeyType::FLUIDS)];
         let mut history=std::collections::VecDeque::new();history.push_back((3,portable_view_keys(&old,0)));
-        assert!(portable_view_revision_matches(&history,3,&[(water,1000,Channel::Fluid)],0,0));
-        assert!(!portable_view_revision_matches(&history,3,&[(lava,1000,Channel::Fluid)],0,0));
+        assert!(portable_view_revision_matches(&history,3,&[(water,1000,KeyType::FLUIDS)],0,0));
+        assert!(!portable_view_revision_matches(&history,3,&[(lava,1000,KeyType::FLUIDS)],0,0));
         assert!(portable_view_revision_matches(&history,3,&old,0,1));
         assert!(!portable_view_revision_matches(&history,4,&old,0,0));
     }
@@ -927,10 +921,10 @@ mod mixed_portable_tests {
         let mut cell=read(&stack).unwrap();let entries=portable_cell_entries(&cell);
         assert_eq!(entries.len(),1);
         let (key,amount,channel)=&entries[0];
-        assert_eq!((*amount,*channel),(1000,Channel::Fluid));let key=key.clone();
-        assert_eq!(portable_extract(&mut cell,&key,1000,Channel::Fluid,Action::Modulate),1000);
+        assert_eq!((*amount,*channel),(1000,KeyType::FLUIDS));let key=key.clone();
+        assert_eq!(portable_extract(&mut cell,&key,1000,KeyType::FLUIDS,Action::Modulate),1000);
         write(&mut stack,&cell).unwrap();let restored=read(&stack).unwrap();
-        assert_eq!(restored.entries_for(Channel::Item).map(|(_,amount)|*amount).sum::<u64>(),3);
-        assert_eq!(restored.entries_for(Channel::Fluid).map(|(_,amount)|*amount).sum::<u64>(),0);
+        assert_eq!(restored.entries_for(KeyType::ITEMS).map(|(_,amount)|*amount).sum::<u64>(),3);
+        assert_eq!(restored.entries_for(KeyType::FLUIDS).map(|(_,amount)|*amount).sum::<u64>(),0);
     }
 }

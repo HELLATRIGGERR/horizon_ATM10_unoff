@@ -188,9 +188,9 @@ pub mod extended {
     use serde::{Deserialize, Serialize};
     use std::collections::{BTreeMap, BTreeSet};
 
-    /// AE2's native item and fluid key types have different storage-byte scales.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub enum ResourceKind { Item, Fluid }
+    /// A resource's key type: its storage-byte scale is the type's
+    /// `getAmountPerByte` (`ICraftingSimulationState.addStackBytes`).
+    pub use ae2_cell_core::KeyType;
     type NodePath = usize;
 
     /// Source input identity and its physical remainder for each permitted key.
@@ -223,7 +223,7 @@ pub mod extended {
         ids: BTreeSet<String>,
         primary_outputs: BTreeMap<String, String>,
         emittable: BTreeSet<String>,
-        resource_classifier: Option<fn(&str)->ResourceKind>,
+        resource_classifier: Option<fn(&str)->KeyType>,
         source_inputs: BTreeMap<String,Vec<SourceInput>>,
         // Encoded per-slot GenericStack amounts. Source crafting patterns use
         // their sum as the condensed input multiplier independently from the
@@ -265,7 +265,7 @@ pub mod extended {
         }
         /// The host identifies resource types from its canonical key codec.
         /// Without a classifier, standalone legacy callers use item units.
-        pub fn set_resource_classifier(&mut self,classify:fn(&str)->ResourceKind) {
+        pub fn set_resource_classifier(&mut self,classify:fn(&str)->KeyType) {
             self.resource_classifier=Some(classify);
         }
         /// Whether a previously calculated plan still names the same provider
@@ -273,8 +273,8 @@ pub mod extended {
         /// Physical stock and CPU availability are rechecked separately.
         pub fn same_definitions(&self,other:&Self)->bool {
             let same_kind=|key:&str| {
-                self.resource_classifier.map_or(ResourceKind::Item,|f|f(key))
-                    ==other.resource_classifier.map_or(ResourceKind::Item,|f|f(key))
+                self.resource_classifier.map_or(KeyType::ITEMS,|f|f(key))
+                    ==other.resource_classifier.map_or(KeyType::ITEMS,|f|f(key))
             };
             self.patterns==other.patterns && self.primary_outputs==other.primary_outputs
                 && self.emittable==other.emittable && self.source_inputs==other.source_inputs
@@ -286,9 +286,12 @@ pub mod extended {
                     input.remaining.iter().all(|(key,remainder)|same_kind(key) && same_kind(remainder)))
                 && self.emittable.iter().all(|key|same_kind(key))
         }
+        /// `amount / getAmountPerByte() * 8` bytes, in thousandths: 1000 an
+        /// item, 1 a millibucket. A type whose amount per byte is no divisor of
+        /// 8000 rounds each stack down to the thousandth.
         fn stack_millibytes(&self,key:&str,amount:u64)->u128 {
-            let kind=self.resource_classifier.map_or(ResourceKind::Item,|classify|classify(key));
-            u128::from(amount)*match kind {ResourceKind::Item=>1000,ResourceKind::Fluid=>1}
+            let kind=self.resource_classifier.map_or(KeyType::ITEMS,|classify|classify(key));
+            u128::from(amount)*8000/u128::from(kind.amount_per_byte())
         }
         /// Attach source input identities without changing persisted jobs or
         /// their physical slot-level dispatch descriptions.
@@ -575,7 +578,7 @@ mod extended_tests {
     #[test]
     fn cpu_capacity_sums_fractional_fluid_bytes_before_rounding() {
         let mut r=Registry::default();
-        r.set_resource_classifier(|key|if key.starts_with("fluid|"){ResourceKind::Fluid}else{ResourceKind::Item});
+        r.set_resource_classifier(|key|if key.starts_with("fluid|"){KeyType::FLUIDS}else{KeyType::ITEMS});
         r.register(Pattern{id:"mixed".into(),inputs:vec![ing(&[("iron",2)]),ing(&[("fluid|water|",750)])],outputs:inv(&[("fluid|oil|",200)])}).unwrap();
         let mut network=inv(&[("iron",2),("fluid|water|",750)]);
         let plan=r.plan(&network,"fluid|oil|",200).unwrap();

@@ -87,7 +87,7 @@ struct GridHost<'a, 'g> {
 impl core::Host<Key, Link> for GridHost<'_, '_> {
     fn begin_calculation(&mut self, slot: usize, key: &Key, amount: i64) {
         let amount = u64::try_from(amount).unwrap_or(0);
-        if let Err(error) = self.game.ae2_requester_begin_calculation(self.owner, slot, &key.key, key.fluid, amount, self.pos) {
+        if let Err(error) = self.game.ae2_requester_begin_calculation(self.owner, slot, &key.key, key.key_type==ae2_cell_core::KeyType::FLUIDS, amount, self.pos) {
             self.game.ae2x.merequester.notes.insert(self.owner.host, format!("row {slot}: no calculation: {error}"));
         }
     }
@@ -115,7 +115,7 @@ impl core::Host<Key, Link> for GridHost<'_, '_> {
     fn insert(&mut self, key: &Key, amount: i64) -> i64 {
         let Ok(amount) = u64::try_from(amount) else { return 0 };
         let address = self.owner.host;
-        let inserted = if key.fluid {
+        let inserted = if key.key_type==ae2_cell_core::KeyType::FLUIDS {
             self.game.ae2_grid_fluid_insert_encoded(address, &key.key, amount, false).unwrap_or(0)
         } else {
             let Ok(mut item) = ae2_lab::prototype(&key.key) else { return 0 };
@@ -180,7 +180,7 @@ impl Game<'_> {
     }
     /// The network's amount of each row's key (`IStackWatcher`).
     fn merequester_stock(&self, address: GridAddress, r: &Requester) -> Vec<Option<i64>> {
-        let wants = |fluid: bool| r.requests.iter().any(|q| q.key.as_ref().is_some_and(|k| k.fluid == fluid));
+        let wants = |fluid: bool| r.requests.iter().any(|q| q.key.as_ref().is_some_and(|k| (k.key_type==ae2_cell_core::KeyType::FLUIDS) == fluid));
         let mut stock = BTreeMap::new();
         if wants(false) {
             for (key, n) in self.ae2_grid_inventory_encoded(address).unwrap_or_default() {
@@ -196,7 +196,7 @@ impl Game<'_> {
             .iter()
             .map(|q| {
                 let key = q.key.as_ref()?;
-                let n = stock.get(&(key.key.clone(), key.fluid)).copied().unwrap_or(0);
+                let n = stock.get(&(key.key.clone(), (key.key_type==ae2_cell_core::KeyType::FLUIDS))).copied().unwrap_or(0);
                 Some(i64::try_from(n).unwrap_or(i64::MAX))
             })
             .collect()
@@ -316,7 +316,8 @@ impl Game<'_> {
         let Some(mut r) = self.merequester_load(owner.host) else { return 0 };
         let Ok(n) = i64::try_from(amount) else { return 0 };
         let Some(storage) = r.storages.get_mut(slot) else { return 0 };
-        if !storage.update(Key { key: key.clone(), fluid }, n) {
+        let key_type = if fluid { ae2_cell_core::KeyType::FLUIDS } else { ae2_cell_core::KeyType::ITEMS };
+        if !storage.update(Key { key: key.clone(), key_type }, n) {
             return 0;
         }
         if self.merequester_store(owner.host, &r) { amount } else { 0 }
@@ -330,7 +331,7 @@ impl Game<'_> {
         }
         let r = rows::read(&machine.config, Config::get().requests);
         let row = r.requests.get(slot)?.key.as_ref()?;
-        (row.key == *key && row.fluid == fluid).then_some(0)
+        (row.key == *key && (row.key_type==ae2_cell_core::KeyType::FLUIDS) == fluid).then_some(0)
     }
     /// A Memory Card used on a requester (`AEBaseEntityBlock.useItemOn`,
     /// `exportSettings`, `importSettings`): with sneak it copies the rows, else

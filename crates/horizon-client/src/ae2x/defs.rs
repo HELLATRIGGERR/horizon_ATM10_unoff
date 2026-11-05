@@ -9,15 +9,15 @@
 //! change after. An addon whose content is not loaded leaves rows that no item
 //! reaches.
 use crate::ae2_world::{AE2_CRAFTING_UNITS, AE2_ENERGY_CELLS, CraftingUnit, EnergyCell, ExtMachine, MachineVariant};
-use ae2_cell_core::{CellConfig, Channel, Tier};
+use ae2_cell_core::{CellConfig, KeyType, Tier};
 use std::{collections::HashMap, sync::LazyLock};
 
 /// A storage cell (`IBasicCellItem`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CellDef {
     pub id: String,
-    /// `getKeyType`: items or fluids.
-    pub channel: Channel,
+    /// `getKeyType`: items, fluids or an addon's type.
+    pub key_type: KeyType,
     /// The tier: `getBytes` is its kilobytes × 1,024 (× 512 for a portable
     /// cell) and `getBytesPerType` its kilobytes × 8.
     pub tier: Tier,
@@ -41,9 +41,9 @@ impl CellDef {
     /// The cell's storage layout, before its cards and partition.
     pub fn config(&self) -> CellConfig {
         if self.portable {
-            CellConfig::portable(self.tier, self.channel, self.types)
+            CellConfig::portable(self.tier, self.key_type, self.types)
         } else {
-            CellConfig::basic(self.tier, self.channel, self.types)
+            CellConfig::basic(self.tier, self.key_type, self.types)
         }
     }
 }
@@ -236,7 +236,7 @@ impl Defs {
     /// `PortableCellItem` give it: four slots on an item cell, three on a
     /// fluid cell. Its cards are added with [`Defs::add_upgrade`].
     pub fn add_cell(&mut self, cell: CellDef) {
-        let slots = if cell.channel == Channel::Item { 4 } else { 3 };
+        let slots = if cell.key_type == KeyType::ITEMS { 4 } else { 3 };
         self.upgrade_slots.insert(cell.id.clone(), slots);
         if cell.portable && !self.portable_order.contains(&cell.id) {
             self.portable_order.push(cell.id.clone());
@@ -408,11 +408,11 @@ impl Defs {
             let size = format!("{}k", tier.kilobytes());
             // StorageTier: 0.5 AE/t per index; a portable cell drains 0.5 whatever its tier.
             let drain = 0.5 * f64::from(tier.index());
-            for (kind, channel, types) in [("item", Channel::Item, 63), ("fluid", Channel::Fluid, 18)] {
+            for (kind, channel, types) in [("item", KeyType::ITEMS, 63), ("fluid", KeyType::FLUIDS, 18)] {
                 let model = format!("ae2:block/drive/cells/{size}_{kind}_cell");
                 defs.add_cell(CellDef {
                     id: format!("ae2:{kind}_storage_cell_{size}"),
-                    channel,
+                    key_type: channel,
                     tier,
                     types,
                     idle_drain: drain,
@@ -421,14 +421,14 @@ impl Defs {
                     battery_scale: 1.0,
                     charge_scale: 1.0,
                 });
-                let portable_types = if channel == Channel::Item {
+                let portable_types = if channel == KeyType::ITEMS {
                     63 - 9 * tier.index() as usize
                 } else {
                     18
                 };
                 defs.add_cell(CellDef {
                     id: format!("ae2:portable_{kind}_cell_{size}"),
-                    channel,
+                    key_type: channel,
                     tier,
                     types: portable_types,
                     idle_drain: 0.5,
@@ -488,7 +488,7 @@ pub fn add_storage_cell_cards(defs: &mut Defs, cell: &CellDef) {
     for card in ["ae2:inverter_card", "ae2:equal_distribution_card", "ae2:void_card"] {
         defs.add_upgrade(card, &cell.id, 1);
     }
-    if cell.channel == Channel::Item {
+    if cell.key_type == KeyType::ITEMS {
         defs.add_upgrade("ae2:fuzzy_card", &cell.id, 1);
     }
 }

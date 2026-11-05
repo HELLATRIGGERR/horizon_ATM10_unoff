@@ -45,7 +45,7 @@ impl Game<'_> {
             return false;
         }
         let Some(destination) = self.inventory.iter().take(MAIN).position(Option::is_none) else { return false };
-        if ae2_lab::key(stack).is_err() || !Config::get().allows_export(&stack.item, false) {
+        if ae2_lab::key(stack).is_err() || !Config::get().allows_export(&stack.item, ae2_cell_core::KeyType::ITEMS) {
             return false;
         }
         for slot in 0..=40 {

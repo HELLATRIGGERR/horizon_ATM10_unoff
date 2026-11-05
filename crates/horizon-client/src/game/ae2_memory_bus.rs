@@ -101,8 +101,9 @@ mod bus_memory {
         let source_filters=state.config.iter().map(|entry|{
             let Some(key)=entry else{return Ok(Tag::Compound(Compound::new()))};
             let raw=ae2_cell_core::ItemKey::from(key);
-            let fluid=ae2_lab::prototype(&raw).is_err();
-            horizon_client::ae2_generic_stack::encode(&horizon_client::ae2_generic_stack::GenericStack{key:raw,fluid,amount:0})
+            // A bus key names no item when it is a fluid's.
+            let key_type=if ae2_lab::prototype(&raw).is_err() {ae2_cell_core::KeyType::FLUIDS} else {ae2_cell_core::KeyType::ITEMS};
+            horizon_client::ae2_generic_stack::encode(&horizon_client::ae2_generic_stack::GenericStack{key:raw,key_type,amount:0})
         }).collect::<Result<Vec<_>,String>>()?;
         let mut source_settings=Compound::new();
         for (key,value) in &settings {

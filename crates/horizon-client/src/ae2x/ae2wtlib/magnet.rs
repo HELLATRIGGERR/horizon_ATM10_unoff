@@ -172,7 +172,7 @@ impl Filter {
         {
             for entry in entries.iter().take(FILTER_SLOTS) {
                 if let Ok(Some(key)) = crate::ae2_generic_stack::decode_tolerant(entry)
-                    && !key.fluid
+                    && key.key_type == crate::ae2_key_types::KeyType::ITEMS
                 {
                     items.insert(key.key.item_id);
                 }
@@ -205,7 +205,7 @@ pub fn filter_slots(stack: &ItemStack, config: &str) -> Vec<Tag> {
         && let Some(Tag::List(entries)) = data.get(&"".into())
     {
         for (slot, entry) in slots.iter_mut().zip(entries) {
-            if matches!(crate::ae2_generic_stack::decode_tolerant(entry), Ok(Some(key)) if !key.fluid) {
+            if matches!(crate::ae2_generic_stack::decode_tolerant(entry), Ok(Some(key)) if key.key_type == crate::ae2_key_types::KeyType::ITEMS) {
                 *slot = entry.clone();
             }
         }
@@ -242,7 +242,7 @@ pub fn set_filter_slot(stack: &mut ItemStack, config: &str, index: usize, carrie
     }
     let mut slots = filter_slots(stack, config);
     slots[index] = match carried.filter(|c| c.count > 0) {
-        Some(item) => crate::ae2_generic_stack::encode(&crate::ae2_generic_stack::GenericStack { key: crate::ae2_cell_codec::key(item)?, fluid: false, amount: 0 })?,
+        Some(item) => crate::ae2_generic_stack::encode(&crate::ae2_generic_stack::GenericStack::item(crate::ae2_cell_codec::key(item)?, 0))?,
         None => Tag::Compound(Compound::new()),
     };
     store_filter(stack, config, &slots);

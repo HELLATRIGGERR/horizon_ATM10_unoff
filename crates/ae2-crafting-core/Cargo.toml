@@ -6,6 +6,7 @@ license = "LGPL-3.0-or-later"
 description = "Experimental AE2-inspired crafting planning and job state"
 
 [dependencies]
+ae2-cell-core = { path = "../ae2-cell-core" }
 serde = { version = "1", features = ["derive"] }
 
 [dev-dependencies]

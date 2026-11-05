@@ -29,9 +29,9 @@ pub fn install() {
 /// cell of that key, of its own idle drain and drive model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FixedCell {
-    /// The key's id; a fluid's when `fluid`.
+    /// The key's id, of `key_type`.
     pub key: String,
-    pub fluid: bool,
+    pub key_type: ae2_cell_core::KeyType,
     /// `getIdleDrain`, AE/t.
     pub idle_drain: f64,
     /// The amount `getAvailableStacks` reports, in the key's units (mB for a
@@ -42,8 +42,8 @@ pub struct FixedCell {
 pub fn fixed_cell(id: &str) -> Option<FixedCell> {
     #[cfg(feature = "ae2-extendedae")]
     if let Some(cell) = extendedae::infinity_cell(id) {
-        let per_unit = if cell.fluid { 1000 } else { 1 };
-        return Some(FixedCell { key: cell.record, fluid: cell.fluid, idle_drain: extendedae::Config::get().infinity_cell_cost, amount: i32::MAX as u64 * per_unit });
+        let per_unit = cell.key_type.amount_per_unit();
+        return Some(FixedCell { key: cell.record, key_type: cell.key_type, idle_drain: extendedae::Config::get().infinity_cell_cost, amount: i32::MAX as u64 * per_unit });
     }
     let _ = id;
     None
@@ -102,7 +102,7 @@ pub fn handler_cell_state(stack: &crate::items::ItemStack) -> Option<u8> {
 
 /// The keys `getAvailableStacks` of a cell of an addon's own handler lists,
 /// in its order; none for any other stack.
-pub fn handler_cell_keys(stack: &crate::items::ItemStack, known: &dyn Fn(&str, bool) -> bool) -> Option<Vec<ae2_cell_core::ItemKey>> {
+pub fn handler_cell_keys(stack: &crate::items::ItemStack, known: &dyn Fn(&str,ae2_cell_core::KeyType)->bool) -> Option<Vec<ae2_cell_core::ItemKey>> {
     #[cfg(feature = "ae2-megacells")]
     if stack.item.as_ref() == megacells::BULK_ITEM_CELL {
         let mut cell = megacells::bulk_cell(stack, &megacells::chains(), known).ok()?;

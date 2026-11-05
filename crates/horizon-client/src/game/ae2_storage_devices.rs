@@ -1,6 +1,6 @@
 //! AE2 storage devices; operates only on persisted machine slots and grid cells.
 use super::{Game, ae2_fluids, ae2_lab};
-use ae2_cell_core::{Action, Cell};
+use ae2_cell_core::{Action, Cell, KeyType};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
 use horizon_world::nbt::{Compound, Tag};
 use serde_json::{Value, json};
@@ -15,11 +15,7 @@ fn is_fluid(s: &ItemStack) -> bool {
     horizon_client::ae2_cell_codec::is_fluid_cell(&s.item)
 }
 fn read(s: &ItemStack) -> Result<Cell, String> {
-    if is_fluid(s) {
-        ae2_fluids::read_fluid_cell(s)
-    } else {
-        ae2_lab::read_cell(s)
-    }
+    horizon_client::ae2_cell_codec::read_any_cell_checked(s, &|_, _| true)
 }
 #[cfg(test)]
 use horizon_client::ae2_cell_codec::apply_cell_settings;
@@ -51,21 +47,18 @@ pub(super) fn cell_idle_drain(stack: &ItemStack) -> Option<f64> {
     horizon_client::ae2_cell_codec::idle_drain(&stack.item)
 }
 fn write(s: &mut ItemStack, c: &Cell) -> Result<(), String> {
-    if is_fluid(s) {
-        ae2_fluids::write_fluid_cell(s, c)
-    } else {
-        ae2_lab::write_cell(s, c)
-    }
+    horizon_client::ae2_cell_codec::write_any_cell(s, c)
 }
 /// FuzzyPriorityList queries KeyCounter with the incoming key. Damageable
 /// items use FuzzySearch's integer bounds based on that query's max damage;
-/// unordered keys (including all fluids) ignore their components.
+/// unordered keys (every key of a type without fuzzy range search: all
+/// fluids) ignore their components.
 pub(super) fn storage_fuzzy_match(
     filter:&ae2_cell_core::ItemKey,candidate:&ae2_cell_core::ItemKey,
-    mode:&str,fluid:bool,base_max:u32,
+    mode:&str,kind:KeyType,base_max:u32,
 )->bool {
     if filter.item_id!=candidate.item_id {return false;}
-    if fluid {return true;}
+    if kind!=KeyType::ITEMS {return true;}
     let Ok(filter)=ae2_lab::prototype(filter) else {return false;};
     let Ok(candidate)=ae2_lab::prototype(candidate) else {return false;};
     let max=|stack:&ItemStack| match stack.data().and_then(|d|d.other("minecraft:max_damage")) {
@@ -94,40 +87,36 @@ pub(super) fn storage_fuzzy_match(
 impl Game<'_> {
     // Fluid ids stay known whether or not the fluid registry holds them
     // (vanilla's and the content mods' fluids): an unregistered fluid is kept
-    // as stored, not turned into Missing Content.
-    pub(super) fn ae2_known_cell_key(&self, id:&str, fluid:bool)->bool {
-        fluid || self.res.items().get(id).is_some()
+    // as stored, not turned into Missing Content. An addon's type answers
+    // for its own ids.
+    pub(super) fn ae2_known_cell_key(&self, id:&str, kind:KeyType)->bool {
+        horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some())
     }
-    pub(super) fn ae2_read_item_cell(&self, stack:&ItemStack)->Result<Cell,String> {
-        horizon_client::ae2_cell_codec::read_cell_checked(stack,&|id,fluid|self.ae2_known_cell_key(id,fluid))
-    }
-    pub(super) fn ae2_read_fluid_cell(&self, stack:&ItemStack)->Result<Cell,String> {
-        horizon_client::ae2_cell_codec::read_fluid_cell_checked(stack,&|id,fluid|self.ae2_known_cell_key(id,fluid))
-    }
+    /// A basic cell of any key type: items, fluids or an addon's.
     pub(super) fn ae2_read_cell(&self, stack:&ItemStack)->Result<Cell,String> {
-        if is_fluid(stack) {self.ae2_read_fluid_cell(stack)} else {self.ae2_read_item_cell(stack)}
+        horizon_client::ae2_cell_codec::read_any_cell_checked(stack,&|id,kind|self.ae2_known_cell_key(id,kind))
     }
     pub(super) fn ae2_creative_cell_keys(&self, stack:&ItemStack)->Result<Vec<CreativeCellKey>,String> {
-        horizon_client::ae2_cell_codec::creative_cell_keys_checked(stack,&|id,fluid|self.ae2_known_cell_key(id,fluid))
+        horizon_client::ae2_cell_codec::creative_cell_keys_checked(stack,&|id,kind|self.ae2_known_cell_key(id,kind))
     }
     fn ae2_checked_cell_settings(&self, stack:&ItemStack)->Result<Compound,String> {
-        horizon_client::ae2_cell_codec::cell_settings_checked(stack,&|id,fluid|self.ae2_known_cell_key(id,fluid))
+        horizon_client::ae2_cell_codec::cell_settings_checked(stack,&|id,kind|self.ae2_known_cell_key(id,kind))
     }
     fn ae2_checked_view_cell(&self, stack:&ItemStack)->Result<horizon_client::ae2_cell_codec::ViewCellSettings,String> {
-        horizon_client::ae2_cell_codec::read_view_cell_checked(stack,&|id,fluid|self.ae2_known_cell_key(id,fluid))
+        horizon_client::ae2_cell_codec::read_view_cell_checked(stack,&|id,kind|self.ae2_known_cell_key(id,kind))
     }
     pub(super) fn ae2_workbench_cell_changed(&self, before:&horizon_client::ae2_world::Machine, after:&mut horizon_client::ae2_world::Machine)->Result<(),String> {
-        workbench_cell_changed_checked(before,after,&|id,fluid|self.ae2_known_cell_key(id,fluid))
+        workbench_cell_changed_checked(before,after,&|id,kind|self.ae2_known_cell_key(id,kind))
     }
     /// A single source View Cell contributes its raw match and inversion flag;
     /// callers combine configured cells with MergedPriorityList semantics.
     pub(super) fn ae2_view_cell_match(&self, stack: &ItemStack, key: &ae2_cell_core::ItemKey,
-        fluid: bool, scope: horizon_client::ae2_cell_codec::ViewCellScope)
+        kind: KeyType, scope: horizon_client::ae2_cell_codec::ViewCellScope)
         -> Result<horizon_client::ae2_cell_codec::ViewCellMatch, String> {
         let settings = self.ae2_checked_view_cell(stack)?;
-        Ok(settings.evaluate(key, fluid, scope, |filter, candidate, mode| {
+        Ok(settings.evaluate(key, kind, scope, |filter, candidate, mode| {
             let maximum = self.res.items().get(&filter.item_id).map_or(0, |item| item.max_damage);
-            storage_fuzzy_match(filter,candidate,mode,false,maximum)
+            storage_fuzzy_match(filter,candidate,mode,ae2_cell_core::KeyType::ITEMS,maximum)
         }))
     }
     /// Resolve AEKey durability partitions using actual stack components and item registry defaults.
@@ -191,13 +180,13 @@ impl Game<'_> {
                 return 0;
             }
         }
-        if cell.config().channel == ae2_cell_core::Channel::Item
+        if cell.config().key_type == KeyType::ITEMS
             && !ae2_lab::prototype(key)
                 .is_ok_and(|stack| super::ae2_portable_ui::can_store_item(&stack))
         {
             return 0;
         }
-        let fluid=cell.config().channel==ae2_cell_core::Channel::Fluid;
+        let kind=cell.config().key_type;
         cell.insert_with_fuzzy_match(key, amount, action, |filter, candidate, mode| {
             use ae2_cell_core::FuzzyMode;
             let name = match mode {
@@ -212,7 +201,7 @@ impl Game<'_> {
                 .items()
                 .get(&filter.item_id)
                 .map_or(0, |item| item.max_damage);
-            storage_fuzzy_match(filter,candidate,name,fluid,max)
+            storage_fuzzy_match(filter,candidate,name,kind,max)
         })
     }
 }
@@ -420,26 +409,28 @@ impl Game<'_> {
         mut operations: u64,
     ) -> Result<u64, String> {
         while operations > 0 {
-            let primary_fluid = is_fluid(item);
-            let candidates: Vec<(ae2_cell_core::ItemKey, u64, bool, bool)> = if mode == "empty" {
-                // Source scans all available keys, including foreign-channel
+            let own = cell.config().key_type;
+            let candidates: Vec<(ae2_cell_core::ItemKey, u64, KeyType)> = if mode == "empty" {
+                // Source scans all available keys, including other types'
                 // Missing Content; a blocked first key must not hide a later
                 // key that the network can accept.
-                cell.entries().map(|(k,v)|(k.clone(),*v,primary_fluid,false))
-                    .chain(cell.other_entries().map(|(k,v)|(k.clone(),*v,!primary_fluid,true)))
+                cell.entries().map(|(k,v)|(k.clone(),*v,own))
+                    .chain(cell.other_entries().map(|(kind,k,v)|(k.clone(),*v,kind)))
                     .collect()
             } else {
-                let listed = if primary_fluid { self.ae2_grid_fluids(pos)? } else { self.ae2_grid_inventory(pos)? };
-                listed.into_iter().filter(|(_, n)| *n > 0).map(|(k, n)| (k, n, primary_fluid, false)).collect()
+                let listed = self.ae2_grid_keys(pos, own)?;
+                listed.into_iter().filter(|(_, n)| *n > 0).map(|(k, n)| (k, n, own)).collect()
             };
-            let used = io_transfer_pass(candidates, mode == "fill", |(key, available, key_fluid, other)| {
+            let used = io_transfer_pass(candidates, mode == "fill", |(key, available, kind)| {
                 let accepts = if mode == "empty" {
-                    if key_fluid {
-                        self.ae2_grid_fluid_insert(pos,&key,available,true)? > 0
-                    } else {
-                        let mut stack=ae2_lab::prototype(&key)?;
-                        stack.count=available.min(u64::from(u32::MAX)) as u32;
-                        self.ae2_grid_insert_simulate(pos,&stack,u64::from(stack.count))? > 0
+                    match kind {
+                        KeyType::FLUIDS => self.ae2_grid_fluid_insert(pos,&key,available,true)? > 0,
+                        KeyType::ITEMS => {
+                            let mut stack=ae2_lab::prototype(&key)?;
+                            stack.count=available.min(u64::from(u32::MAX)) as u32;
+                            self.ae2_grid_insert_simulate(pos,&stack,u64::from(stack.count))? > 0
+                        }
+                        _ => self.ae2_grid_key_move(pos,kind,&key,available,true,true)? > 0,
                     }
                 } else {
                     self.ae2_cell_insert(cell, &key, 1, Action::Simulate) > 0
@@ -447,38 +438,41 @@ impl Game<'_> {
                 if !accepts {
                     return Ok(None);
                 }
-                let factor = if key_fluid { 125 } else { 1 };
+                // `transferContents`: an operation moves `getAmountPerOperation`.
+                let factor = kind.amount_per_operation();
                 let max = operations.saturating_mul(factor).min(available);
                 let before = self.io_snapshot();
                 let mut formation = super::ae2_buses::FormationPlan::default();
                 let transfer = (|| -> Result<u64, String> {
                     let moved = if mode == "empty" {
-                        if key_fluid {
-                            self.ae2_grid_fluid_insert_staged(pos, &key, max, false, &mut formation)?
-                        } else {
-                            let mut stack = ae2_lab::prototype(&key)?;
-                            stack.count = max.min(u32::MAX as u64) as u32;
-                            self.ae2_grid_insert_staged(
-                                pos,
-                                &stack,
-                                u64::from(stack.count),
-                                &mut formation,
-                            )?
+                        match kind {
+                            KeyType::FLUIDS => self.ae2_grid_fluid_insert_staged(pos, &key, max, false, &mut formation)?,
+                            KeyType::ITEMS => {
+                                let mut stack = ae2_lab::prototype(&key)?;
+                                stack.count = max.min(u32::MAX as u64) as u32;
+                                self.ae2_grid_insert_staged(
+                                    pos,
+                                    &stack,
+                                    u64::from(stack.count),
+                                    &mut formation,
+                                )?
+                            }
+                            _ => self.ae2_grid_key_move(pos, kind, &key, max, true, false)?,
                         }
                     } else {
                         let room = self.ae2_cell_insert(cell, &key, max, Action::Simulate);
-                        if is_fluid(item) {
-                            self.ae2_grid_fluid_extract(pos, &key, room, false)?
-                        } else {
-                            self.ae2_grid_extract_staged(pos, &key, room, &mut formation)?
-                                .map_or(0, |s| u64::from(s.count))
+                        match kind {
+                            KeyType::FLUIDS => self.ae2_grid_fluid_extract(pos, &key, room, false)?,
+                            KeyType::ITEMS => self.ae2_grid_extract_staged(pos, &key, room, &mut formation)?
+                                .map_or(0, |s| u64::from(s.count)),
+                            _ => self.ae2_grid_key_move(pos, kind, &key, room, false, false)?,
                         }
                     };
                     if moved == 0 {
                         return Ok(0);
                     }
                     let changed = if mode == "empty" {
-                        if other {cell.extract_other(&key,moved,Action::Modulate)} else {cell.extract(&key, moved, Action::Modulate)}
+                        cell.extract_of(kind, &key, moved, Action::Modulate)
                     } else {
                         self.ae2_cell_insert(cell, &key, moved, Action::Modulate)
                     };
@@ -1171,7 +1165,7 @@ mod storage_tests {
     fn fuzzy_cell_partitions_follow_candidate_range_and_fluid_identity() {
         let fluid=|components|ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components};
         for mode in ["ignore_all","percent_99","percent_75","percent_50","percent_25"] {
-            assert!(storage_fuzzy_match(&fluid(vec![0,1]),&fluid(vec![2,3]),mode,true,0));
+            assert!(storage_fuzzy_match(&fluid(vec![0,1]),&fluid(vec![2,3]),mode,KeyType::FLUIDS,0));
         }
         let mut config=ae2_cell_core::CellConfig::fluid(ae2_cell_core::Tier::K1);
         config.fuzzy=true;
@@ -1182,7 +1176,7 @@ mod storage_tests {
         });
         let mut cell=Cell::new(config);
         assert_eq!(cell.insert_with_fuzzy_match(&fluid(vec![2,3]),1000,Action::Modulate,
-            |filter,candidate,_|storage_fuzzy_match(filter,candidate,"percent_50",true,0)),1000);
+            |filter,candidate,_|storage_fuzzy_match(filter,candidate,"percent_50",ae2_cell_core::KeyType::FLUIDS,0)),1000);
         let item=|damage,max_damage| {
             let mut stack=ItemStack::new("minecraft:test_tool",1);
             stack.damage=damage;
@@ -1191,10 +1185,10 @@ mod storage_tests {
         };
         let filter=item(75,100);
         let candidate=item(120,200);
-        assert!(!storage_fuzzy_match(&filter,&candidate,"percent_50",false,100));
-        assert!(storage_fuzzy_match(&item(120,100),&candidate,"percent_50",false,100));
-        assert!(!storage_fuzzy_match(&item(201,300),&candidate,"ignore_all",false,100));
-        assert!(storage_fuzzy_match(&item(0,0),&candidate,"percent_50",false,0));
+        assert!(!storage_fuzzy_match(&filter,&candidate,"percent_50",ae2_cell_core::KeyType::ITEMS,100));
+        assert!(storage_fuzzy_match(&item(120,100),&candidate,"percent_50",ae2_cell_core::KeyType::ITEMS,100));
+        assert!(!storage_fuzzy_match(&item(201,300),&candidate,"ignore_all",ae2_cell_core::KeyType::ITEMS,100));
+        assert!(storage_fuzzy_match(&item(0,0),&candidate,"percent_50",ae2_cell_core::KeyType::ITEMS,0));
     }
     #[test]
     fn cell_settings_validate_physical_cards_and_ghost_filter() {
@@ -1417,7 +1411,7 @@ impl Game<'_> {
                     .as_ref()
                     .ok_or("hold an item or fluid bucket for a filter")?;
                 let fluid_mode=fluid || (cell.item.as_ref() == "ae2:view_cell" && args[0] == "filter_add_fluid");
-                let filter = workbench_ghost_from_carried(Some(&cell),held,fluid_mode,&|id,fluid|self.ae2_known_cell_key(id,fluid))?;
+                let filter = workbench_ghost_from_carried(Some(&cell),held,fluid_mode,&|id,kind|self.ae2_known_cell_key(id,kind))?;
                 let Some(Tag::List(filters)) = settings.get_mut(&"filters".into()) else {
                     return Err("invalid cell filters".into());
                 };
@@ -1562,13 +1556,13 @@ impl Game<'_> {
             }
         }
         if cell.is_some()||workbench_keep(machine){
-            let entries=workbench_filters_checked(machine,&|id,fluid|self.ae2_known_cell_key(id,fluid)).ok()?;
+            let entries=workbench_filters_checked(machine,&|id,kind|self.ae2_known_cell_key(id,kind)).ok()?;
             for (i,entry) in entries.iter().skip(page.min(3)*18).take(18).enumerate(){
                 let Some(entry)=entry else{continue};
                 slots[5+i]=if let Some(item)=entry.get("item").and_then(horizon_client::save::item_from_nbt){Some(item)}
                 else if let (Some(Tag::String(id)),Some(Tag::ByteArray(components)))=(entry.get("fluid"),entry.get("components")) {
                     id.to_string().ok().and_then(|id| {
-                        let value=horizon_client::ae2_generic_stack::GenericStack {key:ae2_cell_core::ItemKey{item_id:id.clone(),components:components.clone()},fluid:true,amount:0};
+                        let value=horizon_client::ae2_generic_stack::GenericStack::fluid(ae2_cell_core::ItemKey{item_id:id.clone(),components:components.clone()},0);
                         horizon_client::ae2_generic_stack::wrap(&value).ok().or_else(||ae2_fluids::fluid_bucket(&id).map(|id|ItemStack::new(id,1)))
                     })
                 } else{None};
@@ -1631,10 +1625,10 @@ impl Game<'_> {
                     settings.insert("fuzzy_mode".into(),Tag::String(modes[(i+1)%modes.len()].into()));set_cell_settings(cell,settings)?;
                     if !is_valid_workbench_cell(cell){return Err("invalid fuzzy setting".into())}
                 }
-                324 if button==1=>workbench_partition_checked(&mut next,&|id,fluid|self.ae2_known_cell_key(id,fluid))?,
+                324 if button==1=>workbench_partition_checked(&mut next,&|id,kind|self.ae2_known_cell_key(id,kind))?,
                 324=>{
                     let mut filters=vec![None;63];
-                    if let Some(cell)=next.slots.first_mut().and_then(Option::as_mut){filters=workbench_apply_filters_checked(cell,&filters,&|id,fluid|self.ae2_known_cell_key(id,fluid))?;}
+                    if let Some(cell)=next.slots.first_mut().and_then(Option::as_mut){filters=workbench_apply_filters_checked(cell,&filters,&|id,kind|self.ae2_known_cell_key(id,kind))?;}
                     workbench_store_filters(&mut next,&filters)?;
                 }
                 301..=304=>{
@@ -1660,15 +1654,15 @@ impl Game<'_> {
                 }
                 305..=322=>{
                     if next.slots.first().and_then(Option::as_ref).is_none()&&!workbench_keep(&next){return Ok(())}
-                    let mut filters=workbench_filters_checked(&next,&|id,fluid|self.ae2_known_cell_key(id,fluid))?;let index=(*page).min(3)*18+(slot-305);
+                    let mut filters=workbench_filters_checked(&next,&|id,kind|self.ae2_known_cell_key(id,kind))?;let index=(*page).min(3)*18+(slot-305);
                     if index>=63{return Ok(())}
                     let fluid=workbench_emptying_mode(next.slots.first().and_then(Option::as_ref),button);
                     filters[index]=if let Some(held)=next_cursor.as_ref(){
-                        match workbench_ghost_from_carried(next.slots.first().and_then(Option::as_ref),held,fluid,&|id,fluid|self.ae2_known_cell_key(id,fluid)) {
+                        match workbench_ghost_from_carried(next.slots.first().and_then(Option::as_ref),held,fluid,&|id,kind|self.ae2_known_cell_key(id,kind)) {
                             Ok(ghost)=>Some(ghost),Err(_)=>return Ok(()),
                         }
                     }else{None};
-                    if let Some(cell)=next.slots.first_mut().and_then(Option::as_mut){filters=workbench_apply_filters_checked(cell,&filters,&|id,fluid|self.ae2_known_cell_key(id,fluid))?;}
+                    if let Some(cell)=next.slots.first_mut().and_then(Option::as_mut){filters=workbench_apply_filters_checked(cell,&filters,&|id,kind|self.ae2_known_cell_key(id,kind))?;}
                     workbench_store_filters(&mut next,&filters)?;
                 }
                 _=>return Ok(()),

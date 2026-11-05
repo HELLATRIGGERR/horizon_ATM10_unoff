@@ -15,6 +15,7 @@
 //! side is in `game/ae2x/extendedae/`.
 use super::defs::Defs;
 use crate::ae2_world::{ExtMachine, MachineKind, MachineVariant};
+use ae2_cell_core::KeyType;
 use std::sync::OnceLock;
 
 pub const NAMESPACE: &str = "extendedae";
@@ -318,16 +319,17 @@ pub const OWN_MACHINES: &[ExtMachine] = &[
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InfinityCell {
     pub id: String,
-    pub fluid: bool,
+    /// The record's key type (`getRecord().what().getType()`).
+    pub key_type: KeyType,
     pub record: String,
     pub drive_model: String,
 }
 /// The mod's two (`EAESingletons`, `registerStorageHandler`).
 fn own_infinity_cells() -> [InfinityCell; 2] {
-    let cell = |id: &str, fluid: bool, record: &str, model: &str| InfinityCell { id: id.into(), fluid, record: record.into(), drive_model: model.into() };
+    let cell = |id: &str, key_type: KeyType, record: &str, model: &str| InfinityCell { id: id.into(), key_type, record: record.into(), drive_model: model.into() };
     [
-        cell(INFINITY_WATER_CELL, true, "minecraft:water", "extendedae:block/drive/infinity_water_cell"),
-        cell(INFINITY_COBBLESTONE_CELL, false, "minecraft:cobblestone", "extendedae:block/drive/infinity_cobblestone_cell"),
+        cell(INFINITY_WATER_CELL, KeyType::FLUIDS, "minecraft:water", "extendedae:block/drive/infinity_water_cell"),
+        cell(INFINITY_COBBLESTONE_CELL, KeyType::ITEMS, "minecraft:cobblestone", "extendedae:block/drive/infinity_cobblestone_cell"),
     ]
 }
 /// Where the content keeps the pack's own infinity cells: All the Mods 10's
@@ -343,14 +345,14 @@ pub fn parse_pack_cells(text: &str) -> Result<Vec<InfinityCell>, String> {
         .iter()
         .filter_map(|row| {
             let id = row.get("id")?.as_str()?.to_owned();
-            let (fluid, record) = match (row.get("item").and_then(|v| v.as_str()), row.get("fluid").and_then(|v| v.as_str())) {
-                (Some(item), None) => (false, item),
-                (None, Some(fluid)) => (true, fluid),
+            let (key_type, record) = match (row.get("item").and_then(|v| v.as_str()), row.get("fluid").and_then(|v| v.as_str())) {
+                (Some(item), None) => (KeyType::ITEMS, item),
+                (None, Some(fluid)) => (KeyType::FLUIDS, fluid),
                 _ => return None,
             };
             // A cell with no model draws AE2's generic one (`StorageCellModels`).
             let drive_model = row.get("model").and_then(|v| v.as_str()).unwrap_or("ae2:block/drive/drive_cell").to_owned();
-            Some(InfinityCell { id, fluid, record: record.to_owned(), drive_model })
+            Some(InfinityCell { id, key_type, record: record.to_owned(), drive_model })
         })
         .collect())
 }
@@ -381,7 +383,7 @@ pub fn infinity_cell_model(id: &str) -> Option<&'static str> {
 /// `ItemInfinityCell.getName`: "ME Infinity %s Cell" of its record's name.
 pub fn infinity_cell_name(id: &str, translate: &dyn Fn(&str) -> Option<String>, item_name: &dyn Fn(&str) -> String) -> Option<String> {
     let cell = infinity_cell(id)?;
-    let record = if cell.fluid {
+    let record = if cell.key_type == KeyType::FLUIDS {
         // AEFluidKey.getDisplayName: the fluid type's description, a fluid block's name.
         let (ns, path) = cell.record.split_once(':').unwrap_or(("minecraft", &cell.record));
         translate(&format!("block.{ns}.{path}")).or_else(|| translate(&format!("fluid_type.{ns}.{path}"))).unwrap_or_else(|| path.replace('_', " "))
@@ -528,15 +530,15 @@ mod tests {
     fn infinity_cells_hold_their_record() {
         use super::*;
         let water = infinity_cell(INFINITY_WATER_CELL).unwrap();
-        assert_eq!((water.fluid, water.record.as_str()), (true, "minecraft:water"));
+        assert_eq!((water.key_type, water.record.as_str()), (KeyType::FLUIDS, "minecraft:water"));
         let cobble = infinity_cell(INFINITY_COBBLESTONE_CELL).unwrap();
-        assert_eq!((cobble.fluid, cobble.record.as_str()), (false, "minecraft:cobblestone"));
+        assert_eq!((cobble.key_type, cobble.record.as_str()), (KeyType::ITEMS, "minecraft:cobblestone"));
         assert_eq!(infinity_cell_model(INFINITY_COBBLESTONE_CELL), Some("extendedae:block/drive/infinity_cobblestone_cell"));
         assert!(infinity_cell("ae2:item_storage_cell_1k").is_none());
         let pack = parse_pack_cells(r#"[{"id":"kubejs:lava_cell","fluid":"minecraft:lava","model":"kubejs:block/drive/lava_cell"},{"id":"kubejs:dirt_cell","item":"minecraft:dirt"},{"id":"kubejs:broken"}]"#).unwrap();
         assert_eq!(pack.len(), 2);
-        assert_eq!((pack[0].fluid, pack[0].record.as_str(), pack[0].drive_model.as_str()), (true, "minecraft:lava", "kubejs:block/drive/lava_cell"));
-        assert_eq!((pack[1].fluid, pack[1].drive_model.as_str()), (false, "ae2:block/drive/drive_cell"));
+        assert_eq!((pack[0].key_type, pack[0].record.as_str(), pack[0].drive_model.as_str()), (KeyType::FLUIDS, "minecraft:lava", "kubejs:block/drive/lava_cell"));
+        assert_eq!((pack[1].key_type, pack[1].drive_model.as_str()), (KeyType::ITEMS, "ae2:block/drive/drive_cell"));
         let translate = |key: &str| match key {
             "item.extendedae.infinity_cell_name" => Some("ME Infinity %s Cell".to_owned()),
             "block.minecraft.water" => Some("Water".to_owned()),

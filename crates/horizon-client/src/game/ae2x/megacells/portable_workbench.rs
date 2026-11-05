@@ -75,7 +75,7 @@ fn store(machine: &Machine, stack: &mut ItemStack) -> Result<(), String> {
 /// container (`fromItemContainerContents`) and its filters
 /// (`config.readFromList`, keys the game does not know kept as AE2's missing
 /// content), as a Cell Workbench of copy mode `keep`.
-fn read(stack: &ItemStack, keep: bool, known: &dyn Fn(&str, bool) -> bool) -> Result<Machine, String> {
+fn read(stack: &ItemStack, keep: bool, known: &dyn Fn(&str,ae2_cell_core::KeyType)->bool) -> Result<Machine, String> {
     if stack.item.as_ref() != PORTABLE_CELL_WORKBENCH || stack.count != 1 {
         return Err("not a portable cell workbench".into());
     }
@@ -87,7 +87,7 @@ fn read(stack: &ItemStack, keep: bool, known: &dyn Fn(&str, bool) -> bool) -> Re
         Some(Tag::List(entries)) => {
             for (slot, entry) in filters.iter_mut().zip(entries) {
                 let Some(value) = horizon_client::ae2_generic_stack::decode_tolerant_checked(entry, known)? else { continue };
-                *slot = Some(if value.fluid {
+                *slot = Some(if value.key_type==ae2_cell_core::KeyType::FLUIDS {
                     Tag::compound([("fluid", Tag::String(value.key.item_id.as_str().into())), ("components", Tag::ByteArray(value.key.components))])
                 } else {
                     Tag::compound([("item", horizon_client::save::item_to_nbt(&horizon_client::ae2_cell_codec::prototype(&value.key)?))])
@@ -102,7 +102,7 @@ fn read(stack: &ItemStack, keep: bool, known: &dyn Fn(&str, bool) -> bool) -> Re
 impl Game<'_> {
     /// [`read`] with the keys this game knows.
     pub(in crate::game) fn megacells_item_workbench(&self, stack: &ItemStack, keep: bool) -> Result<Machine, String> {
-        read(stack, keep, &|id, fluid| self.ae2_known_cell_key(id, fluid))
+        read(stack, keep, &|id,kind|self.ae2_known_cell_key(id,kind))
     }
 
     /// `PortableCellWorkbenchItem.use`: on the server, the menu of the

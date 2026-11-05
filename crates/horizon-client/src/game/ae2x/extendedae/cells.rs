@@ -83,7 +83,7 @@ impl VoidCell {
     /// `partitionList.matchesFilter(what, partitionListMode)`.
     fn matches(&self, key: &ItemKey) -> bool {
         let listed = self.filters.iter().zip(&self.max_damage).any(|(filter, max)| match &self.fuzzy {
-            Some(mode) => storage_fuzzy_match(filter, key, mode, false, *max),
+            Some(mode) => storage_fuzzy_match(filter, key, mode,ae2_cell_core::KeyType::ITEMS, *max),
             None => filter == key,
         });
         listed != self.inverted
@@ -142,7 +142,7 @@ impl HandlerCell for VoidCell {
             .stored
             .iter()
             .filter(|(_, n)| *n > 0)
-            .map(|(key, n)| ae2_generic_stack::encode(&GenericStack { key: key.clone(), fluid: false, amount: i64::try_from(*n).unwrap_or(i64::MAX) }))
+            .map(|(key, n)| ae2_generic_stack::encode(&GenericStack::item(key.clone(), i64::try_from(*n).unwrap_or(i64::MAX))))
             .collect::<Result<Vec<_>, _>>()?;
         let data = stack.data_mut();
         data.set_other(STORED, (!entries.is_empty()).then_some(Tag::List(entries)));
@@ -173,7 +173,7 @@ impl Game<'_> {
         if stack.item.as_ref() != rows::VOID_CELL || stack.count != 1 {
             return Err("not a void cell".into());
         }
-        let known = |id: &str, fluid: bool| self.ae2_known_cell_key(id, fluid);
+        let known = |id: &str, kind: ae2_cell_core::KeyType| self.ae2_known_cell_key(id, kind);
         let settings = horizon_client::ae2_cell_codec::cell_settings_checked(stack, &known)?;
         let Some(Tag::List(entries)) = settings.get(&"filters".into()) else { return Err("invalid void cell filters".into()) };
         let mut filters = Vec::new();
@@ -196,7 +196,7 @@ impl Game<'_> {
             Some(Tag::List(entries)) => {
                 for entry in entries {
                     if let Some(value) = ae2_generic_stack::decode_tolerant_checked(entry, known)?
-                        && !value.fluid
+                        && value.key_type!=ae2_cell_core::KeyType::FLUIDS
                         && value.amount > 0
                     {
                         stored.push((value.key, value.amount as u64));

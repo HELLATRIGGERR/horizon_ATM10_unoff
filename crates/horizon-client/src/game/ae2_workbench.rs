@@ -13,7 +13,7 @@ fn workbench_decode(entries:&[Tag])->Result<Vec<Option<Tag>>,String>{
 fn workbench_filters(machine:&horizon_client::ae2_world::Machine)->Result<Vec<Option<Tag>>,String>{
     workbench_filters_checked(machine,&|_,_|true)
 }
-fn workbench_filters_checked(machine:&horizon_client::ae2_world::Machine,known:&dyn Fn(&str,bool)->bool)->Result<Vec<Option<Tag>>,String>{
+fn workbench_filters_checked(machine:&horizon_client::ae2_world::Machine,known:&dyn Fn(&str,KeyType)->bool)->Result<Vec<Option<Tag>>,String>{
     let entries=match machine.config.get(&WORKBENCH_FILTERS.into()) {
         Some(Tag::List(entries))=>entries.clone(),
         Some(_)=>return Err("invalid workbench filters".into()),
@@ -31,8 +31,8 @@ fn workbench_filters_checked(machine:&horizon_client::ae2_world::Machine,known:&
     // key so a later copy into a cell remains reversible.
     for entry in slots.iter_mut().flatten() {
         let Some(item)=entry.get("item").and_then(horizon_client::save::item_from_nbt) else {continue;};
-        if item.item.as_ref()=="ae2:missing_content" || known(&item.item,false) {continue;}
-        let generic=horizon_client::ae2_generic_stack::GenericStack{key:ae2_lab::key(&item)?,fluid:false,amount:0};
+        if item.item.as_ref()=="ae2:missing_content" || known(&item.item,KeyType::ITEMS) {continue;}
+        let generic=horizon_client::ae2_generic_stack::GenericStack::item(ae2_lab::key(&item)?, 0);
         let raw=horizon_client::ae2_generic_stack::encode(&generic)?;
         let missing=horizon_client::ae2_generic_stack::decode_tolerant_checked(&raw,known)?.ok_or("invalid missing filter")?;
         let item=horizon_client::ae2_cell_codec::prototype(&missing.key)?;
@@ -84,7 +84,7 @@ fn workbench_filter_allowed(cell:&ItemStack,entry:&Tag)->bool{
 fn workbench_apply_filters(cell:&mut ItemStack,slots:&[Option<Tag>])->Result<Vec<Option<Tag>>,String>{
     workbench_apply_filters_checked(cell,slots,&|_,_|true)
 }
-fn workbench_apply_filters_checked(cell:&mut ItemStack,slots:&[Option<Tag>],known:&dyn Fn(&str,bool)->bool)->Result<Vec<Option<Tag>>,String>{
+fn workbench_apply_filters_checked(cell:&mut ItemStack,slots:&[Option<Tag>],known:&dyn Fn(&str,KeyType)->bool)->Result<Vec<Option<Tag>>,String>{
     if slots.len()!=63{return Err("invalid workbench filter size".into())}
     // CellWorkbenchBlockEntity.copy: the cell's config inventory takes its
     // own size of filters (one on MEGA's bulk cell); the rest are cleared.
@@ -101,7 +101,7 @@ fn workbench_apply_filters_checked(cell:&mut ItemStack,slots:&[Option<Tag>],know
 pub(super) fn workbench_cell_changed(before:&horizon_client::ae2_world::Machine,after:&mut horizon_client::ae2_world::Machine)->Result<(),String>{
     workbench_cell_changed_checked(before,after,&|_,_|true)
 }
-fn workbench_cell_changed_checked(before:&horizon_client::ae2_world::Machine,after:&mut horizon_client::ae2_world::Machine,known:&dyn Fn(&str,bool)->bool)->Result<(),String>{
+fn workbench_cell_changed_checked(before:&horizon_client::ae2_world::Machine,after:&mut horizon_client::ae2_world::Machine,known:&dyn Fn(&str,KeyType)->bool)->Result<(),String>{
     if before.kind!=MachineKind::CellWorkbench||after.kind!=MachineKind::CellWorkbench{return Err("not a workbench".into())}
     let mut filters=workbench_filters_checked(before,known)?;
     if let Some(cell)=after.slots.first_mut().and_then(Option::as_mut) {
@@ -117,7 +117,7 @@ fn workbench_cell_changed_checked(before:&horizon_client::ae2_world::Machine,aft
 fn workbench_partition(machine:&mut horizon_client::ae2_world::Machine)->Result<(),String>{
     workbench_partition_checked(machine,&|_,_|true)
 }
-fn workbench_partition_checked(machine:&mut horizon_client::ae2_world::Machine,known:&dyn Fn(&str,bool)->bool)->Result<(),String>{
+fn workbench_partition_checked(machine:&mut horizon_client::ae2_world::Machine,known:&dyn Fn(&str,KeyType)->bool)->Result<(),String>{
     let mut filters=vec![None;63];
     if let Some(cell)=machine.slots.first().and_then(Option::as_ref){
         let storage=if is_fluid(cell){horizon_client::ae2_cell_codec::read_fluid_cell_checked(cell,known)}else{horizon_client::ae2_cell_codec::read_cell_checked(cell,known)};
@@ -134,10 +134,7 @@ fn workbench_partition_checked(machine:&mut horizon_client::ae2_world::Machine,k
             }
         }else if let Ok(keys)=horizon_client::ae2_cell_codec::creative_cell_keys_checked(cell,known) {
             for (slot,key) in filters.iter_mut().zip(keys) {
-                *slot=Some(match key {
-                    CreativeCellKey::Item(key)=>Tag::compound([("item",horizon_client::save::item_to_nbt(&ae2_lab::prototype(&key)?))]),
-                    CreativeCellKey::Fluid(key)=>Tag::compound([("fluid",Tag::String(key.item_id.as_str().into())),("components",Tag::ByteArray(key.components))]),
-                });
+                *slot=Some(horizon_client::ae2_cell_codec::native_filter(&key)?);
             }
         }
     }
@@ -148,14 +145,14 @@ fn workbench_partition_checked(machine:&mut horizon_client::ae2_world::Machine,k
 /// Convert the player's carried physical stack into a type-only ghost. A
 /// wrapped stack selects its real key and channel, including fluid components;
 /// the carried item itself is never consumed.
-fn workbench_ghost_from_carried(cell:Option<&ItemStack>,held:&ItemStack,fluid_mode:bool,known:&dyn Fn(&str,bool)->bool)->Result<Tag,String>{
+fn workbench_ghost_from_carried(cell:Option<&ItemStack>,held:&ItemStack,fluid_mode:bool,known:&dyn Fn(&str,KeyType)->bool)->Result<Tag,String>{
     let item_allowed=cell.is_none_or(|cell|!is_fluid(cell));
     let fluid_allowed=cell.is_none_or(|cell|is_fluid(cell)||matches!(cell.item.as_ref(),"ae2:view_cell"|"ae2:creative_storage_cell"));
     if let Some(value)=horizon_client::ae2_generic_stack::unwrap_item_stack_checked(held,known)? {
-        if value.fluid && fluid_allowed {
+        if value.key_type==ae2_cell_core::KeyType::FLUIDS && fluid_allowed {
             return Ok(Tag::compound([("fluid",Tag::String(value.key.item_id.as_str().into())),("components",Tag::ByteArray(value.key.components))]));
         }
-        if !value.fluid && item_allowed {
+        if value.key_type!=ae2_cell_core::KeyType::FLUIDS && item_allowed {
             let mut item=horizon_client::ae2_cell_codec::prototype(&value.key)?;item.count=1;
             return Ok(Tag::compound([("item",horizon_client::save::item_to_nbt(&item))]));
         }
@@ -194,7 +191,7 @@ mod workbench_template_tests {
         use horizon_client::ae2_generic_stack::{GenericStack,wrap};
         let patch=Tag::compound([("minecraft:custom_data",Tag::compound([("variant",Tag::String("warm".into()))]))]);
         let components=horizon_world::nbt::write_network(&patch,horizon_world::nbt::Limits::default()).unwrap();
-        let fluid=GenericStack{key:ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components},fluid:true,amount:1250};
+        let fluid=GenericStack::fluid(ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components},1250);
         let wrapped=wrap(&fluid).unwrap();let cell=ItemStack::new("ae2:fluid_storage_cell_1k",1);
         let ghost=workbench_ghost_from_carried(Some(&cell),&wrapped,false,&|_,_|true).unwrap();
         assert_eq!(ghost.get("fluid"),Some(&Tag::String("minecraft:water".into())));assert_eq!(wrapped.count,1);
@@ -204,7 +201,7 @@ mod workbench_template_tests {
         let source=physical_cell.data().unwrap().other("ae2:storage_cell_config_inv").unwrap();
         let Tag::List(source)=source else{panic!("source config list")};
         assert_eq!(horizon_client::ae2_generic_stack::decode(&source[0]).unwrap().unwrap().key,fluid.key);
-        let item=ItemStack::new("minecraft:diamond",4);let value=GenericStack{key:ae2_lab::key(&item).unwrap(),fluid:false,amount:4};
+        let item=ItemStack::new("minecraft:diamond",4);let value=GenericStack::item(ae2_lab::key(&item).unwrap(), 4);
         let wrapped=wrap(&value).unwrap();assert!(workbench_ghost_from_carried(Some(&cell),&wrapped,false,&|_,_|true).is_err());
         let item_cell=ItemStack::new("ae2:item_storage_cell_1k",1);
         let ghost=workbench_ghost_from_carried(Some(&item_cell),&wrapped,false,&|_,_|true).unwrap();
@@ -216,7 +213,7 @@ mod workbench_template_tests {
         let mut before=Machine::new(MachineKind::CellWorkbench);
         before.config.insert(WORKBENCH_MODE.into(),Tag::String("keep_on_remove".into()));
         workbench_store_filters(&mut before,&one("removed:ore",4)).unwrap();
-        let known=|id:&str,fluid:bool|fluid||id!="removed:ore";
+        let known=|id:&str,kind:ae2_cell_core::KeyType|kind!=ae2_cell_core::KeyType::ITEMS||id!="removed:ore";
         let filters=workbench_filters_checked(&before,&known).unwrap();
         let item=filters[4].as_ref().unwrap().get("item").and_then(horizon_client::save::item_from_nbt).unwrap();
         assert_eq!(item.item.as_ref(),"ae2:missing_content");
@@ -232,7 +229,7 @@ mod workbench_template_tests {
         let raw=Tag::compound([("#t",Tag::String("ae2:i".into())),("id",Tag::String("removed:ore".into())),("#",Tag::Long(2))]);
         let mut cell=ItemStack::new("ae2:item_storage_cell_1k",1);cell.data_mut().set_other("ae2:storage_cell_inv",Some(Tag::List(vec![raw])));
         let mut machine=Machine::new(MachineKind::CellWorkbench);machine.slots[0]=Some(cell);
-        let known=|id:&str,fluid:bool|fluid||id!="removed:ore";
+        let known=|id:&str,kind:ae2_cell_core::KeyType|kind!=ae2_cell_core::KeyType::ITEMS||id!="removed:ore";
         workbench_partition_checked(&mut machine,&known).unwrap();
         let filters=workbench_filters_checked(&machine,&known).unwrap();
         let item=filters.iter().flatten().next().unwrap().get("item").and_then(horizon_client::save::item_from_nbt).unwrap();

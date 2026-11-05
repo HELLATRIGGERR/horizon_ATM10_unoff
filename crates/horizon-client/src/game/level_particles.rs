@@ -284,8 +284,19 @@ impl Game<'_> {
             horizon_client::blocks::Fluid::Lava => ParticleType::DrippingDripstoneLava,
             horizon_client::blocks::Fluid::None if nether => ParticleType::DrippingDripstoneLava,
             horizon_client::blocks::Fluid::None => ParticleType::DrippingDripstoneWater,
-            // Not lava: water's drip, as `spawnDripParticle` picks.
-            horizon_client::blocks::Fluid::Mod(_) => ParticleType::DrippingDripstoneWater,
+            // NeoForge's `spawnDripParticle`: the type's `getDripInfo().dripParticle()` (none,
+            // or one this game lacks, draws nothing), else water's.
+            horizon_client::blocks::Fluid::Mod(kind) => {
+                match kind.mod_fluid().and_then(|m| m.drip.as_ref()) {
+                    Some(drip) => {
+                        match drip.particle.as_deref().and_then(ParticleType::from_name) {
+                            Some(ty) => ty,
+                            None => return,
+                        }
+                    }
+                    None => ParticleType::DrippingDripstoneWater,
+                }
+            }
         };
         let offset = self
             .pack

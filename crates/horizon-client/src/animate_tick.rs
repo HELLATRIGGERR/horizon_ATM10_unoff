@@ -1793,13 +1793,29 @@ fn dripstone_drip(
     } else {
         (above.fluid, above.fluid_level >= 8 && !above.fluid_falling)
     };
-    // canFillCauldron: only a water or lava source passes below a 2% roll.
-    if roll >= 0.02 && !(fluid != Fluid::None && source) {
+    // canFillCauldron: only a water or lava source passes below a 2% roll; a content mod's
+    // fluid when its type drips (NeoForge's `getDripInfo() != null`).
+    let drip = match fluid {
+        Fluid::Mod(kind) => kind.mod_fluid().and_then(|m| m.drip.as_ref()),
+        _ => None,
+    };
+    let fills = match fluid {
+        Fluid::Mod(_) => drip.is_some(),
+        _ => fluid != Fluid::None && source,
+    };
+    if roll >= 0.02 && !fills {
         return;
     }
-    // getDripParticle: no fluid drips what the dimension's default says.
+    // getDripParticle: no fluid drips what the dimension's default says; NeoForge's
+    // `spawnDripParticle` a content mod's type's `dripParticle` (none, or one this game
+    // lacks, draws nothing) and water's for a type without drip info.
     let lava = fluid == Fluid::Lava || (fluid == Fluid::None && ctx.ultrawarm);
-    let ty = if lava {
+    let ty = if let Some(drip) = drip {
+        match drip.particle.as_deref().and_then(T::from_name) {
+            Some(ty) => ty,
+            None => return,
+        }
+    } else if lava {
         T::DrippingDripstoneLava
     } else {
         T::DrippingDripstoneWater

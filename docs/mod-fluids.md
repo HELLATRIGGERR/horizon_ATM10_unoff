@@ -193,6 +193,58 @@ registry holds `minecraft:milk`, with NeoForge's milk textures from the loader's
 `c:milk` names it, and the milk bucket is a `FluidBucketWrapper` of it to tanks and AE2, while its use stays
 `MilkBucketItem`'s (drunk, never placed: `bucket_contents` refuses it).
 
+**Interactions, dripstone, items, boats, hydration and light (slice 7b).** NeoForge's `LiquidBlock.shouldSpreadLiquid`
+is `!FluidInteractionRegistry.canInteract(level, pos)`: for each side a fluid flows to (`POSSIBLE_FLOW_DIRECTIONS`, the
+neighbour opposite it) each interaction of the fluid's type in the order mods added them, the first that holds setting
+the fluid's block (`setBlockAndUpdate` of `getState(currentState)`) and fizzing (`levelEvent(1501)`). A content mod
+declares them in `data/<id>/horizon/fluid_interaction/<path>.json` (`horizon_mods::content::FluidInteractions`: the
+current fluid, then each interaction's `below` blocks (any when left out), the `fluids` or `blocks` beside it that meet
+it, the block a `source` and a `flowing` fluid become, `fizz`), read in the mods' order and each mod's path order
+(`horizon_world::fluid_interactions`, registered after the fluids; a fluid the registry lacks drops out of a list, a
+block it lacks leaves the interaction out). Once content mods' fluids are registered the level runs NeoForge's rule
+(`fluid_can_interact`): lava's own two first (water beside it by type, `NeoForgeMod.WATER_TYPE`: a mod fluid in
+`minecraft:water`, as the Bumblezone's sugar water, is not water there; soul soil under it with blue ice beside it),
+then the declared ones; with vanilla's fluids alone vanilla's tag-based rule stays. The interactions are the oracle's,
+not read from their lambdas: the fluids-only run (`FluidInteractionFacts`) runs each one's predicate on a grid of worlds
+(the type's first source fluid with a block, as a source and flowing, at `currentPos`; beside it air, the blocks the
+pack's interaction code names and every fluid of the registry by its liquid block; under it the same blocks) and its
+interaction on a world that matched for each current state, and writes where it held (with whether that is exactly "one
+of these below and one of these beside") and the block it left. `final-data` turns them into the pack mod's files, one
+a type (NeoForge's own two are the engine's); an interaction whose matches are no such rule, which leaves another
+state than a block's default, or that is not NeoForge's (`InteractionInformation`'s own `setBlockAndUpdate` and fizz)
+is left out with the reason in the summary. ATM10 8.4 has 82 in 21 types, 78 declared: All the Ores' molten metals
+beside water (their storage block or cobblestone) and lava beside them (obsidian or their raw block), Create's honey and
+chocolate (obsidian or limestone, scoria), the Bumblezone's sugar water, Allthemodium's soul lava (gilded blackstone or
+blackstone; water beside it crying obsidian or obsidian), Create Dragons Plus' 34 dyes (their concrete) and dragon's
+breath, Create Enchantment Industry's infused dragon's breath, the Undergarden's virulent mix (depthrock, shiverstone),
+Eternal Starlight's ether, the Aether's holystone (quicksoil under water, magma beside), XyCraft's water block and Ars
+Nouveau's source (Sauce's, whose fluid no carry declares). Astral Sorcery's liquid starlight's two (packed ice beside a
+fluid of 600 K or less, sand or a rare aquamarine shale beside a hotter one, with no fizz) are interactions of its own
+and left out.
+
+`FluidType.getDripInfo` (`Properties.addDripstoneDripping`, or a type's own): a pointed dripstone under a source of the
+fluid drips it at its `chance` (`PointedDripstoneBlock.maybeTransferFluid`, NeoForge's without vanilla's early return)
+and, as `canFillCauldron`, an empty cauldron below becomes its `filledCauldron` with the type's `CAULDRON_DRIP` sound
+(`CauldronBlock.receiveStalactiteDrip` -> `FluidType.handleCauldronDrip`, a source only); the tip drips the type's
+`dripParticle` when it is one of this game's (`minecraft:dragon_breath`) and nothing for a mod's own. The declaration's
+`drip` and `sounds.cauldron_drip` are the run's: the Undergarden's virulent mix (into its virulent mix cauldron), Create
+Dragons Plus' dragon's breath and Create Enchantment Industry's infused dragon's breath (both into the dragon's breath
+cauldron); ATM10's KubeJS scripts give none. A dropped item whose highest fluid type is a content mod's, over 0.1, moves
+by the type's `setItemMovement` (NeoForge's `ItemEntity.tick`; water's `x * 0.99F, y + 5.0E-4F` below `0.06F` unless
+the declaration's `item_movement` says otherwise: Create Dragons Plus' and Create Enchantment Industry's dragon's breath
+0.95F, Astral Sorcery's liquid starlight gravity), and items, armour stands and boats are pushed by each mod fluid's
+own current as living entities are since slice 4. A boat floats on a mod fluid whose type `supportsBoating`
+(`IBoatExtension.canBoatInFluid` in `checkInWater`, `isUnderwater`, `getWaterLevelAbove`). Farmland (`isNearWater`),
+sponges (`removeWaterBreadthFirstSearch`) and coral blocks (`CoralBlock.scanForWater`) ask NeoForge's `canBeHydrated`:
+water's type and a mod type that `canHydrate` (coral plants and fans keep the water tag: NeoForge doesn't patch
+`BaseCoralPlantTypeBlock`). The run asked `canHydrate` and `supportsBoating` of a fluid state too (farmland, a sponge and
+a coral block; a boat): for all 415 types they are the entity facts' (`entity.can_hydrate`, `supports_boating`), which
+the engine reads. Light: NeoForge 1.21.1 puts `FluidType.getLightLevel` into no light engine (only the bucket model's
+`apply_fluid_luminosity` reads it); `BlockLightEngine` reads the liquid block's own `getLightEmission(level, pos)`, which
+the run read in place for every fluid's block: the 281 carried liquid blocks' light is exactly it. 52 types of light 15
+(All the Ores' molten metals among them) have blocks that give none, 8 the other way (Allthemodium's soul lava), so a
+molten metal lake is dark in Java and here; nothing in the engine changed for it.
+
 **AE2 keys.** AE2 keeps keying fluids by id. `bucket_fluid` and `fluid_bucket` read the registry, so a mod fluid goes
 into and out of fluid cells, the ME Chest and terminals by its bucket, and its icon is its still texture with its tint.
 
@@ -227,7 +279,10 @@ vaporize, 39 where water evaporates (Create Dragons Plus' 35 dyes and dragon's b
 infused dragon's breath, the Bumblezone's sugar water and Mahou Tsukai's murky water, in `minecraft:water`), one always
 (Create Enchantment Industry's experience, by its `experienceVaporizeOnPlacement`) and one by biome (Just Dire Things'
 portal fluid: true in 28 dimensions, not in the End; the carry names no rule for it and keeps `FluidType`'s); four
-cauldrons (vanilla's three, Create Dragons Plus' dragon's breath: 1000 mB over four levels).
+cauldrons (vanilla's three, Create Dragons Plus' dragon's breath: 1000 mB over four levels). Slice 7b's run (4 minutes)
+added the interactions (`FluidInteractionFacts`), each type's `getDripInfo`, `CAULDRON_DRIP` sound, `setItemMovement`
+(measured on a dropped item in the default's form: horizontal scale, what is added below 0.06F and from there up),
+`canHydrate` and `supportsBoating` of a fluid state, and each fluid's liquid block's light in place (`block_light`).
 
 **Bucket models (slice 3).** NeoForge's `"loader": "neoforge:fluid_container"` (`DynamicFluidContainerModel`) is read
 with the model (`CuboidModel::fluid_container`: `fluid`, `flip_gas`, `cover_is_mask`, `apply_fluid_luminosity`, as its
@@ -276,10 +331,9 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
    (`fog::tests`: the tag-based camera fog, a mod fluid's fog colour and range), and the world test
    `tools/atm10/tests/mod-fluid-entities.ts` (heavy water and molten aluminum from re-carried Mekanism and All the Ores:
    a player's slow sink, a ten-block fall unhurt, air used up or kept, each fog's colour and range, the overlay, the
-   flow's push, a pig floating up or staying down). Not yet: dropped items (`FluidType.setItemMovement`), boats on mod
-   fluids (`supportsBoating`, `canBoatInFluid`), `canHydrate` (farmland, sponges, corals), `FluidType.move` and
-   `canRideVehicleUnder`, `SWIM_SPEED`, the mod's own overlay textures outside the GUI atlas (Neo Vitae's, Modular
-   Bees', Supplementaries'), and fog hooks that need a level (8 types).
+   flow's push, a pig floating up or staying down). Not yet (slice 7b did dropped items, boats and `canHydrate`):
+   `FluidType.move` and `canRideVehicleUnder`, `SWIM_SPEED`, the mod's own overlay textures outside the GUI atlas (Neo
+   Vitae's, Modular Bees', Supplementaries'), and fog hooks that need a level (8 types).
 5. **Fluid stacks and tanks (done).** As "Fluid stacks in tanks" above. Tests: `horizon-world`
    (`fluid_stack::tests`: the codec, empty stacks and comparisons, tags, buckets and sounds), the game's
    `native_fluid_handler` (declared tanks by side with a mod fluid; a bucket moving only whole through
@@ -323,12 +377,28 @@ atlas does. NeoForge's `ClientHooks.fixItemModelSeams` is not ported (the item g
      `empty_milk` are NeoForge's own `assets/minecraft/sounds.json`, which no content mod may add: silent), a cauldron in
      a level that isn't the one in place, `CauldronInteraction` for mods' cauldrons, and only a `BucketItem` whose class
      is exactly NeoForge's gets a `FluidBucketWrapper` (Horizon gives every content mod's bucket one).
-   - **7b (next).** `FluidInteractionRegistry` (mods' own interactions between fluids and with blocks: 13 jars of ATM10
-     8.4 register some, Create, Create Dragons Plus, Create Enchantment Industry, All the Ores, Allthemodium, the
-     Aether, the Undergarden, the Bumblezone, Eternal Starlight, Astral Sorcery, XyCraft Machines and Sauce's
-     jar-in-jar builds; the oracle would export each interaction's fluids, block result and condition), dripstone
-     (`FluidType.Properties.addDripstoneDripping`: the Undergarden and KubeJS's API set it, Create Dragons Plus reads
-     `DripstoneDripInfo` into its cauldron; `PointedDripstoneBlock` asks `getDripInfo` for the fluid above), light from a
-     fluid's `light_level` in the light engine, LOD and minimap colours, mod fluids over the network to a client whose
-     content differs, AE2's Missing Content for a fluid the registry lacks, items in fluids (`setItemMovement`), boats
-     (`supportsBoating`, `canBoatInFluid`) and hydration (`canHydrate`: farmland, sponges, corals).
+   - **7b, interactions, dripstone, items, boats, hydration and light (done).** As "Interactions, dripstone, items,
+     boats, hydration and light" above. ATM10 8.4 (5 November 2026): the whole pack carried again with slice 7a's fields
+     (the shared carries had none of them) and then with 7b's (`drip`, `sounds.cauldron_drip`, `item_movement`; the pack
+     mod's 78 interactions in 20 files); the load check takes the 289 mods with none refused. Tests: `horizon-world`
+     (`fluid_interactions::tests`), `horizon-mods` (the declaration's `drip`, `item_movement`, the `fluid_interaction`
+     files and their checks), `horizon-port-pack` (`fluids::tests::the_runs_fluid_interactions_become_the_pack_mods_files`),
+     the content-root test `a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket` (lava meeting a mod fluid, a mod
+     fluid meeting water, one over soul soil beside blue ice; farmland by brine and by sludge; sludge dripping into its
+     cauldron), and the world test `tools/atm10/tests/mod-fluid-interactions.ts` (lava beside soul lava, molten iron and
+     virulent mix beside water, as the pack mod's files say; soul lava lighting its cell and molten iron not; virulent mix
+     and dragon's breath dripping into their cauldrons; blood keeping farmland moist and taken by a sponge, heavy water
+     neither; an item floating up in heavy water; a boat floating on blood and sinking in heavy water). Not ported: an
+     interaction of a mod's own (Astral Sorcery's), `FluidPlaceBlockEvent` listeners (the run's results include them;
+     the engine fires none), a mod's own drip particle (`undergarden:dripping_virulent`: none drawn), sugar cane and
+     concrete powder's `canBeHydrated`, a type shared by two fluids as the current fluid (SecurityCraft's fake water and
+     lava have water's and lava's types: they meet as water and lava beside, not at `currentPos`), `canBoatInFluid` in
+     boat fall damage, `canAddPassenger` and the boat dispenser, `FluidType.move` and `canRideVehicleUnder`.
+   - **7c (next).** LOD and minimap colours: the minimap draws a mod fluid by its liquid block's map colour (All the
+     Ores' molten metals' is `NONE`, 0) where vanilla's water has its own shading, and the far terrain (`lod.rs`) keeps
+     only `minecraft:water` and `minecraft:lava` as fluids, so a mod fluid's lake is a hole there; NeoForge's minimap
+     mods read the client extension's tint and still texture. The network: a fluid's registry id (`FluidKind`) is this
+     process's order of the content root's fluids, and NeoForge's `FluidStack.STREAM_CODEC` sends a fluid by its
+     registry id, so a client whose content differs would read another fluid (or none); `horizon-protocol` names no
+     fluid yet (its mod list announces the mods, not their fluids). AE2's Missing Content for a fluid key the registry lacks (a cell written with a mod since
+     removed): `bucket_fluid` and the icons know only registered fluids.

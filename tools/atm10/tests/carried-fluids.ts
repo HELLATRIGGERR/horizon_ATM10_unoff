@@ -16,7 +16,8 @@
  * `latex_flowing`, its own textures, solid, no blockstate in its jar), Immersive Engineering's creosote (`IEFluid`: a
  * tick delay of 10, density 1230, viscosity 2000, its block `creosote_fluid_block`, translucent), Mekanism's sulfuric
  * acid (`mekanism:liquid/liquid` tinted 0xFF82802B, density and viscosity 1840, translucent) and All the Ores' molten
- * aluminum (lava's numbers: a tick delay of 30, two levels a block, light 15, tinted 0xFFE3E3E3). Modern
+ * aluminum (lava's numbers: a tick delay of 30, two levels a block, light 15, tinted 0xFFE3E3E3, the fluids-only run's
+ * `FLUID_VAPORIZE` sound since slice 7a). Modern
  * Industrialization's crude oil, a `Fluid` that doesn't flow, is checked in its declaration only (its bucket places
  * its own block, which the engine doesn't port).
  *
@@ -39,7 +40,7 @@ const samples: Sample[] = [
     java: { flowing: 'mekanism:flowing_sulfuric_acid', still_texture: 'mekanism:liquid/liquid', overlay_texture: 'minecraft:block/water_overlay', translucent: true, tint: '0xFF82802B', density: 1840, viscosity: 1840 } },
   { carry: 'alltheores', fluid: 'alltheores:molten_aluminum', block: 'alltheores:molten_aluminum', bucket: 'alltheores:molten_aluminum_bucket', drop: 2, tick: 30,
     java: { still_texture: 'alltheores:block/fluid/molten_metal', translucent: false, tint: '0xFFE3E3E3', light_level: 15, temperature: 1300, viscosity: 6000,
-      sounds: { bucket_fill: 'minecraft:item.bucket.fill_lava', bucket_empty: 'minecraft:item.bucket.empty_lava' } } },
+      sounds: { bucket_fill: 'minecraft:item.bucket.fill_lava', bucket_empty: 'minecraft:item.bucket.empty_lava', fluid_vaporize: 'minecraft:block.lava.extinguish' } } },
 ];
 for (const name of [...samples.map(s => s.carry), 'modern_industrialization', 'atm10-pack']) assert(existsSync(join(carries, name, 'horizon-mod.toml')), `ATM10_CARRIES has no ${name}`);
 const declaration = (carry: string, fluid: string) => {

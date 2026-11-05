@@ -40,6 +40,11 @@ pub struct Fluid {
     pub explosion_resistance: f32,
     #[serde(default)]
     pub pickup_sound: Option<String>,
+    /// What the light engine reads of its liquid block in place (NeoForge's
+    /// `getLightEmission(level, pos)`): the block's own light, not its type's
+    /// (slice 7b's run).
+    #[serde(default)]
+    pub block_light: Option<i32>,
 }
 
 /// A `FluidType` as the server holds it.
@@ -62,6 +67,13 @@ pub struct FluidType {
     /// none in facts from before it was asked.
     #[serde(default)]
     pub vaporized_on_placement: Option<BTreeMap<String, bool>>,
+    /// `getDripInfo` (slice 7b): the chance, the particle type and the cauldron it fills.
+    #[serde(default)]
+    pub drip: Option<Map<String, Value>>,
+    /// `setItemMovement` measured (slice 7b): `horizontal`, `below`, `above` in NeoForge's default's form, or the
+    /// `probes` when it has another.
+    #[serde(default)]
+    pub item_movement: Option<Map<String, Value>>,
 }
 
 /// NeoForge's `CauldronFluidContent` of a cauldron block, as the server's run writes it (`cauldrons`).
@@ -96,6 +108,163 @@ pub struct FluidProbe {
     pub ultrawarm: BTreeMap<String, bool>,
     #[serde(default)]
     pub cauldrons: BTreeMap<String, Cauldron>,
+    /// NeoForge's `FluidInteractionRegistry`, by fluid type, each list in its order (slice 7b).
+    #[serde(default)]
+    pub interactions: BTreeMap<String, Vec<InteractionFacts>>,
+}
+
+/// One `InteractionInformation` as the fluids-only run ran it on its grid of worlds (`FluidInteractionFacts`).
+#[derive(Debug, Default, Deserialize)]
+pub struct InteractionFacts {
+    pub index: usize,
+    /// What the run threw, if it did.
+    #[serde(default)]
+    pub error: Option<String>,
+    /// The classes its predicate's and its interaction's lambdas were declared in.
+    #[serde(default)]
+    pub predicate: String,
+    #[serde(default)]
+    pub interaction: String,
+    /// Its interaction is NeoForge's own (`setBlockAndUpdate` of `getState(currentState)` and the fizz).
+    #[serde(default)]
+    pub neoforge_interaction: bool,
+    /// The fluid the grid put at `currentPos` (the type's first source with a liquid block); none for a type with
+    /// none.
+    #[serde(default)]
+    pub current: Option<String>,
+    /// What held with a source there, and with a flowing fluid.
+    #[serde(default)]
+    pub source: Option<InteractionGrid>,
+    #[serde(default)]
+    pub flowing: Option<InteractionGrid>,
+    /// The block the interaction left for each current state (`source`, flowing amounts `1` to `7`, `falling`),
+    /// and `<state>_changes_neighbours` where it changed more.
+    #[serde(default)]
+    pub results: BTreeMap<String, Value>,
+}
+
+/// Where a predicate held on the run's grid: the blocks below that matched (none: all of them), the neighbours
+/// (fluids by id, blocks by id), and whether its matches were exactly every pair of the two.
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct InteractionGrid {
+    pub exact: bool,
+    #[serde(default)]
+    pub below: Option<Vec<String>>,
+    #[serde(default)]
+    pub fluids: Vec<String>,
+    #[serde(default)]
+    pub blocks: Vec<String>,
+}
+
+/// NeoForge's two interactions of its own, lava's first (`FluidInteractionRegistry`'s static block): the engine's.
+const NEOFORGE_OWN: [(usize, &str); 2] = [
+    (
+        0,
+        "net.neoforged.neoforge.fluids.FluidInteractionRegistry$InteractionInformation",
+    ),
+    (1, "net.neoforged.neoforge.fluids.FluidInteractionRegistry"),
+];
+
+/// The content declarations of the run's interactions (`horizon_mods::content::FluidInteractions`): one file a
+/// type, `<ns>/<path>` of the fluid the run put at `currentPos`, its interactions in the registry's order, each the
+/// rule its grid matched (a block below, when one counted, and the fluids or blocks beside) with the blocks the
+/// interaction left for a source and a flowing fluid. NeoForge's own two for lava are the engine's and left out;
+/// so is one the rule can't hold, with the reason (`<type>#<index>: why`).
+pub fn interaction_files(
+    interactions: &BTreeMap<String, Vec<InteractionFacts>>,
+) -> (Vec<(String, Value)>, Vec<String>) {
+    let (mut files, mut left_out) = (Vec::new(), Vec::new());
+    for (ty, list) in interactions {
+        let mut current = None;
+        let mut rules = Vec::new();
+        for i in list {
+            if ty == "minecraft:lava"
+                && NEOFORGE_OWN
+                    .iter()
+                    .any(|(at, class)| i.index == *at && i.predicate == *class)
+            {
+                continue;
+            }
+            match interaction_rule(i) {
+                Ok(rule) => {
+                    current = i.current.clone();
+                    rules.push(rule);
+                }
+                Err(why) => left_out.push(format!("{ty}#{}: {why}", i.index)),
+            }
+        }
+        let Some(current) = current else { continue };
+        let Some((ns, path)) = current.split_once(':') else {
+            continue;
+        };
+        files.push((
+            format!("{ns}/{path}"),
+            json!({"fluid": current, "interactions": rules}),
+        ));
+    }
+    (files, left_out)
+}
+
+/// The declaration's rule of one interaction, or why it has none.
+fn interaction_rule(i: &InteractionFacts) -> Result<Value, String> {
+    if let Some(e) = &i.error {
+        return Err(format!("the run threw {e}"));
+    }
+    if !i.neoforge_interaction {
+        return Err(format!("an interaction of its own ({})", i.interaction));
+    }
+    let (Some(source), Some(flowing)) = (&i.source, &i.flowing) else {
+        return Err("no fluid of the type with a block to run it on".into());
+    };
+    if !source.exact || !flowing.exact {
+        return Err(format!(
+            "its matches are no rule of a block below and one beside ({})",
+            i.predicate
+        ));
+    }
+    if source != flowing {
+        return Err(format!(
+            "it holds otherwise for a source than a flowing fluid ({})",
+            i.predicate
+        ));
+    }
+    if source.fluids.is_empty() && source.blocks.is_empty() {
+        return Err(format!(
+            "it held nowhere on the run's grid ({})",
+            i.predicate
+        ));
+    }
+    if i.results.keys().any(|k| k.ends_with("_changes_neighbours")) {
+        return Err("its interaction changed more than the fluid's block".into());
+    }
+    let result = |k: &str| i.results.get(k).and_then(Value::as_str);
+    let src = result("source").ok_or("no block for a source")?;
+    let flows: Vec<Option<&str>> = ["1", "2", "3", "4", "5", "6", "7", "falling"]
+        .iter()
+        .map(|k| result(k))
+        .collect();
+    let flow = flows[0].ok_or("no block for a flowing fluid")?;
+    if flows.iter().any(|f| *f != Some(flow)) {
+        return Err("the block it leaves differs by the flowing fluid's amount".into());
+    }
+    if src.contains('[') || flow.contains('[') {
+        return Err(format!(
+            "it leaves a block state that isn't its block's default ({src}, {flow})"
+        ));
+    }
+    let mut rule = Map::new();
+    if let Some(below) = &source.below {
+        rule.insert("below".into(), json!(below));
+    }
+    if !source.fluids.is_empty() {
+        rule.insert("fluids".into(), json!(source.fluids));
+    }
+    if !source.blocks.is_empty() {
+        rule.insert("blocks".into(), json!(source.blocks));
+    }
+    rule.insert("source".into(), json!(src));
+    rule.insert("flowing".into(), json!(flow));
+    Ok(Value::Object(rule))
 }
 
 impl FluidProbe {
@@ -318,7 +487,12 @@ pub fn declaration(
     v.insert("temperature".into(), json!(ty.temperature));
     v.insert("viscosity".into(), json!(ty.viscosity));
     let mut sounds = Map::new();
-    for action in ["bucket_fill", "bucket_empty", "fluid_vaporize"] {
+    for action in [
+        "bucket_fill",
+        "bucket_empty",
+        "fluid_vaporize",
+        "cauldron_drip",
+    ] {
         if let Some(sound) = ty.sounds.get(action) {
             sounds.insert(action.into(), json!(sound));
         }
@@ -354,6 +528,28 @@ pub fn declaration(
     }
     if let Some(range) = ext.fog_range {
         v.insert("fog_range".into(), json!(range));
+    }
+    // Slice 7b: its type's dripstone hook, and a dropped item's movement in it when it isn't NeoForge's default.
+    // (Its `canHydrate` and `supportsBoating` asked of a fluid state are the entity facts' for every type of ATM10
+    // 8.4: the run's `hydrates` and `boating`.)
+    if let Some(drip) = &ty.drip {
+        v.insert("drip".into(), Value::Object(drip.clone()));
+    }
+    if let Some(m) = &ty.item_movement
+        && ["horizontal", "below", "above"]
+            .iter()
+            .all(|k| m.get(*k).is_some_and(Value::is_f64))
+    {
+        let default = horizon_mods::content::FluidItemMovement::default();
+        let n = |k: &str| m[k].as_f64().unwrap_or(0.0);
+        if (n("horizontal"), n("below"), n("above"))
+            != (default.horizontal, default.below, default.above)
+        {
+            v.insert(
+                "item_movement".into(),
+                json!({"horizontal": n("horizontal"), "below": n("below"), "above": n("above")}),
+            );
+        }
     }
     // Slice 7: where its bucket vaporizes, and the cauldron of its namespace that holds it.
     if let Some(rule) = vaporizes(ty, world.ultrawarm) {
@@ -588,6 +784,132 @@ mod tests {
             ultrawarm: &NONE.0,
             cauldrons: &NONE.1,
         }
+    }
+
+    #[test]
+    fn the_runs_fluid_interactions_become_the_pack_mods_files() {
+        // A run's interactions as `FluidInteractionFacts` writes them: lava's list with NeoForge's own two first,
+        // Create's honey (a type of its own beside it: obsidian or limestone), the Aether's holystone over
+        // quicksoil beside magma on water, an interaction of its own (Astral Sorcery's), one whose matches no rule
+        // holds, and one leaving a block's other state.
+        let grid = |below: &str, fluids: &str, blocks: &str, exact: bool| {
+            format!(
+                r#"{{"exact": {exact}, "below": {below}, "fluids": {fluids}, "blocks": {blocks}}}"#
+            )
+        };
+        let neo = "net.neoforged.neoforge.fluids.FluidInteractionRegistry$InteractionInformation";
+        let flowing = |b: &str| {
+            (1..8)
+                .map(|n| format!(r#""{n}": "{b}""#))
+                .chain([format!(r#""falling": "{b}""#)])
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let water = grid(
+            "null",
+            r#"["minecraft:water", "minecraft:flowing_water"]"#,
+            "[]",
+            true,
+        );
+        let honey = grid(
+            "null",
+            r#"["create:honey", "create:flowing_honey"]"#,
+            "[]",
+            true,
+        );
+        let quicksoil = grid(
+            r#"["aether:quicksoil"]"#,
+            "[]",
+            r#"["minecraft:magma_block"]"#,
+            true,
+        );
+        let ragged = grid("null", r#"["minecraft:water"]"#, "[]", false);
+        let json = format!(
+            r#"{{
+            "minecraft:lava": [
+                {{"index": 0, "predicate": "{neo}", "interaction": "{neo}", "neoforge_interaction": true,
+                  "current": "minecraft:lava", "source": {water}, "flowing": {water},
+                  "results": {{"source": "minecraft:obsidian", {}}}}},
+                {{"index": 1, "predicate": "net.neoforged.neoforge.fluids.FluidInteractionRegistry", "interaction": "{neo}",
+                  "neoforge_interaction": true, "current": "minecraft:lava",
+                  "source": {}, "flowing": {},
+                  "results": {{"source": "minecraft:basalt[axis=y]", {}}}}},
+                {{"index": 2, "predicate": "{neo}", "interaction": "{neo}", "neoforge_interaction": true,
+                  "current": "minecraft:lava", "source": {honey}, "flowing": {honey},
+                  "results": {{"source": "minecraft:obsidian", {}}}}},
+                {{"index": 3, "predicate": "x.Y", "interaction": "{neo}", "neoforge_interaction": true,
+                  "current": "minecraft:lava", "source": {ragged}, "flowing": {ragged}, "results": {{}}}}
+            ],
+            "minecraft:water": [
+                {{"index": 0, "predicate": "com.aetherteam.aether.block.AetherBlocks", "interaction": "{neo}",
+                  "neoforge_interaction": true, "current": "minecraft:water", "source": {quicksoil}, "flowing": {quicksoil},
+                  "results": {{"source": "aether:holystone", {}}}}}
+            ],
+            "astralsorcery:liquid_starlight": [
+                {{"index": 0, "predicate": "hellfirepvp.astralsorcery.common.lib.FluidsAS",
+                  "interaction": "hellfirepvp.astralsorcery.common.lib.FluidsAS", "neoforge_interaction": false,
+                  "current": "astralsorcery:liquid_starlight", "source": {water}, "flowing": {water}, "results": {{}}}},
+                {{"index": 1, "predicate": "{neo}", "interaction": "{neo}", "neoforge_interaction": true,
+                  "current": "astralsorcery:liquid_starlight", "source": {water}, "flowing": {water},
+                  "results": {{"source": "minecraft:sand[snowy=true]", {}}}}}
+            ]
+        }}"#,
+            flowing("minecraft:cobblestone"),
+            grid(
+                r#"["minecraft:soul_soil"]"#,
+                "[]",
+                r#"["minecraft:blue_ice"]"#,
+                true
+            ),
+            grid(
+                r#"["minecraft:soul_soil"]"#,
+                "[]",
+                r#"["minecraft:blue_ice"]"#,
+                true
+            ),
+            flowing("minecraft:basalt[axis=y]"),
+            flowing("create:limestone"),
+            flowing("aether:holystone"),
+            flowing("minecraft:sand"),
+        );
+        let interactions: BTreeMap<String, Vec<InteractionFacts>> =
+            serde_json::from_str(&json).unwrap();
+        let (files, left_out) = interaction_files(&interactions);
+        let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(
+            names,
+            ["minecraft/lava", "minecraft/water"],
+            "no file for a type whose interactions all left"
+        );
+        // NeoForge's own two are the engine's: honey is lava's first.
+        assert_eq!(
+            files[0].1,
+            json!({"fluid": "minecraft:lava", "interactions": [{"fluids": ["create:honey", "create:flowing_honey"],
+                "source": "minecraft:obsidian", "flowing": "create:limestone"}]})
+        );
+        assert_eq!(
+            files[1].1["interactions"][0],
+            json!({"below": ["aether:quicksoil"], "blocks": ["minecraft:magma_block"], "source": "aether:holystone",
+                "flowing": "aether:holystone"})
+        );
+        let why: Vec<&str> = left_out.iter().map(String::as_str).collect();
+        assert_eq!(why.len(), 3, "{why:?}");
+        assert!(
+            why[0].starts_with("astralsorcery:liquid_starlight#0: an interaction of its own"),
+            "{why:?}"
+        );
+        assert!(
+            why[1].starts_with("astralsorcery:liquid_starlight#1: it leaves a block state"),
+            "{why:?}"
+        );
+        assert!(
+            why[2].starts_with("minecraft:lava#3: its matches are no rule"),
+            "{why:?}"
+        );
+        // What the files are is what a content mod declares.
+        let file: horizon_mods::content::FluidInteractions =
+            serde_json::from_value(files[1].1.clone()).unwrap();
+        assert!(file.interactions[0].fizz);
     }
 
     #[test]

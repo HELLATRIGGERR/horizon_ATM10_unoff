@@ -59,6 +59,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     // The fluid registry the game would make of them (mod_fluids), with their tags.
     horizon_client::mod_content::register_mod_fluids(&loaded.root, &loaded.fluids);
+    horizon_client::mod_content::register_fluid_interactions(&loaded.fluid_interactions);
+    println!(
+        "fluid interactions: {} files, {} interactions",
+        loaded.fluid_interactions.len(),
+        loaded
+            .fluid_interactions
+            .iter()
+            .map(|f| f.interactions.len())
+            .sum::<usize>()
+    );
     let registered = horizon_world::mod_fluids::mod_fluids();
     println!(
         "fluids registered: {} ({} that flow, {} with a liquid block, {} with a bucket, {} in a tag)",

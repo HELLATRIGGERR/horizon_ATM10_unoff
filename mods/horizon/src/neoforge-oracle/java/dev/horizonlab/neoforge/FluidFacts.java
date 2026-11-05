@@ -14,9 +14,16 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.material.FlowingFluid;
 import net.minecraft.world.level.material.Fluid;
 import net.minecraft.world.level.material.FluidState;
@@ -145,6 +152,9 @@ final class FluidFacts {
         // The block a source of it is (createLegacyBlock): air when it has none.
         FluidState source = fluid instanceof FlowingFluid f ? f.getSource(false) : state;
         json.name("block").value(BuiltInRegistries.BLOCK.getKey(source.createLegacyBlock().getBlock()).toString());
+        // What the light engine reads of that block in place (BlockLightEngine.getEmission: NeoForge's
+        // getLightEmission(level, pos)); FluidType.getLightLevel reaches no light engine in NeoForge 1.21.1.
+        if (!source.createLegacyBlock().isAir()) json.name("block_light").value(emission(source.createLegacyBlock()));
         json.name("bucket").value(BuiltInRegistries.ITEM.getKey(fluid.getBucket()).toString());
         json.name("tick_delay").value(fluid.getTickDelay(level));
         json.name("explosion_resistance").value((float) call(fluid, "getExplosionResistance"));
@@ -197,9 +207,129 @@ final class FluidFacts {
         sound("bucket_fill", type.getSound(SoundActions.BUCKET_FILL));
         sound("bucket_empty", type.getSound(SoundActions.BUCKET_EMPTY));
         sound("fluid_vaporize", type.getSound(SoundActions.FLUID_VAPORIZE));
+        sound("cauldron_drip", type.getSound(SoundActions.CAULDRON_DRIP));
         json.endObject();
         entity(type);
+        // Slice 7b: NeoForge's dripstone hook (FluidType.getDripInfo, which PointedDripstoneBlock asks of the fluid
+        // above a stalactite), and what a source of it does to blocks, boats and dropped items.
+        FluidType.DripstoneDripInfo drip = type.getDripInfo();
+        if (drip != null) {
+            json.name("drip");
+            json.beginObject();
+            json.name("chance").value(drip.chance());
+            json.name("particle").value(drip.dripParticle() == null
+                    ? null
+                    : BuiltInRegistries.PARTICLE_TYPE.getKey(drip.dripParticle().getType()).toString());
+            json.name("cauldron").value(BuiltInRegistries.BLOCK.getKey(drip.filledCauldron()).toString());
+            json.endObject();
+        }
+        if (any != null) world(type, any.defaultFluidState());
         json.endObject();
+    }
+
+    /** {@code canHydrate(FluidState, getter, pos, source, sourcePos)} for farmland, a sponge and a coral block (what
+     *  FarmBlock.isNearWater, SpongeBlock and CoralBlock ask through canBeHydrated); {@code supportsBoating(FluidState,
+     *  boat)} (Boat's canBoatInFluid); {@code setItemMovement} on a dropped item, measured. */
+    private void world(FluidType type, FluidState state) throws IOException {
+        json.name("hydrates");
+        json.beginObject();
+        Map<String, Block> sources = new java.util.LinkedHashMap<>();
+        sources.put("farmland", Blocks.FARMLAND);
+        sources.put("sponge", Blocks.SPONGE);
+        sources.put("coral", Blocks.TUBE_CORAL_BLOCK);
+        for (var e : sources.entrySet()) {
+            boolean hydrates;
+            try {
+                hydrates = type.canHydrate(state, level, AT, e.getValue().defaultBlockState(), AT.below());
+            } catch (RuntimeException ex) {
+                continue;
+            }
+            json.name(e.getKey()).value(hydrates);
+        }
+        json.endObject();
+        Boolean boating = null;
+        try {
+            Boat boat = EntityType.BOAT.create(level);
+            if (boat != null) boating = type.supportsBoating(state, boat);
+        } catch (RuntimeException e) {
+            // Left out.
+        }
+        if (boating != null) json.name("boating").value(boating);
+        itemMovement(type);
+    }
+
+    /** {@code FluidType.setItemMovement} measured on a dropped item: NeoForge's default (water's {@code x * 0.99F,
+     *  y + (y < 0.06F ? 5.0E-4F : 0), z * 0.99F}) or a mod's own. Written as that form's numbers when every probe fits
+     *  it (the horizontal scale, what is added below 0.06F and from there up), else as the probes. */
+    private void itemMovement(FluidType type) throws IOException {
+        ItemEntity item;
+        try {
+            item = new ItemEntity(level, AT.getX() + 0.5, AT.getY(), AT.getZ() + 0.5, new ItemStack(Items.STONE));
+        } catch (RuntimeException e) {
+            return;
+        }
+        double[][] probes = {{1, 0, 1}, {0.25, 0.0625, -1}, {0.5, -0.5, 0.5}, {1, 0.5, 1}};
+        Vec3[] out = new Vec3[probes.length];
+        try {
+            for (int i = 0; i < probes.length; i++) {
+                item.setDeltaMovement(probes[i][0], probes[i][1], probes[i][2]);
+                type.setItemMovement(item);
+                out[i] = item.getDeltaMovement();
+            }
+        } catch (RuntimeException e) {
+            return;
+        }
+        double h = out[0].x, below = out[0].y, above = snap(out[1].y - 0.0625, out[1].y, out[3].y);
+        boolean fits = out[0].z == h
+                && out[1].x == 0.25 * h && out[1].z == -h && out[1].y == 0.0625 + above
+                && out[2].x == 0.5 * h && out[2].z == 0.5 * h && out[2].y == -0.5 + below
+                && out[3].x == h && out[3].y == 0.5 + above;
+        json.name("item_movement");
+        json.beginObject();
+        if (fits) {
+            json.name("horizontal").value(h);
+            json.name("below").value(below);
+            json.name("above").value(above);
+        } else {
+            json.name("probes");
+            json.beginArray();
+            for (int i = 0; i < probes.length; i++) {
+                json.beginArray();
+                for (double v : probes[i]) json.value(v);
+                json.value(out[i].x).value(out[i].y).value(out[i].z);
+                json.endArray();
+            }
+            json.endArray();
+        }
+        json.endObject();
+    }
+
+    /** What is added from 0.06F up, from {@code y + it} at y = 0.0625 and 0.5: of the doubles a few ulps around the
+     *  difference that give both sums, the one with the shortest decimal form (Java's own constant, as -0.04 for an
+     *  item's gravity, rather than the difference's rounding). */
+    private static double snap(double guess, double at0625, double at05) {
+        double best = Double.NaN;
+        double c = guess;
+        for (int i = 0; i < 4; i++) c = Math.nextDown(c);
+        for (int i = 0; i < 9; i++, c = Math.nextUp(c)) {
+            if (0.0625 + c == at0625 && 0.5 + c == at05
+                    && (Double.isNaN(best) || Double.toString(c).length() < Double.toString(best).length())) {
+                best = c;
+            }
+        }
+        return Double.isNaN(best) ? guess : best;
+    }
+
+    /** {@code state.getLightEmission(level, pos)} with it written at {@link #AT} (no onPlace), then the old block. */
+    private int emission(BlockState state) {
+        LevelChunk chunk = level.getChunkAt(AT);
+        var section = chunk.getSection(chunk.getSectionIndex(AT.getY()));
+        BlockState old = section.setBlockState(AT.getX() & 15, AT.getY() & 15, AT.getZ() & 15, state);
+        try {
+            return state.getLightEmission(level, AT);
+        } finally {
+            section.setBlockState(AT.getX() & 15, AT.getY() & 15, AT.getZ() & 15, old);
+        }
     }
 
     /** What the type does to a pig in it and a boat on it (FluidType's entity methods; slice 4 reads them). */

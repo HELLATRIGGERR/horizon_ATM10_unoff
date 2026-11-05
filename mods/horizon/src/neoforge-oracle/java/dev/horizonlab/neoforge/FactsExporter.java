@@ -89,6 +89,8 @@ public final class FactsExporter {
                     json.name("schema").value(1);
                     json.name("minecraft").value(net.minecraft.SharedConstants.getCurrentVersion().getName());
                     new FluidFacts(server.overworld(), id -> true, json).write();
+                    // Slice 7b: NeoForge's FluidInteractionRegistry, each interaction run against a grid of worlds.
+                    new FluidInteractionFacts(server.overworld(), json).write();
                     json.endObject();
                 }
                 if (dump != null) {

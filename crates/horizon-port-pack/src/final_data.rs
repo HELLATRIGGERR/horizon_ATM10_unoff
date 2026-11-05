@@ -82,6 +82,10 @@ pub struct Summary {
     pub kubejs_items: usize,
     /// KubeJS's fluids declared (with the client's facts).
     pub kubejs_fluids: usize,
+    /// NeoForge's fluid interactions of the pack (a fluids-only run's, slice 7b) declared in the pack mod, and those
+    /// left out with the reason.
+    pub fluid_interactions: usize,
+    pub fluid_interactions_left_out: Vec<String>,
     /// The loader's own assets the mods' models name (`neoforge:item/bucket` and its masks).
     pub loader_assets: usize,
     /// NeoForge's milk fluid is in the run's fluid registry (a mod called `NeoForgeMod.enableMilkFluid()`): the pack
@@ -539,8 +543,15 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
             .unwrap_or_default();
         facts.pack = crate::oracle::PackFacts::read(&o.dump.join("pack-facts.json"))?;
         facts.client = crate::fluids::ClientFacts::read(&o.dump.join("client-facts.json"))?;
-        // A fluids-only run's facts over the batch's (slice 7).
-        if let Some(probe) = crate::fluids::FluidProbe::read(&o.dump.join("fluid-facts.json"))? {
+        // A fluids-only run's facts over the batch's (slice 7), and its fluid interactions (slice 7b): the pack
+        // mod's, as they cross the mods.
+        if let Some(mut probe) = crate::fluids::FluidProbe::read(&o.dump.join("fluid-facts.json"))? {
+            let (files, left_out) = crate::fluids::interaction_files(&std::mem::take(&mut probe.interactions));
+            for (name, v) in files {
+                s.fluid_interactions += v["interactions"].as_array().map_or(0, Vec::len);
+                sink.json(&pack.join(format!("data/{PACK_ID}/horizon/fluid_interaction/{name}.json")), &v)?;
+            }
+            s.fluid_interactions_left_out = left_out;
             probe.lay_over(&mut facts);
         }
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;

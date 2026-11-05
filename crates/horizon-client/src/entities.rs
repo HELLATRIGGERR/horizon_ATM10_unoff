@@ -89,7 +89,7 @@ fn slime_at(world: &World, facts: &BlockFacts, x: i32, y: i32, z: i32) -> bool {
 }
 
 mod fluids;
-pub use fluids::update_entity_fluids;
+pub use fluids::{EntityFluids, entity_fluids, update_entity_fluids};
 
 #[derive(Clone, Debug)]
 pub struct ItemEntity {
@@ -281,10 +281,22 @@ impl ItemEntity {
         if self.pickup_delay > 0 && self.pickup_delay != u32::MAX {
             self.pickup_delay -= 1;
         }
-        let (water_height, lava_height) = self.update_fluids(world, fluids);
+        let immersed = self.update_fluids(world, fluids);
+        let (water_height, lava_height) = (immersed.water, immersed.lava);
         let old_velocity = self.velocity;
         let in_water = water_height > f64::from(0.1f32);
-        if in_water {
+        // NeoForge's `ItemEntity.tick`: the highest fluid type, when a content mod's
+        // (`!isVanilla()`) and over 0.1F, moves the item by its `setItemMovement`.
+        if let Some(m) = immersed
+            .max_mod
+            .filter(|(_, height)| *height > f64::from(0.1f32))
+            .and_then(|(kind, _)| kind.mod_fluid())
+        {
+            let [x, y, z] = m
+                .item_movement
+                .apply([self.velocity.x, self.velocity.y, self.velocity.z]);
+            self.velocity = Vec3::new(x, y, z);
+        } else if in_water {
             // ItemEntity.setUnderwaterMovement
             self.velocity = Vec3::new(
                 self.velocity.x * 0.99,

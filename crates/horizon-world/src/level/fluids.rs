@@ -691,9 +691,13 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
 
     // ---- LiquidBlock ----
 
-    /// `LiquidBlock.shouldSpreadLiquid`, including lava's conversions.
+    /// `LiquidBlock.shouldSpreadLiquid`, including lava's conversions; with
+    /// content mods' fluids, NeoForge's `!FluidInteractionRegistry.canInteract`.
     pub(crate) fn should_spread_liquid(&mut self, pos: BlockPos, state: BlockStateId) -> bool {
         let b = self.b;
+        if crate::fluid_interactions::active() {
+            return !self.fluid_can_interact(pos);
+        }
         if !b.is_lava_fluid(b.fluid(state).kind()) {
             return true;
         }
@@ -717,6 +721,86 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
         }
         true
+    }
+    /// NeoForge's `FluidInteractionRegistry.canInteract(level, pos)`: for each
+    /// side the fluid flows to (`POSSIBLE_FLOW_DIRECTIONS`, the neighbour
+    /// opposite it), each interaction of the fluid's type in order (lava's
+    /// own two first: water beside it by type, `NeoForgeMod.WATER_TYPE`;
+    /// soul soil under it and blue ice beside it), and the first that holds
+    /// sets the fluid's block (`setBlockAndUpdate`) and fizzes
+    /// (`levelEvent(1501)`). Whether one did.
+    fn fluid_can_interact(&mut self, pos: BlockPos) -> bool {
+        let b = self.b;
+        let fluid = self.fluid_at(pos);
+        let kind = fluid.kind();
+        let lava = matches!(kind, FluidKind::Lava | FluidKind::FlowingLava);
+        let rules = crate::fluid_interactions::interactions_for(kind);
+        if !lava && rules.is_empty() {
+            return false;
+        }
+        let named = |sim: &Self, state: BlockStateId, name: &str| {
+            sim.b
+                .table
+                .block_by_name(name)
+                .is_some_and(|block| sim.b.is_block(state, block))
+        };
+        for direction in POSSIBLE_FLOW_DIRECTIONS {
+            let neighbour = rel(pos, direction.opposite());
+            if lava {
+                let block = if matches!(
+                    self.fluid_at(neighbour).kind(),
+                    FluidKind::Water | FluidKind::FlowingWater
+                ) {
+                    Some(if fluid.is_source() {
+                        b.named.obsidian
+                    } else {
+                        b.named.cobblestone
+                    })
+                } else if b.is_block(self.below_state(pos), b.named.soul_soil)
+                    && b.is_block(self.state(neighbour), b.named.blue_ice)
+                {
+                    Some(b.named.basalt)
+                } else {
+                    None
+                };
+                if let Some(block) = block {
+                    self.set_block_and_update(pos, b.default_of(block));
+                    self.level_event(1501, pos, 0);
+                    return true;
+                }
+            }
+            for rule in rules {
+                if !rule.below.is_empty() {
+                    let below = self.below_state(pos);
+                    if !rule.below.iter().any(|n| named(self, below, n)) {
+                        continue;
+                    }
+                }
+                let holds = rule.fluids.contains(&self.fluid_at(neighbour).kind()) || {
+                    let state = self.state(neighbour);
+                    rule.blocks.iter().any(|n| named(self, state, n))
+                };
+                if !holds {
+                    continue;
+                }
+                let result = if fluid.is_source() {
+                    &rule.source
+                } else {
+                    &rule.flowing
+                };
+                // `EventHooks.fireFluidPlaceBlockEvent(..., getState.apply(currentState))`;
+                // a block the registry lacks (a mod that isn't loaded) leaves the rule out.
+                let Some(block) = b.table.block_by_name(result) else {
+                    continue;
+                };
+                self.set_block_and_update(pos, b.default_of(block));
+                if rule.fizz {
+                    self.level_event(1501, pos, 0);
+                }
+                return true;
+            }
+        }
+        false
     }
     /// `LiquidBlock.onPlace` / `neighborChanged`.
     pub(crate) fn liquid_block_changed(&mut self, pos: BlockPos, state: BlockStateId) {

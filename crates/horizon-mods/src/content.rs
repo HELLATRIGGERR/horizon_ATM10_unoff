@@ -503,6 +503,99 @@ pub struct FluidSounds {
     /// `onVaporize`'s sound; `block.fire.extinguish` when left out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fluid_vaporize: Option<String>,
+    /// `SoundActions.CAULDRON_DRIP`: what `FluidType.handleCauldronDrip`
+    /// plays as a stalactite fills a cauldron with it; silent when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cauldron_drip: Option<String>,
+}
+
+/// NeoForge's `FluidType.DripstoneDripInfo` (`Properties.addDripstoneDripping`,
+/// or a type's own `getDripInfo`): a pointed dripstone under a source of the
+/// fluid drips it, and fills an empty cauldron below with `cauldron`.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FluidDrip {
+    /// The chance a random tick of the stalactite drips (`maybeTransferFluid`'s
+    /// `randChance < chance`).
+    pub chance: f32,
+    /// The particle the tip drips (`dripParticle`, a particle type id); none
+    /// draws nothing.
+    #[serde(default)]
+    pub particle: Option<String>,
+    /// The block an empty cauldron under the tip becomes (`filledCauldron`'s
+    /// default state).
+    pub cauldron: String,
+}
+
+/// `FluidType.setItemMovement` for a dropped item whose highest fluid is this
+/// one: NeoForge's default is water's (`x * 0.99F`, `y + 5.0E-4F` below
+/// `0.06F`, `z * 0.99F`); a type of its own is measured by the oracle in
+/// that form.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FluidItemMovement {
+    /// What the horizontal speed is multiplied by.
+    pub horizontal: f64,
+    /// What is added to the vertical speed below `0.06F`, and from there up.
+    pub below: f64,
+    pub above: f64,
+}
+
+impl Default for FluidItemMovement {
+    fn default() -> Self {
+        Self {
+            horizontal: f64::from(0.99f32),
+            below: f64::from(5.0e-4f32),
+            above: 0.0,
+        }
+    }
+}
+
+/// The interactions a mod adds to NeoForge's `FluidInteractionRegistry` for
+/// one fluid's type (`data/<id>/horizon/fluid_interaction/<path>.json`):
+/// `LiquidBlock.shouldSpreadLiquid` (`FluidInteractionRegistry.canInteract`)
+/// tries, for each side the fluid flows to, each interaction in order, after
+/// those of mods before it (NeoForge's own two for lava first), and the first
+/// that holds replaces the fluid's block.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FluidInteractions {
+    /// `<mod id>:<path>` of the file.
+    #[serde(skip)]
+    pub id: String,
+    /// The fluid at `currentPos` (its source; its flowing fluid is the same
+    /// type): `minecraft:lava`, `minecraft:water` or a content mod's.
+    pub fluid: String,
+    pub interactions: Vec<FluidInteraction>,
+}
+
+/// One `InteractionInformation`: when it holds (one of `below` under the
+/// fluid, when given, and beside it one of `fluids` or of `blocks`) and the
+/// block the fluid becomes, by whether it is a source.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct FluidInteraction {
+    /// The blocks one of which must be under the fluid; any when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub below: Vec<String>,
+    /// The fluids (source or flowing ids) one of which beside it holds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fluids: Vec<String>,
+    /// The blocks one of which beside it holds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocks: Vec<String>,
+    /// The block (its default state) a source becomes, and a flowing fluid.
+    pub source: String,
+    pub flowing: String,
+    /// NeoForge's interaction fizzes (`levelEvent(1501)`); true when left out.
+    #[serde(default = "FluidInteraction::yes")]
+    pub fizz: bool,
+}
+
+impl FluidInteraction {
+    fn yes() -> bool {
+        true
+    }
 }
 
 /// Where a bucket of the fluid vaporizes instead of being placed
@@ -660,6 +753,12 @@ pub struct Fluid {
     /// The cauldron that holds it (`CauldronFluidContent`), if any.
     #[serde(default)]
     pub cauldron: Option<FluidCauldron>,
+    /// Its type's `getDripInfo`: what a stalactite under it drips, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub drip: Option<FluidDrip>,
+    /// Its type's `setItemMovement`; NeoForge's default (water's) when left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_movement: Option<FluidItemMovement>,
 }
 
 impl Fluid {
@@ -696,6 +795,7 @@ impl Fluid {
                 bucket_fill: Some("minecraft:item.bucket.fill_milk".into()),
                 bucket_empty: Some("minecraft:item.bucket.empty_milk".into()),
                 fluid_vaporize: None,
+                cauldron_drip: None,
             },
             // `Util.makeDescriptionId("fluid_type", minecraft:milk)`.
             description: "fluid_type.minecraft.milk".into(),
@@ -705,6 +805,8 @@ impl Fluid {
             fog_range: None,
             vaporizes: FluidVaporizes::LikeWater,
             cauldron: None,
+            drip: None,
+            item_movement: None,
         }
     }
     fn yes() -> bool {
@@ -772,6 +874,8 @@ pub struct Content {
     pub entity_types: Vec<EntityType>,
     pub menu_types: Vec<MenuType>,
     pub fluids: Vec<Fluid>,
+    /// Its `fluid_interaction` files, in path order.
+    pub fluid_interactions: Vec<FluidInteractions>,
     /// The namespaces it owns: the mod id, then the manifest's `namespaces`.
     pub namespaces: Vec<String>,
     /// Its manifest's `milk_fluid`: it turns on NeoForge's milk.
@@ -874,6 +978,7 @@ impl Content {
             entity_types: Vec::new(),
             menu_types: Vec::new(),
             fluids: Vec::new(),
+            fluid_interactions: Vec::new(),
             namespaces: manifest.owned_namespaces().map(str::to_owned).collect(),
             milk_fluid: manifest.milk_fluid,
         };
@@ -894,6 +999,7 @@ impl Content {
             entity_types: Vec::new(),
             menu_types: Vec::new(),
             fluids: Vec::new(),
+            fluid_interactions: Vec::new(),
             namespaces: vec![namespace.to_owned()],
             milk_fluid: false,
         }
@@ -1019,6 +1125,7 @@ impl Content {
         let mut types = Vec::new();
         let mut menus = Vec::new();
         let mut fluids = Vec::new();
+        let mut interactions = Vec::new();
         for name in &self.files {
             let mut parts = name.splitn(3, '/');
             let (top, namespace, rest) = (
@@ -1069,9 +1176,11 @@ impl Content {
                 menus.push((menu, name.clone()));
             } else if let Some(fluid) = parse("fluid") {
                 fluids.push((fluid, name.clone()));
+            } else if let Some(file) = parse("fluid_interaction") {
+                interactions.push((file, name.clone()));
             } else {
                 return Err(format!(
-                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/, creative_tab/, entity_type/, menu/ and fluid/*.json only"
+                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/, creative_tab/, entity_type/, menu/, fluid/ and fluid_interaction/*.json only"
                 ));
             }
         }
@@ -1249,6 +1358,15 @@ impl Content {
                 .map_err(|e| format!("{name}: {e}"))?;
             self.fluids.push(fluid);
         }
+        // In path order: a mod's interactions for one fluid keep their order.
+        interactions.sort();
+        for (file_id, name) in interactions {
+            let mut file: FluidInteractions =
+                serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
+            check_fluid_interactions(&file).map_err(|e| format!("{name}: {e}"))?;
+            file.id = file_id;
+            self.fluid_interactions.push(file);
+        }
         Ok(())
     }
 
@@ -1352,6 +1470,18 @@ impl Content {
         if fluid.light_level > 15 || !fluid.explosion_resistance.is_finite() {
             return Err("light_level is 0 to 15, explosion_resistance a number".into());
         }
+        if let Some(d) = &fluid.drip
+            && (!namespaced_id(&d.cauldron)
+                || d.particle.as_deref().is_some_and(|p| !namespaced_id(p))
+                || !d.chance.is_finite())
+        {
+            return Err("drip names a cauldron block and a particle type (namespace:path) and a chance".into());
+        }
+        if let Some(m) = &fluid.item_movement
+            && ![m.horizontal, m.below, m.above].iter().all(|v| v.is_finite())
+        {
+            return Err("item_movement holds numbers".into());
+        }
         // `CauldronFluidContent.register`'s checks: one cauldron a block, a
         // positive amount, levels from 1 (one without a level property).
         if let Some(c) = &fluid.cauldron {
@@ -1377,6 +1507,27 @@ impl Content {
         }
         Ok(fluid)
     }
+}
+
+/// A `fluid_interaction` file: its fluid, and each interaction's ids
+/// namespaced, with something beside the fluid to meet.
+fn check_fluid_interactions(file: &FluidInteractions) -> Result<(), String> {
+    if !namespaced_id(&file.fluid) {
+        return Err(format!("fluid {:?} is not namespace:path", file.fluid));
+    }
+    for (i, rule) in file.interactions.iter().enumerate() {
+        if rule.fluids.is_empty() && rule.blocks.is_empty() {
+            return Err(format!("interaction {i} meets no fluid and no block"));
+        }
+        let ids = rule.below.iter().chain(&rule.fluids).chain(&rule.blocks);
+        if let Some(bad) = ids
+            .chain([&rule.source, &rule.flowing])
+            .find(|id| !namespaced_id(id))
+        {
+            return Err(format!("interaction {i}: {bad:?} is not namespace:path"));
+        }
+    }
+    Ok(())
 }
 
 /// Namespaced component types, removals as `{}`, and none of `fields`,
@@ -2135,6 +2286,63 @@ capabilities = ["registries"]
             ),
         ] {
             let e = read(case, &with(rest)).unwrap_err();
+            assert!(e.contains(why), "{case}: {e}");
+        }
+    }
+
+    #[test]
+    fn a_fluid_drips_moves_items_and_a_mod_declares_interactions() {
+        const LIQUID: &[u8] = br#"{"template": "minecraft:lava", "item": false}"#;
+        let textures = r#""still_texture": "ruby:a", "flowing_texture": "ruby:b""#;
+        // The Undergarden's virulent mix, as the fluids-only run gave it (slice 7b), and Create Dragons Plus'
+        // dragon's breath's item movement.
+        let fluid = format!(
+            r#"{{{textures}, "sounds": {{"cauldron_drip": "minecraft:block.pointed_dripstone.drip_lava_into_cauldron"}},
+            "drip": {{"chance": 0.05859375, "particle": "ruby:dripping_virulent", "cauldron": "ruby:virulent_cauldron"}},
+            "item_movement": {{"horizontal": 0.949999988079071, "below": 0.0005000000237487257, "above": 0.0}}}}"#
+        );
+        let lava = br#"{"fluid": "minecraft:lava", "interactions": [
+            {"fluids": ["ruby:virulent", "ruby:flowing_virulent"], "source": "minecraft:obsidian", "flowing": "ruby:shiverstone"},
+            {"below": ["minecraft:soul_soil"], "blocks": ["minecraft:blue_ice"], "source": "minecraft:basalt",
+             "flowing": "minecraft:basalt", "fizz": false}]}"#;
+        let water = br#"{"fluid": "minecraft:water", "interactions": [{"fluids": ["ruby:virulent"], "source": "ruby:depthrock",
+            "flowing": "ruby:depthrock"}]}"#;
+        let read = |case: &str, interactions: &[(&str, &[u8])]| {
+            let mut files: Vec<(&str, &[u8])> = vec![
+                ("data/ruby/horizon/block/virulent.json", LIQUID),
+                ("data/ruby/horizon/fluid/virulent.json", fluid.as_bytes()),
+            ];
+            files.extend_from_slice(interactions);
+            hmod(case, MANIFEST_TEXT, &files)
+        };
+        let content = read(
+            "fluid-interactions",
+            &[
+                ("data/ruby/horizon/fluid_interaction/water.json", water),
+                ("data/ruby/horizon/fluid_interaction/lava.json", lava),
+            ],
+        )
+        .unwrap();
+        let f = &content.fluids[0];
+        let drip = f.drip.as_ref().unwrap();
+        assert_eq!((drip.chance, drip.particle.as_deref(), drip.cauldron.as_str()), (0.058_593_75, Some("ruby:dripping_virulent"), "ruby:virulent_cauldron"));
+        assert_eq!(f.sounds.cauldron_drip.as_deref(), Some("minecraft:block.pointed_dripstone.drip_lava_into_cauldron"));
+        assert_eq!(f.item_movement.unwrap().horizontal, f64::from(0.95f32));
+        // Left out: NeoForge's default movement.
+        assert_eq!(FluidItemMovement::default(), FluidItemMovement { horizontal: f64::from(0.99f32), below: f64::from(5.0e-4f32), above: 0.0 });
+        // The files in path order, each one's interactions in its order.
+        let files: Vec<(&str, &str)> = content.fluid_interactions.iter().map(|i| (i.id.as_str(), i.fluid.as_str())).collect();
+        assert_eq!(files, [("ruby:lava", "minecraft:lava"), ("ruby:water", "minecraft:water")]);
+        let basalt = &content.fluid_interactions[0].interactions[1];
+        assert_eq!((basalt.below.as_slice(), basalt.blocks.as_slice(), basalt.fizz), (&["minecraft:soul_soil".to_owned()][..], &["minecraft:blue_ice".to_owned()][..], false));
+        assert!(content.fluid_interactions[0].interactions[0].fizz, "NeoForge's interaction fizzes when left out");
+        for (case, file, why) in [
+            ("interaction-nothing", &br#"{"fluid": "minecraft:lava", "interactions": [{"source": "a:b", "flowing": "a:b"}]}"#[..], "meets no fluid and no block"),
+            ("interaction-id", br#"{"fluid": "lava", "interactions": []}"#, "not namespace:path"),
+            ("interaction-result", br#"{"fluid": "a:b", "interactions": [{"blocks": ["a:c"], "source": "Stone", "flowing": "a:b"}]}"#, "not namespace:path"),
+            ("interaction-field", br#"{"fluid": "a:b", "interactions": [{"blocks": ["a:c"], "source": "a:b", "flowing": "a:b", "above": []}]}"#, "unknown field"),
+        ] {
+            let e = read(case, &[("data/ruby/horizon/fluid_interaction/x.json", file)]).unwrap_err();
             assert!(e.contains(why), "{case}: {e}");
         }
     }

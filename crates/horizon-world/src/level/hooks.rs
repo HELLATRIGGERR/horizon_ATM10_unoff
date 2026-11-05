@@ -635,7 +635,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 true
             } else {
                 let state = self.state(pos);
-                if !b.is_water_fluid(self.fluid_at(pos).kind()) {
+                // NeoForge: `spongeState.canBeHydrated(level, start, fluid, pos)`.
+                if !b.hydrates(self.fluid_at(pos).kind()) {
                     false
                 } else if self.pickup_block(pos, state, false) {
                     true

@@ -39,6 +39,30 @@ pub fn update_entity_fluids(
     world: &World,
     fluids: &FluidResources,
 ) -> (f64, f64) {
+    let f = entity_fluids(bounds, position, eye_y, velocity, world, fluids);
+    (f.water, f.lava)
+}
+/// What [`entity_fluids`] measured: water's and lava's heights, and NeoForge's
+/// `getMaxHeightFluidType` when it is a content mod's (its source and height).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EntityFluids {
+    pub water: f64,
+    pub lava: f64,
+    pub max_mod: Option<(FluidKind, f64)>,
+}
+/// [`update_entity_fluids`] with NeoForge's types: each content mod's fluid
+/// the box is in pushes by its own `motionScale` too
+/// (`Entity.updateFluidHeightAndDoFluidPushing`), and the highest fluid type
+/// is named when it is a mod's: one higher than water's (`WATER_TYPE`, water
+/// by identity) and lava's, the first met of equals.
+pub fn entity_fluids(
+    bounds: Aabb,
+    position: Vec3,
+    eye_y: f64,
+    velocity: &mut Vec3,
+    world: &World,
+    fluids: &FluidResources,
+) -> EntityFluids {
     let mut interaction = EntityFluidInteraction::new([WATER, LAVA]);
     let mut scene = EntityFluidWorld {
         bounds,
@@ -49,10 +73,31 @@ pub fn update_entity_fluids(
         fluids,
     };
     if interaction.update(&mut scene, false, 4096).is_err() {
-        return (0.0, 0.0);
+        return EntityFluids::default();
     }
     let water_height = interaction.fluid_height(&scene, WATER);
     let lava_height = interaction.fluid_height(&scene, LAVA);
+    // `getMaxHeightFluidType`: the trackers in the order the box met them, water's and lava's
+    // types among them by their own heights.
+    let mut max: Option<(FluidKind, f64)> = None;
+    for t in interaction.trackers() {
+        let (kind, height) = match t.fluid {
+            FluidKind::Water | FluidKind::FlowingWater => (FluidKind::Water, water_height),
+            FluidKind::Lava | FluidKind::FlowingLava => (FluidKind::Lava, lava_height),
+            k if k.mod_fluid().is_some() => (
+                k.source(),
+                interaction
+                    .mod_fluid_types()
+                    .into_iter()
+                    .find(|(m, _)| *m == k.source())
+                    .map_or(0.0, |(_, h)| h),
+            ),
+            _ => continue,
+        };
+        if height > 0.0 && max.is_none_or(|(_, best)| height > best) {
+            max = Some((kind, height));
+        }
+    }
     let _ = interaction.apply_current(&mut scene, WATER, 0.014);
     let _ = interaction.apply_current(
         &mut scene,
@@ -63,11 +108,16 @@ pub fn update_entity_fluids(
             0.0023333333333333335
         },
     );
-    (water_height, lava_height)
+    let _ = interaction.apply_mod_currents(&mut scene);
+    EntityFluids {
+        water: water_height,
+        lava: lava_height,
+        max_mod: max.filter(|(k, _)| k.mod_fluid().is_some()),
+    }
 }
 impl ItemEntity {
-    pub(super) fn update_fluids(&mut self, world: &World, fluids: &FluidResources) -> (f64, f64) {
-        update_entity_fluids(
+    pub(super) fn update_fluids(&mut self, world: &World, fluids: &FluidResources) -> EntityFluids {
+        entity_fluids(
             self.bounds(),
             self.position,
             self.position.y + f64::from(0.2125f32),

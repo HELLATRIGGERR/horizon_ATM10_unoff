@@ -86,6 +86,21 @@ impl Behaviours {
     pub(crate) fn is_lava_fluid(&self, kind: FluidKind) -> bool {
         self.fluid_in(kind, self.fluid_tags.lava)
     }
+    /// Whether a block next to `kind` is hydrated by it: vanilla's
+    /// `is(FluidTags.WATER)` in `FarmlandBlock.isNearWater`, `SpongeBlock` and
+    /// `CoralBlock.scanForWater`; with content mods' fluids NeoForge's
+    /// `canBeHydrated`, the fluid type's `canHydrate(FluidState, ...)`: water's
+    /// type (`NeoForgeMod.WATER_TYPE`, water and flowing water), a mod's by
+    /// its declaration, never lava's.
+    pub(crate) fn hydrates(&self, kind: FluidKind) -> bool {
+        if !crate::fluid_interactions::active() {
+            return self.is_water_fluid(kind);
+        }
+        match kind.mod_fluid() {
+            Some(m) => m.entity.can_hydrate,
+            None => matches!(kind, FluidKind::Water | FluidKind::FlowingWater),
+        }
+    }
     pub(crate) fn liquid(&self, state: BlockStateId) -> bool {
         self.has_flag(state, state_flags::LIQUID)
     }

@@ -346,8 +346,17 @@ impl BoatModels {
     }
 }
 impl Game<'_> {
+    /// The fluid a boat floats on: water, or (NeoForge's
+    /// `IBoatExtension.canBoatInFluid(FluidState)`, `FluidType.supportsBoating`)
+    /// a content mod's fluid whose type supports boating.
     fn fluid_height(&self, x: i32, y: i32, z: i32) -> Option<(f32, bool)> {
-        self.fluid_height_of(x, y, z, Some(Fluid::Water))
+        let fluid = self.res.facts().get(self.world.block(x, y, z)).fluid;
+        match fluid {
+            Fluid::Mod(kind) if kind.mod_fluid().is_some_and(|m| m.entity.supports_boating) => {
+                self.fluid_height_of(x, y, z, Some(fluid))
+            }
+            _ => self.fluid_height_of(x, y, z, Some(Fluid::Water)),
+        }
     }
     /// The horizontal water plane around the camera for the water mirror: the median
     /// standing-water surface of a grid of columns 48 blocks around, each scanned down from

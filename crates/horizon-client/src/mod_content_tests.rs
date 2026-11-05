@@ -4668,7 +4668,11 @@ fn a_feature_gives_a_mods_sign_its_block_entity() {
 /// A content mod's fluid (`test:brine`, `BaseFlowingFluid`'s defaults, and
 /// `test:sludge`, slower and thicker, which makes sources) joins the fluid
 /// registry after vanilla's; its bucket places a source of its own block that
-/// spreads on its own tick rate and drop-off, and takes the source back.
+/// spreads on its own tick rate and drop-off, and takes the source back. With
+/// slice 7b's declarations: NeoForge's `FluidInteractionRegistry` (lava
+/// meeting brine, brine meeting water, sludge over soul soil beside blue ice;
+/// lava's own two first), hydration by type (brine hydrates farmland, sludge
+/// doesn't) and the dripstone hook (sludge drips into its own cauldron).
 #[test]
 #[ignore = "full content root: CI and pr_ready run it"]
 fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
@@ -4713,7 +4717,8 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
                     "sounds": {"bucket_fill": "minecraft:item.bucket.fill",
                         "bucket_empty": "minecraft:item.bucket.empty"},
                     "render_overlay": "minecraft:textures/misc/underwater.png",
-                    "fog_color": [0.050980393, 0.078431375, 0.33333334], "fog_range": [-8.0, 24.0]}"#,
+                    "fog_color": [0.050980393, 0.078431375, 0.33333334], "fog_range": [-8.0, 24.0],
+                    "entity": {"can_hydrate": true, "supports_boating": true}}"#,
             ),
             (
                 "data/test/horizon/fluid/sludge.json",
@@ -4724,10 +4729,42 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
                     "entity": {"can_swim": false, "can_drown": false,
                         "motion_scale": 0.0023333333333333335, "fall_distance_modifier": 0.2,
                         "can_extinguish": true},
-                    "sounds": {"fluid_vaporize": "minecraft:block.lava.extinguish"},
+                    "sounds": {"fluid_vaporize": "minecraft:block.lava.extinguish",
+                        "cauldron_drip": "minecraft:block.pointed_dripstone.drip_lava_into_cauldron"},
                     "vaporizes": "ultrawarm",
                     "cauldron": {"block": "test:sludge_cauldron", "total_amount": 1000,
-                        "max_level": 4, "level_property": "level"}}"#,
+                        "max_level": 4, "level_property": "level"},
+                    "drip": {"chance": 0.05859375, "particle": "test:dripping_sludge",
+                        "cauldron": "test:sludge_cauldron"},
+                    "item_movement": {"horizontal": 0.949999988079071, "below": 0.0005000000237487257,
+                        "above": 0.0}}"#,
+            ),
+            // `register_test_interactions`' rules, as the oracle's files give them.
+            (
+                "data/test/horizon/fluid_interaction/minecraft/lava.json",
+                r#"{"fluid": "minecraft:lava", "interactions": [{"fluids": ["test:brine", "test:flowing_brine"],
+                    "source": "minecraft:obsidian", "flowing": "minecraft:cobblestone"}]}"#,
+            ),
+            (
+                "data/test/horizon/fluid_interaction/test/brine.json",
+                r#"{"fluid": "test:brine", "interactions": [{"fluids": ["test:missing", "minecraft:water",
+                    "minecraft:flowing_water"], "source": "minecraft:packed_ice", "flowing": "minecraft:ice"}]}"#,
+            ),
+            (
+                "data/test/horizon/fluid_interaction/test/sludge.json",
+                r#"{"fluid": "test:sludge", "interactions": [{"below": ["minecraft:soul_soil"],
+                    "blocks": ["minecraft:blue_ice"], "source": "minecraft:prismarine",
+                    "flowing": "minecraft:dark_prismarine", "fizz": false}]}"#,
+            ),
+            (
+                "data/test/horizon/fluid_interaction/test/missing.json",
+                r#"{"fluid": "test:missing", "interactions": [{"fluids": ["minecraft:water"],
+                    "source": "minecraft:stone", "flowing": "minecraft:stone"}]}"#,
+            ),
+            (
+                "data/test/horizon/fluid_interaction/minecraft/water.json",
+                r#"{"fluid": "minecraft:water", "interactions": [{"fluids": ["test:missing"],
+                    "source": "minecraft:stone", "flowing": "minecraft:stone"}]}"#,
             ),
             (
                 "data/test/horizon/block/sludge_cauldron.json",
@@ -4754,6 +4791,17 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     // What the declarations give is what the registry holds (asserted when
     // another test registered first).
     horizon_world::mod_fluids::register_test_fluids();
+    // The interaction files in the mod's path order, the same rules as the test set's.
+    let files: Vec<horizon_mods::content::FluidInteractions> = fluid_interactions(std::slice::from_ref(&m))
+        .into_iter()
+        .cloned()
+        .collect();
+    assert_eq!(
+        files.iter().map(|f| f.fluid.as_str()).collect::<Vec<_>>(),
+        ["minecraft:lava", "minecraft:water", "test:brine", "test:missing", "test:sludge"]
+    );
+    register_fluid_interactions(&files);
+    horizon_world::fluid_interactions::register_test_interactions();
     let brine = FluidKind::from_name("test:brine").unwrap();
     let sludge = FluidKind::from_name("test:sludge").unwrap();
 
@@ -4886,6 +4934,82 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     assert_eq!(water.name, "minecraft:water");
     let decl = &horizon_world::mod_fluids::mod_fluids()[0];
     assert_eq!(decl.source_tags, ["c:brine"], "the root's fluid tags");
+
+    // Slice 7b. `FluidInteractionRegistry.canInteract`: lava placed beside brine becomes obsidian
+    // (a source) or cobblestone (flowing), and fizzes; beside water, NeoForge's own rule.
+    let state = |name: &str| registry.default_state(name).unwrap();
+    let with = |name: &str, props: &[(&str, &str)]| {
+        let mut d = horizon_world::chunk::BlockState { name: name.into(), properties: Default::default() };
+        for (k, v) in props {
+            d.properties.insert((*k).into(), (*v).into());
+        }
+        registry.resolve(&d).unwrap()
+    };
+    let liquid = |name: &str, level: &str| with(name, &[("level", level)]);
+    let place = |level: &mut Level, ticks: &mut Ticks, pos: BlockPos, s: BlockStateId| {
+        b.set_block(level, ticks, pos, s, 3);
+    };
+    let name_at = |level: &Level, pos: BlockPos| registry.state(level.block_state(pos)).unwrap().name.clone();
+    // On the floor, each fluid placed just before the lava (no tick between: what spreads after
+    // meets only what was decided).
+    let spot = |x: i32| BlockPos::new(x, 64, 12);
+    for (x, lava, neighbour, result) in [
+        (-12, "0", liquid("test:brine", "0"), "minecraft:obsidian"),
+        (-8, "2", liquid("test:brine", "3"), "minecraft:cobblestone"),
+        (-4, "0", liquid("minecraft:water", "0"), "minecraft:obsidian"),
+        (0, "0", state("minecraft:stone"), "minecraft:lava"),
+    ] {
+        place(&mut level, &mut ticks, spot(x).offset(0, 0, -1), neighbour);
+        place(&mut level, &mut ticks, spot(x), liquid("minecraft:lava", lava));
+        assert_eq!(name_at(&level, spot(x)), result, "lava at level {lava} beside {}", name_at(&level, spot(x).offset(0, 0, -1)));
+    }
+    // Brine meets water (packed ice); sludge over soul soil beside blue ice turns to prismarine,
+    // over stone it stays.
+    place(&mut level, &mut ticks, spot(4).offset(0, 0, -1), liquid("minecraft:water", "0"));
+    place(&mut level, &mut ticks, spot(4), liquid("test:brine", "0"));
+    assert_eq!(name_at(&level, spot(4)), "minecraft:packed_ice");
+    for (x, below, result) in [(8, "minecraft:soul_soil", "minecraft:prismarine"), (12, "minecraft:stone", "test:sludge")] {
+        place(&mut level, &mut ticks, spot(x).offset(0, -1, 0), state(below));
+        place(&mut level, &mut ticks, spot(x).offset(1, 0, 0), state("minecraft:blue_ice"));
+        place(&mut level, &mut ticks, spot(x), liquid("test:sludge", "0"));
+        assert_eq!(name_at(&level, spot(x)), result, "sludge over {below}");
+    }
+
+    // Hydration by type (`canBeHydrated`): farmland four blocks from brine stays moist, from
+    // sludge it dries.
+    for (x, fluid, moist) in [(-10, "test:brine", "7"), (6, "test:sludge", "6")] {
+        let farm = BlockPos::new(x, 64, 30);
+        place(&mut level, &mut ticks, farm, with("minecraft:farmland", &[("moisture", "7")]));
+        place(&mut level, &mut ticks, farm.offset(3, 0, 0), liquid(fluid, "0"));
+        b.random_tick(&mut level, &mut ticks, farm);
+        let after = registry.state(level.block_state(farm)).unwrap();
+        assert_eq!(after.properties.get("moisture").map(String::as_str), Some(moist), "farmland beside {fluid}");
+    }
+
+    // The dripstone hook (`getDripInfo`): sludge over a stalactite's root drips into the empty
+    // cauldron below, which becomes its own cauldron. The source is walled in.
+    let root_at = BlockPos::new(30, 80, 0);
+    // Its chunk takes scheduled ticks too (the cauldron's).
+    ticks.add_empty_chunk(ChunkPos::new(1, 0)).unwrap();
+    for wall in [root_at.offset(0, 1, 0).offset(0, 0, -1), root_at.offset(0, 1, 0).offset(0, 0, 1), root_at.offset(0, 1, 0).offset(1, 0, 0), root_at.offset(0, 1, 0).offset(-1, 0, 0)] {
+        place(&mut level, &mut ticks, wall, state("minecraft:stone"));
+    }
+    place(&mut level, &mut ticks, root_at.offset(0, 1, 0), liquid("test:sludge", "0"));
+    place(&mut level, &mut ticks, root_at, state("minecraft:dripstone_block"));
+    let tip = root_at.offset(0, -1, 0);
+    let pointed = with("minecraft:pointed_dripstone", &[("vertical_direction", "down"), ("thickness", "tip")]);
+    level.set_raw(tip, pointed);
+    let cauldron = BlockPos::new(30, 75, 0);
+    place(&mut level, &mut ticks, cauldron, state("minecraft:cauldron"));
+    for _ in 0..2000 {
+        b.random_tick(&mut level, &mut ticks, tip);
+        let t = level.time + 120;
+        run(&mut level, &mut ticks, t);
+        if name_at(&level, cauldron) != "minecraft:cauldron" {
+            break;
+        }
+    }
+    assert_eq!(name_at(&level, cauldron), "test:sludge_cauldron", "a drip of sludge fills the cauldron");
     fs::remove_dir_all(&scratch).unwrap();
 }
 

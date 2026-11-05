@@ -170,7 +170,47 @@ pub fn mod_fluid(
             max_level: c.max_level,
             level_property: c.level_property.clone(),
         }),
+        drip: decl.drip.as_ref().map(|d| horizon_world::mod_fluids::ModDrip {
+            chance: d.chance,
+            particle: d.particle.clone(),
+            cauldron: d.cauldron.clone(),
+        }),
+        cauldron_drip_sound: decl.sounds.cauldron_drip.clone(),
+        item_movement: decl.item_movement.map_or_else(Default::default, |m| {
+            horizon_world::mod_fluids::ItemMovement {
+                horizontal: m.horizontal,
+                below: m.below,
+                above: m.above,
+            }
+        }),
     }
+}
+
+/// The mods' fluid interactions (`fluid_interaction` files), in the mods'
+/// order and each mod's path order: `FluidInteractionRegistry`'s lists keep
+/// the order the mods registered them in.
+pub fn fluid_interactions(mods: &[ContentMod]) -> Vec<&horizon_mods::content::FluidInteractions> {
+    mods.iter()
+        .flat_map(|m| &m.content.fluid_interactions)
+        .collect()
+}
+
+/// Registers the interactions of a root [`load_root`] gave, after its fluids
+/// ([`register_mod_fluids`]): once per process. False when they already were.
+pub fn register_fluid_interactions(files: &[horizon_mods::content::FluidInteractions]) -> bool {
+    horizon_world::fluid_interactions::register_interactions(files.iter().flat_map(|file| {
+        file.interactions.iter().map(|rule| {
+            horizon_world::fluid_interactions::DeclaredInteraction {
+                fluid: file.fluid.clone(),
+                below: rule.below.clone(),
+                fluids: rule.fluids.clone(),
+                blocks: rule.blocks.clone(),
+                source: rule.source.clone(),
+                flowing: rule.flowing.clone(),
+                fizz: rule.fizz,
+            }
+        })
+    }))
 }
 
 /// Registers `fluids` (those of a root [`load_root`] gave) after vanilla's,
@@ -3477,6 +3517,8 @@ pub struct LoadedRoot {
     pub menu_types: Vec<MenuType>,
     /// Their fluids, in registry order ([`fluids`]).
     pub fluids: Vec<Fluid>,
+    /// Their fluid interactions, in order ([`fluid_interactions`]).
+    pub fluid_interactions: Vec<horizon_mods::content::FluidInteractions>,
 }
 
 /// What a built root's start needs to know without reading the mods again.
@@ -3494,6 +3536,10 @@ struct Summary {
     menu_types: Vec<(String, MenuType)>,
     #[serde(default)]
     fluids: Vec<(String, Fluid)>,
+    /// (id, file) of the fluid interactions; none in a summary from before
+    /// them, which is built again.
+    #[serde(default)]
+    fluid_interactions: Option<Vec<(String, horizon_mods::content::FluidInteractions)>>,
 }
 
 /// In a root built by [`load_root`]: its [`Summary`].
@@ -3517,6 +3563,7 @@ pub fn load_root(
         entity_types: Vec::new(),
         menu_types: Vec::new(),
         fluids: Vec::new(),
+        fluid_interactions: Vec::new(),
     };
     if candidates.is_empty() && blocks.is_empty() && items.is_empty() {
         return Ok(base_root(Vec::new()));
@@ -3537,6 +3584,7 @@ pub fn load_root(
     if fs::read(out.join(STAMP)).is_ok_and(|s| s == stamp.as_bytes())
         && let Ok(bytes) = fs::read(out.join(SUMMARY))
         && let Ok(summary) = serde_json::from_slice::<Summary>(&bytes)
+        && let Some(interactions) = summary.fluid_interactions
     {
         log_reused(&out);
         for (id, why) in &summary.refused {
@@ -3559,6 +3607,10 @@ pub fn load_root(
             entity_types: types.map(|(id, t)| EntityType { id, ..t }).collect(),
             menu_types: menus.map(|(id, m)| MenuType { id, ..m }).collect(),
             fluids: fluids.map(|(id, f)| Fluid { id, ..f }).collect(),
+            fluid_interactions: interactions
+                .into_iter()
+                .map(|(id, f)| horizon_mods::content::FluidInteractions { id, ..f })
+                .collect(),
         });
     }
     let read = par_map(candidates, FILE_THREADS, |c| {
@@ -3619,6 +3671,8 @@ pub fn load_root(
     let types: Vec<EntityType> = entity_types(&mods).into_iter().cloned().collect();
     let menus: Vec<MenuType> = menu_types(&mods).into_iter().cloned().collect();
     let mod_fluids: Vec<Fluid> = fluids(&mods).into_iter().cloned().collect();
+    let interactions: Vec<horizon_mods::content::FluidInteractions> =
+        fluid_interactions(&mods).into_iter().cloned().collect();
     let started = std::time::Instant::now();
     for warning in build(base, &mods, &out)? {
         log::warn!("Horizon: {warning}");
@@ -3635,6 +3689,12 @@ pub fn load_root(
         entity_types: types.iter().map(|t| (t.id.clone(), t.clone())).collect(),
         menu_types: menus.iter().map(|m| (m.id.clone(), m.clone())).collect(),
         fluids: mod_fluids.iter().map(|f| (f.id.clone(), f.clone())).collect(),
+        fluid_interactions: Some(
+            interactions
+                .iter()
+                .map(|f| (f.id.clone(), f.clone()))
+                .collect(),
+        ),
     };
     fs::write(out.join(SUMMARY), serde_json::to_vec(&summary)?)?;
     fs::write(out.join(STAMP), stamp)?;
@@ -3646,6 +3706,7 @@ pub fn load_root(
         entity_types: types,
         menu_types: menus,
         fluids: mod_fluids,
+        fluid_interactions: interactions,
     })
 }
 

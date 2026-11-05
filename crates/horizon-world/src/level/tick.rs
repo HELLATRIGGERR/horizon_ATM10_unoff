@@ -959,7 +959,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         'search: for x in -4..=4 {
             for y in 0..=1 {
                 for z in -4..=4 {
-                    if b.is_water_fluid(self.fluid_at(pos.offset(x, y, z)).kind()) {
+                    // NeoForge: `state.canBeHydrated(level, pos, fluid, at)`.
+                    if b.hydrates(self.fluid_at(pos.offset(x, y, z)).kind()) {
                         near_water = true;
                         break 'search;
                     }

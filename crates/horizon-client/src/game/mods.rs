@@ -119,6 +119,7 @@ pub(super) fn content_root(
             register_entity_types(&loaded.entity_types);
             register_menu_types(&loaded.menu_types);
             register_fluids(&loaded.root, &loaded.fluids);
+            horizon_client::mod_content::register_fluid_interactions(&loaded.fluid_interactions);
             loaded.root
         }
         Err(e) => {

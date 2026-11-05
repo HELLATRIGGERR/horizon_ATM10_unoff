@@ -77,6 +77,59 @@ pub struct ModFluid {
     pub vaporizes: Vaporizes,
     /// The cauldron that holds it (`CauldronFluidContent`), none for none.
     pub cauldron: Option<ModCauldron>,
+    /// Its type's `getDripInfo`: what a pointed dripstone under a source of
+    /// it drips and the cauldron that fills, none for none.
+    pub drip: Option<ModDrip>,
+    /// `SoundActions.CAULDRON_DRIP`, played as a drip fills a cauldron
+    /// (`FluidType.handleCauldronDrip`); none is silent.
+    pub cauldron_drip_sound: Option<String>,
+    /// Its type's `setItemMovement` for a dropped item in it.
+    pub item_movement: ItemMovement,
+}
+
+/// NeoForge's `FluidType.DripstoneDripInfo`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModDrip {
+    /// `chance`: a random tick's `randChance` below it drips.
+    pub chance: f32,
+    /// `dripParticle`, a particle type id; none draws nothing.
+    pub particle: Option<String>,
+    /// `filledCauldron`: what an empty cauldron under the tip becomes.
+    pub cauldron: String,
+}
+
+/// `FluidType.setItemMovement` in the form NeoForge's default has
+/// (`x * horizontal`, `y + below` under `0.06F` else `y + above`,
+/// `z * horizontal`), with its numbers ([`ItemMovement::default`]: water's).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ItemMovement {
+    pub horizontal: f64,
+    pub below: f64,
+    pub above: f64,
+}
+
+impl Default for ItemMovement {
+    /// `FluidType.setItemMovement`: `x * 0.99F`, `y + 5.0E-4F` below
+    /// `0.06F`, `z * 0.99F`.
+    fn default() -> Self {
+        Self {
+            horizontal: f64::from(0.99f32),
+            below: f64::from(5.0e-4f32),
+            above: 0.0,
+        }
+    }
+}
+
+impl ItemMovement {
+    /// The item's velocity after `setItemMovement`.
+    pub fn apply(&self, [x, y, z]: [f64; 3]) -> [f64; 3] {
+        let add = if y < f64::from(0.06f32) {
+            self.below
+        } else {
+            self.above
+        };
+        [x * self.horizontal, y + add, z * self.horizontal]
+    }
 }
 
 /// Where a bucket of a fluid vaporizes instead of being placed: what its
@@ -209,9 +262,12 @@ pub struct FluidEntity {
     pub fall_distance_modifier: f32,
     /// `canExtinguish`: it puts a burning entity out.
     pub can_extinguish: bool,
-    /// `canHydrate`.
+    /// `canHydrate`: asked of a pig, the same as `canHydrate(FluidState,
+    /// ...)` (what farmland, sponges and coral blocks ask) for every type of
+    /// ATM10 8.4 by the oracle's run.
     pub can_hydrate: bool,
-    /// `supportsBoating`.
+    /// `supportsBoating`: asked with a boat, the same as its `FluidState`
+    /// form (`IBoatExtension.canBoatInFluid`) for every type of ATM10 8.4.
     pub supports_boating: bool,
 }
 
@@ -270,6 +326,9 @@ impl ModFluid {
             vaporize_sound: None,
             vaporizes: Vaporizes::LikeWater,
             cauldron: None,
+            drip: None,
+            cauldron_drip_sound: None,
+            item_movement: ItemMovement::default(),
         }
     }
     /// Whether it is a `FlowingFluid`: one that doesn't (Modern
@@ -605,6 +664,12 @@ pub fn register_test_fluids() {
         render_overlay: Some("minecraft:textures/misc/underwater.png".into()),
         fog_color: Some([0.050_980_393, 0.078_431_375, 0.333_333_34]),
         fog_range: Some([-8.0, 24.0]),
+        // Water's say over blocks and boats (the Bumblezone's sugar water's).
+        entity: FluidEntity {
+            can_hydrate: true,
+            supports_boating: true,
+            ..FluidEntity::default()
+        },
         ..ModFluid::new("test:brine")
     };
     let sludge = ModFluid {
@@ -631,6 +696,21 @@ pub fn register_test_fluids() {
             max_level: 4,
             level_property: Some("level".into()),
         }),
+        // The Undergarden's virulent mix's: drips as lava does into its own
+        // cauldron with lava's sound; Create Dragons Plus' dragon's breath's
+        // dropped items.
+        drip: Some(ModDrip {
+            chance: 0.058_593_75,
+            particle: Some("test:dripping_sludge".into()),
+            cauldron: "test:sludge_cauldron".into(),
+        }),
+        cauldron_drip_sound: Some(
+            "minecraft:block.pointed_dripstone.drip_lava_into_cauldron".into(),
+        ),
+        item_movement: ItemMovement {
+            horizontal: f64::from(0.95f32),
+            ..ItemMovement::default()
+        },
         ..ModFluid::new("test:sludge")
     };
     if !register_mod_fluids([brine.clone(), sludge.clone()]) {

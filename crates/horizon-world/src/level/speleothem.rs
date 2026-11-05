@@ -273,7 +273,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     }
     fn dripstone_transfer_fluid(&mut self, state: BlockStateId, pos: BlockPos, value: f32) {
         let b = self.b;
-        if value > 0.175_781_25 {
+        // Vanilla's early way out; NeoForge's has none (a mod's chance may be higher).
+        if value > 0.175_781_25 && !crate::fluid_interactions::active() {
             return;
         }
         if !self.speleothem_with(state, Direction::Down)
@@ -284,10 +285,14 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let Some((source_pos, fluid, source_state)) = self.dripstone_fluid_above(state, pos) else {
             return;
         };
+        // NeoForge: the fluid type's `getDripInfo().chance()`, none for a type without.
         let probability = match fluid {
             FluidKind::Water => 0.175_781_25,
             FluidKind::Lava => 0.058_593_75,
-            _ => return,
+            _ => match fluid.mod_fluid().and_then(|m| m.drip.as_ref()) {
+                Some(drip) => drip.chance,
+                None => return,
+            },
         };
         if value >= probability {
             return;
@@ -339,16 +344,43 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             return;
         };
         let tip_state = self.state(tip);
+        // `getCauldronFillFluidType`: `canFillCauldron`, NeoForge's `getDripInfo() != null`.
         let fluid = self
             .dripstone_fluid_above(tip_state, tip)
             .map(|(_, f, _)| f)
-            .filter(|f| matches!(*f, FluidKind::Water | FluidKind::Lava))
+            .filter(|f| {
+                matches!(*f, FluidKind::Water | FluidKind::Lava)
+                    || f.mod_fluid().is_some_and(|m| m.drip.is_some())
+            })
             .unwrap_or(FluidKind::Empty);
         if fluid == FluidKind::Empty || !self.cauldron_can_receive(state, fluid) {
             return;
         }
         let data = b.data(state);
-        if data.is(Class::Cauldron) {
+        if data.is(Class::Cauldron)
+            && let Some(m) = fluid.mod_fluid()
+        {
+            // `CauldronBlock.receiveStalactiteDrip` -> `FluidType.handleCauldronDrip`: a source
+            // fills the cauldron with `filledCauldron`'s default state and plays `CAULDRON_DRIP`.
+            let Some(drip) = m.drip.as_ref().filter(|_| fluid.is_source_kind()) else {
+                return;
+            };
+            let Some(block) = b.table.block_by_name(&drip.cauldron) else {
+                return;
+            };
+            let filled = b.default_of(block);
+            self.set_block_and_update(pos, filled);
+            self.game_event(pos, "minecraft:block_change");
+            if let Some(sound) = &m.cauldron_drip_sound {
+                let pitch = self.random().next_float() * 0.1 + 0.9;
+                self.emit(super::LevelEvent::Sound {
+                    pos,
+                    sound: sound.as_str().into(),
+                    volume: 2.0,
+                    pitch,
+                });
+            }
+        } else if data.is(Class::Cauldron) {
             let (next, event) = if fluid == FluidKind::Water {
                 (b.named.water_cauldron, 1047)
             } else {

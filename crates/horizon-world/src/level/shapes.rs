@@ -1127,17 +1127,22 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
         false
     }
+    /// `CoralBlock.scanForWater`: NeoForge asks `state.canBeHydrated` of
+    /// each neighbour's fluid (the level's `hydrates`).
     pub(crate) fn coral_scan_for_water(&self, pos: BlockPos) -> bool {
         Direction::ALL
             .into_iter()
-            .any(|d| self.b.is_water_fluid(self.fluid_at(rel(pos, d)).kind()))
+            .any(|d| self.b.hydrates(self.fluid_at(rel(pos, d)).kind()))
     }
-    /// `BaseCoralPlantTypeBlock.scanForWater(state, level, pos)`.
+    /// `BaseCoralPlantTypeBlock.scanForWater(state, level, pos)`: water by
+    /// tag, NeoForge's too (it doesn't patch this one).
     pub(crate) fn coral_plant_scan_for_water(&self, state: BlockStateId, pos: BlockPos) -> bool {
         if self.b.is_waterlogged(state) {
             return true;
         }
-        self.coral_scan_for_water(pos)
+        Direction::ALL
+            .into_iter()
+            .any(|d| self.b.is_water_fluid(self.fluid_at(rel(pos, d)).kind()))
     }
     /// `BaseCoralPlantTypeBlock.tryScheduleDieTick`.
     pub(crate) fn coral_try_schedule_die_tick(&mut self, state: BlockStateId, pos: BlockPos) {

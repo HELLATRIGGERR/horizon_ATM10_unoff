@@ -162,9 +162,13 @@ impl Game<'_> {
             }
             "getblock" => {
                 let pos = [int(1)?, int(2)?, int(3)?];
-                Ok(Some(
-                    json!({ "block": self.state_text(self.world.block(pos[0], pos[1], pos[2])) }),
-                ))
+                // The window's own light there too: block light, sky light.
+                let light = self.world.light(pos[0], pos[1], pos[2]);
+                Ok(Some(json!({
+                    "block": self.state_text(self.world.block(pos[0], pos[1], pos[2])),
+                    "block_light": light & 15,
+                    "sky_light": light >> 4,
+                })))
             }
             "container" => {
                 let key = (int(1)?, int(2)?, int(3)?);

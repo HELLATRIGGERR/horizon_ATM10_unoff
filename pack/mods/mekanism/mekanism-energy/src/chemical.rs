@@ -448,6 +448,12 @@ impl ChemicalTank {
     /// chemical, what fits, when the stack is valid and may come in this way;
     /// what is left.
     pub fn insert(&mut self, stack: &ChemicalStack, simulate: bool, automation: Automation, rules: &TankRules<'_>) -> ChemicalStack {
+        self.insert_rated(stack, simulate, automation, rules, i64::MAX)
+    }
+
+    /// `insert` of a tank whose `getInsertRate` is `rate` for this automation
+    /// type (a chemical tank's own: its tier's output, `INTERNAL`).
+    pub fn insert_rated(&mut self, stack: &ChemicalStack, simulate: bool, automation: Automation, rules: &TankRules<'_>, rate: i64) -> ChemicalStack {
         if stack.is_empty() {
             return stack.clone();
         }
@@ -455,7 +461,7 @@ impl ChemicalTank {
         if !self.is_empty() && !same {
             return stack.clone();
         }
-        let needed = self.needed();
+        let needed = self.needed().min(rate);
         if needed <= 0 {
             return stack.clone();
         }
@@ -475,10 +481,15 @@ impl ChemicalTank {
 
     /// `BasicChemicalTank.extract`: up to `amount`, when it may go out this way.
     pub fn extract(&mut self, amount: i64, simulate: bool, automation: Automation, rules: &TankRules<'_>) -> ChemicalStack {
+        self.extract_rated(amount, simulate, automation, rules, i64::MAX)
+    }
+
+    /// `extract` of a tank whose `getExtractRate` is `rate` for this automation type.
+    pub fn extract_rated(&mut self, amount: i64, simulate: bool, automation: Automation, rules: &TankRules<'_>, rate: i64) -> ChemicalStack {
         if self.is_empty() || amount < 1 || !(rules.can_extract)(&self.stored, automation) {
             return ChemicalStack::EMPTY;
         }
-        let size = self.stored().min(amount);
+        let size = self.stored().min(amount).min(rate);
         if size == 0 {
             return ChemicalStack::EMPTY;
         }

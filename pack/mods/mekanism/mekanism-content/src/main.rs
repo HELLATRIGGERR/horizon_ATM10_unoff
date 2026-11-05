@@ -19,6 +19,9 @@
 //! - Each universal cable the overlay declares gets Mekanism's OBJ transmitter
 //!   model (`mekanism:transmitter`) converted to a multipart blockstate
 //!   (`transmitter`); its carried loot and shaped recipe stay.
+//! - Each chemical tank keeps its carried model; its loot table drops it
+//!   plain and its `mekanism:mek_data` upgrade recipe becomes shaped, as a
+//!   cube's (the native mod gives the drop its contents).
 //! - Its loot table drops the cube without Mekanism's item components, which
 //!   the game refuses; its `mekanism:mek_data` recipe becomes
 //!   `minecraft:crafting_shaped`, so an upgrade keeps no energy.
@@ -146,6 +149,7 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
     let mut loot = Vec::new();
     let mut recipes = Vec::new();
     let mut cables = Vec::new();
+    let mut tanks = Vec::new();
     let mut others = Vec::new();
     let mut files = 0;
     let blocks = overlay.join("data").join(&id).join("horizon/block");
@@ -165,6 +169,27 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
                 files += 1;
             }
             cables.push(block.to_owned());
+            continue;
+        }
+        if let Some(tier) = block.strip_suffix("_chemical_tank") {
+            // Its carried model stays; its drop is plain (the drop's data is the
+            // native mod's), its `mek_data` upgrade recipe a shaped one.
+            let loot_path = format!("data/mekanism/loot_table/blocks/{block}.json");
+            if !overlay.join(&loot_path).exists()
+                && let Ok(table) = read_json(&carry.join(&loot_path))
+            {
+                write_json(&out.join(&loot_path), &plain_drop(&table))?;
+                loot.push(block.to_owned());
+            }
+            let recipe_path = format!("data/mekanism/recipe/chemical_tank/{tier}.json");
+            if !overlay.join(&recipe_path).exists()
+                && let Ok(recipe) = read_json(&carry.join(&recipe_path))
+                && let Some(shaped) = shaped_recipe(&recipe)?
+            {
+                write_json(&out.join(&recipe_path), &shaped)?;
+                recipes.push(block.to_owned());
+            }
+            tanks.push(block.to_owned());
             continue;
         }
         let Some(tier) = block.strip_suffix("_energy_cube") else {
@@ -256,7 +281,7 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
         "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags, "fluids": fluids,
         "chemicals": chemicals, "chemical_sprites": chemical_sprites,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
-        "cubes": cubes, "cables": cables, "blocks": others, "loot_tables": loot, "recipes": recipes,
+        "cubes": cubes, "cables": cables, "chemical_tanks": tanks, "blocks": others, "loot_tables": loot, "recipes": recipes,
         "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;

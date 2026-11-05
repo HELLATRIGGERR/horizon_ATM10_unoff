@@ -8,7 +8,9 @@
 // form (`chemical_tanks: [{tank: 0b, stored: {id, amount}}]`), the chemical
 // handler of the bundle's blocks by side (Mekanism's
 // `Capabilities.CHEMICAL.block()`: the infuser's tank, the separator's two),
-// and `/mek chemical` and `/mek chemicals` for tests. No other native mod has
+// the Chemical Tanks' (`mek_tanks`), the even split of a tank's contents among the handlers on
+// its output faces (`ChemicalUtil.emit`), and `/mek chemical` and
+// `/mek chemicals` for tests. No other native mod has
 // chemicals yet, so the capability stays in the bundle; AE2's Applied
 // Mekanistics will need it as a hook point (docs/mekanism-chemicals.md).
 
@@ -161,7 +163,39 @@ pub(super) fn write_tanks(nbt: &mut Compound, tanks: &[ChemicalStack]) {
 /// side (another block, a side its config closes to every tank).
 pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<Direction>, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
     let registry = registry(game);
-    game.native_with_mod_block_entity(pos, |m| mek_machines::chemical_handler(m, face, &registry, use_it)).flatten()
+    game.native_with_mod_block_entity(pos, |m| {
+        if super::mek_tanks::tier_of(&m.id).is_some() {
+            super::mek_tanks::chemical_handler(m, face, &registry, use_it)
+        } else {
+            mek_machines::chemical_handler(m, face, &registry, use_it)
+        }
+    })
+    .flatten()
+}
+
+/// `ChemicalUtil.emit` (`EmitUtils.sendToAcceptors`): `offered` split evenly
+/// among the chemical handlers on `faces` of `pos` (each through its touching
+/// side) that take some of it when offered all; what they took, for the
+/// caller to take out of its tank.
+pub(super) fn emit(game: &mut Game<'_>, pos: [i32; 3], faces: &[Direction], offered: &ChemicalStack) -> i64 {
+    if offered.is_empty() || faces.is_empty() {
+        return 0;
+    }
+    let beside = |f: Direction| super::mek_world::beside(pos, f);
+    let targets: Vec<Direction> = faces
+        .iter()
+        .copied()
+        .filter(|&f| with_handler(game, beside(f), Some(f.opposite()), |h| h.insert(offered, true).amount() < offered.amount()) == Some(true))
+        .collect();
+    if targets.is_empty() {
+        return 0;
+    }
+    let sent = mekanism_energy::split::send_to_acceptors(targets.len(), offered.amount().max(0) as u64, |t, amount, simulate| {
+        let face = targets[t];
+        let stack = offered.copy_with_amount(amount.min(i64::MAX as u64) as i64);
+        with_handler(game, beside(face), Some(face.opposite()), |h| h.insert(&stack, simulate).amount().max(0) as u64).unwrap_or(amount)
+    });
+    sent.min(i64::MAX as u64) as i64
 }
 
 // ---- /mek chemical, /mek chemicals ------------------------------------------------------

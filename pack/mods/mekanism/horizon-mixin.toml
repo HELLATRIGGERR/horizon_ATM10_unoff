@@ -1,5 +1,6 @@
 # Mekanism's energy, its first processing machines, its chemicals (the
-# registry, tanks, the chemical handler and the Electrolytic Separator) and
+# registry, tanks, the chemical handler, the Electrolytic Separator, the
+# Chemical Tanks and their items) and
 # Mekanism Generators' Solar and Heat Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
@@ -38,6 +39,12 @@ id = "chemicals"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_chemicals"
 source = "runtime/mek_chemicals.rs"
+
+[[module]]
+id = "tanks"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_tanks"
+source = "runtime/mek_tanks.rs"
 
 [[module]]
 id = "ui"

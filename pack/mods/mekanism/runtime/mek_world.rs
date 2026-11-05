@@ -13,8 +13,8 @@
 // chunks changed), the settings from `config/Mekanism/`, the menu's
 // data slots and buttons (its screen is `mek_ui`), placing a cube (facing the
 // player, with its item's energy and config) and the drop that keeps them, and
-// `/mek probe` for tests; the processing machines are `mek_machines`, reached
-// from these hooks. Server hooks run on the thread of the `Game` that
+// `/mek probe` for tests; the processing machines are `mek_machines` and the
+// Chemical Tanks `mek_tanks`, reached from these hooks. Server hooks run on the thread of the `Game` that
 // simulates the world, so the settings are kept per thread, read when a world
 // opens and dropped when it closes. No borrow of that state is held across a
 // call into the game.
@@ -272,6 +272,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some(mek_machines::new_entity(kind));
         return;
     }
+    if super::mek_tanks::tier_of(block).is_some() {
+        *entity = Some(super::mek_tanks::new_entity(block));
+        return;
+    }
     if CableTier::of_block(block).is_some() {
         let mut nbt = Compound::new();
         write_connections(&mut nbt, &[Connection::Normal; 6]);
@@ -288,7 +292,11 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
 
 /// `native_block_entity_ticks`: cubes, generators and machines tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if CubeTier::of_block(block).is_some() || GeneratorKind::of_block(block).is_some() || mek_machines::kind_of(block).is_some() {
+    if CubeTier::of_block(block).is_some()
+        || GeneratorKind::of_block(block).is_some()
+        || mek_machines::kind_of(block).is_some()
+        || super::mek_tanks::tier_of(block).is_some()
+    {
         *ticks = true;
     }
 }
@@ -307,6 +315,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if let Some(kind) = mek_machines::kind_of(block) {
         *container = Some(mek_machines::container(kind));
+        return;
+    }
+    if super::mek_tanks::tier_of(block).is_some() {
+        *container = Some(super::mek_tanks::container());
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -466,6 +478,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     if let Some(kind) = mek_machines::kind_of(&entity.id) {
         mek_machines::tick(game, pos, entity, kind);
+        return;
+    }
+    if let Some(tier) = super::mek_tanks::tier_of(&entity.id) {
+        super::mek_tanks::tick(game, pos, entity, tier);
         return;
     }
     let Some(tier) = CubeTier::of_block(&entity.id) else {
@@ -1077,6 +1093,10 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         mek_machines::button(game, pos, entity, id);
         return;
     }
+    if super::mek_tanks::tier_of(&entity.id).is_some() {
+        super::mek_tanks::button(game, pos, entity, id);
+        return;
+    }
     let (Some(tier), Some(button)) = (CubeTier::of_block(&entity.id), Button::from_id(id)) else {
         return;
     };
@@ -1142,6 +1162,9 @@ fn drop_data(nbt: &Compound, tier: CubeTier, capacity: u64) -> Option<Compound> 
 /// (`AttributeStateFacing`), takes its item's energy and config, and shows
 /// its faces.
 pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
+    if super::mek_tanks::placed(game, stack, pos) {
+        return;
+    }
     let Some(tier) = CubeTier::of_block(&stack.item) else {
         return;
     };
@@ -1172,6 +1195,9 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
     let (config, _) = energy_config();
     let found = game.native_with_mod_block_entity(pos, |m| {
+        if super::mek_tanks::tier_of(&m.id).is_some() {
+            return Some((m.id.clone(), super::mek_tanks::drop_data(&m.nbt)?));
+        }
         let tier = CubeTier::of_block(&m.id)?;
         Some((m.id.clone(), drop_data(&m.nbt, tier, config.cube(tier).0)?))
     });
@@ -1452,6 +1478,10 @@ fn generator_container(kind: GeneratorKind) -> ModContainer {
 pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bool, accepts: &mut bool) {
     if let Some(kind) = mek_machines::kind_of(block) {
         mek_machines::slot_accepts(kind, slot, stack, accepts);
+        return;
+    }
+    if super::mek_tanks::tier_of(block).is_some() {
+        super::mek_tanks::slot_accepts(slot, stack, accepts);
         return;
     }
     if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {
@@ -1831,6 +1861,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     };
     if mek_machines::kind_of(&id).is_some() {
         return mek_machines::probe(game, pos, &id, &nbt, &data, &items);
+    }
+    if super::mek_tanks::tier_of(&id).is_some() {
+        return super::mek_tanks::probe(game, pos, &id, &nbt, &items);
     }
     if let Some(tier) = CableTier::of_block(&id) {
         return probe_cable(game, pos, &id, tier);

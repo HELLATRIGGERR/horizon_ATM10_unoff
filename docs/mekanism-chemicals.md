@@ -6,7 +6,7 @@ move them, its items carry them, Mekanism Generators burns hydrogen and fuses de
 them through Applied Mekanistics. ATM10 8.4 registers 112 chemicals: Mekanism's 64, All the Ores' 26 slurries,
 Allthemodium's 6, Mekanism More Machines' (`mekmm`) 6, KubeJS's 4, Mekanism Generators' 3, XyCraft World's 2 and
 Starbunclemania's source gas. Everything here lives in the Mekanism bundle (`pack/mods/mekanism`); the engine gained
-one generic helper (hook points API 162).
+one generic helper (hook points API 162); slice 2 needs no hook point.
 
 ## What there was
 
@@ -82,6 +82,24 @@ chemicals yet, so the capability needs no hook point. The ejector (`TileComponen
 splits a tank's contents, up to `chemicalAutoEjectRate` a tick, evenly among the handlers on the faces of its output
 type (`EmitUtils.sendToAcceptors`, the energy split's port), as the block itself (`INTERNAL`).
 
+**Chemical tanks and items.** `chemical_tank::TankBlock` is `TileEntityChemicalTank` with its
+`ChemicalTankChemicalTank`: `tiers.toml` `[chemical_tanks]` sizes each tier (`<tier>Capacity`, `<tier>Output`); its
+own moves (`INTERNAL`: its ejector, its slots) go at most the output a tick (`getInsertRate`/`getExtractRate`),
+other blocks' (`EXTERNAL`) any amount (`ChemicalTank::insert_rated`/`extract_rated`). The creative tank simulates
+every move (it keeps what it holds, gives without losing, and voids what another block puts in), and only its own
+slot fills an empty one, to `Long.MAX_VALUE`. Dumping loses `storage / 400` a tick and stops the ejector; dumping
+excess loses up to the output a tick down to `dumpExcessKeepRatio`. Its config is the item's
+(`ItemBlockChemicalTank.SIDE_CONFIG`: chemicals `FRONT_OUT_EJECT`, items `FRONT_OUT_NO_EJECT`; none, input, output
+and both), saved as `component_config` (`config2`, `eject2`, `config3`, `eject3`) beside `dumping` (an int). A
+tank item keeps its tank as the block saves it, `custom_data.mekanism.chemical_tanks` (Mekanism's own
+`mekanism:chemicals` component is one the game doesn't take), with its `dumping` and changed `component_config`
+when they differ from the item's; an empty untouched tank drops a plain item. `chemical_tank::ItemTank` is the
+item's handler (`ComponentBackedChemicalTankTank` behind `Capabilities.CHEMICAL.item()`): a stack of one only, every
+move its own (`INTERNAL`) and at most its tier's output, a creative item keeping what it holds.
+`ChemicalInventorySlot.fillChemicalTank` and `drainChemicalTank` are `fill_from_item` and `drain_into_item` over any
+item handler and a machine's own tank (`OwnTank`: a chemical tank's rules or a plain tank's), with the slots'
+insert and extract predicates (`fill_accepts`, `drain_accepts`, `fill_done`).
+
 **Transmitters (later).** Pressurized Tubes are Mekanism's chemical transmitters: networks like the Universal
 Cables' (`network.rs`: one buffer as big as their tubes, kept in the bundle per dimension), but of one chemical at a
 time, emitting to `IChemicalHandler`s with the even split. They reuse the cable port's lifecycle hook points (API
@@ -110,6 +128,22 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   nothing), recipes test it with their `ChemicalStackIngredient` (tags through the registry, not by name), an
   operation takes from it with the tank's own `extract`, the dump button empties it, and its bar takes the chemical's
   colour from the registry.
+- **The Chemical Tanks** (slice 2): the Basic to Creative tanks as blocks (facing the player, `facing` horizontal;
+  the carried model and shapes) and items, their ejector into the handlers on their output sides, the drain (`+`)
+  and fill (`-`) slots, dump modes, side configuration (chemical and item pages, the chemical eject) and screen
+  (`GuiChemicalTank`), the item's tooltip (what it holds, its capacity) and bar (its chemical's colour). Measured on
+  the NeoForge oracle (`chem-work/tanks`, t1 and t2): basic 1000, advanced 16 000, elite 128 000, ultimate 512 000 mB
+  a tick out of the front; a side of none or output takes nothing; dumping 160 a tick from 64 000 and no eject;
+  dumping excess 1000 a tick to 54 400, ejecting; a creative tank of 5 mB gives 5 a tick and keeps them, voids what
+  another tank ejects into it, and its fill slot fills it to `Long.MAX_VALUE`; slots move 1000 a tick between a
+  basic tank and a basic item, 16 000 between an advanced tank and an ultimate item, 128 000 between an elite tank
+  and an ultimate item, nothing into an item of another chemical or a stack of two; a creative item gives 100 a
+  tick and keeps them; the drop keeps contents, dump mode and a changed config.
+- **Chemical items in machines** (slice 2): the separator's left and right output slots fill a chemical item from
+  their tanks (`ChemicalInventorySlot.drain`, 1000 a tick for a basic item: t4), and its item ejector
+  (`TWO_OUTPUT_ITEM`, off by default) puts a full one out of the faces of its output type every 11 ticks; the
+  infuser's infusion slot empties a chemical item into its tank before it converts items (`fillTankOrConvert`:
+  1000 carbon a tick from a basic item).
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -132,10 +166,10 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    the ejector's split; `separator::tests`: the NeoForge measurements; `menu`, `machine`, `config`),
    `mekanism-content` (the declaration from the oracle's facts), the game's `native_hooks` (`data_files`), and the
    world tests `electrolytic-separator` and `infuser-chemical-tank`.
-2. **Chemical tanks and gauges as items.** The Basic to Creative Chemical Tanks (`TileEntityChemicalTank`, its
-   `GasMode`, the tank's contents kept in its item: `mekanism:chemicals` components), chemical item containers
-   (`ChemicalInventorySlot.drain`/`fill`: the separator's output slots, the infuser's slot taking a tank), the
-   `IChemicalHandler` item capability, tooltips; the item-side config of the separator's output slots and ejection.
+2. **Chemical tanks and chemical items (done).** As above: `chemical_tank` (the block's and the item's tanks, the
+   slots' moves), `config` (`[chemical_tanks]`), `menu::TankView`, the runtime `mek_tanks` (blocks, items, screen)
+   and the separator's and infuser's chemical item slots. Tests: `mekanism-energy` (`chemical_tank::tests`: the
+   oracle's tank, dump, creative and slot numbers; `config`, `menu`, `tier`), the world test `chemical-tank`.
 3. **Pressurized Tubes.** Basic to Ultimate, networks of one chemical as the Universal Cables' (`network.rs`), their
    OBJ model as the cables' multipart, emitting to chemical handlers; the separator's ejector into them.
 4. **More chemical machines.** The Chemical Oxidizer (items to chemicals), Chemical Infuser (two chemicals to one),
@@ -156,7 +190,16 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   or data maps doesn't change them here, and the registry's numbers (menus) are this content's order.
 - Gauges and the infusion bar are filled with the chemical's colour (`getColorRepresentation`), not its icon tinted.
 - The separator's fluid config is fixed at its default (every side `INPUT`): the side configuration window has no
-  fluid page yet. Its output slots take nothing (no chemical items), and its item ejector doesn't run.
+  fluid page yet. Hoppers put chemical items into its output slots but take none out (the item ejector does, once
+  full): no hook point says when a slot gives.
 - Its fluid slot empties a container only when it is alone in the slot.
 - The fluid gauge is water's blue or a mod fluid's tint, not the fluid's texture.
 - Redstone control stays IGNORED, as for the other machines.
+- A chemical tank's slots take only chemical tank items (alone; the fill slot one holding a chemical), whatever the
+  tank holds, as `native_block_entity_slot_accepts` sees no block entity; hoppers fill them and take nothing out.
+  The infuser's infusion slot takes any tank item holding a chemical. No other chemical items (jetpacks, scuba
+  tanks, gauge droppers) are ported.
+- A tank item keeps its contents in `custom_data.mekanism` (as the energy cube's), not `mekanism:chemicals`; its
+  redstone control, security and owner aren't ported.
+- A tank's outline and collision are one box around its body and valve (a declaration's shapes by property need
+  the template's own property, and the block entity's template, the beacon, has no `facing`).

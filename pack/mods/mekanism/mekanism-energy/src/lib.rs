@@ -18,9 +18,11 @@
 //! Crusher, Energized Smelter and Metallurgic Infuser) run recipes on their
 //! Joules at the pace their upgrades set. Mekanism 10.7's chemicals
 //! (`chemical`: the registry, stacks, tanks and the chemical handler by side)
-//! fill the infuser's tank and the Electrolytic Separator's (`separator`).
+//! fill the infuser's tank and the Electrolytic Separator's (`separator`), the
+//! Chemical Tanks and the items that keep their contents (`chemical_tank`).
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod chemical;
+pub mod chemical_tank;
 pub mod config;
 pub mod container;
 pub mod cube;

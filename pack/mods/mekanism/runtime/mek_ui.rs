@@ -44,8 +44,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const TITLE: u32 = 0x404040;
-const SCREEN_TEXT: u32 = 0x3CFE9A;
+pub(super) const TITLE: u32 = 0x404040;
+pub(super) const SCREEN_TEXT: u32 = 0x3CFE9A;
 
 thread_local! {
     /// 0: the cube; 1: energy side configuration; 2: item side configuration.
@@ -58,7 +58,7 @@ thread_local! {
 type Stamp = config::Stamp;
 
 /// The settings, read again when a file changed (looked at once a second).
-fn settings() -> EnergyConfig {
+pub(super) fn settings() -> EnergyConfig {
     SETTINGS.with(|s| {
         let mut s = s.borrow_mut();
         let stale = s.as_ref().is_none_or(|(_, _, at)| at.elapsed() >= Duration::from_secs(1));
@@ -80,6 +80,10 @@ fn settings() -> EnergyConfig {
 /// draws itself. A screen opening starts on the cube's page.
 pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
     if screen.is_some() {
+        return;
+    }
+    if super::mek_tanks::tier_of(block).is_some() {
+        *screen = Some(super::mek_tanks::screen());
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
@@ -108,14 +112,14 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
 
 // ---- Layout -----------------------------------------------------------------
 
-type Rect = [f32; 4];
+pub(super) type Rect = [f32; 4];
 
-fn inside(r: Rect, at: [f32; 2]) -> bool {
+pub(super) fn inside(r: Rect, at: [f32; 2]) -> bool {
     at[0] >= r[0] && at[0] < r[0] + r[2] && at[1] >= r[1] && at[1] < r[1] + r[3]
 }
 
-const CONFIG_TAB: Rect = [-26.0, 6.0, 26.0, 26.0];
-const CONFIG_BUTTON: Rect = [-21.0, 10.0, 18.0, 18.0];
+pub(super) const CONFIG_TAB: Rect = [-26.0, 6.0, 26.0, 26.0];
+pub(super) const CONFIG_BUTTON: Rect = [-21.0, 10.0, 18.0, 18.0];
 const ENERGY_TAB: Rect = [-26.0, 137.0, 26.0, 26.0];
 const GAUGE: Rect = [55.0, 18.0, 66.0, 50.0];
 /// The side configuration page.
@@ -129,7 +133,7 @@ const ITEMS_PAGE: Rect = [40.0, 54.0, 18.0, 18.0];
 
 /// `GuiSideConfiguration`'s cross of side buttons (top; left, front, right;
 /// back, bottom), 16 pixels each here.
-fn side_button(side: RelativeSide) -> Rect {
+pub(super) fn side_button(side: RelativeSide) -> Rect {
     let (col, row) = match side {
         RelativeSide::Top => (1.0, 0.0),
         RelativeSide::Left => (0.0, 1.0),
@@ -215,6 +219,10 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
     if button.is_some() {
         return;
     }
+    if super::mek_tanks::tier_of(block).is_some() {
+        super::mek_tanks::click(data, at, right, button);
+        return;
+    }
     if let Some(kind) = MachineKind::of_block(block) {
         machine_click(kind, data, at, right, button);
         return;
@@ -236,7 +244,7 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
 
 /// A side's type in its `EnumColor`, as near as legacy colour codes come
 /// (Mekanism's dark red and blue are lighter than `§4` and `§1`).
-fn type_name(t: DataType) -> &'static str {
+pub(super) fn type_name(t: DataType) -> &'static str {
     match t {
         DataType::Input => "§cInput",
         DataType::Output => "§9Output",
@@ -247,7 +255,7 @@ fn type_name(t: DataType) -> &'static str {
     }
 }
 
-fn side_name(side: RelativeSide) -> &'static str {
+pub(super) fn side_name(side: RelativeSide) -> &'static str {
     match side {
         RelativeSide::Front => "Front",
         RelativeSide::Left => "Left",
@@ -260,6 +268,10 @@ fn side_name(side: RelativeSide) -> &'static str {
 
 /// `native_screen_tooltip`.
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    if super::mek_tanks::tier_of(block).is_some() {
+        super::mek_tanks::tooltip(data, at, lines);
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(block) {
         lines.extend(generator_tip(kind, &generator_view(data), &settings(), at));
         return;
@@ -302,27 +314,27 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
 
 // ---- Drawing ----------------------------------------------------------------
 
-struct Pen<'a, 'g> {
-    game: &'a Game<'g>,
-    batch: &'a mut HudBatch,
-    origin: [f32; 2],
-    cursor: [f32; 2],
+pub(super) struct Pen<'a, 'g> {
+    pub(super) game: &'a Game<'g>,
+    pub(super) batch: &'a mut HudBatch,
+    pub(super) origin: [f32; 2],
+    pub(super) cursor: [f32; 2],
 }
 
 impl Pen<'_, '_> {
-    fn sprite(&mut self, name: &str, src: Rect, dst: Rect) {
+    pub(super) fn sprite(&mut self, name: &str, src: Rect, dst: Rect) {
         let [x, y, w, h] = dst;
         let at = [self.origin[0] + x, self.origin[1] + y, w, h];
         self.game.native_sprite(self.batch, &format!("mekanism:gui/{name}"), src, at);
     }
 
-    fn whole(&mut self, name: &str, size: [f32; 2], dst: Rect) {
+    pub(super) fn whole(&mut self, name: &str, size: [f32; 2], dst: Rect) {
         self.sprite(name, [0.0, 0.0, size[0], size[1]], dst);
     }
 
     /// A sprite named in full (`mekanismgenerators:gui/...`); false when the
     /// atlas has none.
-    fn sprite_from(&mut self, name: &str, src: Rect, dst: Rect) -> bool {
+    pub(super) fn sprite_from(&mut self, name: &str, src: Rect, dst: Rect) -> bool {
         let [x, y, w, h] = dst;
         let at = [self.origin[0] + x, self.origin[1] + y, w, h];
         self.game.native_sprite(self.batch, name, src, at)
@@ -330,7 +342,7 @@ impl Pen<'_, '_> {
 
     /// `blitNineSlicedSized`: the corners as they are, edges and middle
     /// stretched; corners shrink to half of a smaller target.
-    fn nine(&mut self, name: &str, src: Rect, side: [f32; 2], dst: Rect) {
+    pub(super) fn nine(&mut self, name: &str, src: Rect, side: [f32; 2], dst: Rect) {
         let cw = side[0].min(dst[2] / 2.0).floor();
         let ch = side[1].min(dst[3] / 2.0).floor();
         let cols = [
@@ -353,7 +365,7 @@ impl Pen<'_, '_> {
     }
 
     /// `drawButton`: `button.png`'s inactive, normal or hovered row.
-    fn button(&mut self, r: Rect, active: bool) {
+    pub(super) fn button(&mut self, r: Rect, active: bool) {
         let row = if !active {
             0.0
         } else if inside(r, self.cursor) {
@@ -364,33 +376,33 @@ impl Pen<'_, '_> {
         self.nine("button", [0.0, row * 20.0, 200.0, 20.0], [20.0, 4.0], r);
     }
 
-    fn image_button(&mut self, icon: &str, icon_size: f32, r: Rect, active: bool) {
+    pub(super) fn image_button(&mut self, icon: &str, icon_size: f32, r: Rect, active: bool) {
         self.button(r, active);
         self.whole(icon, [icon_size, icon_size], r);
     }
 
-    fn fill(&mut self, r: Rect, argb: u32) {
+    pub(super) fn fill(&mut self, r: Rect, argb: u32) {
         let at = [self.origin[0] + r[0], self.origin[1] + r[1], r[2], r[3]];
         self.game.native_fill(self.batch, at, argb);
     }
 
-    fn text(&mut self, text: &str, at: [f32; 2], rgb: u32) {
+    pub(super) fn text(&mut self, text: &str, at: [f32; 2], rgb: u32) {
         let at = [self.origin[0] + at[0], self.origin[1] + at[1]];
         self.game.native_text(self.batch, text, at, rgb, false);
     }
 
-    fn centered(&mut self, text: &str, left: f32, width: f32, y: f32, rgb: u32) {
+    pub(super) fn centered(&mut self, text: &str, left: f32, width: f32, y: f32, rgb: u32) {
         let w = self.game.native_text_width(text);
         self.text(text, [left + ((width - w) / 2.0).floor(), y], rgb);
     }
 
     /// `GuiSideHolder`: a tab's holder, 26 wide.
-    fn holder(&mut self, r: Rect, left: bool) {
+    pub(super) fn holder(&mut self, r: Rect, left: bool) {
         let name = if left { "holder_left" } else { "holder_right" };
         self.nine(name, [0.0, 0.0, 26.0, 9.0], [4.0, 4.0], r);
     }
 
-    fn slot(&mut self, kind: &str, overlay: Option<&str>, x: f32, y: f32) {
+    pub(super) fn slot(&mut self, kind: &str, overlay: Option<&str>, x: f32, y: f32) {
         self.whole(&format!("slot/{kind}"), [18.0, 18.0], [x, y, 18.0, 18.0]);
         if let Some(o) = overlay {
             self.whole(&format!("slot/{o}"), [18.0, 18.0], [x, y, 18.0, 18.0]);
@@ -400,7 +412,7 @@ impl Pen<'_, '_> {
 
 /// `EnumColor` of a side's type (`DataType.getColor`), lightened as
 /// `BasicColorButton` does, laid over the button.
-fn side_color(t: DataType) -> u32 {
+pub(super) fn side_color(t: DataType) -> u32 {
     match t {
         DataType::Input => 0x80D51A30,
         DataType::Output => 0x804A7FE0,
@@ -413,6 +425,10 @@ fn side_color(t: DataType) -> u32 {
 
 /// `native_screen_draw`.
 pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    if super::mek_tanks::tier_of(block).is_some() {
+        super::mek_tanks::draw(game, data, batch, origin);
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(block) {
         let cursor = game.native_cursor();
         let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
@@ -1183,6 +1199,9 @@ fn item_energy(stack: &ItemStack, settings: &EnergyConfig) -> Option<(u64, u64)>
 /// `native_tooltip`: `ItemBlockEnergyCube.appendHoverText`, under the name:
 /// the stored energy (`StorageUtils.addStoredEnergy`) and the tier's capacity.
 pub(super) fn item_tooltip(stack: &ItemStack, lines: &mut Vec<(Text, u32)>) {
+    if super::mek_tanks::item_tooltip(stack, lines) {
+        return;
+    }
     let settings = settings();
     let Some((stored, capacity)) = item_energy(stack, &settings) else {
         return;
@@ -1197,6 +1216,9 @@ pub(super) fn item_tooltip(stack: &ItemStack, lines: &mut Vec<(Text, u32)>) {
 /// `native_item_bar`: a single cube's energy bar (`getEnergyBarWidth`,
 /// `energyColor`); a stack of several shows none.
 pub(super) fn item_bar(stack: &ItemStack, bar: &mut Option<(i32, u32)>) {
+    if super::mek_tanks::item_bar(stack, bar) {
+        return;
+    }
     let Some((stored, capacity)) = item_energy(stack, &settings()) else {
         return;
     };

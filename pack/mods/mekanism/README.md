@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its first processing machines, its chemicals and Mekanism Generators' Solar and Heat
+Mekanism's energy blocks, its first processing machines, its chemicals and their tanks, and Mekanism Generators' Solar and Heat
 Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
@@ -60,6 +60,11 @@ assets when `mekanism-content` is given them.
   chemical stacks and tanks in Mekanism's saved form; the chemical handler of the bundle's blocks by side
   (`IChemicalHandler`): the infuser's tank takes an infuse type a recipe takes on its input sides and gives it out of
   its right side.
+- Basic, Advanced, Elite, Ultimate and Creative Chemical Tanks (`tiers.toml` `[chemical_tanks]`): a chemical in the
+  block entity, ejected at the tier's output a tick out of the output sides, dump modes, side configuration (chemicals
+  and items), the drain and fill slots that move chemicals to and from tank items, the screen, placement facing, and
+  an item that keeps its contents, with its tooltip and bar. Tank items fill and empty in machines' chemical slots too
+  (the separator's outputs, the infuser's infusion slot).
 - The Electrolytic Separator: water (any fluid a `mekanism:separating` recipe takes) in a 24 000 mB tank, filled by
   fluid handlers on its fluid input sides and by a bucket in its slot, into hydrogen (left) and oxygen (right) tanks
   of 2400 mB, `2^speed` operations a tick of 400 J (twice hydrogen's fuel density), dump modes (idle, dumping excess,
@@ -104,9 +109,9 @@ assets when `mekanism-content` is given them.
 - A machine placed with `/setblock` has its item's side config here; Java's has every side `NONE` until set.
 - Item slots are saved in the game's `Items` list, not Mekanism's `items`, and the upgrade slots there too.
 - The infuser's infusion bar and the separator's gauges are the chemical's colour, where Mekanism tints its texture;
-  chemical items (other than conversions) aren't ported. Per-tick infusing (`per_tick_usage`), which ATM10's recipes
-  don't use, isn't ported. The separator's fluid sides stay at their default (every side input), its output slots
-  take nothing; `docs/mekanism-chemicals.md` lists the chemicals' own differences.
+  chemical items other than the Chemical Tanks aren't ported. Per-tick infusing (`per_tick_usage`), which ATM10's
+  recipes don't use, isn't ported. The separator's fluid sides stay at their default (every side input);
+  `docs/mekanism-chemicals.md` lists the chemicals' own differences (tank slots).
 - A tag-based recipe takes what the tag holds in the world: with only Mekanism's content mods, the pack's `c:` and
   `minecraft:` tags (in ATM10's `atm10-pack` carry) hold just Mekanism's own items, which `mekanism-content --pack`
   copies in, so a recipe on another mod's items does nothing there.

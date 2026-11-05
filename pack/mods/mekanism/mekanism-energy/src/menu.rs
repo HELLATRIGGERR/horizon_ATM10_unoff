@@ -379,10 +379,80 @@ impl SeparatorView {
     }
 }
 
+/// A chemical tank's screen (`GuiChemicalTank`): slots 0..4 its mB, 4..8 its
+/// capacity, 8 its chemical (`ChemicalRegistry::number`), 9 its dump mode,
+/// 10 creative, 11..17 the chemical sides by `RelativeSide`, 17 chemicals
+/// ejecting, 18..24 the item sides. Its buttons are a machine's: the side
+/// configuration (chemical and item pages, the chemical eject) and
+/// `NextMode(0)`.
+pub const TANK_SLOTS: usize = 24;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TankView {
+    pub stored: u64,
+    pub capacity: u64,
+    pub chemical: i32,
+    pub dumping: i32,
+    pub creative: bool,
+    pub chemicals: [DataType; 6],
+    pub eject: bool,
+    pub items: [DataType; 6],
+}
+
+impl TankView {
+    pub fn pack(&self) -> Vec<i32> {
+        let mut out = Vec::with_capacity(TANK_SLOTS);
+        push_bits(&mut out, self.stored, 4);
+        push_bits(&mut out, self.capacity, 4);
+        out.push(self.chemical);
+        out.push(self.dumping);
+        out.push(i32::from(self.creative));
+        out.extend(self.chemicals.iter().map(|t| t.id()));
+        out.push(i32::from(self.eject));
+        out.extend(self.items.iter().map(|t| t.id()));
+        out
+    }
+
+    pub fn unpack(data: &[i32]) -> Option<Self> {
+        if data.len() < TANK_SLOTS {
+            return None;
+        }
+        let small = |at: usize| i32::from(data[at] as u16 as i16);
+        let sides = |at: usize| std::array::from_fn(|i| DataType::by_id(small(at + i)));
+        Some(Self {
+            stored: read_bits(data, 0, 4),
+            capacity: read_bits(data, 4, 4),
+            chemical: small(8),
+            dumping: small(9),
+            creative: data[10] != 0,
+            chemicals: sides(11),
+            eject: data[17] != 0,
+            items: sides(18),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tier::CubeTier;
+
+    #[test]
+    fn a_tank_view_round_trips() {
+        let view = TankView {
+            stored: i64::MAX as u64,
+            capacity: 64_000,
+            chemical: 40,
+            dumping: 2,
+            creative: true,
+            chemicals: [DataType::Output, DataType::Input, DataType::None, DataType::InputOutput, DataType::Input, DataType::Input],
+            eject: true,
+            items: [DataType::Output; 6],
+        };
+        let data = view.pack();
+        assert_eq!(data.len(), TANK_SLOTS);
+        assert_eq!(TankView::unpack(&data), Some(view));
+    }
 
     #[test]
     fn the_separator_view_follows_a_machines() {

@@ -1,8 +1,8 @@
-//! AE2 Import Export Card's screens on this client: the terminal's toolbar
-//! buttons (`MEStorageScreenMixin`, `UpgradeItemButton`) and the Import and
-//! Export Cards' `UpgradeScreen` (`screens/import_card.json`,
+//! AE2 Import Export Card's screens on this client: the terminal's three
+//! toolbar buttons (`MEStorageScreenMixin`, `UpgradeItemButton`), the Import
+//! and Export Cards' `UpgradeScreen` (`screens/import_card.json`,
 //! `export_card.json`, the backgrounds `textures/gui/upgrade_<n>.png` by its
-//! Capacity Cards).
+//! Capacity Cards) and `BlockPickerAmountScreen` (`block_picker_amount.json`).
 //! They cover the open wireless terminal as AE2's sub screens do, its menu
 //! open underneath standing for `UpgradeContainerMenu`'s; the server keeps
 //! everything in the terminal's card (`ae2importexportcard:card_menu`). The
@@ -18,14 +18,14 @@ use crate::game::{
 use horizon_client::{
     ae2_screen_style::{Image, ScreenStyle},
     ae2x::importexportcard::{self as iec, CardType},
-    hud::HudBatch,
+    hud::{HudBatch, rgba},
     items::ItemStack,
     text::Text,
 };
 
 const NAMESPACE: &str = "ae2importexportcard";
-/// The two card screens' styles (0 import, 1 export).
-const STYLES: [&str; 2] = ["import_card.json", "export_card.json"];
+/// The two card screens' styles and the Block Picker's (0 import, 1 export, 2 picker).
+const STYLES: [&str; 3] = ["import_card.json", "export_card.json", "block_picker_amount.json"];
 /// `UpgradeScreen.BACKGROUNDS`: 191 wide, taller by a row for each Capacity Card.
 const WIDTH: i32 = 191;
 const HEIGHTS: [i32; 4] = [163, 181, 199, 217];
@@ -33,9 +33,13 @@ const HEIGHTS: [i32; 4] = [163, 181, 199, 217];
 const CHECKMARK: &str = "ae2importexportcard/gui/checkmark";
 const XMARK: &str = "ae2importexportcard/gui/xmark";
 const MASS_SELECT: &str = "ae2importexportcard/gui/mass_select";
-const BUTTONS: [&str; 2] = ["ae2importexportcard/gui/import_card", "ae2importexportcard/gui/export_card"];
+const BUTTONS: [&str; 3] = ["ae2importexportcard/gui/import_card", "ae2importexportcard/gui/export_card", "ae2importexportcard/gui/block_picker_card"];
 /// The filter's slot semantics (`ModSlotSemantics`).
 const CONFIG: [&str; 2] = ["AE2IMPORTEXPORTCARD_IMPORT_CONFIG", "AE2IMPORTEXPORTCARD_EXPORT_CONFIG"];
+/// `BlockPickerAmountScreen`: the steps, their buttons above and below.
+const AMOUNT_STEPS: [i32; 3] = [1, 16, 32];
+const PICKER_BUTTON_ABOVE: i32 = 17;
+const PICKER_BUTTON_BELOW: i32 = 75;
 /// `Color.GREEN`.
 const GREEN: u32 = 0xFF00_FF00;
 /// AE2's `UpgradesPanel`: 18 a slot, 5 of padding.
@@ -98,6 +102,8 @@ enum Part {
     Player(u8),
     /// The mass select buttons: 0 the inventory, 1 the hotbar.
     MassSelect(u8),
+    /// The Block Picker's steps: an index into the six (above, then below).
+    Step(u8),
 }
 
 fn fuzzy_icon(name: &str) -> (i32, i32) {
@@ -123,8 +129,14 @@ fn ty_of(which: u8) -> Option<CardType> {
 }
 
 impl Game<'_> {
+    fn iecard_view(&self) -> Option<&serde_json::Value> {
+        self.ae2_term_addon_view()?.get("iecard").filter(|v| v.is_object())
+    }
     fn iecard_card(&self, which: u8) -> Option<CardView> {
         card_view(self.ae2_term_addon_view()?, ty_of(which)?)
+    }
+    fn iecard_picker_amount(&self) -> Option<i32> {
+        Some(self.iecard_view()?.get("picker")?.as_i64()? as i32)
     }
 
     /// `MEStorageScreenMixin`: the buttons the terminal's cards show
@@ -135,6 +147,9 @@ impl Game<'_> {
             if self.iecard_card(which).is_some() {
                 buttons.push(which);
             }
+        }
+        if self.iecard_picker_amount().is_some() {
+            buttons.push(2);
         }
         buttons
     }
@@ -159,14 +174,18 @@ impl Game<'_> {
     /// The open card screen, while the terminal still holds its card.
     pub(in crate::game) fn iecard_sub(&self) -> Option<u8> {
         let which = self.remote.as_ref()?.ae2_term.iecard?;
-        self.iecard_card(which).is_some().then_some(which)
+        let present = if which == 2 { self.iecard_picker_amount().is_some() } else { self.iecard_card(which).is_some() };
+        present.then_some(which)
     }
     pub(in crate::game) fn iecard_style(&self, which: u8) -> Option<&'static ScreenStyle> {
         self.ae2_addon_style(NAMESPACE, STYLES.get(usize::from(which)).copied()?)
     }
     /// `updateImageHeight`: the card screen's background follows its
-    /// Capacity Cards.
+    /// Capacity Cards; the Block Picker's is its style's.
     pub(in crate::game) fn iecard_size(&self, which: u8) -> Option<(i32, i32)> {
+        if which == 2 {
+            return Some(self.iecard_style(which)?.size());
+        }
         Some((WIDTH, HEIGHTS[self.iecard_card(which)?.capacity]))
     }
     fn iecard_place(&self, which: u8, semantic: &str, index: usize) -> Option<(i32, i32)> {
@@ -216,6 +235,14 @@ impl Game<'_> {
         let mut parts = Vec::new();
         if let Some(back) = self.iecard_back(which) {
             parts.push((Part::Back, back));
+        }
+        if which == 2 {
+            for (i, _) in AMOUNT_STEPS.iter().enumerate() {
+                let x = 10 + i as i32 * 53;
+                parts.push((Part::Step(i as u8), [x, PICKER_BUTTON_ABOVE, 48, 24]));
+                parts.push((Part::Step(3 + i as u8), [x, PICKER_BUTTON_BELOW, 48, 24]));
+            }
+            return parts;
         }
         let Some(card) = self.iecard_card(which) else { return parts };
         // The left toolbar: the fuzzy mode, with the Fuzzy Card.
@@ -282,12 +309,28 @@ impl Game<'_> {
     /// those on the inventory with an item on the cursor (`super.mouseClicked`:
     /// the menu's own click).
     pub(in crate::game) fn iecard_sub_press(&mut self, which: u8, at: [f32; 2], right: bool) -> bool {
-        let Some((part, _)) = self.iecard_parts(which).into_iter().find(|(_, r)| inside(*r, at)) else { return true };
+        let Some((part, _)) = self.iecard_parts(which).into_iter().find(|(_, r)| inside(*r, at)) else {
+            // BlockPickerAmountScreen's inventory is the terminal menu's.
+            let on_inventory = (0..36).any(|i| self.iecard_slot_position(which, i).is_some_and(|(x, y)| inside([x as i32, y as i32, 16, 16], at)));
+            return !(which == 2 && on_inventory);
+        };
         let button = u8::from(right);
         match part {
             Part::Back => {
                 self.audio.play_button_click();
                 self.iecard_close();
+            }
+            Part::Step(index) => {
+                let step = AMOUNT_STEPS[usize::from(index % 3)];
+                let delta = if index < 3 { step } else { -step };
+                let now = self.iecard_picker_amount().unwrap_or(iec::BLOCK_PICKER_DEFAULT_AMOUNT);
+                let next = (now + delta).clamp(iec::BLOCK_PICKER_DEFAULT_AMOUNT, iec::BLOCK_PICKER_MAX_AMOUNT);
+                self.audio.play_button_click();
+                if next != now {
+                    let mut data = vec![6];
+                    data.extend(next.to_be_bytes());
+                    self.ae2_send_payload(CARD_MENU, data);
+                }
             }
             Part::Fuzzy => {
                 self.audio.play_button_click();
@@ -329,7 +372,8 @@ impl Game<'_> {
     }
 
     /// The screen: `drawBG`, its labels, back button, fuzzy button, filter
-    /// slots' keys and the card's slots (`UpgradesPanel`).
+    /// slots' keys and the card's slots (`UpgradesPanel`); the Block
+    /// Picker's background, amount and steps.
     pub(in crate::game) fn iecard_draw_sub(&self, batch: &mut HudBatch, which: u8, ox: f32, oy: f32) {
         let (Some(style), Some((w, h))) = (self.iecard_style(which), self.iecard_size(which)) else { return };
         let atlas = &self.gui.atlas;
@@ -340,6 +384,28 @@ impl Game<'_> {
             let key = text.text.get("translate")?.as_str()?;
             Some((self.translate(key, key), text.position.resolve(w, h)))
         };
+        if which == 2 {
+            let image = Image { texture: "ae2importexportcard/gui/block_picker_amount".into(), texture_size: (256, 256), src: None };
+            self.ae2_blit(batch, &image, [0, 0, w, h], ox, oy);
+            if let Some((text, (x, y))) = label("dialog_title") {
+                batch.text(atlas, &text, ox + x as f32, oy + y as f32, text_color, false);
+            }
+            let amount = self.iecard_picker_amount().unwrap_or(iec::BLOCK_PICKER_DEFAULT_AMOUNT);
+            batch.text(atlas, &amount.to_string(), ox + 10.0, oy + 55.0, rgba(255, 255, 255, 255), false);
+            for (part, rect) in self.iecard_parts(which) {
+                match part {
+                    Part::Back => self.ae2_draw_tab(batch, ox, oy, rect, icon::BACK),
+                    Part::Step(index) => {
+                        let step = AMOUNT_STEPS[usize::from(index % 3)];
+                        let text = if index < 3 { format!("+{step}") } else { format!("-{step}") };
+                        // AmountButton: the button's sprite, 20 high, in the middle of its 24.
+                        self.ae2_draw_button(batch, ox, oy, [rect[0], rect[1] + 2, rect[2], 20], &text, true, mouse);
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
         let Some(card) = self.iecard_card(which) else { return };
         let image = Image { texture: format!("ae2importexportcard/gui/upgrade_{}", card.capacity), texture_size: (256, 256), src: None };
         self.ae2_blit(batch, &image, [0, 0, w, h], ox, oy);
@@ -392,6 +458,9 @@ impl Game<'_> {
     /// inventory slot's mark (a check or its filter's number, an X when off),
     /// the mass select buttons.
     pub(in crate::game) fn iecard_draw_foreground(&self, batch: &mut HudBatch, which: u8, ox: f32, oy: f32) {
+        if which == 2 {
+            return;
+        }
         let (Some(ty), Some(card)) = (ty_of(which), self.iecard_card(which)) else { return };
         let selected = self.ae2x.importexportcard.selected.filter(|(open, _)| *open == which).map_or(card.selected, |(_, s)| s);
         let atlas = &self.gui.atlas;
@@ -456,14 +525,18 @@ impl Game<'_> {
         let lift = if hover { 1.0 } else { 0.0 };
         let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);
         self.ae2_icon(batch, if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND }, (18, 20), x - 1.0, y + lift);
-        let image = Image { texture: BUTTONS[usize::from(which.min(1))].into(), texture_size: (16, 16), src: None };
+        let image = Image { texture: BUTTONS[usize::from(which.min(2))].into(), texture_size: (16, 16), src: None };
         self.ae2_blit(batch, &image, [0, 0, 16, 16], x, y + 1.0 + lift);
     }
-    /// Its message: the card's name.
+    /// Its message: the card's name; the Block Picker's says its amount.
     pub(in crate::game) fn iecard_button_tooltip(&self, which: u8) -> String {
         match which {
             0 => self.translate("item.ae2importexportcard.import_card", "Import Card"),
-            _ => self.translate("item.ae2importexportcard.export_card", "Export Card"),
+            1 => self.translate("item.ae2importexportcard.export_card", "Export Card"),
+            _ => {
+                let amount = self.iecard_picker_amount().unwrap_or(iec::BLOCK_PICKER_DEFAULT_AMOUNT);
+                self.translate("gui.ae2importexportcard.block_picker_amount.value", "Block Picker amount: %s").replace("%s", &amount.to_string())
+            }
         }
     }
 
@@ -484,6 +557,7 @@ impl Game<'_> {
             "filters": card.as_ref().map(|c| c.filters.iter().map(|f| f.as_ref().map(|(id, _)| id.clone())).collect::<Vec<_>>()),
             "upgrades": card.as_ref().map(|c| c.upgrades.clone()),
             "fuzzy": card.as_ref().map(|c| c.fuzzy.clone()),
+            "picker": self.iecard_picker_amount(),
         })
     }
     /// The hovered part's tooltip drawn (true then), after the marks.
@@ -515,6 +589,7 @@ mod tests {
         let view = serde_json::json!({"iecard": {
             "import": {"filters": [{"id": "minecraft:dirt", "fluid": false}, null], "selected": [1, 0, 1], "upgrades": ["ae2:capacity_card", null, null, null], "fuzzy": "PERCENT_75", "capacity": 1, "fuzzy_card": false},
             "export": null,
+            "picker": 16,
         }});
         let import = card_view(&view, CardType::Import).unwrap();
         assert_eq!(import.filters[0], Some(("minecraft:dirt".to_owned(), false)));

@@ -136,7 +136,7 @@ pub(super) struct TermState {
     #[cfg(feature = "ae2-ae2wtlib")]
     pub(super) wtlib_magnet: bool,
     /// AE2 Import Export Card's screen while it is open: 0 the Import Card's,
-    /// 1 the Export Card's.
+    /// 1 the Export Card's, 2 the Block Picker's amount.
     #[cfg(feature = "ae2-importexportcard")]
     pub(super) iecard: Option<u8>,
 }
@@ -186,7 +186,7 @@ enum Widget {
     #[cfg(feature = "ae2-ae2wtlib")]
     Trash,
     /// AE2 Import Export Card's buttons (`MEStorageScreenMixin`): 0 import,
-    /// 1 export.
+    /// 1 export, 2 the Block Picker's amount.
     #[cfg(feature = "ae2-importexportcard")]
     IeCard(u8),
 }

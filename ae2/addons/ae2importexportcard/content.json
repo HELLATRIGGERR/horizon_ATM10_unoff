@@ -1,23 +1,26 @@
 {
   "namespace": "ae2importexportcard",
   "name": "AE2 Import Export Card",
-  "description": "AE2 Import Export Card 1.21.1-1.9.1 for the AE2 port: the Import and Export Cards in AE2's wireless terminals (slices 1-2).",
+  "description": "AE2 Import Export Card 1.21.1-1.9.1 for the AE2 port: the Import, Export and Block Picker Cards in the wireless terminals (slices 1-4).",
   "authors": ["Ultramega (AE2 Import Export Card)"],
   "slices": [
     "1: the Import Card in AE2's wireless terminals, its screen, the Fuzzy and Inverter Cards, the server config",
-    "2: the Export Card, with the Fuzzy, Acceleration and Crafting Cards"
+    "2: the Export Card, with the Fuzzy, Acceleration and Crafting Cards",
+    "3: the Block Picker Card and its amount",
+    "4: the cards in AE2WTLib's universal terminal and wireless pattern encoding terminal"
   ],
   "items": {
     "import_card": {"max_stack_size": 1},
-    "export_card": {"max_stack_size": 1}
+    "export_card": {"max_stack_size": 1},
+    "block_picker_card": {"max_stack_size": 1}
   },
   "blocks": {},
   "ae2_namespace": {
-    "screens": ["import_card.json", "export_card.json"]
+    "screens": ["import_card.json", "export_card.json", "block_picker_amount.json"]
   },
   "own_gui_textures": [
     "gui/upgrade_0.png", "gui/upgrade_1.png", "gui/upgrade_2.png", "gui/upgrade_3.png",
     "gui/checkmark.png", "gui/xmark.png", "gui/mass_select.png",
-    "gui/import_card.png", "gui/export_card.png"
+    "gui/import_card.png", "gui/export_card.png", "gui/block_picker_card.png", "gui/block_picker_amount.png"
   ]
 }

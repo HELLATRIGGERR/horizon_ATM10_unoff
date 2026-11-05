@@ -2,7 +2,8 @@
 //! `ae2-importexportcard`): the Import and Export Cards' tick on a carried
 //! wireless terminal (`WirelessTerminalItemMixin`), the Crafting Card's
 //! requests, the cards' screens on the terminal (`screen`, the server's side
-//! here: `UpgradeContainerMenu`, `UpgradeUpdateData`). Derived from AE2 Import Export Card by Ultramega,
+//! here: `UpgradeContainerMenu`, `UpgradeUpdateData`) and the Block Picker
+//! (`picker`). Derived from AE2 Import Export Card by Ultramega,
 //! https://github.com/starforcraft/AE2-Import-Export-Card branch `1.21.1`
 //! (1.9.1), MIT; see `ae2/addons/ae2importexportcard/`. The items' data and
 //! the config are `horizon_client::ae2x::importexportcard`.
@@ -22,10 +23,11 @@ use horizon_client::{
 use horizon_protocol::packets::play::{self, Clientbound as C};
 use std::collections::HashMap;
 
+mod picker;
 pub(in crate::game) mod screen;
 
 /// The cards' screens' actions (`UpgradeUpdateData`, `ConfigButtonPacket`,
-/// the menu's slots): the first byte says which,
+/// the menu's slots, `SET_BLOCK_PICKER_AMOUNT`): the first byte says which,
 /// the second the card (0 import, 1 export).
 pub(in crate::game) const CARD_MENU: &str = "ae2importexportcard:card_menu";
 
@@ -423,7 +425,7 @@ impl Game<'_> {
 
     /// `MEStorageScreenMixin` and `UpgradeHost` as the client reads them: the
     /// Import and Export Cards' filters, selections, cards and fuzzy mode,
-    /// for the cards the terminal holds.
+    /// and the Block Picker's amount, for the cards the terminal holds.
     pub(in crate::game) fn lan_iecard_wireless_view(&self, host: &LanHost, conn: u32, ctx: &ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
         if !matches!(ctx.kind, TerminalKind::Me | TerminalKind::Crafting | TerminalKind::PatternEncoding) {
             return None;
@@ -450,6 +452,7 @@ impl Game<'_> {
         Some(serde_json::json!({
             "import": view(CardType::Import),
             "export": view(CardType::Export),
+            "picker": iec::find_card(stack, iec::BLOCK_PICKER_CARD).map(|card| iec::block_picker_amount(&card)),
         }))
     }
 
@@ -457,6 +460,16 @@ impl Game<'_> {
     pub(in crate::game) fn lan_iecard_payload(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
         let Some(source) = self.lan_iecard_source(host, conn) else { return };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return };
+        // SET_BLOCK_PICKER_AMOUNT: the amount (an int).
+        if let [6, amount @ ..] = data {
+            let Ok(amount) = <[u8; 4]>::try_from(amount) else { return };
+            if let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], source)
+                && iec::set_block_picker_amount(stack, i32::from_be_bytes(amount))
+            {
+                host.hub.send_inventory(gi);
+            }
+            return;
+        }
         let Some(ty) = data.get(1).copied().and_then(CardType::from_id) else { return };
         let carried_before = host.hub.guests[gi].carried.clone();
         let changed = match data {

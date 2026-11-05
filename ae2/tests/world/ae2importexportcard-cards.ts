@@ -1,15 +1,16 @@
 /** AE2 Import Export Card's cards on wireless terminals: the Import Card puts the checked inventory slots its filter
  * passes into the network (a bucket's fluid too), in range of an access point only; the Export Card fills its slots
  * to a full stack from the network, leaves what the server config blocks, fills an empty bucket, and with the
- * Crafting Card starts a job for what is missing; the Import Card's screen sets a filter from the cursor and checks a
- * slot. Needs the content of ae2importexportcard (ae2/scripts/prepare-addon.ts) and a client built with
- * ae2-importexportcard. */
+ * Crafting Card starts a job for what is missing; the Block Picker Card picks the looked-at block from the network;
+ * the cards work in AE2WTLib's universal terminal; the Import Card's screen sets a filter from the cursor and checks
+ * a slot. Needs the content of ae2importexportcard and ae2wtlib (ae2/scripts/prepare-addon.ts) and a client built
+ * with ae2-importexportcard and ae2-ae2wtlib. */
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { WorldFixture, until } from './harness';
 
-const fixture = new WorldFixture('ae2importexportcard-cards', 'server-thread', { addons: ['ae2importexportcard'] });
+const fixture = new WorldFixture('ae2importexportcard-cards', 'server-thread', { addons: ['ae2wtlib', 'ae2importexportcard'] });
 // ServerConfig: diamonds may not leave the network.
 mkdirSync(join(fixture.game, 'config'), { recursive: true });
 writeFileSync(join(fixture.game, 'config/ae2importexportcard-server.toml'), 'allowEnergyExport = true\nblockedItems = ["minecraft:diamond"]\nblockedFluids = []\n');
@@ -116,9 +117,29 @@ try {
   fixture.mark('the Crafting Card starts a job for what the network lacks');
   await fixture.command('item replace entity @s inventory.1 with minecraft:air');
 
+  // AE2WTLib's universal terminal (inventory slot 11) with a Block Picker Card (16) and an Import Card for hotbar 0.
+  await fixture.replace('hotbar.4', 'minecraft:air'); await fixture.replace('hotbar.5', 'minecraft:air');
+  const picker = '{id:"ae2importexportcard:block_picker_card",count:1,components:{"ae2importexportcard:block_picker_amount":16}}';
+  await fixture.command(`item replace entity @s inventory.2 with ae2wtlib:wireless_universal_terminal[${link},ae2wtlib:has_crafting_terminal={},ae2:upgrades=[{slot:0,item:${picker}},{slot:1,item:${card('import_card', [1])}}]]`);
+  await fixture.replace('hotbar.0', 'minecraft:gravel', 3);
+  await fixture.ae('iecard filter 11 import 0 minecraft:gravel');
+  await until(() => hotbar(0), s => !s?.item, 'the universal terminal\'s Import Card takes the gravel');
+  assert.equal(await stored('minecraft:gravel'), 3);
+  fixture.mark('the cards work in AE2WTLib\'s universal terminal');
+  // Pick Block on a cobblestone block, none carried: 16 from the network into the selected empty slot.
+  await fixture.command(`setblock ${at(4, 0, 2)} minecraft:cobblestone`);
+  await fixture.raw('hotbar 5'); await fixture.raw(`look-at block ${at(4, 0, 2)}`);
+  await fixture.raw('mouse middle click');
+  await until(inv, s => s.counts?.['minecraft:cobblestone'] === 16, 'sixteen cobblestone picked from the network');
+  const view = await inv();
+  assert.equal(view.hotbar[view.selected - 1]?.item, 'minecraft:cobblestone', 'into the selected hotbar slot');
+  assert.equal(await stored('minecraft:cobblestone'), 140 - 16);
+  fixture.mark('the Block Picker Card picks the looked-at block from the network');
+
   // The Import Card's screen on a wireless terminal in the hotbar: dirt on the cursor sets its first filter slot,
   // then hotbar 3's dirt is checked, and goes in.
-  await fixture.replace('hotbar.8', `ae2:wireless_terminal[${link},ae2:upgrades=[{slot:0,item:{id:"ae2importexportcard:import_card",count:1}}]]`);
+  const cards = '{slot:0,item:{id:"ae2importexportcard:import_card",count:1}},{slot:1,item:{id:"ae2importexportcard:block_picker_card",count:1}}';
+  await fixture.replace('hotbar.8', `ae2:wireless_terminal[${link},ae2:upgrades=[${cards}]]`);
   await fixture.select(8, 'ae2:wireless_terminal'); await fixture.raw('use-item');
   const term = await until(() => fixture.raw('screen'), v => v.ae2_terminal?.widgets?.some((w: any) => w.widget === 'IeCard(0)'), 'the terminal with the Import Card\'s button');
   await fixture.raw('click-slot 3');
@@ -137,9 +158,18 @@ try {
   await until(() => hotbar(3), s => !s?.item, 'the checked dirt goes into the network');
   assert.equal(await stored('minecraft:dirt'), 5);
   await fixture.raw(`click-at ${centre(part('Back'))}`);
-  await until(() => fixture.raw('screen'), v => v.ae2_terminal?.widgets?.some((w: any) => w.widget === 'IeCard(0)'), 'back to the terminal');
-  await fixture.raw('close');
+  const back = await until(() => fixture.raw('screen'), v => v.ae2_terminal?.widgets?.some((w: any) => w.widget === 'IeCard(2)'), 'back to the terminal');
   fixture.mark('the Import Card\'s screen sets a filter from the cursor and checks a slot');
+  // The Block Picker's amount: +16 from 1.
+  await fixture.raw(`click-at ${centre(back.ae2_terminal.widgets.find((w: any) => w.widget === 'IeCard(2)').rect)}`);
+  const amount = await until(() => fixture.raw('screen'), v => v.ae2_terminal?.iecard?.which === 2, 'the Block Picker\'s amount screen');
+  assert.equal(amount.ae2_terminal.iecard.picker, 1);
+  await fixture.raw(`click-at ${centre(amount.ae2_terminal.iecard.parts.find((p: any) => p.part === 'Step(1)').rect)}`);
+  await until(() => fixture.raw('screen'), v => v.ae2_terminal?.iecard?.picker === 17, 'the amount goes up by 16');
+  await fixture.raw(`screenshot ${join(fixture.run, 'iecard-picker-screen.png')}`);
+  await fixture.raw('close');
+  assert.match(JSON.stringify((await fixture.command('data get entity @s SelectedItem')).chat ?? ''), /block_picker_amount[^0-9]*17/, 'kept in the card');
+  fixture.mark('the Block Picker\'s screen sets its amount');
 
   fixture.assertHidden(await fixture.raw('status'));
   fixture.report('passed');

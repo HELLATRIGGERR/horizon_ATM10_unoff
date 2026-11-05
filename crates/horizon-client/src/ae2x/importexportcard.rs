@@ -39,6 +39,9 @@ pub const BASE_FILTER_SLOT_COUNT: usize = 18;
 pub const FILTER_SLOTS_PER_CAPACITY_CARD: usize = 9;
 pub const MAX_CAPACITY_CARD_COUNT: usize = 3;
 pub const MAX_FILTER_SLOT_COUNT: usize = BASE_FILTER_SLOT_COUNT + MAX_CAPACITY_CARD_COUNT * FILTER_SLOTS_PER_CAPACITY_CARD;
+/// `BlockPickerCardConfig`.
+pub const BLOCK_PICKER_DEFAULT_AMOUNT: i32 = 1;
+pub const BLOCK_PICKER_MAX_AMOUNT: i32 = 64;
 
 /// `UpgradeType`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -84,15 +87,22 @@ impl CardType {
     }
 }
 
-/// `commonSetup`: the Import and Export Cards on AE2's two wireless
-/// terminals, one each (`Upgrades.add`). On the cards: three Capacity Cards, a Fuzzy
+/// `commonSetup`: each card on AE2's two wireless terminals, and with
+/// AE2WTLib on the universal terminal and the wireless pattern encoding
+/// terminal, one each (`Upgrades.add`, not AE2WTLib's
+/// `addUpgradeToAllTerminals`: the pattern access terminal and the other
+/// addons' terminals take none). On the cards: three Capacity Cards, a Fuzzy
 /// Card, and an Inverter Card on the Import Card, a Crafting Card and an
 /// Acceleration Card on the Export Card. The cards are no `IUpgradeableItem`
 /// (AE2's `add_item_upgrade` does not take them): their own cards go in by
 /// their screens alone, so they have no upgrade slots in the registry.
 pub fn register(defs: &mut Defs) {
-    for card in [IMPORT_CARD, EXPORT_CARD] {
+    for card in [IMPORT_CARD, EXPORT_CARD, BLOCK_PICKER_CARD] {
         for terminal in ["ae2:wireless_terminal", "ae2:wireless_crafting_terminal"] {
+            defs.add_upgrade(card, terminal, 1);
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        for terminal in [super::ae2wtlib::UNIVERSAL_TERMINAL, super::ae2wtlib::PATTERN_ENCODING_TERMINAL] {
             defs.add_upgrade(card, terminal, 1);
         }
     }
@@ -353,6 +363,24 @@ pub fn edit_card(terminal: &mut ItemStack, card: &str, edit: impl Fn(&mut ItemSt
     }
 }
 
+/// `BlockPickerCardConfig.getAmount`: the card's amount, 1 to 64 (1 unset).
+pub fn block_picker_amount(card: &ItemStack) -> i32 {
+    let amount = match card.data().and_then(|d| d.other(BLOCK_PICKER_AMOUNT)) {
+        Some(Tag::Int(n)) => *n,
+        _ => BLOCK_PICKER_DEFAULT_AMOUNT,
+    };
+    amount.clamp(BLOCK_PICKER_DEFAULT_AMOUNT, BLOCK_PICKER_MAX_AMOUNT)
+}
+/// `getAmountFromTerminal`: the terminal's Block Picker Card's, 1 without one.
+pub fn terminal_block_picker_amount(terminal: &ItemStack) -> i32 {
+    find_card(terminal, BLOCK_PICKER_CARD).map_or(BLOCK_PICKER_DEFAULT_AMOUNT, |card| block_picker_amount(&card))
+}
+/// `setAmountOnTerminal`: every Block Picker Card of the terminal, clamped.
+pub fn set_block_picker_amount(terminal: &mut ItemStack, amount: i32) -> bool {
+    let amount = amount.clamp(BLOCK_PICKER_DEFAULT_AMOUNT, BLOCK_PICKER_MAX_AMOUNT);
+    edit_card(terminal, BLOCK_PICKER_CARD, |card| card.data_mut().set_other(BLOCK_PICKER_AMOUNT, Some(Tag::Int(amount))))
+}
+
 /// `UpgradeScreen.increaseSelectedInventorySlot`: the Import Card checks or
 /// unchecks a slot; the Export Card counts it through its active filter
 /// slots, then off.
@@ -392,9 +420,15 @@ mod tests {
     #[test]
     fn rows_put_the_cards_on_the_source_terminals_and_their_cards_on_them() {
         let defs = super::super::defs::get();
-        for card in [IMPORT_CARD, EXPORT_CARD] {
+        for card in [IMPORT_CARD, EXPORT_CARD, BLOCK_PICKER_CARD] {
             assert_eq!(defs.upgrade_limit(card, "ae2:wireless_terminal"), 1, "{card}");
             assert_eq!(defs.upgrade_limit(card, "ae2:wireless_crafting_terminal"), 1, "{card}");
+            #[cfg(feature = "ae2-ae2wtlib")]
+            {
+                assert_eq!(defs.upgrade_limit(card, super::super::ae2wtlib::UNIVERSAL_TERMINAL), 1);
+                assert_eq!(defs.upgrade_limit(card, super::super::ae2wtlib::PATTERN_ENCODING_TERMINAL), 1);
+                assert_eq!(defs.upgrade_limit(card, super::super::ae2wtlib::PATTERN_ACCESS_TERMINAL), 0, "Upgrades.add, not addUpgradeToAllTerminals");
+            }
         }
         assert_eq!(defs.upgrade_limit("ae2:capacity_card", IMPORT_CARD), 3);
         assert_eq!(defs.upgrade_limit("ae2:inverter_card", IMPORT_CARD), 1);
@@ -480,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn selections_count_through_the_filters() {
+    fn selections_count_through_the_filters_and_the_block_picker_clamps() {
         assert_eq!(increase_selected(CardType::Import, 0, 18), 1);
         assert_eq!(increase_selected(CardType::Import, 1, 18), 0);
         assert_eq!(increase_selected(CardType::Export, 0, 18), 1);
@@ -489,5 +523,17 @@ mod tests {
         let mut slots = [0, 20, 18, 27];
         assert!(clamp_selected(&mut slots, 18));
         assert_eq!(slots, [0, 0, 18, 0]);
+
+        let mut terminal = ItemStack::new("ae2:wireless_terminal", 1);
+        assert_eq!(terminal_block_picker_amount(&terminal), 1);
+        assert!(!set_block_picker_amount(&mut terminal, 9), "no card");
+        let mut cards = Inventory::read(&terminal).unwrap();
+        assert!(cards.insert_one(&ItemStack::new(BLOCK_PICKER_CARD, 1)));
+        cards.store(&mut terminal).unwrap();
+        assert!(set_block_picker_amount(&mut terminal, 100));
+        assert_eq!(terminal_block_picker_amount(&terminal), 64);
+        assert!(set_block_picker_amount(&mut terminal, 0));
+        assert_eq!(terminal_block_picker_amount(&terminal), 1);
+        assert_eq!(find_card(&terminal, BLOCK_PICKER_CARD).unwrap().data().unwrap().other(BLOCK_PICKER_AMOUNT), Some(&Tag::Int(1)));
     }
 }

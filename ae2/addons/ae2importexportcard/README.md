@@ -40,15 +40,31 @@ All the Mods 10 ships none: energy export stays on and nothing is blocked there.
 | `requestCraftingIfPossible`: allowed, the Crafting Card, `isCraftable`, no CPU crafting it (`getRequestedAmount`); the terminal item's last calculation, when done, is submitted (`submitJob` with no requester, a `MachineSource`), then a new `CRAFT_LESS` one begins for the asked amount; one future for each terminal item (a field of the `Item`) | `iecard_request_craft`, the calculation by terminal item id, sliced each grid tick; `ae2_begin_unowned_craft` (a machine's job, its results to the network) |
 | `UpgradeHost.onUpgradesChanged`: a selection past the active filter slots is turned off; `UpgradeScreen`'s Export Card numbers its filter slots and counts a pressed slot through them | the same |
 
+## Slice 3: the Block Picker Card
+
+| AE2 Import Export Card | Port |
+|---|---|
+| `MinecraftMixin.pickBlock` (TAIL, survival, a block) and `BlockPickerData`; `BlockPickerHandler.handle`: survival, the block's clone stack held nowhere (all 41 slots), a free main slot, allowed by the config; the first carried terminal (41 slots) with the card and in range brings `min(amount, room)`, its battery paying an AE an item (`poweredExtraction` with the menu host); the free slot first, then the main inventory; `pickSlot`: the suitable hotbar slot, selected | 26.3 picks on the server, so the pick is the server's `tryPickItem` (`ae2x_pick_from_network`, now told whether it is an entity's), after AE2WTLib's Pick Block, whose packet comes first in Java; no packet |
+| `BlockPickerCardConfig` (1 to 64, 1 unset; `setAmountOnTerminal` on every card of the terminal) | `block_picker_amount`, `set_block_picker_amount` |
+| `BlockPickerAmountScreen` (`screens/block_picker_amount.json`): +1, +16, +32 and -1, -16, -32, the amount, back; `SET_BLOCK_PICKER_AMOUNT`; the toolbar button's message says the amount | a sub screen of the terminal; the amount is set by its buttons |
+
+## Slice 4: AE2WTLib's universal terminal
+
+| AE2 Import Export Card | Port |
+|---|---|
+| with AE2WTLib, `Upgrades.add` of each card on the universal terminal and on the wireless pattern encoding terminal, one each (not `addUpgradeToAllTerminals`: the pattern access terminal and the other addons' terminals take none) | upgrade rows |
+| `Ae2WtlibUtil.getGridFromStack` (`WTMenuHost.getActionableNode`); `ItemWUT.inventoryTick` calls each held terminal's, so a universal terminal's cards tick once for each terminal it holds | the same range; a pass for each held terminal |
+| the buttons on AE2WTLib's terminal screens (`MEStorageScreen` subclasses) | the terminal screen of a universal terminal turned to its ME, crafting or pattern encoding terminal |
+
 Differences, known:
 
 - The card screens cover the terminal's menu, which stays open, as AE2's sub screens do; Java opens
   `UpgradeContainerMenu` in its place. Dragging from an inventory slot does not pick its stack up (in Java a drag
   does); a press with an item on the cursor places it, as in Java. The armour can't be swapped from the screen.
+- The Block Picker's amount has no text field: its six buttons set it.
 - A bucket whose fluid the Import Card takes is left emptied for that tick; Java goes on with the full bucket's stack
   in the same tick (`importItem` on the original stack), which with an Inverter Card and an empty filter puts the
   filled bucket in too and loses the emptied one.
-- Later slices: the Block Picker Card, and AE2WTLib's universal terminal and wireless pattern encoding terminal.
 - Not ported: Curios (Horizon has no accessory slots: `CuriosTerminalTicker`, `selected_curio_slots`' panel), export
   into a storage cell or matter cannon in the slot (`ICellWorkbenchItem`), Applied Flux's energy (`FluxKey` with
   GrandPower's `ILongEnergyStorage`, `allowEnergyExport`, charging the terminal) and Applied Mekanistics' chemicals:
@@ -56,8 +72,9 @@ Differences, known:
 - Fuzzy export picks the first matching key in the port's listing order; Java's `findFuzzy` order may differ.
 
 Tests: `horizon-client-lib` (`importexportcard`: the rows, the config, the cards' data in the source form, the
-filter and the selection), `horizon-client` (the filter slot's presses, the screens' view)
+filter, the selection and the Block Picker's amount), `horizon-client` (the filter slot's presses, the screens' view)
 and the world test `ae2importexportcard-cards`: the Import Card puts the checked slots its filter passes into the
 network, a bucket's water too, and nothing out of range; the Export Card fills a slot to a full stack and an empty
-bucket with water, leaves the blocked diamonds, and its Crafting Card starts a job whose sticks it exports; the
+bucket with water, leaves the blocked diamonds, and its Crafting Card starts a job whose sticks it exports; a universal
+terminal's Import Card and Block Picker Card work (16 cobblestone picked from the network into the selected slot); the
 Import Card's screen sets a filter from the cursor and checks a slot.

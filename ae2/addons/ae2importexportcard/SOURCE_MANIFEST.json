@@ -23,6 +23,7 @@
   "derived_files": [
     "crates/horizon-client/src/ae2x/importexportcard.rs",
     "crates/horizon-client/src/game/ae2x/importexportcard/mod.rs",
+    "crates/horizon-client/src/game/ae2x/importexportcard/picker.rs",
     "crates/horizon-client/src/game/ae2x/importexportcard/screen.rs"
   ]
 }

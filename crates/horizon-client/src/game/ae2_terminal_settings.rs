@@ -36,7 +36,8 @@ pub(super) enum Sub {
     Wireless,
     #[cfg(feature = "ae2-ae2wtlib")]
     Magnet,
-    /// AE2 Import Export Card's `UpgradeScreen` (0 import, 1 export).
+    /// AE2 Import Export Card's `UpgradeScreen` (0 import, 1 export) and
+    /// `BlockPickerAmountScreen` (2).
     #[cfg(feature = "ae2-importexportcard")]
     IeCard(u8),
 }

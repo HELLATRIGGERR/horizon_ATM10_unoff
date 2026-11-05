@@ -3278,7 +3278,7 @@ impl Game<'_> {
             // AE2WTLib's MinecraftMixin.pickBlock, where 26.3's server picks.
             #[cfg(feature = "ae2-lab")]
             if !found && !infinite {
-                return match g.ae2x_pick_from_network(&stack) {
+                return match g.ae2x_pick_from_network(&stack, from_entity) {
                     Some(super::ae2x::NetworkPick::Picked) => Some(()),
                     Some(super::ae2x::NetworkPick::Craft(key)) => {
                         craft = Some(key);

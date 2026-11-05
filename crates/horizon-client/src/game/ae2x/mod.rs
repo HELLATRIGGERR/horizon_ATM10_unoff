@@ -283,12 +283,14 @@ pub(super) struct State {
     pub(super) importexportcard: importexportcard::State,
 }
 
-/// What an addon's pick from the network came to (AE2WTLib's Pick Block).
-#[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+/// What an addon's pick from the network came to (AE2WTLib's Pick Block,
+/// AE2 Import Export Card's Block Picker Card).
+#[cfg_attr(not(any(feature = "ae2-ae2wtlib", feature = "ae2-importexportcard")), allow(dead_code))]
 pub(super) enum NetworkPick {
     /// The stack is in the hotbar, selected.
     Picked,
-    /// None there: the craft amount menu for this key.
+    /// None there: the craft amount menu for this key (AE2WTLib's).
+    #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
     Craft(ae2_cell_core::ItemKey),
 }
 
@@ -608,14 +610,21 @@ impl Game<'_> {
         self.ae2wtlib_dropped(before);
     }
     /// `tryPickItem` found `stack` nowhere and the player has no infinite
-    /// materials: an addon may bring it from the network.
-    pub(super) fn ae2x_pick_from_network(&mut self, stack: &horizon_client::items::ItemStack) -> Option<NetworkPick> {
-        let _ = stack;
+    /// materials: an addon may bring it from the network. `from_entity` for
+    /// an entity's pick.
+    pub(super) fn ae2x_pick_from_network(&mut self, stack: &horizon_client::items::ItemStack, from_entity: bool) -> Option<NetworkPick> {
+        let _ = (stack, from_entity);
         #[cfg(feature = "ae2-ae2wtlib")]
         match self.ae2wtlib_pick_block(stack) {
             ae2wtlib::restock::Pick::Picked => return Some(NetworkPick::Picked),
             ae2wtlib::restock::Pick::Craft(key) => return Some(NetworkPick::Craft(key)),
             ae2wtlib::restock::Pick::Nothing => {}
+        }
+        // The Block Picker Card's packet follows AE2WTLib's (`pickBlock`'s
+        // TAIL), for blocks.
+        #[cfg(feature = "ae2-importexportcard")]
+        if !from_entity && self.iecard_pick_block(stack) {
+            return Some(NetworkPick::Picked);
         }
         None
     }

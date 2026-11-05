@@ -1015,8 +1015,18 @@ impl Game<'_> {
             MachineKind::WirelessAccessPoint => {
                 let boosters = m.slots.first().cloned().flatten().map_or(0, |s| u32::try_from(s.count).unwrap_or(0));
                 let link = horizon_client::ae2_common_config::wireless().link;
-                data.extend(long((10.0 * link.range(boosters)) as i64));
-                data.extend(long((100.0 * link.idle(boosters)) as i64));
+                // An addon's card (AEInfinityBooster's MixinWirelessMenu): an
+                // unlimited range (Long.MAX_VALUE) and the drain its config names.
+                match m.slots.first().and_then(Option::as_ref).and_then(|s| horizon_client::ae2x::defs::get().access_point_card(&s.item)) {
+                    Some(card) => {
+                        data.extend(long(i64::MAX));
+                        data.extend(long((100.0 * card.shown_drain) as i64));
+                    }
+                    None => {
+                        data.extend(long((10.0 * link.range(boosters)) as i64));
+                        data.extend(long((100.0 * link.idle(boosters)) as i64));
+                    }
+                }
             }
             // InterfaceMenu: the fuzzy button shows with a fuzzy card.
             MachineKind::Interface => {
@@ -1382,7 +1392,8 @@ impl Game<'_> {
                     return Vec::new();
                 }
                 vec![
-                    ("range", text("gui.ae2.WirelessRange", &[java_number(format!("{}", range as f64 / 10.0))])),
+                    // An addon's card's unlimited range (AEInfinityBooster's MixinWirelessAccessPointScreen).
+                    ("range", text("gui.ae2.WirelessRange", &[if range == i64::MAX { "∞".to_owned() } else { java_number(format!("{}", range as f64 / 10.0)) }])),
                     ("energy_use", text("gui.ae2.PowerUsageRate", &[format_power(long_value(data, 4) as f64 / 100.0, true)])),
                 ]
             }

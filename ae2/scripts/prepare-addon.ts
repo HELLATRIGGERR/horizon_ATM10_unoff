@@ -26,7 +26,10 @@ type Content = { namespace: string; name: string; description: string; authors: 
   ae2_namespace?: { screens?: string[]; gui_textures?: string[] };
   /** The addon's data maps the slices read (`data/<ns>/data_maps/<registry>/<name>.json`, as `<registry>/<name>`),
    * copied as they are: NeoForge's file, its conditions and tags resolved by the game. */
-  data_maps?: string[] };
+  data_maps?: string[];
+  /** The addon's recipes All the Mods 10's own scripts remove, with why: left out here, as the pack's final data
+   * (its NeoForge run, `horizon-port-pack final-data`) holds what replaces them. */
+  pack_removed?: Record<string, string> };
 type Manifest = { addon: string; name: string; version: string; source: { url: string; tag: string; commit: string; license: string };
   assets_license: string; jar: { file: string; sha256: string } };
 
@@ -165,7 +168,8 @@ if (!help(usage)) {
     const missing = [...ids(recipe, new Set())].filter(i => !items.has(i));
     const declared = recipe['neoforge:conditions'] as any[] | undefined;
     const conditions = declared ? answer(declared) : [];
-    if (!conditions) report.recipes_left_out[name] = `the config says no: ${JSON.stringify(declared)}`;
+    if (content.pack_removed?.[name]) report.recipes_left_out[name] = `the pack removes it: ${content.pack_removed[name]}`;
+    else if (!conditions) report.recipes_left_out[name] = `the config says no: ${JSON.stringify(declared)}`;
     else if (String(recipe.type).startsWith(ns + ':') && !(content.recipe_types ?? []).includes(recipe.type)) report.recipes_left_out[name] = `recipe type ${recipe.type} comes with its machine's slice`;
     else if (missing.length) report.recipes_left_out[name] = `needs ${missing.join(', ')}`;
     else if (declared) {

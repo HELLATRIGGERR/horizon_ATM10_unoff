@@ -86,6 +86,15 @@ feature = "ae2-ae2wtlib"
 content = "ae2wtlib"
 configs = ["ae2wtlib.toml"]
 
+# AEInfinityBooster: the Infinity Range Booster in the Wireless Access Point
+# (slice 1; ae2/addons/aeinfinitybooster).
+[mods.aeinfinitybooster]
+name = "AEInfinityBooster"
+enabled = true
+feature = "ae2-aeinfinitybooster"
+content = "aeinfinitybooster"
+configs = ["aeinfinitybooster-common.toml"]
+
 # AE2 addon: FE stored in ME cells and the Flux Accessor.
 [mods.appflux]
 name = "Applied Flux"

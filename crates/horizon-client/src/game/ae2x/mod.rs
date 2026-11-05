@@ -13,6 +13,8 @@ pub(super) mod merequester;
 pub(super) mod extendedae;
 #[cfg(feature = "ae2-ae2wtlib")]
 pub(super) mod ae2wtlib;
+#[cfg(feature = "ae2-aeinfinitybooster")]
+pub(super) mod aeinfinitybooster;
 
 /// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
 /// Pattern Encoding Terminal, by itself or as the universal terminal's
@@ -271,6 +273,8 @@ pub(super) struct State {
     pub(super) merequester: merequester::State,
     #[cfg(feature = "ae2-extendedae")]
     pub(super) extendedae: extendedae::State,
+    #[cfg(feature = "ae2-aeinfinitybooster")]
+    pub(super) aeinfinitybooster: aeinfinitybooster::State,
 }
 
 impl Game<'_> {
@@ -412,6 +416,8 @@ impl Game<'_> {
         self.tick_merequester();
         #[cfg(feature = "ae2-extendedae")]
         self.tick_extendedae_machines();
+        #[cfg(feature = "ae2-aeinfinitybooster")]
+        self.tick_aeinfinitybooster();
     }
 
     /// An addon machine on the grid: its node's kind, idle draw, channel

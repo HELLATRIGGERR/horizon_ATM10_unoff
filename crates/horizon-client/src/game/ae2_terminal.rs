@@ -6285,7 +6285,8 @@ impl Game<'_> {
             K::Condenser => {
                 slot == 1 && horizon_client::ae2x::defs::get().component(&item.item).is_some()
             }
-            K::WirelessAccessPoint => slot == 0 && item.item.as_ref() == "ae2:wireless_booster",
+            // AE2's booster, and an addon's card (AEInfinityBooster's AccessPointCardFilter).
+            K::WirelessAccessPoint => slot == 0 && horizon_client::ae2x::defs::get().access_point_accepts(&item.item),
             K::Ext(_) => super::ae2x::machine_may_place(m, slot).unwrap_or(false),
             K::PatternProvider => super::ae2_pattern_access::provider_pattern_valid(m, item),
             K::Interface => true,

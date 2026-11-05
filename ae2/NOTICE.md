@@ -59,3 +59,9 @@ with AE2's LGPL 3.0 code; the files are listed in
 AE2WTLib's assets, by its README under
 [CC BY-NC-SA 3.0](LICENSES/CC-BY-NC-SA-3.0.txt), are generated locally from the
 player's own jar by `scripts/prepare-addon.ts` and are not distributed here.
+Code derived from [AEInfinityBooster](https://github.com/Hexeption/AEInfinityBooster)
+2.1.0 by Hexeption (tag `v2.1.0`, commit `c46ff3fc124586ae6f91a75f8bccd05d0476547b`)
+is under its [LGPL 3.0](LICENSES/AE2-LGPL-3.0.txt); the files are listed in
+[addons/aeinfinitybooster/SOURCE_MANIFEST.json](addons/aeinfinitybooster/SOURCE_MANIFEST.json).
+Its assets, whose licence the mod does not state, are likewise generated
+locally from the player's jar and not distributed here.

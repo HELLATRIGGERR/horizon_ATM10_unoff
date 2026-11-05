@@ -1,0 +1,16 @@
+{
+  "namespace": "aeinfinitybooster",
+  "name": "AEInfinityBooster",
+  "description": "AEInfinityBooster 2.1.0 for the AE2 port: the Infinity Range Booster (slice 1).",
+  "authors": ["Hexeption (AEInfinityBooster)"],
+  "slices": [
+    "1: the Infinity Range Booster in the Wireless Access Point, same dimension"
+  ],
+  "items": {
+    "infinity_card": {"max_stack_size": 1}
+  },
+  "blocks": {},
+  "pack_removed": {
+    "aeinfinitybooster:infinity_card": "All the Mods 10's KubeJS removes it and adds its own Infinity Card recipe; the pack's final data (its NeoForge run) carries that one"
+  }
+}

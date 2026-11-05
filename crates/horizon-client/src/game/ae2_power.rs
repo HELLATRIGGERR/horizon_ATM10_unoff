@@ -81,8 +81,12 @@ impl Game<'_> {
             .assets
             .registry
             .state(self.world.block(pos.0, pos.1, pos.2));
+        // The idle draw of the grid this block is on, AE/t (IEnergyService.getIdlePowerUsage).
+        let analysis = self.ae2_network().analyze().ok();
+        let node = analysis.as_ref().and_then(|a| a.nodes.get(&address.network_pos()).map(|n| (a, n)));
+        let idle = node.and_then(|(a, n)| a.components.get(n.component)).map(|c| c.idle_per_tick);
         Ok(
-            serde_json::json!({"position":[pos.0,pos.1,pos.2],"energy":energy,"energy_service":self.ae2_energy_storage_diagnostic(address),"fe":fe,"block_light":packed&15,"sky_light":packed>>4,"properties":state.map(|s|&s.properties)}),
+            serde_json::json!({"position":[pos.0,pos.1,pos.2],"energy":energy,"idle":idle,"energy_service":self.ae2_energy_storage_diagnostic(address),"fe":fe,"block_light":packed&15,"sky_light":packed>>4,"properties":state.map(|s|&s.properties)}),
         )
     }
     fn ae2_energy_acceptor_face(&self, address: GridAddress, face: Direction) -> bool {

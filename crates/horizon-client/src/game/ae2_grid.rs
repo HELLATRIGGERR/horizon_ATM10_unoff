@@ -269,7 +269,9 @@ impl Game<'_> {
                             .slots
                             .first()
                             .and_then(Option::as_ref)
-                            .filter(|s| s.item.as_ref() == "ae2:wireless_booster")
+                            // getBoosters: the slot's count, whatever it holds (an
+                            // addon's card counts one, as in AE2's updatePower).
+                            .filter(|s| horizon_client::ae2x::defs::get().access_point_accepts(&s.item))
                             .map_or(0, |s| s.count);
                         d.idle_override =
                             Some(horizon_client::ae2_common_config::wireless().link.idle(boosters));

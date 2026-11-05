@@ -194,12 +194,15 @@ impl Game<'_> {
                 if m.kind != MachineKind::WirelessAccessPoint {
                     return None;
                 }
-                let boosters = m
-                    .slots
-                    .first()
-                    .and_then(Option::as_ref)
-                    .filter(|s| s.item.as_ref() == "ae2:wireless_booster")
-                    .map_or(0, |s| s.count.min(64));
+                // getBoosters: the booster slot's count, whatever it holds.
+                let slot = m.slots.first().and_then(Option::as_ref);
+                let boosters = slot.map_or(0, |s| s.count.min(64));
+                // An addon's card in the slot answers for the access point
+                // whatever the distance (AEInfinityBooster's
+                // `boostedDistance`); here the player is in its dimension.
+                if let Some(card) = slot.and_then(|s| horizon_client::ae2x::defs::get().access_point_card(&s.item)) {
+                    return Some((local, card.signal.sqrt()));
+                }
                 let d = (f64::from(local.0) - guest.position[0]).powi(2)
                     + (f64::from(local.1) - guest.position[1]).powi(2)
                     + (f64::from(local.2) - guest.position[2]).powi(2);

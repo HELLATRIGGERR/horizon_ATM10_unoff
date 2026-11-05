@@ -117,6 +117,27 @@ pub struct UniversalTerminal {
     pub current: String,
 }
 
+/// An item the Wireless Access Point's booster slot takes beside AE2's
+/// Wireless Booster, and the signal it gives a wireless terminal
+/// (AEInfinityBooster's cards: its mixins on `WirelessAccessPointBlockEntity`,
+/// `RestrictedInputSlot`, `WirelessTerminalMenuHost.getAccessPointSignal`
+/// and `WirelessAccessPointMenu`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct AccessPointCard {
+    pub item: String,
+    /// The squared distance `getAccessPointSignal` reports for an active
+    /// access point holding the card, whatever the real distance: what the
+    /// terminal's drain is reckoned from.
+    pub signal: f64,
+    /// Only for a player in the access point's dimension.
+    pub same_dimension: bool,
+    /// The drain the access point's menu shows, AE/t. The grid pays AE2's
+    /// drain for one booster (`getBoosters` counts whatever is in the slot).
+    pub shown_drain: f64,
+    /// The access point keeps its chunk loaded while it holds the card.
+    pub chunk_loading: bool,
+}
+
 /// The tables. Filled by [`Defs::ae2`] and the addons' `register`.
 #[derive(Debug, Default)]
 pub struct Defs {
@@ -136,8 +157,23 @@ pub struct Defs {
     /// The wireless terminals in registration order (`wirelessTerminalList`).
     wireless_terminals: Vec<WirelessTerminal>,
     universal_terminal: Option<UniversalTerminal>,
+    access_point_cards: Vec<AccessPointCard>,
 }
 impl Defs {
+    /// An item the access point's booster slot takes, with the signal it gives.
+    pub fn add_access_point_card(&mut self, card: AccessPointCard) {
+        self.access_point_cards.retain(|c| c.item != card.item);
+        self.access_point_cards.push(card);
+    }
+    /// The card row of `item`; none for AE2's booster and any other item.
+    pub fn access_point_card(&self, item: &str) -> Option<&AccessPointCard> {
+        self.access_point_cards.iter().find(|c| c.item == item)
+    }
+    /// What the access point's booster slot takes: AE2's Wireless Booster
+    /// (`AEItemDefinitionFilter`), and the cards (`AccessPointCardFilter`).
+    pub fn access_point_accepts(&self, item: &str) -> bool {
+        item == "ae2:wireless_booster" || self.access_point_card(item).is_some()
+    }
     /// A wireless terminal item. A row for an item already listed takes its
     /// place (AE2WTLib's `crafting` over AE2's Wireless Crafting Terminal:
     /// `AEItemsMixin` makes AE2's item its `ItemWCT`). The item's upgrade
@@ -470,6 +506,8 @@ pub fn get() -> &'static Defs {
         super::ae2wtlib::register(&mut defs);
         #[cfg(all(feature = "ae2-megacells", feature = "ae2-ae2wtlib"))]
         super::megacells::register_ae2wt(&mut defs);
+        #[cfg(feature = "ae2-aeinfinitybooster")]
+        super::aeinfinitybooster::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
         // variants of AE2's, for `Machine::for_block`, the crafting CPU
         // blocks' bytes and threads, and the energy cells' capacities.

@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "addon": "aeinfinitybooster",
+  "name": "AEInfinityBooster",
+  "version": "2.1.0",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/Hexeption/AEInfinityBooster",
+    "tag": "v2.1.0",
+    "commit": "c46ff3fc124586ae6f91a75f8bccd05d0476547b",
+    "license": "LGPL-3.0",
+    "license_file": "LICENSE at the tag"
+  },
+  "assets_license": "not stated (LGPL-3.0 covers the repository)",
+  "jar": {
+    "file": "aeinfinitybooster-neoforge-2.1.0+mc1.21.1.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "91a45c796fc9eedd8c12c8d8e62cea1bd0f41b007499663ed63bc27ac4b2cdb6"
+  },
+  "requires": ["ae2 19.2.18"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/aeinfinitybooster.rs",
+    "crates/horizon-client/src/game/ae2x/aeinfinitybooster/mod.rs"
+  ]
+}

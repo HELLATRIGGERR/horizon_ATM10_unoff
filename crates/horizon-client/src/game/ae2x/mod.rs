@@ -507,6 +507,59 @@ impl Game<'_> {
         let _ = delta;
         false
     }
+    /// A guest's tick, after its carried items' and before what it touches
+    /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2WTLib's magnet.
+    pub(super) fn lan_ae2x_guest_tick(&mut self, host: &mut super::lan::LanHost, gi: usize) {
+        let _ = (&host, gi);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.lan_ae2wtlib_magnet_tick(host, gi);
+    }
+    /// `ItemEntityPickupEvent.Pre` for item entity `index` touching a guest:
+    /// true when an addon took some of its stack (AE2WTLib's pickup into
+    /// the network).
+    pub(super) fn lan_ae2x_item_pickup(&mut self, host: &mut super::lan::LanHost, conn: u32, index: usize) -> bool {
+        let _ = (&host, conn, index);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.lan_ae2wtlib_item_pickup(host, conn, index) {
+            return true;
+        }
+        false
+    }
+    /// The addons' hotkey actions (`HotkeyActions.register` after AE2's), by
+    /// id: the key mapping is `key.ae2.<id>`.
+    pub(super) fn ae2x_hotkeys() -> &'static [&'static str] {
+        #[cfg(feature = "ae2-ae2wtlib")]
+        {
+            ae2wtlib::HOTKEYS
+        }
+        #[cfg(not(feature = "ae2-ae2wtlib"))]
+        {
+            &[]
+        }
+    }
+    /// An addon's hotkey action for a guest: true when it ran
+    /// (`HotkeyAction.run`).
+    pub(super) fn lan_ae2x_hotkey(&mut self, host: &mut super::lan::LanHost, conn: u32, id: &str) -> bool {
+        let _ = (&host, conn, id);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.lan_ae2wtlib_hotkey(host, conn, id) {
+            return true;
+        }
+        false
+    }
+    /// What an addon adds to a wireless terminal's view (AE2WTLib's terminal
+    /// settings and magnet mode on the crafting terminal).
+    pub(super) fn lan_ae2x_wireless_view(&self, host: &super::lan::LanHost, conn: u32, ctx: &super::ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
+        #[cfg(feature = "ae2-ae2wtlib")]
+        {
+            self.lan_ae2wtlib_wireless_view(host, conn, ctx)
+        }
+        #[cfg(not(feature = "ae2-ae2wtlib"))]
+        {
+            let _ = (host, conn, ctx);
+            None
+        }
+    }
     /// A custom payload from a guest: true when an addon's channel.
     pub(super) fn lan_ae2x_payload(&mut self, host: &mut super::lan::LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
         let _ = (&host, conn, channel, data);

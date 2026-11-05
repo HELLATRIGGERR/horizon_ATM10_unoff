@@ -4346,6 +4346,10 @@ impl Game<'_> {
             self.lan_map_updates(host, conn);
             host.hub.flush_progress(conn);
             self.guest_dig_feedback(host, conn);
+            // Player.aiStep: the carried items' tick (an addon's magnet),
+            // then what the player touches.
+            #[cfg(feature = "ae2-lab")]
+            self.lan_ae2x_guest_tick(host, gi);
             self.guest_pickups(host, gi);
             self.guest_arrows(host, gi);
             self.guest_orbs(host, gi);
@@ -5257,15 +5261,9 @@ impl Game<'_> {
     /// Dropped items touching a guest go into their inventory
     /// (`ItemEntity.playerTouch`, then `ServerPlayer.onItemPickup`).
     fn guest_pickups(&mut self, host: &mut LanHost, gi: usize) {
-        let (conn, mode, position, id, uuid) = {
+        let (mode, position, uuid) = {
             let g = &host.hub.guests[gi];
-            (
-                g.conn,
-                g.game_mode,
-                g.position,
-                g.entity_id,
-                horizon_client::lan::playerdata::uuid_ints(g.uuid),
-            )
+            (g.game_mode, g.position, horizon_client::lan::playerdata::uuid_ints(g.uuid))
         };
         if mode == SPECTATOR || self.dropped.is_empty() {
             return;
@@ -5283,8 +5281,18 @@ impl Game<'_> {
             })
             .map(|d| d.id)
             .collect();
+        self.guest_touch_items(host, gi, near);
+    }
+
+    /// `ItemEntity.playerTouch` of the item entities `items` (by id, the
+    /// last first) for guest `gi`: what touches them, and an addon's magnet.
+    pub(super) fn guest_touch_items(&mut self, host: &mut LanHost, gi: usize, items: Vec<u32>) {
+        let (conn, id, position) = {
+            let g = &host.hub.guests[gi];
+            (g.conn, g.entity_id, g.position)
+        };
         let mut taken = Vec::new();
-        for item_id in near.into_iter().rev() {
+        for item_id in items.into_iter().rev() {
             let Some(item) = self.dropped.iter().find(|d| d.id == item_id) else {
                 continue;
             };
@@ -5297,6 +5305,14 @@ impl Game<'_> {
             };
             if refused {
                 self.dropped[i].pickup_delay = 10;
+                continue;
+            }
+            // `ItemEntityPickupEvent.Pre` at the lowest priority: an addon
+            // may take some or all of it first (AE2WTLib's pickup into the
+            // network); an emptied stack leaves with no take.
+            #[cfg(feature = "ae2-lab")]
+            if self.lan_ae2x_item_pickup(host, conn, i) && self.dropped[i].stack.count == 0 {
+                self.remove_dropped(i);
                 continue;
             }
             let stack = self.dropped[i].stack.clone();

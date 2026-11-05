@@ -1,6 +1,6 @@
 //! AE2WTLib 19.5.1 in the game (feature `ae2-ae2wtlib`): the wireless
-//! pattern encoding terminal's state in its item, and the universal
-//! terminal's packets. Derived from AE2WTLib by Mari023 (`WETMenuHost`,
+//! pattern encoding terminal's state in its item, the universal
+//! terminal's packets, and the Magnet Card (`magnet`). Derived from AE2WTLib by Mari023 (`WETMenuHost`,
 //! `CycleTerminalPacket`, `SelectTerminalPacket`),
 //! https://github.com/Mari023/AE2WirelessTerminalLibrary tag `19.5.1`, MIT,
 //! and AE2 19.2.18 `PatternEncodingLogic` (LGPL-3.0-or-later); see
@@ -15,6 +15,16 @@ use horizon_client::{
     save,
 };
 use horizon_world::nbt::{Compound, Tag};
+
+mod magnet;
+pub(in crate::game) mod magnet_screen;
+pub(in crate::game) mod settings_screen;
+
+/// AE2WTLib's hotkeys after AE2's (`key.ae2.<id>`): the two terminals'
+/// (`WTDefinitionBuilder.hotkeyName`, answered by the terminal locating
+/// service) and the Magnet Card's (`MagnetHotkeyAction`). Restock and stow
+/// come with their slice.
+pub(in crate::game) const HOTKEYS: &[&str] = &["wireless_pattern_encoding_terminal", "wireless_pattern_access_terminal", magnet::MAGNET_HOTKEY];
 
 /// `CycleTerminalPacket` (one byte: the right button, backwards).
 pub(in crate::game) const CYCLE_TERMINAL: &str = "ae2wtlib:cycle_terminal";
@@ -242,9 +252,22 @@ impl Game<'_> {
         horizon_client::ae2x::wireless::set_current(stack, terminal);
         self.lan_open_ae2_wireless_source(host, conn, source);
     }
-    /// The universal terminal's packets.
+    /// AE2WTLib's own hotkey actions (the terminals' are the locating
+    /// service's, before them): true when one ran.
+    pub(in crate::game) fn lan_ae2wtlib_hotkey(&mut self, host: &mut LanHost, conn: u32, id: &str) -> bool {
+        id == magnet::MAGNET_HOTKEY && self.lan_ae2wtlib_magnet_hotkey(host, conn)
+    }
+    /// The universal terminal's packets and the terminal settings.
     pub(in crate::game) fn lan_ae2wtlib_payload(&mut self, host: &mut LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
         match channel {
+            magnet::TERMINAL_SETTINGS => {
+                self.lan_ae2wtlib_terminal_settings(host, conn, data);
+                true
+            }
+            magnet::MAGNET_MENU => {
+                self.lan_ae2wtlib_magnet_menu(host, conn, data);
+                true
+            }
             CYCLE_TERMINAL => {
                 self.lan_cycle_universal_terminal(host, conn, data.first().is_some_and(|b| *b != 0));
                 true

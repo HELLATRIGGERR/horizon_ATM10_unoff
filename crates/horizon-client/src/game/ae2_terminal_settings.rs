@@ -31,6 +31,11 @@ const ICON_BACK: (i32, i32) = (96, 16);
 pub(super) enum Sub {
     Settings,
     KeyTypes,
+    /// AE2WTLib's `WirelessTerminalSettingsScreen` and `MagnetScreen`.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    Wireless,
+    #[cfg(feature = "ae2-ae2wtlib")]
+    Magnet,
 }
 
 /// A checkbox or radio button of a sub screen.
@@ -47,6 +52,9 @@ pub(super) enum Check {
     ClearExternal,
     Items,
     Fluids,
+    /// AE2WTLib's settings, by box.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    Wireless(usize),
 }
 
 /// A checkbox as the screen shows it.
@@ -84,6 +92,8 @@ fn toggled(settings: ClientSettings, check: Check) -> ClientSettings {
         Check::SyncWithExternal => next.sync_with_external_search ^= true,
         Check::ClearExternal => next.clear_external_search_on_open ^= true,
         Check::Items | Check::Fluids => {}
+        #[cfg(feature = "ae2-ae2wtlib")]
+        Check::Wireless(_) => {}
     }
     next
 }
@@ -128,14 +138,28 @@ impl Game<'_> {
     pub(super) fn ae2_term_sub(&self) -> Option<Sub> {
         let state = &self.remote.as_ref()?.ae2_term;
         if state.key_types_open() {
-            Some(Sub::KeyTypes)
-        } else {
-            state.sub_settings.map(|_| Sub::Settings)
+            return Some(Sub::KeyTypes);
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if state.wtlib_magnet && self.ae2wtlib_magnet_button() {
+            return Some(Sub::Magnet);
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if state.wtlib_settings.is_some() && self.ae2wtlib_settings_button() {
+            return Some(Sub::Wireless);
+        }
+        state.sub_settings.map(|_| Sub::Settings)
     }
 
     fn ae2_term_sub_style(&self, sub: Sub) -> Option<&'static ScreenStyle> {
-        styles(&self.options.resources)[if sub == Sub::Settings { 0 } else { 1 }].as_ref()
+        match sub {
+            Sub::Settings => styles(&self.options.resources)[0].as_ref(),
+            Sub::KeyTypes => styles(&self.options.resources)[1].as_ref(),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Sub::Wireless => self.ae2_addon_style("ae2wtlib", super::ae2x::ae2wtlib::settings_screen::STYLE),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Sub::Magnet => self.ae2wtlib_magnet_style(),
+        }
     }
 
     /// The sub screen's size: its generated background's. The key-type
@@ -143,7 +167,7 @@ impl Game<'_> {
     pub(super) fn ae2_term_sub_size(&self) -> Option<(i32, i32)> {
         let sub = self.ae2_term_sub()?;
         let (width, height) = self.ae2_term_sub_style(sub)?.size();
-        if sub == Sub::Settings {
+        if sub != Sub::KeyTypes {
             return Some((width, height));
         }
         let top = self.ae2_term_sub_style(sub)?.widgets.get("keytypes").map_or(20, |w| w.position.resolve(width, 0).1);
@@ -194,6 +218,22 @@ impl Game<'_> {
             }
             return boxes;
         }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if sub == Sub::Magnet {
+            return boxes;
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if sub == Sub::Wireless {
+            let Some(settings) = self.remote.as_ref().and_then(|r| r.ae2_term.wtlib_settings) else {
+                return boxes;
+            };
+            for (i, (name, label, selected, active)) in self.ae2wtlib_settings_checks(settings).into_iter().enumerate() {
+                if let Some(rect) = place(name) {
+                    boxes.push(CheckBox { check: Check::Wireless(i), rect, label, selected, active, radio: false });
+                }
+            }
+            return boxes;
+        }
         let Some(settings) = self.remote.as_ref().and_then(|r| r.ae2_term.sub_settings) else {
             return boxes;
         };
@@ -233,8 +273,16 @@ impl Game<'_> {
                         r.ae2_term.sub_settings = None;
                     }
                 }
+                #[cfg(feature = "ae2-ae2wtlib")]
+                Sub::Wireless => self.ae2_term_set_wtlib_settings(None),
+                #[cfg(feature = "ae2-ae2wtlib")]
+                Sub::Magnet => self.ae2_term_set_wtlib_magnet(false),
             }
             return true;
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if sub == Sub::Magnet {
+            return self.ae2wtlib_magnet_press(at);
         }
         let pressed = self.ae2_term_sub_checks(sub).into_iter().find(|c| c.active && inside(c.rect, at));
         let Some(pressed) = pressed else {
@@ -245,6 +293,12 @@ impl Game<'_> {
             // KeyTypeSelectionMenu.selectKeyType: the menu's places 0 and 1.
             Check::Items => self.ae2_send_menu_button(0, 0),
             Check::Fluids => self.ae2_send_menu_button(1, 0),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Check::Wireless(index) => {
+                if let Some(settings) = self.remote.as_ref().and_then(|r| r.ae2_term.wtlib_settings) {
+                    self.ae2wtlib_settings_press(settings, index);
+                }
+            }
             check => {
                 if let Some(r) = self.remote.as_mut()
                     && let Some(old) = r.ae2_term.sub_settings
@@ -264,6 +318,14 @@ impl Game<'_> {
         let (Some(style), Some((w, h))) = (self.ae2_term_sub_style(sub), self.ae2_term_sub_size()) else {
             return;
         };
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if sub == Sub::Magnet {
+            self.ae2wtlib_draw_magnet(batch, ox, oy);
+            if let Some(rect) = self.ae2_term_sub_back(sub) {
+                self.ae2_draw_tab(batch, ox, oy, rect, ICON_BACK);
+            }
+            return;
+        }
         self.ae2_draw_generated_background(batch, ox, oy, w, h);
         let title = (sub == Sub::KeyTypes).then(|| ("dialog_title", self.translate("gui.ae2.ConfigureVisibleTypes", "Configure Visible Types")));
         self.ae2_draw_texts(batch, ox, oy, style, title.as_slice());
@@ -302,12 +364,18 @@ impl Game<'_> {
             .map(|c| serde_json::json!({"check": format!("{:?}", c.check), "rect": rect(c.rect), "selected": c.selected, "active": c.active, "radio": c.radio, "label": c.label}))
             .collect();
         let (w, h) = self.ae2_term_sub_size()?;
-        Some(serde_json::json!({
+        #[allow(unused_mut)]
+        let mut value = serde_json::json!({
             "sub": format!("{sub:?}"),
             "size": [w, h],
             "back": self.ae2_term_sub_back(sub).map(rect),
             "checks": checks,
-        }))
+        });
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if sub == Sub::Magnet {
+            value["magnet"] = self.ae2wtlib_magnet_agent(origin);
+        }
+        Some(value)
     }
 }
 

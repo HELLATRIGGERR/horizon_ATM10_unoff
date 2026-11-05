@@ -102,6 +102,10 @@ pub(super) struct RepoView {
     panel: Option<Panel>,
     /// A universal terminal's: what it holds and opens (AE2WTLib).
     universal: Option<Universal>,
+    /// What an addon adds to a wireless terminal's view (AE2WTLib's
+    /// terminal settings), for the addon to read.
+    #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+    addon: Option<serde_json::Value>,
 }
 
 /// The open terminal screen's own state.
@@ -125,6 +129,12 @@ pub(super) struct TermState {
     pub(super) sub_settings: Option<ClientSettings>,
     /// The universal terminal's selector panel is open.
     selector: bool,
+    /// AE2WTLib's `WirelessTerminalSettingsScreen` while it is open.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    pub(super) wtlib_settings: Option<super::ae2x::ae2wtlib::settings_screen::Settings>,
+    /// AE2WTLib's `MagnetScreen` while it is open.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    pub(super) wtlib_magnet: bool,
 }
 
 impl TermState {
@@ -163,6 +173,11 @@ enum Widget {
     /// AE2WTLib's terminal selector, and a terminal in its open panel.
     Terminal,
     SelectTerminal(usize),
+    /// AE2WTLib's wireless terminal settings and magnet filter (`WCTScreen`).
+    #[cfg(feature = "ae2-ae2wtlib")]
+    WirelessSettings,
+    #[cfg(feature = "ae2-ae2wtlib")]
+    MagnetFilter,
 }
 
 /// The screen laid out for the window: its style, its storage rows and
@@ -365,6 +380,7 @@ fn parse_view(data: &[u8]) -> Option<(i64, RepoView)> {
             list.iter().take(16).filter_map(|t| Some((t.get("name")?.as_str()?.to_owned(), ItemStack::new(t.get("item")?.as_str()?, 1)))).collect()
         }),
     });
+    let addon = v.get("addon").filter(|a| a.is_object()).cloned();
     let panel = v.get("encoding").filter(|p| p.is_object()).map(|p| Panel {
         mode: p.get("mode").and_then(|m| m.as_u64()).unwrap_or(0).min(3) as u8,
         page: p.get("page").and_then(|m| m.as_u64()).unwrap_or(0).min(8) as usize,
@@ -396,6 +412,7 @@ fn parse_view(data: &[u8]) -> Option<(i64, RepoView)> {
             jobs: uint("jobs") as usize,
             panel,
             universal,
+            addon,
         },
     ))
 }
@@ -424,6 +441,34 @@ impl Game<'_> {
 
     fn ae2_term_view(&self) -> Option<&RepoView> {
         self.ae2_term()?.view.as_ref()
+    }
+
+    /// What an addon added to the open terminal's view.
+    #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+    pub(super) fn ae2_term_addon_view(&self) -> Option<&serde_json::Value> {
+        self.ae2_term_view()?.addon.as_ref()
+    }
+
+    /// Opens or closes AE2WTLib's magnet filter over the terminal.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    pub(super) fn ae2_term_set_wtlib_magnet(&mut self, open: bool) {
+        if let Some(r) = self.remote.as_mut() {
+            r.ae2_term.wtlib_magnet = open;
+            if let Some(field) = r.ae2_search.as_mut() {
+                field.focused = false;
+            }
+        }
+    }
+
+    /// Opens or closes AE2WTLib's settings over the terminal.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    pub(super) fn ae2_term_set_wtlib_settings(&mut self, settings: Option<super::ae2x::ae2wtlib::settings_screen::Settings>) {
+        if let Some(r) = self.remote.as_mut() {
+            r.ae2_term.wtlib_settings = settings;
+            if let Some(field) = r.ae2_search.as_mut() {
+                field.focused = false;
+            }
+        }
     }
 
     fn ae2_term_panel(&self) -> Panel {
@@ -492,7 +537,13 @@ impl Game<'_> {
     pub(super) fn ae2_term_slot_position(&self, i: usize) -> Option<(f32, f32)> {
         let l = self.ae2_term_layout()?;
         let hidden = (-1000.0, -1000.0);
-        if self.ae2_term_sub().is_some() {
+        if let Some(sub) = self.ae2_term_sub() {
+            // MagnetScreen keeps the inventory under its filters.
+            #[cfg(feature = "ae2-ae2wtlib")]
+            if sub == super::ae2_terminal_settings::Sub::Magnet {
+                return Some(self.ae2wtlib_magnet_slot_position(i).unwrap_or(hidden));
+            }
+            let _ = sub;
             return Some(hidden);
         }
         let place = |p: Option<(i32, i32)>| p.map_or(hidden, |(x, y)| (x as f32, y as f32));
@@ -692,6 +743,16 @@ impl Game<'_> {
         // AE2WTLib's IUniversalTerminalCapable screens add the terminal selector last.
         if self.ae2_term_view().is_some_and(|v| v.universal.is_some()) {
             buttons.push(Widget::Terminal);
+        }
+        // WCTScreen's settings button; AE2WTLib's own layout has it beside
+        // the crafting grid, AE2's crafting terminal has no room there.
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.ae2wtlib_settings_button() {
+            buttons.push(Widget::WirelessSettings);
+        }
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.ae2wtlib_magnet_button() {
+            buttons.push(Widget::MagnetFilter);
         }
         buttons.into_iter().enumerate().map(|(i, b)| (b, [x - 2 - 16, y + 2 + i as i32 * 22, 16, 16])).collect()
     }
@@ -1032,6 +1093,10 @@ impl Game<'_> {
                     r.ae2_term.selector = !r.ae2_term.selector;
                 }
             }
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Widget::WirelessSettings => self.ae2wtlib_open_settings(),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Widget::MagnetFilter => self.ae2_term_set_wtlib_magnet(true),
             Widget::SelectTerminal(index) => {
                 let name = self.ae2_term_view().and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.get(index)).map(|t| t.0.clone());
                 if let Some(r) = self.remote.as_mut() {
@@ -1224,6 +1289,11 @@ impl Game<'_> {
             }
             // Icon.COG.
             Widget::Settings => self.ae2_draw_icon_button(batch, ox, oy, rect, (32, 64), mouse),
+            // `Icon.TERMINAL_SETTINGS`: AE2's cog.
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Widget::WirelessSettings => self.ae2_draw_icon_button(batch, ox, oy, rect, (32, 64), mouse),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Widget::MagnetFilter => self.ae2wtlib_draw_magnet_button(batch, ox, oy, rect, mouse),
             Widget::Style => {
                 let style = self.ae2_term().map_or(0, |s| s.style.min(3));
                 self.ae2_draw_icon_button(batch, ox, oy, rect, (i32::from(style) * 16, 208), mouse);
@@ -1380,7 +1450,16 @@ impl Game<'_> {
         let Some(l) = self.ae2_term_layout() else {
             return false;
         };
-        if self.ae2_term_sub().is_some() {
+        if let Some(sub) = self.ae2_term_sub() {
+            #[cfg(feature = "ae2-ae2wtlib")]
+            if sub == super::ae2_terminal_settings::Sub::Magnet {
+                let (ox, oy) = self.inventory_origin(batch);
+                if let Some(text) = self.ae2wtlib_magnet_tooltip([self.cursor.0 - ox, self.cursor.1 - oy]) {
+                    self.draw_tooltip_lines(batch, &[(Text::legacy(&text), u32::MAX)], self.cursor.0, self.cursor.1);
+                    return true;
+                }
+            }
+            let _ = sub;
             return false;
         }
         let (ox, oy) = self.inventory_origin(batch);
@@ -1412,6 +1491,10 @@ impl Game<'_> {
                     gray(if view.is_some_and(|v| v.descending) { "gui.tooltips.ae2.Descending" } else { "gui.tooltips.ae2.Ascending" }),
                 ),
                 Widget::Settings => (tip("gui.tooltips.ae2.TerminalSettings"), Vec::new()),
+                #[cfg(feature = "ae2-ae2wtlib")]
+                Widget::WirelessSettings => (tip("gui.ae2wtlib.wireless_terminal_settings_title"), Vec::new()),
+                #[cfg(feature = "ae2-ae2wtlib")]
+                Widget::MagnetFilter => (tip("gui.ae2wtlib.Magnet"), Vec::new()),
                 Widget::Style => {
                     let style = self.ae2_term().map_or(0, |s| s.style.min(3));
                     let name = ["Small", "Medium", "Tall", "Full"][usize::from(style)];

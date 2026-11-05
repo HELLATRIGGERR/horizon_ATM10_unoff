@@ -21,6 +21,17 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2wtlib:has_pattern_encoding_terminal",
     "ae2wtlib:has_pattern_access_terminal",
     "ae2wtlib:pattern_encoding_logic",
+    // The Magnet Card's mode (`MagnetMode`, a byte), its pickup and insert
+    // filters (`ConfigInventory` under "") and their modes (`Codec.BOOL`,
+    // true: allow), and the terminal settings (`Codec.BOOL`).
+    "ae2wtlib:magnet_settings",
+    "ae2wtlib:pickup_config",
+    "ae2wtlib:insert_config",
+    "ae2wtlib:pickup_mode",
+    "ae2wtlib:insert_mode",
+    "ae2wtlib:restock",
+    "ae2wtlib:pick_block",
+    "ae2wtlib:craft_if_missing",
     "ae2:exported_custom_name",
     "ae2:exported_upgrades",
     "ae2:exported_settings",
@@ -409,7 +420,14 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
             map(t)?;
             Ok(Tag::Compound(Compound::new()))
         }
-        "ae2wtlib:pattern_encoding_logic" => Ok(Tag::Compound(map(t)?)),
+        "ae2wtlib:pattern_encoding_logic" | "ae2wtlib:pickup_config" | "ae2wtlib:insert_config" => Ok(Tag::Compound(map(t)?)),
+        // `Codec.BYTE.comapFlatMap(MagnetMode::fromByte, getId)`: a byte no
+        // mode has is off.
+        "ae2wtlib:magnet_settings" => Ok(Tag::Byte(match integer(&t)? as i8 {
+            b @ 1..=3 => b,
+            _ => 0,
+        })),
+        "ae2wtlib:pickup_mode" | "ae2wtlib:insert_mode" | "ae2wtlib:restock" | "ae2wtlib:pick_block" | "ae2wtlib:craft_if_missing" => boolean(t),
         "merequester:exported_requests" => {
             let Tag::List(rows) = &t else {
                 return Err("Not a list".into());

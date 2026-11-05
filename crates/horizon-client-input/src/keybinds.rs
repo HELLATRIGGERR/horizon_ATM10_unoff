@@ -79,6 +79,13 @@ pub const MAPPINGS: &[(&str, &str, &str)] = &[
     ("key.ae2.portable_item_cell", "key.keyboard.unknown", "ae2"),
     #[cfg(feature = "ae2-lab")]
     ("key.ae2.portable_fluid_cell", "key.keyboard.unknown", "ae2"),
+    // AE2WTLib's hotkeys after AE2's: its two terminals' and the Magnet Card's.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    ("key.ae2.wireless_pattern_encoding_terminal", "key.keyboard.unknown", "ae2"),
+    #[cfg(feature = "ae2-ae2wtlib")]
+    ("key.ae2.wireless_pattern_access_terminal", "key.keyboard.unknown", "ae2"),
+    #[cfg(feature = "ae2-ae2wtlib")]
+    ("key.ae2.ae2wtlib_magnet", "key.keyboard.unknown", "ae2"),
 ];
 /// Mappings Options builds as `ToggleKeyMapping` (hold or toggle by option).
 pub fn is_toggle(name: &str) -> bool {

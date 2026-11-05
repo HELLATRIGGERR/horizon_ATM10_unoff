@@ -19,6 +19,8 @@ horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 [features]
 # AE2's key mappings.
 ae2-lab = []
+# AE2WTLib's (ae2/addons/ae2wtlib).
+ae2-ae2wtlib = ["ae2-lab"]
 controllers = ["dep:horizon-dualsense"]
 
 [lints]

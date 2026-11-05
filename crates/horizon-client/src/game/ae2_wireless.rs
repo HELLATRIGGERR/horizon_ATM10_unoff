@@ -156,19 +156,30 @@ impl Game<'_> {
         conn: u32,
         ctx: &WirelessContext,
     ) -> Option<(Pos, f64)> {
+        if !self.ae2_wireless_source_valid(host, conn, ctx) {
+            return None;
+        }
+        self.ae2_wireless_reach(host, conn, &ctx.target_dim, ctx.target)
+    }
+    /// `updateConnectedAccessPoint`: the nearest access point the guest
+    /// reaches on the grid of the one an item is linked to, and its distance.
+    pub(super) fn ae2_wireless_reach(
+        &self,
+        host: &LanHost,
+        conn: u32,
+        target_dim: &str,
+        target: Pos,
+    ) -> Option<(Pos, f64)> {
         let guest = host
             .hub
             .guests
             .iter()
             .find(|g| g.conn == conn && !g.spectator() && g.dimension == self.dim.id())?;
-        if !self.ae2_wireless_source_valid(host, conn, ctx) {
+        let dim = super::Dim::from_id(target_dim);
+        if dim.id() != target_dim {
             return None;
         }
-        let target_dim = super::Dim::from_id(&ctx.target_dim);
-        if target_dim.id() != ctx.target_dim {
-            return None;
-        }
-        let target = self.ae2_dimension_address(target_dim, ctx.target)?;
+        let target = self.ae2_dimension_address(dim, target)?;
         if !matches!(self.ae2_block_entity(target),Some(BlockEntity::Ae2(m)) if m.kind==MachineKind::WirelessAccessPoint)
         {
             return None;
@@ -281,6 +292,18 @@ impl Game<'_> {
         stack
             .and_then(|s| energy(s).ok())
             .is_some_and(|(p, _)| p > 0.0)
+    }
+    /// `WTMenuHost.inRange` with no menu open: the access point a carried
+    /// wireless item reaches (linked, in range, and powered unless the
+    /// guest is creative or the range costs nothing), the anchor of the grid
+    /// it acts on.
+    #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
+    pub(super) fn ae2_wireless_item_link(&self, host: &LanHost, conn: u32, stack: &ItemStack) -> Option<Pos> {
+        let (target_dim, target) = target(stack)?;
+        let (anchor, distance) = self.ae2_wireless_reach(host, conn, &target_dim, target)?;
+        let free = horizon_client::ae2_common_config::wireless().link.drain(distance) <= 0.0
+            || host.hub.guests.iter().any(|g| g.conn == conn && g.creative());
+        (free || energy(stack).is_ok_and(|(power, _)| power > 0.0)).then_some(anchor)
     }
     pub(super) fn ae2_wireless_tick(
         &mut self,

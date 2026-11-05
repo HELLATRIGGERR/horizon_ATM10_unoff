@@ -46,7 +46,7 @@ fn candidates(action: Action, inventory: &[Option<ItemStack>]) -> Vec<usize> {
 /// AE2WTLib's `WUTHandler.findTerminal` for `Ae2wtlibLocatingService`: in
 /// slot order, a universal terminal holding the terminal at once, else the
 /// first of the terminal's own items (the main inventory, armour, off hand).
-fn locate(g: &horizon_client::lan::guest::Guest, terminal: &horizon_client::ae2x::defs::WirelessTerminal) -> Option<usize> {
+pub(super) fn locate(g: &horizon_client::lan::guest::Guest, terminal: &horizon_client::ae2x::defs::WirelessTerminal) -> Option<usize> {
     let stacks = (0..g.inventory.len()).map(|slot| (slot, g.inventory[slot].as_ref()))
         .chain(std::iter::once((super::shield::OFFHAND_SLOT, g.offhand.as_ref())));
     let mut found = None;
@@ -63,6 +63,13 @@ impl Game<'_> {
     /// Named physical input is examined before vanilla's default-key mapping.
     fn ae2_hotkey_input(&mut self, input: &str, down: bool, repeat: bool) {
         if !down || repeat || self.screen != Screen::Playing { return; }
+        // The addons' hotkeys, by id: the server finds what answers them.
+        let addons: Vec<&str> = Self::ae2x_hotkeys().iter().copied().filter(|id| self.settings.keys.get(&format!("key.ae2.{id}")) == input).collect();
+        if self.remote.is_some() {
+            for id in addons {
+                self.send(Serverbound::CustomPayload(CustomPayload {channel: CHANNEL.into(), data: id.as_bytes().to_vec()}));
+            }
+        }
         let actions: Vec<_> = Action::ALL.into_iter().filter(|action| self.settings.keys.get(action.mapping()) == input).collect();
         for action in actions {
             if self.remote.is_some() {
@@ -98,6 +105,7 @@ impl Game<'_> {
                 self.lan_open_ae2_wireless_source(host, conn, source);
                 if self.lan_wireless_menu_source(host, conn) == Some(source) { return; }
             }
+            if self.lan_ae2x_hotkey(host, conn, id) { return; }
         }
         let Some(action) = Action::parse(data) else { return; };
         let Some(guest) = host.hub.guests.iter().find(|guest| guest.conn == conn && !guest.spectator()) else { return; };

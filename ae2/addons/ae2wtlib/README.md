@@ -7,7 +7,7 @@ committed. Provenance in [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json), the decla
 
 Feature `ae2-ae2wtlib`; content `content/ae2wtlib` from `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts ae2wtlib`;
 settings from `config/ae2wtlib.toml` (`[mods.ae2wtlib]` in `pack/pack.toml`; All the Mods 10 ships none: the magnet
-range stays 16, read with the Magnet Card's slice).
+range stays 16).
 
 ## Slice 1: the terminal registry, the universal terminal, wireless encoding and access
 
@@ -29,11 +29,11 @@ Differences, known:
 
 - `WTDefinition.ofOrNull` takes a universal terminal's first terminal in the order of a `HashMap` when no current one is
   set; the port takes the registration order, and sets it when the terminal opens.
-- The selector shows the terminals' items, not AE2WTLib's icons (`textures/wtlib/guis/icons.png` is in the bundled API
-  jar, which `prepare-addon.ts` does not read yet).
+- The selector shows the terminals' items, not AE2WTLib's icons (`textures/wtlib/guis/icons.png`, from the bundled API
+  jar, is in the content since slice 3).
 - The Pattern Access screen has no selector yet: a universal terminal turned to it is left by the wheel or a hotkey.
-- The terminals' own hotkeys (`wireless_pattern_encoding_terminal`, `wireless_pattern_access_terminal`) are answered by
-  the server, but the client has no key mapping for them yet; AE2's `wireless_terminal` key finds the universal terminal.
+- The terminals' own hotkeys (`wireless_pattern_encoding_terminal`, `wireless_pattern_access_terminal`) got their key
+  mappings with slice 3; AE2's `wireless_terminal` key finds the universal terminal.
 - The wireless encoding terminal shows no key-type button (AE2's `KeyTypeSelectionHost` would show it).
 - AE2WTLib's own menus (`WCTMenu` with the armour, trash, magnet and singularity slots and the scrolling upgrade panel)
   are not ported: the universal terminal opens AE2's terminal menus, and its cards go in by AE2's crafting-grid upgrade
@@ -66,10 +66,52 @@ world test `ae2wtlib-recipes`: the crafting terminal with an Energy Card and the
 terminal with both, the card, (2 + 1) x 1,600,000 of battery and both terminals' energy, the encoding terminal's name kept;
 the pattern access terminal is added by the upgrade recipe; a universal terminal already holding it gives no result.
 
+## Slice 3: the Magnet Card
+
+| AE2WTLib | Port |
+|---|---|
+| `AE2wtlibItems.MAGNET_CARD`, `Upgrades.add`: one on AE2's wireless crafting terminal, one on the universal terminal | the item (`content.json`), its recipe from the jar, the upgrade rows |
+| `MagnetMode` in `ae2wtlib:magnet_settings` (a byte: off, pickup to inventory, pickup to ME, pickup to ME without the magnet); `getMagnetMode`: invalid without an upgrade inventory, no card, else the byte | `ae2x/ae2wtlib/magnet.rs` |
+| `MagnetHost`: `pickup_config`, `insert_config` (`ConfigInventory` of 27 item keys under the key ""), `pickup_mode`, `insert_mode` (`Codec.BOOL`, true allows; deny by default); `IPartitionList` with `FuzzyMode.IGNORE_ALL` | `Filter`: the keys' item ids, any components matching; an empty allow list takes nothing |
+| `MagnetHandler.handle` from `ItemWCT.inventoryTick` (a universal terminal ticks its crafting terminal), once a server tick, for the first such stack ticked; the terminal of `CraftingTerminalHandler` (`WUTHandler.findTerminal`: a universal terminal holding crafting first) | `lan_ae2wtlib_magnet_tick`, in the guest's tick after its items' and before what it touches (`Player.aiStep`) |
+| `handleMagnet`: not sneaking, the magnet bit on both, the pickup filter; item entities in the player's box grown by `magnet_card_range` (`ae2wtlib.toml`, 16.0) get `playerTouch` | the same box over the item entities; the touch is the guest's own pickup (`guest_touch_items`), pickup delay and target included |
+| `ItemEntityPickupEvent.Pre` at the lowest priority, `insertStackInME`: `canInsert` (restock on and the item in the hotbar, else not sneaking, the pickup-to-ME bit and the insert filter), `inRange` (the access point the terminal reaches, powered), the grid's storage takes what it can without power (`getStorageService().getInventory()`), the stat and `onItemPickup`, the rest picked up as usual; an emptied entity leaves with no take | `lan_ae2wtlib_item_pickup` from the pickup routine (`lan_ae2x_item_pickup`), after native mods' refusal. Native hooks API 40 `native_item_picked_up` can only refuse and sees no components, so this is the engine's path, at the event's place |
+| `MagnetHotkeyAction` (`ae2wtlib_magnet`): off, inventory, ME, ME without the magnet, off; the action bar says which; without a card nothing changes | `key.ae2.ae2wtlib_magnet` (unbound, as AE2's keys), the server's hotkey handler |
+| `WirelessTerminalSettingsScreen` (`screens/wtlib/wireless_terminal_settings.json`) and `TerminalSettingsPacket`: pick block, craft if missing, restock, magnet, pickup to ME; the magnet's two boxes show the stored byte, inactive without a card; craft if missing only with pick block; each change sends all five, set on the item | the crafting terminal's sub screen, from a toolbar button (`ae2wtlib:terminal_settings`) |
+| `MagnetMenu`/`MagnetScreen` (`screens/wtlib/magnet.json`, `wtlib/guis/magnet.png`, the API's `icons.png`) from `WCTScreen`'s Magnet Filter button, shown with the card: two `FakeSlot` filters of 27 over the `MagnetHost` of `CraftingTerminalHandler`'s terminal (the cursor's item, as a key of no amount; an empty cursor clears), allow/deny of each, copy up, copy down, switch | a sub screen of the crafting terminal with the player's inventory under the filters, its presses sent as `ae2wtlib:magnet_menu`; `prepare-addon.ts` reads the bundled API jar (`nested_jars`) and AE2-namespace textures outside `guis/` (`ae2_namespace.textures`), the atlas names them `ae2:<path>` |
+| component ids `magnet_settings`, `pickup_config`, `insert_config`, `pickup_mode`, `insert_mode`, `restock`, `pick_block`, `craft_if_missing` | registered for commands; 26.3's SNBT refuses the empty key `ConfigInventory` writes under, so the filters can be set by their screen only |
+
+Differences, known:
+
+- `MagnetMenu` is its own menu in AE2WTLib (its back button reopens the terminal); here its screen covers the terminal's
+  menu, which stays open, as AE2's sub screens do. Shift-clicking an item into the filters is not ported.
+- The settings and Magnet Filter buttons sit on the terminal's left toolbar: the port opens AE2's crafting terminal
+  layout, where AE2WTLib's spots beside the grid are taken.
+- `PreventRemoteMovement` persistent data is not read (the port's item entities have none).
+- The magnet works for guests (the server-thread player); the in-frame host player has no wireless terminals here.
+- `CraftingTerminalHandler` keeps the terminal it found while that still holds crafting; the port looks again each tick.
+
+Tests: `horizon-client-lib` (`magnet`: modes, the hotkey cycle, settings on the stored byte, filters and their edits,
+the range config; the card rows), `horizon-client` (the settings screen's boxes and packet, the filter screen's view),
+`horizon-command` and the component samples, and the world test `ae2wtlib-magnet`: the filter screen sets both filters
+from the cursor and turns the pickup filter to allow; the hotkey turns the card through its four modes; the magnet pulls
+what the pickup filter allows from 11 blocks away into the inventory; with pickup to ME cobblestone goes into the network
+and the insert filter keeps dirt in the inventory; without the magnet a touched stack still goes in and a far one stays;
+the settings screen sets the magnet's two bits.
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.3)
 
-- **Magnet Card** (`magnet_card`, range 16 from `ae2wtlib.toml`), **Restock** and **Pick Block**: player ticks and
-  pickups; `RESTOCK`, `PICK_BLOCK`, `PICKUP_CONFIG`, `INSERT_CONFIG` components; the settings and trash screens.
-- **Quantum Bridge Card**: `WTMenuHost.isQuantumLinked` (a singularity in `SINGULARITY`, the bridge by frequency, 22.5 AE/t,
-  recharging from the network to half), sharing the cross-dimension work with AEInfinityBooster's Dimension Card.
-- **Curios** slot, when Horizon has accessory slots.
+- **Restock and Pick Block** (slice 4): `AE2wtlibEvents.restock` after `useItemOn`, right-clicks on blocks and entities,
+  item use finishing, arrows and the drop key (`ServerPlayerGameModeMixin`, `ServerPlayerMixin`, the NeoForge events):
+  native hooks have the inventory tick (API 39) but none of these points, so they are engine hooks; `RestockAmountPacket`
+  once a tick for the hotbar counts (`GuiMixin`), `UpdateRestockPacket`; `pickBlock` (`MinecraftMixin`: the client's
+  pick-block path, then `PickBlockPacket`; `craft_if_missing` opens `CraftAmountMenu`). The restock key and
+  `StowHotkeyAction`. The settings screen already writes `restock`, `pick_block` and `craft_if_missing`, and pickups
+  already honour restock.
+- **Trash screen** (`TrashMenu`), with `WCTMenu`'s armour and singularity slots if the port takes AE2WTLib's own crafting
+  terminal layout.
+- **Quantum Bridge Card** (`UpgradeHelper.addUpgradeToAllTerminals(QUANTUM_BRIDGE_CARD, 1)`): `WTMenuHost.isQuantumLinked`
+  (a singularity in `SINGULARITY`, the bridge by frequency, 22.5 AE/t, recharging from the network to half), sharing the
+  cross-dimension work with AEInfinityBooster's Dimension Card: both need the wireless path (`ae2_wireless_reach`, today
+  the guest's own dimension only) to reach a grid in another dimension; the magnet's `inRange` follows it.
+- **Curios** slot, when Horizon has accessory slots (`findTerminal` looks there first).

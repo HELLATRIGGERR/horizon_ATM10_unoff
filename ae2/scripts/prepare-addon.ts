@@ -22,8 +22,12 @@ type Content = { namespace: string; name: string; description: string; authors: 
   /** The addon's own recipe condition (`<ns>:config`, by `config_id`): the setting of its ATM10 config it reads. */
   config_conditions?: Record<string, { file: string; key: string; default: boolean }>;
   /** Files the addon ships under AE2's namespace that the declared slices use, kept under `assets/<ns>/ae2/`
-   * (a content mod owns its namespace alone): screen styles and GUI textures. */
-  ae2_namespace?: { screens?: string[]; gui_textures?: string[] };
+   * (a content mod owns its namespace alone): screen styles, GUI textures (`textures/guis/`) and other textures
+   * (`textures/`, AE2WTLib's `wtlib/guis/`). */
+  ae2_namespace?: { screens?: string[]; gui_textures?: string[]; textures?: string[] };
+  /** Jars the addon's jar bundles (`META-INF/jarjar/`, AE2WTLib's API): their files under AE2's namespace are read as
+   * the addon jar's own. */
+  nested_jars?: string[];
   /** The addon's data maps the slices read (`data/<ns>/data_maps/<registry>/<name>.json`, as `<registry>/<name>`),
    * copied as they are: NeoForge's file, its conditions and tags resolved by the game. */
   data_maps?: string[];
@@ -64,6 +68,18 @@ if (!help(usage)) {
   const unzip = spawnSync('unzip', ['-q', '-o', jar, '-d', jarDir], { stdio: 'inherit' });
   if (unzip.error) throw unzip.error;
   if (unzip.status !== 0) throw new Error(`unzip failed (${unzip.status})`);
+  const nestedDirs = (content.nested_jars ?? []).map((nested, i) => {
+    const inner = join(jarDir, nested);
+    if (!existsSync(inner)) throw new Error(`${nested} is not in ${manifest.jar.file}`);
+    const dir = join(root, '.local/addons', id, `nested-${i}`);
+    rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
+    const r = spawnSync('unzip', ['-q', '-o', inner, '-d', dir], { stdio: 'inherit' });
+    if (r.error) throw r.error;
+    if (r.status !== 0) throw new Error(`unzip of ${nested} failed (${r.status})`);
+    return dir;
+  });
+  // A file under AE2's namespace: the jar's, else a bundled jar's.
+  const ae2File = (rel: string) => [jarDir, ...nestedDirs].map(dir => join(dir, 'assets/ae2', rel)).find(path => existsSync(path)) ?? join(jarDir, 'assets/ae2', rel);
 
   const walk = (dir: string): string[] => existsSync(dir) ? readdirSync(dir).flatMap(name => {
     const path = join(dir, name); return statSync(path).isDirectory() ? walk(path) : [path];
@@ -217,8 +233,9 @@ if (!help(usage)) {
   }
   // The addon's own files under AE2's namespace that the slices use: they
   // stay under its namespace, the game looks there (`assets/<ns>/ae2/`).
-  for (const screen of content.ae2_namespace?.screens ?? []) copy(join(jarDir, 'assets/ae2/screens', screen), join(out, 'assets', ns, 'ae2/screens', screen));
-  for (const texture of content.ae2_namespace?.gui_textures ?? []) copy(join(jarDir, 'assets/ae2/textures/guis', texture), join(out, 'assets', ns, 'ae2/textures/guis', texture));
+  for (const screen of content.ae2_namespace?.screens ?? []) copy(ae2File(`screens/${screen}`), join(out, 'assets', ns, 'ae2/screens', screen));
+  for (const texture of content.ae2_namespace?.gui_textures ?? []) copy(ae2File(`textures/guis/${texture}`), join(out, 'assets', ns, 'ae2/textures/guis', texture));
+  for (const texture of content.ae2_namespace?.textures ?? []) copy(ae2File(`textures/${texture}`), join(out, 'assets', ns, 'ae2/textures', texture));
   // Files left for later slices: AE2's namespace (screens, GUI textures,
   // tags), which belong in content/ae2, the guide, data maps, advancements.
   const later = (label: string, dir: string) => { const n = walk(dir).length; if (n) report.deferred[label] = n; };

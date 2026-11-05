@@ -2807,6 +2807,7 @@ impl Game<'_> {
             "sort":sort_mode,"view":filter_mode,"descending":sort_descending,
             "types":wireless.as_ref().filter(|_|!encoding_view).map(|_|[enabled_types.0,enabled_types.1]),"priority":chest,"jobs":jobs,
             "universal":wireless.as_ref().and_then(|ctx|self.lan_wireless_universal_view(host,conn,ctx)),
+            "addon":wireless.as_ref().and_then(|ctx|self.lan_ae2x_wireless_view(host,conn,ctx)),
         });
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else {
             return;

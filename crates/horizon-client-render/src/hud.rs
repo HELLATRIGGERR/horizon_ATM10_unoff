@@ -1258,15 +1258,16 @@ impl HudAtlas {
                         Err(error) => log::warn!("AE2 GUI texture {}: {error}", path.display()),
                     }
                 }
-                // Addons' GUI textures of AE2's namespace, carried under their
-                // own (`assets/<ns>/ae2/textures/guis`), with their folders:
+                // Addons' textures of AE2's namespace, carried under their
+                // own (`assets/<ns>/ae2/textures`), with their folders:
                 // MEGA's `guis/megacells/mega_interface.png` is
-                // `ae2:guis/megacells/mega_interface`.
+                // `ae2:guis/megacells/mega_interface`, AE2WTLib's
+                // `wtlib/guis/magnet.png` `ae2:wtlib/guis/magnet`.
                 let mut addons: Vec<_> = std::fs::read_dir(root.join("assets"))
                     .into_iter()
                     .flatten()
                     .flatten()
-                    .map(|e| e.path().join("ae2/textures/guis"))
+                    .map(|e| e.path().join("ae2/textures"))
                     .filter(|p| p.is_dir())
                     .collect();
                 addons.sort();
@@ -1287,7 +1288,7 @@ impl HudAtlas {
                         let Ok(relative) = path.strip_prefix(&guis) else { continue };
                         let name = relative.with_extension("").to_string_lossy().replace('\\', "/");
                         match decode(&path) {
-                            Ok((w, h, pixels)) => images.push((format!("ae2:guis/{name}"), w, h, pixels)),
+                            Ok((w, h, pixels)) => images.push((format!("ae2:{name}"), w, h, pixels)),
                             Err(error) => log::warn!("AE2 addon GUI texture {}: {error}", path.display()),
                         }
                     }

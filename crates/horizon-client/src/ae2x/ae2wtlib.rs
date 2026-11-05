@@ -7,6 +7,7 @@
 //! `game/ae2x/ae2wtlib/`.
 use super::defs::{Defs, TerminalKind, UniversalTerminal, WirelessTerminal};
 
+pub mod magnet;
 pub mod recipes;
 
 pub const NAMESPACE: &str = "ae2wtlib";
@@ -34,7 +35,9 @@ pub const TERMINALS: [(&str, &str, TerminalKind, &str); 3] = [
 /// The terminals, the universal terminal, and their cards
 /// (`UpgradeHelper.addUpgrades`: AE2's energy card up to each terminal's
 /// `upgradeCount`, up to `WUTHandler.getUpgradeCardCount` on the universal
-/// terminal). The Quantum Bridge and Magnet Cards come with their slices.
+/// terminal; `onAe2Initialized`: one Magnet Card on AE2's wireless crafting
+/// terminal and one on the universal terminal). The Quantum Bridge Card
+/// comes with its slice.
 pub fn register(defs: &mut Defs) {
     for (name, item, kind, hotkey) in TERMINALS {
         defs.add_wireless_terminal(WirelessTerminal {
@@ -48,6 +51,8 @@ pub fn register(defs: &mut Defs) {
     }
     defs.set_universal_terminal(UniversalTerminal { item: UNIVERSAL_TERMINAL.to_owned(), current: CURRENT_TERMINAL.to_owned() });
     defs.add_upgrade_to_all_terminals("ae2:energy_card", 0);
+    defs.add_upgrade(magnet::MAGNET_CARD, "ae2:wireless_crafting_terminal", 1);
+    defs.add_upgrade(magnet::MAGNET_CARD, UNIVERSAL_TERMINAL, 1);
 }
 
 #[cfg(test)]
@@ -82,6 +87,9 @@ mod tests {
         assert_eq!(defs.upgrade_limit("ae2:energy_card", PATTERN_ENCODING_TERMINAL), 2);
         assert_eq!(defs.upgrade_limit("ae2:energy_card", UNIVERSAL_TERMINAL), 6);
         assert_eq!(defs.wireless_terminal("ae2:wireless_terminal").unwrap().installed, None, "AE2's own terminal can't be combined");
+        for (item, magnet) in [("ae2:wireless_crafting_terminal", 1), (UNIVERSAL_TERMINAL, 1), (PATTERN_ACCESS_TERMINAL, 0), ("ae2:wireless_terminal", 0)] {
+            assert_eq!(defs.upgrade_limit(magnet::MAGNET_CARD, item), magnet, "{item}");
+        }
     }
 
     /// MEGA's `AE2WTIntegration`: its Greater Energy Card on every terminal

@@ -167,7 +167,15 @@ impl Game<'_> {
                 }
                 MachineKind::Ext(_) => {
                     let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&p) else { continue };
-                    if !self.ae2x_visual_props(m, &mut props) {
+                    if !self.ae2x_visual_props(p, m, status.is_some_and(|s| s.online), &mut props) {
+                        continue;
+                    }
+                }
+                // An addon's block that is one of AE2's providers (ExtendedAE's
+                // Assembler Matrix pattern core) with states of its own.
+                MachineKind::PatternProvider => {
+                    let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&p) else { continue };
+                    if m.variant.is_none() || !self.ae2x_visual_props(p, m, status.is_some_and(|s| s.online), &mut props) {
                         continue;
                     }
                 }

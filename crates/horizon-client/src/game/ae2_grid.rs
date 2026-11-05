@@ -257,6 +257,12 @@ impl Game<'_> {
                             .and_then(|state| state.properties.get("push_direction"))
                             .map(String::as_str);
                         d.faces = pattern_provider_faces(direction);
+                        // An addon's provider block with a node of its own
+                        // (ExtendedAE's Assembler Matrix pattern core).
+                        if m.variant.is_some() {
+                            let properties = self.pack.assets.registry.state(world.block(p.0, p.1, p.2)).map(|state| &state.properties);
+                            self.ae2x_device(m, properties, &mut d);
+                        }
                     }
                     if m.kind == MachineKind::WirelessAccessPoint {
                         d.faces = self

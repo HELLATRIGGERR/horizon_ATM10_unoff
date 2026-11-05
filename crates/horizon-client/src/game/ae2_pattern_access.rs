@@ -156,6 +156,13 @@ impl Game<'_> {
             }
         };
         let host_key=horizon_client::ae2_cell_codec::key(&host_icon).ok()?;
+        // An addon's provider of a group of its own (`getTerminalGroup`: the
+        // Assembler Matrix's pattern core, named as its block, with its line).
+        if let Owner::Block(_)=owner {
+            if let Some((name,tooltip))=self.ae2x_pattern_group(&self.access_machine(owner)?) {
+                return Some(Group{icon:host_key,name:self.access_name(owner).unwrap_or(name),tooltip});
+            }
+        }
         if let Some(name)=self.access_name(owner){return Some(Group{icon:host_key,name,tooltip:Vec::new()});}
         let address=match owner {Owner::Block(p)=>p,Owner::Part(p)=>p.host};
         let Some((dim,pos))=self.ae2_address_parts(address) else{return None};

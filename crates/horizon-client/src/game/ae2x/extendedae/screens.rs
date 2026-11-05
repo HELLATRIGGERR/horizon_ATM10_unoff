@@ -171,7 +171,7 @@ const LAYOUTS: &[(&str, Layout)] = &[
         // amtButton1..18: above the config rows.
         cogs: &[(18..27, (8, 35)), (27..36, (8, 95))],
         lock_line: None,
-        page_line: Some(PageLine { data: 2, key: "gui.extendedae.ex_interface.config", fallback: "Config Page %s", at: (8.0, 24.0), per_value: false }),
+        page_line: Some(PageLine { data: 2, key: "gui.extendedae.ex_interface.config", fallback: "Config Page %s", at: (8.0, 24.0), per_value: false, count: false }),
         panels: &[],
     }),
     // The drive's ten cells on the left, ten more on the right (EX_1).
@@ -378,7 +378,7 @@ const LAYOUTS: &[(&str, Layout)] = &[
         grid: None,
         cogs: &[],
         lock_line: None,
-        page_line: Some(PageLine { data: 7, key: "gui.extendedae.ex_inscriber.number", fallback: "Inscription Job %s", at: (8.0, 16.0), per_value: false }),
+        page_line: Some(PageLine { data: 7, key: "gui.extendedae.ex_inscriber.number", fallback: "Inscription Job %s", at: (8.0, 16.0), per_value: false, count: false }),
         panels: &[],
     }),
     // ContainerExMolecularAssembler: the crafting grid of the job (EX_1, as a
@@ -401,7 +401,78 @@ const LAYOUTS: &[(&str, Layout)] = &[
         grid: Some((0..9, 4)),
         cogs: &[],
         lock_line: None,
-        page_line: Some(PageLine { data: 5, key: "gui.extendedae.ex_molecular_assembler.number", fallback: "Crafting Job %s", at: (8.0, 16.0), per_value: false }),
+        page_line: Some(PageLine { data: 5, key: "gui.extendedae.ex_molecular_assembler.number", fallback: "Crafting Job %s", at: (8.0, 16.0), per_value: false, count: false }),
+        panels: &[],
+    }),
+    // ContainerAssemblerMatrix, GuiAssemblerMatrix: four rows of nine
+    // patterns (`AssemblerMatrixSlot`s, placed by the screen's code: the
+    // style's `EAE_MATRIX_PATTERN`, `style_slots`), a pattern core's 36 at a
+    // time (the mod scrolls all its cores' rows); the left toolbar's Cancel
+    // and Pattern Access Terminal buttons, then the next and previous core;
+    // "Running Jobs: %s" (data slot 1).
+    ("extendedae:assembler_matrix", Layout {
+        kind: OWN,
+        style: "assembler_matrix.json",
+        slots: &[(0, "EAE_MATRIX_PATTERN"), (1, "EAE_MATRIX_PATTERN"), (2, "EAE_MATRIX_PATTERN"), (3, "EAE_MATRIX_PATTERN"), (4, "EAE_MATRIX_PATTERN"), (5, "EAE_MATRIX_PATTERN"), (6, "EAE_MATRIX_PATTERN"), (7, "EAE_MATRIX_PATTERN"), (8, "EAE_MATRIX_PATTERN"), (9, "EAE_MATRIX_PATTERN"), (10, "EAE_MATRIX_PATTERN"), (11, "EAE_MATRIX_PATTERN"), (12, "EAE_MATRIX_PATTERN"), (13, "EAE_MATRIX_PATTERN"), (14, "EAE_MATRIX_PATTERN"), (15, "EAE_MATRIX_PATTERN"), (16, "EAE_MATRIX_PATTERN"), (17, "EAE_MATRIX_PATTERN"), (18, "EAE_MATRIX_PATTERN"), (19, "EAE_MATRIX_PATTERN"), (20, "EAE_MATRIX_PATTERN"), (21, "EAE_MATRIX_PATTERN"), (22, "EAE_MATRIX_PATTERN"), (23, "EAE_MATRIX_PATTERN"), (24, "EAE_MATRIX_PATTERN"), (25, "EAE_MATRIX_PATTERN"), (26, "EAE_MATRIX_PATTERN"), (27, "EAE_MATRIX_PATTERN"), (28, "EAE_MATRIX_PATTERN"), (29, "EAE_MATRIX_PATTERN"), (30, "EAE_MATRIX_PATTERN"), (31, "EAE_MATRIX_PATTERN"), (32, "EAE_MATRIX_PATTERN"), (33, "EAE_MATRIX_PATTERN"), (34, "EAE_MATRIX_PATTERN"), (35, "EAE_MATRIX_PATTERN")],
+        icons: &[],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle {
+                entry: 36,
+                key: "eae_matrix_cancel",
+                stored: Stored::Index,
+                default: 0,
+                data: 2,
+                title: "gui.extendedae.assembler_matrix.cancel",
+                // Icon.CLEAR.
+                values: &[("CANCEL", (96, 0), "gui.extendedae.assembler_matrix.cancel")],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 37,
+                key: "terminal_visible",
+                stored: Stored::Flag(true),
+                default: 1,
+                data: 0,
+                title: "gui.ae2.PatternAccessTerminal",
+                values: &[
+                    (NO_YES[0], icon::PATTERN_ACCESS_HIDE, "gui.ae2.PatternAccessTerminalHint"),
+                    (NO_YES[1], icon::PATTERN_ACCESS_SHOW, "gui.ae2.PatternAccessTerminalHint"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 38,
+                key: "ae2x_page",
+                stored: Stored::Index,
+                default: 0,
+                data: 2,
+                title: "",
+                values: &[("NEXT", icon::ARROW_RIGHT, "gui.extendedae.ex_interface.next")],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 39,
+                key: "ae2x_page",
+                stored: Stored::Index,
+                default: 0,
+                data: 2,
+                title: "",
+                values: &[("PREVIOUS", icon::ARROW_LEFT, "gui.extendedae.ex_interface.pre")],
+                place: None,
+                shown_by: None,
+            },
+        ],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: Some(PageLine { data: 1, key: "gui.extendedae.assembler_matrix.threads", fallback: "Running Jobs: %s", at: (80.0, 19.0), per_value: false, count: true }),
         panels: &[],
     }),
     // ContainerVoidCell, GuiVoidCell: the three modes' buttons in their places,
@@ -453,7 +524,7 @@ const LAYOUTS: &[(&str, Layout)] = &[
         grid: None,
         cogs: &[],
         lock_line: None,
-        page_line: Some(PageLine { data: 0, key: "gui.extendedae.void_cell.mode.", fallback: "Mode", at: (5.0, 42.0), per_value: true }),
+        page_line: Some(PageLine { data: 0, key: "gui.extendedae.void_cell.mode.", fallback: "Mode", at: (5.0, 42.0), per_value: true, count: false }),
         panels: &[],
     }),
     // ContainerCircuitCutter: one input, the output, four cards; as the assembler's.
@@ -474,6 +545,16 @@ const LAYOUTS: &[(&str, Layout)] = &[
         panels: &[],
     }),
 ];
+
+/// `GuiAssemblerMatrix.drawFG`: its pattern slots at `col * 18 + 8`,
+/// `(row + 1) * 18 + 13`, which its style does not hold.
+pub(super) fn style_slots(block: &str, style: &mut horizon_client::ae2_screen_style::ScreenStyle) {
+    use horizon_client::ae2_screen_style::{Grid, Position, SlotStyle};
+    if block == "extendedae:assembler_matrix" {
+        let position = Position { left: Some(8), top: Some(31), right: None, bottom: None };
+        style.slots.insert("EAE_MATRIX_PATTERN".into(), SlotStyle { position, grid: Some(Grid::BreakAfter(9)), hidden: false });
+    }
+}
 
 /// The layout of block `block`'s screen.
 pub(super) fn layout(block: &str) -> Option<&'static Layout> {

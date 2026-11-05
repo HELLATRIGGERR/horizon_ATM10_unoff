@@ -43,6 +43,53 @@ pub const INFINITY_WATER_CELL: &str = "extendedae:infinity_water_cell";
 pub const INFINITY_COBBLESTONE_CELL: &str = "extendedae:infinity_cobblestone_cell";
 /// `ItemVoidCell`.
 pub const VOID_CELL: &str = "extendedae:void_cell";
+/// The Assembler Matrix's blocks (`BlockAssemblerMatrix*`): its edges, faces
+/// (walls or glass) and inner function blocks (crafter, pattern and speed cores).
+pub const MATRIX_FRAME: &str = "extendedae:assembler_matrix_frame";
+pub const MATRIX_WALL: &str = "extendedae:assembler_matrix_wall";
+pub const MATRIX_GLASS: &str = "extendedae:assembler_matrix_glass";
+pub const MATRIX_CRAFTER: &str = "extendedae:assembler_matrix_crafter";
+pub const MATRIX_PATTERN: &str = "extendedae:assembler_matrix_pattern";
+pub const MATRIX_SPEED: &str = "extendedae:assembler_matrix_speed";
+/// `TileAssemblerMatrixPattern.INV_SIZE`.
+pub const MATRIX_PATTERNS: usize = 36;
+/// `ClusterAssemblerMatrix.addSpeedCore`: the speed cores that count.
+pub const MATRIX_MAX_SPEED: usize = 5;
+
+/// A block of the Assembler Matrix, by its role in the structure
+/// (`CalculatorAssemblerMatrix.verifyInternalStructure`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MatrixRole {
+    /// `TileAssemblerMatrixFrame`: every edge and corner.
+    Frame,
+    /// `TileAssemblerMatrixWall` and `TileAssemblerMatrixGlass`: the faces.
+    Wall,
+    /// The `TileAssemblerMatrixFunction`s, inside.
+    Crafter,
+    Pattern,
+    Speed,
+}
+impl MatrixRole {
+    pub fn of(id: &str) -> Option<Self> {
+        Some(match id {
+            MATRIX_FRAME => Self::Frame,
+            MATRIX_WALL | MATRIX_GLASS => Self::Wall,
+            MATRIX_CRAFTER => Self::Crafter,
+            MATRIX_PATTERN => Self::Pattern,
+            MATRIX_SPEED => Self::Speed,
+            _ => return None,
+        })
+    }
+    /// `TileAssemblerMatrixFunction`: an inner block.
+    pub fn function(self) -> bool {
+        matches!(self, Self::Crafter | Self::Pattern | Self::Speed)
+    }
+    /// `setIdlePowerUsage`: 0.5 AE/t, 1 for a function block.
+    pub fn idle_power(self) -> f64 {
+        if self.function() { 1.0 } else { 0.5 }
+    }
+}
+
 /// `extendedae-common.toml` (`EAEConfig`): what this port reads of it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Config {
@@ -51,10 +98,13 @@ pub struct Config {
     pub bus_speed: u64,
     /// `item.infinity_cell_energy_cost`, 0.1 to 64: an infinity cell's AE/t.
     pub infinity_cell_cost: f64,
+    /// `device.assembler_matrix_max_size`, 3 to 16: how far the Assembler
+    /// Matrix's corners may lie apart on each axis (`checkMultiblockScale`).
+    pub matrix_size: i32,
 }
 impl Default for Config {
     fn default() -> Self {
-        Self { bus_speed: 8, infinity_cell_cost: 8.0 }
+        Self { bus_speed: 8, infinity_cell_cost: 8.0, matrix_size: 6 }
     }
 }
 impl Config {
@@ -70,6 +120,10 @@ impl Config {
         let cost = value.get("item").and_then(|d| d.get("infinity_cell_energy_cost")).and_then(toml::Value::as_float);
         if let Some(n) = cost.filter(|n| (0.1..=64.0).contains(n)) {
             config.infinity_cell_cost = n;
+        }
+        let size = value.get("device").and_then(|d| d.get("assembler_matrix_max_size")).and_then(toml::Value::as_integer);
+        if let Some(n) = size.filter(|n| (3..=16).contains(n)) {
+            config.matrix_size = n as i32;
         }
         Ok(config)
     }
@@ -183,6 +237,19 @@ pub const MACHINES: &[MachineVariant] = &[
         upgrades: 5,
         part: false,
     },
+    // TileAssemblerMatrixPattern: an ICraftingProvider and PatternContainer of
+    // 36 patterns, so the grid's crafting service and the Pattern Access
+    // Terminal take it as a provider; its jobs go to the matrix's crafter
+    // cores, not to its neighbours (`game/ae2x/extendedae/matrix.rs`).
+    MachineVariant {
+        id: MATRIX_PATTERN,
+        base: "ae2:pattern_provider",
+        block: MATRIX_PATTERN,
+        kind: MachineKind::PatternProvider,
+        slots: MATRIX_PATTERNS,
+        upgrades: 0,
+        part: false,
+    },
 ];
 
 /// `PartExImportBus` and `PartExExportBus.getOperationsPerTick`: AE2's times
@@ -236,6 +303,14 @@ pub const OWN_MACHINES: &[ExtMachine] = &[
     ExtMachine { id: EX_INSCRIBER, physical_slots: 16, upgrade_slots: 4, key_drops: None, power_capacity: Some(1600.0), part: false },
     // POWER_MAXIMUM_AMOUNT 3,200.
     ExtMachine { id: EX_CHARGER, physical_slots: THREADS, upgrade_slots: 0, key_drops: None, power_capacity: Some(3200.0), part: false },
+    // The Assembler Matrix: plain nodes, and the crafter core, whose first
+    // thread is AE2's assembler's eleven slots (no pattern slot of its own) and
+    // whose seven more keep theirs in its config (`game/ae2_assembler_threads.rs`).
+    ExtMachine { id: MATRIX_FRAME, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
+    ExtMachine { id: MATRIX_WALL, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
+    ExtMachine { id: MATRIX_GLASS, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
+    ExtMachine { id: MATRIX_CRAFTER, physical_slots: 11, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
+    ExtMachine { id: MATRIX_SPEED, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
 ];
 
 /// An `ItemInfinityCell` (`InfinityCellInventory`): the one key it holds
@@ -443,6 +518,10 @@ mod tests {
         assert_eq!(Config::default().infinity_cell_cost, 8.0);
         assert_eq!(Config::parse("[item]\ninfinity_cell_energy_cost = 2.5").unwrap().infinity_cell_cost, 2.5);
         assert_eq!(Config::parse("[item]\ninfinity_cell_energy_cost = 100.0").unwrap().infinity_cell_cost, 8.0);
+        // device.assembler_matrix_max_size: 6 by default (ATM10 ships no file), 3 to 16.
+        assert_eq!(Config::default().matrix_size, 6);
+        assert_eq!(Config::parse("[device]\nassembler_matrix_max_size = 9").unwrap().matrix_size, 9);
+        assert_eq!(Config::parse("[device]\nassembler_matrix_max_size = 2").unwrap().matrix_size, 6);
     }
 
     #[test]

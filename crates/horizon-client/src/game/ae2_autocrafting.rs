@@ -3078,6 +3078,11 @@ mod recursive {
             }
             let mut positions: Vec<_> = self.provider_neighbors(spec.provider);
             positions.sort();
+            // An addon's provider whose jobs go elsewhere (the Assembler Matrix's
+            // pattern core: a free thread of its matrix's crafter cores).
+            if let Some(found) = self.ae2x_crafting_destination(spec.provider.anchor(), taken) {
+                return found;
+            }
             // PatternProviderLogic.pushPattern: the first neighbour whose
             // ICraftingMachine takes the job, at its first free thread.
             positions.into_iter().filter(|p|self.ae2_online_encoded(*p)).find_map(|p|{

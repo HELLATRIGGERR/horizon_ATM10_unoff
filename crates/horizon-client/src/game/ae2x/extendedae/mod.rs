@@ -3,12 +3,14 @@
 //! `ae2x::extendedae`); their screens are layouts of `ae2_screens`
 //! (`screens.rs`, a child module of it). Its own machines are in `machines.rs`,
 //! the Extended Inscriber, Charger and Molecular Assembler in `devices.rs`,
-//! Entro's growth in `entro.rs`, the Infinity and Void Cells in `cells.rs`.
+//! Entro's growth in `entro.rs`, the Infinity and Void Cells in `cells.rs`,
+//! the Assembler Matrix in `matrix.rs`.
 //! What needs the game's own code is here, reached through `game/ae2x/mod.rs`.
 pub(in crate::game) mod cells;
 pub(in crate::game) mod devices;
 pub(in crate::game) mod entro;
 pub(in crate::game) mod machines;
+pub(in crate::game) mod matrix;
 pub(in crate::game) mod upgrade;
 
 use horizon_client::{ae2_world::{Machine, MachineKind}, items::ItemStack};
@@ -93,6 +95,17 @@ fn device_connectable(facing: &str) -> Vec<Direction> {
 /// (`setFlags()`, `setIdlePowerUsage(0)`; the Extended Inscriber sets no flags
 /// either), on their connectable sides.
 pub(in crate::game) fn device(machine: &Machine, properties: Option<&horizon_world::block_state_properties::BlockProperties>, device: &mut ae2_network_core::Device) -> bool {
+    // The Assembler Matrix's blocks (`TileAssemblerMatrixBase`): MULTIBLOCK
+    // and REQUIRE_CHANNEL, one channel for the formed cluster; every side
+    // while formed (its block state says so), none before.
+    if let Some(role) = horizon_client::ae2x::extendedae::MatrixRole::of(machine.id()) {
+        let formed = properties.and_then(|p| p.get("formed")).is_some_and(|v| v == "true");
+        device.faces = if formed { 63 } else { 0 };
+        device.idle_override = Some(role.idle_power());
+        device.channel_override = Some(true);
+        device.multiblock = if formed { matrix::group(machine) } else { None };
+        return true;
+    }
     let facing = properties.and_then(|p| p.get("facing")).map_or("north", String::as_str);
     let kind = Kind::of(machine);
     if kind.is_none() && Device::of(machine).is_none() {
@@ -176,10 +189,19 @@ pub(in crate::game) fn slot_capacity(m: &Machine, slot: usize) -> Option<u32> {
         Device::Charger => Some(1),
     }
 }
-pub(in crate::game) use devices::assembler_speed;
-/// The crafting threads of the Extended Molecular Assembler.
+/// An assembler's progress a tick and AE a point: the Extended Molecular
+/// Assembler's by its cards, a crafter core's by its matrix's speed cores.
+pub(in crate::game) fn assembler_speed(m: &Machine) -> Option<(f64, f64)> {
+    devices::assembler_speed(m).or_else(|| matrix::crafter_speed(m))
+}
+/// `TileAssemblerMatrixPattern.Filter` on a pattern core's patterns; none
+/// for any other provider.
+pub(in crate::game) fn pattern_allowed(machine: &Machine, item: &ItemStack) -> Option<bool> {
+    (machine.id() == horizon_client::ae2x::extendedae::MATRIX_PATTERN).then(|| matrix::pattern_allowed(item))
+}
+/// The crafting threads of the Extended Molecular Assembler and of a crafter core.
 pub(in crate::game) fn assembler_threads(m: &Machine) -> Option<usize> {
-    devices::assembler_threads(m)
+    devices::assembler_threads(m).or_else(|| (m.id() == horizon_client::ae2x::extendedae::MATRIX_CRAFTER).then_some(horizon_client::ae2x::extendedae::ASSEMBLER_THREADS))
 }
 /// The menu's progress bar (`IProgressProvider`): processingTime of
 /// MAX_PROGRESS; the Extended Inscriber's of the thread shown, of 200.

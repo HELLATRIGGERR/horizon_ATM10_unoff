@@ -122,13 +122,16 @@ struct Toggle {
 }
 
 /// A line naming the page shown (`drawFG`), one more than its data slot's
-/// value; or, `per_value`, the translation of `key` and the value itself.
+/// value; or, `per_value`, the translation of `key` and the value itself;
+/// or, `count`, the value itself in the line (the Assembler Matrix's
+/// running jobs).
 struct PageLine {
     data: usize,
     key: &'static str,
     fallback: &'static str,
     at: (f32, f32),
     per_value: bool,
+    count: bool,
 }
 
 /// A `ProgressBar`, filling upwards (`Direction.VERTICAL`); its values are
@@ -894,6 +897,14 @@ fn addon_layout(block: &str) -> Option<&'static Layout> {
     None
 }
 
+/// Slots an addon's screen places by its code, not its style
+/// (`GuiAssemblerMatrix`'s pattern rows): added to the style of `block`'s screen.
+fn addon_style_slots(block: &str, style: &mut ScreenStyle) {
+    #[cfg(feature = "ae2-extendedae")]
+    extendedae_screens::style_slots(block, style);
+    let _ = (block, style);
+}
+
 /// The layout of `m`'s screen, AE2's or its addon's.
 fn layout_of(m: &Machine) -> Option<&'static Layout> {
     match m.variant {
@@ -1097,13 +1108,14 @@ impl Game<'_> {
         // its style first, its includes from AE2's.
         let namespace = block.split(':').next().unwrap_or("ae2");
         let style = ScreenStyle::load_over(&assets.join(namespace).join("ae2/screens"), &assets.join("ae2/screens"), layout.style);
-        let style = match style {
+        let mut style = match style {
             Ok(style) => style,
             Err(error) => {
                 log::warn!("AE2 screen style for {block}: {error}");
                 return None;
             }
         };
+        addon_style_slots(block, &mut style);
         let mut screen = Ae2Screen { layout, style, slots: Vec::new(), block: block.to_owned() };
         let (w, h) = screen.size();
         let mut slots = vec![None; if wide { 54 } else { 27 }];
@@ -1342,7 +1354,7 @@ impl Game<'_> {
                 let key = format!("{}{}", page.key, value(data, page.data));
                 self.translate(&key, page.fallback)
             } else {
-                fill(&self.translate(page.key, page.fallback), &[(value(data, page.data) + 1).to_string()])
+                fill(&self.translate(page.key, page.fallback), &[(value(data, page.data) + i32::from(!page.count)).to_string()])
             };
             batch.text(&self.gui.atlas, &line, ox + page.at.0, oy + page.at.1, argb(screen.style.color("DEFAULT_TEXT_COLOR")), false);
         }

@@ -9,13 +9,15 @@ committed. Provenance in [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json), the decla
 
 Feature `ae2-extendedae`; content `content/extendedae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts extendedae`. ATM10's `config/extendedae-common.toml` keeps
-the mod's defaults (ATM10 8.4 ships none: `extended_io_bus_multiplier` 8, `infinity_cell_energy_cost` 8). Of
+the mod's defaults (ATM10 8.4 ships none: `extended_io_bus_multiplier` 8, `infinity_cell_energy_cost` 8,
+`assembler_matrix_max_size` 6). Of
 ATM10's KubeJS, only its infinity cells (slice 6) touch the mod; its recipes for them are the pack's own, in
 the full pack's carry.
 
 From 2.2.41 (ATM10 8.3) to 2.2.42 the mod changed two classes and nothing else: `CraftingMatrixThread` resets the
 Assembler Matrix's progress on its cached-pattern path, and `ContainerRenamer` saves the block or part it renamed.
-Neither is in this slice; the jar's assets and data are the same.
+The Assembler Matrix of slice 3 has no cached-pattern path (below); the renamer is not carried. The jar's assets
+and data are the same.
 
 ## Slice 1: Extended Pattern Provider, Interface and Drive, their parts and kits
 
@@ -121,6 +123,50 @@ entro, a restart, the drops):
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-crystal extendedae-buses extendedae-devices
 ```
 
+## Slice 3: the Assembler Matrix
+
+| ExtendedAE | Port |
+|---|---|
+| `CalculatorAssemblerMatrix` (`MBCalculator`): from any block, the box its axes reach, full of the mod's matrix blocks with none against its faces outside (`verifyUnownedRegion`); its corners 2 to `assembler_matrix_max_size` apart on each axis (`checkMultiblockScale`; 6 by default, ATM10 ships no config: 3 to 7 blocks a side); frames on every edge and corner, walls or glass on the faces, function blocks inside (`isEdge`, `isInternal`); a crafter and a pattern core at least | `game/ae2x/extendedae/matrix.rs` (`formation`): a block is formed when the blocks joined to it fill such a box, which is where the mod's walk ends up; recalculated each tick (the mod: on load and on a neighbour's change). The cluster's corners, node group and speed cores in each block's config (`eae_matrix`, rebuilt as the mod's cluster, which no save keeps), its block state's `formed` |
+| `TileAssemblerMatrixBase`: `GridFlags.MULTIBLOCK`, `REQUIRE_CHANNEL`, `IGridMultiblock`: one channel for the cluster; all sides connect while formed, none before; 0.5 AE/t, a function block 1 (`TileAssemblerMatrixFunction`) | the node (`extendedae::device`): faces by the block state's `formed`, one `multiblock` group (its lowest corner), the idle draw; the pattern core's through `ae2x_device` too, as a variant of AE2's provider |
+| `updateSubType`: `FORMED`, `POWERED`; `BlockAssemblerMatrixFrame.SHAPE`, a column between frames on one axis | `extendedae_matrix_visual` (`ae2x_visual_props`), `extendedae_frame_shape` |
+| `TileAssemblerMatrixPattern`: 36 patterns (`Filter`: `IMolecularAssemblerSupportedPattern`, crafting, smithing table and stonecutting), an `ICraftingProvider` and `PatternContainer` (`PATTERN_ACCESS_TERMINAL`, `getTerminalGroup`: its icon and name, "Only accepts crafting patterns") | a `MachineVariant` of AE2's Pattern Provider (36 slots): the grid's crafting service and the Pattern Access Terminal take it as AE2's provider; its filter in `pattern_inventory_accepts`, its group in `ae2x_pattern_group` |
+| `pushPattern` (formed, active, its pattern) to `ClusterAssemblerMatrix.pushCraftingJob`: an available crafter core's first free thread; `isBusy` while none is | `extendedae_matrix_destination`, which the CPU's `recursive_destination` asks first (`ae2x_crafting_destination`); crafter cores in place order (the mod: its hash set's) |
+| `TileAssemblerMatrixCrafter`: eight `CraftingMatrixThread`s (`MAX_THREAD`), `tick(cluster.getSpeedCore())`: 20, 26, 34, 40, 50 or 100 progress a tick at 1 to 5 AE a point for 0 to 5 speed cores (`addSpeedCore` stops at five); a thread's output and leftovers into its `OutputBuffer`, flushed into the grid; asleep while unformed | an `ExtMachine` of eleven slots and eight threads (`game/ae2_assembler_threads.rs`), each AE2's assembler, ticked while formed (`extendedae_crafter_tick`) at the cluster's speed (`devices::thread_speed`); the CPU takes a job's output from its thread as from AE2's assembler; what no job owns goes into the grid (`extendedae_crafter_flush`) |
+| `ContainerAssemblerMatrix`, `GuiAssemblerMatrix`, `screens/assembler_matrix.json`: from any block of a formed, active matrix; all cores' patterns in rows of nine (a scroll bar, a search), "Running Jobs: %s" (`getBusyCrafterAmount`), Cancel (each crafter's `stop`: its threads' items into the grid), the Pattern Access Terminal toggle for the cluster (`broadcastConfig`); a pattern clicked in or out through the core's filter (`doAction`), shift-clicked into the first free slot (`transferStackToMenu`) | a 54-entry window (`MatrixMenu`, `lan_open_extendedae_matrix`): a core's 36 patterns a page (cores in `getLocateID` order), the next and previous core on the toolbar (38, 39), Cancel (36), the toggle (37), Running Jobs (data slot 1); the patterns' places (`EAE_MATRIX_PATTERN`) added to the style by the layout (`style_slots`), as the mod's screen code places them |
+| the blocks; the frame, wall and glass by crafting, the crafter, pattern and speed cores in the Crystal Assembler (`assembler/assembler_matrix_*`); their loot tables | `content.json`; the glass draws its item model (`cube_all` of `glass/full`): its block model needs the mod's connected-glass loader |
+
+AE2's crafting, for any assembler of several threads (`game/ae2_assembler_threads.rs`, `ae2_autocrafting.rs`):
+
+| AE2 | Port |
+|---|---|
+| `ICraftingMachine.pushPattern` of a machine with threads (`TileExMolecularAssembler`, `ClusterAssemblerMatrix`) | a flight names its assembler's thread (`Session.flight_threads`, `AssemblerFlightOwner.thread`; thread 0, AE2's only one, written as before); a thread past the first keeps its grid, output, progress and job in the machine's config (`ae2_assembler_thread_<n>`), its items dropped with the machine (`Machine::physical_contents`); `ae2x::assembler_threads` counts an addon's |
+| `CraftingCpuLogic.tickCraftingLogic`: `executeCrafting` again while its last pass pushed and operations are left; a pass offers a pattern to each provider once | the dispatch loop starts a new pass on the same terms, so one provider's machine takes as many jobs a tick as the CPU's co-processors allow (before, one a tick) |
+
+Differences, known:
+
+- The screen shows a pattern core's 36 patterns at a time, a page a core, with no search; the mod scrolls through
+  all cores' rows.
+- The matrix forms or breaks at the next tick, not at once. Its blocks expose no item handler of its patterns
+  (`getPatternInv`, a capability on every block): a hopper cannot fill a pattern core.
+- A crafter core has no output buffer: a job's output waits in its thread until the CPU takes it, and a core never
+  refuses jobs for a full buffer (`MAX_BUFF`). No recipe cache (`CraftingMatrixThread`'s LRU): same results.
+- Cancel, as in the mod, leaves the CPU waiting for the cancelled jobs' outputs until its job is cancelled.
+- A cluster takes no name from its blocks (`updateName`).
+
+Tests: `horizon-client` (formation, its size, a wrong block, a gap, a stray neighbour and the marker in
+`game::ae2x::extendedae::matrix`; threads and their drops in `game::ae2_assembler_threads`; a flight's thread in
+`ae2_autocrafting`; the config's size in `ae2x::extendedae`) and the world test `extendedae-matrix` (a 7-long matrix
+forms on one of an ad-hoc grid's eight channels, an 8-long one does not; the screen takes a crafting pattern, not
+stone, and sets the cluster's Pattern Access Terminal setting; tick by tick on a held server, a CPU with seven
+co-processors gives a crafter core eight jobs at once, 64 crafts in 28 ticks; five speed cores take a craft from 7
+ticks to 3; a wall taken away breaks the matrix and put back forms it; the Extended Molecular Assembler behind a
+provider runs eight jobs at once):
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-matrix
+```
+
 ## Slice 6: Infinity and Void Cells
 
 | ExtendedAE | Port |
@@ -151,7 +197,6 @@ AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-cells
 
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
-3. Assembler Matrix (max size 6 in ATM10).
 4. Wireless Connector and Hub (range 1,000).
 5. Special buses, emitters and planes.
 7. Oversize (x16) and Vacuum interfaces, modifiers, ME Packing Tape, Extended Pattern Access Terminal.

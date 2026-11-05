@@ -24,6 +24,7 @@
     "crates/horizon-client/src/game/ae2x/extendedae/devices.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/entro.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/machines.rs",
+    "crates/horizon-client/src/game/ae2x/extendedae/matrix.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/mod.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/screens.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/upgrade.rs"

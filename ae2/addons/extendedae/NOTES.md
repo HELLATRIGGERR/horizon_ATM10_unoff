@@ -1,5 +1,8 @@
 # ExtendedAE port: working notes
 
+Slice 3 (the Assembler Matrix): branch `feat/extendedae-4` (from `db767bc1f`), the same worktree and target;
+content in `atm10-work\eae3-content`, scripts and logs in `atm10-work\logs\eae4`.
+
 Slices 2 (the rest) and 6: branch `feat/extendedae-3` (from `7fbbadc26`), worktree
 `D:\VSCODE_PROJECTS\DEV_1\atm10-wt\eae`, target `D:\VSCODE_PROJECTS\DEV_1\atm10-work\target-eae`. Content:
 `atm10-work\eae3-content\<namespace>` (`AE2_ADDON_CONTENT_ROOT`; extendedae, megacells, merequester); scripts and
@@ -46,8 +49,16 @@ Slice 6: `horizon_client::ae2x::fixed_cell` (an infinity cell is a creative cell
 `game/mods.rs::content_root`; the void cell a handler cell (`cells.rs`) with its item menu (`lan_open_void_cell`,
 `lan_ae2x_button` from `lan_stations.rs`).
 
-Next: a Memory Card on the extended buses and the inscriber; the Assembler Matrix, which needs crafting flights
-that name a thread (the Extended Molecular Assembler's eight threads with it).
+Slice 3: crafting flights name an assembler's thread (`game/ae2_assembler_threads.rs`; `Session.flight_threads`,
+`AssemblerFlightOwner.thread`), which gave the Extended Molecular Assembler its eight; the CPU's dispatch runs
+another pass while one pushed (`executeCrafting` again). The matrix is `game/ae2x/extendedae/matrix.rs`: blocks
+`ExtMachine`s but the pattern core, a variant of AE2's provider. Hooks added: `ae2x::assembler_threads`,
+`ae2x_crafting_destination` (from `recursive_destination`), `ae2x_pattern_group` (the Pattern Access Terminal),
+`ae2x_visual_props` with the place and whether it is online, `ae2x_device` for a provider variant (grid and
+event replay), `addon_style_slots` in `ae2_screens` (slots a screen's code places), `PageLine.count`.
+
+Next: a Memory Card on the extended buses and the inscriber; the Extended Molecular Assembler's thread pages; the
+matrix's pattern item handler.
 
 Facts checked for slice 2, at the source and in Glodium 2.2's classes (`javap`):
 
@@ -81,6 +92,18 @@ Facts checked at the source and in the jar:
 - 2.2.42 (ATM10 8.4) has no tag. The commit that sets its version is `1f86f927` on `1.21.1-neoforge`; the jar's
   `CraftingMatrixThread` and `ContainerRenamer` classes date from it, its `VoidCellInventory` from 2.2.41 (the void
   cell fixes after it are 2.2.43).
+
+Facts checked for slice 3, at the source:
+
+- `checkMultiblockScale` refuses corners more than `assemblerMatrixSize` apart: the default 6 means 7 blocks a side
+  at most, 3 at least (`MIN_SIZE` 2). ATM10 8.4 has no `extendedae-common.toml` and its KubeJS does not touch the
+  matrix; its final recipes are the jar's, the frame's lapis as `#c:gems/lapis` (AlmostUnified).
+- `verifyUnownedRegion` checks the slabs against the box's faces only, so a block of the mod's that touches the box
+  across an edge or corner alone does not break it; against a face it does.
+- `TileAssemblerMatrixBase` sets `MULTIBLOCK` and `REQUIRE_CHANNEL` and `IGridMultiblock`: the formed matrix is one
+  channel; idle 0.5 AE/t, 1 for the crafter, pattern and speed cores.
+- `CraftingCpuLogic.tickCraftingLogic` calls `executeCrafting` while it pushes and operations are left
+  (co-processors + 1 in a three-tick window); a pass pushes a pattern to each provider once.
 
 ## Verification log
 

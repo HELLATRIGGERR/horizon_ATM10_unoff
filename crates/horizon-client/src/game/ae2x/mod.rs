@@ -278,6 +278,10 @@ pub(super) struct GlobalPattern {
 /// inventory past AE2's own rule (an encoded pattern): the filter an addon's
 /// provider sets on it (`setFilter`). True for AE2's, which set none.
 pub(super) fn pattern_inventory_accepts(machine: &Machine, item: &horizon_client::items::ItemStack) -> bool {
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(allowed) = extendedae::pattern_allowed(machine, item) {
+        return allowed;
+    }
     #[cfg(feature = "ae2-megacells")]
     if let Some(allowed) = megacells::pattern_allowed(machine.id(), item) {
         return allowed;
@@ -499,6 +503,32 @@ impl Game<'_> {
         self.megacells_push_decompression(anchor, output, amount);
         let _ = (anchor, output, amount);
     }
+    /// The Pattern Access Terminal's group of an addon's provider block
+    /// (`PatternContainer.getTerminalGroup`) when it is not AE2's by its
+    /// neighbours: its name and tooltip. None for AE2's way.
+    pub(super) fn ae2x_pattern_group(&self, machine: &Machine) -> Option<(String, Vec<String>)> {
+        let _ = machine;
+        #[cfg(feature = "ae2-extendedae")]
+        if machine.id() == horizon_client::ae2x::extendedae::MATRIX_PATTERN {
+            let name = self.pack.names.display_item(machine.id());
+            let line = self.translate("gui.extendedae.assembler_matrix.pattern", "Only accepts crafting patterns");
+            return Some((name, vec![line]));
+        }
+        None
+    }
+    /// Where a crafting job of the provider at `provider` goes when an addon's
+    /// provider sends it elsewhere than to its neighbours (ExtendedAE's
+    /// Assembler Matrix pattern core: a free crafter core thread of its
+    /// matrix, none while it has none): the assembler and thread, or none.
+    /// None when the provider is no such addon's.
+    pub(super) fn ae2x_crafting_destination(&self, provider: super::ae2_global::GridAddress, taken: &dyn Fn(super::ae2_global::GridAddress, u8) -> bool) -> Option<Option<(super::ae2_global::GridAddress, u8)>> {
+        let _ = (provider, taken);
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_matrix_destination(provider, taken) {
+            return Some(found);
+        }
+        None
+    }
     /// The priority a part that opens AE2's `PriorityMenu` alone shows
     /// (`IPriorityHost.getPriority`); none for any other part.
     pub(super) fn ae2x_part_priority(&self, part: super::ae2_parts::PartAddress, id: &str) -> Option<i32> {
@@ -523,6 +553,9 @@ impl Game<'_> {
     pub(super) fn tick_ae2x_frozen(&mut self) {
         #[cfg(feature = "ae2-megacells")]
         self.tick_megacells_decompression();
+        // The Assembler Matrix's crafter cores are grid tickables.
+        #[cfg(feature = "ae2-extendedae")]
+        self.tick_extendedae_matrix();
     }
     /// The addons' grid ticks, after AE2's interfaces.
     pub(super) fn tick_ae2x(&mut self) {
@@ -535,6 +568,8 @@ impl Game<'_> {
         self.tick_extendedae_machines();
         #[cfg(feature = "ae2-extendedae")]
         self.tick_extendedae_devices();
+        #[cfg(feature = "ae2-extendedae")]
+        self.tick_extendedae_matrix();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -558,8 +593,12 @@ impl Game<'_> {
 
     /// An addon machine's block state properties, set each grid tick
     /// (`updateBlockStateFromBlockEntity`): false when it has none.
-    pub(super) fn ae2x_visual_props(&self, machine: &Machine, props: &mut horizon_world::block_state_properties::BlockProperties) -> bool {
-        let _ = (machine, &props);
+    pub(super) fn ae2x_visual_props(&self, pos: (i32, i32, i32), machine: &Machine, online: bool, props: &mut horizon_world::block_state_properties::BlockProperties) -> bool {
+        let _ = (pos, machine, online, &props);
+        #[cfg(feature = "ae2-extendedae")]
+        if self.extendedae_matrix_visual(pos, machine, online, props) {
+            return true;
+        }
         #[cfg(feature = "ae2-merequester")]
         if merequester::visual_props(machine, props) {
             return true;
@@ -574,6 +613,10 @@ impl Game<'_> {
     /// A guest uses an addon's block or part: true when an addon opened its menu.
     pub(super) fn lan_open_ae2x(&mut self, host: &mut super::lan::LanHost, conn: u32, pos: (i32, i32, i32), face: &str) -> bool {
         let _ = (&host, conn, pos, face);
+        #[cfg(feature = "ae2-extendedae")]
+        if self.lan_open_extendedae_matrix(host, conn, pos) {
+            return true;
+        }
         #[cfg(feature = "ae2-merequester")]
         if self.lan_open_merequester(host, conn, pos, face) {
             return true;
@@ -638,7 +681,7 @@ impl Game<'_> {
     pub(super) fn lan_ae2x_button(&mut self, host: &mut super::lan::LanHost, conn: u32, window: i32, id: i32) -> bool {
         let _ = (&host, conn, window, id);
         #[cfg(feature = "ae2-extendedae")]
-        if self.lan_void_cell_button(host, conn, window, id) {
+        if self.lan_void_cell_button(host, conn, window, id) || self.lan_matrix_button(host, conn, window, id) {
             return true;
         }
         false
@@ -659,6 +702,10 @@ impl Game<'_> {
         if self.lan_ae2wtlib_trash_click(host, conn, click) {
             return true;
         }
+        #[cfg(feature = "ae2-extendedae")]
+        if self.lan_matrix_click(host, conn, click) {
+            return true;
+        }
         false
     }
     /// The client closed window `window`: true when it was an addon's.
@@ -677,7 +724,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.lan_void_cell_closed(host, conn, Some(window)) {
+        if self.lan_void_cell_closed(host, conn, Some(window)) || self.lan_matrix_closed(host, conn, Some(window)) {
             return true;
         }
         false
@@ -875,6 +922,8 @@ impl Game<'_> {
         self.lan_refresh_ae2wtlib_trash(host);
         #[cfg(feature = "ae2-extendedae")]
         self.lan_refresh_void_cells(host);
+        #[cfg(feature = "ae2-extendedae")]
+        self.lan_refresh_matrix_menus(host);
     }
 
     /// `/ae2 <addon> ...`: none when no addon has the command.

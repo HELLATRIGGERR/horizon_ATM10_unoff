@@ -480,6 +480,9 @@ impl Game<'_> {
                         .and_then(|s| s.properties.get("push_direction"))
                         .map(String::as_str),
                 );
+                if machine.variant.is_some() {
+                    self.ae2x_device(machine, properties.map(|s| &s.properties), &mut device);
+                }
             }
             MachineKind::WirelessAccessPoint => {
                 device.faces = properties.map_or(0, super::ae2_placement::wap_connection_faces);

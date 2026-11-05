@@ -442,6 +442,8 @@ pub(in crate::game) struct State {
     machines: HashMap<u64, Ctx>,
     /// The open Void Cell menus, by player.
     pub(in crate::game) void_menus: HashMap<u32, super::cells::VoidMenu>,
+    /// The open Assembler Matrix screens, by player.
+    pub(in crate::game) matrix_menus: HashMap<u32, super::matrix::MatrixMenu>,
 }
 
 /// What a tick of [`execute`] needs from the world.

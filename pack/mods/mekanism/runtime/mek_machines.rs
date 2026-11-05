@@ -558,6 +558,11 @@ fn read(nbt: &Compound, kind: MachineKind) -> Saved {
         {
             sides.chemicals_eject = v != 0;
         }
+        if kind.fluids_eject()
+            && let Some(v) = mek_world::number(config.get(&key(&format!("eject{FLUID}"))))
+        {
+            sides.fluids_eject = v != 0;
+        }
     }
     let mut upgrades = Upgrades::default();
     if let Some(Tag::Compound(c)) = nbt.get(&key("component_upgrade"))
@@ -595,7 +600,7 @@ fn write_sides(nbt: &mut Compound, saved: &Saved) {
     };
     put(ENERGY, &saved.sides.energy, false);
     if let Some(fluids) = &saved.sides.fluids {
-        put(FLUID, fluids, false);
+        put(FLUID, fluids, saved.sides.fluids_eject);
     }
     if let Some(chemicals) = &saved.sides.chemicals {
         put(CHEMICAL, chemicals, saved.sides.chemicals_eject);
@@ -940,6 +945,15 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         && let Some(sides) = saved.sides.chemicals
     {
         eject_chemicals(game, pos, saved.facing, &sides, &mut tanks, saved.dumps, config.machines.chemical_auto_eject);
+    }
+    // The rotary condensentrator's fluid while it condensentrates (FLUID comes
+    // before CHEMICAL): `FluidUtils.emit` out of its fluid output sides.
+    if kind.rotates()
+        && !saved.mode
+        && saved.sides.fluids_eject
+        && let Some(sides) = saved.sides.fluids
+    {
+        super::mek_rotary::eject_fluid(game, pos, entity, saved.facing, &sides, config.machines.fluid_auto_eject);
     }
     let makes_chemicals = kind.oxidizes() || kind.infuses_chemicals();
     let ejects_tank = makes_chemicals || super::mek_ore_machines::ejects_chemicals(kind, saved.mode);

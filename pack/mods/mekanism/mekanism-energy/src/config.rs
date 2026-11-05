@@ -73,6 +73,8 @@ pub struct MachinesConfig {
     pub chemical_auto_eject: i64,
     /// `[auto_eject] dumpExcessKeepRatio`: what a tank dumping excess keeps, 0.001..=1.
     pub dump_excess_keep_ratio: f64,
+    /// `[auto_eject] fluid`: mB a tick a block ejects of each fluid tank, 1 or more.
+    pub fluid_auto_eject: i32,
     /// `machine-usage.toml` `randomizedConsumption`: the purification and
     /// injection chambers draw their chemical a tick at random (Mekanism's
     /// default, which ATM10's file, written before the option, leaves as it is).
@@ -87,6 +89,7 @@ impl Default for MachinesConfig {
             max_upgrade_multiplier: 10.0,
             chemical_auto_eject: 1024,
             dump_excess_keep_ratio: 0.85,
+            fluid_auto_eject: 1024,
             randomized_consumption: true,
         }
     }
@@ -105,6 +108,11 @@ impl MachinesConfig {
             && v >= 1
         {
             config.chemical_auto_eject = v;
+        }
+        if let Some(v) = eject.and_then(|e| e.get("fluid")).and_then(toml::Value::as_integer)
+            && (1..=i64::from(i32::MAX)).contains(&v)
+        {
+            config.fluid_auto_eject = v as i32;
         }
         if let Some(v) = eject.and_then(|e| e.get("dumpExcessKeepRatio")).and_then(|v| v.as_float().or_else(|| v.as_integer().map(|i| i as f64)))
             && (0.001..=1.0).contains(&v)
@@ -464,7 +472,7 @@ energizedSmelter = 20000
 ".parse().unwrap();
         let m = MachinesConfig::from_tables(Some(&general), Some(&usage), Some(&storage));
         assert_eq!(m.max_upgrade_multiplier, 16.0);
-        assert_eq!((m.chemical_auto_eject, m.dump_excess_keep_ratio), (1024, 0.85));
+        assert_eq!((m.chemical_auto_eject, m.dump_excess_keep_ratio, m.fluid_auto_eject), (1024, 0.85, 1024));
         assert_eq!(m.of(MachineKind::ElectrolyticSeparator), (400, 160_000), "Mekanism's own defaults");
         assert_eq!(m.of(MachineKind::Crusher), (50, 20_000));
         assert_eq!(MachinesConfig::from_tables(None, None, None).max_upgrade_multiplier, 10.0, "Mekanism's own default");

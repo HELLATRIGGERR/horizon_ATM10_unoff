@@ -108,6 +108,9 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   Osmium Compressor, Purification Chamber, Chemical Injection Chamber and Metallurgic Infuser. Measured on the oracle
   (local `chem-work/m6/f1.py` to `f3.py`; blocks at x 62 and beyond in f1 sat outside its force-loaded chunks and
   never ticked, so f3 repeats them). World test `chemical-factories` (needs All the Ores' carry beside `MEK_CARRY`).
+  The Rotary Condensentrator's fluid ejector (`mek_rotary::eject_fluid`): API 160's `native_fluid_fill` already
+  fills another block's fluid handler, so it needed no new hook point (slice 5's note said otherwise); measured
+  with `chem-work/m6/f4.py`, checked in `rotary-condensentrator`.
 - Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),

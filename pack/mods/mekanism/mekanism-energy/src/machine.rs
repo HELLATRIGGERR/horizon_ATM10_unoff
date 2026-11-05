@@ -260,6 +260,14 @@ impl MachineKind {
         if self.takes_chemical_upgrades() { &ADVANCED_MACHINE_UPGRADES } else { &MACHINE_UPGRADES }
     }
 
+    /// Whether its fluid config ejects by default: the rotary condensentrator's
+    /// (`ROTARY`'s fluids `OUT_EJECT`, out of its output sides while it
+    /// condensentrates); the separator's and the washer's fluid tanks are
+    /// inputs that their ejectors leave out (`setOutputData(ITEM, CHEMICAL)`).
+    pub fn fluids_eject(self) -> bool {
+        self.rotates()
+    }
+
     /// Whether its chemical config can eject (`setCanEject`): the separator's,
     /// the oxidizer's and the chemical infuser's; the metallurgic infuser's
     /// and the advanced machines' never.
@@ -775,6 +783,8 @@ pub struct SideConfig {
     pub fluids: Option<[DataType; 6]>,
     pub items_eject: bool,
     pub chemicals_eject: bool,
+    /// The fluid config's ejecting (`eject1`): the rotary condensentrator's.
+    pub fluids_eject: bool,
 }
 
 impl SideConfig {
@@ -788,6 +798,7 @@ impl SideConfig {
             fluids: kind.default_fluids(),
             items_eject: false,
             chemicals_eject: kind.chemicals_eject(),
+            fluids_eject: kind.fluids_eject(),
         }
     }
 

@@ -21,10 +21,10 @@ use mekanism_energy::{
     chemical::{ChemicalRegistry, ChemicalStack, ChemicalStackIngredient, ChemicalTank, TankRules},
     config::EnergyConfig,
     container::{Automation, EnergyContainer},
-    machine::{MachineKind, Upgrade},
+    machine::{self, MachineKind, Upgrade},
     menu::{self, InfuserView},
     ore, rotary, separator,
-    sides::DataType,
+    sides::{DataType, Direction},
 };
 use serde_json::Value;
 use std::{cell::RefCell, rc::Rc, sync::RwLock};
@@ -169,6 +169,44 @@ pub(super) fn hopper_slots() -> (Vec<usize>, Vec<usize>) {
 /// `setCanEject`: its chemical while decondensentrating.
 pub(super) fn ejects_chemicals(mode: bool) -> bool {
     mode
+}
+
+/// The ejector's fluid (`TileComponentEjector.eject` with `FluidUtils.emit`),
+/// while it condensentrates: up to `rate` mB of its fluid tank (what the tank
+/// gives its own machine, `INTERNAL`) split evenly
+/// (`EmitUtils.sendToAcceptors`) among the fluid handlers on the faces its
+/// fluid config makes outputs that take some of all of it (`canFill`), each
+/// through its touching side; what they took leaves the tank.
+pub(super) fn eject_fluid(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, facing: Direction, sides: &[DataType; 6], rate: i32) {
+    let fluid = super::mek_world::saved_tank(&entity.nbt);
+    if fluid.is_empty() || rate <= 0 {
+        return;
+    }
+    let offered = fluid.copy_with_amount(fluid.amount().min(rate));
+    let dimension = game.native_dimension();
+    let faces = machine::eject_faces(sides, facing);
+    let at = |f: Direction| (super::mek_world::beside(pos, f), Some(super::mek_world::engine_face(f.opposite())));
+    let targets: Vec<Direction> = faces
+        .into_iter()
+        .filter(|&f| {
+            let (to, side) = at(f);
+            game.native_fluid_fill(dimension, to, side, &offered, true) > 0
+        })
+        .collect();
+    if targets.is_empty() {
+        return;
+    }
+    let sent = mekanism_energy::split::send_to_acceptors(targets.len(), offered.amount().max(0) as u64, |t, amount, simulate| {
+        let (to, side) = at(targets[t]);
+        let stack = offered.copy_with_amount(amount.min(i32::MAX as u64) as i32);
+        let took = game.native_fluid_fill(dimension, to, side, &stack, simulate).clamp(0, stack.amount());
+        amount - took as u64
+    });
+    let sent = (sent.min(i32::MAX as u64) as i32).min(fluid.amount());
+    if sent > 0 {
+        let rest = fluid.amount() - sent;
+        super::mek_world::write_tank(&mut entity.nbt, &if rest > 0 { fluid.copy_with_amount(rest) } else { FluidStack::EMPTY });
+    }
 }
 
 /// `TileEntityRotaryCondensentrator.onUpdateServer` from its slots on:

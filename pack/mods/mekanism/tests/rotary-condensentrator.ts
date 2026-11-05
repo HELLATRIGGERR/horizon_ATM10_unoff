@@ -8,6 +8,9 @@
  * - Decondensentrating, its chemical tank ejects out of its left (east, facing north) at 1024 mB a tick;
  *   condensentrating, it ejects none.
  * - Its chemical sides take hydrogen while condensentrating and give none; decondensentrating, the other way round.
+ * - Condensentrating, its fluid tank ejects out of its right (west) into a fluid tank there at 1024 mB a tick
+ *   (`[auto_eject] fluid`), split evenly over two output sides (512 each); decondensentrating, none
+ *   (chem-work/m6 f4, S1-S3).
  * - Its screen shows its slots, and its mode button toggles the mode. */
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -106,6 +109,22 @@ try {
   assert.equal((await mek(`mek chemical ${f} south insert ${H} 10`)).rest.amount, 10, 'decondensentrating, it takes none');
   assert.equal((await mek(`mek chemical ${f} south extract 10`)).got.amount, 10, 'and gives');
   fixture.mark('its chemical sides take while condensentrating and give while decondensentrating');
+
+  // R6: condensentrating, its fluid ejects into the fluid handlers on its fluid output sides.
+  const g = at(20), gWest = at(19), h = at(24), hWest = at(23), hEast = at(25), i = at(28), iWest = at(27);
+  for (const t of [gWest, hWest, hEast, iWest]) await fixture.command(`setblock ${t} mekanism:basic_fluid_tank`);
+  await place(g, liquid(5000), energy(20000));
+  await place(h, liquid(5000), energy(20000), '{component_config:{config1:[I;1,4,4,1,1,1],eject1:1b}}');
+  await place(i, '{mode:1b}', liquid(5000), energy(20000));
+  const fluidOut: number[][] = [];
+  for (let t = 1; t <= 3; t++) {
+    await fixture.stepServer(1);
+    fluidOut.push([(await probe(g)).fluid, await tankAmount(gWest), (await probe(h)).fluid, await tankAmount(hWest), await tankAmount(hEast), (await probe(i)).fluid, await tankAmount(iWest)]);
+  }
+  log.fluid_out = fluidOut;
+  assert.deepEqual(fluidOut.map(r => r.slice(0, 5)), [1, 2, 3].map(t => [5000 - 1024 * t, 1024 * t, 5000 - 1024 * t, 512 * t, 512 * t]));
+  assert.deepEqual(fluidOut.map(r => r.slice(5)), [[4999, 0], [4998, 0], [4997, 0]], 'decondensentrating, no fluid leaves');
+  fixture.mark('condensentrating, its fluid ejects at 1024 mB a tick, split evenly over its fluid output sides');
 
   // Its screen, and its mode button (the world running again).
   await fixture.hold(false);

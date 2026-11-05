@@ -80,7 +80,9 @@ null side, which reads every tank and changes nothing; a side whose type is `NON
 for its own blocks (`mek_chemicals::with_handler`, `mek_machines::chemical_handler`); no other native mod has
 chemicals yet, so the capability needs no hook point. The ejector (`TileComponentEjector` with `ChemicalUtil.emit`)
 splits a tank's contents, up to `chemicalAutoEjectRate` a tick, evenly among the handlers on the faces of its output
-type (`EmitUtils.sendToAcceptors`, the energy split's port), as the block itself (`INTERNAL`).
+type (`EmitUtils.sendToAcceptors`, the energy split's port), as the block itself (`INTERNAL`). A fluid tank's go the
+same way (`FluidUtils.emit`, up to `fluidAutoEjectRate`), into any block's fluid handler on those faces through the
+fluid helpers of API 160 (`native_fluid_fill`, simulated to find who takes some of all of it, then the split).
 
 **Chemical tanks and items.** `chemical_tank::TankBlock` is `TileEntityChemicalTank` with its
 `ChemicalTankChemicalTank`: `tiers.toml` `[chemical_tanks]` sizes each tier (`<tier>Capacity`, `<tier>Output`); its
@@ -249,10 +251,14 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   (`createModern`: the chemical tank takes while condensentrating and gives while decondensentrating, the fluid tank
   the other way round; the machine itself fills its output, a player empties either); its configs `ROTARY` (chemicals
   `OUT_EJECT_LEFT`, fluids `OUT_EJECT`, both `setupIOConfig(..., true)`: every type takes and gives, the tanks
-  decide), the chemical ejecting while decondensentrating; its chemical slots drain and fill chemical items and its
-  fluid slot fills or empties a container by the mode, the container to the slot below; the mode button toggles it
-  (`NEXT_MODE`). Measured (c1): 1 mB of hydrogen into liquid hydrogen a tick for 50 J, 3 speed upgrades 8 of 400 J,
-  1 mB a tick back.
+  decide), the chemical ejecting while decondensentrating and the fluid while condensentrating (`setCanEject`: the
+  fluid ejector out of its fluid output sides at `[auto_eject] fluid`, 1024 mB a tick, slice 6); its chemical slots
+  drain and fill chemical items and its fluid slot fills or empties a container by the mode, the container to the
+  slot below; the mode button toggles it (`NEXT_MODE`). Measured (c1): 1 mB of hydrogen into liquid hydrogen a tick
+  for 50 J, 3 speed upgrades 8 of 400 J, 1 mB a tick back; (`chem-work/m6` f4) 5000 mB of liquid hydrogen go 1024 a
+  tick into a basic fluid tank on its right (west, facing north), 512 into each of two with its left an output too,
+  none while decondensentrating or with its fluid ejecting off. The separator's and the washer's ejectors leave their
+  fluid tanks out (`setOutputData(ITEM, CHEMICAL)`), so they eject no fluid.
 - **The chemical factories** (slice 6, `TileEntityItemStackChemicalToItemStackFactory`, `mekanism_energy::factory`
   on `advanced`'s rules, runtime `mek_factories`): the Basic to Ultimate compressing, purifying, injecting and
   infusing factories, 3 to 9 processes of their machine's recipes on one store of `max(storage / 2, usage) *
@@ -324,10 +330,12 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    `rotary::tests`: the oracle's numbers), `mekanism-content` (another carry's chemicals), the world tests `ore-chain`
    (an ore through the three into All the Ores' crystals) and `rotary-condensentrator`. Mekanism has no factory of
    the ore chain's machines.
-6. **The chemical factories (done).** As above: `factory`'s compressing, purifying, injecting and infusing types
-   and their tank, slot and per-process use, `mek_factories` running them on `advanced::process`, their installers
-   from the four machines, their screens and chemical handler. Tests: `mekanism-energy` (`factory::tests`), the world
-   test `chemical-factories`.
+6. **The chemical factories and fluid ejection (done).** As above: `factory`'s compressing, purifying, injecting and
+   infusing types and their tank, slot and per-process use, `mek_factories` running them on `advanced::process`,
+   their installers from the four machines, their screens and chemical handler; the rotary condensentrator's fluid
+   ejector (`mek_rotary::eject_fluid` on API 160's `native_fluid_fill`, `config`'s `[auto_eject] fluid`, the
+   fluid config's `eject1`). Tests: `mekanism-energy` (`factory::tests`, `config`), the world tests
+   `chemical-factories` and `rotary-condensentrator` (its fluid ejection).
 7. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
    polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`.
 8. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
@@ -370,9 +378,8 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
 - A network's acceptors are sorted by position (Java: `HashMap` order); only who gets a leftover mB differs. Which
   of two tanks ejecting different chemicals into an empty network first gets in follows the port's block entity
   order, not Java's. Radiation, the tubes' contents rendering and redstone sensitivity aren't ported.
-- The washer's and the rotary condensentrator's fluid configs stay at their defaults (no fluid page). The rotary's
-  fluid isn't ejected (no helper fills another block's fluid handler): it leaves by a block that drains it (AE2's
-  buses) or its fluid slot; its chemical fill slot's emptied items stay for the player or a hopper. The washer's two
+- The washer's and the rotary condensentrator's fluid configs, and the rotary's fluid ejecting, stay at their
+  defaults (no fluid page); the rotary's chemical fill slot's emptied items stay for the player or a hopper. The washer's two
   fluid slots sit beside the panel below the upgrade holder (Mekanism: at (180, 71) and (180, 102)); the rotary's
   mode button is a plain button with an arrow.
 - The dissolution chamber's draws come from the bundle's own random source. A container in the washer's or the

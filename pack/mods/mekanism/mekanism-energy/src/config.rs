@@ -9,7 +9,7 @@
 //! missing file, key or a value out of the mod's range keeps the default, as
 //! NeoForge's config spec corrects it.
 use crate::machine::MachineKind;
-use crate::tier::{CableTier, ChemicalTankTier, CubeTier};
+use crate::tier::{CableTier, ChemicalTankTier, CubeTier, TubeTier};
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,6 +25,9 @@ pub struct EnergyConfig {
     /// `[chemical_tanks]` `<tier>Capacity` and `<tier>Output` of each chemical
     /// tank tier (mB, mB a tick), in `ChemicalTankTier::ALL` order.
     pub chemical_tanks: [(i64, i64); 5],
+    /// `[transmitters.chemical]` `<tier>Capacity` and `<tier>PullAmount` of
+    /// each pressurized tube tier (mB, mB a tick), in `TubeTier::ALL` order.
+    pub tubes: [(i64, i64); 4],
     /// `energyType`: screens show Forge Energy (`FORGE_ENERGY`, the
     /// default) or Joules (`JOULES`).
     pub show_fe: bool,
@@ -45,6 +48,7 @@ impl Default for EnergyConfig {
             cubes: CubeTier::ALL.map(|t| (t.default_capacity(), t.default_output())),
             cables: CableTier::ALL.map(CableTier::default_capacity),
             chemical_tanks: ChemicalTankTier::ALL.map(|t| (t.default_storage(), t.default_output())),
+            tubes: TubeTier::ALL.map(|t| (t.default_capacity(), t.default_pull())),
             show_fe: true,
             deactivation_delay: 60,
             generators: GeneratorsConfig::default(),
@@ -296,6 +300,16 @@ impl EnergyConfig {
                 }
             }
         }
+        if let Some(tubes) = section(tiers, &["transmitters", "chemical"]) {
+            for (i, tier) in TubeTier::ALL.into_iter().enumerate() {
+                if let Some(v) = positive(&tubes, &format!("{}Capacity", tier.name())) {
+                    config.tubes[i].0 = v as i64;
+                }
+                if let Some(v) = positive(&tubes, &format!("{}PullAmount", tier.name())) {
+                    config.tubes[i].1 = v as i64;
+                }
+            }
+        }
         if let Some(cables) = section(tiers, &["transmitters", "energy"]) {
             for (i, tier) in CableTier::ALL.into_iter().enumerate() {
                 if let Some(v) = positive(&cables, &format!("{}Capacity", tier.name())) {
@@ -317,6 +331,11 @@ impl EnergyConfig {
     /// A chemical tank tier's mB and output a tick.
     pub fn chemical_tank(&self, tier: ChemicalTankTier) -> (i64, i64) {
         self.chemical_tanks[tier as usize]
+    }
+
+    /// A pressurized tube tier's capacity and pull a tick.
+    pub fn tube(&self, tier: TubeTier) -> (i64, i64) {
+        self.tubes[tier as usize]
     }
 }
 
@@ -391,6 +410,9 @@ eliteCapacity = -1
         let c = EnergyConfig::from_tables(None, Some(&chem));
         assert_eq!(c.chemical_tank(ChemicalTankTier::Creative), (i64::MAX, 4_611_686_018_427_387_903));
         assert_eq!(c.chemical_tank(ChemicalTankTier::Elite), (1_024_000, 128_000), "0 is out of range");
+        assert_eq!(c.tube(TubeTier::Basic), (4_000, 750));
+        assert_eq!(c.tube(TubeTier::Ultimate), (2_000_000, 256_000));
+        assert_eq!(c.tube(TubeTier::Elite), (256_000, 64_000));
         let wild: toml::Table = "[energy_conversion]\nfeConversionRate = 0.0\n".parse().unwrap();
         assert_eq!(EnergyConfig::from_tables(Some(&wild), None).fe_conversion_rate, 2.5);
         assert_eq!(EnergyConfig::from_tables(None, None), EnergyConfig::default());

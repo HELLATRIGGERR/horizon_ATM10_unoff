@@ -40,14 +40,15 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   its chemical sides; the Electrolytic Separator (fluid tank and fluid handler, two output tanks, dump modes,
   ejection, upgrades, screen), its numbers measured on NeoForge over RCON (local `chem-work/separator`). World tests
   `electrolytic-separator`, `infuser-chemical-tank`; `/mek chemical <pos> <face|none> ...` and `/mek chemicals [id]`.
-- Chemicals, slice 2 (branch `feat/mek-chemicals-2`, no new hook point): the Basic to Creative Chemical
+- Chemicals, slices 2 and 3 (branch `feat/mek-chemicals-2`, no new hook point): the Basic to Creative Chemical
   Tanks (`mekanism_energy::chemical_tank`, runtime `mek_tanks`: block entity, ejector, drain and fill slots, dump
   modes, side config, screen, the item keeping its contents in `custom_data.mekanism`, tooltip and bar), the item
   chemical handler, the separator's output slots and item ejector and the infuser's infusion slot taking chemical
-  items. Measured on the NeoForge oracle over RCON (local `chem-work/tanks`, t1, t2 and t4: `mekmach-oracle` started
-  headless by `tanks/server.sh`). World test `chemical-tank`.
-- Next: chemicals slices 3-7 (`docs/mekanism-chemicals.md`: Pressurized Tubes, more chemical machines, radiation,
-  Applied Mekanistics after AE2's key type registry, the rest of the pack's chemicals); S10 (the
+  items; the Basic to Ultimate Pressurized Tubes (`network` with a chemical content, runtime `mek_tubes`, their OBJ
+  model from `mekanism-content`). Measured on the NeoForge oracle over RCON (local `chem-work/tanks`, t1-t4:
+  `mekmach-oracle` started headless by `tanks/server.sh`). World tests `chemical-tank`, `pressurized-tube`.
+- Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
+  after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`;
   the machines' next tier (factories, the Osmium Compressor, Combiner, Purification Chamber) on the same `machine`
   crate module, energy items charging machines.

@@ -13,8 +13,9 @@
 // chunks changed), the settings from `config/Mekanism/`, the menu's
 // data slots and buttons (its screen is `mek_ui`), placing a cube (facing the
 // player, with its item's energy and config) and the drop that keeps them, and
-// `/mek probe` for tests; the processing machines are `mek_machines` and the
-// Chemical Tanks `mek_tanks`, reached from these hooks. Server hooks run on the thread of the `Game` that
+// `/mek probe` for tests; the processing machines are `mek_machines`, the
+// Chemical Tanks `mek_tanks` and the Pressurized Tubes `mek_tubes`, reached
+// from these hooks. Server hooks run on the thread of the `Game` that
 // simulates the world, so the settings are kept per thread, read when a world
 // opens and dropped when it closes. No borrow of that state is held across a
 // call into the game.
@@ -166,6 +167,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     SET_BLOCKS.with(|s| s.borrow_mut().clear());
     GENERATORS.with(|g| g.borrow_mut().clear());
     mek_machines::clear();
+    super::mek_tubes::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -274,6 +276,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     }
     if super::mek_tanks::tier_of(block).is_some() {
         *entity = Some(super::mek_tanks::new_entity(block));
+        return;
+    }
+    if super::mek_tubes::tier_of(block).is_some() {
+        *entity = Some(super::mek_tubes::new_entity(block));
         return;
     }
     if CableTier::of_block(block).is_some() {
@@ -788,6 +794,13 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
+    if let Some(tier) = super::mek_tubes::tier_of(&entity.id) {
+        super::mek_tubes::loaded(dimension, pos, &entity.nbt, tier);
+        return;
+    }
+    if has_chemicals(&entity.id) {
+        super::mek_tubes::neighbour(dimension, pos);
+    }
     let machine = mek_machines::kind_of(&entity.id).is_some();
     let Some(tier) = CableTier::of_block(&entity.id) else {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
@@ -812,6 +825,13 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
+    if super::mek_tubes::tier_of(&entity.id).is_some() {
+        super::mek_tubes::unloaded(dimension, pos, removed);
+        return;
+    }
+    if has_chemicals(&entity.id) {
+        super::mek_tubes::neighbour(dimension, pos);
+    }
     let machine = mek_machines::kind_of(&entity.id).is_some();
     if machine && !removed {
         mek_machines::forget(dimension, pos);
@@ -834,7 +854,16 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
 
 /// `native_block_entity_save`: a cable's share goes in `energy`
 /// (`UniversalCable.write`), left out at zero.
+/// A block with a chemical handler: tubes beside it look again as it comes and goes.
+fn has_chemicals(id: &str) -> bool {
+    super::mek_tanks::tier_of(id).is_some() || mek_machines::kind_of(id).is_some_and(|k| k.infuses() || k.separates())
+}
+
 pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut Compound) {
+    if super::mek_tubes::tier_of(id).is_some() {
+        super::mek_tubes::saved(dimension, pos, nbt);
+        return;
+    }
     if CableTier::of_block(id).is_none() {
         return;
     }
@@ -852,6 +881,7 @@ pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut C
 
 /// `native_block_changed`: every block set; the cables beside it look again.
 pub(super) fn block_set(pos: [i32; 3]) {
+    super::mek_tubes::block_set(pos);
     if ANY_CABLES.get() {
         SET_BLOCKS.with(|s| s.borrow_mut().push(pos));
     }
@@ -1027,6 +1057,9 @@ fn set_connection(game: &mut Game<'_>, pos: [i32; 3], side: &str, connection: &s
     let Some(connection) = Connection::from_name(connection) else {
         return serde_json::json!({ "error": "no such connection" });
     };
+    if let Some(answer) = super::mek_tubes::set_connection(game, pos, face, connection) {
+        return answer;
+    }
     let dimension = game.native_dimension();
     let written = game
         .native_with_mod_block_entity(pos, |m| {
@@ -1238,6 +1271,7 @@ pub(super) fn joined(game: &mut Game<'_>, dimension: &str, entity: u32, kind: &s
 /// as Mekanism's configs reload live.
 pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     tick_cables(game, dimension);
+    super::mek_tubes::level_ticked(game, dimension);
     let due = LOOKED_AT.get().is_none_or(|at| at.elapsed() >= Duration::from_secs(1));
     if due {
         LOOKED_AT.set(Some(Instant::now()));
@@ -1864,6 +1898,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if super::mek_tanks::tier_of(&id).is_some() {
         return super::mek_tanks::probe(game, pos, &id, &nbt, &items);
+    }
+    if super::mek_tubes::tier_of(&id).is_some() {
+        return super::mek_tubes::probe(game, pos);
     }
     if let Some(tier) = CableTier::of_block(&id) {
         return probe_cable(game, pos, &id, tier);

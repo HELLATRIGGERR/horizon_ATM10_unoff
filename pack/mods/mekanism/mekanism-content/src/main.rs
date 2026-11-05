@@ -16,8 +16,9 @@
 //!   Mekanism's `mekanism:energy_cube` model loader becomes a multipart
 //!   blockstate over a frame and one part per face and state, and the
 //!   `builtin/entity` item model a flat model of the default state.
-//! - Each universal cable the overlay declares gets Mekanism's OBJ transmitter
-//!   model (`mekanism:transmitter`) converted to a multipart blockstate
+//! - Each universal cable and pressurized tube the overlay declares gets
+//!   Mekanism's OBJ transmitter model (`mekanism:transmitter`, the small one
+//!   with its own textures) converted to a multipart blockstate
 //!   (`transmitter`); its carried loot and shaped recipe stay.
 //! - Each chemical tank keeps its carried model; its loot table drops it
 //!   plain and its `mekanism:mek_data` upgrade recipe becomes shaped, as a
@@ -149,6 +150,7 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
     let mut loot = Vec::new();
     let mut recipes = Vec::new();
     let mut cables = Vec::new();
+    let mut tubes = Vec::new();
     let mut tanks = Vec::new();
     let mut others = Vec::new();
     let mut files = 0;
@@ -169,6 +171,14 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
                 files += 1;
             }
             cables.push(block.to_owned());
+            continue;
+        }
+        if let Some(tier) = block.strip_suffix("_pressurized_tube") {
+            for (path, value) in small_files(carry, "pressurized_tube", tier)? {
+                write_json(&out.join(path), &value)?;
+                files += 1;
+            }
+            tubes.push(block.to_owned());
             continue;
         }
         if let Some(tier) = block.strip_suffix("_chemical_tank") {
@@ -281,7 +291,7 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
         "id": id, "carry": carry, "overlay": overlay, "out": out, "pack_tags": pack_tags, "fluids": fluids,
         "chemicals": chemicals, "chemical_sprites": chemical_sprites,
         "copied": copied, "overlaid": overlaid, "converted_files": files,
-        "cubes": cubes, "cables": cables, "chemical_tanks": tanks, "blocks": others, "loot_tables": loot, "recipes": recipes,
+        "cubes": cubes, "cables": cables, "tubes": tubes, "chemical_tanks": tanks, "blocks": others, "loot_tables": loot, "recipes": recipes,
         "gui_sprites": gui_sprites,
     });
     write_json(&out.join(MARKER), &report)?;
@@ -721,18 +731,24 @@ fn cube_models(
 
 /// A cable tier's models, from the carried OBJ model and its texture names.
 fn cable_files(carry: &Path, tier: &str) -> Result<Vec<(String, Value)>> {
+    small_files(carry, "universal_cable", tier)
+}
+
+/// A small transmitter's (`universal_cable`, `pressurized_tube`) models of one
+/// tier, from the carried OBJ model and its texture names.
+fn small_files(carry: &Path, kind: &str, tier: &str) -> Result<Vec<(String, Value)>> {
     let models = carry.join("assets/mekanism/models");
     let small = read_json(&models.join("block/transmitter/small/small.json"))?;
-    let own = read_json(&models.join(format!("block/transmitter/small/universal_cable/{tier}.json")))?;
+    let own = read_json(&models.join(format!("block/transmitter/small/{kind}/{tier}.json")))?;
     let texture = |name: &str| -> Result<&str> {
-        own["textures"][name].as_str().ok_or_else(|| format!("the {tier} cable model has no texture {name}"))
+        own["textures"][name].as_str().ok_or_else(|| format!("the {tier} {kind} model has no texture {name}"))
     };
     let read = |path: PathBuf| fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()));
     let materials = transmitter::parse_mtl(&read(models.join("block/transmitter_small.mtl"))?);
     let flip_v = small["flip_v"].as_bool().unwrap_or(false);
     let objects = transmitter::parse_obj(&read(models.join("block/transmitter_small.obj.mek"))?, &materials, flip_v)
         .map_err(|e| format!("transmitter_small.obj.mek: {e}"))?;
-    transmitter::cable_models(tier, &objects, texture("side")?, texture("center_down")?, small.get("display"))
+    transmitter::small_models(kind, tier, &objects, texture("side")?, texture("center_down")?, small.get("display"))
 }
 
 /// The block's loot table without its item modifiers: Mekanism copies its

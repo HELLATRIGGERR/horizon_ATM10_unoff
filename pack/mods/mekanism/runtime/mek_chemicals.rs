@@ -8,7 +8,8 @@
 // form (`chemical_tanks: [{tank: 0b, stored: {id, amount}}]`), the chemical
 // handler of the bundle's blocks by side (Mekanism's
 // `Capabilities.CHEMICAL.block()`: the infuser's tank, the separator's two),
-// the Chemical Tanks' (`mek_tanks`), the even split of a tank's contents among the handlers on
+// the Chemical Tanks' (`mek_tanks`) and the Pressurized Tubes' networks
+// (`mek_tubes`), the even split of a tank's contents among the handlers on
 // its output faces (`ChemicalUtil.emit`), and `/mek chemical` and
 // `/mek chemicals` for tests. No other native mod has
 // chemicals yet, so the capability stays in the bundle; AE2's Applied
@@ -162,6 +163,10 @@ pub(super) fn write_tanks(nbt: &mut Compound, tanks: &[ChemicalStack]) {
 /// and what it changed is kept. None where the block has no handler on that
 /// side (another block, a side its config closes to every tank).
 pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<Direction>, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
+    let dimension = game.native_dimension();
+    if super::mek_tubes::is_tube(dimension, pos) {
+        return super::mek_tubes::with_handler(dimension, pos, face, use_it);
+    }
     let registry = registry(game);
     game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {

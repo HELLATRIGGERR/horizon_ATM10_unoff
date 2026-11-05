@@ -1,6 +1,7 @@
 //! The tiers of energy cubes (`EnergyCubeTier`), universal cables
-//! (`CableTier`) and chemical tanks (`ChemicalTankTier`), with Mekanism 10.7's
-//! default sizes; `tiers.toml` may change them (`config`).
+//! (`CableTier`), chemical tanks (`ChemicalTankTier`) and pressurized tubes
+//! (`TubeTier`), with Mekanism 10.7's default sizes; `tiers.toml` may change
+//! them (`config`).
 
 /// `EnergyCubeTier`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -138,6 +139,48 @@ impl ChemicalTankTier {
     }
 }
 
+/// `TubeTier`: what a pressurized tube adds to its network's buffer and what
+/// a pull side draws a tick (`getTubeCapacity`, `getTubePullAmount`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TubeTier {
+    Basic,
+    Advanced,
+    Elite,
+    Ultimate,
+}
+
+impl TubeTier {
+    pub const ALL: [Self; 4] = [Self::Basic, Self::Advanced, Self::Elite, Self::Ultimate];
+
+    pub fn name(self) -> &'static str {
+        CableTier::ALL[self as usize].name()
+    }
+
+    /// The tier of block `mekanism:<tier>_pressurized_tube`.
+    pub fn of_block(id: &str) -> Option<Self> {
+        let name = id.strip_prefix("mekanism:")?.strip_suffix("_pressurized_tube")?;
+        Self::ALL.into_iter().find(|t| t.name() == name)
+    }
+
+    pub fn default_capacity(self) -> i64 {
+        match self {
+            Self::Basic => 4_000,
+            Self::Advanced => 16_000,
+            Self::Elite => 256_000,
+            Self::Ultimate => 1_024_000,
+        }
+    }
+
+    pub fn default_pull(self) -> i64 {
+        match self {
+            Self::Basic => 750,
+            Self::Advanced => 2_000,
+            Self::Elite => 64_000,
+            Self::Ultimate => 256_000,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,5 +192,7 @@ mod tests {
         assert_eq!(CableTier::of_block("mekanism:ultimate_universal_cable"), Some(CableTier::Ultimate));
         assert_eq!(CableTier::of_block("mekanismgenerators:basic_universal_cable"), None);
         assert_eq!(ChemicalTankTier::of_block("mekanism:creative_chemical_tank"), Some(ChemicalTankTier::Creative));
+        assert_eq!(TubeTier::of_block("mekanism:elite_pressurized_tube"), Some(TubeTier::Elite));
+        assert_eq!(TubeTier::of_block("mekanism:creative_pressurized_tube"), None);
     }
 }

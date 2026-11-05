@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its first processing machines, its chemicals and their tanks, and Mekanism Generators' Solar and Heat
+Mekanism's energy blocks, its first processing machines, its chemicals, their tanks and tubes, and Mekanism Generators' Solar and Heat
 Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
@@ -65,6 +65,10 @@ assets when `mekanism-content` is given them.
   and items), the drain and fill slots that move chemicals to and from tank items, the screen, placement facing, and
   an item that keeps its contents, with its tooltip and bar. Tank items fill and empty in machines' chemical slots too
   (the separator's outputs, the infuser's infusion slot).
+- Basic, Advanced, Elite and Ultimate Pressurized Tubes (`[transmitters.chemical]`): networks of one chemical as the
+  cables', connecting to any block with a chemical handler on the touching side, emitting to all of them each tick,
+  pulling through a pull side at the tier's pull amount, keeping their shares across saves, with the cables' OBJ
+  model as a multipart blockstate.
 - The Electrolytic Separator: water (any fluid a `mekanism:separating` recipe takes) in a 24 000 mB tank, filled by
   fluid handlers on its fluid input sides and by a bucket in its slot, into hydrogen (left) and oxygen (right) tanks
   of 2400 mB, `2^speed` operations a tick of 400 J (twice hydrogen's fuel density), dump modes (idle, dumping excess,
@@ -111,7 +115,7 @@ assets when `mekanism-content` is given them.
 - The infuser's infusion bar and the separator's gauges are the chemical's colour, where Mekanism tints its texture;
   chemical items other than the Chemical Tanks aren't ported. Per-tick infusing (`per_tick_usage`), which ATM10's
   recipes don't use, isn't ported. The separator's fluid sides stay at their default (every side input);
-  `docs/mekanism-chemicals.md` lists the chemicals' own differences (tank slots).
+  `docs/mekanism-chemicals.md` lists the chemicals' own differences (tank slots, tube networks joining).
 - A tag-based recipe takes what the tag holds in the world: with only Mekanism's content mods, the pack's `c:` and
   `minecraft:` tags (in ATM10's `atm10-pack` carry) hold just Mekanism's own items, which `mekanism-content --pack`
   copies in, so a recipe on another mod's items does nothing there.

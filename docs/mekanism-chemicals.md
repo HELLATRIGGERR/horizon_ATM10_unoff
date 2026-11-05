@@ -6,7 +6,7 @@ move them, its items carry them, Mekanism Generators burns hydrogen and fuses de
 them through Applied Mekanistics. ATM10 8.4 registers 112 chemicals: Mekanism's 64, All the Ores' 26 slurries,
 Allthemodium's 6, Mekanism More Machines' (`mekmm`) 6, KubeJS's 4, Mekanism Generators' 3, XyCraft World's 2 and
 Starbunclemania's source gas. Everything here lives in the Mekanism bundle (`pack/mods/mekanism`); the engine gained
-one generic helper (hook points API 162); slice 2 needs no hook point.
+one generic helper (hook points API 162); slices 2 and 3 need no hook point.
 
 ## What there was
 
@@ -100,10 +100,17 @@ move its own (`INTERNAL`) and at most its tier's output, a creative item keeping
 item handler and a machine's own tank (`OwnTank`: a chemical tank's rules or a plain tank's), with the slots'
 insert and extract predicates (`fill_accepts`, `drain_accepts`, `fill_done`).
 
-**Transmitters (later).** Pressurized Tubes are Mekanism's chemical transmitters: networks like the Universal
-Cables' (`network.rs`: one buffer as big as their tubes, kept in the bundle per dimension), but of one chemical at a
-time, emitting to `IChemicalHandler`s with the even split. They reuse the cable port's lifecycle hook points (API
-156) and this handler.
+**Transmitters.** Pressurized Tubes are Mekanism's chemical transmitters, networks of the Universal Cables'
+`network.rs` with a chemical (`Network::content`): a buffer as big as their tubes (`[transmitters.chemical]`
+`<tier>Capacity`), one chemical at a time (`insert_of` takes only that one, any while the buffer is empty), two
+networks or a tube's saved share joining only when compatible (`CompatibleTransmitterValidator`: one holds none or
+both the same, the last chemical counting while it moved some last tick; tubes of two chemicals touch without
+joining, and join once one empties: `Networks::mend`), a pull side drawing the tier's `<tier>PullAmount` (not its
+capacity), each tube's share saved as `boxed_chemical`. They are kept in the bundle per dimension (`mek_tubes`),
+through the cables' lifecycle hook points (API 156), and committed, looked at, pulled and emitted after each
+level's tick; each side's acceptor is any block with a chemical handler on the touching side, and each tube is a
+chemical handler for the blocks around it (normal and pull sides take in, normal and push give out, the null side
+reads). Their OBJ model becomes a multipart blockstate as the cables' (`mekanism-content`'s `small_models`).
 
 **AE2 (later).** Applied Mekanistics stores chemicals as an AE2 key type (`MekanismKey`, `AEKeyType` registered with
 AE2's `AEKeyTypes`). The port's AE2 keys items and fluids by id and knows no other key type: AE2 first needs its key
@@ -144,6 +151,13 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   (`TWO_OUTPUT_ITEM`, off by default) puts a full one out of the faces of its output type every 11 ticks; the
   infuser's infusion slot empties a chemical item into its tank before it converts items (`fillTankOrConvert`:
   1000 carbon a tick from a basic item).
+- **The Pressurized Tubes** (slice 3): Basic to Ultimate. Measured on the oracle (t3, t4): the separator into three
+  basic tubes and a basic tank delivers its 2 mB a tick a tick after making them (the tank has 4, 6, 8, 10 three to
+  six ticks after placing, the tubes joining at the end of their first tick); an ultimate tank through one basic tube
+  moves 4000 a tick, through three 12 000, an advanced 16 000, an elite 256 000, an ultimate all of the tank's 512
+  000; a pull side draws 750 (basic), 2000 (advanced) a tick; a push side takes nothing in; a tank side of none
+  doesn't connect; a separator with a full tank ejects 1024 a tick (`chemicalAutoEjectRate`) into a tube; three
+  basic tubes holding 5000 save 1667, 1667, 1666; a hydrogen line takes no oxygen.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -170,8 +184,10 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    slots' moves), `config` (`[chemical_tanks]`), `menu::TankView`, the runtime `mek_tanks` (blocks, items, screen)
    and the separator's and infuser's chemical item slots. Tests: `mekanism-energy` (`chemical_tank::tests`: the
    oracle's tank, dump, creative and slot numbers; `config`, `menu`, `tier`), the world test `chemical-tank`.
-3. **Pressurized Tubes.** Basic to Ultimate, networks of one chemical as the Universal Cables' (`network.rs`), their
-   OBJ model as the cables' multipart, emitting to chemical handlers; the separator's ejector into them.
+3. **Pressurized Tubes (done).** As above: `network` (content, compatibility, `mend`, pull amounts), `config`
+   (`[transmitters.chemical]`), the runtime `mek_tubes`, `mekanism-content`'s tube models. Tests: `mekanism-energy`
+   (`network::tests`: one chemical a network, two that touch without joining, the oracle's shares),
+   `mekanism-content` (`transmitter::tests`), the world test `pressurized-tube`.
 4. **More chemical machines.** The Chemical Oxidizer (items to chemicals), Chemical Infuser (two chemicals to one),
    Chemical Injection Chamber and Purification Chamber (item and chemical per tick, `ItemStackConstantChemical...`),
    Rotary Condensentrator (fluid and chemical both ways), the brine recipe's sodium and chlorine, the Gas-Burning
@@ -203,3 +219,9 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   redstone control, security and owner aren't ported.
 - A tank's outline and collision are one box around its body and valve (a declaration's shapes by property need
   the template's own property, and the block entity's template, the beacon, has no `facing`).
+- Two tube networks that become compatible (one empties) join at the next look (within a second), where Java's
+  `recheckConnection` runs on the change. A tube touching two networks of different chemicals joins the bigger (the
+  last of equals); Java's validator takes the first it finds.
+- A network's acceptors are sorted by position (Java: `HashMap` order); only who gets a leftover mB differs. Which
+  of two tanks ejecting different chemicals into an empty network first gets in follows the port's block entity
+  order, not Java's. Radiation, the tubes' contents rendering and redstone sensitivity aren't ported.

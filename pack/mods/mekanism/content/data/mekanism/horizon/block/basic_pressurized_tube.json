@@ -1,0 +1,102 @@
+{
+  "template": "minecraft:beacon",
+  "properties": {
+    "hardness": 1.0,
+    "explosion_resistance": 6.0,
+    "requires_tool": false,
+    "sounds": "minecraft:stone",
+    "no_occlusion": true,
+    "light": 0,
+    "push_reaction": "IMMOVEABLE",
+    "redstone_conductor": false,
+    "suffocating": false,
+    "solid": false,
+    "light_dampening": 0,
+    "skylight_down": true,
+    "map_color": 19
+  },
+  "outline_boxes": {
+    "*": [
+      0.3125,
+      0.3125,
+      0.3125,
+      0.6875,
+      0.6875,
+      0.6875
+    ]
+  },
+  "collision_boxes": {
+    "*": [
+      0.3125,
+      0.3125,
+      0.3125,
+      0.6875,
+      0.6875,
+      0.6875
+    ]
+  },
+  "state_properties": {
+    "down": {
+      "type": "enum",
+      "values": [
+        "none",
+        "normal",
+        "push",
+        "pull"
+      ]
+    },
+    "up": {
+      "type": "enum",
+      "values": [
+        "none",
+        "normal",
+        "push",
+        "pull"
+      ]
+    },
+    "north": {
+      "type": "enum",
+      "values": [
+        "none",
+        "normal",
+        "push",
+        "pull"
+      ]
+    },
+    "south": {
+      "type": "enum",
+      "values": [
+        "none",
+        "normal",
+        "push",
+        "pull"
+      ]
+    },
+    "west": {
+      "type": "enum",
+      "values": [
+        "none",
+        "normal",
+        "push",
+        "pull"
+      ]
+    },
+    "east": {
+      "type": "enum",
+      "values": [
+        "none",
+        "normal",
+        "push",
+        "pull"
+      ]
+    }
+  },
+  "default_state": {
+    "down": "none",
+    "up": "none",
+    "north": "none",
+    "south": "none",
+    "west": "none",
+    "east": "none"
+  }
+}

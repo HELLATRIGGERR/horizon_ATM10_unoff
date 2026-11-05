@@ -19,7 +19,8 @@
 //! Joules at the pace their upgrades set. Mekanism 10.7's chemicals
 //! (`chemical`: the registry, stacks, tanks and the chemical handler by side)
 //! fill the infuser's tank and the Electrolytic Separator's (`separator`), the
-//! Chemical Tanks and the items that keep their contents (`chemical_tank`).
+//! Chemical Tanks and the items that keep their contents (`chemical_tank`),
+//! and the Pressurized Tubes' networks (`network`, one chemical a network).
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod chemical;
 pub mod chemical_tank;

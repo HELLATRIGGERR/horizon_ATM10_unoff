@@ -7,6 +7,14 @@
 //! made of cables that were saved, merged or split takes their shares back
 //! (`absorbBuffer`).
 //!
+//! Pressurized Tubes' networks (`ChemicalNetwork`) are the same with a
+//! chemical: a network holds one chemical at a time (its `content`), takes
+//! only that one (any while it is empty), and two networks join only when
+//! they hold the same chemical or one holds none (`CompatibleTransmitterValidator`,
+//! the last chemical counting while it still moved some last tick); a tube
+//! pulls its tier's pull amount, not its capacity. Universal cables have no
+//! content, so every network of them is compatible.
+//!
 //! The game goes through three steps a tick: cables that came and went are
 //! queued as they do and [`Networks::commit`]ted once; a network's emission is
 //! [`Networks::begin_emit`], [`send`] with no borrow of this state held (a
@@ -85,6 +93,8 @@ impl Connection {
 #[derive(Clone, Debug)]
 pub struct Cable {
     pub capacity: u64,
+    /// What a pull side draws a tick: a cable's capacity, a tube's pull amount.
+    pub pull: u64,
     /// The sides as configured (`getConnectionTypesRaw`).
     pub connections: [Connection; 6],
     /// The cable's part of its network's buffer as last written for saving
@@ -100,6 +110,10 @@ pub struct Network {
     pub cables: BTreeSet<Pos>,
     pub buffer: u64,
     pub capacity: u64,
+    /// The chemical the buffer holds; none while it is empty (and for energy).
+    pub content: Option<String>,
+    /// The last chemical it held (`lastChemical`).
+    pub last: Option<String>,
     /// Joules the last emission sent (`prevTransferAmount`).
     pub last_sent: u64,
     /// A cable of each chunk the network is in, to mark them changed.
@@ -120,20 +134,41 @@ impl Network {
     fn touched(&mut self) {
         self.shares_fresh = false;
         self.changed = true;
+        if self.buffer == 0 {
+            self.content = None;
+        } else if self.content.is_some() {
+            self.last.clone_from(&self.content);
+        }
     }
+
+    /// `getBufferOrFallback`: its chemical, or the last one while it moved
+    /// some in the last tick.
+    pub fn fallback(&self) -> Option<&str> {
+        self.content.as_deref().or(if self.last_sent > 0 { self.last.as_deref() } else { None })
+    }
+}
+
+/// Whether two networks' (or a network's and a tube's) chemicals may meet:
+/// one holds none, or both the same.
+pub fn compatible(a: Option<&str>, b: Option<&str>) -> bool {
+    a.is_none() || b.is_none() || a == b
+}
+
+/// A transmitter as it joins: its tier's capacity and pull, its sides, and
+/// what its saved share holds (`energy`, `boxed_chemical`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Member {
+    pub capacity: u64,
+    pub pull: u64,
+    pub connections: [Connection; 6],
+    pub share: u64,
+    pub content: Option<String>,
 }
 
 fn chunk_of(pos: Pos) -> (i32, i32) {
     (pos[0] >> 4, pos[2] >> 4)
 }
 
-/// A cable waiting to join (`registerOrphanTransmitter`).
-#[derive(Clone, Copy, Debug)]
-struct Joining {
-    capacity: u64,
-    connections: [Connection; 6],
-    share: u64,
-}
 
 /// What a network's emission goes through: the buffer, and the sides it may
 /// hand energy to.
@@ -141,6 +176,8 @@ struct Joining {
 pub struct Emission {
     pub buffer: u64,
     pub targets: Vec<(Pos, usize)>,
+    /// The chemical it sends (none for energy).
+    pub content: Option<String>,
 }
 
 /// `EnergyNetwork.tickEmit`: `buffer` split among the `targets` that take any
@@ -160,7 +197,8 @@ pub struct Networks {
     cables: HashMap<Pos, Cable>,
     networks: BTreeMap<u32, Network>,
     next: u32,
-    adding: BTreeMap<Pos, Joining>,
+    /// Transmitters waiting to join (`registerOrphanTransmitter`).
+    adding: BTreeMap<Pos, Member>,
     leaving: BTreeSet<Pos>,
 }
 
@@ -191,7 +229,13 @@ impl Networks {
     /// A cable placed or loaded, with the energy its saved share holds: it
     /// joins at the next [`commit`](Self::commit).
     pub fn queue_add(&mut self, pos: Pos, capacity: u64, connections: [Connection; 6], share: u64) {
-        self.adding.insert(pos, Joining { capacity, connections, share });
+        self.queue_add_with(pos, Member { capacity, pull: capacity, connections, share, content: None });
+    }
+
+    /// A tube placed or loaded: [`queue_add`](Self::queue_add) with its pull
+    /// amount and its share's chemical.
+    pub fn queue_add_with(&mut self, pos: Pos, member: Member) {
+        self.adding.insert(pos, member);
     }
 
     /// A cable broken or unloaded: it leaves at the next
@@ -233,7 +277,7 @@ impl Networks {
             self.invalidate(id, &gone);
         }
         for (pos, joining) in std::mem::take(&mut self.adding) {
-            self.add(pos, joining.capacity, joining.connections, joining.share);
+            self.add_with(pos, joining);
             around.insert(pos);
             for side in 0..6 {
                 around.insert(offset(pos, side));
@@ -243,8 +287,8 @@ impl Networks {
         around.into_iter().collect()
     }
 
-    /// Whether two neighbouring cables join: neither side is cut.
-    fn joined(&self, a: Pos, side: usize) -> bool {
+    /// Whether two neighbouring cables may join: neither side is cut.
+    fn connects(&self, a: Pos, side: usize) -> bool {
         let b = offset(a, side);
         match (self.cables.get(&a), self.cables.get(&b)) {
             (Some(x), Some(y)) => {
@@ -254,26 +298,56 @@ impl Networks {
         }
     }
 
+    /// Whether two neighbouring cables are joined: they connect and share a
+    /// network (tubes of two chemicals touch without joining).
+    fn joined(&self, a: Pos, side: usize) -> bool {
+        self.connects(a, side) && self.cables[&a].network == self.cables[&offset(a, side)].network
+    }
+
+    fn fallback_of(&self, id: u32) -> Option<String> {
+        self.networks.get(&id).and_then(|n| n.fallback().map(str::to_owned))
+    }
+
     /// A cable joins now, with its share, and the networks it touches become
     /// one: the biggest takes in the others, so a chunk's cables joining a long
     /// line cost what they add and not the line's length each.
     pub fn add(&mut self, pos: Pos, capacity: u64, connections: [Connection; 6], share: u64) {
+        self.add_with(pos, Member { capacity, pull: capacity, connections, share, content: None });
+    }
+
+    /// [`add`](Self::add) of a transmitter with its pull and its share's
+    /// chemical. It joins the biggest network it touches that its share's
+    /// chemical may meet, and the others that may meet both
+    /// (`CompatibleTransmitterValidator`); an incompatible one stays apart.
+    pub fn add_with(&mut self, pos: Pos, member: Member) {
+        let Member { capacity, pull, connections, share, content } = member;
         if self.cables.contains_key(&pos) {
             let gone = [pos];
             let id = self.cables[&pos].network;
             self.invalidate(id, &gone);
         }
-        self.cables.insert(pos, Cable { capacity, connections, share, acceptors: 0, network: u32::MAX });
-        let touching: BTreeSet<u32> = (0..6)
-            .filter(|&s| self.joined(pos, s))
+        self.cables.insert(pos, Cable { capacity, pull, connections, share, acceptors: 0, network: u32::MAX });
+        let mut touching: Vec<u32> = (0..6)
+            .filter(|&s| self.connects(pos, s))
             .map(|s| self.cables[&offset(pos, s)].network)
+            .collect::<BTreeSet<u32>>()
+            .into_iter()
             .collect();
-        let id = match touching.iter().copied().max_by_key(|id| self.networks.get(id).map_or(0, |n| n.cables.len())) {
+        // The biggest first (the latest of equals, as `max_by_key` takes it).
+        touching.sort_by_key(|id| (std::cmp::Reverse(self.networks.get(id).map_or(0, |n| n.cables.len())), std::cmp::Reverse(*id)));
+        let mut seen = if share > 0 { content.clone() } else { None };
+        let mut accepted = Vec::new();
+        for id in touching {
+            let theirs = self.fallback_of(id);
+            if compatible(seen.as_deref(), theirs.as_deref()) {
+                seen = seen.or(theirs);
+                accepted.push(id);
+            }
+        }
+        let id = match accepted.first().copied() {
             Some(biggest) => {
-                for other in touching {
-                    if other != biggest {
-                        self.merge(biggest, other);
-                    }
+                for other in accepted.into_iter().skip(1) {
+                    self.merge(biggest, other);
                 }
                 biggest
             }
@@ -290,8 +364,12 @@ impl Networks {
             network.cables.insert(pos);
             network.chunks.entry(chunk_of(pos)).or_insert(pos);
             network.capacity = network.capacity.saturating_add(capacity);
-            // absorbBuffer, then clampBuffer: a buffer over the capacity is cut.
-            network.buffer = network.buffer.saturating_add(share).min(network.capacity);
+            // absorbBuffer, then clampBuffer: a buffer over the capacity is cut;
+            // a share of another chemical than the buffer's is lost.
+            if share > 0 && (network.buffer == 0 || network.content == content) {
+                network.buffer = network.buffer.saturating_add(share).min(network.capacity);
+                network.content = content;
+            }
             network.outputs = None;
             network.touched();
         }
@@ -312,7 +390,18 @@ impl Networks {
             }
         }
         if let Some(network) = self.networks.get_mut(&into) {
-            network.buffer = network.buffer.saturating_add(other.buffer);
+            // `adoptTransmittersAndAcceptorsFrom`: incompatible buffers (never
+            // merged on purpose) keep this network's.
+            if network.buffer == 0 {
+                network.buffer = other.buffer;
+                network.content = other.content;
+            } else if other.buffer > 0 && network.content == other.content {
+                network.buffer = network.buffer.saturating_add(other.buffer);
+            }
+            if network.last.is_none() {
+                network.last = other.last;
+            }
+            network.last_sent = network.last_sent.max(other.last_sent);
             network.capacity = network.capacity.saturating_add(other.capacity);
             network.cables.extend(other.cables);
             for (chunk, pos) in other.chunks {
@@ -355,11 +444,11 @@ impl Networks {
                 }
             }
             let buffer = part.iter().map(|p| shares.get(p).copied().unwrap_or(0)).sum();
-            self.form(part, buffer);
+            self.form(part, buffer, network.content.clone());
         }
     }
 
-    fn form(&mut self, cables: Vec<Pos>, buffer: u64) -> u32 {
+    fn form(&mut self, cables: Vec<Pos>, buffer: u64, content: Option<String>) -> u32 {
         let id = self.next_id();
         let mut network = Network::default();
         for pos in cables {
@@ -371,6 +460,7 @@ impl Networks {
             }
         }
         network.buffer = buffer.min(network.capacity);
+        network.content = content;
         network.touched();
         self.networks.insert(id, network);
         id
@@ -379,6 +469,9 @@ impl Networks {
     /// A side's configuration changed (the Configurator): networks split or
     /// join when it cuts or mends a cable-to-cable side.
     pub fn set_connection(&mut self, pos: Pos, side: usize, connection: Connection) {
+        if let Some(waiting) = self.adding.get_mut(&pos) {
+            waiting.connections[side] = connection;
+        }
         let was_joined = self.joined(pos, side);
         let Some(cable) = self.cables.get_mut(&pos) else { return };
         cable.connections[side] = connection;
@@ -387,15 +480,35 @@ impl Networks {
             network.outputs = None;
             network.touched();
         }
-        let joined = self.joined(pos, side);
-        if was_joined && !joined {
+        let connects = self.connects(pos, side);
+        if was_joined && !connects {
             self.invalidate(id, &[]);
-        } else if joined && !was_joined {
+        } else if connects && !was_joined {
             let other = self.cables[&offset(pos, side)].network;
-            if other != id {
+            if other != id && compatible(self.fallback_of(id).as_deref(), self.fallback_of(other).as_deref()) {
                 self.merge(id, other);
             }
         }
+    }
+
+    /// `recheckConnection`: the tube at `pos` joins the networks beside it
+    /// that may now meet its own (one emptied). Whether any did.
+    pub fn mend(&mut self, pos: Pos) -> bool {
+        let mut merged = false;
+        for side in 0..6 {
+            if !self.connects(pos, side) || self.joined(pos, side) {
+                continue;
+            }
+            let (id, other) = (self.cables[&pos].network, self.cables[&offset(pos, side)].network);
+            let (a, b) = (self.fallback_of(id), self.fallback_of(other));
+            if compatible(a.as_deref(), b.as_deref()) {
+                // The one with a buffer adopts the other.
+                let (into, from) = if a.is_none() && b.is_some() { (other, id) } else { (id, other) };
+                self.merge(into, from);
+                merged = true;
+            }
+        }
+        merged
     }
 
     // ---- What a side does ------------------------------------------------
@@ -465,18 +578,36 @@ impl Networks {
     /// still holds what it is sending, so what fits is what the full buffer
     /// leaves room for, as in Mekanism.
     pub fn insert(&mut self, pos: Pos, amount: u64, simulate: bool) -> u64 {
+        self.insert_of(pos, None, amount, simulate)
+    }
+
+    /// [`insert`](Self::insert) of a chemical: none while the buffer holds
+    /// another (`VariableCapacityChemicalTank.insert`).
+    pub fn insert_of(&mut self, pos: Pos, content: Option<&str>, amount: u64, simulate: bool) -> u64 {
         let Some(id) = self.cables.get(&pos).map(|c| c.network) else {
             return amount;
         };
         let Some(network) = self.networks.get_mut(&id) else {
             return amount;
         };
+        if network.buffer > 0 && network.content.as_deref() != content {
+            return amount;
+        }
         let taken = amount.min(network.needed());
         if !simulate && taken > 0 {
             network.buffer += taken;
+            network.content = content.map(str::to_owned);
             network.touched();
         }
         amount - taken
+    }
+
+    /// [`insert_at`](Self::insert_at) of a chemical.
+    pub fn insert_of_at(&mut self, pos: Pos, side: Option<usize>, content: Option<&str>, amount: u64, simulate: bool) -> u64 {
+        match side {
+            Some(side) if self.shown(pos, side).can_accept() => self.insert_of(pos, content, amount, simulate),
+            _ => amount,
+        }
     }
 
     /// Energy taken out of the cable at `pos`'s network: returns what was taken.
@@ -495,7 +626,7 @@ impl Networks {
     /// `getAvailablePull`: what the cable at `pos` may pull now.
     pub fn available_pull(&self, pos: Pos) -> u64 {
         let Some((_, network)) = self.network_of(pos) else { return 0 };
-        self.cables[&pos].capacity.min(network.needed())
+        self.cables[&pos].pull.min(network.needed())
     }
 
     /// The blocks network `id` hands energy to: each (cable, side) with a block
@@ -545,6 +676,7 @@ impl Networks {
             return None;
         }
         let buffer = network.buffer;
+        let content = network.content.clone();
         let targets = match &network.outputs {
             Some(targets) => targets.clone(),
             None => {
@@ -555,7 +687,7 @@ impl Networks {
                 targets
             }
         };
-        Some(Emission { buffer, targets })
+        Some(Emission { buffer, targets, content })
     }
 
     /// What was sent leaves the buffer; what came in during the sending stays.
@@ -874,7 +1006,7 @@ mod tests {
         nets.set_acceptor([0, 0, 0], EAST, true);
         let (id, _) = nets.network_of([0, 0, 0]).unwrap();
         let plan = nets.begin_emit(id).unwrap();
-        assert_eq!(plan, Emission { buffer: 3_000, targets: vec![([0, 0, 0], EAST)] });
+        assert_eq!(plan, Emission { buffer: 3_000, targets: vec![([0, 0, 0], EAST)], content: None });
         // No borrow is held: the target hands 6000 back into this network, of
         // which what the still-counted 3000 leaves room for fits.
         let mut back = 0;
@@ -921,6 +1053,62 @@ mod tests {
         let (id, _) = nets.network_of([14, 0, 0]).unwrap();
         nets.finish_emit(id, 0);
         assert!(nets.take_changed().is_empty(), "nothing sent");
+    }
+
+    fn tube(capacity: u64, pull: u64, share: u64, content: Option<&str>) -> Member {
+        Member { capacity, pull, connections: N, share, content: content.map(str::to_owned) }
+    }
+
+    #[test]
+    fn a_tube_network_holds_one_chemical() {
+        const H: Option<&str> = Some("mekanism:hydrogen");
+        const O: Option<&str> = Some("mekanism:oxygen");
+        let mut nets = Networks::default();
+        for x in 0..3 {
+            nets.add_with([x, 0, 0], tube(4_000, 750, 0, None));
+        }
+        assert_eq!(nets.insert_of([0, 0, 0], H, 5_000, false), 0);
+        let (_, net) = nets.network_of([2, 0, 0]).unwrap();
+        assert_eq!((net.buffer, net.capacity, net.content.as_deref()), (5_000, 12_000, H));
+        assert_eq!(nets.insert_of([1, 0, 0], O, 10, false), 10, "oxygen into a hydrogen network");
+        // The oracle (chem-work/tanks t4): 5000 saved over three basic tubes is 1667, 1667, 1666.
+        let shares: Vec<u64> = (0..3).map(|x| nets.save_share([x, 0, 0]).unwrap()).collect();
+        assert_eq!(shares, [1_667, 1_667, 1_666]);
+        assert_eq!(nets.available_pull([0, 0, 0]), 750, "a tube pulls its pull amount");
+        // Emptied, it takes another chemical.
+        assert_eq!(nets.extract([0, 0, 0], 5_000, false), 5_000);
+        assert_eq!(nets.network_of([0, 0, 0]).unwrap().1.content, None);
+        assert_eq!(nets.insert_of([1, 0, 0], O, 10, false), 0);
+        assert_eq!(nets.begin_emit(nets.network_of([0, 0, 0]).unwrap().0).unwrap().content.as_deref(), O);
+    }
+
+    #[test]
+    fn tubes_of_two_chemicals_touch_without_joining() {
+        const H: Option<&str> = Some("mekanism:hydrogen");
+        const O: Option<&str> = Some("mekanism:oxygen");
+        let mut nets = Networks::default();
+        nets.add_with([0, 0, 0], tube(4_000, 750, 1_000, H));
+        nets.add_with([1, 0, 0], tube(4_000, 750, 2_000, O));
+        assert_eq!(nets.networks().count(), 2, "hydrogen and oxygen stay apart");
+        assert_eq!(nets.shown([0, 0, 0], EAST), Connection::None);
+        // An empty tube touching both joins the bigger and stays apart from the other.
+        nets.add_with([0, 1, 0], tube(4_000, 750, 0, None));
+        nets.add_with([1, 1, 0], tube(4_000, 750, 0, None));
+        assert_eq!(nets.networks().count(), 2);
+        assert_eq!(nets.network_of([0, 1, 0]).unwrap().0, nets.network_of([1, 1, 0]).unwrap().0);
+        assert_eq!(nets.shown([1, 1, 0], 0), Connection::None, "not joined to the oxygen below");
+        // The hydrogen network empties: the next look joins them, the oxygen adopting it.
+        nets.extract([0, 0, 0], 1_000, false);
+        assert!(nets.mend([1, 1, 0]));
+        assert_eq!(nets.networks().count(), 1);
+        let (_, net) = nets.network_of([0, 0, 0]).unwrap();
+        assert_eq!((net.buffer, net.content.as_deref(), net.capacity), (2_000, O, 16_000));
+        // A loaded share of another chemical than its network's is lost; of the same, kept.
+        nets.add_with([2, 0, 0], tube(4_000, 750, 500, H));
+        assert_eq!(nets.networks().count(), 2, "it doesn't join oxygen");
+        nets.add_with([3, 0, 0], tube(4_000, 750, 300, O));
+        let (_, net) = nets.network_of([3, 0, 0]).unwrap();
+        assert_eq!((net.buffer, net.content.as_deref()), (300, O), "next to the hydrogen tube, alone");
     }
 
     #[test]

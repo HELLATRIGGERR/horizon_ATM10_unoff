@@ -320,8 +320,21 @@ pub fn cable_models(
     center: &str,
     display: Option<&Value>,
 ) -> Result<Vec<(String, Value)>> {
-    let block = format!("{tier}_universal_cable");
-    let dir = format!("block/transmitter/small/universal_cable/{tier}");
+    small_models("universal_cable", tier, objects, side, center, display)
+}
+
+/// The models of one tier of a small transmitter, `kind` (`universal_cable`,
+/// `pressurized_tube`: the same OBJ model), and its multipart blockstate.
+pub fn small_models(
+    kind: &str,
+    tier: &str,
+    objects: &BTreeMap<String, Vec<Quad>>,
+    side: &str,
+    center: &str,
+    display: Option<&Value>,
+) -> Result<Vec<(String, Value)>> {
+    let block = format!("{tier}_{kind}");
+    let dir = format!("block/transmitter/small/{kind}/{tier}");
     let textures = json!({ "side": side, "center": center, "particle": center });
     let quads = |name: String| -> Result<Vec<Quad>> {
         let found = objects.get(&name).ok_or_else(|| format!("the model has no object {name}"))?;
@@ -619,6 +632,16 @@ f 1/1/1 3/2/1 4/3/1 2/4/1
         assert_eq!(item["display"], display);
         assert_eq!(item["elements"].as_array().unwrap().len(), 6, "down and up normal, four free");
         assert!(item["elements"][0]["faces"]["down"]["texture"] == "#side");
+    }
+
+    #[test]
+    fn a_tube_is_the_same_small_model_with_its_own_names() {
+        let files = small_models("pressurized_tube", "elite", &whole_model(), "mekanism:block/models/multipart/elite_pressurized_tube_vertical", "mekanism:t", None).unwrap();
+        assert_eq!(files.iter().filter(|(p, _)| p.contains("/pressurized_tube/elite/")).count(), 36);
+        let (_, state) = files.iter().find(|(p, _)| p.ends_with("blockstates/elite_pressurized_tube.json")).unwrap();
+        assert!(state["multipart"][0]["apply"]["model"].as_str().unwrap().starts_with("mekanism:block/transmitter/small/pressurized_tube/elite/"));
+        let (_, item) = files.iter().find(|(p, _)| p.ends_with("models/item/elite_pressurized_tube.json")).unwrap();
+        assert_eq!(item["textures"]["side"], "mekanism:block/models/multipart/elite_pressurized_tube_vertical");
     }
 
     #[test]

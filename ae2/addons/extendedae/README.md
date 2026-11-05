@@ -76,8 +76,8 @@ AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-machines
 | `getExposedInventoryForSide` (`CombinedInternalInventory` of the threads, `BaseFilter`, `AutomationFilter`) | the device's item handler (`extendedae_item_insert`, `_extract`, `_candidates`), which hoppers, buses and providers meet first (`game/ae2x/mod.rs`, `ae2x_item_insert`): thread by thread, AE2's Inscriber's rules on each |
 | `ContainerExInscriber`, `GuiExInscriber`, `screens/ex_inscriber.json`: a page a thread (`IPage`), AE2's Inscriber's places, separate sides, auto export, the stack size, next and previous page, "Inscription Job %s" | a 27-entry window: the shown thread's slots 0..4, cards 4..8, next page 22, previous 23, auto export 24, sides 25, stack size 26 (`extendedae_inscriber_click`); the page is the block's, shared by its viewers, as the Extended Interface's |
 | `TileExCharger`: four slots of one (`AppEngInternalInventory(.., 4, 1, ChargerInvFilter)`), 3,200 AE; `doWork` every `TickRates.Charger`: each slot charges its item from the buffer, then the grid, or (buffer over 3,199) runs its charger recipe one call in five for the whole buffer, and after each slot a buffer under 3,199 takes up to 800 AE from the grid; no menu: a use puts one held item in the first free slot, else drops the first item in front (`activate`) | an `ExtMachine` of four slots; its tick (`extendedae_charger_tick`) with AE2's chargeable items (`ae2_processing::chargeable_*`), its use through `ae2x_block_use` |
-| `TileExMolecularAssembler`: eight `CraftingThread`s of ten slots, a job each from pattern providers (`pushPattern` to the first free thread); 20, 26, 34, 40, 50 or 100 progress a tick at 1 to 5 AE a point for 0 to 5 speed cards (AE2's is half); nothing goes in by automation, the output comes out | a `MachineVariant` of AE2's Molecular Assembler (11 slots, five cards), one thread: the port's crafting CPU sends a job to an assembler by its place, one at a time; the mod's speeds (`assembler_speed`, read by `ae2_tick_assembler`); its item handler takes nothing in |
-| `ContainerExMolecularAssembler`, `screens/ex_molecular_assembler.json` | its first page: the grid (EX_1), the output, five cards, the progress |
+| `TileExMolecularAssembler`: eight `CraftingThread`s of ten slots, a job each from pattern providers (`pushPattern` to the first free thread); 20, 26, 34, 40, 50 or 100 progress a tick at 1 to 5 AE a point for 0 to 5 speed cards (AE2's is half); nothing goes in by automation, the output comes out | a `MachineVariant` of AE2's Molecular Assembler (11 slots, five cards) of eight threads (slice 3: `game/ae2_assembler_threads.rs`, the first AE2's slots, the others in its config); the mod's speeds (`assembler_speed`, read by `ae2_tick_assembler`); its item handler takes nothing in |
+| `ContainerExMolecularAssembler`, `screens/ex_molecular_assembler.json` | its first page (the first thread): the grid (EX_1), the output, five cards, the progress |
 | `BlockBuddingEntro` (four, fully to hardly entroized): `randomTick` one in three grows a cluster on a random side (in air or a water source, waterlogged then; a cluster facing away one size up), then one growth in ten wears it a step down, the hardly entroized one to AE2's quartz block | `game/ae2x/extendedae/entro.rs`, reached from AE2's budding quartz tick (`ae2_random_tick_certus`, `ae2x_random_tick`); the blocks random-tick by their declarations; AE2's Growth Accelerator ticks them as `#c:budding_blocks` |
 | `BlockEntroCluster` (small, medium, large bud and cluster): light 5 to 8, strength 2.5, on the block behind them | declarations on amethyst buds' and cluster's templates (shape, survival, drops by their loot tables) |
 | `ItemEntroSeed.useOn`: on AE2's fluix block, one seed for a fully entroized budding block | `extendedae_seed_use`, through `ae2x_use_on` |
@@ -99,9 +99,8 @@ Differences, known:
 - The tank fills from water and lava buckets in the window only: the port has no fluid pipes, and AE2's export bus
   and pattern provider do not push fluids into it yet.
 - A Memory Card does not take an Extended Import or Export Bus's settings yet, nor an Extended Inscriber's.
-- The Extended Molecular Assembler runs one job at a time, not eight: the port's crafting CPU sends a job to an
-  assembler by its place (`recursive_destination`, its flights by `GridAddress`), and so does the Assembler
-  Matrix's. Eight threads need flights that name a thread.
+- The Extended Molecular Assembler's screen shows its first thread only; its other seven craft as the mod's
+  (since slice 3) but have no pages.
 - The Extended Inscriber's and Molecular Assembler's next and previous page buttons stay at the last and first
   page instead of hiding; a page is the block's, not each viewer's.
 - No crank on the Extended Inscriber and Charger (`ICrankPowered`), no lightning on a working charger.
@@ -152,8 +151,7 @@ AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-cells
 
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
-3. Assembler Matrix (max size 6 in ATM10): needs the crafting CPU to send jobs to a crafter thread, not to an
-   assembler's place (it would also give the Extended Molecular Assembler its eight threads).
+3. Assembler Matrix (max size 6 in ATM10).
 4. Wireless Connector and Hub (range 1,000).
 5. Special buses, emitters and planes.
 7. Oversize (x16) and Vacuum interfaces, modifiers, ME Packing Tape, Extended Pattern Access Terminal.

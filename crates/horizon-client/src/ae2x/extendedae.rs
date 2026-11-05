@@ -35,12 +35,14 @@ pub const EX_CHARGER: &str = "extendedae:ex_charger";
 pub const EX_ASSEMBLER: &str = "extendedae:ex_molecular_assembler";
 /// `TileExInscriber.MAX_THREAD` and `TileExCharger.MAX_THREAD`.
 pub const THREADS: usize = 4;
+/// `TileExMolecularAssembler.MAX_THREAD` and `TileAssemblerMatrixCrafter.MAX_THREAD`:
+/// the crafting threads of the Extended Molecular Assembler and of a crafter core.
+pub const ASSEMBLER_THREADS: usize = 8;
 /// `ItemInfinityCell`s of the mod: endless water and cobblestone.
 pub const INFINITY_WATER_CELL: &str = "extendedae:infinity_water_cell";
 pub const INFINITY_COBBLESTONE_CELL: &str = "extendedae:infinity_cobblestone_cell";
 /// `ItemVoidCell`.
 pub const VOID_CELL: &str = "extendedae:void_cell";
-
 /// `extendedae-common.toml` (`EAEConfig`): what this port reads of it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Config {
@@ -159,9 +161,9 @@ pub const MACHINES: &[MachineVariant] = &[
         part: true,
     },
     // IOPortBlockEntity's six cells in, six out; UpgradeInventories.forMachine(EX_IO_PORT, 5).
-    // TileExMolecularAssembler: the port's crafting CPU sends a job to an
-    // assembler by its place, one at a time, so this is one thread of AE2's
-    // eleven slots (the grid, the output, a pattern slot it never shows), with
+    // TileExMolecularAssembler: eight threads; the first is AE2's eleven
+    // slots (the grid, the output, a pattern slot it never shows), the others
+    // keep theirs in the machine's config (`game/ae2_assembler_threads.rs`);
     // five cards and the mod's speeds (`CraftingThread.tick`).
     MachineVariant {
         id: EX_ASSEMBLER,

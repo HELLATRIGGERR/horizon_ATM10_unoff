@@ -931,28 +931,39 @@ impl Game<'_> {
     /// A cancelled CPU no longer owns an already dispatched assembler job.
     /// Once it finishes, return only its actual output and recipe remainders;
     /// an offline/full network leaves those physical stacks in the machine.
-    fn ae2_recover_orphan_assembler(&mut self,pos:(i32,i32,i32)) {
+    /// Each thread of an addon's assembler on its own.
+    pub(super) fn ae2_recover_orphan_assembler(&mut self,pos:(i32,i32,i32)) {
+        let threads=match self.world.block_entities.get(&pos) {
+            Some(BlockEntity::Ae2(machine))=>super::ae2_assembler_threads::threads(machine),
+            _=>return,
+        };
+        for n in 0..threads {self.ae2_recover_orphan_thread(pos,n);}
+    }
+    fn ae2_recover_orphan_thread(&mut self,pos:(i32,i32,i32),n:usize) {
+        use super::ae2_assembler_threads::{store_thread,thread};
         // The physical assembler carries its owner identity across unload. Only
         // classify it as orphan after the CPU's dimension and chunk are loaded.
-        if self.ae2_assembler_flight_is_live(pos) == Some(false) {
+        if self.ae2_assembler_flight_is_live(pos,n) == Some(false) {
             if let Some(BlockEntity::Ae2(machine)) = self.world.block_entities.get_mut(&pos) {
-                if !matches!(machine.config.get(&"ae2_orphaned_flight".into()), Some(Tag::Byte(1))) {
-                    machine.config.insert("ae2_orphaned_flight".into(), Tag::Byte(1));
+                if let Some(mut t)=thread(machine,n).filter(|t|!matches!(t.config.get(&"ae2_orphaned_flight".into()), Some(Tag::Byte(1)))) {
+                    t.config.insert("ae2_orphaned_flight".into(), Tag::Byte(1));
+                    store_thread(machine,n,&t);
                     self.world.modified.insert((pos.0 >> 4, pos.2 >> 4));
                 }
             }
         }
-        let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos) else{return;};
+        let Some(BlockEntity::Ae2(host))=self.world.block_entities.get(&pos) else{return;};
+        let Some(machine)=thread(host,n) else{return;};
         // A persisted marker may race a stale CPU chunk save. Never recover a
         // tokenized flight unless its owner is loaded and verified absent.
         if machine.config.contains_key(&"ae2_flight_owner".into())
-            && self.ae2_assembler_flight_is_live(pos) != Some(false) { return; }
-        if machine.kind!=MachineKind::MolecularAssembler || machine.slots.len()!=11
-            || !matches!(machine.config.get(&"ae2_orphaned_flight".into()),Some(Tag::Byte(1)))
+            && self.ae2_assembler_flight_is_live(pos,n) != Some(false) { return; }
+        if !matches!(machine.config.get(&"ae2_orphaned_flight".into()),Some(Tag::Byte(1)))
             || machine.config.contains_key(&"ae2_assembler_pattern".into())
             || !self.ae2_online(pos) {return;}
         let Some(address)=self.ae2_local_address(pos) else{return;};
-        let mut updated=(**machine).clone();
+        let mut host=(**host).clone();
+        let mut updated=machine;
         let snapshot=self.ae2_snapshot_blocks();
         let mut plan=super::ae2_buses::FormationPlan::default();
         let result=(||->Result<(),String>{
@@ -966,8 +977,9 @@ impl Game<'_> {
                 updated.config.remove(&"ae2_orphaned_flight".into());
                 updated.config.remove(&"ae2_flight_owner".into());
             }
+            store_thread(&mut host,n,&updated);
             let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get_mut(&pos) else{return Err("assembler disappeared".into());};
-            **machine=updated;
+            **machine=host;
             self.world.modified.insert((pos.0>>4,pos.2>>4));
             self.ae2_commit_formation(plan)
         })();
@@ -1795,10 +1807,16 @@ impl Game<'_> {
         let services=self.ae2_event_service_ids(&network);let service=services.as_ref().and_then(|s|s.get(&identity)).copied();
         let now=self.ae2_server_tick();let mut fields=m.slots.iter().map(|s|horizon_client::item_data::canon_stack(s.as_ref())).collect::<Vec<_>>();
         fields.push(m.config.get(&"ae2_assembler_pattern".into()).map(horizon_client::item_data::canon_tag).unwrap_or_default());
+        let threads=super::ae2_assembler_threads::threads(m);
+        // An addon's later threads wake it too (`TileExMolecularAssembler.changeState`).
+        for n in 1..threads {
+            fields.push(m.config.get(&format!("{}{n}",horizon_client::ae2_world::ASSEMBLER_THREAD_PREFIX).as_str().into()).map(horizon_client::item_data::canon_tag).unwrap_or_default());
+        }
         let Ok(token)=serde_json::to_vec(&fields) else{return false;};if token.len()>1_048_576 {return false;}
-        let sleeping=m.slots.iter().take(10).all(Option::is_none) && !m.config.contains_key(&"ae2_assembler_pattern".into());
+        let sleeping=m.slots.iter().take(10).all(Option::is_none) && !m.config.contains_key(&"ae2_assembler_pattern".into())
+            && super::ae2_assembler_threads::busy_threads(m)==0;
         let due=self.ae2_device_scheduler.borrow_mut().due_with_token(identity,service,now,1,1,sleeping,&token);
-        if !due{return false;}let changed=self.ae2_tick_assembler(pos,m,original,plan);
+        if !due{return false;}let changed=self.ae2_tick_assembler_threads(pos,m,original,plan);
         let modulation=if sleeping {super::ae2_tick_tracker::Modulation::Sleep}else{super::ae2_tick_tracker::Modulation::Same};
         self.ae2_device_scheduler.borrow_mut().completed(identity,now,modulation);changed
     }
@@ -1834,7 +1852,35 @@ impl Game<'_> {
         }
         assembler_eject_held(m,|m,slot,stack|self.ae2_assembler_accepts(m,slot,stack)) || changed
     }
+    /// `TileExMolecularAssembler.tickingRequest`: each awake thread of an
+    /// addon's assembler ticks as AE2's assembler; AE2's own is its only one.
+    pub(super) fn ae2_tick_assembler_threads(&mut self, pos: (i32, i32, i32), m: &mut Machine, original: &Machine, plan: &mut super::ae2_buses::FormationPlan) -> bool {
+        use super::ae2_assembler_threads::{awake, store_thread, thread, threads};
+        let count = threads(m);
+        if count <= 1 && m.kind == MachineKind::MolecularAssembler {
+            return self.ae2_tick_assembler(pos, m, original, plan);
+        }
+        let speed = super::ae2x::assembler_speed(m);
+        let mut changed = false;
+        for n in 0..count {
+            let Some(mut t) = thread(m, n) else { continue };
+            if !awake(&t) {
+                continue;
+            }
+            if self.ae2_tick_assembler_at(pos, &mut t, original, plan, speed) {
+                store_thread(m, n, &t);
+                changed = true;
+            }
+        }
+        changed
+    }
     fn ae2_tick_assembler(&mut self, pos: (i32, i32, i32), m: &mut Machine, original: &Machine, plan: &mut super::ae2_buses::FormationPlan) -> bool {
+        let speed = super::ae2x::assembler_speed(m);
+        self.ae2_tick_assembler_at(pos, m, original, plan, speed)
+    }
+    /// `MolecularAssemblerBlockEntity.tickingRequest` (`CraftingThread.tick`)
+    /// at `speed`: progress a tick and AE a point, AE2's by its cards if none.
+    fn ae2_tick_assembler_at(&mut self, pos: (i32, i32, i32), m: &mut Machine, original: &Machine, plan: &mut super::ae2_buses::FormationPlan, speed: Option<(f64, f64)>) -> bool {
         if m.slots.len() != 11 {
             return false;
         }
@@ -1861,7 +1907,7 @@ impl Game<'_> {
             return false;
         }
         // An addon's assembler steps at its own speeds (ExtendedAE's CraftingThread).
-        let (speed, tax) = super::ae2x::assembler_speed(m).unwrap_or(match m.installed_speed_cards().min(5) {
+        let (speed, tax) = speed.unwrap_or(match m.installed_speed_cards().min(5) {
             0 => (10.0, 1.0),
             1 => (13.0, 1.3),
             2 => (17.0, 1.7),

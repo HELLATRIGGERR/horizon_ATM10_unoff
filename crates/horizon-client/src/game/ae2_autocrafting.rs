@@ -571,6 +571,10 @@ mod recursive {
         suspended: bool,
         specs: BTreeMap<String, Spec>,
         flights: BTreeMap<u64, GridAddress>,
+        /// The crafting thread of each flight's assembler past its first
+        /// (`ae2_assembler_threads`); a flight not listed went to thread 0.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        flight_threads: BTreeMap<u64, u8>,
         #[serde(default)]
         job_id: Option<[i64; 2]>,
         #[serde(default)]
@@ -624,6 +628,12 @@ mod recursive {
         cpu: GridAddress,
         job_id: [i64; 2],
         flight: u64,
+        /// The assembler's thread the job went to (0, AE2's only one, unwritten).
+        #[serde(default, skip_serializing_if = "first_thread")]
+        thread: u8,
+    }
+    fn first_thread(thread: &u8) -> bool {
+        *thread == 0
     }
     fn matching_assembler_flight(
         owner: &AssemblerFlightOwner,
@@ -632,6 +642,26 @@ mod recursive {
     ) -> bool {
         session.job_id == Some(owner.job_id)
             && session.flights.get(&owner.flight) == Some(&assembler)
+            && session.flight_threads.get(&owner.flight).copied().unwrap_or(0) == owner.thread
+    }
+    /// The assembler machine at `at` as this tick's dispatch and collection
+    /// left it: their pending update, else the world's.
+    fn pending_assembler(updates: &[(GridAddress, BlockEntity)], world: Option<&BlockEntity>, at: GridAddress) -> Option<Machine> {
+        let entity = updates.iter().rev().find(|(p, _)| *p == at).map(|(_, e)| e).or(world)?;
+        let BlockEntity::Ae2(machine) = entity else { return None };
+        Some((**machine).clone())
+    }
+    /// Whether thread `n` of the assembler at `at` already has a job of this
+    /// session, or gave one back this tick.
+    fn thread_taken(session: &Session, collected: &BTreeSet<(GridAddress, u8)>, at: GridAddress, n: u8) -> bool {
+        collected.contains(&(at, n))
+            || session.flights.iter().any(|(id, p)| *p == at && session.flight_threads.get(id).copied().unwrap_or(0) == n)
+    }
+    /// Records the assembler's update, replacing an earlier one of this tick
+    /// (two of its threads can finish or take a job in one tick).
+    fn push_assembler_update(updates: &mut Vec<(GridAddress, BlockEntity)>, at: GridAddress, machine: Machine) {
+        updates.retain(|(p, _)| *p != at);
+        updates.push((at, BlockEntity::Ae2(Box::new(machine))));
     }
     #[derive(Clone, Debug, Serialize, Deserialize)]
     struct InterfaceRequester {
@@ -2400,6 +2430,7 @@ mod recursive {
                 suspended: false,
                 specs,
                 flights: BTreeMap::new(),
+                flight_threads: BTreeMap::new(),
                 job_id: Some([self.world.random.next_long(), self.world.random.next_long()]),
                 address_version: 1,
                 requester: None,
@@ -2904,8 +2935,12 @@ mod recursive {
             if let Some(n)=self.ae2_provider_return_fluid_at(target,face,key,amount,simulate) {return n;}
             self.ae2_tank_fill_encoded(target,key,amount,simulate).unwrap_or(0)
         }
+        /// Where the provider of `spec` sends its job now: a processing
+        /// pattern's machine, or a crafting pattern's free assembler thread
+        /// (one `taken` does not name as this tick's already).
         fn recursive_destination(&mut self, spec: &Spec, excluded:Option<&std::collections::BTreeSet<GridAddress>>,
-            effective_patterns:Option<&[String]>,plan:&mut super::super::ae2_buses::FormationPlan) -> Option<GridAddress> {
+            effective_patterns:Option<&[String]>,plan:&mut super::super::ae2_buses::FormationPlan,
+            taken:&dyn Fn(GridAddress,u8)->bool) -> Option<(GridAddress,u8)> {
             let provider = self.provider_machine(spec.provider)?;
             let stored = match spec.definition.as_ref() {
                 Some(definition) => {
@@ -2996,7 +3031,7 @@ mod recursive {
                         }
                     }
                 }
-                return positions.iter().copied().find(|p| {
+                return positions.iter().copied().map(|p|(p,0)).find(|(p,_)| {
                     if excluded.is_some_and(|entries|entries.contains(p)) {return false;}
                     let Some(face)=self.provider_target_face(spec.provider.anchor(),*p) else {return false;};
                     let face_index=match face {horizon_core::geometry::Direction::East=>0,horizon_core::geometry::Direction::West=>1,horizon_core::geometry::Direction::Up=>2,horizon_core::geometry::Direction::Down=>3,horizon_core::geometry::Direction::South=>4,horizon_core::geometry::Direction::North=>5};
@@ -3043,7 +3078,12 @@ mod recursive {
             }
             let mut positions: Vec<_> = self.provider_neighbors(spec.provider);
             positions.sort();
-            positions.into_iter().find(|p|self.ae2_online_encoded(*p) && matches!(self.ae2_block_entity(*p),Some(BlockEntity::Ae2(m)) if m.kind==MachineKind::MolecularAssembler && m.slots.len()==11 && m.slots.iter().all(Option::is_none) && !m.config.contains_key(&"ae2_assembler_pattern".into()) && !m.config.contains_key(&"ae2_assembler_fluid_escrow".into())))
+            // PatternProviderLogic.pushPattern: the first neighbour whose
+            // ICraftingMachine takes the job, at its first free thread.
+            positions.into_iter().filter(|p|self.ae2_online_encoded(*p)).find_map(|p|{
+                let Some(BlockEntity::Ae2(m))=self.ae2_block_entity(p) else{return None};
+                super::super::ae2_assembler_threads::free_thread(m,|n|taken(p,n)).map(|n|(p,n))
+            })
         }
         /// Capture only actual matching item insertions for in-flight processing
         /// patterns. Call once from the authoritative grid insertion path; the
@@ -3400,11 +3440,14 @@ mod recursive {
             }
             result
         }
-        pub(in crate::game) fn ae2_assembler_flight_is_live(&self, pos: Pos) -> Option<bool> {
+        /// Whether the job of thread `thread` of the assembler at `pos` still
+        /// belongs to a live CPU flight; none while that cannot be known.
+        pub(in crate::game) fn ae2_assembler_flight_is_live(&self, pos: Pos, thread: usize) -> Option<bool> {
             let assembler = self.ae2_local_address(pos)?;
-            let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(assembler) else {
+            let Some(BlockEntity::Ae2(host)) = self.ae2_block_entity(assembler) else {
                 return None;
             };
+            let machine = super::super::ae2_assembler_threads::thread(host, thread)?;
             let Tag::String(raw) = machine.config.get(&"ae2_flight_owner".into())? else {
                 return None;
             };
@@ -3525,7 +3568,7 @@ mod recursive {
                     if !spec.processing
                         && session.job_id.is_none()
                         && !matches!(self.ae2_block_entity(*at),
-                        Some(BlockEntity::Ae2(m)) if m.kind == MachineKind::MolecularAssembler)
+                        Some(BlockEntity::Ae2(m)) if super::super::ae2_assembler_threads::threads(m) > 0)
                     {
                         return Err(
                             "flight assembler is unavailable; load it before breaking the cluster"
@@ -3587,11 +3630,11 @@ mod recursive {
                                 continue;
                             }
                             let at = *at;
+                            let n = usize::from(session.flight_threads.get(id).copied().unwrap_or(0));
                             if let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity_mut(at) {
-                                if machine.kind == MachineKind::MolecularAssembler {
-                                    machine
-                                        .config
-                                        .insert("ae2_orphaned_flight".into(), Tag::Byte(1));
+                                if let Some(mut thread) = super::super::ae2_assembler_threads::thread(machine, n) {
+                                    thread.config.insert("ae2_orphaned_flight".into(), Tag::Byte(1));
+                                    super::super::ae2_assembler_threads::store_thread(machine, n, &thread);
                                     self.ae2_mark_modified(at);
                                 }
                             }
@@ -4129,15 +4172,18 @@ mod recursive {
             }
             let mut machine_updates: Vec<(GridAddress, BlockEntity)> = Vec::new();
             // Collect only complete expected physical outputs and recipe remainders.
+            // Threads collected this tick take no new job before the next.
+            let mut collected = BTreeSet::<(GridAddress, u8)>::new();
             let flights: Vec<_> = session.flights.iter().map(|(id, p)| (*id, *p)).collect();
             for (id, at) in flights {
-                let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(at) else {
+                let n = session.flight_threads.get(&id).copied().unwrap_or(0);
+                let Some(mut host) = pending_assembler(&machine_updates, self.ae2_block_entity(at), at) else {
                     continue;
                 };
-                if machine.kind != MachineKind::MolecularAssembler
-                    || machine.slots.len() != 11
-                    || machine.slots[9].is_none()
-                {
+                let Some(mut machine) = super::super::ae2_assembler_threads::thread(&host, usize::from(n)) else {
+                    continue;
+                };
+                if machine.slots[9].is_none() {
                     continue;
                 }
                 let outputs: Vec<_> = machine.slots[..10].iter().flatten().cloned().collect();
@@ -4152,25 +4198,32 @@ mod recursive {
                     next.receive(id, &canon(item), u64::from(item.count))
                         .map_err(|e| format!("{e:?}"))?;
                 }
-                let mut updated = (**machine).clone();
-                for slot in &mut updated.slots[..10] {
+                for slot in &mut machine.slots[..10] {
                     *slot = None;
                 }
-                updated.config.remove(&"ae2_assembler_pattern".into());
-                updated.config.remove(&"ae2_flight_owner".into());
+                machine.config.remove(&"ae2_assembler_pattern".into());
+                machine.config.remove(&"ae2_flight_owner".into());
+                super::super::ae2_assembler_threads::store_thread(&mut host, usize::from(n), &machine);
                 session.cpu = next;
                 session.flights.remove(&id);
+                session.flight_threads.remove(&id);
                 physical.extend(outputs);
-                machine_updates.push((at, BlockEntity::Ae2(Box::new(updated))));
+                collected.insert((at, n));
+                push_assembler_update(&mut machine_updates, at, host);
             }
             if !session.suspended { session.cpu.tick(); }
             // Upstream suspension stops scheduling, while reconciliation and cancellation continue.
             let mut rejected_targets=BTreeMap::<String,std::collections::BTreeSet<GridAddress>>::new();
             let mut passes = BTreeMap::<String, Option<super::super::ae2_event_live::OrderedProviderPass>>::new();
             let mut exhausted = BTreeSet::<String>::new();
+            // CraftingCpuLogic.tickCraftingLogic: executeCrafting runs again
+            // while its last pass pushed a pattern and operations are left; a
+            // pass offers each pattern to each of its providers once, so a
+            // provider whose machine has threads free takes several in a tick.
+            let mut pass_start = session.cpu.remaining_operations();
             'dispatch: loop {
                 if (session.suspended && !session.cpu.is_cancelled()) || session.cpu.remaining_operations()==0 { break; }
-                let mut chosen:Option<(usize,GridAddress,Spec,f64)> = None;
+                let mut chosen:Option<(usize,GridAddress,u8,Spec,f64)> = None;
                 for (index, task) in session.cpu.pending().iter().cloned().enumerate() {
                     let spec = session.specs.get(&task.pattern).ok_or("missing plan pattern")?.clone();
                     if let Some(definition) = spec.definition.as_ref() {
@@ -4202,28 +4255,37 @@ mod recursive {
                             if power > 0.0 && self.ae2_take_power(pos, power, true) < power - 0.01 {
                                 exhausted.insert(task.pattern.clone()); break;
                             }
-                            if let Some(at) = self.recursive_destination(&bound, None, Some(&medium.effective_patterns),formation) {
-                                if !machine_updates.iter().any(|(p, _)| *p == at) && !session.flights.values().any(|p| *p == at) {
+                            if let Some((at, thread)) = self.recursive_destination(&bound, None, Some(&medium.effective_patterns),formation,&|at,n|thread_taken(&session,&collected,at,n)) {
+                                if !bound.processing || (!machine_updates.iter().any(|(p, _)| *p == at) && !session.flights.values().any(|p| *p == at)) {
                                     if !self.ae2_ordered_provider_contains(pos, &medium, definition, pass)? {return Err("provider membership changed before push".into());}
-                                    chosen=Some((index,at,bound,power)); break;
+                                    chosen=Some((index,at,thread,bound,power)); break;
                                 }
                             }
                         }
                     } else if spec.global {
                         // A global provider is never busy (DecompressionService.isBusy).
                         if session.cpu.task_has_inputs(index) && self.ae2x_global_provider_present(cpu_address) {
-                            chosen=Some((index,cpu_address,spec,0.0));
+                            chosen=Some((index,cpu_address,0,spec,0.0));
                         }
                     } else if session.cpu.task_has_inputs(index) {
-                        if let Some(at) = self.recursive_destination(&spec,rejected_targets.get(&task.pattern),None,formation) {
-                            if !machine_updates.iter().any(|(p, _)| *p == at) && !session.flights.values().any(|p| *p == at) {
-                                chosen=Some((index,at,spec,0.0));
+                        if let Some((at, thread)) = self.recursive_destination(&spec,rejected_targets.get(&task.pattern),None,formation,&|at,n|thread_taken(&session,&collected,at,n)) {
+                            if !spec.processing || (!machine_updates.iter().any(|(p, _)| *p == at) && !session.flights.values().any(|p| *p == at)) {
+                                chosen=Some((index,at,thread,spec,0.0));
                             }
                         }
                     }
                     if chosen.is_some() {break;}
                 }
-                let Some((index, at, spec, power)) = chosen else {break;};
+                let Some((index, at, thread, spec, power)) = chosen else {
+                    let left = session.cpu.remaining_operations();
+                    if left > 0 && left < pass_start {
+                        pass_start = left;
+                        passes.clear();
+                        exhausted.clear();
+                        continue 'dispatch;
+                    }
+                    break;
+                };
                 let mut next = session.cpu.clone();
                 let (id, step) = next.dispatch_task(index).map_err(|e|format!("CPU task dispatch: {e:?}"))?;
                 if spec.global {
@@ -4374,10 +4436,10 @@ mod recursive {
                 if owned_counts(&next_physical, &next_fluids)? != *next.escrow() {
                     return Err("physical CPU dispatch mismatch".into());
                 }
-                let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(at) else {
+                let Some(mut host) = pending_assembler(&machine_updates, self.ae2_block_entity(at), at) else {
                     return Err("assembler disappeared".into());
                 };
-                let mut updated = (**machine).clone();
+                let mut updated = super::super::ae2_assembler_threads::thread(&host, usize::from(thread)).ok_or("assembler thread disappeared")?;
                 updated.slots[..9].clone_from_slice(&staged);
                 updated.progress = 0.0;
                 let output =
@@ -4397,6 +4459,7 @@ mod recursive {
                     cpu: cpu_address,
                     job_id,
                     flight: id,
+                    thread,
                 };
                 let owner_json = serde_json::to_string(&flight_owner).map_err(|e| e.to_string())?;
                 updated.config.insert(
@@ -4415,9 +4478,13 @@ mod recursive {
                 self.provider_arm_lock(spec.provider, &spec.output)?;
                 session.cpu = next;
                 session.flights.insert(id, at);
+                if thread != 0 {
+                    session.flight_threads.insert(id, thread);
+                }
                 physical = next_physical;
                 fluids = next_fluids;
-                machine_updates.push((at, BlockEntity::Ae2(Box::new(updated))));
+                super::super::ae2_assembler_threads::store_thread(&mut host, usize::from(thread), &updated);
+                push_assembler_update(&mut machine_updates, at, host);
             }
             if owned_counts(&physical, &fluids)? != *session.cpu.escrow() {
                 return Err("CPU physical escrow mismatch".into());
@@ -4614,7 +4681,7 @@ mod recursive {
             registry.register(ExtendedPattern{id:"large".into(),inputs:vec![Ingredient{choices:Inventory::from([(key.clone(),999_999)])}],outputs:Inventory::from([(target.clone(),1)])}).unwrap();
             let mut available=Inventory::from([(key.clone(),999_999)]);let plan=registry.plan(&available,&target,1).unwrap();
             let mut cpu=Cpu::new(2_000_000,0);cpu.submit(plan,&mut available).unwrap();assert!(available.is_empty());
-            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),flight_threads:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             item.count=999_999;let mut machine=Machine::new(MachineKind::CraftingStorage256k);
             write_session(&mut machine,&session,&[item.clone()]).unwrap();
             let bytes=horizon_world::nbt::write_network(&Tag::Compound(machine.config.clone()),Default::default()).unwrap();
@@ -4665,7 +4732,7 @@ mod recursive {
             let result=canon(&ItemStack::new("minecraft:netherite_sword",1));
             let mut registry=ExtendedRegistry::default();registry.register(ExtendedPattern{id:"legacy".into(),inputs:vec![Ingredient{choices:Inventory::from([(old.clone(),1)])}],outputs:Inventory::from([(result.clone(),1)])}).unwrap();
             let mut inventory=Inventory::from([(old.clone(),1)]);let plan=registry.plan(&inventory,&result,1).unwrap();let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut inventory).unwrap();
-            let session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),flight_threads:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);let json=serde_json::to_string(&session).unwrap();machine.config.insert(JOB.into(),Tag::String(json.as_str().into()));machine.config.insert(ESCROW.into(),Tag::List(vec![horizon_client::save::item_to_nbt(&item)]));
             let loaded=read_session(&machine,super::super::super::Dim::Overworld).unwrap();assert_eq!(loaded.cpu.escrow(),&Inventory::from([(modern,1)]));
         }
@@ -4679,7 +4746,7 @@ mod recursive {
             registry.set_emittable(vec![input_key.clone()]).unwrap();
             let mut available=Inventory::new();let plan=registry.plan(&available,&output_key,4).unwrap();
             let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut available).unwrap();
-            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),flight_threads:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);
             write_fluids(&mut machine,&BTreeMap::new()).unwrap();write_session(&mut machine,&session,&[]).unwrap();
             session=read_session(&machine,super::super::super::Dim::Overworld).unwrap();
@@ -4702,12 +4769,14 @@ mod recursive {
                 cpu,
                 job_id: [42, 73],
                 flight: 7,
+                thread: 0,
             };
             let mut session = Session {
                 cpu: Cpu::new(1024, 0),
                 suspended: false,
                 specs: BTreeMap::new(),
                 flights: BTreeMap::from([(7, assembler)]),
+                flight_threads: BTreeMap::new(),
                 job_id: Some([42, 73]),
                 address_version: 1,
                 requester: None,
@@ -4726,10 +4795,23 @@ mod recursive {
             assert!(!matching_assembler_flight(&owner, &session, assembler));
             session.flights.insert(7, cpu);
             assert!(!matching_assembler_flight(&owner, &session, assembler));
+            // A flight names the thread of an addon's assembler it went to.
+            session.flights.insert(7, assembler);
+            session.flight_threads.insert(7, 3);
+            assert!(!matching_assembler_flight(&owner, &session, assembler));
+            let third = AssemblerFlightOwner { thread: 3, ..owner.clone() };
+            assert!(matching_assembler_flight(&third, &session, assembler));
+            // Thread 0 is written as before; a later thread's number is kept.
+            assert!(!serde_json::to_string(&owner).unwrap().contains("thread"));
+            let back: AssemblerFlightOwner = serde_json::from_str(&serde_json::to_string(&third).unwrap()).unwrap();
+            assert_eq!(back.thread, 3);
+            assert!(serde_json::to_value(&session).unwrap()["flight_threads"]["7"] == 3);
+            session.flight_threads.clear();
+            assert!(serde_json::to_value(&session).unwrap().get("flight_threads").is_none());
         }
         #[test]
         fn suspended_job_roundtrips_and_legacy_jobs_resume_by_default() {
-            let session=Session { cpu:Cpu::new(1024,0), suspended:true, specs:BTreeMap::new(), flights:BTreeMap::new(), job_id:Some([1,2]), address_version:1, requester:None, export_requester:None, #[cfg(feature = "ae2-merequester")] me_requester:None, player_owner:None, started_tick:0, start_items:0 };
+            let session=Session { cpu:Cpu::new(1024,0), suspended:true, specs:BTreeMap::new(), flights:BTreeMap::new(),flight_threads:BTreeMap::new(), job_id:Some([1,2]), address_version:1, requester:None, export_requester:None, #[cfg(feature = "ae2-merequester")] me_requester:None, player_owner:None, started_tick:0, start_items:0 };
             let mut saved=serde_json::to_value(&session).unwrap();
             assert!(serde_json::from_value::<Session>(saved.clone()).unwrap().suspended);
             saved.as_object_mut().unwrap().remove("suspended");
@@ -4749,7 +4831,7 @@ mod recursive {
             let plan=registry.plan(&available,"board",8).unwrap();
             let mut cpu=Cpu::new(1024,0);cpu.submit(plan,&mut available).unwrap();
             let mut session=Session {
-                cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),
+                cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),flight_threads:BTreeMap::new(),
                 job_id:Some([i64::MIN,i64::MAX]),address_version:1,requester:None,
                 export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:Some(super::super::super::ae2_job_events::owner_words(owner)),
                 started_tick:0,start_items:0,
@@ -4832,7 +4914,7 @@ mod recursive {
         }
         #[test]
         fn legacy_job_identity_migration_is_persistable_and_never_rotates() {
-            let mut session=Session {cpu:Cpu::new(1024,0),suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let mut session=Session {cpu:Cpu::new(1024,0),suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),flight_threads:BTreeMap::new(),job_id:None,address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             assert!(migrate_job_identity(&mut session,[13,17]));
             let mut restored:Session=serde_json::from_str(&serde_json::to_string(&session).unwrap()).unwrap();
             assert!(!migrate_job_identity(&mut restored,[19,23]));
@@ -4862,7 +4944,7 @@ mod recursive {
             registry.set_source_inputs("pattern",vec![SourceInput{encoded:primary.clone(),primary,remaining:BTreeMap::new()}]).unwrap();
             let mut network=stock.clone();let plan=registry.plan(&network,&result,4097).unwrap();assert_eq!(plan.steps.len(),4097);
             let mut cpu=Cpu::new(16384,0);cpu.submit(plan,&mut network).unwrap();assert!(network.is_empty());
-            let session=Session{cpu,suspended:false,specs,flights:BTreeMap::new(),job_id:Some([7,11]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
+            let session=Session{cpu,suspended:false,specs,flights:BTreeMap::new(),flight_threads:BTreeMap::new(),job_id:Some([7,11]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             let mut machine=Machine::new(MachineKind::CraftingStorage16k);write_session(&mut machine,&session,&inputs).unwrap();
             assert!(matches!(machine.config.get(&JOB.into()),Some(Tag::ByteArray(v)) if v.len()>65_535));
             let root=Tag::Compound(machine.config.clone());
@@ -4935,6 +5017,7 @@ mod recursive {
                 suspended: false,
                 specs: BTreeMap::from([("pattern".into(), spec)]),
                 flights: BTreeMap::from([(4, legacy)]),
+                flight_threads: BTreeMap::new(),
                 job_id: None,
                 address_version: 0,
                 requester: None,

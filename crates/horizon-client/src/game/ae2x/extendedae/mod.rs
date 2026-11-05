@@ -177,6 +177,10 @@ pub(in crate::game) fn slot_capacity(m: &Machine, slot: usize) -> Option<u32> {
     }
 }
 pub(in crate::game) use devices::assembler_speed;
+/// The crafting threads of the Extended Molecular Assembler.
+pub(in crate::game) fn assembler_threads(m: &Machine) -> Option<usize> {
+    devices::assembler_threads(m)
+}
 /// The menu's progress bar (`IProgressProvider`): processingTime of
 /// MAX_PROGRESS; the Extended Inscriber's of the thread shown, of 200.
 pub(in crate::game) fn progress(m: &Machine) -> Option<(f64, f64)> {

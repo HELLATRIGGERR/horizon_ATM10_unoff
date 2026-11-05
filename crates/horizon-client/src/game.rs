@@ -160,6 +160,8 @@ mod ae2_lab;
 #[cfg(feature = "ae2-lab")]
 mod ae2_processing;
 #[cfg(feature = "ae2-lab")]
+mod ae2_assembler_threads;
+#[cfg(feature = "ae2-lab")]
 mod ae2_source_patterns;
 #[cfg(feature = "ae2-lab")]
 mod ae2_crank;

@@ -424,6 +424,10 @@ pub fn max_provider_slots() -> usize {
         .map(|v| v.slots)
         .fold(MachineKind::PatternProvider.physical_slots(), usize::max)
 }
+/// The config compound of an assembler's crafting thread past its first
+/// (`ae2_assembler_thread_<n>`: an addon's assembler of several threads,
+/// ExtendedAE's): its grid and output under `slots`, which are physical.
+pub const ASSEMBLER_THREAD_PREFIX: &str = "ae2_assembler_thread_";
 /// `slots` are owned physical inventory only. Network contents must never be copied here.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Machine {
@@ -552,6 +556,14 @@ impl Machine {
                 count: u32::try_from(amount).unwrap_or(u32::MAX),
                 ..item
             }));
+        }
+        for (key, thread) in &self.config {
+            if !key.to_string_lossy().starts_with(ASSEMBLER_THREAD_PREFIX) {
+                continue;
+            }
+            if let Some(horizon_world::nbt::Tag::List(entries)) = thread.get("slots") {
+                out.extend(entries.iter().take(10).filter_map(horizon_items::item_nbt::item_from_nbt));
+            }
         }
         if self.kind.is_crafting() {
             if let Some(horizon_world::nbt::Tag::List(entries)) =

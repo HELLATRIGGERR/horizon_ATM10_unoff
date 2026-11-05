@@ -102,6 +102,17 @@ pub(super) fn assembler_speed(machine: &Machine) -> Option<(f64, f64)> {
     }
     None
 }
+/// How many crafting threads an addon's assembler has (`CraftingThread`s:
+/// ExtendedAE's eight in its Extended Molecular Assembler and each crafter
+/// core of the Assembler Matrix); none for AE2's and any other machine.
+pub(super) fn assembler_threads(machine: &Machine) -> Option<usize> {
+    let _ = machine;
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(found) = extendedae::assembler_threads(machine) {
+        return Some(found);
+    }
+    None
+}
 /// A block an addon's random tick runs on (`Block.randomTick`), after AE2's
 /// budding quartz: ExtendedAE's budding entro.
 pub(super) fn random_ticks(block: &str) -> bool {

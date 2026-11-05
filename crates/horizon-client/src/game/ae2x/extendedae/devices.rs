@@ -126,20 +126,30 @@ fn inscriber_token(m: &Machine) -> String {
     format!("{:?}|{:?}|{settings:?}", m.slots, m.upgrades)
 }
 
+/// `TileExMolecularAssembler.MAX_THREAD`: its crafting threads, each a job
+/// (`pushPattern` gives a job to the first free one).
+pub(in crate::game) fn assembler_threads(m: &Machine) -> Option<usize> {
+    (m.id() == rows::EX_ASSEMBLER).then_some(rows::ASSEMBLER_THREADS)
+}
 /// `CraftingThread.tick`: 20, 26, 34, 40, 50 or 100 progress a tick for 0 to
 /// 5 speed cards, at 1, 1.3, 1.7, 2, 2.5 or 5 AE a point; AE2's is half.
 pub(in crate::game) fn assembler_speed(m: &Machine) -> Option<(f64, f64)> {
     if m.id() != rows::EX_ASSEMBLER {
         return None;
     }
-    Some(match m.installed_speed_cards().min(5) {
+    Some(thread_speed(m.installed_speed_cards()))
+}
+/// `CraftingThread.tick` with `cards` speed cards (the Assembler Matrix's
+/// speed cores), up to five.
+pub(in crate::game) fn thread_speed(cards: usize) -> (f64, f64) {
+    match cards.min(5) {
         0 => (20.0, 1.0),
         1 => (26.0, 1.3),
         2 => (34.0, 1.7),
         3 => (40.0, 2.0),
         4 => (50.0, 2.5),
         _ => (100.0, 5.0),
-    })
+    }
 }
 
 /// `TileExCharger.POWER_THRESHOLD`.

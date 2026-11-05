@@ -4,7 +4,8 @@
 //! (`screens.rs`, a child module of it). Its own machines are in `machines.rs`,
 //! the Extended Inscriber, Charger and Molecular Assembler in `devices.rs`,
 //! Entro's growth in `entro.rs`, the Infinity and Void Cells in `cells.rs`,
-//! the Assembler Matrix in `matrix.rs`.
+//! the Assembler Matrix in `matrix.rs`, the Wireless Connector and Hub in
+//! `wireless.rs`.
 //! What needs the game's own code is here, reached through `game/ae2x/mod.rs`.
 pub(in crate::game) mod cells;
 pub(in crate::game) mod devices;
@@ -12,6 +13,7 @@ pub(in crate::game) mod entro;
 pub(in crate::game) mod machines;
 pub(in crate::game) mod matrix;
 pub(in crate::game) mod upgrade;
+pub(in crate::game) mod wireless;
 
 use horizon_client::{ae2_world::{Machine, MachineKind}, items::ItemStack};
 use horizon_core::geometry::Direction;
@@ -95,6 +97,9 @@ fn device_connectable(facing: &str) -> Vec<Direction> {
 /// (`setFlags()`, `setIdlePowerUsage(0)`; the Extended Inscriber sets no flags
 /// either), on their connectable sides.
 pub(in crate::game) fn device(machine: &Machine, properties: Option<&horizon_world::block_state_properties::BlockProperties>, device: &mut ae2_network_core::Device) -> bool {
+    if wireless::device(machine, device) {
+        return true;
+    }
     // The Assembler Matrix's blocks (`TileAssemblerMatrixBase`): MULTIBLOCK
     // and REQUIRE_CHANNEL, one channel for the formed cluster; every side
     // while formed (its block state says so), none before.
@@ -156,7 +161,7 @@ pub(in crate::game) fn visual_props(machine: &Machine, props: &mut horizon_world
 /// machine menus (`UpgradeableMenu`); the Crystal Fixer and Extended Charger
 /// have none (a use refuels or loads them).
 pub(in crate::game) fn machine_menu(m: &Machine) -> bool {
-    matches!(Kind::of(m), Some(Kind::Assembler | Kind::Cutter)) || Device::of(m) == Some(Device::Inscriber)
+    matches!(Kind::of(m), Some(Kind::Assembler | Kind::Cutter)) || Device::of(m) == Some(Device::Inscriber) || horizon_client::ae2x::extendedae::wireless_ports(m.id()).is_some()
 }
 /// What a menu slot may take: anything in an input (`AppEngSlot`), nothing
 /// in the output (`OutputSlot`).

@@ -3,7 +3,8 @@
 //! `PartExPatternProvider`, `TileExInterface`, `PartExInterface`,
 //! `TileExDrive`, `TileExIOPort`, `TileCrystalAssembler`, `TileCircuitCutter`,
 //! `TileCrystalFixer`, `TileExInscriber`, `TileExCharger`,
-//! `TileExMolecularAssembler`, `EAERegistryHandler.registerUpgrades`, `EAEConfig`),
+//! `TileExMolecularAssembler`, `TileWirelessConnector`, `TileWirelessHub`,
+//! `WirelessConnect`, `EAERegistryHandler.registerUpgrades`, `MEGACommonLoad`, `EAEConfig`),
 //! https://github.com/GlodBlock/ExtendedAE commit
 //! `1f86f927552f02451236465c0c96a12a3de8f66c` (2.2.42), LGPL-3.0; see
 //! `ae2/addons/extendedae/`.
@@ -56,6 +57,127 @@ pub const MATRIX_SPEED: &str = "extendedae:assembler_matrix_speed";
 pub const MATRIX_PATTERNS: usize = 36;
 /// `ClusterAssemblerMatrix.addSpeedCore`: the speed cores that count.
 pub const MATRIX_MAX_SPEED: usize = 5;
+/// `TileWirelessConnector`: one wireless link, four energy cards.
+pub const WIRELESS_CONNECTOR: &str = "extendedae:wireless_connect";
+/// `TileWirelessHub`: [`HUB_PORTS`] links.
+pub const WIRELESS_HUB: &str = "extendedae:wireless_hub";
+/// `ItemWirelessConnectTool`, the Wireless Setup Kit.
+pub const WIRELESS_TOOL: &str = "extendedae:wireless_tool";
+/// `ItemWirelessConnectorUpgrade`: a connector into a hub.
+pub const WIRELESS_HUB_KIT: &str = "extendedae:wireless_connector_upgrade";
+/// `EAESingletons.WIRELESS_LOCATOR`: the kit's bound frequency and place,
+/// `{a: long, b: {dimension, pos}}` (`GlodCodecs.pair`).
+pub const WIRELESS_LOCATOR: &str = "extendedae:wireless_locator";
+/// `TileWirelessHub.MAX_PORT`.
+pub const HUB_PORTS: usize = 8;
+/// The idle draw a wireless block's tick sets (`powerUse`, which the mod
+/// does not save), in the machine's config for its grid node.
+pub const WIRELESS_POWER: &str = "eae_wireless_power";
+
+/// The links a wireless block has: one for the connector, eight for the hub.
+pub fn wireless_ports(id: &str) -> Option<usize> {
+    match id {
+        WIRELESS_CONNECTOR => Some(1),
+        WIRELESS_HUB => Some(HUB_PORTS),
+        _ => None,
+    }
+}
+
+/// The frequencies of a wireless block's links, from its saved record:
+/// `freq` for the connector; `freq0` to `freq7` for the hub, or `freq` for
+/// its first link alone when the record has it (`TileWirelessHub.loadTag`:
+/// a connector the kit turned into a hub).
+pub fn wireless_frequencies(id: &str, config: &horizon_world::nbt::Compound) -> Vec<i64> {
+    use horizon_world::nbt::Tag;
+    let long = |key: &str| match config.get(&key.into()) {
+        Some(Tag::Long(v)) => *v,
+        Some(Tag::Int(v)) => i64::from(*v),
+        _ => 0,
+    };
+    match wireless_ports(id) {
+        Some(1) => vec![long("freq")],
+        Some(n) if config.contains_key(&"freq".into()) => {
+            let mut all = vec![0; n];
+            all[0] = long("freq");
+            all
+        }
+        Some(n) => (0..n).map(|i| long(&format!("freq{i}"))).collect(),
+        None => Vec::new(),
+    }
+}
+/// Sets link `port`'s frequency (`setFrequency`), in the record's names
+/// (`saveAdditional`: the hub writes all eight and no `freq`).
+pub fn set_wireless_frequency(id: &str, config: &mut horizon_world::nbt::Compound, port: usize, frequency: i64) {
+    use horizon_world::nbt::Tag;
+    let mut all = wireless_frequencies(id, config);
+    let Some(slot) = all.get_mut(port) else { return };
+    *slot = frequency;
+    if all.len() == 1 {
+        config.insert("freq".into(), Tag::Long(frequency));
+        return;
+    }
+    config.remove(&"freq".into());
+    for (i, f) in all.into_iter().enumerate() {
+        config.insert(format!("freq{i}").as_str().into(), Tag::Long(f));
+    }
+}
+
+/// `updatePowerUsage` of one link: `max(1, d ln d (1 - discount))` times the
+/// configured multiplier for a link `d` blocks long (at least `e`). Each
+/// energy card takes 10% off, MEGA's Greater Energy Card 20% (`calculateDisc`).
+pub fn wireless_link_power(distance: f64, energy_cards: usize, greater_cards: usize, multiplier: f64) -> f64 {
+    let discount = 1.0 - (0.1 * energy_cards as f64 + 0.2 * greater_cards as f64);
+    let d = distance.max(std::f64::consts::E);
+    (d * d.ln() * discount).max(1.0) * multiplier
+}
+/// A wireless block's idle draw: its links' together, or the multiplier when
+/// none is up (`TileWirelessHub.updatePowerUsage`; the connector's one link).
+pub fn wireless_power(distances: &[f64], energy_cards: usize, greater_cards: usize, multiplier: f64) -> f64 {
+    if distances.is_empty() {
+        return multiplier;
+    }
+    distances.iter().map(|d| wireless_link_power(*d, energy_cards, greater_cards, multiplier)).sum()
+}
+
+/// One link of a wireless block, as `WirelessConnect.updateStatus` sees it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WirelessEnd {
+    /// The level, by any number the caller keeps apart.
+    pub level: i32,
+    pub pos: (i32, i32, i32),
+    pub port: usize,
+    pub frequency: i64,
+    /// When it registered (`CONNECTORS.register`): of the ends of one
+    /// frequency, the first two pair.
+    pub order: u64,
+}
+/// The links `WirelessConnect.updateStatus` makes: in each level, the first
+/// two ends of a frequency (a third finds both of its keys taken), when no
+/// further apart than `range` (`Math.sqrt(distSqr)`) and not the same block.
+/// Each as the two ends' indices and the distance.
+pub fn wireless_links(ends: &[WirelessEnd], range: f64) -> Vec<(usize, usize, f64)> {
+    let mut by_frequency = std::collections::BTreeMap::<(i32, i64), Vec<usize>>::new();
+    for (i, end) in ends.iter().enumerate().filter(|(_, e)| e.frequency != 0) {
+        by_frequency.entry((end.level, end.frequency)).or_default().push(i);
+    }
+    let mut links = Vec::new();
+    for mut group in by_frequency.into_values() {
+        group.sort_by_key(|i| (ends[*i].order, *i));
+        let (a, b) = match group.as_slice() {
+            [a, b, ..] => (*a, *b),
+            _ => continue,
+        };
+        let (p, q) = (ends[a].pos, ends[b].pos);
+        if p == q {
+            continue;
+        }
+        let d = (f64::from(p.0 - q.0).powi(2) + f64::from(p.1 - q.1).powi(2) + f64::from(p.2 - q.2).powi(2)).sqrt();
+        if d <= range {
+            links.push((a, b, d));
+        }
+    }
+    links
+}
 
 /// A block of the Assembler Matrix, by its role in the structure
 /// (`CalculatorAssemblerMatrix.verifyInternalStructure`).
@@ -92,7 +214,7 @@ impl MatrixRole {
 }
 
 /// `extendedae-common.toml` (`EAEConfig`): what this port reads of it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Config {
     /// `device.extended_io_bus_multiplier`, 2 to 128: the Extended Import and
     /// Export Buses' operations, times AE2's.
@@ -102,10 +224,15 @@ pub struct Config {
     /// `device.assembler_matrix_max_size`, 3 to 16: how far the Assembler
     /// Matrix's corners may lie apart on each axis (`checkMultiblockScale`).
     pub matrix_size: i32,
+    /// `device.wireless_connector_max_range`, 10 to 10,000: the longest
+    /// wireless link.
+    pub wireless_range: f64,
+    /// `device.wireless_connector_power_multiplier`, 0 to 100.
+    pub wireless_power: f64,
 }
 impl Default for Config {
     fn default() -> Self {
-        Self { bus_speed: 8, infinity_cell_cost: 8.0, matrix_size: 6 }
+        Self { bus_speed: 8, infinity_cell_cost: 8.0, matrix_size: 6, wireless_range: 1000.0, wireless_power: 1.0 }
     }
 }
 impl Config {
@@ -126,12 +253,23 @@ impl Config {
         if let Some(n) = size.filter(|n| (3..=16).contains(n)) {
             config.matrix_size = n as i32;
         }
+        // A DoubleValue reads a whole number too.
+        let float = |section: &str, key: &str| {
+            let v = value.get(section)?.get(key)?;
+            v.as_float().or_else(|| v.as_integer().map(|n| n as f64))
+        };
+        if let Some(n) = float("device", "wireless_connector_max_range").filter(|n| (10.0..=10000.0).contains(n)) {
+            config.wireless_range = n;
+        }
+        if let Some(n) = float("device", "wireless_connector_power_multiplier").filter(|n| (0.0..=100.0).contains(n)) {
+            config.wireless_power = n;
+        }
         Ok(config)
     }
     /// The game's `config/extendedae-common.toml`, read once (`ModConfigEvent`).
-    pub fn get() -> Self {
+    pub fn get() -> &'static Self {
         static CONFIG: OnceLock<Config> = OnceLock::new();
-        *CONFIG.get_or_init(|| {
+        CONFIG.get_or_init(|| {
             let path = crate::logging::game_home().join("config/extendedae-common.toml");
             match std::fs::read_to_string(&path) {
                 Ok(text) => Self::parse(&text).unwrap_or_else(|error| {
@@ -278,6 +416,10 @@ pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
             m.progress = 0.0;
             m.config.remove(&WORKING.into());
         }
+        // TileWirelessConnector and TileWirelessHub do not save powerUse.
+        Some(WIRELESS_CONNECTOR | WIRELESS_HUB) => {
+            m.config.remove(&WIRELESS_POWER.into());
+        }
         // InscriberThread keeps neither its processingTime nor its smash.
         Some(EX_INSCRIBER) => {
             for thread in 0..THREADS {
@@ -312,6 +454,9 @@ pub const OWN_MACHINES: &[ExtMachine] = &[
     ExtMachine { id: MATRIX_GLASS, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
     ExtMachine { id: MATRIX_CRAFTER, physical_slots: 11, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
     ExtMachine { id: MATRIX_SPEED, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part: false },
+    // UpgradeInventories.forMachine(WIRELESS_CONNECTOR, 4); the hub's the same.
+    ExtMachine { id: WIRELESS_CONNECTOR, physical_slots: 0, upgrade_slots: 4, key_drops: None, power_capacity: None, part: false },
+    ExtMachine { id: WIRELESS_HUB, physical_slots: 0, upgrade_slots: 4, key_drops: None, power_capacity: None, part: false },
 ];
 
 /// An `ItemInfinityCell` (`InfinityCellInventory`): the one key it holds
@@ -418,6 +563,12 @@ pub fn register(defs: &mut Defs) {
     defs.add_upgrade("ae2:speed_card", CIRCUIT_CUTTER, 4);
     defs.add_upgrade("ae2:speed_card", EX_ASSEMBLER, 5);
     defs.add_upgrade("ae2:speed_card", EX_INSCRIBER, 4);
+    for host in [WIRELESS_CONNECTOR, WIRELESS_HUB] {
+        defs.add_upgrade("ae2:energy_card", host, 4);
+        // MEGACommonLoad.init, with MEGA there.
+        #[cfg(feature = "ae2-megacells")]
+        defs.add_upgrade(super::megacells::GREATER_ENERGY_CARD, host, 4);
+    }
     // ItemVoidCell: StorageCells.addCellHandler(VoidCellInventory.HANDLER),
     // CellConfig.create (63 filters), UpgradeInventories.forItem(is, 2),
     // getIdleDrain 1.
@@ -553,5 +704,68 @@ mod tests {
         assert_eq!(defs.upgrade_limit("ae2:fuzzy_card", VOID_CELL), 1);
         assert_eq!(defs.upgrade_limit("ae2:inverter_card", VOID_CELL), 1);
         assert_eq!(defs.upgrade_limit("ae2:void_card", VOID_CELL), 0);
+    }
+
+    #[test]
+    fn wireless_blocks_link_their_first_two_ends_within_range() {
+        use super::*;
+        crate::ae2x::install();
+        let defs = crate::ae2x::defs::get();
+        for id in [WIRELESS_CONNECTOR, WIRELESS_HUB] {
+            let machine = Machine::for_block(id).unwrap();
+            assert_eq!((machine.slots.len(), machine.upgrades.len(), machine.id()), (0, 4, id));
+            assert_eq!(defs.upgrade_limit("ae2:energy_card", id), 4);
+            assert_eq!(defs.upgrade_limit("ae2:speed_card", id), 0);
+        }
+        #[cfg(feature = "ae2-megacells")]
+        assert_eq!(defs.upgrade_limit(crate::ae2x::megacells::GREATER_ENERGY_CARD, WIRELESS_HUB), 4);
+        let end = |level, x: i32, port, frequency, order| WirelessEnd { level, pos: (x, 64, 0), port, frequency, order };
+        // 900 blocks: linked. A third end of the frequency finds both keys taken;
+        // 1,001 blocks is out of range; another level is apart; 0 is no frequency.
+        let ends = [
+            end(0, 0, 0, 7, 0),
+            end(0, 900, 0, 7, 1),
+            end(0, 5, 0, 7, 2),
+            end(0, 0, 1, 9, 3),
+            end(0, 1001, 0, 9, 4),
+            end(1, 0, 0, 11, 5),
+            end(0, 3, 0, 11, 6),
+            end(0, 1, 0, 0, 7),
+            end(0, 2, 0, 0, 8),
+        ];
+        assert_eq!(wireless_links(&ends, 1000.0), vec![(0, 1, 900.0)]);
+        // The registration order picks the pair, not the place; exactly the range still links.
+        assert_eq!(wireless_links(&[end(0, 0, 0, 3, 5), end(0, 9, 0, 3, 1), end(0, 1000, 0, 3, 2)], 1000.0), vec![(1, 2, 991.0)]);
+        assert_eq!(wireless_links(&[end(0, 0, 0, 3, 0), end(0, 1000, 0, 3, 1)], 1000.0).len(), 1);
+        // A hub's two ports of one frequency: the same block, no link.
+        assert!(wireless_links(&[end(0, 4, 0, 5, 0), end(0, 4, 1, 5, 1)], 1000.0).is_empty());
+
+        // max(1, d ln d), at least e long; 10% off a card, 20% a greater card; the multiplier unlinked.
+        let close = |a: f64, b: f64| (a - b).abs() < 1e-9;
+        assert!(close(wireless_link_power(900.0, 0, 0, 1.0), 900.0 * 900f64.ln()));
+        assert!(close(wireless_link_power(1.0, 0, 0, 1.0), std::f64::consts::E));
+        assert!(close(wireless_link_power(900.0, 4, 0, 1.0), 900.0 * 900f64.ln() * 0.6));
+        assert!(close(wireless_link_power(900.0, 0, 4, 2.0), 900.0 * 900f64.ln() * 0.2 * 2.0));
+        assert!(close(wireless_link_power(2.0, 0, 4, 1.0), 1.0));
+        assert_eq!(wireless_power(&[], 4, 0, 1.5), 1.5);
+        assert!(close(wireless_power(&[10.0, 20.0], 0, 0, 1.0), 10.0 * 10f64.ln() + 20.0 * 20f64.ln()));
+
+        // The records' names: a connector's `freq`; a hub's eight, or a connector's `freq` on its first.
+        use horizon_world::nbt::{Compound, Tag};
+        let mut connector = Compound::new();
+        set_wireless_frequency(WIRELESS_CONNECTOR, &mut connector, 0, 42);
+        assert_eq!(connector.get(&"freq".into()), Some(&Tag::Long(42)));
+        assert_eq!(wireless_frequencies(WIRELESS_CONNECTOR, &connector), vec![42]);
+        let mut hub = connector.clone();
+        assert_eq!(wireless_frequencies(WIRELESS_HUB, &hub), vec![42, 0, 0, 0, 0, 0, 0, 0]);
+        set_wireless_frequency(WIRELESS_HUB, &mut hub, 3, -5);
+        assert!(!hub.contains_key(&"freq".into()));
+        assert_eq!(wireless_frequencies(WIRELESS_HUB, &hub), vec![42, 0, 0, -5, 0, 0, 0, 0]);
+        assert_eq!(hub.get(&"freq7".into()), Some(&Tag::Long(0)));
+
+        assert_eq!((Config::default().wireless_range, Config::default().wireless_power), (1000.0, 1.0));
+        let config = Config::parse("[device]\nwireless_connector_max_range = 2000\nwireless_connector_power_multiplier = 0.5").unwrap();
+        assert_eq!((config.wireless_range, config.wireless_power), (2000.0, 0.5));
+        assert_eq!(Config::parse("[device]\nwireless_connector_max_range = 5.0").unwrap().wireless_range, 1000.0);
     }
 }

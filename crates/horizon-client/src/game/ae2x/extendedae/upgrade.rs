@@ -1,5 +1,6 @@
 //! ExtendedAE's upgrade kits (`ItemUpgrade` and its `ItemPatternProviderUpgrade`,
-//! `ItemInterfaceUpgrade`, `ItemDriveUpgrade`, `ItemIOBusUpgrade`), derived from ExtendedAE
+//! `ItemInterfaceUpgrade`, `ItemDriveUpgrade`, `ItemIOBusUpgrade`,
+//! `ItemWirelessConnectorUpgrade`), derived from ExtendedAE
 //! 1.21-2.2.42, https://github.com/GlodBlock/ExtendedAE commit
 //! 1f86f927552f02451236465c0c96a12a3de8f66c, LGPL-3.0; see `ae2/addons/extendedae/`.
 //!
@@ -43,6 +44,12 @@ pub(in crate::game) const KITS: &[Kit] = &[
         block: None,
         parts: &[("ae2:export_bus", "extendedae:ex_export_bus_part"), ("ae2:import_bus", "extendedae:ex_import_bus_part")],
     },
+    // The mod's own blocks: the hub loads the connector's `freq` as its first link.
+    Kit {
+        item: horizon_client::ae2x::extendedae::WIRELESS_HUB_KIT,
+        block: Some((horizon_client::ae2x::extendedae::WIRELESS_CONNECTOR, horizon_client::ae2x::extendedae::WIRELESS_HUB)),
+        parts: &[],
+    },
 ];
 
 fn kit(item: &str) -> Option<&'static Kit> {
@@ -53,8 +60,14 @@ fn kit(item: &str) -> Option<&'static Kit> {
 /// its settings their values (`FCUtil.replaceTile`: the new block entity loads
 /// what the old one saved).
 pub(in crate::game) fn upgraded(old: &Machine, to: &str) -> Option<Machine> {
-    let mut next = Machine::of_variant(variant(to)?);
-    if next.kind != old.kind || next.slots.len() < old.slots.len() || next.upgrades.len() != old.upgrades.len() {
+    // A variant of AE2's device, or one of the mod's own blocks into another
+    // (the Wireless Connector into the Hub).
+    let mut next = match variant(to) {
+        Some(row) => Machine::of_variant(row),
+        None => Machine::for_block(to).filter(|m| m.kind.ext().is_some() && old.kind.ext().is_some())?,
+    };
+    let same_kind = next.kind == old.kind || next.kind.ext().is_some();
+    if !same_kind || next.slots.len() < old.slots.len() || next.upgrades.len() != old.upgrades.len() {
         return None;
     }
     next.slots[..old.slots.len()].clone_from_slice(&old.slots);
@@ -227,7 +240,11 @@ mod tests {
         horizon_client::ae2x::install();
         for kit in KITS {
             if let Some((from, to)) = kit.block {
-                assert_eq!(variant(to).unwrap().base, from);
+                match variant(to) {
+                    Some(row) => assert_eq!(row.base, from),
+                    // The mod's own blocks, the Wireless Connector into the Hub.
+                    None => assert!(Machine::for_block(from).unwrap().kind.ext().is_some() && Machine::for_block(to).unwrap().kind.ext().is_some()),
+                }
             }
             for (from, to) in kit.parts {
                 assert_eq!(variant(to).unwrap().base, *from);
@@ -264,6 +281,16 @@ mod tests {
 
         // Never into another kind of machine.
         assert!(upgraded(&drive, "extendedae:ex_interface").is_none());
+        assert!(upgraded(&drive, horizon_client::ae2x::extendedae::WIRELESS_HUB).is_none());
+
+        // ItemWirelessConnectorUpgrade: the hub keeps the connector's cards and its link, as its first.
+        use horizon_client::ae2x::extendedae as rows;
+        let mut connector = Machine::for_block(rows::WIRELESS_CONNECTOR).unwrap();
+        connector.upgrades[2] = Some(ItemStack::new("ae2:energy_card", 1));
+        rows::set_wireless_frequency(rows::WIRELESS_CONNECTOR, &mut connector.config, 0, 99);
+        let hub = upgraded(&connector, rows::WIRELESS_HUB).unwrap();
+        assert_eq!((hub.id(), hub.upgrades.clone()), (rows::WIRELESS_HUB, connector.upgrades.clone()));
+        assert_eq!(rows::wireless_frequencies(hub.id(), &hub.config), vec![99, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]

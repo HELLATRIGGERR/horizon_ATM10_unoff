@@ -10,7 +10,7 @@ committed. Provenance in [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json), the decla
 Feature `ae2-extendedae`; content `content/extendedae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts extendedae`. ATM10's `config/extendedae-common.toml` keeps
 the mod's defaults (ATM10 8.4 ships none: `extended_io_bus_multiplier` 8, `infinity_cell_energy_cost` 8,
-`assembler_matrix_max_size` 6). Of
+`assembler_matrix_max_size` 6, `wireless_connector_max_range` 1,000, `wireless_connector_power_multiplier` 1). Of
 ATM10's KubeJS, only its infinity cells (slice 6) touch the mod; its recipes for them are the pack's own, in
 the full pack's carry.
 
@@ -167,6 +167,43 @@ provider runs eight jobs at once):
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-matrix
 ```
 
+## Slice 4: Wireless Connector, Wireless Hub and the Wireless Setup Kit
+
+| ExtendedAE | Port |
+|---|---|
+| `TileWirelessConnector`: `DENSE_CAPACITY` (32 channels), all sides, no channel of its own; four cards (`UpgradeInventories.forMachine(.., 4)`): AE2's Energy Card, and MEGA's Greater Energy Card (`MEGACommonLoad`), four each | an `ExtMachine` of no slots and four cards (`ae2x/extendedae.rs`, `OWN_MACHINES`); its node (`game/ae2x/extendedae/wireless.rs`, `device`): every face, 32 channels, no channel |
+| `WirelessConnect.updateStatus`: the two ends of a frequency register under `-f` and `f` in their level (`Locatables`), a third finds both taken; linked when both are active, in the same level and no further apart than `wireless_connector_max_range` (`Math.sqrt(distSqr)`, 1,000); `GridHelper.createConnection` between their nodes, which fails between neighbours already joined (the link still counts) | `ae2x::extendedae::wireless_links` (the first two ends of a frequency by when they registered, the range, not the same block); `tick_extendedae_wireless` keeps each level's links, `ae2x_connect` (from `ae2_network`) makes them `Network.links` edges, as the quantum bridge's; each link made or broken between two ready nodes is a `MeLink` mutation of the ordered event journal, so the ordered services see the same grid |
+| `updatePowerUsage`: linked, `max(1, d ln d (1 - 0.1 x energy cards - 0.2 x greater cards))` with `d` at least `e`, times `wireless_connector_power_multiplier`; unlinked, the multiplier | `wireless_link_power`, `wireless_power`; set each tick into the block's config (`eae_wireless_power`, which `reset_unsaved` drops, as the mod does not save `powerUse`) for its node's idle draw |
+| `TileWirelessHub`: eight links (`MAX_PORT`), their draws added; `freq0` to `freq7`, or a connector's `freq` as its first (`loadTag`); `allocatePort`: the first link not up; `killPort` | the same rows (`wireless_frequencies`, `set_wireless_frequency`; a hub made from a connector writes all eight); its screen's Disconnect buttons (window entries 10 to 17) |
+| `BlockWirelessConnector.check`, `BlockWirelessHub.check` (`useItemOn`, before the menu, not sneaking): the kit's first use binds it (`WIRELESS_LOCATOR` `{a: frequency, b: {dimension, pos}}`, a new random long, never 0 nor used); the second gives the frequency to both, or fails: no place or no wireless block there (`MISSING`), the same block (`SELF_REFERENCE`), another level (`CROSS_DIMENSION`), past the range (`OUT_OF_RANGE`), no free link on a hub (`OUT_OF_PORT`, the hub's own first) | `extendedae_wireless_tool_use`, through `ae2x_use_on` |
+| `ItemWirelessConnectTool.use`, sneaking: the kit forgets its block | `extendedae_wireless_tool_clear`, through `lan_ae2x_use_item` |
+| `ItemWirelessConnectorUpgrade`: a connector into a hub with all it holds | a `Kit` of the mod's own blocks (`upgrade.rs`) |
+| `updateBlockStateFromBlockEntity`: `connected` while a link is up | `extendedae_wireless_visual` (`ae2x_visual_props`) |
+| `ContainerWirelessConnector`, `ContainerWirelessHub`: `UpgradeableMenu`s, `screens/wireless_connector.json`, `wireless_hub.json` | layouts in `screens.rs`: the four cards; the hub's Disconnect buttons |
+| the blocks, the kit and the hub's kit; their Crystal Assembler and crafting recipes | `content.json` |
+
+Differences, known:
+
+- Each level's links are looked at every tick (the mod: when a block's frequency, node or chunk changes). The links
+  are the same, but for a third end of a frequency, which the mod leaves unlinked until its own block changes: here
+  it links as soon as one of the pair goes.
+- The kit's far end must be loaded; the mod's `getBlockEntity` loads its chunk.
+- No colours (`recolourBlock`): every block is fluix (`color` 16). No Jade line.
+- The screens have the cards and the hub's Disconnect buttons, but not the power, channel and status lines, nor the
+  hub's remote blocks and their highlight buttons.
+- The kit's messages go to the server's chat, not the player's action bar.
+
+Tests: `horizon-client` (rows, cards, pairing, range, the power formula, the records' names and the config in
+`ae2x::extendedae`; the locator, the node and the links in `game::ae2x::extendedae::wireless`; the hub's kit in
+`upgrade`) and the world test `extendedae-wireless`: two connectors 900 blocks apart paired by the kit carry a
+controller's channels and power to five drives as a cable would, each end draws 900 ln 900 AE/t, the kit refuses
+1,001 blocks and forgets its block when sneak-used, a hub takes eight links on its eight ports and refuses a ninth,
+the hub's kit keeps a link, the links come back after a restart, a broken connector drops itself:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-wireless
+```
+
 ## Slice 6: Infinity and Void Cells
 
 | ExtendedAE | Port |
@@ -197,6 +234,5 @@ AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-cells
 
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
-4. Wireless Connector and Hub (range 1,000).
 5. Special buses, emitters and planes.
 7. Oversize (x16) and Vacuum interfaces, modifiers, ME Packing Tape, Extended Pattern Access Terminal.

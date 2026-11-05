@@ -570,6 +570,8 @@ impl Game<'_> {
         self.tick_extendedae_devices();
         #[cfg(feature = "ae2-extendedae")]
         self.tick_extendedae_matrix();
+        #[cfg(feature = "ae2-extendedae")]
+        self.tick_extendedae_wireless();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -591,12 +593,20 @@ impl Game<'_> {
         false
     }
 
+    /// The addons' own grid connections, after AE2's (ExtendedAE's wireless
+    /// links, `GridHelper.createConnection`).
+    pub(super) fn ae2x_connect(&self, network: &mut ae2_network_core::Network) {
+        let _ = &network;
+        #[cfg(feature = "ae2-extendedae")]
+        self.extendedae_wireless_connect(network);
+    }
+
     /// An addon machine's block state properties, set each grid tick
     /// (`updateBlockStateFromBlockEntity`): false when it has none.
     pub(super) fn ae2x_visual_props(&self, pos: (i32, i32, i32), machine: &Machine, online: bool, props: &mut horizon_world::block_state_properties::BlockProperties) -> bool {
         let _ = (pos, machine, online, &props);
         #[cfg(feature = "ae2-extendedae")]
-        if self.extendedae_matrix_visual(pos, machine, online, props) {
+        if self.extendedae_matrix_visual(pos, machine, online, props) || self.extendedae_wireless_visual(pos, machine, props) {
             return true;
         }
         #[cfg(feature = "ae2-merequester")]
@@ -672,6 +682,11 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-extendedae")]
         if self.lan_open_void_cell(host, conn, hand) {
+            return true;
+        }
+        // ItemWirelessConnectTool.use, sneaking.
+        #[cfg(feature = "ae2-extendedae")]
+        if self.as_guest(host, conn, |g| g.with_hand(if hand == 1 { super::Hand::Off } else { super::Hand::Main }, |g| g.extendedae_wireless_tool_clear())).unwrap_or(false) {
             return true;
         }
         false
@@ -949,7 +964,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.extendedae_kit_use(pos, face) || self.extendedae_seed_use(pos) {
+        if self.extendedae_wireless_tool_use(pos) || self.extendedae_kit_use(pos, face) || self.extendedae_seed_use(pos) {
             return true;
         }
         false

@@ -1,5 +1,9 @@
 # ExtendedAE port: working notes
 
+Slices 4 and 7 (its first part): branch `feat/extendedae-5` (from `f43aae259`, rebased onto `atm10-horizon-rework` `f724393f1`), the same
+worktree and target;
+content in `atm10-work\eae3-content`, scripts and logs in `atm10-work\logs\eae5`.
+
 Slice 3 (the Assembler Matrix): branch `feat/extendedae-4` (from `db767bc1f`), the same worktree and target;
 content in `atm10-work\eae3-content`, scripts and logs in `atm10-work\logs\eae4`.
 
@@ -57,6 +61,14 @@ another pass while one pushed (`executeCrafting` again). The matrix is `game/ae2
 `ae2x_visual_props` with the place and whether it is online, `ae2x_device` for a provider variant (grid and
 event replay), `addon_style_slots` in `ae2_screens` (slots a screen's code places), `PageLine.count`.
 
+Slice 4: `game/ae2x/extendedae/wireless.rs` keeps each level's links (`Wireless`, in `machines::State`); the
+graph gets them through the new `ae2x_connect` hook (called in `ae2_network` after the ME P2P edges), the ordered
+event journal as `MeLink` mutations (`record_ae2_me_link`), recorded only between nodes the replay has ready and
+removed only between blocks still there (a block taken away tears its own down). Hooks added: `ae2x_connect`; the
+kit through `ae2x_use_on`, its clear through `lan_ae2x_use_item`, `connected` through `ae2x_visual_props`, the hub's
+Disconnect through `extendedae_machine_click`. `upgrade::upgraded` also turns one of the mod's own blocks into
+another (the hub's kit).
+
 Next: a Memory Card on the extended buses and the inscriber; the Extended Molecular Assembler's thread pages; the
 matrix's pattern item handler.
 
@@ -104,6 +116,19 @@ Facts checked for slice 3, at the source:
   channel; idle 0.5 AE/t, 1 for the crafter, pattern and speed cores.
 - `CraftingCpuLogic.tickCraftingLogic` calls `executeCrafting` while it pushes and operations are left
   (co-processors + 1 in a three-tick window); a pass pushes a pattern to each provider once.
+
+Facts checked for slice 4, at the source:
+
+- `TileWirelessConnector` and `TileWirelessHub` set `DENSE_CAPACITY` and no `REQUIRE_CHANNEL`; their cable
+  connection is `DENSE_SMART`; four cards, AE2's Energy Card and (with MEGA) the Greater Energy Card, four each.
+- `WirelessConnect.updateStatus` checks the range with `Math.sqrt(distSqr)` against
+  `wireless_connector_max_range` (1,000; ATM10 ships no config) and the level; `createConnection` throws between
+  nodes already joined, which the mod logs and still counts as connected.
+- Power: `max(1, d ln d (1 - discount)) x multiplier`, `d` at least `e`; unlinked, the multiplier alone; the hub adds
+  its links'. `powerUse` is not saved.
+- The kit: the hub checks for a free port before anything; out of range is checked on the pairing use only; a
+  locator with no place is `MISSING`.
+- `TileWirelessHub.loadTag` reads a connector's `freq` as its first port and then ignores `freq0`..`freq7`.
 
 ## Verification log
 

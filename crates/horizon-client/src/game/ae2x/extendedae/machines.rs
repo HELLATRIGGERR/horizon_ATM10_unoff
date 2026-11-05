@@ -444,6 +444,8 @@ pub(in crate::game) struct State {
     pub(in crate::game) void_menus: HashMap<u32, super::cells::VoidMenu>,
     /// The open Assembler Matrix screens, by player.
     pub(in crate::game) matrix_menus: HashMap<u32, super::matrix::MatrixMenu>,
+    /// The Wireless Connectors' and Hubs' links.
+    pub(in crate::game) wireless: super::wireless::Wireless,
 }
 
 /// What a tick of [`execute`] needs from the world.
@@ -742,7 +744,7 @@ impl Game<'_> {
     /// `canExtract` is false), the AUTO_EXPORT toggle, and an output side
     /// (`CEAEGenericPacket("set_side")`). True when it was one of those.
     pub(in crate::game) fn extendedae_machine_click(&mut self, pos: (i32, i32, i32), entry: usize, button: i32, input: horizon_client::menu::Input) -> bool {
-        if self.extendedae_inscriber_click(pos, entry, button, input) {
+        if self.extendedae_inscriber_click(pos, entry, button, input) || self.extendedae_wireless_click(pos, entry, button, input) {
             return true;
         }
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&pos) else { return false };

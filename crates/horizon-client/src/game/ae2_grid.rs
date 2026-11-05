@@ -408,6 +408,7 @@ impl Game<'_> {
         self.ae2_connect_quartz_fibers(&mut n);
         n.connect_facing_ports();
         self.ae2_connect_me_p2p(&mut n);
+        self.ae2x_connect(&mut n);
         n.connect_facing_ports();
         if let Err(error) = self.ae2_project_phantom_nodes(&mut n) {
             // A phantom's old connections cannot be reconstructed by a

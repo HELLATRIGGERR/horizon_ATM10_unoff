@@ -34,6 +34,8 @@
 //! - Any other block the overlay declares (a generator) drops itself plain
 //!   too, and gets back its recipe when the carry left it outside (a block
 //!   the carry couldn't declare, as the heat generator).
+//! - The Configurator's item model picks its mode's model by the
+//!   `custom_model_data` the native mod gives it.
 //! - The GUI textures (`assets/<id>/gui/`) are copied where the game's GUI
 //!   atlas takes a content mod's (`textures/gui/`, sprites `<id>:gui/...`),
 //!   with Mekanism's energy texture (`textures/liquid/energy`) as
@@ -305,6 +307,22 @@ fn build(carry: &Path, overlay: &Path, out: &Path, vanilla: Option<&Path>, pack:
             write_json(&out.join(&recipe_path), &shaped)?;
             recipes.push(block.to_owned());
         }
+    }
+    // The Configurator's model by its mode: the carried overrides' `mekanism:mode` predicate as a range over the
+    // `custom_model_data` the native mod gives a configurator (0 configurating, 1 empty, 2 rotate, 3 wrench).
+    if id == "mekanism" && carry.join("assets/mekanism/models/item/configurator_wrench.json").is_file() {
+        let model = |m: &str| json!({ "type": "minecraft:model", "model": m });
+        let items = json!({ "model": {
+            "type": "minecraft:range_dispatch", "property": "minecraft:custom_model_data", "index": 0,
+            "entries": [
+                { "threshold": 1.0, "model": model("mekanism:item/configurator_empty") },
+                { "threshold": 2.0, "model": model("mekanism:item/configurator_rotate") },
+                { "threshold": 3.0, "model": model("mekanism:item/configurator_wrench") },
+            ],
+            "fallback": model("mekanism:item/configurator"),
+        } });
+        write_json(&out.join("assets/mekanism/items/configurator.json"), &items)?;
+        files += 1;
     }
     let gui = out.join("assets").join(&id).join("textures/gui");
     let mut gui_sprites = copy_pngs(&carry.join("assets").join(&id).join("gui"), &gui)?;

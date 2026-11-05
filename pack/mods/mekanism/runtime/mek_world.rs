@@ -1132,6 +1132,91 @@ fn set_connection(game: &mut Game<'_>, pos: [i32; 3], side: &str, connection: &s
     probe(game, pos)
 }
 
+/// The configured side `side` of the transmitter at `pos` (a cable, tube, pipe
+/// or transporter: their saved `connection`), for the Configurator.
+pub(super) fn transmitter_connection(game: &mut Game<'_>, pos: [i32; 3], side: Direction) -> Option<Connection> {
+    game.native_with_mod_block_entity(pos, |m| {
+        let transmitter = CableTier::of_block(&m.id).is_some()
+            || super::mek_tubes::tier_of(&m.id).is_some()
+            || super::mek_pipes::tier_of(&m.id).is_some()
+            || super::mek_transporters::tier_of(&m.id).is_some();
+        transmitter.then(|| connections_of(&m.nbt)[side as usize])
+    })
+    .flatten()
+}
+
+/// The Configurator sets a transmitter's side, as `/mek connection` does.
+pub(super) fn set_transmitter_connection(game: &mut Game<'_>, pos: [i32; 3], side: Direction, connection: Connection) {
+    set_connection(game, pos, side.name(), connection.name());
+}
+
+/// The way a Mekanism block faces: a cube's saved `facing`, else its block's.
+pub(super) fn facing_of(game: &mut Game<'_>, pos: [i32; 3]) -> Option<Direction> {
+    let (config, _) = energy_config();
+    let cube = game
+        .native_with_mod_block_entity(pos, |m| CubeTier::of_block(&m.id).map(|tier| read_cube(&m.nbt, tier, config.cube(tier).0).facing))
+        .flatten();
+    cube.or_else(|| game.native_block_property(pos, "facing").and_then(|f| Direction::from_name(&f)))
+}
+
+/// Whether the block at `pos` faces any way (`BlockStateProperties.FACING`, a cube) or only horizontally.
+pub(super) fn faces_any_way(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
+    CubeTier::of_block(&game.native_block(pos)).is_some()
+}
+
+/// The Configurator turns a block (`setFacing`): a cube's `facing` and the
+/// faces it shows, any other block's `facing` property, which its tick reads.
+/// Whether it turned.
+pub(super) fn set_facing(game: &mut Game<'_>, pos: [i32; 3], facing: Direction) -> bool {
+    let (config, _) = energy_config();
+    let cube = game
+        .native_with_mod_block_entity(pos, |m| {
+            let tier = CubeTier::of_block(&m.id)?;
+            let mut cube = read_cube(&m.nbt, tier, config.cube(tier).0);
+            cube.facing = facing;
+            write_config(&mut m.nbt, &cube);
+            Some(cube)
+        })
+        .flatten();
+    if let Some(cube) = cube {
+        show_faces(game, pos, &cube);
+        return true;
+    }
+    game.native_set_block_property_with(pos, "facing", facing.name(), flags::UPDATE_ALL)
+}
+
+/// The Configurator's wrench takes the Mekanism block at `pos` up
+/// (`WorldUtils.dismantleBlock`): its item with what a break gives its drop
+/// (a cube's energy and config, a chemical tank's contents); the block goes.
+pub(super) fn dismantle(game: &mut Game<'_>, pos: [i32; 3]) -> Option<ItemStack> {
+    let id = game.native_block(pos);
+    if !id.starts_with("mekanism") {
+        return None;
+    }
+    let (config, _) = energy_config();
+    let data = game
+        .native_with_mod_block_entity(pos, |m| {
+            if super::mek_tanks::tier_of(&m.id).is_some() {
+                return super::mek_tanks::drop_data(&m.nbt);
+            }
+            let tier = CubeTier::of_block(&m.id)?;
+            drop_data(&m.nbt, tier, config.cube(tier).0)
+        })
+        .flatten();
+    let air = game.native_default_state("minecraft:air")?;
+    let dimension = game.native_dimension();
+    if !game.native_set_block(dimension, pos, air, 3) {
+        return None;
+    }
+    let mut stack = ItemStack::new(&id, 1);
+    if let Some(data) = data {
+        let mut custom = Compound::new();
+        custom.insert(key("mekanism"), Tag::Compound(data));
+        stack.data_mut().set_other(CUSTOM_DATA, Some(Tag::Compound(custom)));
+    }
+    Some(stack)
+}
+
 /// What `/mek probe` answers for a cable.
 fn probe_cable(game: &mut Game<'_>, pos: [i32; 3], id: &str, tier: CableTier) -> serde_json::Value {
     let dimension = game.native_dimension();
@@ -1989,7 +2074,7 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             }
         }
         _ => {
-            // The transmitters' own (`/mek color`).
+            // The transmitters' and the Configurator's own (`/mek color`, `/mek configurator`).
             let all: Vec<&str> = command.split_whitespace().skip(1).collect();
             let p = player.position;
             let at = match (coordinate(all.get(1).copied(), p[0]), coordinate(all.get(2).copied(), p[1]), coordinate(all.get(3).copied(), p[2])) {

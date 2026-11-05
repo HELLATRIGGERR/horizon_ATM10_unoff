@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters,
+Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters and its Configurator,
 and Mekanism Generators' Solar and Heat Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
@@ -132,6 +132,15 @@ assets when `mekanism-content` is given them.
   each stack where it travels (`native_block_entity_update_tag`, `native_block_entity_submit`). `/mek color` sets a
   transporter's colour as the Configurator does. `transporter::round_robin` is `getNewRRPath`'s choice, ready for
   the Logistical Sorter.
+- The Configurator (`mekanism_energy::configurator`, runtime `mek_configurator`): its eight modes in the item
+  (`custom_data.mekanism.mode`, its model by `custom_model_data`), set with `/mek configurator <mode>`;
+  configurating, a sneaking use bumps the used side of a cube's, machine's, factory's or chemical tank's side
+  configuration of that type (items, energy, chemicals) through the block's own side button, a transmitter's side
+  connection (normal, push, pull, none), a transporter's colour on a connected side, and turns a fluid tank's giving
+  down on and off; empty takes a machine's items out into the world; rotate turns a block to face away from the side
+  used (sneaking) or clockwise (a plain use, before its screen opens: `native_right_click_block`); wrench takes a
+  Mekanism block up into the player's inventory with what its drop keeps (sneaking). In Mekanism 10.7 the
+  Configurator holds no energy. `/mek connection` stays for tests.
 
 ## Differences from Mekanism
 
@@ -140,7 +149,7 @@ assets when `mekanism-content` is given them.
 - A connection to a block with energy that appears with no block changing (an AE2 part, a cube's data) is noticed within a
   second. Cubes and blocks being placed or removed are noticed at once.
 - A chunk's block entities load or unload with the chunk, by Horizon's own rules, and not Mekanism's "accessible" ticket level.
-- Until Mekanism's Configurator and redstone sensitivity are ported, `/mek connection <pos> <side> <type>` sets a side.
+- Redstone sensitivity isn't ported; `/mek connection <pos> <side> <type>` sets a transmitter's side as the Configurator does.
 - A cable's outline and collision are its core: no arms until content blocks can have several boxes by several properties.
 - Cables can't be waterlogged: their six sides use all of a block's 4096 states.
 - A generator's peak (solar) or air (heat) is read on its first tick after it is placed or loaded, as Mekanism does; the
@@ -201,3 +210,9 @@ assets when `mekanism-content` is given them.
   ported, nor the coloured glass of a transporter's model (its colour shows in the Configurator's messages), nor
   the Diversion and Restrictive Transporters or the Logistical Sorter. Clients get a transporter's stacks when
   they change and move them on by its speed a tick from the frame they first draw them.
+- The Configurator's mode is set with `/mek configurator`: Mekanism's mode key and sneak-scroll aren't ported. Its
+  messages go to the chat, not the action bar. A transmitter's arms aren't hit (its outline is its core), so a
+  sneaking use configures the side used, and on a transporter a connected side bumps the colour, as a use on
+  Mekanism's core does. A plain use on a transmitter doesn't toggle redstone sensitivity (not ported); block
+  security and the radiation check of the wrench aren't ported; the empty mode takes every slot the block keeps,
+  its upgrade holder's too.

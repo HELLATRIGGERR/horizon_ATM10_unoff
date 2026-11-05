@@ -1,5 +1,5 @@
-// The Mechanical Pipes, Fluid Tanks and Logistical Transporters of the
-// `mekanism` native bundle (support module
+// The Mechanical Pipes, Fluid Tanks, Logistical Transporters and the
+// Configurator of the `mekanism` native bundle (support module
 // `crate::game::mek_transmit`): where `mek_world`'s hooks hand them over, so
 // each of `mek_world`'s hooks asks this module once. Mekanism is MIT,
 // Copyright (c) 2017-2025 Aidan C. Brady.
@@ -146,7 +146,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: [i32; 3], id: &str) -> Option<Valu
     None
 }
 
-/// `/mek connection` on one of these transmitters.
+/// `/mek connection` (and the Configurator) on one of these transmitters.
 pub(super) fn set_connection(game: &mut Game<'_>, pos: [i32; 3], face: Direction, connection: Connection) -> Option<Value> {
     mek_pipes::set_connection(game, pos, face, connection).or_else(|| mek_transporters::set_connection(game, pos, face, connection))
 }
@@ -164,11 +164,13 @@ pub(super) fn draw(game: &Game<'_>, pos: [i32; 3], block: &str, entity: &ModBloc
 /// The `/mek` commands of these blocks.
 pub(super) fn commands(commands: &mut Vec<super::native_server::NativeCommand>) {
     commands.push(super::native_server::NativeCommand::op("mek color <pos:block_pos> <color:word>", 2));
+    commands.push(super::native_server::NativeCommand::op("mek configurator <mode:word>", 2));
 }
 
-/// `/mek color x y z <color|none>`: a transporter's colour. None for another command.
+/// `/mek color x y z <color|none>`: a transporter's colour, as the Configurator sets it. None for another command.
 pub(super) fn perform(game: &mut Game<'_>, words: &[&str], at: Option<[i32; 3]>) -> Option<Value> {
     match words.first().copied() {
+        Some("configurator") => Some(super::mek_configurator::command(game, words.get(1).copied())),
         Some("color") => {
             let (Some(pos), Some(name)) = (at, words.get(4)) else {
                 return Some(serde_json::json!({ "error": "usage: /mek color <x> <y> <z> <color|none>" }));

@@ -27,11 +27,13 @@
 //! Mechanical Pipes move fluids in networks as the tubes do (`network`, with
 //! `transmitter`'s tiers), between Fluid Tanks (`fluid_tank`) and any block with
 //! a fluid handler. Logistical Transporters (`transporter`) send item stacks
-//! along the cheapest paths to the inventories that take them.
+//! along the cheapest paths to the inventories that take them. The
+//! Configurator's modes (`configurator`) set sides, colours and facings.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod chemical;
 pub mod chemical_tank;
 pub mod config;
+pub mod configurator;
 pub mod container;
 pub mod cube;
 pub mod display;

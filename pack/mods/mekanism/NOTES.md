@@ -77,9 +77,18 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   World test `logistical-transporter`. Learned: transporter stacks save no path (`initiatedPath` false, worked out
   again on the first tick), `delayCount` never resets, a stack moving into a transporter that already ticked waits
   a tick.
+- Transmitters, part 3: the Configurator (`mekanism_energy::configurator`, runtime `mek_configurator`;
+  `native_use_item_on` now with its face, `native_right_click_block` for the plain rotate), from Mekanism 10.7.19's
+  code: a block with a screen opens it on a plain use (`BlockTile.useItemOn` passes, `openGui` opens), so a machine
+  is configured, emptied and turned away with a sneaking use; a plain use of the rotate mode turns it clockwise
+  (`tryWrenchRotate`); the wrench mode bypasses sneaking (`doesSneakBypassUse`) to dismantle. 10.7 removed the
+  Configurator's energy (no settings, no `ItemEnergized`). World test `configurator`.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
-  NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`;
+  NeoForge oracle, to confirm the generators' numbers tick by tick),
+  the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical
+  Sorter on `transporter::round_robin`, hoppers into transporters, redstone sensitivity), the Fluid Tank's screen
+  and item, the Configurator's mode key;
   the chemical machines and their factories (the Osmium Compressor, Purification Chamber, Chemical Injection Chamber,
   the infusing factory), other energy items charging machines.
 

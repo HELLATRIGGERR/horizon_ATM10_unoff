@@ -331,6 +331,28 @@ pub(super) fn energy_cell_energy(stack:&ItemStack)->Result<(f64,f64),String> {
 fn energy_cell_charge_rate(stack:&ItemStack)->Result<f64,String> {
     energy_cell_item(stack).map(|(_,rate)|rate).ok_or_else(||"not an energy cell".into())
 }
+/// An item a Charger fills (`IAEItemPowerStorage`, `Platform.isChargeable`),
+/// as the Charger's tick reads it: its current and most AE.
+pub(super) fn chargeable_energy(stack:&ItemStack)->Result<(f64,f64),String> {
+    if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::energy(stack)}
+    else if horizon_client::ae2_powered_items::profile(stack).is_some() {horizon_client::ae2_powered_items::energy(stack)}
+    else if is_energy_cell_item(stack) {energy_cell_energy(stack)}
+    else {super::ae2_interactions::portable_energy(stack)}
+}
+/// Its `getChargeRate`, AE a tick.
+pub(super) fn chargeable_rate(stack:&ItemStack)->Result<f64,String> {
+    if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::charge_rate(stack)}
+    else if horizon_client::ae2_powered_items::profile(stack).is_some() {horizon_client::ae2_powered_items::charge_rate(stack)}
+    else if is_energy_cell_item(stack) {energy_cell_charge_rate(stack)}
+    else {super::ae2_interactions::portable_charge_rate(stack)}
+}
+/// Its `injectAEPower(.., MODULATE)`: the AE of `offered` it took.
+pub(super) fn chargeable_insert(stack:&mut ItemStack,offered:f64)->Result<f64,String> {
+    if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::transfer_energy(stack,offered,true,false)}
+    else if horizon_client::ae2_powered_items::profile(stack).is_some() {horizon_client::ae2_powered_items::transfer(stack,offered,true,false)}
+    else if is_energy_cell_item(stack) {energy_cell_insert(stack,offered)}
+    else {super::ae2_interactions::portable_insert_energy(stack,offered,false)}
+}
 /// EnergyCellBlockItem.injectAEPower; returns the accepted AE.
 fn energy_cell_insert(stack:&mut ItemStack,offered:f64)->Result<f64,String> {
     if !offered.is_finite() || offered<0.0 {return Err("invalid energy amount".into());}
@@ -476,7 +498,7 @@ fn run_inscriber_step(m: &mut Machine, items: &Items, recipes: &horizon_client::
 /// a powered step of 10 x speedFactor AE taken from the Inscriber's own
 /// buffer when it holds enough, else from the grid (`grid(amount, simulate)`
 /// gives what the grid would give or gave). Returns whether `m` changed.
-fn inscriber_tick(m: &mut Machine, items: &Items, recipes: &horizon_client::crafting::Recipes, mut grid: impl FnMut(f64, bool) -> f64) -> bool {
+pub(super) fn inscriber_tick(m: &mut Machine, items: &Items, recipes: &horizon_client::crafting::Recipes, mut grid: impl FnMut(f64, bool) -> f64) -> bool {
     let smash = count_config(m, "ae2_smash", 0);
     let valid = live_inscriber_recipe(m, items, recipes).is_some_and(|(out, _)| {
         items.get(&out.item).is_some() && fits(&m.slots[3], &out, items)
@@ -502,7 +524,7 @@ fn inscriber_tick(m: &mut Machine, items: &Items, recipes: &horizon_client::craf
 }
 /// The TickRateModulation InscriberBlockEntity.tickingRequest returns:
 /// URGENT after a push or with craft work, SLOWER with only export work.
-fn inscriber_modulation(m: &Machine, items: &Items, recipes: &horizon_client::crafting::Recipes, pushed: bool) -> Modulation {
+pub(super) fn inscriber_modulation(m: &Machine, items: &Items, recipes: &horizon_client::crafting::Recipes, pushed: bool) -> Modulation {
     if pushed || count_config(m, "ae2_smash", 0) > 0
         || live_inscriber_recipe(m, items, recipes).is_some_and(|(out, _)| fits(&m.slots[3], &out, items)) {
         Modulation::Urgent
@@ -656,7 +678,7 @@ impl Game<'_> {
     }
     /// InscriberBlockEntity.pushOutResult: try sides in Java Direction order,
     /// preserving the physical output when a neighbor refuses or changes.
-    fn ae2_inscriber_push_output(&mut self,pos:(i32,i32,i32),m:&mut Machine,original:&Machine,plan:&mut super::ae2_buses::FormationPlan)->bool {
+    pub(super) fn ae2_inscriber_push_output(&mut self,pos:(i32,i32,i32),m:&mut Machine,original:&Machine,plan:&mut super::ae2_buses::FormationPlan)->bool {
         use horizon_core::geometry::Direction;
         if !inscriber_auto_export_work(m){return false}
         let Some(source)=self.ae2_local_address(pos) else{return false};
@@ -1838,14 +1860,15 @@ impl Game<'_> {
         if !self.ae2_online(pos) {
             return false;
         }
-        let (speed, tax) = match m.installed_speed_cards().min(5) {
+        // An addon's assembler steps at its own speeds (ExtendedAE's CraftingThread).
+        let (speed, tax) = super::ae2x::assembler_speed(m).unwrap_or(match m.installed_speed_cards().min(5) {
             0 => (10.0, 1.0),
             1 => (13.0, 1.3),
             2 => (17.0, 1.7),
             3 => (20.0, 2.0),
             4 => (25.0, 2.5),
             _ => (50.0, 5.0),
-        };
+        });
         let extracted = self.ae2_take_power(pos, speed * tax, false);
         let gain = (extracted / tax).floor();
         if gain <= 0.0 {

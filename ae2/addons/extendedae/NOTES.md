@@ -1,5 +1,11 @@
 # ExtendedAE port: working notes
 
+Slice 2's rest: branch `feat/extendedae-3` (from `7fbbadc26`), worktree
+`D:\VSCODE_PROJECTS\DEV_1\atm10-wt\eae`, target `D:\VSCODE_PROJECTS\DEV_1\atm10-work\target-eae`. Content:
+`atm10-work\eae3-content\<namespace>` (`AE2_ADDON_CONTENT_ROOT`; extendedae, megacells, merequester); scripts and
+logs in `atm10-work\logs\eae3` (`build.sh`, `check.sh`, `unit.sh`, `suites.sh`). The mod's source at the pinned
+commit and AE2's are in `atm10-work\src-eae`.
+
 Slice 2: branch `feat/extendedae-3` (on `wip/fullpack-4` 2b056e630), worktree `C:\PET\atm10-wt\eae2`, target
 `C:\PET\atm10-work\target-eae2` (seeded from the full-pack target of the same commit). Slice 1 was
 `feat/extendedae-2` in `C:\PET\atm10-wt\eae`. Generated content: `C:\PET\atm10-work\eae-content\extendedae`, from
@@ -24,7 +30,19 @@ added to `game/ae2x/mod.rs`: `orientation` (placement and the wrench), `machine_
 
 The Extended Import and Export Buses are part variants of kind `CableBus` (`base_id` for the bus code through
 `ae2_buses::part_kind`, `ae2_world::bus_card_slots`, `BusState::multiplier`); their window's three more cards are
-entries 45..48. Next: the Extended Inscriber, Charger and Molecular Assembler; a Memory Card on the extended buses.
+entries 45..48.
+
+Slice 2's rest: the Extended Inscriber and Charger are `ExtMachine`s whose ticks are in `devices.rs` (an inscriber
+thread is AE2's Inscriber on its four slots: `ae2_processing::inscriber_tick`, `inscriber_modulation`,
+`ae2_inscriber_push_output` made `pub(super)`); the Extended Molecular Assembler is a variant of AE2's (one
+thread; `ae2x::assembler_speed`). Hooks added: `ae2x_item_handler`/`_insert`/`_extract`/`_candidates` (the
+native item handler, before AE2's machines'; hoppers route through it), `ae2x_machine_may_place` (with the item),
+`machine_slot_capacity`, `assembler_speed`, `random_ticks`/`ae2x_random_tick` (from AE2's budding quartz tick),
+the seed through `ae2x_use_on`, the charger through `ae2x_block_use`; `ae2_machine_click_physical` is
+`pub(super)` for the inscriber's paged window; `ae2_screens::PageLine` names a page line's key and place.
+
+Next: a Memory Card on the extended buses and the inscriber; the Assembler Matrix, which needs crafting flights
+that name a thread (the Extended Molecular Assembler's eight threads with it).
 
 Facts checked for slice 2, at the source and in Glodium 2.2's classes (`javap`):
 
@@ -36,6 +54,15 @@ Facts checked for slice 2, at the source and in Glodium 2.2's classes (`javap`):
 - AE2's export bus moves its whole budget into an item handler, stack by stack (`ItemHandlerFacade.insert`); the
   port's took one grid stack a key, so any bus past 64 operations (an Extended one at 8 and more) stopped at 64.
   Fixed in `ae2_buses` (the export host's `transfer_atomic`). The import side already went slot by slot.
+
+Facts checked for slice 2's rest:
+
+- `TickRateModulation` is ordered SLEEP, IDLE, SLOWER, SAME, FASTER, URGENT; `TileExInscriber.tickingRequest` keeps
+  the highest of its threads'.
+- `TileExCharger.doWork` tops its buffer up (800 AE) after each of its four slots, not once a call.
+- ATM10 8.4 ships no `extendedae-common.toml`.
+- The content fence lets a content mod add tags only in its own namespaces and `minecraft`/`c`: the jar's
+  `ae2:growth_acceleratable` cannot come with the addon; AE2's own tag holds `#c:budding_blocks`.
 
 Facts checked at the source and in the jar:
 

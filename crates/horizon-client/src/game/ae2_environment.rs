@@ -179,7 +179,12 @@ impl Game<'_> {
         }
         let old = self.world.block(pos[0], pos[1], pos[2]);
         let source = self.res.facts().get(old).name.to_string();
-        if !is_budding(&source) || self.world.random.next_int_bound(5) != Ok(0) {
+        // An addon's own (ExtendedAE's budding entro) has its randomTick.
+        if !is_budding(&source) {
+            self.ae2x_random_tick(pos, &source);
+            return;
+        }
+        if self.world.random.next_int_bound(5) != Ok(0) {
             return;
         }
         // Direction.values() order in 1.21.1: down, up, north, south, west, east.

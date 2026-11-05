@@ -82,14 +82,35 @@ pub(super) fn machine_menu(machine: &Machine) -> bool {
     }
     false
 }
-/// Whether such a menu's slot `slot` takes items from the cursor.
-pub(super) fn machine_may_place(machine: &Machine, slot: usize) -> Option<bool> {
+/// The most a slot of such a menu holds (`AppEngInternalInventory`'s
+/// per-slot limit, the Extended Inscriber's stack size); none for 64.
+pub(super) fn machine_slot_capacity(machine: &Machine, slot: usize) -> Option<u32> {
     let _ = (machine, slot);
     #[cfg(feature = "ae2-extendedae")]
-    if let Some(found) = extendedae::may_place(machine, slot) {
+    if let Some(found) = extendedae::slot_capacity(machine, slot) {
         return Some(found);
     }
     None
+}
+/// An addon's Molecular Assembler's progress a tick and power tax
+/// (`userPower(ticks, bonusValue, acceleratorTax)`), by its cards; none for AE2's.
+pub(super) fn assembler_speed(machine: &Machine) -> Option<(f64, f64)> {
+    let _ = machine;
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(found) = extendedae::assembler_speed(machine) {
+        return Some(found);
+    }
+    None
+}
+/// A block an addon's random tick runs on (`Block.randomTick`), after AE2's
+/// budding quartz: ExtendedAE's budding entro.
+pub(super) fn random_ticks(block: &str) -> bool {
+    let _ = block;
+    #[cfg(feature = "ae2-extendedae")]
+    if extendedae::entro::random_ticks(block) {
+        return true;
+    }
+    false
 }
 /// What automation (hoppers, droppers, pattern providers) may put in an
 /// addon machine's slot `index`, and take out; none leaves AE2's rules.
@@ -295,6 +316,62 @@ pub(super) enum NetworkPick {
 }
 
 impl Game<'_> {
+    /// Whether a slot of an addon machine's menu takes `item` from the cursor.
+    pub(super) fn ae2x_machine_may_place(&self, machine: &Machine, slot: usize, item: &horizon_client::items::ItemStack) -> Option<bool> {
+        let _ = (machine, slot, item);
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_may_place(machine, slot, item) {
+            return Some(found);
+        }
+        None
+    }
+    /// An addon machine's own item handler (`getExposedInventoryForSide`),
+    /// which hoppers, buses and providers meet in place of its slots: true
+    /// for one the addon handles in [`Game::ae2x_item_insert`].
+    pub(super) fn ae2x_item_handler(&self, address: super::ae2_global::GridAddress) -> bool {
+        let _ = address;
+        #[cfg(feature = "ae2-extendedae")]
+        if self.extendedae_item_handler(address) {
+            return true;
+        }
+        false
+    }
+    /// `insertItem` into such a handler on `face`: what it takes of `stack`
+    /// (at most `limit`); none for a block no addon handles.
+    pub(super) fn ae2x_item_insert(&mut self, address: super::ae2_global::GridAddress, face: horizon_core::geometry::Direction, stack: &horizon_client::items::ItemStack, limit: u32, simulate: bool) -> Option<u32> {
+        let _ = (address, face, stack, limit, simulate);
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_item_insert(address, face, stack, limit, simulate) {
+            return Some(found);
+        }
+        None
+    }
+    /// `extractItem` from such a handler: the stack it gives.
+    pub(super) fn ae2x_item_extract(&mut self, address: super::ae2_global::GridAddress, face: horizon_core::geometry::Direction, limit: u32, filter: Option<&horizon_client::items::ItemStack>, simulate: bool) -> Option<Option<horizon_client::items::ItemStack>> {
+        let _ = (address, face, limit, filter, simulate);
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_item_extract(address, face, limit, filter, simulate) {
+            return Some(found);
+        }
+        None
+    }
+    /// What could come out of such a handler.
+    pub(super) fn ae2x_item_candidates(&self, address: super::ae2_global::GridAddress, face: horizon_core::geometry::Direction) -> Option<Vec<horizon_client::items::ItemStack>> {
+        let _ = (address, face);
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_item_candidates(address, face) {
+            return Some(found);
+        }
+        None
+    }
+    /// An addon block's random tick (`randomTick`), `block` being its id.
+    pub(super) fn ae2x_random_tick(&mut self, pos: [i32; 3], block: &str) {
+        let _ = (pos, block);
+        #[cfg(feature = "ae2-extendedae")]
+        if extendedae::entro::random_ticks(block) {
+            self.extendedae_entro_random_tick(pos, block);
+        }
+    }
     /// `StorageCells.getCellInventory` of a cell of an addon's own handler:
     /// none for any other stack (AE2's basic cells, creative cells, items).
     pub(super) fn ae2x_handler_cell(&self, stack: &horizon_client::items::ItemStack) -> Option<Result<Box<dyn HandlerCell>, String>> {
@@ -433,6 +510,8 @@ impl Game<'_> {
         self.tick_merequester();
         #[cfg(feature = "ae2-extendedae")]
         self.tick_extendedae_machines();
+        #[cfg(feature = "ae2-extendedae")]
+        self.tick_extendedae_devices();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -761,7 +840,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.extendedae_kit_use(pos, face) {
+        if self.extendedae_kit_use(pos, face) || self.extendedae_seed_use(pos) {
             return true;
         }
         false
@@ -772,7 +851,7 @@ impl Game<'_> {
     pub(super) fn ae2x_block_use(&mut self, pos: (i32, i32, i32)) -> bool {
         let _ = pos;
         #[cfg(feature = "ae2-extendedae")]
-        if self.extendedae_fixer_use(pos) {
+        if self.extendedae_fixer_use(pos) || self.extendedae_charger_use(pos) {
             return true;
         }
         false

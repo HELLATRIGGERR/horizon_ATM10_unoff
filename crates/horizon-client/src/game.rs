@@ -1422,7 +1422,8 @@ impl LevelAccess for GameLevel<'_> {
 
     fn custom_random_tick(&mut self,pos:BlockPos,state:BlockStateId)->bool{
         #[cfg(feature="ae2-lab")]
-        if self.facts.get(state).name.starts_with("ae2:")&&self.facts.get(state).name.ends_with("_budding_quartz"){
+        if self.facts.get(state).name.starts_with("ae2:")&&self.facts.get(state).name.ends_with("_budding_quartz")
+            || crate::game::ae2x::random_ticks(&self.facts.get(state).name){
             self.events.push(LevelEvent::BlockEvent{pos,state,kind:"ae2_random_tick"});return true;
         }
         false

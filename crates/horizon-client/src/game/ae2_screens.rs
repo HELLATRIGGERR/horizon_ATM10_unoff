@@ -121,6 +121,14 @@ struct Toggle {
     shown_by: Option<usize>,
 }
 
+/// A line naming the page shown (`drawFG`), one more than its data slot's value.
+struct PageLine {
+    data: usize,
+    key: &'static str,
+    fallback: &'static str,
+    at: (f32, f32),
+}
+
 /// A `ProgressBar`, filling upwards (`Direction.VERTICAL`); its values are
 /// wide data slots (two each).
 struct Progress {
@@ -155,8 +163,9 @@ struct Layout {
     /// The Pattern Provider's lock line (`lockReason`): data slots with the
     /// lock mode, whether it is locked, and why.
     lock_line: Option<[usize; 3]>,
-    /// The Extended Interface's "Config Page %s" line: the data slot with the page.
-    page_line: Option<usize>,
+    /// A page line (the Extended Interface's "Config Page %s"): the data slot
+    /// with the page, the line's translation and where it is drawn.
+    page_line: Option<PageLine>,
     /// `BackgroundPanel`s: the style's images drawn at its widgets of the
     /// same name.
     panels: &'static [&'static str],
@@ -1324,9 +1333,9 @@ impl Game<'_> {
             let cog = if inside(rect, mouse) { icon::COG } else { icon::COG_DISABLED };
             self.ae2_icon(batch, cog, (16, 16), ox + rect[0] as f32, oy + rect[1] as f32);
         }
-        if let Some(page) = layout.page_line {
-            let line = fill(&self.translate("gui.extendedae.ex_interface.config", "Config Page %s"), &[(value(data, page) + 1).to_string()]);
-            batch.text(&self.gui.atlas, &line, ox + 8.0, oy + 24.0, argb(screen.style.color("DEFAULT_TEXT_COLOR")), false);
+        if let Some(page) = layout.page_line.as_ref() {
+            let line = fill(&self.translate(page.key, page.fallback), &[(value(data, page.data) + 1).to_string()]);
+            batch.text(&self.gui.atlas, &line, ox + page.at.0, oy + page.at.1, argb(screen.style.color("DEFAULT_TEXT_COLOR")), false);
         }
         // PatternProviderLockReason: shown while a lock mode is set.
         if let Some([mode, locked, _]) = layout.lock_line

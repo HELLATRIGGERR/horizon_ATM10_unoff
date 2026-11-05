@@ -1,13 +1,18 @@
 //! ExtendedAE 1.21-2.2.42 in the game (feature `ae2-extendedae`). Its bigger
 //! devices are AE2's with other sizes (rows in the library's
 //! `ae2x::extendedae`); their screens are layouts of `ae2_screens`
-//! (`screens.rs`, a child module of it). Its own machines are in `machines.rs`.
+//! (`screens.rs`, a child module of it). Its own machines are in `machines.rs`,
+//! the Extended Inscriber, Charger and Molecular Assembler in `devices.rs`,
+//! Entro's growth in `entro.rs`.
 //! What needs the game's own code is here, reached through `game/ae2x/mod.rs`.
+pub(in crate::game) mod devices;
+pub(in crate::game) mod entro;
 pub(in crate::game) mod machines;
 pub(in crate::game) mod upgrade;
 
 use horizon_client::{ae2_world::{Machine, MachineKind}, items::ItemStack};
 use horizon_core::geometry::Direction;
+use devices::Device;
 use machines::Kind;
 pub(in crate::game) use machines::State;
 
@@ -41,11 +46,12 @@ pub(in crate::game) fn part_style(id: &str) -> Option<(&'static str, &'static st
 }
 
 /// The orientation strategy of the mod's own blocks: `full()` for the
-/// Crystal Assembler and Circuit Cutter, `facing()` for the Crystal Fixer.
+/// Crystal Assembler, Circuit Cutter and the Extended Inscriber and Charger,
+/// `facing()` for the Crystal Fixer.
 pub(in crate::game) fn orientation(block: &str) -> Option<super::Orientation> {
     use horizon_client::ae2x::extendedae as rows;
     match block {
-        rows::CRYSTAL_ASSEMBLER | rows::CIRCUIT_CUTTER => Some(super::Orientation::FacingWithSpin),
+        rows::CRYSTAL_ASSEMBLER | rows::CIRCUIT_CUTTER | rows::EX_INSCRIBER | rows::EX_CHARGER => Some(super::Orientation::FacingWithSpin),
         rows::CRYSTAL_FIXER => Some(super::Orientation::Facing),
         _ => None,
     }
@@ -76,13 +82,23 @@ fn connectable(kind: Kind, facing: &str, spin: usize) -> Vec<Direction> {
     Direction::ALL.into_iter().filter(|d| !closed.contains(d)).collect()
 }
 
+/// `getGridConnectableSides` of the Extended Inscriber and Charger: all but
+/// their front.
+fn device_connectable(facing: &str) -> Vec<Direction> {
+    let front = direction(facing).unwrap_or(Direction::North);
+    Direction::ALL.into_iter().filter(|d| *d != front).collect()
+}
 /// The node of the mod's own machines: no channel, no idle draw
-/// (`setFlags()`, `setIdlePowerUsage(0)`), on their connectable sides.
+/// (`setFlags()`, `setIdlePowerUsage(0)`; the Extended Inscriber sets no flags
+/// either), on their connectable sides.
 pub(in crate::game) fn device(machine: &Machine, properties: Option<&horizon_world::block_state_properties::BlockProperties>, device: &mut ae2_network_core::Device) -> bool {
-    let Some(kind) = Kind::of(machine) else { return false };
+    let facing = properties.and_then(|p| p.get("facing")).map_or("north", String::as_str);
+    let kind = Kind::of(machine);
+    if kind.is_none() && Device::of(machine).is_none() {
+        return false;
+    }
     device.idle_override = Some(0.0);
     device.channel_override = Some(false);
-    let facing = properties.and_then(|p| p.get("facing")).map_or("north", String::as_str);
     let spin = properties.and_then(|p| p.get("spin")).and_then(|s| s.parse().ok()).unwrap_or(0);
     // The node's face bits: east, west, up, down, south, north.
     let bit = |d: Direction| match d {
@@ -93,13 +109,21 @@ pub(in crate::game) fn device(machine: &Machine, properties: Option<&horizon_wor
         Direction::South => 4,
         Direction::North => 5,
     };
-    device.faces = connectable(kind, facing, spin).into_iter().fold(0, |faces, d| faces | 1 << bit(d));
+    let sides = match kind {
+        Some(kind) => connectable(kind, facing, spin),
+        None => device_connectable(facing),
+    };
+    device.faces = sides.into_iter().fold(0, |faces, d| faces | 1 << bit(d));
     true
 }
 /// Forge Energy goes into the machine's own buffer on its power sides.
 pub(in crate::game) fn private_power_face(kind: MachineKind, state: &horizon_world::chunk::BlockState, face: Direction) -> bool {
-    let Some(kind) = kind_of(kind) else { return false };
     let facing = state.properties.get("facing").map_or("north", String::as_str);
+    if Device::of_kind(kind).is_some() {
+        // setPowerSides(getGridConnectableSides).
+        return device_connectable(facing).contains(&face);
+    }
+    let Some(kind) = kind_of(kind) else { return false };
     let spin = state.properties.get("spin").and_then(|s| s.parse().ok()).unwrap_or(0);
     connectable(kind, facing, spin).contains(&face)
 }
@@ -114,10 +138,11 @@ pub(in crate::game) fn visual_props(machine: &Machine, props: &mut horizon_world
     true
 }
 
-/// The Crystal Assembler and Circuit Cutter open AE2-style machine menus
-/// (`UpgradeableMenu`); the Crystal Fixer has none.
+/// The Crystal Assembler, Circuit Cutter and Extended Inscriber open AE2-style
+/// machine menus (`UpgradeableMenu`); the Crystal Fixer and Extended Charger
+/// have none (a use refuels or loads them).
 pub(in crate::game) fn machine_menu(m: &Machine) -> bool {
-    matches!(Kind::of(m), Some(Kind::Assembler | Kind::Cutter))
+    matches!(Kind::of(m), Some(Kind::Assembler | Kind::Cutter)) || Device::of(m) == Some(Device::Inscriber)
 }
 /// What a menu slot may take: anything in an input (`AppEngSlot`), nothing
 /// in the output (`OutputSlot`).
@@ -126,22 +151,47 @@ pub(in crate::game) fn may_place(m: &Machine, slot: usize) -> Option<bool> {
     Some(slot < kind.inputs())
 }
 /// `invExposed`: inputs insert-only, the output extract-only; the fixer's
-/// fuel both ways.
+/// fuel both ways. The Extended Inscriber's and Charger's filters are their
+/// item handlers' (`devices.rs`), which automation meets first.
 pub(in crate::game) fn slot_insert(kind: MachineKind, index: usize) -> Option<bool> {
+    if Device::of_kind(kind).is_some() {
+        return Some(true);
+    }
     let kind = kind_of(kind)?;
     Some(index < kind.inputs())
 }
 pub(in crate::game) fn slot_extract(kind: MachineKind, index: usize) -> Option<bool> {
+    if Device::of_kind(kind).is_some() {
+        return Some(true);
+    }
     let kind = kind_of(kind)?;
     Some(kind == Kind::Fixer || index >= kind.inputs())
 }
-/// The menu's progress bar (`IProgressProvider`): processingTime of MAX_PROGRESS.
+/// The most a menu slot holds: the Extended Inscriber's inputs its stack
+/// size, the Extended Charger's one.
+pub(in crate::game) fn slot_capacity(m: &Machine, slot: usize) -> Option<u32> {
+    match Device::of(m)? {
+        Device::Inscriber => Some(if slot % devices::THREAD_SLOTS < 3 { devices::stack_size(m) } else { 64 }),
+        Device::Charger => Some(1),
+    }
+}
+pub(in crate::game) use devices::assembler_speed;
+/// The menu's progress bar (`IProgressProvider`): processingTime of
+/// MAX_PROGRESS; the Extended Inscriber's of the thread shown, of 200.
 pub(in crate::game) fn progress(m: &Machine) -> Option<(f64, f64)> {
+    if Device::of(m) == Some(Device::Inscriber) {
+        return Some((devices::thread(m, devices::page(m)).progress.min(200.0), 200.0));
+    }
     let kind = Kind::of(m).filter(|k| *k != Kind::Fixer)?;
     Some((m.progress.min(kind.max_progress()), kind.max_progress()))
 }
-/// Entries the window shows past the machine's slots: the tank.
+/// Entries the window shows past the machine's slots: the tank; the
+/// Extended Inscriber's shown thread.
 pub(in crate::game) fn menu_items(m: &Machine, items: &mut [Option<ItemStack>]) {
+    if Device::of(m) == Some(Device::Inscriber) {
+        devices::inscriber_menu_items(m, items);
+        return;
+    }
     if Kind::of(m) != Some(Kind::Assembler) {
         return;
     }

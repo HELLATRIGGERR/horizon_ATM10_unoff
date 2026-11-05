@@ -738,6 +738,9 @@ impl Game<'_> {
     /// `canExtract` is false), the AUTO_EXPORT toggle, and an output side
     /// (`CEAEGenericPacket("set_side")`). True when it was one of those.
     pub(in crate::game) fn extendedae_machine_click(&mut self, pos: (i32, i32, i32), entry: usize, button: i32, input: horizon_client::menu::Input) -> bool {
+        if self.extendedae_inscriber_click(pos, entry, button, input) {
+            return true;
+        }
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get(&pos) else { return false };
         let Some(kind) = Kind::of(m).filter(|k| *k != Kind::Fixer) else { return false };
         let own = (entry == super::TANK_ENTRY && kind == Kind::Assembler) || entry == super::AUTO_EXPORT_ENTRY || super::side_entry(entry).is_some();

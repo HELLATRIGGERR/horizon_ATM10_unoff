@@ -2,15 +2,17 @@
 //! `ae2-extendedae`). Derived from ExtendedAE (`TileExPatternProvider`,
 //! `PartExPatternProvider`, `TileExInterface`, `PartExInterface`,
 //! `TileExDrive`, `TileExIOPort`, `TileCrystalAssembler`, `TileCircuitCutter`,
-//! `TileCrystalFixer`, `EAERegistryHandler.registerUpgrades`, `EAEConfig`),
+//! `TileCrystalFixer`, `TileExInscriber`, `TileExCharger`,
+//! `TileExMolecularAssembler`, `EAERegistryHandler.registerUpgrades`, `EAEConfig`),
 //! https://github.com/GlodBlock/ExtendedAE commit
 //! `1f86f927552f02451236465c0c96a12a3de8f66c` (2.2.42), LGPL-3.0; see
 //! `ae2/addons/extendedae/`.
 //!
 //! Its bigger devices are AE2's with other sizes, so each is a
 //! [`MachineVariant`] on AE2's kind. Its own machines (Crystal Assembler,
-//! Circuit Cutter, Crystal Fixer) are [`ExtMachine`]s. The game's side is in
-//! `game/ae2x/extendedae/`.
+//! Circuit Cutter, Crystal Fixer, and the Extended Inscriber and Charger, whose
+//! threads are AE2's machines side by side) are [`ExtMachine`]s. The game's
+//! side is in `game/ae2x/extendedae/`.
 use super::defs::Defs;
 use crate::ae2_world::{ExtMachine, MachineKind, MachineVariant};
 use std::sync::OnceLock;
@@ -25,6 +27,14 @@ pub const CRYSTAL_FIXER: &str = "extendedae:crystal_fixer";
 pub const EX_IO_PORT: &str = "extendedae:ex_io_port";
 pub const EX_IMPORT_BUS: &str = "extendedae:ex_import_bus_part";
 pub const EX_EXPORT_BUS: &str = "extendedae:ex_export_bus_part";
+/// `TileExInscriber`: four `InscriberThread`s of AE2's four slots each.
+pub const EX_INSCRIBER: &str = "extendedae:ex_inscriber";
+/// `TileExCharger`: four charging slots.
+pub const EX_CHARGER: &str = "extendedae:ex_charger";
+/// `TileExMolecularAssembler`: eight `CraftingThread`s.
+pub const EX_ASSEMBLER: &str = "extendedae:ex_molecular_assembler";
+/// `TileExInscriber.MAX_THREAD` and `TileExCharger.MAX_THREAD`.
+pub const THREADS: usize = 4;
 
 /// `extendedae-common.toml` (`EAEConfig`): what this port reads of it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -138,6 +148,19 @@ pub const MACHINES: &[MachineVariant] = &[
         part: true,
     },
     // IOPortBlockEntity's six cells in, six out; UpgradeInventories.forMachine(EX_IO_PORT, 5).
+    // TileExMolecularAssembler: the port's crafting CPU sends a job to an
+    // assembler by its place, one at a time, so this is one thread of AE2's
+    // eleven slots (the grid, the output, a pattern slot it never shows), with
+    // five cards and the mod's speeds (`CraftingThread.tick`).
+    MachineVariant {
+        id: EX_ASSEMBLER,
+        base: "ae2:molecular_assembler",
+        block: EX_ASSEMBLER,
+        kind: MachineKind::MolecularAssembler,
+        slots: 11,
+        upgrades: 5,
+        part: false,
+    },
     MachineVariant {
         id: EX_IO_PORT,
         base: "ae2:io_port",
@@ -169,10 +192,25 @@ pub const WORKING: &str = "eae_working";
 /// Assembler's and Circuit Cutter's progress and `isWorking`. The Crystal
 /// Fixer saves its progress.
 pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
-    if matches!(m.kind.ext().map(|row| row.id), Some(CRYSTAL_ASSEMBLER | CIRCUIT_CUTTER)) {
-        m.progress = 0.0;
-        m.config.remove(&WORKING.into());
+    match m.kind.ext().map(|row| row.id) {
+        Some(CRYSTAL_ASSEMBLER | CIRCUIT_CUTTER) => {
+            m.progress = 0.0;
+            m.config.remove(&WORKING.into());
+        }
+        // InscriberThread keeps neither its processingTime nor its smash.
+        Some(EX_INSCRIBER) => {
+            for thread in 0..THREADS {
+                m.config.remove(&thread_key(thread).as_str().into());
+            }
+        }
+        _ => {}
     }
+}
+
+/// Where the Extended Inscriber keeps thread `n`'s progress and smash, none
+/// of which it saves.
+pub fn thread_key(n: usize) -> String {
+    format!("eae_thread{n}")
 }
 
 /// The mod's own machines: physical slots, cards, and the AE buffer
@@ -181,6 +219,10 @@ pub const OWN_MACHINES: &[ExtMachine] = &[
     ExtMachine { id: CRYSTAL_ASSEMBLER, physical_slots: 10, upgrade_slots: 4, key_drops: None, power_capacity: Some(8000.0), part: false },
     ExtMachine { id: CIRCUIT_CUTTER, physical_slots: 2, upgrade_slots: 4, key_drops: None, power_capacity: Some(8000.0), part: false },
     ExtMachine { id: CRYSTAL_FIXER, physical_slots: 1, upgrade_slots: 0, key_drops: None, power_capacity: Some(8000.0), part: false },
+    // Each thread's top, bottom, middle and output; four speed cards; 1,600 AE.
+    ExtMachine { id: EX_INSCRIBER, physical_slots: 16, upgrade_slots: 4, key_drops: None, power_capacity: Some(1600.0), part: false },
+    // POWER_MAXIMUM_AMOUNT 3,200.
+    ExtMachine { id: EX_CHARGER, physical_slots: THREADS, upgrade_slots: 0, key_drops: None, power_capacity: Some(3200.0), part: false },
 ];
 
 pub fn register(defs: &mut Defs) {
@@ -205,6 +247,8 @@ pub fn register(defs: &mut Defs) {
     defs.add_upgrade("ae2:redstone_card", EX_IO_PORT, 1);
     defs.add_upgrade("ae2:speed_card", CRYSTAL_ASSEMBLER, 4);
     defs.add_upgrade("ae2:speed_card", CIRCUIT_CUTTER, 4);
+    defs.add_upgrade("ae2:speed_card", EX_ASSEMBLER, 5);
+    defs.add_upgrade("ae2:speed_card", EX_INSCRIBER, 4);
 }
 
 #[cfg(test)]
@@ -268,6 +312,16 @@ mod tests {
             assert!(is_machine_block(id));
         }
         assert_eq!(defs.upgrade_limit("ae2:speed_card", super::CRYSTAL_ASSEMBLER), 4);
+        for (id, slots, upgrades, power) in [(super::EX_INSCRIBER, 16, 4, 1600.0), (super::EX_CHARGER, 4, 0, 3200.0)] {
+            let machine = Machine::for_block(id).unwrap();
+            assert_eq!((machine.slots.len(), machine.upgrades.len(), machine.private_power_capacity()), (slots, upgrades, Some(power)), "{id}");
+        }
+        assert_eq!(defs.upgrade_limit("ae2:speed_card", super::EX_INSCRIBER), 4);
+        // The Extended Molecular Assembler is AE2's with five cards.
+        let assembler = Machine::for_block(super::EX_ASSEMBLER).unwrap();
+        assert_eq!((assembler.kind, assembler.slots.len(), assembler.upgrades.len(), assembler.id()), (MachineKind::MolecularAssembler, 11, 5, super::EX_ASSEMBLER));
+        assert_eq!(base_id(super::EX_ASSEMBLER), "ae2:molecular_assembler");
+        assert_eq!(defs.upgrade_limit("ae2:speed_card", super::EX_ASSEMBLER), 5);
         assert_eq!(defs.upgrade_limit("ae2:speed_card", super::EX_IO_PORT), 5);
         assert_eq!(defs.upgrade_limit("ae2:capacity_card", super::EX_IO_PORT), 0);
         assert_eq!(defs.upgrade_limit("ae2:inverter_card", super::EX_IMPORT_BUS), 1);

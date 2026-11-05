@@ -744,6 +744,7 @@ impl Game<'_> {
         limit: u32,
         simulate: bool,
     ) -> u32 {
+        if let Some(accepted)=self.ae2x_item_insert(address,face,stack,limit,simulate) {return accepted;}
         if let Some(accepted)=self.ae2_assembler_insert(address,stack,limit,simulate) {return accepted;}
         if let Some(accepted)=self.ae2_inscriber_insert(address,face,stack,limit,simulate) {return accepted;}
         if let Some(accepted)=self.ae2_processor_item_insert(address,stack,limit,simulate) {return accepted;}
@@ -875,6 +876,7 @@ impl Game<'_> {
         address: GridAddress,
         face: Direction,
     ) -> Vec<ItemStack> {
+        if let Some(items)=self.ae2x_item_candidates(address,face) {return items;}
         if let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(address) {
             if machine.kind==MachineKind::MolecularAssembler {return machine.slots.get(9).and_then(Option::as_ref).filter(|s|s.count>0).cloned().into_iter().collect();}
             if machine.kind==MachineKind::Inscriber {
@@ -913,6 +915,7 @@ impl Game<'_> {
         filter: Option<&ItemStack>,
         simulate: bool,
     ) -> Option<ItemStack> {
+        if let Some(extracted)=self.ae2x_item_extract(address,face,limit,filter,simulate) {return extracted;}
         if let Some(extracted)=self.ae2_assembler_extract(address,limit,filter,simulate) {return extracted;}
         if let Some(extracted)=self.ae2_inscriber_extract(address,face,limit,filter,simulate) {return extracted;}
         if let Some(extracted)=self.ae2_processor_item_extract(address,limit,filter,simulate) {return extracted;}

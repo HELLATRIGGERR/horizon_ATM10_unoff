@@ -6288,7 +6288,7 @@ impl Game<'_> {
             }
             // AE2's booster, and an addon's card (AEInfinityBooster's AccessPointCardFilter).
             K::WirelessAccessPoint => slot == 0 && horizon_client::ae2x::defs::get().access_point_accepts(&item.item),
-            K::Ext(_) => super::ae2x::machine_may_place(m, slot).unwrap_or(false),
+            K::Ext(_) => self.ae2x_machine_may_place(m, slot, item).unwrap_or(false),
             K::PatternProvider => super::ae2_pattern_access::provider_pattern_valid(m, item),
             K::Interface => true,
             K::MolecularAssembler => match slot {
@@ -7588,7 +7588,7 @@ impl Game<'_> {
             _=>{}
         }
     }
-    fn ae2_machine_click_physical(
+    pub(super) fn ae2_machine_click_physical(
         &mut self,
         pos: (i32, i32, i32),
         slot: Option<usize>,
@@ -8207,6 +8207,7 @@ fn machine_slot_limit(m:&horizon_client::ae2_world::Machine,slot:usize,item_max:
             Some(Tag::String(value)) if value.to_string().ok().as_deref()==Some("FOUR")=>4,
             _=>64,
         },
+        K::Ext(_)=>super::ae2x::machine_slot_capacity(m,slot).unwrap_or(64),
         _=>64,
     }};
     item_max.min(capacity)

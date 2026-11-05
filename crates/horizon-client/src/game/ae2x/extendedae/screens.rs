@@ -1,11 +1,12 @@
 //! ExtendedAE's machine screens on the AE2 layout system (`GuiExPatternProvider`,
 //! `GuiExInterface`, `GuiExDrive`, `GuiExIOPort`, `GuiCrystalAssembler`,
-//! `GuiCircuitCutter` with their containers, and their `screens/*.json`).
+//! `GuiCircuitCutter`, `GuiExInscriber`, `GuiExMolecularAssembler` with their
+//! containers, and their `screens/*.json`).
 //! Derived from ExtendedAE 1.21-2.2.42, https://github.com/GlodBlock/ExtendedAE
 //! commit 1f86f927552f02451236465c0c96a12a3de8f66c, LGPL-3.0; see
 //! `ae2/addons/extendedae/`.
 //! The window entries are `ae2_machine_ui::MenuShape`'s.
-use super::{Layout, MachineKind, Progress, Stored, Toggle, icon};
+use super::{Layout, MachineKind, PageLine, Progress, Stored, Toggle, icon};
 
 /// The kind of a layout of the mod's own machines, which go by their id.
 const OWN: MachineKind = MachineKind::Ext(u16::MAX);
@@ -170,7 +171,7 @@ const LAYOUTS: &[(&str, Layout)] = &[
         // amtButton1..18: above the config rows.
         cogs: &[(18..27, (8, 35)), (27..36, (8, 95))],
         lock_line: None,
-        page_line: Some(2),
+        page_line: Some(PageLine { data: 2, key: "gui.extendedae.ex_interface.config", fallback: "Config Page %s", at: (8.0, 24.0) }),
         panels: &[],
     }),
     // The drive's ten cells on the left, ten more on the right (EX_1).
@@ -294,6 +295,113 @@ const LAYOUTS: &[(&str, Layout)] = &[
         cogs: &[],
         lock_line: None,
         page_line: None,
+        panels: &[],
+    }),
+    // ContainerExInscriber: the thread shown (its page) in AE2's Inscriber's
+    // places, four cards; GuiExInscriber's toolbar: separate sides, auto
+    // export, the stack size, next and previous page (each hidden on the last
+    // and first page in the mod; here they stop there); "Inscription Job %s".
+    ("extendedae:ex_inscriber", Layout {
+        kind: OWN,
+        style: "ex_inscriber.json",
+        slots: &[(0, "INSCRIBER_PLATE_TOP"), (1, "INSCRIBER_PLATE_BOTTOM"), (2, "MACHINE_INPUT"), (3, "MACHINE_OUTPUT")],
+        icons: &[(0, icon::BACKGROUND_PLATE), (1, icon::BACKGROUND_PLATE), (2, icon::BACKGROUND_INGOT)],
+        upgrades: 4..8,
+        toggles: &[
+            Toggle {
+                entry: 25,
+                key: "inscriber_separate_sides",
+                stored: Stored::Text,
+                default: 0,
+                data: 4,
+                title: "gui.tooltips.ae2.InscriberSideness",
+                values: &[
+                    (NO_YES[0], icon::INSCRIBER_COMBINED_SIDES, "gui.tooltips.ae2.InscriberSidenessCombined"),
+                    (NO_YES[1], icon::INSCRIBER_SEPARATE_SIDES, "gui.tooltips.ae2.InscriberSidenessSeparate"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            Toggle { data: 5, ..AUTO_EXPORT },
+            // CycleEPPButton: 64, 1, 4.
+            Toggle {
+                entry: 26,
+                key: "inscriber_input_capacity",
+                stored: Stored::Text,
+                default: 0,
+                data: 6,
+                title: "",
+                values: &[
+                    ("SIXTY_FOUR", icon::INSCRIBER_BUFFER_64, "gui.extendedae.ex_inscriber.stackable"),
+                    ("ONE", icon::INSCRIBER_BUFFER_1, "gui.extendedae.ex_inscriber.unstackable"),
+                    ("FOUR", icon::INSCRIBER_BUFFER_4, "gui.extendedae.ex_inscriber.fourstackable"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 22,
+                key: "ae2x_page",
+                stored: Stored::Index,
+                default: 0,
+                data: 7,
+                title: "",
+                values: &[
+                    ("0", icon::ARROW_RIGHT, "gui.extendedae.ex_inscriber.next"),
+                    ("1", icon::ARROW_RIGHT, "gui.extendedae.ex_inscriber.next"),
+                    ("2", icon::ARROW_RIGHT, "gui.extendedae.ex_inscriber.next"),
+                    ("3", icon::ARROW_RIGHT, "gui.extendedae.ex_inscriber.next"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+            Toggle {
+                entry: 23,
+                key: "ae2x_page",
+                stored: Stored::Index,
+                default: 0,
+                data: 7,
+                title: "",
+                values: &[
+                    ("0", icon::ARROW_LEFT, "gui.extendedae.ex_inscriber.pre"),
+                    ("1", icon::ARROW_LEFT, "gui.extendedae.ex_inscriber.pre"),
+                    ("2", icon::ARROW_LEFT, "gui.extendedae.ex_inscriber.pre"),
+                    ("3", icon::ARROW_LEFT, "gui.extendedae.ex_inscriber.pre"),
+                ],
+                place: None,
+                shown_by: None,
+            },
+        ],
+        progress: Some(Progress { name: "progressBar", current: 0, max: 2 }),
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: Some(PageLine { data: 7, key: "gui.extendedae.ex_inscriber.number", fallback: "Inscription Job %s", at: (8.0, 16.0) }),
+        panels: &[],
+    }),
+    // ContainerExMolecularAssembler: the crafting grid of the job (EX_1, as a
+    // grid of three) and its output, five cards, the progress bar. The port's
+    // assembler runs one job (see `devices.rs`), so it has the first page only;
+    // no pattern slot (the thread has none).
+    ("extendedae:ex_molecular_assembler", Layout {
+        kind: MachineKind::MolecularAssembler,
+        style: "ex_molecular_assembler.json",
+        slots: &[
+            (0, "EX_1"), (1, "EX_1"), (2, "EX_1"), (3, "EX_1"), (4, "EX_1"), (5, "EX_1"), (6, "EX_1"), (7, "EX_1"), (8, "EX_1"),
+            (9, "MACHINE_OUTPUT"),
+        ],
+        icons: &[],
+        upgrades: 11..16,
+        toggles: &[],
+        progress: Some(Progress { name: "progressBar", current: 0, max: 2 }),
+        priority: None,
+        decorations: &[],
+        grid: Some((0..9, 4)),
+        cogs: &[],
+        lock_line: None,
+        page_line: Some(PageLine { data: 5, key: "gui.extendedae.ex_molecular_assembler.number", fallback: "Crafting Job %s", at: (8.0, 16.0) }),
         panels: &[],
     }),
     // ContainerCircuitCutter: one input, the output, four cards; as the assembler's.

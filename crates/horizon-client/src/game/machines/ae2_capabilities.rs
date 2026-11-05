@@ -1004,7 +1004,7 @@ impl Game<'_> {
                 let recipe=super::super::ae2_processing::live_charger_recipe(stack,self.res.items(),self.res.recipes()).is_some();
                 let chargeable=super::super::ae2_processing::charger_chargeable(stack);
                 if insertion {return Some(chargeable||recipe)}
-                let energy=if super::super::ae2_wireless::is_wireless(stack) {
+                let energy=if horizon_client::ae2x::wireless::host(stack) {
                     super::super::ae2_wireless::energy(stack)
                 } else if horizon_client::ae2_powered_items::profile(stack).is_some() {
                     horizon_client::ae2_powered_items::energy(stack)

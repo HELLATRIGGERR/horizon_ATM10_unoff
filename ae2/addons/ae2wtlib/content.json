@@ -1,0 +1,15 @@
+{
+  "namespace": "ae2wtlib",
+  "name": "AE2WTLib",
+  "description": "AE2WTLib 19.5.1 for the AE2 port: the Wireless Universal Terminal and the Wireless Pattern Encoding and Pattern Access Terminals (slice 1).",
+  "authors": ["Mari023 (AE2WTLib)"],
+  "slices": [
+    "1: the wireless terminal registry, the Wireless Universal Terminal over the wireless crafting terminal, the Wireless Pattern Encoding and Pattern Access Terminals"
+  ],
+  "items": {
+    "wireless_pattern_encoding_terminal": {"max_stack_size": 1},
+    "wireless_pattern_access_terminal": {"max_stack_size": 1},
+    "wireless_universal_terminal": {"max_stack_size": 1}
+  },
+  "blocks": {}
+}

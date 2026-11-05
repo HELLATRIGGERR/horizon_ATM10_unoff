@@ -1,32 +1,30 @@
 //! Wireless terminal item power, linking and access-point selection.
 //! Derived from AE2 19.2.18 WirelessTerminalMenuHost, ItemMenuHost and
-//! WirelessTerminalItem (LGPL-3.0-or-later).
+//! WirelessTerminalItem (LGPL-3.0-or-later). Which items are wireless
+//! terminals and what each opens is the definitions registry's
+//! (`horizon_client::ae2x::wireless`, AE2WTLib's `WTDefinition`).
 use super::{Game, lan::LanHost};
-use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
+use horizon_client::{ae2_world::MachineKind, ae2x::{defs::TerminalKind, wireless}, containers::BlockEntity, items::ItemStack};
 use horizon_world::nbt::Tag;
+pub(super) use horizon_client::ae2x::wireless::{charge_rate, energy, transfer_energy};
 type Pos = (i32, i32, i32);
 #[derive(Clone, Debug)]
 pub(super) struct WirelessContext {
     pub source: usize,
     pub target_dim: String,
     pub target: Pos,
-    pub item: String,
+    /// The menu the item opened (`WTDefinition.menuType`): the item at the
+    /// source must still open it.
+    pub kind: TerminalKind,
     pub idle: u8,
     // The menu belongs to the actual item, not merely a slot containing an
     // equal replacement. This identity survives changes to its battery.
     pub source_owner: horizon_client::ae2_stack_identity::StackRef,
 }
-pub(super) fn is_wireless(stack: &ItemStack) -> bool {
-    stack.count == 1
-        && matches!(
-            stack.item.as_ref(),
-            "ae2:wireless_terminal" | "ae2:wireless_crafting_terminal"
-        )
-}
 /// KeyTypeSelection.forStack: absence enables every native type; an explicit
 /// empty selection stays empty until the player selects a type.
 pub(super) fn enabled_key_types(stack: &ItemStack) -> Result<(bool, bool), String> {
-    if !is_wireless(stack) { return Err("not a wireless terminal".into()); }
+    if !wireless::host(stack) { return Err("not a wireless terminal".into()); }
     let Some(value) = stack.data().and_then(|data|data.other("ae2:enabled_key_types")) else {return Ok((true,true));};
     let Tag::List(entries)=value else {return Err("invalid enabled key types".into());};
     let mut enabled=(false,false);
@@ -41,7 +39,7 @@ pub(super) fn enabled_key_types(stack: &ItemStack) -> Result<(bool, bool), Strin
     Ok(enabled)
 }
 pub(super) fn store_enabled_key_types(stack: &mut ItemStack, enabled:(bool,bool)) -> Result<(),String> {
-    if !is_wireless(stack) { return Err("not a wireless terminal".into()); }
+    if !wireless::host(stack) { return Err("not a wireless terminal".into()); }
     let mut values=Vec::new();
     if enabled.0 {values.push(Tag::String("ae2:i".into()));}
     if enabled.1 {values.push(Tag::String("ae2:f".into()));}
@@ -71,7 +69,7 @@ fn custom(stack: &ItemStack) -> Result<horizon_world::nbt::Compound, String> {
 /// native saves also carry the legacy custom-data envelope.
 const CRAFTING_GRID: &str = "ae2_wireless_crafting_grid";
 pub(super) fn crafting_grid(stack: &ItemStack) -> Result<Vec<Option<ItemStack>>, String> {
-    if stack.item.as_ref() != "ae2:wireless_crafting_terminal" || stack.count != 1 {
+    if wireless::kind(stack) != Some(TerminalKind::Crafting) || stack.count != 1 {
         return Err("wireless crafting terminal moved".into());
     }
     let mut slots = vec![None; 9];
@@ -101,7 +99,7 @@ pub(super) fn crafting_grid(stack: &ItemStack) -> Result<Vec<Option<ItemStack>>,
     Ok(slots)
 }
 pub(super) fn store_crafting_grid(stack: &mut ItemStack, slots: &[Option<ItemStack>]) -> Result<(), String> {
-    if stack.item.as_ref() != "ae2:wireless_crafting_terminal" || stack.count != 1 || slots.len() != 9
+    if wireless::kind(stack) != Some(TerminalKind::Crafting) || stack.count != 1 || slots.len() != 9
         || slots.iter().flatten().any(|s| s.count == 0 || s.count > 99)
     {
         return Err("invalid wireless crafting owner or grid".into());
@@ -117,7 +115,7 @@ pub(super) fn store_crafting_grid(stack: &mut ItemStack, slots: &[Option<ItemSta
     Ok(())
 }
 pub(super) fn link(stack: &mut ItemStack, dim: &str, pos: Pos) -> Result<(), String> {
-    if !is_wireless(stack) {
+    if !wireless::host(stack) {
         return Err("not a wireless terminal".into());
     }
     let mut data = custom(stack)?;
@@ -145,48 +143,6 @@ pub(super) fn target(stack: &ItemStack) -> Option<(String, Pos)> {
         return None;
     };
     Some((dim.to_string().ok()?, (*x, *y, *z)))
-}
-/// `Upgrades.getEnergyCardMultiplier` of the terminal's cards: AE2's energy
-/// card counts 1, an addon's its own multiplier (MEGA's Greater Energy Card 8).
-fn cards(stack: &ItemStack) -> Result<u32, String> {
-    if !is_wireless(stack) {
-        return Err("not a wireless terminal".into());
-    }
-    let upgrades=horizon_client::ae2_upgrade_inventory::Inventory::read(stack)?;
-    Ok(upgrades.energy_card_multiplier())
-}
-pub(super) fn energy(stack: &ItemStack) -> Result<(f64, f64), String> {
-    let base = horizon_client::ae2_common_config::wireless().terminal_capacity;
-    let legacy_max = base * (1.0 + f64::from(cards(stack)?));
-    let default = if stack.data().and_then(|data|data.other("ae2:upgrades")).is_some() {base} else {legacy_max};
-    let max = horizon_client::ae2_powered_items::component_power_value(stack,"ae2:energy_capacity","ae2:energy_capacity",default)?;
-    let power = horizon_client::ae2_powered_items::component_power_value(stack,"ae2:stored_energy","ae2_wireless_energy",0.0)?;
-    Ok((power, max))
-}
-/// `WirelessTerminalItem.getChargeRate`: 800 + 800 × `Upgrades.getEnergyCardMultiplier`.
-pub(super) fn charge_rate(stack: &ItemStack) -> Result<f64, String> {
-    Ok(800.0 * (1.0 + f64::from(cards(stack)?)))
-}
-pub(super) fn transfer_energy(
-    stack: &mut ItemStack,
-    amount: f64,
-    insert: bool,
-    simulate: bool,
-) -> Result<f64, String> {
-    if !amount.is_finite() || amount < 0.0 {
-        return Err("invalid wireless power amount".into());
-    }
-    let (current, max) = energy(stack)?;
-    let moved = amount.min(if insert {
-        (max - current).max(0.0)
-    } else {
-        current
-    });
-    if !simulate && (moved > 0.0 || (insert && current > max)) {
-        let next = (current + if insert {amount.min(max-current)} else {-moved}).max(0.0);
-        horizon_client::ae2_powered_items::set_component_power_value(stack,"ae2:stored_energy","ae2_wireless_energy",(next>=0.0001).then_some(next))?;
-    }
-    Ok(moved)
 }
 /// ItemMenuHost charges CONFIG-scaled energy but converts back to nominal
 /// energy when it computes the number of buffered menu ticks.
@@ -284,11 +240,12 @@ impl Game<'_> {
             g.inventory.get(ctx.source).and_then(Option::as_ref)
         };
         stack.is_some_and(|stack| {
-            is_wireless(stack)
-                && stack.item.as_ref() == ctx.item
+            wireless::kind(stack) == Some(ctx.kind)
+                && wireless::host(stack)
                 && target(stack) == Some((ctx.target_dim.clone(), ctx.target))
                 && ctx.source_owner.tracks(stack)
-                && (ctx.item != "ae2:wireless_crafting_terminal" || crafting_grid(stack).is_ok())
+                && (ctx.kind != TerminalKind::Crafting || crafting_grid(stack).is_ok())
+                && (ctx.kind != TerminalKind::PatternEncoding || super::ae2x::item_encoding_machine(stack).is_some_and(|m| m.is_ok()))
         })
     }
     pub(super) fn ae2_wireless_validate(
@@ -400,8 +357,15 @@ impl Game<'_> {
         } else {
             g.inventory.get(source).and_then(Option::as_ref)
         };
-        let Some(stack) = stack.filter(|s| is_wireless(s)) else {
+        let Some(stack) = stack.filter(|s| wireless::host(s)) else {
             return false;
+        };
+        // ItemWUT.use: a universal terminal that holds no terminal says so.
+        let Some(terminal) = wireless::terminal(stack) else {
+            self.as_guest(host, conn, |g| {
+                g.system_message(horizon_client::text::Text::translate("gui.ae2wtlib.terminal_empty", &[]))
+            });
+            return true;
         };
         let Some((target_dim, target)) = target(stack) else {
             self.as_guest(host, conn, |g| {
@@ -411,7 +375,6 @@ impl Game<'_> {
             });
             return true;
         };
-        let item = stack.item.to_string();
         let Some(guest) = host.hub.guests.iter_mut().find(|g| g.conn == conn) else { return false; };
         let stack = if source == super::shield::OFFHAND_SLOT {
             guest.offhand.as_mut()
@@ -419,12 +382,16 @@ impl Game<'_> {
             guest.inventory.get_mut(source).and_then(Option::as_mut)
         };
         let Some(stack) = stack else { return false; };
+        // WTDefinition.ofOrNull keeps the terminal it found as the current one.
+        if wireless::is_universal(stack) {
+            wireless::set_current(stack, terminal);
+        }
         let source_owner = horizon_client::ae2_stack_identity::StackRef::capture(stack);
         let ctx = WirelessContext {
             source,
             target_dim,
             target,
-            item,
+            kind: terminal.kind,
             idle: 0,
             source_owner,
         };
@@ -439,7 +406,40 @@ impl Game<'_> {
         let Some((anchor, _)) = self.ae2_wireless_nearest(host, conn, &ctx) else {
             return true;
         };
+        if ctx.kind == TerminalKind::PatternAccess {
+            return self.lan_open_wireless_pattern_access(host, conn, anchor, ctx);
+        }
         self.lan_open_ae2_wireless_terminal(host, conn, anchor, ctx)
+    }
+}
+/// The wireless item at a menu's source slot: the main inventory, or the
+/// off hand.
+pub(super) fn source_stack(g: &horizon_client::lan::guest::Guest, source: usize) -> Option<&ItemStack> {
+    if source == super::shield::OFFHAND_SLOT { g.offhand.as_ref() } else { g.inventory.get(source).and_then(Option::as_ref) }
+}
+pub(super) fn source_stack_mut(g: &mut horizon_client::lan::guest::Guest, source: usize) -> Option<&mut ItemStack> {
+    if source == super::shield::OFFHAND_SLOT { g.offhand.as_mut() } else { g.inventory.get_mut(source).and_then(Option::as_mut) }
+}
+/// `TerminalSelectionButton`: the terminals a universal terminal holds, in
+/// registration order, and the one it opens; none for any other item.
+pub(super) fn universal_view(stack: &ItemStack) -> Option<serde_json::Value> {
+    if !wireless::is_universal(stack) {
+        return None;
+    }
+    let current = wireless::terminal(stack)?;
+    let terminals: Vec<_> = wireless::installed(stack).iter().map(|t| serde_json::json!({"name": t.name, "item": t.item})).collect();
+    Some(serde_json::json!({"current": current.name, "terminals": terminals}))
+}
+impl Game<'_> {
+    pub(super) fn lan_wireless_universal_view(&self, host: &LanHost, conn: u32, ctx: &WirelessContext) -> Option<serde_json::Value> {
+        let g = host.hub.guests.iter().find(|g| g.conn == conn)?;
+        universal_view(source_stack(g, ctx.source)?)
+    }
+    /// The open wireless menu's item slot (an `AEBaseMenu` on an
+    /// `ItemMenuHostLocator`): a terminal's or a Pattern Access one's.
+    pub(super) fn lan_wireless_menu_source(&self, host: &LanHost, conn: u32) -> Option<usize> {
+        host.play.get(&conn).and_then(|p| p.ae2_terminal.as_ref()).and_then(|t| t.wireless_source())
+            .or_else(|| self.lan_wireless_pattern_access_source(host, conn))
     }
 }
 #[cfg(test)]

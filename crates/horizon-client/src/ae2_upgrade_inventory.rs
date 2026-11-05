@@ -7,6 +7,16 @@ use horizon_world::nbt::{Compound, Tag};
 pub fn capacity(id: &str) -> Option<usize> {
     crate::ae2x::defs::get().upgrade_slots(id)
 }
+/// The size of this stack's upgrade inventory: its item's, but a universal
+/// terminal's grows with the terminals it holds (`ItemWUT.getUpgrades`).
+pub fn capacity_of(stack: &ItemStack) -> Option<usize> {
+    crate::ae2x::wireless::upgrade_slots(stack).or_else(|| capacity(&stack.item))
+}
+/// A wireless terminal of the registry's, whose cards and battery the
+/// port's older saves kept in custom data.
+fn wireless(stack: &ItemStack) -> bool {
+    crate::ae2x::defs::get().is_wireless_terminal(&stack.item)
+}
 /// How many of `card` the item `owner` takes (`Upgrades.add` rows).
 fn limit(owner: &str, card: &str) -> usize {
     crate::ae2x::defs::get().upgrade_limit(card, owner)
@@ -73,11 +83,12 @@ pub fn encode_source(slots: &[Option<ItemStack>]) -> Result<Vec<Tag>, String> {
 #[derive(Clone, Debug)]
 pub struct Inventory {
     owner: String,
+    capacity: usize,
     pub slots: Vec<Option<ItemStack>>,
 }
 impl Inventory {
     pub fn read(stack: &ItemStack) -> Result<Self, String> {
-        let max = capacity(&stack.item).ok_or("item has no upgrade inventory")?;
+        let max = capacity_of(stack).ok_or("item has no upgrade inventory")?;
         if stack.count != 1 {
             return Err("item upgrade owner must be singular".into());
         }
@@ -89,7 +100,7 @@ impl Inventory {
         let slots = if let Some(source) = stack.data().and_then(|data|data.other("ae2:upgrades")) {
             let Tag::List(cards) = source else { return Err("invalid source upgrades component".into()); };
             decode_source(cards,max)?
-        } else if stack.item.starts_with("ae2:wireless_") {
+        } else if wireless(stack) {
             match custom.get(&"ae2_wireless_upgrades".into()) {
                 None => vec![None; max],
                 Some(Tag::List(cards)) => decode(cards, max)?,
@@ -104,13 +115,14 @@ impl Inventory {
         };
         let inventory = Self {
             owner: stack.item.to_string(),
+            capacity: max,
             slots,
         };
         inventory.validate()?;
         Ok(inventory)
     }
     fn validate(&self) -> Result<(), String> {
-        if capacity(&self.owner) != Some(self.slots.len()) {
+        if self.capacity != self.slots.len() {
             return Err("wrong upgrade inventory capacity".into());
         }
         let mut counts = std::collections::BTreeMap::new();
@@ -167,7 +179,7 @@ impl Inventory {
             _ => return Err("invalid upgrade owner data".into()),
         };
         let cards = Tag::List(encode(&self.slots)?);
-        if stack.item.starts_with("ae2:wireless_") {
+        if wireless(stack) {
             custom.insert("ae2_wireless_upgrades".into(), cards);
         } else {
             let mut settings = crate::ae2_cell_codec::cell_settings(stack)?;
@@ -178,7 +190,8 @@ impl Inventory {
         // excess charge; removing and reinstalling a card cannot restore it.
         // setAEMaxPowerMultiplier(stack, 1 + getEnergyCardMultiplier × 8) on
         // portable cells, the colour applicator and the matter cannon;
-        // 1 + getEnergyCardMultiplier on wireless terminals. A portable cell
+        // 1 + getEnergyCardMultiplier on wireless terminals (the terminals held
+        // + getEnergyCardMultiplier on a universal one). A portable cell
         // is the registry's (`AbstractPortableCell.onUpgradesChanged`, which
         // MEGA's inherit: its clamp is to this capacity, before the ×8 of
         // `MEGAPortableCell.getAEMaxPower`).
@@ -191,10 +204,11 @@ impl Inventory {
                 crate::ae2_common_config::batteries().portable_cell * (1.0 + 8.0 * multiplier),
                 "ae2_portable_energy",
             ))
-        } else if stack.item.starts_with("ae2:wireless_") {
+        } else if wireless(stack) {
             Some((
                 crate::ae2_common_config::wireless().terminal_capacity,
-                crate::ae2_common_config::wireless().terminal_capacity * (1.0 + multiplier),
+                crate::ae2_common_config::wireless().terminal_capacity
+                    * crate::ae2x::wireless::energy_multiplier(stack, self.energy_card_multiplier()),
                 "ae2_wireless_energy",
             ))
         } else {

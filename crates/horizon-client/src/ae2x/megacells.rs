@@ -319,6 +319,14 @@ pub fn portable_cell(tier: Tier, channel: Channel) -> CellDef {
     }
 }
 
+/// `AE2WTIntegration.initUpgrades`, with AE2WTLib: the Greater Energy Card on
+/// each terminal a universal terminal can hold and on the universal terminal
+/// (`UpgradeHelper.addUpgradeToAllTerminals(GREATER_ENERGY_CARD, 0)`).
+#[cfg(feature = "ae2-ae2wtlib")]
+pub fn register_ae2wt(defs: &mut Defs) {
+    defs.add_upgrade_to_all_terminals(GREATER_ENERGY_CARD, 0);
+}
+
 pub fn register(defs: &mut Defs) {
     for unit in CRAFTING_UNITS {
         defs.add_crafting_unit(unit);

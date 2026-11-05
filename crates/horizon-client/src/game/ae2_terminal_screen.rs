@@ -70,6 +70,14 @@ struct Panel {
     craftable: Vec<usize>,
 }
 
+/// What a universal terminal holds, in registration order, and the name
+/// of the one it opens (AE2WTLib's `TerminalSelectionButton`).
+#[derive(Clone, Debug, Default)]
+struct Universal {
+    current: String,
+    terminals: Vec<(String, ItemStack)>,
+}
+
 /// The server's `ae2:repo_view`.
 #[derive(Clone, Debug, Default)]
 pub(super) struct RepoView {
@@ -92,6 +100,8 @@ pub(super) struct RepoView {
     chest: bool,
     jobs: usize,
     panel: Option<Panel>,
+    /// A universal terminal's: what it holds and opens (AE2WTLib).
+    universal: Option<Universal>,
 }
 
 /// The open terminal screen's own state.
@@ -113,6 +123,8 @@ pub(super) struct TermState {
     stone_scroll: usize,
     /// `TerminalSettingsScreen` while it is open: the settings it edits.
     pub(super) sub_settings: Option<ClientSettings>,
+    /// The universal terminal's selector panel is open.
+    selector: bool,
 }
 
 impl TermState {
@@ -148,6 +160,9 @@ enum Widget {
     FluidSubstitutions,
     Tab(u8),
     Recipe(usize),
+    /// AE2WTLib's terminal selector, and a terminal in its open panel.
+    Terminal,
+    SelectTerminal(usize),
 }
 
 /// The screen laid out for the window: its style, its storage rows and
@@ -344,6 +359,12 @@ fn parse_view(data: &[u8]) -> Option<(i64, RepoView)> {
         list.iter().take(TERMINAL_MAX_ROWS * 9).map(|s| s.as_str().and_then(|s| horizon_client::item_data::parse_stack(s).ok().flatten())).collect()
     });
     let types = v.get("types").and_then(|t| t.as_array()).and_then(|t| Some([t.first()?.as_bool()?, t.get(1)?.as_bool()?]));
+    let universal = v.get("universal").filter(|u| u.is_object()).map(|u| Universal {
+        current: u.get("current").and_then(|c| c.as_str()).unwrap_or_default().to_owned(),
+        terminals: u.get("terminals").and_then(|t| t.as_array()).map_or_else(Vec::new, |list| {
+            list.iter().take(16).filter_map(|t| Some((t.get("name")?.as_str()?.to_owned(), ItemStack::new(t.get("item")?.as_str()?, 1)))).collect()
+        }),
+    });
     let panel = v.get("encoding").filter(|p| p.is_object()).map(|p| Panel {
         mode: p.get("mode").and_then(|m| m.as_u64()).unwrap_or(0).min(3) as u8,
         page: p.get("page").and_then(|m| m.as_u64()).unwrap_or(0).min(8) as usize,
@@ -374,6 +395,7 @@ fn parse_view(data: &[u8]) -> Option<(i64, RepoView)> {
             chest: flag("priority"),
             jobs: uint("jobs") as usize,
             panel,
+            universal,
         },
     ))
 }
@@ -667,6 +689,10 @@ impl Game<'_> {
         buttons.push(Widget::SortDir);
         buttons.push(Widget::Settings);
         buttons.push(Widget::Style);
+        // AE2WTLib's IUniversalTerminalCapable screens add the terminal selector last.
+        if self.ae2_term_view().is_some_and(|v| v.universal.is_some()) {
+            buttons.push(Widget::Terminal);
+        }
         buttons.into_iter().enumerate().map(|(i, b)| (b, [x - 2 - 16, y + 2 + i as i32 * 22, 16, 16])).collect()
     }
 
@@ -675,8 +701,31 @@ impl Game<'_> {
     }
 
     /// Every widget of the screen with its box.
+    /// An item's name, for a tooltip.
+    fn ae2_term_item_name(&self, item: &ItemStack) -> String {
+        let (namespace, path) = item.item.split_once(':').unwrap_or(("minecraft", &item.item));
+        self.translate(&format!("item.{namespace}.{path}"), &item.item)
+    }
+
     fn ae2_term_widgets(&self, l: &Layout) -> Vec<(Widget, [i32; 4])> {
         let mut widgets = self.ae2_term_toolbar(l);
+        // TerminalSelectionButton's panel, while open: to the left of the
+        // button, up to three rows of 18 x 20 a column, 2 apart.
+        if let (Some(universal), Some((_, [bx, by, _, _]))) = (
+            self.ae2_term_view().and_then(|v| v.universal.as_ref()).filter(|_| self.ae2_term().is_some_and(|s| s.selector)),
+            widgets.iter().find(|(w, _)| *w == Widget::Terminal).copied(),
+        ) {
+            let n = universal.terminals.len();
+            let rows = n.clamp(1, 3);
+            let columns = n.div_ceil(rows).max(1);
+            let width = (6 + columns * 18 + columns.saturating_sub(1) * 2) as i32;
+            let (px, py) = (bx - 5 - width, by);
+            for i in 0..n {
+                let last = n % rows;
+                let shift = if last != 0 && i / rows == columns - 1 { ((rows - last) * 22 / 2) as i32 } else { 0 };
+                widgets.push((Widget::SelectTerminal(i), [px + 3 + (i / rows) as i32 * 20, py + 3 + (i % rows) as i32 * 22 + shift, 18, 20]));
+            }
+        }
         if l.term.supports_auto_crafting
             && let Some([x, y, w, h]) = l.widget("craftingStatus")
         {
@@ -918,6 +967,10 @@ impl Game<'_> {
             return true;
         }
         let Some((widget, _)) = self.ae2_term_widgets(&l).into_iter().find(|(_, r)| inside(*r, at)) else {
+            // A press anywhere else closes the selector's panel.
+            if let Some(r) = self.remote.as_mut() {
+                r.ae2_term.selector = false;
+            }
             return false;
         };
         let settings = matches!(widget, Widget::SortBy | Widget::ViewMode | Widget::SortDir | Widget::Style);
@@ -972,6 +1025,22 @@ impl Game<'_> {
             }
             Widget::Recipe(index) => self.ae2_send_menu_button(43, 10 + index as i32),
             Widget::ClearPattern => self.ae2_send_payload("ae2:clear_encoding", window.to_be_bytes().to_vec()),
+            // TerminalSelectionButton: opens and closes the panel; a terminal
+            // in it is chosen (SelectTerminalPacket) and opens.
+            Widget::Terminal => {
+                if let Some(r) = self.remote.as_mut() {
+                    r.ae2_term.selector = !r.ae2_term.selector;
+                }
+            }
+            Widget::SelectTerminal(index) => {
+                let name = self.ae2_term_view().and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.get(index)).map(|t| t.0.clone());
+                if let Some(r) = self.remote.as_mut() {
+                    r.ae2_term.selector = false;
+                }
+                if let Some(name) = name {
+                    self.ae2_send_payload("ae2wtlib:select_terminal", name.into_bytes());
+                }
+            }
         }
         true
     }
@@ -1172,6 +1241,25 @@ impl Game<'_> {
             Widget::ClearGrid => half(self, batch, (224, 192)),
             Widget::ClearToInventory => half(self, batch, (232, 192)),
             Widget::ClearPattern => half(self, batch, (224, 200)),
+            // TerminalSelectionButton: the current terminal on the toolbar's
+            // backdrop; the panel's terminals, the current one focused. The
+            // terminals show their items (AE2WTLib draws its own icons).
+            Widget::Terminal | Widget::SelectTerminal(_) => {
+                let Some(universal) = view.and_then(|v| v.universal.as_ref()) else { return };
+                let item = match widget {
+                    Widget::SelectTerminal(index) => universal.terminals.get(index),
+                    _ => universal.terminals.iter().find(|t| t.0 == universal.current),
+                };
+                let hover = inside(rect, mouse);
+                let selected = matches!(widget, Widget::SelectTerminal(index) if universal.terminals.get(index).is_some_and(|t| t.0 == universal.current));
+                let backdrop = if hover { super::ae2_screens::icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else if selected { (194, 128) } else { super::ae2_screens::icon::TOOLBAR_BUTTON_BACKGROUND };
+                let lift = if hover { 1.0 } else { 0.0 };
+                let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);
+                self.ae2_icon(batch, backdrop, (18, 20), x - 1.0, y + lift);
+                if let Some((_, item)) = item {
+                    self.draw_item(batch, item, x, y + 1.0 + lift);
+                }
+            }
             Widget::Substitutions => half(self, batch, if panel.substitutes { (224, 208) } else { (232, 208) }),
             Widget::FluidSubstitutions => half(self, batch, if panel.fluid_substitutes { (224, 216) } else { (232, 216) }),
             Widget::Encode => self.ae2_draw_icon_button(batch, ox, oy, rect, (128, 0), mouse),
@@ -1330,6 +1418,21 @@ impl Game<'_> {
                     (tip("gui.tooltips.ae2.TerminalStyle"), gray(&format!("gui.tooltips.ae2.TerminalStyle_{name}")))
                 }
                 Widget::CraftingStatus => (tip("gui.ae2.CraftingStatus"), Vec::new()),
+                // TerminalSelectionButton: the current terminal; each of
+                // the panel's, its name.
+                Widget::Terminal => {
+                    let current = view.and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.iter().find(|t| t.0 == u.current));
+                    let Some((_, item)) = current else {
+                        return false;
+                    };
+                    (self.translate("gui.ae2wtlib.current_terminal", "Current Terminal: %s").replace("%s", &self.ae2_term_item_name(item)), Vec::new())
+                }
+                Widget::SelectTerminal(index) => {
+                    let Some((_, item)) = view.and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.get(index)) else {
+                        return false;
+                    };
+                    (self.ae2_term_item_name(item), Vec::new())
+                }
                 Widget::ClearGrid => (tip("gui.tooltips.ae2.Stash"), gray("gui.tooltips.ae2.StashDesc")),
                 Widget::ClearToInventory => (tip("gui.tooltips.ae2.StashToPlayer"), gray("gui.tooltips.ae2.StashToPlayerDesc")),
                 Widget::Encode => (tip("gui.tooltips.ae2.Encode"), gray("gui.tooltips.ae2.EncodeDescription")),

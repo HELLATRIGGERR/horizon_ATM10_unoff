@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "addon": "ae2wtlib",
+  "name": "AE2WTLib",
+  "version": "19.5.1",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/Mari023/AE2WirelessTerminalLibrary",
+    "tag": "19.5.1",
+    "commit": "49f70f0627b40762cfbd33732834c7271d5ec17d",
+    "license": "MIT",
+    "license_file": "LICENSE at the tag (ae2wtlib and the bundled ae2wtlib_api)"
+  },
+  "assets_license": "CC BY-NC-SA 3.0 (README at the tag)",
+  "jar": {
+    "file": "ae2wtlib-19.5.1.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "407e7300351353cb4cb7698286e180aef2bd6e7a97ec7efc6493f9daa4dbffe5"
+  },
+  "requires": ["ae2 19.2.18"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/ae2wtlib.rs",
+    "crates/horizon-client/src/ae2x/wireless.rs",
+    "crates/horizon-client/src/game/ae2x/ae2wtlib/mod.rs"
+  ]
+}

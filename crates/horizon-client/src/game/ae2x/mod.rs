@@ -4,7 +4,6 @@
 //! game calls into the addons; each asks the addons built in.
 use super::Game;
 use horizon_client::ae2_world::Machine;
-use std::collections::BTreeMap;
 
 #[cfg(feature = "ae2-megacells")]
 pub(super) mod megacells;
@@ -12,6 +11,29 @@ pub(super) mod megacells;
 pub(super) mod merequester;
 #[cfg(feature = "ae2-extendedae")]
 pub(super) mod extendedae;
+#[cfg(feature = "ae2-ae2wtlib")]
+pub(super) mod ae2wtlib;
+
+/// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
+/// Pattern Encoding Terminal, by itself or as the universal terminal's
+/// current one); none for any other item.
+pub(super) fn item_encoding_machine(stack: &horizon_client::items::ItemStack) -> Option<Result<Machine, String>> {
+    #[cfg(feature = "ae2-ae2wtlib")]
+    if horizon_client::ae2x::wireless::kind(stack) == Some(horizon_client::ae2x::defs::TerminalKind::PatternEncoding) {
+        return Some(ae2wtlib::encoding_machine(stack));
+    }
+    let _ = stack;
+    None
+}
+/// The encoding terminal's machine back into the item that keeps it.
+pub(super) fn item_store_encoding(stack: &mut horizon_client::items::ItemStack, machine: &Machine) -> Option<Result<(), String>> {
+    #[cfg(feature = "ae2-ae2wtlib")]
+    if horizon_client::ae2x::wireless::kind(stack) == Some(horizon_client::ae2x::defs::TerminalKind::PatternEncoding) {
+        return Some(ae2wtlib::store_encoding(stack, machine));
+    }
+    let _ = (stack, machine);
+    None
+}
 
 /// A storage cell of an addon's own `ICellHandler` (`StorageCells.getCellInventory`
 /// for a cell no basic handler takes): MEGA's Bulk Item Cell. Item keys
@@ -469,9 +491,23 @@ impl Game<'_> {
         }
         false
     }
+    /// Shift and the wheel with no screen open, on an addon's held item:
+    /// true when one took it.
+    pub(super) fn ae2x_item_wheel(&mut self, delta: f32) -> bool {
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if self.ae2wtlib_item_wheel(delta) {
+            return true;
+        }
+        let _ = delta;
+        false
+    }
     /// A custom payload from a guest: true when an addon's channel.
     pub(super) fn lan_ae2x_payload(&mut self, host: &mut super::lan::LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
         let _ = (&host, conn, channel, data);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        if channel.starts_with("ae2wtlib:") {
+            return self.lan_ae2wtlib_payload(host, conn, channel, data);
+        }
         #[cfg(feature = "ae2-merequester")]
         if channel.starts_with("merequester:") {
             self.lan_merequester_payload(host, conn, channel, data);

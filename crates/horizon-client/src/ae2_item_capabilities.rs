@@ -18,7 +18,9 @@ pub fn register_probe(capability: ItemCapability, probe: Probe) {
 }
 fn powered_ae2_item(stack: &ItemStack) -> bool {
     let id = stack.item.as_ref();
-    matches!(id, "ae2:entropy_manipulator" | "ae2:charged_staff" | "ae2:color_applicator" | "ae2:matter_cannon" | "ae2:wireless_terminal" | "ae2:wireless_crafting_terminal")
+    matches!(id, "ae2:entropy_manipulator" | "ae2:charged_staff" | "ae2:color_applicator" | "ae2:matter_cannon")
+        // The registry's wireless terminals, the universal one included.
+        || crate::ae2x::defs::get().is_wireless_terminal(id)
         // The portable cells, AE2's (`InitCapabilityProviders`) and an
         // addon's (`MEGACells.initCapabilities`).
         || crate::ae2x::defs::get().portable_cell(id).is_some()

@@ -308,7 +308,7 @@ pub(super) fn live_charger_recipe(stack:&ItemStack,items:&Items,recipes:&horizon
 }
 pub(super) fn charger_chargeable(stack:&ItemStack)->bool {
     let mut single=stack.clone();single.count=1;
-    super::ae2_wireless::is_wireless(&single)
+    horizon_client::ae2x::wireless::host(&single)
         || horizon_client::ae2_powered_items::profile(&single).is_some()
         || super::ae2_interactions::portable_energy(&single).is_ok()
         || energy_cell_item(&single).is_some()
@@ -786,7 +786,7 @@ impl Game<'_> {
                         modulation=Modulation::Faster;
                         let mut working=false;
                         if let Some(stack) = m.slots.get_mut(0).and_then(Option::as_mut) {
-                            let wireless = super::ae2_wireless::is_wireless(stack);
+                            let wireless = horizon_client::ae2x::wireless::host(stack);
                             let powered_tool = horizon_client::ae2_powered_items::profile(stack).is_some();
                             let energy_cell = is_energy_cell_item(stack);
                             let energy = if wireless {

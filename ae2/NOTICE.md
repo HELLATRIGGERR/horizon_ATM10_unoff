@@ -51,3 +51,11 @@ by GlodBlock (commit `1f86f927552f02451236465c0c96a12a3de8f66c` on branch
 ExtendedAE's assets (models and textures by Sea_Kerman and Ridanisaurus, licence not
 stated) are generated locally from the player's own jar by `scripts/prepare-addon.ts`
 and are not distributed here.
+Code derived from [AE2WTLib](https://github.com/Mari023/AE2WirelessTerminalLibrary)
+19.5.1 by Mari023 (tag `19.5.1`, commit `49f70f0627b40762cfbd33732834c7271d5ec17d`)
+is under its [MIT licence](LICENSES/AE2WTLib-MIT.txt), combined in the same files
+with AE2's LGPL 3.0 code; the files are listed in
+[addons/ae2wtlib/SOURCE_MANIFEST.json](addons/ae2wtlib/SOURCE_MANIFEST.json).
+AE2WTLib's assets, by its README under
+[CC BY-NC-SA 3.0](LICENSES/CC-BY-NC-SA-3.0.txt), are generated locally from the
+player's own jar by `scripts/prepare-addon.ts` and are not distributed here.

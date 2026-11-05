@@ -73,6 +73,10 @@ impl Game<'_> {
         if !delta.is_finite() || delta == 0.0 || !self.keys.contains(&KeyCode::ShiftLeft) {
             return false;
         }
+        // An addon's held item (AE2WTLib's universal terminal) takes it first.
+        if self.ae2x_item_wheel(delta) {
+            return true;
+        }
         let hand = if self.inventory[self.selected]
             .as_ref()
             .is_some_and(|s| s.item.as_ref() == "ae2:color_applicator")

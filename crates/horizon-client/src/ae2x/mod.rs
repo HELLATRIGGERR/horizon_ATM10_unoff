@@ -3,12 +3,15 @@
 //! (`pack/pack.toml`). An addon's game behaviour, when it has any, lives in
 //! `game/ae2x/<id>/`.
 pub mod defs;
+pub mod wireless;
 #[cfg(feature = "ae2-megacells")]
 pub mod megacells;
 #[cfg(feature = "ae2-merequester")]
 pub mod merequester;
 #[cfg(feature = "ae2-extendedae")]
 pub mod extendedae;
+#[cfg(feature = "ae2-ae2wtlib")]
+pub mod ae2wtlib;
 
 /// Builds the registry, which installs the addon machines' block ids and
 /// the variants of AE2's machines: call before any world or block entity

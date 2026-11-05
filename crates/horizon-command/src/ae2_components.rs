@@ -12,6 +12,15 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "megacells:bulk_unit_count",
     "megacells:bulk_unit_factor",
     "megacells:compression_cutoff",
+    // AE2WTLib (`AE2wtlibComponents`): the universal terminal's current
+    // terminal (`WTDefinition.CODEC`, its name) and the terminals it holds
+    // (`has_<name>_terminal`, `Codec.EMPTY`), the wireless encoding
+    // terminal's `PatternEncodingLogic` (a compound tag).
+    "ae2wtlib:current_terminal",
+    "ae2wtlib:has_crafting_terminal",
+    "ae2wtlib:has_pattern_encoding_terminal",
+    "ae2wtlib:has_pattern_access_terminal",
+    "ae2wtlib:pattern_encoding_logic",
     "ae2:exported_custom_name",
     "ae2:exported_upgrades",
     "ae2:exported_settings",
@@ -394,6 +403,13 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
             Ok(Tag::String(text.as_str().into()))
         }
         "megacells:compression_cutoff" => Ok(Tag::Int(integer(&t)?)),
+        "ae2wtlib:current_terminal" => Ok(Tag::String(string(&t)?.as_str().into())),
+        // Codec.EMPTY: any map, stored as the empty one.
+        "ae2wtlib:has_crafting_terminal" | "ae2wtlib:has_pattern_encoding_terminal" | "ae2wtlib:has_pattern_access_terminal" => {
+            map(t)?;
+            Ok(Tag::Compound(Compound::new()))
+        }
+        "ae2wtlib:pattern_encoding_logic" => Ok(Tag::Compound(map(t)?)),
         "merequester:exported_requests" => {
             let Tag::List(rows) = &t else {
                 return Err("Not a list".into());

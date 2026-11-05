@@ -71,7 +71,7 @@ impl JobUi {
 }
 
 fn linked_and_powered(stack:&ItemStack)->bool {
-    if !super::ae2_wireless::is_wireless(stack) || !super::ae2_wireless::energy(stack).is_ok_and(|(energy,_)|energy>0.0) {return false;}
+    if !horizon_client::ae2x::wireless::host(stack) || !super::ae2_wireless::energy(stack).is_ok_and(|(energy,_)|energy>0.0) {return false;}
     super::ae2_wireless::target(stack).is_some()
 }
 

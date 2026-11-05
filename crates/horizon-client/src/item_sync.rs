@@ -784,6 +784,11 @@ mod tests {
             ("megacells:bulk_unit_count", string("36893488147419103228")),
             ("megacells:bulk_unit_factor", string("81")),
             ("megacells:compression_cutoff", Tag::Int(1)),
+            ("ae2wtlib:current_terminal", string("crafting")),
+            ("ae2wtlib:has_crafting_terminal", Tag::compound([] as [(&str, Tag); 0])),
+            ("ae2wtlib:has_pattern_encoding_terminal", Tag::compound([] as [(&str, Tag); 0])),
+            ("ae2wtlib:has_pattern_access_terminal", Tag::compound([] as [(&str, Tag); 0])),
+            ("ae2wtlib:pattern_encoding_logic", Tag::compound([("mode", string("CRAFTING")), ("substitute", Tag::Byte(0))])),
             ("ae2:exported_custom_name", string("Named")),
             ("ae2:exported_upgrades", list()),
             ("ae2:exported_settings", Tag::compound([("redstone_mode", string("HIGH"))])),
@@ -829,7 +834,7 @@ mod tests {
         ];
         let expected: std::collections::BTreeSet<_> = crate::ae2_components::PERSISTENT_IDS.iter().copied().collect();
         assert_eq!(samples.iter().map(|(id, _)| *id).collect::<std::collections::BTreeSet<_>>(), expected);
-        assert_eq!(samples.len(), 40);
+        assert_eq!(samples.len(), 45);
         for (id, value) in &samples {
             crate::ae2_components::validate(id, value).unwrap_or_else(|error| panic!("invalid source-shaped sample for {id}: {error}"));
         }

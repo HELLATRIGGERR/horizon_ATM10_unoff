@@ -169,7 +169,7 @@ impl Game<'_> {
     pub(super) fn ae2_item_energy(&self, stack: &ItemStack) -> Option<(f64, f64)> {
         let energy = if power::profile(stack).is_some() {
             power::energy(stack)
-        } else if super::ae2_wireless::is_wireless(stack) {
+        } else if horizon_client::ae2x::wireless::host(stack) {
             super::ae2_wireless::energy(stack)
         } else if horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some() {
             super::ae2_interactions::portable_energy(stack)

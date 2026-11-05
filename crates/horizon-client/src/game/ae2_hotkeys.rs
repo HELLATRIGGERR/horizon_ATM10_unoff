@@ -43,6 +43,22 @@ fn candidates(action: Action, inventory: &[Option<ItemStack>]) -> Vec<usize> {
     }).collect();
     ranked.sort_unstable();ranked.into_iter().map(|(_, slot)| slot).collect()
 }
+/// AE2WTLib's `WUTHandler.findTerminal` for `Ae2wtlibLocatingService`: in
+/// slot order, a universal terminal holding the terminal at once, else the
+/// first of the terminal's own items (the main inventory, armour, off hand).
+fn locate(g: &horizon_client::lan::guest::Guest, terminal: &horizon_client::ae2x::defs::WirelessTerminal) -> Option<usize> {
+    let stacks = (0..g.inventory.len()).map(|slot| (slot, g.inventory[slot].as_ref()))
+        .chain(std::iter::once((super::shield::OFFHAND_SLOT, g.offhand.as_ref())));
+    let mut found = None;
+    for (slot, stack) in stacks {
+        let Some(stack) = stack.filter(|s| horizon_client::ae2x::wireless::has_terminal(s, terminal)) else { continue };
+        if horizon_client::ae2x::wireless::is_universal(stack) {
+            return Some(slot);
+        }
+        found.get_or_insert(slot);
+    }
+    found
+}
 impl Game<'_> {
     /// Named physical input is examined before vanilla's default-key mapping.
     fn ae2_hotkey_input(&mut self, input: &str, down: bool, repeat: bool) {
@@ -67,6 +83,22 @@ impl Game<'_> {
     /// The client supplies an action name only; the server chooses and validates
     /// its actual inventory owner. No client slot or item payload is trusted.
     pub(super) fn lan_ae2_hotkey(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
+        // The addons' terminals on this hotkey come first, the last registered
+        // first (HotkeyActions.register): AE2WTLib's locating service makes
+        // the universal terminal's current terminal the one the key names.
+        if let Ok(id) = std::str::from_utf8(data) {
+            let terminals: Vec<_> = horizon_client::ae2x::defs::get().wireless_terminals()
+                .filter(|t| t.installed.is_some() && t.hotkey == id).collect();
+            for terminal in terminals.into_iter().rev() {
+                let Some(guest) = host.hub.guests.iter().find(|guest| guest.conn == conn && !guest.spectator()) else { return; };
+                let Some(source) = locate(guest, terminal) else { continue };
+                if let Some(stack) = host.hub.guests.iter_mut().find(|g| g.conn == conn).and_then(|g| super::ae2_wireless::source_stack_mut(g, source)) {
+                    horizon_client::ae2x::wireless::set_current(stack, terminal);
+                }
+                self.lan_open_ae2_wireless_source(host, conn, source);
+                if self.lan_wireless_menu_source(host, conn) == Some(source) { return; }
+            }
+        }
         let Some(action) = Action::parse(data) else { return; };
         let Some(guest) = host.hub.guests.iter().find(|guest| guest.conn == conn && !guest.spectator()) else { return; };
         let sources = candidates(action, &guest.inventory);

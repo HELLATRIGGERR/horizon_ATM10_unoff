@@ -5,6 +5,8 @@ use horizon_protocol::packets::play::{self,Clientbound as C};
 use horizon_world::nbt::Tag;
 use horizon_core::geometry::Direction;
 use std::collections::BTreeSet;
+/// `Settings.TERMINAL_SHOW_PATTERN_PROVIDERS` in `ae2:exported_settings`.
+const SHOW_PATTERN_PROVIDERS:&str="terminal_show_pattern_providers";
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 enum Owner {Block(GridAddress),Part(PartAddress)}
@@ -43,6 +45,9 @@ pub(super) struct GuestPatternAccess {
     window:i32,state:i32,pos:(i32,i32,i32),face:String,dim:String,page:usize,terminal:OwnerIdentity,
     search:String,filter:u8,rows:Vec<Row>,pinned:Vec<Owner>,menu:Menu,refresh:u8,
     sent_views:std::collections::VecDeque<(i32,Vec<Option<OwnerIdentity>>)>,
+    /// A wireless terminal's menu (AE2WTLib's `WATMenuHost`): `pos` is the access
+    /// point it reaches, and `connected` its link this tick.
+    wireless:Option<super::ae2_wireless::WirelessContext>,connected:bool,
 }
 fn pattern(s:&ItemStack)->bool {
     super::ae2_processing::decode_pattern(s).is_some() || super::ae2_processing::ae2_decode_processing_pattern(s).is_some() || super::ae2_processing::ae2_decode_special_pattern(s).is_some()
@@ -365,6 +370,20 @@ impl Game<'_> {
     pub(super) fn lan_open_pattern_access(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),face:&str)->bool {
         let Some(filter)=self.access_filter(pos,face) else{return false};
         let Some(terminal)=self.access_terminal_identity(pos,face) else{return false};
+        self.lan_open_pattern_access_session(host,conn,pos,face,terminal,filter,None)
+    }
+    /// AE2WTLib's Wireless Pattern Access Terminal (`WATMenu`, a
+    /// `PatternAccessTermMenu` on `WATMenuHost`): the providers of the grid
+    /// of the access point the item reaches, its show setting in the item's
+    /// `ae2:exported_settings` (`AE2wtlibConfigManager`).
+    pub(super) fn lan_open_wireless_pattern_access(&mut self,host:&mut LanHost,conn:u32,anchor:(i32,i32,i32),ctx:super::ae2_wireless::WirelessContext)->bool {
+        let Some(filter)=self.access_wireless_filter(host,conn,&ctx) else{return false};
+        let Some(address)=self.ae2_local_address(anchor) else{return false};
+        let terminal=OwnerIdentity{owner:Owner::Block(address),host:0,part:None};
+        self.lan_open_pattern_access_session(host,conn,anchor,"",terminal,filter,Some(ctx))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn lan_open_pattern_access_session(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),face:&str,terminal:OwnerIdentity,filter:u8,wireless:Option<super::ae2_wireless::WirelessContext>)->bool {
         self.lan_pattern_access_closed(host,conn,None);
         self.lan_ae2_terminal_closed(host,conn,None);self.lan_ae2_machine_closed(host,conn,None);
         self.lan_ae2_portable_closed(host,conn,None);self.lan_ae2_network_tool_closed(host,conn,None);self.lan_ae2_anchor_closed(host,conn,None);
@@ -374,13 +393,45 @@ impl Game<'_> {
         host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload {
             channel:"ae2:bus_ack_enable".into(),data:window.to_be_bytes().to_vec(),
         }));
-        host.play.entry(conn).or_default().ae2_pattern_access=Some(GuestPatternAccess{window,state:0,pos,face:face.into(),dim:self.dim.id().into(),page:0,terminal,search:String::new(),filter,rows:Vec::new(),pinned:Vec::new(),menu:Menu::new(Kind::Chest(6)),refresh:0,sent_views:std::collections::VecDeque::new()});
+        host.play.entry(conn).or_default().ae2_pattern_access=Some(GuestPatternAccess{window,state:0,pos,face:face.into(),dim:self.dim.id().into(),page:0,terminal,search:String::new(),filter,rows:Vec::new(),pinned:Vec::new(),menu:Menu::new(Kind::Chest(6)),refresh:0,sent_views:std::collections::VecDeque::new(),wireless,connected:true});
         self.lan_send_pattern_access(host,conn);true
+    }
+    /// The wireless terminal's ShowPatternProviders: VISIBLE, NOT_FULL, ALL.
+    fn access_wireless_filter(&self,host:&LanHost,conn:u32,ctx:&super::ae2_wireless::WirelessContext)->Option<u8> {
+        let stack=host.hub.guests.iter().find(|g|g.conn==conn).and_then(|g|super::ae2_wireless::source_stack(g,ctx.source))?;
+        Some(match stack.data().and_then(|d|d.other("ae2:exported_settings")).and_then(|s|s.get(SHOW_PATTERN_PROVIDERS)) {
+            Some(Tag::String(value))=>match value.to_string().ok()?.as_str() {"NOT_FULL"=>1,"ALL"=>2,_=>0},
+            _=>0,
+        })
+    }
+    fn access_wireless_set_filter(&mut self,host:&mut LanHost,conn:u32,ctx:&super::ae2_wireless::WirelessContext,filter:u8)->bool {
+        if filter>2 || !self.ae2_wireless_source_valid(host,conn,ctx){return false;}
+        let Some(stack)=host.hub.guests.iter_mut().find(|g|g.conn==conn).and_then(|g|super::ae2_wireless::source_stack_mut(g,ctx.source)) else{return false};
+        // exportSettings keeps the values it does not know.
+        let mut settings=match stack.data().and_then(|d|d.other("ae2:exported_settings")) {Some(Tag::Compound(map))=>map.clone(),_=>Default::default()};
+        settings.insert(SHOW_PATTERN_PROVIDERS.into(),Tag::String(["VISIBLE","NOT_FULL","ALL"][usize::from(filter)].into()));
+        stack.data_mut().set_other("ae2:exported_settings",Some(Tag::Compound(settings)));
+        horizon_client::ae2_stack_identity::synchronize_tracked(stack);true
+    }
+    /// The menu still has its owner: the part in reach, or the wireless item.
+    fn access_guest_valid(&self,host:&LanHost,conn:u32,s:&GuestPatternAccess)->bool {
+        match &s.wireless {
+            Some(ctx)=>self.ae2_wireless_source_valid(host,conn,ctx),
+            None=>s.dim==self.dim.id() && self.access_terminal_identity(s.pos,&s.face)==Some(s.terminal)
+                && host.hub.guests.iter().any(|g|g.conn==conn && host.hub.here(g) && g.within_block_range([s.pos.0,s.pos.1,s.pos.2],4.0)),
+        }
+    }
+    /// The terminal reaches its grid: its part online, or the wireless link.
+    fn access_guest_online(&self,s:&GuestPatternAccess)->bool {
+        if s.wireless.is_some(){s.connected} else {self.ae2_part_online(s.pos,&s.face)}
     }
     /// Build the same provider rows and original-owner identities for both
     /// the remote and in-frame Pattern Access screens.
     fn access_view(&self,pos:(i32,i32,i32),face:&str,page:usize,search:&str,filter:u8,pinned:&[Owner])->AccessView {
-        let (rows,pins)=if self.ae2_part_online(pos,&face){self.access_rows(pos,search,filter,pinned)} else{(Vec::new(),Vec::new())};
+        self.access_view_at(self.ae2_part_online(pos,face),pos,page,search,filter,pinned)
+    }
+    fn access_view_at(&self,online:bool,pos:(i32,i32,i32),page:usize,search:&str,filter:u8,pinned:&[Owner])->AccessView {
+        let (rows,pins)=if online {self.access_rows(pos,search,filter,pinned)} else{(Vec::new(),Vec::new())};
         let lines=display_lines(&rows);let max_scroll=lines.len().saturating_sub(6);let page=page.min(max_scroll);
         let mut items=vec![None;54];let mut layout=Vec::new();let mut owners=vec![None;6];
         for (i,line) in lines.iter().skip(page).take(6).enumerate(){
@@ -392,12 +443,15 @@ impl Game<'_> {
         AccessView{rows,pinned:pins,page,items,layout,owners,max_scroll}
     }
     fn lan_send_pattern_access(&mut self,host:&mut LanHost,conn:u32) {
-        let Some((window,state,pos,face,page,search,filter,pinned,terminal))=host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()).map(|s|(s.window,s.state,s.pos,s.face.clone(),s.page,s.search.clone(),s.filter,s.pinned.clone(),s.terminal)) else{return};
-        if self.access_terminal_identity(pos,&face)!=Some(terminal) {
+        let Some(s)=host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()) else{return};
+        let (window,state,pos,page,search,filter,pinned)=(s.window,s.state,s.pos,s.page,s.search.clone(),s.filter,s.pinned.clone());
+        if !self.access_guest_valid_identity(host,conn,s) {
             self.lan_pattern_access_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return;
         }
-        let AccessView{rows,pinned:pins,page,mut items,layout,owners,max_scroll}=self.access_view(pos,&face,page,&search,filter,&pinned);
-        let data=serde_json::to_vec(&serde_json::json!({"window":window,"rows":layout,"offset":page,"maximum":max_scroll,"filter":filter})).unwrap_or_default();
+        let online=self.access_guest_online(s);
+        let universal=s.wireless.as_ref().and_then(|ctx|self.lan_wireless_universal_view(host,conn,ctx));
+        let AccessView{rows,pinned:pins,page,mut items,layout,owners,max_scroll}=self.access_view_at(online,pos,page,&search,filter,&pinned);
+        let data=serde_json::to_vec(&serde_json::json!({"window":window,"rows":layout,"offset":page,"maximum":max_scroll,"filter":filter,"universal":universal})).unwrap_or_default();
         host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:pattern_layout".into(),data}));
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return};
         items.extend((9..36).chain(0..9).map(|i|g.inventory[i].clone()));let carried=g.carried.clone();
@@ -408,11 +462,18 @@ impl Game<'_> {
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items:wire,carried}));
         host.hub.inventory_told_by(conn,&items);
     }
+    /// What the send checks before it shows anything: the part's identity
+    /// (the reach is the click's and the refresh's), or the wireless item.
+    fn access_guest_valid_identity(&self,host:&LanHost,conn:u32,s:&GuestPatternAccess)->bool {
+        match &s.wireless {
+            Some(ctx)=>self.ae2_wireless_source_valid(host,conn,ctx),
+            None=>self.access_terminal_identity(s.pos,&s.face)==Some(s.terminal),
+        }
+    }
     pub(super) fn lan_pattern_access_search(&mut self,host:&mut LanHost,conn:u32,value:&str)->bool {
-        let Some((pos,face,dim,terminal,window))=host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()).map(|s|(s.pos,s.face.clone(),s.dim.clone(),s.terminal,s.window)) else{return false};
-        let valid=dim==self.dim.id() && self.access_terminal_identity(pos,&face)==Some(terminal)
-            && host.hub.guests.iter().any(|g|g.conn==conn && host.hub.here(g) && g.within_block_range([pos.0,pos.1,pos.2],4.0));
-        if !valid {self.lan_pattern_access_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;}
+        let Some(s)=host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()) else{return false};
+        let window=s.window;
+        if !self.access_guest_valid(host,conn,s) {self.lan_pattern_access_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;}
         let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.as_mut()) else{return true};
         s.search=value.chars().take(128).collect();s.page=0;self.lan_send_pattern_access(host,conn);true
     }
@@ -454,12 +515,11 @@ impl Game<'_> {
         let Some(mut s)=host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.take()) else{return false};
         if p.container!=s.window {host.play.entry(conn).or_default().ae2_pattern_access=Some(s);return false;}
         let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn && host.hub.here(g)) else{return true};
-        if s.dim!=self.dim.id() || !host.hub.guests[gi].within_block_range([s.pos.0,s.pos.1,s.pos.2],4.0)
-            || self.access_terminal_identity(s.pos,&s.face)!=Some(s.terminal) {
+        if !self.access_guest_valid(host,conn,&s) {
             let window=s.window;host.play.entry(conn).or_default().ae2_pattern_access=Some(s);
             self.lan_pattern_access_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;
         }
-        let (rows,_)=if self.ae2_part_online(s.pos,&s.face){self.access_rows(s.pos,&s.search,s.filter,&s.pinned)}else{(Vec::new(),Vec::new())};
+        let (rows,_)=if self.access_guest_online(&s){self.access_rows(s.pos,&s.search,s.filter,&s.pinned)}else{(Vec::new(),Vec::new())};
         let stale_target=(0..54).contains(&p.slot) && {
             let index=p.slot as usize/9;
             let old=s.sent_views.iter().rev().find(|(state,_)|*state==p.state).and_then(|(_,view)|view.get(index)).copied().flatten();
@@ -477,7 +537,11 @@ impl Game<'_> {
             }
         } else if p.slot == -10 {s.page=s.page.saturating_sub(1);}
         else if p.slot == -11 {s.page=(s.page+1).min(display_lines(&rows).len().saturating_sub(6));}
-        else if p.slot == -12 {let next=(s.filter+1)%3;if self.access_set_filter(s.pos,&s.face,next){s.filter=next;s.page=0;s.pinned.clear();}}
+        else if p.slot == -12 {
+            let next=(s.filter+1)%3;
+            let set=match s.wireless.clone() {Some(ctx)=>self.access_wireless_set_filter(host,conn,&ctx,next),None=>self.access_set_filter(s.pos,&s.face,next)};
+            if set {s.filter=next;s.page=0;s.pinned.clear();}
+        }
         else if (54..90).contains(&p.slot) && input==Input::QuickMove {
             let index=if p.slot<81 {9+(p.slot as usize-54)} else {p.slot as usize-81};
             self.as_guest(host,conn,|game|game.access_quick_move_player(index,&rows));
@@ -491,23 +555,39 @@ impl Game<'_> {
         if host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.take_if(|s|window.is_none_or(|w|w==s.window))).is_none(){return false;}
         if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,gi);}true
     }
+    /// The wireless menu whose item is at `source`, a Pattern Access one.
+    pub(super) fn lan_wireless_pattern_access_source(&self,host:&LanHost,conn:u32)->Option<usize> {
+        host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()).and_then(|s|s.wireless.as_ref()).map(|ctx|ctx.source)
+    }
     pub(super) fn lan_refresh_pattern_access(&mut self,host:&mut LanHost) {
-        let viewers:Vec<_>=host.play.iter().filter_map(|(&id,p)|p.ae2_pattern_access.as_ref().map(|s|(id,s.pos,s.face.clone(),s.dim.clone(),s.window,s.terminal))).collect();
-        for (conn,pos,face,dim,window,terminal) in viewers {
-            let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g)) else{continue;};
-            let filter=self.access_filter(pos,&face);
-            if dim!=self.dim.id() || !g.within_block_range([pos.0,pos.1,pos.2],4.0) || filter.is_none()
-                || self.access_terminal_identity(pos,&face)!=Some(terminal) {
+        let viewers:Vec<_>=host.play.iter().filter_map(|(&id,p)|p.ae2_pattern_access.as_ref().map(|s|(id,s.window))).collect();
+        for (conn,window) in viewers {
+            if !host.hub.guests.iter().any(|g|g.conn==conn && host.hub.here(g)) {continue;}
+            let Some(s)=host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()) else{continue};
+            let (pos,face,mut wireless,was_connected)=(s.pos,s.face.clone(),s.wireless.clone(),s.connected);
+            let filter=match &wireless {Some(ctx)=>self.access_wireless_filter(host,conn,ctx),None=>self.access_filter(pos,&face)};
+            if !self.access_guest_valid(host,conn,s) || filter.is_none() {
                 self.lan_pattern_access_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
-            } else if let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.as_mut()) {
-                if filter!=Some(s.filter) {s.filter=filter.unwrap();s.page=0;s.pinned.clear();self.lan_send_pattern_access(host,conn);continue;}
-                s.refresh=s.refresh.saturating_add(1);
-                if s.refresh>=10 {
-                    s.refresh=0;
-                    let (search,filter,old,pinned)=(s.search.clone(),s.filter,s.rows.clone(),s.pinned.clone());
-                    let rows=if self.ae2_part_online(pos,&face){self.access_rows(pos,&search,filter,&pinned).0}else{Vec::new()};
-                    if rows!=old {self.lan_send_pattern_access(host,conn);}
-                }
+                continue;
+            }
+            // WirelessTerminalMenuHost.tick: the nearest access point and the battery each tick.
+            let mut pos=pos;
+            let connected=match wireless.as_mut() {
+                Some(ctx)=>{let connected=self.ae2_wireless_tick(host,conn,ctx);if connected {if let Some((nearest,_))=self.ae2_wireless_nearest(host,conn,ctx){pos=nearest;}}connected},
+                None=>true,
+            };
+            let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_pattern_access.as_mut()) else{continue};
+            let moved=s.pos!=pos;
+            if s.wireless.is_some() {s.wireless=wireless;s.connected=connected;s.pos=pos;}
+            if filter!=Some(s.filter) {s.filter=filter.unwrap();s.page=0;s.pinned.clear();self.lan_send_pattern_access(host,conn);continue;}
+            if connected!=was_connected || moved {self.lan_send_pattern_access(host,conn);continue;}
+            s.refresh=s.refresh.saturating_add(1);
+            if s.refresh>=10 {
+                s.refresh=0;
+                let (search,filter,old,pinned)=(s.search.clone(),s.filter,s.rows.clone(),s.pinned.clone());
+                let online=match host.play.get(&conn).and_then(|p|p.ae2_pattern_access.as_ref()) {Some(s)=>self.access_guest_online(s),None=>continue};
+                let rows=if online {self.access_rows(pos,&search,filter,&pinned).0}else{Vec::new()};
+                if rows!=old {self.lan_send_pattern_access(host,conn);}
             }
         }
     }

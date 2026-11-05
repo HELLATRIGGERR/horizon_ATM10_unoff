@@ -10978,7 +10978,7 @@ fn remote_use_swings(held: &ItemStack, consumable: bool) -> bool {
 fn ae2_item_consumes_use(id: &str) -> bool {
     (horizon_client::ae2_cell_codec::is_cell(id) && horizon_client::ae2x::defs::get().handler_cell(id).is_none())
         || id == horizon_client::ae2_network_tool::TOOL
-        || matches!(id, "ae2:wireless_terminal" | "ae2:wireless_crafting_terminal")
+        || horizon_client::ae2x::defs::get().is_wireless_terminal(id)
         || super::ae2x::item_opens_menu(id)
 }
 

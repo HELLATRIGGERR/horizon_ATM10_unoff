@@ -44,7 +44,7 @@ fn item_upgrade(
     grid: &[Option<ItemStack>],
     add: bool,
 ) -> Option<(ItemStack, Option<(usize, ItemStack)>)> {
-    use crate::ae2_upgrade_inventory::{Inventory, capacity};
+    use crate::ae2_upgrade_inventory::{Inventory, capacity_of};
     let occupied = grid
         .iter()
         .enumerate()
@@ -57,7 +57,7 @@ fn item_upgrade(
     } {
         return None;
     }
-    let &(owner, stack) = occupied.iter().find(|(_, s)| capacity(&s.item).is_some())?;
+    let &(owner, stack) = occupied.iter().find(|(_, s)| capacity_of(s).is_some())?;
     let mut upgraded = stack.clone();
     let mut inventory = Inventory::read(&upgraded).ok()?;
     if add {

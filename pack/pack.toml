@@ -76,6 +76,16 @@ feature = "ae2-extendedae"
 content = "extendedae"
 configs = ["extendedae-common.toml"]
 
+# AE2WTLib: the wireless terminal registry, the Wireless Universal Terminal
+# and the wireless pattern encoding and access terminals (slice 1;
+# ae2/addons/ae2wtlib).
+[mods.ae2wtlib]
+name = "AE2WTLib"
+enabled = true
+feature = "ae2-ae2wtlib"
+content = "ae2wtlib"
+configs = ["ae2wtlib.toml"]
+
 # AE2 addon: FE stored in ME cells and the Flux Accessor.
 [mods.appflux]
 name = "Applied Flux"

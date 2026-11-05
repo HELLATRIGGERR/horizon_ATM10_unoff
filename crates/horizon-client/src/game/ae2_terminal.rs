@@ -301,7 +301,8 @@ struct StockEdit { slot:usize, owner:InterfaceMenuOwner, key:StockKey, max:i64, 
 #[derive(Clone,Debug)]
 enum ProcessingAmountKey { Item(ItemStack), Fluid(ae2_cell_core::ItemKey) }
 #[derive(Clone,Debug)]
-struct ProcessingAmountEdit { part:super::ae2_parts::PartAddress, identity:(u64,[i32;4]), index:usize, output:bool,
+/// `part` and `identity` name a part's editor; none a wireless encoding terminal's.
+struct ProcessingAmountEdit { part:Option<super::ae2_parts::PartAddress>, identity:Option<(u64,[i32;4])>, index:usize, output:bool,
     key:ProcessingAmountKey, max:i64, unit:u32, text:String, token:u64, display:ItemStack }
 static NEXT_NUMBER_EDITOR:std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(1);
 // EditBox strips this control character, so ordinary terminal searches and
@@ -1762,8 +1763,38 @@ fn craft_owner(
     wireless: Option<&super::ae2_wireless::WirelessContext>,
 ) -> Option<CraftOwner> {
     part.map(CraftOwner::Part).or_else(|| wireless
-        .filter(|ctx| ctx.item == "ae2:wireless_crafting_terminal")
+        .filter(|ctx| ctx.kind == horizon_client::ae2x::defs::TerminalKind::Crafting)
         .cloned().map(CraftOwner::Wireless))
+}
+
+/// Who keeps an encoding terminal's state: its part, or the wireless
+/// pattern encoding terminal's item (AE2WTLib's `WETMenuHost`, whose
+/// `PatternEncodingLogic` is the item's `pattern_encoding_logic`).
+#[derive(Clone)]
+enum EncodingOwner {
+    Part(super::ae2_parts::PartAddress),
+    Wireless(super::ae2_wireless::WirelessContext),
+}
+fn encoding_owner(
+    part: Option<super::ae2_parts::PartAddress>,
+    wireless: Option<&super::ae2_wireless::WirelessContext>,
+) -> Option<EncodingOwner> {
+    part.map(EncodingOwner::Part).or_else(|| wireless
+        .filter(|ctx| ctx.kind == horizon_client::ae2x::defs::TerminalKind::PatternEncoding)
+        .cloned().map(EncodingOwner::Wireless))
+}
+impl GuestTerminal {
+    /// The menu is an encoding terminal's (`PatternEncodingTermMenu`).
+    fn encodes(&self) -> bool {
+        self.encoding_owner().is_some()
+    }
+    /// The wireless item's slot, when the menu is a wireless terminal's.
+    pub(super) fn wireless_source(&self) -> Option<usize> {
+        self.wireless.as_ref().map(|ctx| ctx.source)
+    }
+    fn encoding_owner(&self) -> Option<EncodingOwner> {
+        encoding_owner(self.encoding_part, self.wireless.as_ref())
+    }
 }
 
 struct ToolboxDrag {
@@ -1993,27 +2024,54 @@ impl Game<'_> {
             }).ok_or_else(|| "missing wireless player".to_string())?,
         }
     }
+    /// The encoding terminal's machine: its part's, or one made from the
+    /// wireless encoding terminal's item while it is still the menu's owner.
+    fn lan_encoding_machine(&self,host:&super::lan::LanHost,conn:u32,owner:&EncodingOwner)->Result<horizon_client::ae2_world::Machine,String> {
+        match owner {
+            EncodingOwner::Part(part)=>self.ae2_part_machine(*part)?.ok_or("encoding part missing".into()),
+            EncodingOwner::Wireless(ctx)=>{
+                if !self.ae2_wireless_source_valid(host,conn,ctx){return Err("wireless encoding terminal moved".into());}
+                let stack=host.hub.guests.iter().find(|g|g.conn==conn).and_then(|g|toolbox_stack(g,ctx.source)).ok_or("wireless encoding terminal moved")?;
+                super::ae2x::item_encoding_machine(stack).ok_or("not an encoding terminal")?
+            }
+        }
+    }
+    fn lan_store_encoding_machine(&mut self,host:&mut super::lan::LanHost,conn:u32,owner:&EncodingOwner,machine:&horizon_client::ae2_world::Machine)->Result<(),String> {
+        match owner {
+            EncodingOwner::Part(part)=>self.ae2_store_part_machine(*part,machine),
+            EncodingOwner::Wireless(ctx)=>{
+                if !self.ae2_wireless_source_valid(host,conn,ctx){return Err("wireless encoding terminal moved".into());}
+                let stack=host.hub.guests.iter_mut().find(|g|g.conn==conn).and_then(|g|toolbox_stack_mut(g,ctx.source)).ok_or("wireless encoding terminal moved")?;
+                super::ae2x::item_store_encoding(stack,machine).ok_or("not an encoding terminal")?
+            }
+        }
+    }
+    fn lan_encoding_owner(host:&super::lan::LanHost,conn:u32)->Option<EncodingOwner> {
+        host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(GuestTerminal::encoding_owner)
+    }
     fn lan_load_encoding_state(&self,host:&mut super::lan::LanHost,conn:u32)->bool {
-        let Some(part)=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_part) else{return false;};
-        let Some(machine)=self.ae2_part_machine(part).ok().flatten() else{return false;};
-        let identity=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_identity);
-        if self.ae2_encoding_identity(part)!=identity || identity.is_none(){return false;}
+        let Some(owner)=Self::lan_encoding_owner(host,conn) else{return false;};
+        if let EncodingOwner::Part(part)=owner {
+            let identity=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_identity);
+            if self.ae2_encoding_identity(part)!=identity || identity.is_none(){return false;}
+        }
+        let Ok(machine)=self.lan_encoding_machine(host,conn,&owner) else{return false;};
         let Ok(state)=super::ae2_encoding::EncodingState::load(&machine) else{return false;};
         let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()) else{return false;};
         t.pattern_grid=state.inputs;t.processing_outputs=state.outputs;t.fluid_inputs=state.fluid_inputs;t.fluid_outputs=state.fluid_outputs;
         t.substitutes=state.substitutes;t.fluid_substitutes=state.fluid_substitutes;t.processing=state.processing;t.special_mode=state.special_mode;t.stone_recipe=state.stone_recipe;t.encoding_snapshot=Some(machine);true
     }
-    fn lan_store_encoding_state(&mut self,host:&super::lan::LanHost,conn:u32)->Result<(),String> {
+    fn lan_store_encoding_state(&mut self,host:&mut super::lan::LanHost,conn:u32)->Result<(),String> {
         let t=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).ok_or("encoding session closed")?;
-        let part=t.encoding_part.ok_or("encoding part missing")?;
+        let owner=t.encoding_owner().ok_or("encoding part missing")?;
         let mut state=super::ae2_encoding::EncodingState{inputs:t.pattern_grid.clone(),outputs:t.processing_outputs.clone(),fluid_inputs:t.fluid_inputs.clone(),fluid_outputs:t.fluid_outputs.clone(),substitutes:t.substitutes,fluid_substitutes:t.fluid_substitutes,processing:t.processing,special_mode:t.special_mode,stone_recipe:t.stone_recipe.clone()};
         state.normalize_crafting_inputs();
-        let mut machine=self.ae2_part_machine(part)?.ok_or("encoding part missing")?;
-        state.save(&mut machine)?;self.ae2_store_part_machine(part,&machine)
+        let mut machine=self.lan_encoding_machine(host,conn,&owner)?;
+        state.save(&mut machine)?;self.lan_store_encoding_machine(host,conn,&owner,&machine)
     }
-    fn lan_encoding_slot_click(&mut self,host:&mut super::lan::LanHost,conn:u32,part:super::ae2_parts::PartAddress,slot:usize,button:i8,input:horizon_client::menu::Input)->Result<(),String> {
+    fn lan_encoding_slot_click(&mut self,host:&mut super::lan::LanHost,conn:u32,owner:&EncodingOwner,slot:usize,button:i8,input:horizon_client::menu::Input)->Result<(),String> {
         let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn) else{return Err("player missing".into())};
-        let mut machine=self.ae2_part_machine(part)?.ok_or("encoding part missing")?;
+        let mut machine=self.lan_encoding_machine(host,conn,owner)?;
         if slot>=2 || machine.slots.len()!=2{return Err("invalid encoding slot".into());}
         let before_inventory=host.hub.guests[gi].inventory.clone();let before_cursor=host.hub.guests[gi].carried.clone();
         let old=machine.slots[slot].clone();
@@ -2036,21 +2094,21 @@ impl Game<'_> {
         if slot==1 && machine.slots[1]!=old {if let Some(pattern)=machine.slots[1].as_ref().and_then(super::ae2_encoding::EncodingState::from_pattern){
             if let Err(e)=pattern.save(&mut machine){host.hub.guests[gi].inventory=before_inventory;host.hub.guests[gi].carried=before_cursor;return Err(e);}
         }}
-        if let Err(e)=self.ae2_store_part_machine(part,&machine){host.hub.guests[gi].inventory=before_inventory;host.hub.guests[gi].carried=before_cursor;return Err(e);}
+        if let Err(e)=self.lan_store_encoding_machine(host,conn,owner,&machine){host.hub.guests[gi].inventory=before_inventory;host.hub.guests[gi].carried=before_cursor;return Err(e);}
         Ok(())
     }
-    fn lan_encoding_quick_insert(&mut self,host:&mut super::lan::LanHost,conn:u32,part:super::ae2_parts::PartAddress,index:usize)->Result<bool,String> {
+    fn lan_encoding_quick_insert(&mut self,host:&mut super::lan::LanHost,conn:u32,owner:&EncodingOwner,index:usize)->Result<bool,String> {
         let gi=host.hub.guests.iter().position(|g|g.conn==conn).ok_or("player missing")?;
         let Some(mut item)=host.hub.guests[gi].inventory.get(index).cloned().flatten() else{return Ok(false)};
         let slot=if item.item.as_ref()=="ae2:blank_pattern" {0} else if super::ae2_encoding::EncodingState::from_pattern(&item).is_some() {1} else{return Ok(false)};
-        let mut machine=self.ae2_part_machine(part)?.ok_or("encoding part missing")?;
+        let mut machine=self.lan_encoding_machine(host,conn,owner)?;
         let capacity=self.res.items().stack_max(&item).min(if slot==0 {64}else{1});
         let room=match machine.slots[slot].as_ref() {None=>capacity,Some(existing) if slot==0 && same(existing,&item)=>capacity.saturating_sub(existing.count),_=>0};
         let moved=item.count.min(room);if moved==0{return Ok(true)};
         if let Some(existing)=machine.slots[slot].as_mut(){existing.count+=moved;}else{let mut placed=item.clone();placed.count=moved;machine.slots[slot]=Some(placed);}
         item.count-=moved;
         if slot==1 {if let Some(state)=machine.slots[1].as_ref().and_then(super::ae2_encoding::EncodingState::from_pattern){state.save(&mut machine)?;}}
-        self.ae2_store_part_machine(part,&machine)?;
+        self.lan_store_encoding_machine(host,conn,owner,&machine)?;
         host.hub.guests[gi].inventory[index]=(item.count>0).then_some(item);Ok(true)
     }
     pub(super) fn lan_open_ae2_terminal(
@@ -2116,6 +2174,7 @@ impl Game<'_> {
         if view_part.is_some() && view_identity.is_none(){return false;}
         let encoding_identity=encoding_part.and_then(|part|self.ae2_encoding_identity(part));
         if encoding_part.is_some() && encoding_identity.is_none(){return false;}
+        let encodes=encoding_owner(encoding_part,wireless.as_ref()).is_some();
         let chest = if wireless.is_none() && view_part.is_none() && self.ae2_local_chest(pos) {
             let Some(chest) = self.chest_terminal_read(pos) else { return false; };
             Some(chest)
@@ -2182,7 +2241,7 @@ impl Game<'_> {
             craft_amount_edit: false,
             // PatternEncodingTermScreen has no storage-only view: its
             // encoding panel is always there, under the storage rows.
-            encoding: encoding_part.is_some(),
+            encoding: encodes,
             pattern_grid: vec![None; 81],
             substitutes: false,
             fluid_substitutes: false,
@@ -2208,8 +2267,8 @@ impl Game<'_> {
             displayed_snapshot: Vec::new(),
             storage_revisions: std::collections::VecDeque::new(),
         });
-        if !self.lan_load_encoding_state(host,conn) && encoding_part.is_some() {self.lan_ae2_terminal_closed(host,conn,None);return false;}
-        if encoding_part.is_some() {
+        if !self.lan_load_encoding_state(host,conn) && encodes {self.lan_ae2_terminal_closed(host,conn,None);return false;}
+        if encodes {
             host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload {
                 channel:"ae2:encoding_menu".into(),data:window.to_be_bytes().to_vec(),
             }));
@@ -2222,12 +2281,14 @@ impl Game<'_> {
     pub(super) fn lan_clear_encoding(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
         let Ok(bytes)=<[u8;4]>::try_from(data) else{return};
         let window=i32::from_be_bytes(bytes);
-        let Some((pos,dimension))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref())
-            .filter(|t|t.window==window && t.encoding_part.is_some())
-            .map(|t|(t.pos,t.owner_dim.clone())) else{return};
-        let valid=dimension==self.dim.id() && self.ae2_has_terminal(pos)
-            && host.hub.guests.iter().find(|g|g.conn==conn).is_some_and(|g|
-                !g.spectator() && g.within_block_range([pos.0,pos.1,pos.2],4.0));
+        let Some((pos,dimension,owner))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref())
+            .filter(|t|t.window==window).and_then(|t|Some((t.pos,t.owner_dim.clone(),t.encoding_owner()?))) else{return};
+        let valid=match &owner {
+            EncodingOwner::Wireless(ctx)=>self.ae2_wireless_source_valid(host,conn,ctx),
+            EncodingOwner::Part(_)=>dimension==self.dim.id() && self.ae2_has_terminal(pos)
+                && host.hub.guests.iter().find(|g|g.conn==conn).is_some_and(|g|
+                    !g.spectator() && g.within_block_range([pos.0,pos.1,pos.2],4.0)),
+        };
         if !valid || !self.lan_load_encoding_state(host,conn) {return;}
         if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()) {
             t.pattern_grid.fill(None);t.processing_outputs.fill(None);
@@ -2341,7 +2402,7 @@ impl Game<'_> {
     fn lan_send_ae2_terminal(&mut self, host: &mut super::lan::LanHost, conn: u32) {
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.processing_amount_edit.is_some()){self.lan_send_processing_amount(host,conn);return;}
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.priority_edit.is_some()){self.lan_send_priority(host,conn);return;}
-        if let Some((window,encoding,processing,special_mode))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.encoding_part.is_some()).map(|t|(t.window,t.encoding,t.processing,t.special_mode)) {
+        if let Some((window,encoding,processing,special_mode))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.encodes()).map(|t|(t.window,t.encoding,t.processing,t.special_mode)) {
             let mut data=window.to_be_bytes().to_vec();data.push(u8::from(encoding && processing));
             host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:encoding_state".into(),data}));
             let mut slots=Vec::new();
@@ -2398,7 +2459,7 @@ impl Game<'_> {
                 }
             }
         }
-        if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.encoding_part.is_some()) {self.lan_load_encoding_state(host,conn);}
+        if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(GuestTerminal::encodes) {self.lan_load_encoding_state(host,conn);}
         use horizon_protocol::packets::play::{self, Clientbound as C};
         let Some((
             pos,
@@ -2499,7 +2560,7 @@ impl Game<'_> {
         let craft_part = host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.craft_part);
         let owner = craft_owner(craft_part, wireless.as_ref());
         let encoding_view=encoding && owner.is_none()
-            && host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.encoding_part.is_some());
+            && host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(GuestTerminal::encodes);
         let page_size = terminal_page_size(owner.is_some(), encoding_view);
         let pins=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).map(|t|t.pinned.clone()).unwrap_or_default();
         let Some((search_mod_name,search_language))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).map(|t|(t.search_mod_name,t.search_language.clone())) else{return;};
@@ -2569,11 +2630,11 @@ impl Game<'_> {
         } else {
             None
         };
-        let encoding_part=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_part);
-        if craft_part.is_none() && encoding_part.is_some() {
+        let encoding_owner=Self::lan_encoding_owner(host,conn);
+        if craft_part.is_none() && encoding_owner.is_some() {
             if encoding {
                 items.fill(None);
-                if let Some(machine)=encoding_part.and_then(|part|self.ae2_part_machine(part).ok().flatten()) {
+                if let Some(machine)=encoding_owner.as_ref().and_then(|owner|self.lan_encoding_machine(host,conn,owner).ok()) {
                     items[49]=machine.slots.first().cloned().flatten();items[50]=machine.slots.get(1).cloned().flatten();
                 }
                 let pattern_page = if processing {
@@ -2675,7 +2736,7 @@ impl Game<'_> {
                 }
             }
         }
-        if encoding && craft_part.is_none() && encoding_part.is_some() && !processing {
+        if encoding && craft_part.is_none() && encoding_owner.is_some() && !processing {
             for (i,fluid) in fluid_inputs.iter().take(9).enumerate() {
                 if (special_mode==1 && i>=3) || (special_mode==2 && i>=1) {continue;}
                 if let Some(fluid)=fluid {items[i]=encoding_fluid_icon(fluid);}
@@ -2744,7 +2805,8 @@ impl Game<'_> {
             "extra":if storage_view {extra} else {Vec::new()},
             "key_type_edit":key_type_edit,
             "sort":sort_mode,"view":filter_mode,"descending":sort_descending,
-            "types":wireless.as_ref().map(|_|[enabled_types.0,enabled_types.1]),"priority":chest,"jobs":jobs,
+            "types":wireless.as_ref().filter(|_|!encoding_view).map(|_|[enabled_types.0,enabled_types.1]),"priority":chest,"jobs":jobs,
+            "universal":wireless.as_ref().and_then(|ctx|self.lan_wireless_universal_view(host,conn,ctx)),
         });
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else {
             return;
@@ -2773,7 +2835,7 @@ impl Game<'_> {
             t.chest_revisions.push_back((t.state,ChestTerminalSettings{sort:t.sort_mode,view:t.filter_mode,descending:t.sort_descending}));
             while t.chest_revisions.len()>64 {t.chest_revisions.pop_front();}
         }
-        if t.encoding_part.is_some() {
+        if t.encodes() {
             t.encoding_revisions.push_back((t.state,t.encoding_snapshot.clone(),t.processing_page));
             while t.encoding_revisions.len()>64 {t.encoding_revisions.pop_front();}
         }
@@ -2939,6 +3001,7 @@ impl Game<'_> {
                     self.lan_craft_matrix_read(host, conn, &owner)
                         .map_or(true, |m| m.slots != craft_snapshot))
                 || encoding_part.is_some_and(|part|self.ae2_part_machine(part).ok().flatten()!=encoding_snapshot)
+                || encoding_owner(None, wireless.as_ref()).is_some_and(|owner|self.lan_encoding_machine(host,conn,&owner).ok()!=encoding_snapshot)
                 || (connected
                     && self
                         .ae2_terminal_entries(pos)
@@ -3990,9 +4053,9 @@ impl Game<'_> {
             .get(&conn)
             .and_then(|p| p.ae2_terminal.as_ref())
             .and_then(|t| t.craft_part);
-        let encoding_part=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_part);
-        if let Some(part)=encoding_part {
-            let current=self.ae2_part_machine(part).ok().flatten();
+        let encoding_part=Self::lan_encoding_owner(host,conn);
+        if let Some(enc)=encoding_part.as_ref() {
+            let current=self.lan_encoding_machine(host,conn,enc).ok();
             // A broadcast can update the session before an already queued
             // click arrives. Compare the recipe actually displayed at that
             // revision, not merely the latest counter (which also advances on
@@ -4505,7 +4568,7 @@ impl Game<'_> {
             return self.lan_open_processing_amount(host,conn,p.container,p.slot);
         }
         if encoding && (54..90).contains(&p.slot) && super::lan_crafting::input(p.input)==horizon_client::menu::Input::QuickMove {
-            if let Some(part)=encoding_part {
+            if let Some(part)=encoding_part.as_ref() {
                 let index=if p.slot<81 {9+(p.slot as usize-54)} else {p.slot as usize-81};
                 match self.lan_encoding_quick_insert(host,conn,part,index) {
                     Ok(true)=>{self.lan_load_encoding_state(host,conn);self.lan_send_ae2_terminal(host,conn);return true;}
@@ -4515,7 +4578,7 @@ impl Game<'_> {
             }
         }
         if encoding && (p.slot==49 || p.slot==50) {
-            if let Some(part)=encoding_part {
+            if let Some(part)=encoding_part.as_ref() {
                 if let Err(message)=self.lan_encoding_slot_click(host,conn,part,(p.slot-49) as usize,p.button,super::lan_crafting::input(p.input)) {
                     self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));
                 }
@@ -4740,8 +4803,8 @@ impl Game<'_> {
                         })
                     })
                 };
-                if let (Some(pattern),Some(part))=(pattern,encoding_part) {
-                    if let Ok(Some(mut machine))=self.ae2_part_machine(part) {
+                if let (Some(pattern),Some(part))=(pattern,encoding_part.as_ref()) {
+                    if let Ok(mut machine)=self.lan_encoding_machine(host,conn,part) {
                         let eligible=machine.slots.get(1).and_then(Option::as_ref).is_some_and(|item|
                             item.item.as_ref()=="ae2:blank_pattern" || super::ae2_encoding::EncodingState::from_pattern(item).is_some());
                         let empty=machine.slots.get(1).is_some_and(Option::is_none);
@@ -4749,7 +4812,7 @@ impl Game<'_> {
                         if eligible || (empty && blank) {
                             if empty {if let Some(item)=machine.slots[0].as_mut(){item.count-=1;if item.count==0 {machine.slots[0]=None;}}}
                             machine.slots[1]=Some(pattern);
-                            if let Err(message)=self.ae2_store_part_machine(part,&machine) {self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));}
+                            if let Err(message)=self.lan_store_encoding_machine(host,conn,part,&machine) {self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));}
                         } else {self.as_guest(host,conn,|g|g.system_message(Text::literal("Insert a blank pattern into the terminal")));}
                     }
                 }
@@ -5183,7 +5246,9 @@ fn ae2_link_slot_click(dim:&str,pos:(i32,i32,i32),slot:usize,button:i32,input:In
     if input!=Input::Pickup || !(0..=1).contains(&button) || !matches!(slot,1|2) {return;}
     if slot==1 {
         if carried.is_none() {*carried=link_input.take();}
-        else if link_input.is_none() && carried.as_ref().is_some_and(|item|item.count==1 && matches!(item.item.as_ref(),"ae2:wireless_terminal"|"ae2:wireless_crafting_terminal")) {
+        // GridLinkables: AE2's wireless terminals and the addons' (AE2WTLib registers its
+        // terminals and the universal one with WirelessTerminalItem.LINKABLE_HANDLER).
+        else if link_input.is_none() && carried.as_ref().is_some_and(horizon_client::ae2x::wireless::host) {
             *link_input=carried.take();
         }
     } else if carried.is_none() {*carried=link_output.take();}
@@ -5783,10 +5848,15 @@ impl Game<'_> {
     fn processing_amount_session(&self,host:&super::lan::LanHost,conn:u32)->Option<(i32,ProcessingAmountEdit)> {
         let guest=host.hub.guests.iter().find(|guest|guest.conn==conn && host.hub.here(guest) && !guest.spectator())?;
         let terminal=host.play.get(&conn)?.ae2_terminal.as_ref()?;let edit=terminal.processing_amount_edit.clone()?;
-        if terminal.owner_dim!=self.dim.id() || !terminal.encoding || !terminal.processing
-            || terminal.encoding_part!=Some(edit.part) || terminal.encoding_identity!=Some(edit.identity)
-            || self.ae2_encoding_identity(edit.part)!=Some(edit.identity)
-            || !guest.within_block_range([terminal.pos.0,terminal.pos.1,terminal.pos.2],4.0) {return None;}
+        // A part's editor belongs to that part, in reach; a wireless one to its item.
+        let owner_valid=match (edit.part,edit.identity) {
+            (Some(part),Some(identity))=>terminal.owner_dim==self.dim.id()
+                && terminal.encoding_part==Some(part) && terminal.encoding_identity==Some(identity)
+                && self.ae2_encoding_identity(part)==Some(identity)
+                && guest.within_block_range([terminal.pos.0,terminal.pos.1,terminal.pos.2],4.0),
+            _=>terminal.encoding_part.is_none() && matches!(terminal.encoding_owner(),Some(EncodingOwner::Wireless(ctx)) if self.ae2_wireless_source_valid(host,conn,&ctx)),
+        };
+        if !terminal.encoding || !terminal.processing || !owner_valid {return None;}
         Some((terminal.window,edit))
     }
     fn lan_processing_amount_invalid(&mut self,host:&mut super::lan::LanHost,conn:u32) {
@@ -5796,7 +5866,8 @@ impl Game<'_> {
     }
     fn lan_open_processing_amount(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,slot:i16)->bool {
         let Some(terminal)=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.window==window && t.encoding && t.processing) else{return true};
-        let (Some(part),Some(identity))=(terminal.encoding_part,terminal.encoding_identity) else{return true};
+        let (part,identity)=(terminal.encoding_part,terminal.encoding_identity);
+        if !terminal.encodes() || (part.is_some() && identity.is_none()) {return true};
         let output=slot>=18;
         let index=if output {(slot-18) as usize+terminal.processing_page.min(8)*3}else{slot as usize+terminal.processing_page.min(8)*9};
         let (item,fluid)=if output {(terminal.processing_outputs.get(index),terminal.fluid_outputs.get(index))} else {(terminal.pattern_grid.get(index),terminal.fluid_inputs.get(index))};
@@ -5853,7 +5924,8 @@ impl Game<'_> {
         if p.slot==9 && input==Input::Pickup {self.lan_processing_amount_close(host,conn,window,&edit);return true;}
         if p.slot==8 && input==Input::Pickup {
             let Some(amount)=super::ae2_number_entry::number_value(&edit.text,edit.unit,0,edit.max,'.') else{self.lan_send_processing_amount(host,conn);return true};
-            let Some(mut machine)=self.ae2_part_machine(edit.part).ok().flatten() else{self.lan_processing_amount_invalid(host,conn);return true};
+            let Some(owner)=Self::lan_encoding_owner(host,conn) else{self.lan_processing_amount_invalid(host,conn);return true};
+            let Ok(mut machine)=self.lan_encoding_machine(host,conn,&owner) else{self.lan_processing_amount_invalid(host,conn);return true};
             let Ok(mut state)=super::ae2_encoding::EncodingState::load(&machine) else{self.lan_processing_amount_invalid(host,conn);return true};
             if state.processing {
                 let (items,fluids)=if edit.output {(&mut state.outputs,&mut state.fluid_outputs)}else{(&mut state.inputs,&mut state.fluid_inputs)};
@@ -5862,7 +5934,7 @@ impl Game<'_> {
                         ProcessingAmountKey::Item(item)=>{let mut item=item.clone();item.count=amount as u32;items[edit.index]=(amount>0).then_some(item);fluids[edit.index]=None;},
                         ProcessingAmountKey::Fluid(key)=>{items[edit.index]=None;fluids[edit.index]=(amount>0).then(||super::ae2_processing::PatternFluid{key:key.clone(),amount:amount as u64});},
                     }
-                    if state.save(&mut machine).is_ok(){let _=self.ae2_store_part_machine(edit.part,&machine);}
+                    if state.save(&mut machine).is_ok(){let _=self.lan_store_encoding_machine(host,conn,&owner,&machine);}
                 }
             }
             self.lan_processing_amount_close(host,conn,window,&edit);return true;

@@ -76,6 +76,47 @@ pub struct PartDef {
     pub cells: usize,
 }
 
+/// What a wireless terminal opens (`WTDefinition.menuType`): AE2's ME and
+/// crafting terminal menus, the pattern encoding terminal's, the pattern
+/// access terminal's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TerminalKind {
+    Me,
+    Crafting,
+    PatternEncoding,
+    PatternAccess,
+}
+
+/// A wireless terminal item: AE2's two, and AE2WTLib's `WTDefinition`
+/// (its MIT API: `AddTerminalEvent.builder(terminalName, menuHostFactory,
+/// menuType, item, icon)`, `hotkeyName`, `upgradeCount`, `componentType`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WirelessTerminal {
+    /// `terminalName` (`crafting`, `pattern_encoding`, ...): what
+    /// `ae2wtlib:current_terminal` names. AE2's own terminal, which no
+    /// universal terminal takes, has its item id.
+    pub name: String,
+    pub item: String,
+    pub kind: TerminalKind,
+    /// `hotkeyName`: `wireless_<name>_terminal` unless the addon names one.
+    pub hotkey: String,
+    /// `upgradeCount`: the item's upgrade slots, 2 by default.
+    pub upgrade_slots: usize,
+    /// `componentType`, `has_<name>_terminal`: a universal terminal holds
+    /// this terminal while it carries the component. None for one that
+    /// can't be combined (AE2's Wireless Terminal).
+    pub installed: Option<String>,
+}
+
+/// AE2WTLib's Wireless Universal Terminal (`ItemWUT`): one item that holds
+/// the terminals whose components it carries and opens the current one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UniversalTerminal {
+    pub item: String,
+    /// `AE2wtlibComponents.CURRENT_TERMINAL`: the name of the terminal it opens.
+    pub current: String,
+}
+
 /// The tables. Filled by [`Defs::ae2`] and the addons' `register`.
 #[derive(Debug, Default)]
 pub struct Defs {
@@ -92,8 +133,67 @@ pub struct Defs {
     parts: HashMap<String, PartDef>,
     /// The portable cells in the order they were added.
     portable_order: Vec<String>,
+    /// The wireless terminals in registration order (`wirelessTerminalList`).
+    wireless_terminals: Vec<WirelessTerminal>,
+    universal_terminal: Option<UniversalTerminal>,
 }
 impl Defs {
+    /// A wireless terminal item. A row for an item already listed takes its
+    /// place (AE2WTLib's `crafting` over AE2's Wireless Crafting Terminal:
+    /// `AEItemsMixin` makes AE2's item its `ItemWCT`). The item's upgrade
+    /// slots are its `upgradeCount`; its cards are added with [`Defs::add_upgrade`].
+    pub fn add_wireless_terminal(&mut self, terminal: WirelessTerminal) {
+        self.upgrade_slots.insert(terminal.item.clone(), terminal.upgrade_slots);
+        match self.wireless_terminals.iter_mut().find(|t| t.item == terminal.item) {
+            Some(row) => *row = terminal,
+            None => self.wireless_terminals.push(terminal),
+        }
+    }
+    /// The wireless terminals in registration order.
+    pub fn wireless_terminals(&self) -> impl Iterator<Item = &WirelessTerminal> {
+        self.wireless_terminals.iter()
+    }
+    /// The row of a wireless terminal item; none for the universal terminal
+    /// and for any other item.
+    pub fn wireless_terminal(&self, item: &str) -> Option<&WirelessTerminal> {
+        self.wireless_terminals.iter().find(|t| t.item == item)
+    }
+    /// `WTDefinition.of(name)`.
+    pub fn wireless_terminal_named(&self, name: &str) -> Option<&WirelessTerminal> {
+        self.wireless_terminals.iter().find(|t| t.name == name)
+    }
+    /// AE2WTLib's `UpgradeHelper.addUpgradeToAllTerminals(card, max)`: `card`
+    /// on each terminal a universal terminal can hold, up to `max` and its
+    /// `upgradeCount` (all of them for 0), and on the universal terminal, up
+    /// to `max` (for 0 the terminals' slots together,
+    /// `WUTHandler.getUpgradeCardCount`).
+    pub fn add_upgrade_to_all_terminals(&mut self, card: &str, max: usize) {
+        let rows: Vec<(String, usize)> = self
+            .wireless_terminals
+            .iter()
+            .filter(|t| t.installed.is_some())
+            .map(|t| (t.item.clone(), t.upgrade_slots))
+            .collect();
+        let all: usize = rows.iter().map(|(_, slots)| slots).sum();
+        for (item, slots) in rows.into_iter().filter(|(_, slots)| *slots > 0) {
+            self.add_upgrade(card, &item, if max == 0 { slots } else { max.min(slots) });
+        }
+        if let Some(universal) = self.universal_terminal.clone() {
+            self.add_upgrade(card, &universal.item, if max == 0 { all } else { max });
+        }
+    }
+    /// The universal terminal: its item opens the terminals it holds.
+    pub fn set_universal_terminal(&mut self, universal: UniversalTerminal) {
+        self.universal_terminal = Some(universal);
+    }
+    pub fn universal_terminal(&self) -> Option<&UniversalTerminal> {
+        self.universal_terminal.as_ref()
+    }
+    /// A wireless terminal item, the universal one included
+    /// (`WirelessTerminalItem`).
+    pub fn is_wireless_terminal(&self, item: &str) -> bool {
+        self.wireless_terminal(item).is_some() || self.universal_terminal.as_ref().is_some_and(|u| u.item == item)
+    }
     /// A storage cell, with the upgrade inventory `BasicStorageCell` and
     /// `PortableCellItem` give it: four slots on an item cell, three on a
     /// fluid cell. Its cards are added with [`Defs::add_upgrade`].
@@ -311,9 +411,19 @@ impl Defs {
                 defs.add_upgrade("ae2:energy_card", &cell.id, 2);
             }
         }
-        for terminal in ["ae2:wireless_terminal", "ae2:wireless_crafting_terminal"] {
-            defs.set_upgrade_slots(terminal, 2);
-            defs.add_upgrade("ae2:energy_card", terminal, 2);
+        // AEItems.WIRELESS_TERMINAL and WIRELESS_CRAFTING_TERMINAL
+        // (WirelessTerminalItem: two upgrade slots, both on the
+        // HotkeyAction.WIRELESS_TERMINAL hotkey).
+        for (item, kind) in [("ae2:wireless_terminal", TerminalKind::Me), ("ae2:wireless_crafting_terminal", TerminalKind::Crafting)] {
+            defs.add_wireless_terminal(WirelessTerminal {
+                name: item.to_owned(),
+                item: item.to_owned(),
+                kind,
+                hotkey: "wireless_terminal".to_owned(),
+                upgrade_slots: 2,
+                installed: None,
+            });
+            defs.add_upgrade("ae2:energy_card", item, 2);
         }
         defs.set_upgrade_slots("ae2:view_cell", 2);
         defs.add_upgrade("ae2:fuzzy_card", "ae2:view_cell", 1);
@@ -356,6 +466,10 @@ pub fn get() -> &'static Defs {
         super::merequester::register(&mut defs);
         #[cfg(feature = "ae2-extendedae")]
         super::extendedae::register(&mut defs);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        super::ae2wtlib::register(&mut defs);
+        #[cfg(all(feature = "ae2-megacells", feature = "ae2-ae2wtlib"))]
+        super::megacells::register_ae2wt(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
         // variants of AE2's, for `Machine::for_block`, the crafting CPU
         // blocks' bytes and threads, and the energy cells' capacities.

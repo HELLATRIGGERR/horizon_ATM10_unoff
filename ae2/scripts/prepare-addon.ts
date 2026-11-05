@@ -37,7 +37,10 @@ type Content = { namespace: string; name: string; description: string; authors: 
   data_maps?: string[];
   /** The addon's recipes All the Mods 10's own scripts remove, with why: left out here, as the pack's final data
    * (its NeoForge run, `horizon-port-pack final-data`) holds what replaces them. */
-  pack_removed?: Record<string, string> };
+  pack_removed?: Record<string, string>;
+  /** The pack's own items of an addon's KubeJS builder (ExtendedAE's `custom_infinity_cell`), read from its startup
+   * script: each item's id (`namespace:name`) and the key and model its builder calls name, written to `out`. */
+  pack_kubejs_items?: { script: string; builder: string; namespace: string; out: string; calls: Record<string, string> } };
 type Manifest = { addon: string; name: string; version: string; source: { url: string; tag: string; commit: string; license: string };
   assets_license: string; jar: { file: string; sha256: string } };
 
@@ -254,6 +257,29 @@ if (!help(usage)) {
   const maps = walk(join(data, ns, 'data_maps')).filter(p => !(content.data_maps ?? []).some(m => relative(join(data, ns, 'data_maps'), p).replaceAll('\\', '/') === `${m}.json`));
   if (maps.length) report.deferred[`data/${ns}/data_maps`] = maps.length;
   later(`data/${ns}/advancement`, join(data, ns, 'advancement'));
+
+  // The pack's KubeJS items of the addon's builder: `.create('<name>', '<builder>')` and its chained calls, up to
+  // the statement's end (`InfinityCellBuilder.itemType`, `fluidType`, `cellModel`), a row each. The game reads them
+  // from the content.
+  if (content.pack_kubejs_items) {
+    const spec = content.pack_kubejs_items;
+    const script = join(atm10, spec.script);
+    const rows: Record<string, string>[] = [];
+    if (existsSync(script)) {
+      const text = readFileSync(script, 'utf8');
+      const builder = new RegExp(String.raw`\.create\(\s*['"]([a-z0-9_./-]+)['"]\s*,\s*['"]${spec.builder}['"]\s*\)([^;]*);`, 'g');
+      for (const [, name, chain] of text.matchAll(builder)) {
+        const row: Record<string, string> = { id: `${spec.namespace}:${name}` };
+        for (const [call, field] of Object.entries(spec.calls)) {
+          const value = new RegExp(String.raw`\.${call}\(\s*['"]([^'"]+)['"]\s*\)`).exec(chain)?.[1];
+          if (value) row[field] = value;
+        }
+        rows.push(row);
+      }
+    }
+    put(join(out, spec.out), rows);
+    report.pack_kubejs_items = rows.length;
+  }
 
   writeFileSync(join(out, 'horizon-mod.toml'), [
     `id = "${ns}"`, `name = "${content.name}"`, `version = "${manifest.version}"`,

@@ -120,6 +120,9 @@ pub(super) fn content_root(
             register_menu_types(&loaded.menu_types);
             register_fluids(&loaded.root, &loaded.fluids);
             horizon_client::mod_content::register_fluid_interactions(&loaded.fluid_interactions);
+            // ExtendedAE's infinity cells of the pack (All the Mods 10's KubeJS ones).
+            #[cfg(feature = "ae2-extendedae")]
+            horizon_client::ae2x::extendedae::install_pack_cells(&loaded.root);
             loaded.root
         }
         Err(e) => {

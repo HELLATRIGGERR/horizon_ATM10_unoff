@@ -581,14 +581,15 @@ impl Game<'_> {
                 return Ok(Vec::new());
             };
             if let Ok(keys) = self.ae2_creative_cell_keys(stack) {
+                let amount = horizon_client::ae2_cell_codec::creative_cell_amount(stack);
                 return Ok(keys
                     .into_iter()
                     .map(|entry| match entry {
                         super::ae2_storage_devices::CreativeCellKey::Item(key) => {
-                            (key, i32::MAX as u64)
+                            (key, amount)
                         }
                         super::ae2_storage_devices::CreativeCellKey::Fluid(key) => {
-                            (fluid_marker(&key), i32::MAX as u64)
+                            (fluid_marker(&key), amount)
                         }
                     })
                     .collect());

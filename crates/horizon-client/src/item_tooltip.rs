@@ -252,6 +252,11 @@ pub fn name_line(stack: &ItemStack, translate: &dyn Fn(&str) -> Option<String>) 
     if let Some(name) = stack.item_name() {
         return name;
     }
+    // ExtendedAE's ItemInfinityCell.getName: its record's name.
+    #[cfg(feature="ae2-extendedae")]
+    if let Some(name)=crate::ae2x::extendedae::infinity_cell_name(&stack.item,translate,&|id|name_line(&ItemStack::new(id,1),translate)) {
+        return name;
+    }
     #[cfg(feature="ae2-lab")]
     if let Some(id)=ae2_facade_texture(stack) {
         let base=translate("item.ae2.facade").unwrap_or_else(||"Facade".into());

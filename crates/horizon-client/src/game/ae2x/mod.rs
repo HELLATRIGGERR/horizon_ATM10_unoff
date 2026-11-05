@@ -279,6 +279,10 @@ pub(super) fn pattern_inventory_accepts(machine: &Machine, item: &horizon_client
 /// Whether an addon's item opens a menu when used (`Item.use` succeeds on
 /// the client, `sidedSuccess`): the client then stops at this hand.
 pub(super) fn item_opens_menu(id: &str) -> bool {
+    #[cfg(feature = "ae2-extendedae")]
+    if id == horizon_client::ae2x::extendedae::VOID_CELL {
+        return true;
+    }
     #[cfg(feature = "ae2-megacells")]
     if id == horizon_client::ae2x::megacells::PORTABLE_CELL_WORKBENCH {
         return true;
@@ -379,6 +383,10 @@ impl Game<'_> {
         if stack.item.as_ref() == horizon_client::ae2x::megacells::BULK_ITEM_CELL {
             return Some(self.megacells_bulk_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
         }
+        #[cfg(feature = "ae2-extendedae")]
+        if stack.item.as_ref() == horizon_client::ae2x::extendedae::VOID_CELL {
+            return Some(self.extendedae_void_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
+        }
         let _ = stack;
         None
     }
@@ -396,6 +404,10 @@ impl Game<'_> {
     /// (`Item.appendHoverText`), each line in its own style; `name` gives an
     /// item's hover name.
     pub(super) fn ae2x_item_hover_lines(&self, stack: &horizon_client::items::ItemStack, translate: &dyn Fn(&str) -> Option<String>, name: &dyn Fn(&horizon_client::items::ItemStack) -> horizon_client::text::Text) -> Vec<horizon_client::text::Text> {
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(lines) = self.extendedae_hover_lines(stack, translate) {
+            return lines;
+        }
         #[cfg(feature = "ae2-megacells")]
         {
             if stack.item.as_ref() == horizon_client::ae2x::megacells::BULK_ITEM_CELL {
@@ -587,6 +599,20 @@ impl Game<'_> {
         if self.lan_open_portable_workbench(host, conn, hand) {
             return true;
         }
+        #[cfg(feature = "ae2-extendedae")]
+        if self.lan_open_void_cell(host, conn, hand) {
+            return true;
+        }
+        false
+    }
+    /// A press on an addon's menu screen's button (`ContainerButtonClick`):
+    /// true when it was an addon's window.
+    pub(super) fn lan_ae2x_button(&mut self, host: &mut super::lan::LanHost, conn: u32, window: i32, id: i32) -> bool {
+        let _ = (&host, conn, window, id);
+        #[cfg(feature = "ae2-extendedae")]
+        if self.lan_void_cell_button(host, conn, window, id) {
+            return true;
+        }
         false
     }
 
@@ -620,6 +646,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-ae2wtlib")]
         if self.lan_ae2wtlib_trash_closed(host, conn, Some(window)) {
+            return true;
+        }
+        #[cfg(feature = "ae2-extendedae")]
+        if self.lan_void_cell_closed(host, conn, Some(window)) {
             return true;
         }
         false
@@ -815,6 +845,8 @@ impl Game<'_> {
         self.lan_refresh_merequester(host);
         #[cfg(feature = "ae2-ae2wtlib")]
         self.lan_refresh_ae2wtlib_trash(host);
+        #[cfg(feature = "ae2-extendedae")]
+        self.lan_refresh_void_cells(host);
     }
 
     /// `/ae2 <addon> ...`: none when no addon has the command.

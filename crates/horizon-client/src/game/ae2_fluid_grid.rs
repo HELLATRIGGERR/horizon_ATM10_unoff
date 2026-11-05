@@ -25,7 +25,7 @@ impl Game<'_> {
                     if let super::ae2_storage_devices::CreativeCellKey::Fluid(k) = key {
                         let total = totals.entry(k).or_default();
                         *total = total
-                            .checked_add(i32::MAX as u64)
+                            .checked_add(horizon_client::ae2_cell_codec::creative_cell_amount(item))
                             .ok_or("fluid amount overflow")?;
                     }
                 }

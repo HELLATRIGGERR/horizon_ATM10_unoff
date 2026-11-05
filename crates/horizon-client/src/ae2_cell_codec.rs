@@ -38,7 +38,7 @@ pub fn prototype(key: &ItemKey) -> Result<ItemStack, String> {
 /// (`StorageCells.isCellHandled`).
 pub fn is_cell(id: &str) -> bool {
     let defs = crate::ae2x::defs::get();
-    defs.cell(id).is_some() || defs.handler_cell(id).is_some()
+    defs.cell(id).is_some() || defs.handler_cell(id).is_some() || crate::ae2x::fixed_cell(id).is_some()
 }
 /// A cell of fluids (`getKeyType() == AEKeyType.fluids()`).
 pub fn is_fluid_cell(id: &str) -> bool {
@@ -54,6 +54,7 @@ pub fn idle_drain(id: &str) -> Option<f64> {
         _ => {
             let defs = crate::ae2x::defs::get();
             defs.cell(id).map(|cell| cell.idle_drain).or_else(|| defs.handler_cell(id).map(|cell| cell.idle_drain))
+                .or_else(|| crate::ae2x::fixed_cell(id).map(|cell| cell.idle_drain))
         }
     }
 }
@@ -479,10 +480,26 @@ pub fn read_view_cell_checked(stack: &ItemStack, known:&dyn Fn(&str,bool)->bool)
     }
     Ok(ViewCellSettings { filters, fuzzy, inverted, fuzzy_mode })
 }
+/// What a creative cell reports of each of its keys (`getAvailableStacks`):
+/// AE2's `Integer.MAX_VALUE`, an addon's fixed cell its own amount.
+pub fn creative_cell_amount(stack: &ItemStack) -> u64 {
+    crate::ae2x::fixed_cell(&stack.item).map_or(i32::MAX as u64, |cell| cell.amount)
+}
 pub fn creative_cell_keys(stack: &ItemStack) -> Result<Vec<CreativeCellKey>, String> {
     creative_cell_keys_checked(stack, &|_,_| true)
 }
 pub fn creative_cell_keys_checked(stack: &ItemStack, known:&dyn Fn(&str,bool)->bool) -> Result<Vec<CreativeCellKey>, String> {
+    // An addon's cell of one key without end (ExtendedAE's infinity cells).
+    if let Some(cell) = crate::ae2x::fixed_cell(&stack.item) {
+        if stack.count != 1 || !known(&cell.key, cell.fluid) {
+            return Err("invalid fixed cell".into());
+        }
+        return Ok(vec![if cell.fluid {
+            CreativeCellKey::Fluid(ae2_cell_core::ItemKey { item_id: cell.key, components: Vec::new() })
+        } else {
+            CreativeCellKey::Item(key(&ItemStack::new(cell.key.as_str(), 1))?)
+        }]);
+    }
     if stack.item.as_ref() != "ae2:creative_storage_cell" || stack.count != 1 {
         return Err("not a creative storage cell".into());
     }

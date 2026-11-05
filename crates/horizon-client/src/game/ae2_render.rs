@@ -120,6 +120,7 @@ impl Game<'_> {
     fn ae2_cell_chassis_quads(&self, id: &str, pose: glam::Mat4, light: u32, out: &mut Vec<Vertex>) {
         let library = self.pack.render.model_library.as_ref().ok();
         let model_name = horizon_client::ae2x::defs::get().drive_model(id)
+            .or_else(|| horizon_client::ae2x::fixed_cell_model(id))
             .unwrap_or("ae2:block/drive/drive_cell").to_owned();
         let Some(quads) = library.and_then(|l| l.resolve(&model_name).ok())
             .and_then(|m| horizon_assets::bake::bake_model(&m).ok()) else { return };

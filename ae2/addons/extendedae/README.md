@@ -9,7 +9,9 @@ committed. Provenance in [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json), the decla
 
 Feature `ae2-extendedae`; content `content/extendedae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts extendedae`. ATM10's `config/extendedae-common.toml` keeps
-the mod's defaults; ATM10's KubeJS scripts change nothing in this slice.
+the mod's defaults (ATM10 8.4 ships none: `extended_io_bus_multiplier` 8, `infinity_cell_energy_cost` 8). Of
+ATM10's KubeJS, only its infinity cells (slice 6) touch the mod; its recipes for them are the pack's own, in
+the full pack's carry.
 
 From 2.2.41 (ATM10 8.3) to 2.2.42 the mod changed two classes and nothing else: `CraftingMatrixThread` resets the
 Assembler Matrix's progress on its cached-pattern path, and `ContainerRenamer` saves the block or part it renamed.
@@ -120,11 +122,38 @@ entro, a restart, the drops):
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-crystal extendedae-buses extendedae-devices
 ```
 
+## Slice 6: Infinity and Void Cells
+
+| ExtendedAE | Port |
+|---|---|
+| `ItemInfinityCell`, `InfinityCellInventory`: one key (`getRecord`) it lists as `Integer.MAX_VALUE * getAmountPerUnit()` (2,147,483,647 items, or that many buckets), gives without end and takes in, voided; nothing else goes in; `NOT_EMPTY`; `getIdleDrain` = `item.infinity_cell_energy_cost`, 8 AE/t | `horizon_client::ae2x::fixed_cell`: to the storage code a creative cell of that key (`creative_cell_keys_checked`), of its own amount (`creative_cell_amount`), drain and drive model; no Cell Workbench takes it (no `ICellWorkbenchItem`) |
+| `infinity_water_cell`, `infinity_cobblestone_cell` and their recipes (16k component, as in ATM10) | items of `content.json` (`ae2x::extendedae::infinity_cell`) |
+| ATM10's KubeJS `custom_infinity_cell`s (`InfinityCellBuilder`: `itemType`, `fluidType`, `cellModel`; 37 in 8.4: lava, dirt, moss, the stones, sands, concretes' dyes...), their recipes with MEGA's 256M component | their records and models read by `prepare-addon.ts` from the pack's `kubejs/startup_scripts/ExtendedAE/InfinityCells.js` (`pack_kubejs_items`) into `data/extendedae/ae2x/infinity_cells.json`, which the game installs with the content (`install_pack_cells`); the items and recipes are the pack's carry's |
+| `getName`: "ME Infinity %s Cell" of the record's name; `infinity.tooltip` | `item_tooltip::name_line`, `ae2x_item_hover_lines` |
+| `ItemVoidCell`, `VoidCellInventory`: an `ICellWorkbenchItem` of 63 filters and two cards (fuzzy, inverter); with no partition it takes nothing; what the partition lets in is taken whole and, by its `VOID_MODE`, kept as void energy that becomes matter balls (256 a ball) or singularities (256,000) as AE2's Condenser makes them, or trashed; those come back out; `isPreferredStorageFor` its partition; 1 AE/t | a cell of the mod's own handler (`HandlerCellDef`, `game/ae2x/extendedae/cells.rs`, `VoidCell`), its outputs in `ae2:storage_cell_inv`, its energy in `extendedae:void_energy` |
+| `ItemVoidCell.use`, `ContainerVoidCell`, `GuiVoidCell`, `screens/void_cell.json`: the three modes' buttons, "Mode: %s" | an item menu (`lan_open_void_cell`, a 9 x 3 window with no slots of its own; the player inventory shows under it), the mode as data slot 0; a button press sets the held cell's `extendedae:void_mode` (`lan_void_cell_button`, through `lan_ae2x_button`) |
+
+Differences, known:
+
+- It voids items only: the port's handler cells hold item keys; a fluid in its partition counts as a partition
+  but lets no fluid in.
+- No tooltip image (`getTooltipImage`) on either cell; an infinity cell has no tint (`BasicStorageCell::getColor`).
+
+Tests: `horizon-client` (the records, the pack's rows, the names, the void cell's handler row and the config's
+cost in `ae2x::extendedae`; partition, inverter, modes and output in `game::ae2x::extendedae::cells`) and the
+world test `extendedae-cells` (endless cobblestone out of a drive, cobblestone in and voided, nothing else in,
+8 AE/t each, endless water, a KubeJS-built dirt cell of a stand-in pack mod, the void cell preferred for its
+partition over a 1k cell, its inverter, an unpartitioned one, its screen setting matter ball mode and the
+matter balls it makes, a restart):
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-cells
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
 3. Assembler Matrix (max size 6 in ATM10): needs the crafting CPU to send jobs to a crafter thread, not to an
    assembler's place (it would also give the Extended Molecular Assembler its eight threads).
 4. Wireless Connector and Hub (range 1,000).
 5. Special buses, emitters and planes.
-6. Infinity and Void cells (ATM10: 256M components, 8 AE/t).
 7. Oversize (x16) and Vacuum interfaces, modifiers, ME Packing Tape, Extended Pattern Access Terminal.

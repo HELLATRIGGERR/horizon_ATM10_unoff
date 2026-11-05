@@ -440,6 +440,8 @@ impl Ctx {
 #[derive(Default)]
 pub(in crate::game) struct State {
     machines: HashMap<u64, Ctx>,
+    /// The open Void Cell menus, by player.
+    pub(in crate::game) void_menus: HashMap<u32, super::cells::VoidMenu>,
 }
 
 /// What a tick of [`execute`] needs from the world.

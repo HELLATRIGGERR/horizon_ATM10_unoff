@@ -3,8 +3,9 @@
 //! `ae2x::extendedae`); their screens are layouts of `ae2_screens`
 //! (`screens.rs`, a child module of it). Its own machines are in `machines.rs`,
 //! the Extended Inscriber, Charger and Molecular Assembler in `devices.rs`,
-//! Entro's growth in `entro.rs`.
+//! Entro's growth in `entro.rs`, the Infinity and Void Cells in `cells.rs`.
 //! What needs the game's own code is here, reached through `game/ae2x/mod.rs`.
+pub(in crate::game) mod cells;
 pub(in crate::game) mod devices;
 pub(in crate::game) mod entro;
 pub(in crate::game) mod machines;

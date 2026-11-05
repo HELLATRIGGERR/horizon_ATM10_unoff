@@ -576,9 +576,9 @@ impl Game<'_> {
             }
             return;
         }
-        // An AE2 machine screen's toolbar.
+        // An AE2 machine screen's toolbar, or an addon menu's buttons.
         #[cfg(feature = "ae2-lab")]
-        if self.lan_ae2_machine_button(host, conn, window, id) {
+        if self.lan_ae2_machine_button(host, conn, window, id) || self.lan_ae2x_button(host, conn, window, id) {
             return;
         }
         // LecternMenu's page buttons and Take Book.

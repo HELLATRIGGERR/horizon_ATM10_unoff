@@ -1,6 +1,6 @@
 # ExtendedAE port: working notes
 
-Slice 2's rest: branch `feat/extendedae-3` (from `7fbbadc26`), worktree
+Slices 2 (the rest) and 6: branch `feat/extendedae-3` (from `7fbbadc26`), worktree
 `D:\VSCODE_PROJECTS\DEV_1\atm10-wt\eae`, target `D:\VSCODE_PROJECTS\DEV_1\atm10-work\target-eae`. Content:
 `atm10-work\eae3-content\<namespace>` (`AE2_ADDON_CONTENT_ROOT`; extendedae, megacells, merequester); scripts and
 logs in `atm10-work\logs\eae3` (`build.sh`, `check.sh`, `unit.sh`, `suites.sh`). The mod's source at the pinned
@@ -41,6 +41,11 @@ native item handler, before AE2's machines'; hoppers route through it), `ae2x_ma
 the seed through `ae2x_use_on`, the charger through `ae2x_block_use`; `ae2_machine_click_physical` is
 `pub(super)` for the inscriber's paged window; `ae2_screens::PageLine` names a page line's key and place.
 
+Slice 6: `horizon_client::ae2x::fixed_cell` (an infinity cell is a creative cell of one key to the storage code:
+`creative_cell_keys_checked`, `creative_cell_amount`), the pack's KubeJS cells installed from the content by
+`game/mods.rs::content_root`; the void cell a handler cell (`cells.rs`) with its item menu (`lan_open_void_cell`,
+`lan_ae2x_button` from `lan_stations.rs`).
+
 Next: a Memory Card on the extended buses and the inscriber; the Assembler Matrix, which needs crafting flights
 that name a thread (the Extended Molecular Assembler's eight threads with it).
 
@@ -55,12 +60,16 @@ Facts checked for slice 2, at the source and in Glodium 2.2's classes (`javap`):
   port's took one grid stack a key, so any bus past 64 operations (an Extended one at 8 and more) stopped at 64.
   Fixed in `ae2_buses` (the export host's `transfer_atomic`). The import side already went slot by slot.
 
-Facts checked for slice 2's rest:
+Facts checked for slices 2 and 6:
 
 - `TickRateModulation` is ordered SLEEP, IDLE, SLOWER, SAME, FASTER, URGENT; `TileExInscriber.tickingRequest` keeps
   the highest of its threads'.
 - `TileExCharger.doWork` tops its buffer up (800 AE) after each of its four slots, not once a call.
-- ATM10 8.4 ships no `extendedae-common.toml`.
+- `InfinityCellInventory.insert` returns the amount for its record: the record goes in, voided; anything else is
+  refused. `getAsIntMax` is `Integer.MAX_VALUE * getAmountPerUnit()` (1,000 for a fluid).
+- `ItemVoidCell` keeps AE2's `CellConfig` (63 filters) and two cards; with no filter it takes nothing.
+- ATM10 8.4 ships no `extendedae-common.toml`; its KubeJS startup script builds 37 `custom_infinity_cell`s, and its
+  server script their recipes with MEGA's 256M component (`kubejs:gravel_cell` from the mod's cobblestone cell).
 - The content fence lets a content mod add tags only in its own namespaces and `minecraft`/`c`: the jar's
   `ae2:growth_acceleratable` cannot come with the addon; AE2's own tag holds `#c:budding_blocks`.
 

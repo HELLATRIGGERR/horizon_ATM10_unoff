@@ -24,6 +24,40 @@ pub fn install() {
     let _ = defs::get();
 }
 
+/// A cell that holds one key without end and takes it in to void it
+/// (ExtendedAE's `ItemInfinityCell`): to the port's storage code a creative
+/// cell of that key, of its own idle drain and drive model.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FixedCell {
+    /// The key's id; a fluid's when `fluid`.
+    pub key: String,
+    pub fluid: bool,
+    /// `getIdleDrain`, AE/t.
+    pub idle_drain: f64,
+    /// The amount `getAvailableStacks` reports, in the key's units (mB for a
+    /// fluid): ExtendedAE's `Integer.MAX_VALUE * getAmountPerUnit()`.
+    pub amount: u64,
+}
+/// The fixed cell of item `id`; none for any other item.
+pub fn fixed_cell(id: &str) -> Option<FixedCell> {
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(cell) = extendedae::infinity_cell(id) {
+        let per_unit = if cell.fluid { 1000 } else { 1 };
+        return Some(FixedCell { key: cell.record, fluid: cell.fluid, idle_drain: extendedae::Config::get().infinity_cell_cost, amount: i32::MAX as u64 * per_unit });
+    }
+    let _ = id;
+    None
+}
+/// The model a drive draws for a fixed cell (`StorageCellModels`).
+pub fn fixed_cell_model(id: &str) -> Option<&'static str> {
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(model) = extendedae::infinity_cell_model(id) {
+        return Some(model);
+    }
+    let _ = id;
+    None
+}
+
 /// `StorageCell.canFitInsideCell` of a cell of an addon's own handler (MEGA's
 /// Bulk Item Cell: empty and unfiltered); none for any other stack.
 pub fn handler_cell_fits_inside(stack: &crate::items::ItemStack) -> Option<bool> {
@@ -31,13 +65,28 @@ pub fn handler_cell_fits_inside(stack: &crate::items::ItemStack) -> Option<bool>
     if stack.item.as_ref() == megacells::BULK_ITEM_CELL {
         return Some(megacells::bulk_fits_inside(stack));
     }
-    let _ = stack;
+    // ExtendedAE's infinity and void cells keep the interface's default: no.
+    if fixed_cell(&stack.item).is_some() {
+        return Some(false);
+    }
+    #[cfg(feature = "ae2-extendedae")]
+    if stack.item.as_ref() == extendedae::VOID_CELL {
+        return Some(false);
+    }
     None
 }
 
 /// `getStatus` of a cell of an addon's own handler, as `CellState`'s LED
 /// number (1 empty, 2 not empty, 3 types full, 4 full); none for others.
 pub fn handler_cell_state(stack: &crate::items::ItemStack) -> Option<u8> {
+    // InfinityCellInventory and VoidCellInventory.getStatus: NOT_EMPTY.
+    if fixed_cell(&stack.item).is_some() {
+        return Some(2);
+    }
+    #[cfg(feature = "ae2-extendedae")]
+    if stack.item.as_ref() == extendedae::VOID_CELL {
+        return Some(2);
+    }
     #[cfg(feature = "ae2-megacells")]
     if stack.item.as_ref() == megacells::BULK_ITEM_CELL {
         let mut cell = megacells::bulk_cell(stack, &megacells::chains(), &|_, _| true).ok()?;

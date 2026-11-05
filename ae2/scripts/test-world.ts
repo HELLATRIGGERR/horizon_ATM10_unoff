@@ -61,6 +61,7 @@ const suites = [
   'extendedae-crystal',
   'extendedae-buses',
   'extendedae-devices',
+  'extendedae-cells',
   'ae2wtlib-terminals',
   'ae2wtlib-recipes',
   'ae2wtlib-magnet',
@@ -72,7 +73,7 @@ const suites = [
 // Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
 const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'megacells-crafting-cpu': 'megacells', 'megacells-energy': 'megacells', 'megacells-portable': 'megacells', 'megacells-provider-interface': 'megacells', 'megacells-cell-dock': 'megacells', 'megacells-bulk': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae', 'extendedae-crystal': 'extendedae', 'extendedae-buses': 'extendedae', 'ae2wtlib-terminals': 'ae2wtlib', 'ae2wtlib-recipes': 'ae2wtlib', 'ae2wtlib-magnet': 'ae2wtlib', 'ae2wtlib-restock': 'ae2wtlib', 'merequester-wireless': 'merequester', 'aeinfinitybooster-range': 'aeinfinitybooster', 'ae2importexportcard-cards': 'ae2importexportcard' };
 // ExtendedAE's later suites, on a line of their own.
-Object.assign(addonSuites, { 'extendedae-devices': 'extendedae' });
+Object.assign(addonSuites, { 'extendedae-devices': 'extendedae', 'extendedae-cells': 'extendedae' });
 // Explicitly selectable before-cases, not part of the default passing checkpoint.
 // inframe-bus-menu and inframe-machine-menus drive the in-frame menus' slot numbering, which went with upstream's in-frame
 // single player (23f8bd4fe). The nearest suites on the server thread, not compared assertion by assertion: part-screens,

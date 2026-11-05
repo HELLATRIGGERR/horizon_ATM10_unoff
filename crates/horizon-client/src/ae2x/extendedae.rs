@@ -35,6 +35,11 @@ pub const EX_CHARGER: &str = "extendedae:ex_charger";
 pub const EX_ASSEMBLER: &str = "extendedae:ex_molecular_assembler";
 /// `TileExInscriber.MAX_THREAD` and `TileExCharger.MAX_THREAD`.
 pub const THREADS: usize = 4;
+/// `ItemInfinityCell`s of the mod: endless water and cobblestone.
+pub const INFINITY_WATER_CELL: &str = "extendedae:infinity_water_cell";
+pub const INFINITY_COBBLESTONE_CELL: &str = "extendedae:infinity_cobblestone_cell";
+/// `ItemVoidCell`.
+pub const VOID_CELL: &str = "extendedae:void_cell";
 
 /// `extendedae-common.toml` (`EAEConfig`): what this port reads of it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -42,10 +47,12 @@ pub struct Config {
     /// `device.extended_io_bus_multiplier`, 2 to 128: the Extended Import and
     /// Export Buses' operations, times AE2's.
     pub bus_speed: u64,
+    /// `item.infinity_cell_energy_cost`, 0.1 to 64: an infinity cell's AE/t.
+    pub infinity_cell_cost: f64,
 }
 impl Default for Config {
     fn default() -> Self {
-        Self { bus_speed: 8 }
+        Self { bus_speed: 8, infinity_cell_cost: 8.0 }
     }
 }
 impl Config {
@@ -57,6 +64,10 @@ impl Config {
         let speed = value.get("device").and_then(|d| d.get("extended_io_bus_multiplier")).and_then(toml::Value::as_integer);
         if let Some(n) = speed.filter(|n| (2..=128).contains(n)) {
             config.bus_speed = n as u64;
+        }
+        let cost = value.get("item").and_then(|d| d.get("infinity_cell_energy_cost")).and_then(toml::Value::as_float);
+        if let Some(n) = cost.filter(|n| (0.1..=64.0).contains(n)) {
+            config.infinity_cell_cost = n;
         }
         Ok(config)
     }
@@ -225,6 +236,85 @@ pub const OWN_MACHINES: &[ExtMachine] = &[
     ExtMachine { id: EX_CHARGER, physical_slots: THREADS, upgrade_slots: 0, key_drops: None, power_capacity: Some(3200.0), part: false },
 ];
 
+/// An `ItemInfinityCell` (`InfinityCellInventory`): the one key it holds
+/// (`getRecord`), an item or a fluid, and the model a drive draws for it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InfinityCell {
+    pub id: String,
+    pub fluid: bool,
+    pub record: String,
+    pub drive_model: String,
+}
+/// The mod's two (`EAESingletons`, `registerStorageHandler`).
+fn own_infinity_cells() -> [InfinityCell; 2] {
+    let cell = |id: &str, fluid: bool, record: &str, model: &str| InfinityCell { id: id.into(), fluid, record: record.into(), drive_model: model.into() };
+    [
+        cell(INFINITY_WATER_CELL, true, "minecraft:water", "extendedae:block/drive/infinity_water_cell"),
+        cell(INFINITY_COBBLESTONE_CELL, false, "minecraft:cobblestone", "extendedae:block/drive/infinity_cobblestone_cell"),
+    ]
+}
+/// Where the content keeps the pack's own infinity cells: All the Mods 10's
+/// KubeJS `custom_infinity_cell`s (`InfinityCellBuilder`), which
+/// `prepare-addon.ts` reads from the pack's startup script.
+pub const PACK_INFINITY_CELLS: &str = "data/extendedae/ae2x/infinity_cells.json";
+static PACK_CELLS: OnceLock<Vec<InfinityCell>> = OnceLock::new();
+/// The pack's rows, `[{"id", "item" or "fluid", "model"}]`; a row of neither
+/// is left out, as `TraceableSupplier` fails the cell.
+pub fn parse_pack_cells(text: &str) -> Result<Vec<InfinityCell>, String> {
+    let rows: Vec<serde_json::Value> = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| {
+            let id = row.get("id")?.as_str()?.to_owned();
+            let (fluid, record) = match (row.get("item").and_then(|v| v.as_str()), row.get("fluid").and_then(|v| v.as_str())) {
+                (Some(item), None) => (false, item),
+                (None, Some(fluid)) => (true, fluid),
+                _ => return None,
+            };
+            // A cell with no model draws AE2's generic one (`StorageCellModels`).
+            let drive_model = row.get("model").and_then(|v| v.as_str()).unwrap_or("ae2:block/drive/drive_cell").to_owned();
+            Some(InfinityCell { id, fluid, record: record.to_owned(), drive_model })
+        })
+        .collect())
+}
+/// The pack's infinity cells from the content root `root`, once, before any
+/// world loads; none when the content has no such file.
+pub fn install_pack_cells(root: &std::path::Path) {
+    let cells = match std::fs::read_to_string(root.join(PACK_INFINITY_CELLS)) {
+        Ok(text) => parse_pack_cells(&text).unwrap_or_else(|error| {
+            log::warn!("ExtendedAE pack infinity cells: {error}");
+            Vec::new()
+        }),
+        Err(_) => Vec::new(),
+    };
+    let _ = PACK_CELLS.set(cells);
+}
+/// The infinity cell `id`: the mod's, then the pack's.
+pub fn infinity_cell(id: &str) -> Option<InfinityCell> {
+    own_infinity_cells().into_iter().find(|c| c.id == id).or_else(|| PACK_CELLS.get()?.iter().find(|c| c.id == id).cloned())
+}
+/// The model a drive draws for the infinity cell `id`.
+pub fn infinity_cell_model(id: &str) -> Option<&'static str> {
+    match id {
+        INFINITY_WATER_CELL => Some("extendedae:block/drive/infinity_water_cell"),
+        INFINITY_COBBLESTONE_CELL => Some("extendedae:block/drive/infinity_cobblestone_cell"),
+        _ => PACK_CELLS.get()?.iter().find(|c| c.id == id).map(|c| c.drive_model.as_str()),
+    }
+}
+/// `ItemInfinityCell.getName`: "ME Infinity %s Cell" of its record's name.
+pub fn infinity_cell_name(id: &str, translate: &dyn Fn(&str) -> Option<String>, item_name: &dyn Fn(&str) -> String) -> Option<String> {
+    let cell = infinity_cell(id)?;
+    let record = if cell.fluid {
+        // AEFluidKey.getDisplayName: the fluid type's description, a fluid block's name.
+        let (ns, path) = cell.record.split_once(':').unwrap_or(("minecraft", &cell.record));
+        translate(&format!("block.{ns}.{path}")).or_else(|| translate(&format!("fluid_type.{ns}.{path}"))).unwrap_or_else(|| path.replace('_', " "))
+    } else {
+        item_name(&cell.record)
+    };
+    let format = translate("item.extendedae.infinity_cell_name").unwrap_or_else(|| "ME Infinity %s Cell".into());
+    Some(format.replacen("%s", &record, 1).replace("%1$s", &record))
+}
+
 pub fn register(defs: &mut Defs) {
     for machine in MACHINES {
         defs.add_variant(*machine);
@@ -249,6 +339,15 @@ pub fn register(defs: &mut Defs) {
     defs.add_upgrade("ae2:speed_card", CIRCUIT_CUTTER, 4);
     defs.add_upgrade("ae2:speed_card", EX_ASSEMBLER, 5);
     defs.add_upgrade("ae2:speed_card", EX_INSCRIBER, 4);
+    // ItemVoidCell: StorageCells.addCellHandler(VoidCellInventory.HANDLER),
+    // CellConfig.create (63 filters), UpgradeInventories.forItem(is, 2),
+    // getIdleDrain 1.
+    defs.add_handler_cell(
+        crate::ae2x::defs::HandlerCellDef { id: VOID_CELL.into(), idle_drain: 1.0, drive_model: "extendedae:block/drive/void_cell".into(), config_slots: 63 },
+        2,
+    );
+    defs.add_upgrade("ae2:fuzzy_card", VOID_CELL, 1);
+    defs.add_upgrade("ae2:inverter_card", VOID_CELL, 1);
 }
 
 #[cfg(test)]
@@ -339,5 +438,37 @@ mod tests {
         // Outside 2..=128: the default, as ModConfigSpec corrects it.
         assert_eq!(Config::parse("[device]\nextended_io_bus_multiplier = 1").unwrap().bus_speed, 8);
         assert_eq!(Config::parse("").unwrap(), Config::default());
+        assert_eq!(Config::default().infinity_cell_cost, 8.0);
+        assert_eq!(Config::parse("[item]\ninfinity_cell_energy_cost = 2.5").unwrap().infinity_cell_cost, 2.5);
+        assert_eq!(Config::parse("[item]\ninfinity_cell_energy_cost = 100.0").unwrap().infinity_cell_cost, 8.0);
+    }
+
+    #[test]
+    fn infinity_cells_hold_their_record() {
+        use super::*;
+        let water = infinity_cell(INFINITY_WATER_CELL).unwrap();
+        assert_eq!((water.fluid, water.record.as_str()), (true, "minecraft:water"));
+        let cobble = infinity_cell(INFINITY_COBBLESTONE_CELL).unwrap();
+        assert_eq!((cobble.fluid, cobble.record.as_str()), (false, "minecraft:cobblestone"));
+        assert_eq!(infinity_cell_model(INFINITY_COBBLESTONE_CELL), Some("extendedae:block/drive/infinity_cobblestone_cell"));
+        assert!(infinity_cell("ae2:item_storage_cell_1k").is_none());
+        let pack = parse_pack_cells(r#"[{"id":"kubejs:lava_cell","fluid":"minecraft:lava","model":"kubejs:block/drive/lava_cell"},{"id":"kubejs:dirt_cell","item":"minecraft:dirt"},{"id":"kubejs:broken"}]"#).unwrap();
+        assert_eq!(pack.len(), 2);
+        assert_eq!((pack[0].fluid, pack[0].record.as_str(), pack[0].drive_model.as_str()), (true, "minecraft:lava", "kubejs:block/drive/lava_cell"));
+        assert_eq!((pack[1].fluid, pack[1].drive_model.as_str()), (false, "ae2:block/drive/drive_cell"));
+        let translate = |key: &str| match key {
+            "item.extendedae.infinity_cell_name" => Some("ME Infinity %s Cell".to_owned()),
+            "block.minecraft.water" => Some("Water".to_owned()),
+            _ => None,
+        };
+        let item = |id: &str| if id == "minecraft:cobblestone" { "Cobblestone".to_owned() } else { id.to_owned() };
+        assert_eq!(infinity_cell_name(INFINITY_WATER_CELL, &translate, &item).as_deref(), Some("ME Infinity Water Cell"));
+        assert_eq!(infinity_cell_name(INFINITY_COBBLESTONE_CELL, &translate, &item).as_deref(), Some("ME Infinity Cobblestone Cell"));
+        let defs = crate::ae2x::defs::get();
+        let void = defs.handler_cell(VOID_CELL).unwrap();
+        assert_eq!((void.idle_drain, void.config_slots, defs.upgrade_slots(VOID_CELL)), (1.0, 63, Some(2)));
+        assert_eq!(defs.upgrade_limit("ae2:fuzzy_card", VOID_CELL), 1);
+        assert_eq!(defs.upgrade_limit("ae2:inverter_card", VOID_CELL), 1);
+        assert_eq!(defs.upgrade_limit("ae2:void_card", VOID_CELL), 0);
     }
 }

@@ -804,7 +804,7 @@ impl Game<'_> {
                     if let super::ae2_storage_devices::CreativeCellKey::Item(k) = key {
                         let n = total.entry(k).or_default();
                         *n = n
-                            .checked_add(i32::MAX as u64)
+                            .checked_add(horizon_client::ae2_cell_codec::creative_cell_amount(stack))
                             .ok_or("network item count overflow")?;
                     }
                 }

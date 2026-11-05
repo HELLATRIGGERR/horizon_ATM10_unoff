@@ -1,11 +1,12 @@
 {
   "namespace": "extendedae",
   "name": "ExtendedAE",
-  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, Import and Export Buses and their kit, the Extended Inscriber, Charger and Molecular Assembler, Entro's budding blocks, clusters and seeds, and the materials of their recipes (slice 2).",
+  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, Import and Export Buses and their kit, the Extended Inscriber, Charger and Molecular Assembler, Entro's budding blocks, clusters and seeds, and the materials of their recipes (slice 2); the Infinity and Void Cells (slice 6).",
   "authors": ["GlodBlock (ExtendedAE)"],
   "slices": [
     "1: Extended Pattern Provider and Interface, block and part; ME Extended Drive; their upgrade kits",
-    "2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port, Import and Export Buses and the IO bus kit; Extended Inscriber, Charger and Molecular Assembler; Entro budding blocks, clusters and seeds; concurrent processors, machine frame, entro materials"
+    "2: Crystal Assembler, Circuit Slicer, Crystal Fixer and their recipe types; Extended IO Port, Import and Export Buses and the IO bus kit; Extended Inscriber, Charger and Molecular Assembler; Entro budding blocks, clusters and seeds; concurrent processors, machine frame, entro materials",
+    "6: ME Infinity Water and Cobblestone Cells and the pack's KubeJS infinity cells; ME Void Cell"
   ],
   "items": {
     "ex_pattern_provider_part": {},
@@ -23,7 +24,10 @@
     "entro_dust": {},
     "entro_ingot": {},
     "entro_seed": {},
-    "entro_shard": {}
+    "entro_shard": {},
+    "infinity_water_cell": {"max_stack_size": 1},
+    "infinity_cobblestone_cell": {"max_stack_size": 1},
+    "void_cell": {"max_stack_size": 1}
   },
   "blocks": {
     "ex_pattern_provider": {
@@ -113,9 +117,10 @@
     }
   },
   "recipe_types": ["extendedae:crystal_assembler", "extendedae:circuit_cutter", "extendedae:crystal_fixer"],
+  "pack_kubejs_items": {"script": "kubejs/startup_scripts/ExtendedAE/InfinityCells.js", "builder": "custom_infinity_cell", "namespace": "kubejs", "out": "data/extendedae/ae2x/infinity_cells.json", "calls": {"itemType": "item", "fluidType": "fluid", "cellModel": "model"}},
   "config_conditions": {"assembler_circuit": {"file": "extendedae-common.toml", "key": "device.enable_crystal_assembler_inscribe_processors", "default": true}},
   "ae2_namespace": {
-    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json", "ex_import_bus.json", "ex_export_bus.json", "ex_inscriber.json", "ex_molecular_assembler.json"],
-    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png", "crystal_assembler.png", "circuit_cutter.png", "ex_inscriber.png", "ex_molecular_assembler.png"]
+    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json", "ex_import_bus.json", "ex_export_bus.json", "ex_inscriber.json", "ex_molecular_assembler.json", "void_cell.json"],
+    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png", "crystal_assembler.png", "circuit_cutter.png", "ex_inscriber.png", "ex_molecular_assembler.png", "void_cell.png"]
   }
 }

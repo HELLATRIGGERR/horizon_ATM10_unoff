@@ -39,7 +39,9 @@ pub(super) fn is_valid_storage_cell(stack: &ItemStack) -> bool {
             || horizon_client::ae2x::defs::get().handler_cell(&stack.item).is_some())
 }
 pub(super) fn is_valid_workbench_cell(stack: &ItemStack) -> bool {
-    is_valid_storage_cell(stack) || horizon_client::ae2_cell_codec::read_view_cell(stack).is_ok()
+    // ExtendedAE's infinity cells are no ICellWorkbenchItem.
+    (is_valid_storage_cell(stack) && horizon_client::ae2x::fixed_cell(&stack.item).is_none())
+        || horizon_client::ae2_cell_codec::read_view_cell(stack).is_ok()
 }
 /// StorageCell.getIdleDrain of a cell in a Drive or ME Chest, from the cell
 /// definitions (AE2's and its addons'): BasicStorageCell idleDrain by size;
@@ -58,7 +60,7 @@ fn write(s: &mut ItemStack, c: &Cell) -> Result<(), String> {
 /// FuzzyPriorityList queries KeyCounter with the incoming key. Damageable
 /// items use FuzzySearch's integer bounds based on that query's max damage;
 /// unordered keys (including all fluids) ignore their components.
-fn storage_fuzzy_match(
+pub(super) fn storage_fuzzy_match(
     filter:&ae2_cell_core::ItemKey,candidate:&ae2_cell_core::ItemKey,
     mode:&str,fluid:bool,base_max:u32,
 )->bool {

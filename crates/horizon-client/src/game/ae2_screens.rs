@@ -121,12 +121,14 @@ struct Toggle {
     shown_by: Option<usize>,
 }
 
-/// A line naming the page shown (`drawFG`), one more than its data slot's value.
+/// A line naming the page shown (`drawFG`), one more than its data slot's
+/// value; or, `per_value`, the translation of `key` and the value itself.
 struct PageLine {
     data: usize,
     key: &'static str,
     fallback: &'static str,
     at: (f32, f32),
+    per_value: bool,
 }
 
 /// A `ProgressBar`, filling upwards (`Direction.VERTICAL`); its values are
@@ -1120,7 +1122,9 @@ impl Game<'_> {
             let (col, row) = (i as i32 / 8, i as i32 % 8);
             slots[entry] = Some([(px + 1 + col * PANEL_SLOT) as f32, (py + PANEL_PADDING + 1 + row * PANEL_SLOT) as f32]);
         }
-        let (ix, iy) = screen.style.slot("PLAYER_INVENTORY", 0).unwrap_or((8, h - 84));
+        // A style without the player's inventory (ExtendedAE's Void Cell's,
+        // 60 high) puts it under the screen, clear of its buttons.
+        let (ix, iy) = screen.style.slot("PLAYER_INVENTORY", 0).unwrap_or((8, if h < 84 { h + 4 } else { h - 84 }));
         screen.slots = slots.clone();
         let laid_out = NativeScreen {
             width: w as f32,
@@ -1334,7 +1338,12 @@ impl Game<'_> {
             self.ae2_icon(batch, cog, (16, 16), ox + rect[0] as f32, oy + rect[1] as f32);
         }
         if let Some(page) = layout.page_line.as_ref() {
-            let line = fill(&self.translate(page.key, page.fallback), &[(value(data, page.data) + 1).to_string()]);
+            let line = if page.per_value {
+                let key = format!("{}{}", page.key, value(data, page.data));
+                self.translate(&key, page.fallback)
+            } else {
+                fill(&self.translate(page.key, page.fallback), &[(value(data, page.data) + 1).to_string()])
+            };
             batch.text(&self.gui.atlas, &line, ox + page.at.0, oy + page.at.1, argb(screen.style.color("DEFAULT_TEXT_COLOR")), false);
         }
         // PatternProviderLockReason: shown while a lock mode is set.

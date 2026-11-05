@@ -444,6 +444,10 @@ impl Game<'_> {
         if ctx.kind == TerminalKind::PatternAccess {
             return self.lan_open_wireless_pattern_access(host, conn, anchor, ctx);
         }
+        // An addon's menu (ME Requester's Wireless Requester Terminal).
+        if let TerminalKind::Addon(menu) = ctx.kind {
+            return self.lan_open_ae2x_wireless(host, conn, anchor, ctx, menu);
+        }
         self.lan_open_ae2_wireless_terminal(host, conn, anchor, ctx)
     }
 }
@@ -471,10 +475,12 @@ impl Game<'_> {
         universal_view(source_stack(g, ctx.source)?)
     }
     /// The open wireless menu's item slot (an `AEBaseMenu` on an
-    /// `ItemMenuHostLocator`): a terminal's or a Pattern Access one's.
+    /// `ItemMenuHostLocator`): a terminal's, a Pattern Access one's or an
+    /// addon's.
     pub(super) fn lan_wireless_menu_source(&self, host: &LanHost, conn: u32) -> Option<usize> {
         host.play.get(&conn).and_then(|p| p.ae2_terminal.as_ref()).and_then(|t| t.wireless_source())
             .or_else(|| self.lan_wireless_pattern_access_source(host, conn))
+            .or_else(|| self.lan_ae2x_wireless_source(conn))
     }
 }
 #[cfg(test)]

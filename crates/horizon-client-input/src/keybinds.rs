@@ -91,6 +91,9 @@ pub const MAPPINGS: &[(&str, &str, &str)] = &[
     ("key.ae2.ae2wtlib_magnet", "key.keyboard.unknown", "ae2"),
     #[cfg(feature = "ae2-ae2wtlib")]
     ("key.ae2.ae2wtlib_stow", "key.keyboard.unknown", "ae2"),
+    // ME Requester's wireless terminal (with AE2WTLib).
+    #[cfg(all(feature = "ae2-ae2wtlib", feature = "ae2-merequester"))]
+    ("key.ae2.wireless_requester_terminal", "key.keyboard.unknown", "ae2"),
 ];
 /// Mappings Options builds as `ToggleKeyMapping` (hold or toggle by option).
 pub fn is_toggle(name: &str) -> bool {

@@ -114,7 +114,7 @@ wgpu = { version = "30.0.1", default-features = false, features = ["gles"] }
 # The AE2 port's library half (`ae2_*`, `ae2x`); the client's `ae2-lab` turns it on.
 ae2-lab = ["horizon-client-render/ae2-lab", "horizon-items/ae2-lab", "horizon-command/ae2-lab", "dep:ae2-cell-core", "dep:ae2-network-core", "dep:ae2-machines-core", "dep:toml"]
 ae2-megacells = ["ae2-lab", "dep:ae2-megacells-core"]
-ae2-merequester = ["ae2-lab", "dep:ae2-merequester-core"]
+ae2-merequester = ["ae2-lab", "horizon-client-input/ae2-merequester", "dep:ae2-merequester-core"]
 ae2-extendedae = ["ae2-lab"]
 ae2-ae2wtlib = ["ae2-lab", "horizon-client-input/ae2-ae2wtlib"]
 ae2-aeinfinitybooster = ["ae2-lab"]

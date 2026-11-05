@@ -64,10 +64,11 @@ const suites = [
   'ae2wtlib-recipes',
   'ae2wtlib-magnet',
   'ae2wtlib-restock',
+  'merequester-wireless',
   'aeinfinitybooster-range',
 ];
 // Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
-const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'megacells-crafting-cpu': 'megacells', 'megacells-energy': 'megacells', 'megacells-portable': 'megacells', 'megacells-provider-interface': 'megacells', 'megacells-cell-dock': 'megacells', 'megacells-bulk': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae', 'extendedae-crystal': 'extendedae', 'extendedae-buses': 'extendedae', 'ae2wtlib-terminals': 'ae2wtlib', 'ae2wtlib-recipes': 'ae2wtlib', 'ae2wtlib-magnet': 'ae2wtlib', 'ae2wtlib-restock': 'ae2wtlib', 'aeinfinitybooster-range': 'aeinfinitybooster' };
+const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'megacells-crafting-cpu': 'megacells', 'megacells-energy': 'megacells', 'megacells-portable': 'megacells', 'megacells-provider-interface': 'megacells', 'megacells-cell-dock': 'megacells', 'megacells-bulk': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae', 'extendedae-crystal': 'extendedae', 'extendedae-buses': 'extendedae', 'ae2wtlib-terminals': 'ae2wtlib', 'ae2wtlib-recipes': 'ae2wtlib', 'ae2wtlib-magnet': 'ae2wtlib', 'ae2wtlib-restock': 'ae2wtlib', 'merequester-wireless': 'merequester', 'aeinfinitybooster-range': 'aeinfinitybooster' };
 // Explicitly selectable before-cases, not part of the default passing checkpoint.
 // inframe-bus-menu and inframe-machine-menus drive the in-frame menus' slot numbering, which went with upstream's in-frame
 // single player (23f8bd4fe). The nearest suites on the server thread, not compared assertion by assertion: part-screens,

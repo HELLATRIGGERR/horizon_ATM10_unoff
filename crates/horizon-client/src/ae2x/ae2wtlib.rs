@@ -33,12 +33,10 @@ pub const TERMINALS: [(&str, &str, TerminalKind, &str); 3] = [
     ("pattern_access", PATTERN_ACCESS_TERMINAL, TerminalKind::PatternAccess, "wireless_pattern_access_terminal"),
 ];
 
-/// The terminals, the universal terminal, and their cards
-/// (`UpgradeHelper.addUpgrades`: AE2's energy card up to each terminal's
-/// `upgradeCount`, up to `WUTHandler.getUpgradeCardCount` on the universal
-/// terminal; `onAe2Initialized`: one Magnet Card on AE2's wireless crafting
-/// terminal and one on the universal terminal). The Quantum Bridge Card
-/// comes with its slice.
+/// The terminals, the universal terminal, and the Magnet Card
+/// (`onAe2Initialized`: one on AE2's wireless crafting terminal and one on
+/// the universal terminal). The other addons' terminals follow, then
+/// [`add_upgrades`].
 pub fn register(defs: &mut Defs) {
     for (name, item, kind, hotkey) in TERMINALS {
         defs.add_wireless_terminal(WirelessTerminal {
@@ -51,9 +49,16 @@ pub fn register(defs: &mut Defs) {
         });
     }
     defs.set_universal_terminal(UniversalTerminal { item: UNIVERSAL_TERMINAL.to_owned(), current: CURRENT_TERMINAL.to_owned() });
-    defs.add_upgrade_to_all_terminals("ae2:energy_card", 0);
     defs.add_upgrade(magnet::MAGNET_CARD, "ae2:wireless_crafting_terminal", 1);
     defs.add_upgrade(magnet::MAGNET_CARD, UNIVERSAL_TERMINAL, 1);
+}
+
+/// `UpgradeHelper.addUpgrades`, once every addon's terminal is in: AE2's
+/// energy card up to each terminal's `upgradeCount`, up to
+/// `WUTHandler.getUpgradeCardCount` on the universal terminal. The Quantum
+/// Bridge Card comes with its slice.
+pub fn add_upgrades(defs: &mut Defs) {
+    defs.add_upgrade_to_all_terminals("ae2:energy_card", 0);
 }
 
 #[cfg(test)]
@@ -78,7 +83,12 @@ mod tests {
     fn rows_replace_ae2s_crafting_terminal_and_list_in_registration_order() {
         let defs = defs::get();
         let names: Vec<_> = defs.wireless_terminals().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["ae2:wireless_terminal", "crafting", "pattern_encoding", "pattern_access"]);
+        let mut expected = vec!["ae2:wireless_terminal", "crafting", "pattern_encoding", "pattern_access"];
+        // ME Requester's, after AE2WTLib's (it loads after).
+        if cfg!(feature = "ae2-merequester") {
+            expected.push("requester");
+        }
+        assert_eq!(names, expected);
         let crafting = defs.wireless_terminal("ae2:wireless_crafting_terminal").unwrap();
         assert_eq!((crafting.kind, crafting.hotkey.as_str()), (TerminalKind::Crafting, "wireless_terminal"));
         assert_eq!(crafting.installed.as_deref(), Some("ae2wtlib:has_crafting_terminal"));
@@ -86,11 +96,34 @@ mod tests {
         assert_eq!(access.hotkey, "wireless_pattern_access_terminal");
         assert!(defs.is_wireless_terminal(UNIVERSAL_TERMINAL));
         assert_eq!(defs.upgrade_limit("ae2:energy_card", PATTERN_ENCODING_TERMINAL), 2);
-        assert_eq!(defs.upgrade_limit("ae2:energy_card", UNIVERSAL_TERMINAL), 6);
+        let terminals = if cfg!(feature = "ae2-merequester") { 4 } else { 3 };
+        assert_eq!(defs.upgrade_limit("ae2:energy_card", UNIVERSAL_TERMINAL), 2 * terminals, "two for each terminal it can hold");
         assert_eq!(defs.wireless_terminal("ae2:wireless_terminal").unwrap().installed, None, "AE2's own terminal can't be combined");
         for (item, magnet) in [("ae2:wireless_crafting_terminal", 1), (UNIVERSAL_TERMINAL, 1), (PATTERN_ACCESS_TERMINAL, 0), ("ae2:wireless_terminal", 0)] {
             assert_eq!(defs.upgrade_limit(magnet::MAGNET_CARD, item), magnet, "{item}");
         }
+    }
+
+    /// ME Requester's `WirelessTerminalCompat`: its terminal `requester`
+    /// opens the Requester Terminal's menu, takes AE2's energy cards and goes
+    /// into a universal terminal, which then has two slots more.
+    #[cfg(feature = "ae2-merequester")]
+    #[test]
+    fn the_wireless_requester_terminal_is_a_terminal_of_the_registry() {
+        use crate::ae2x::merequester::WIRELESS_TERMINAL;
+        let defs = defs::get();
+        let requester = defs.wireless_terminal(WIRELESS_TERMINAL).unwrap();
+        assert_eq!(requester.name, "requester");
+        assert_eq!(requester.kind, TerminalKind::Addon(WIRELESS_TERMINAL));
+        assert_eq!(requester.hotkey, "wireless_requester_terminal");
+        assert_eq!(requester.installed.as_deref(), Some("ae2wtlib:has_requester_terminal"));
+        assert_eq!(defs.upgrade_limit("ae2:energy_card", WIRELESS_TERMINAL), 2);
+        assert_eq!(defs.upgrade_limit(magnet::MAGNET_CARD, WIRELESS_TERMINAL), 0);
+        assert!(wireless::host(&ItemStack::new(WIRELESS_TERMINAL, 1)));
+        let wut = wireless::merge_terminal(&universal(&["crafting"]), &ItemStack::new(WIRELESS_TERMINAL, 1), requester).unwrap();
+        assert_eq!(wireless::installed(&wut).iter().map(|t| t.name.as_str()).collect::<Vec<_>>(), ["crafting", "requester"]);
+        assert_eq!(wireless::upgrade_slots(&wut), Some(4));
+        assert_eq!(wireless::next_terminal(&wut, false).unwrap().name, "requester");
     }
 
     /// MEGA's `AE2WTIntegration`: its Greater Energy Card on every terminal
@@ -103,7 +136,7 @@ mod tests {
         for item in [PATTERN_ENCODING_TERMINAL, PATTERN_ACCESS_TERMINAL, "ae2:wireless_crafting_terminal", "ae2:wireless_terminal"] {
             assert_eq!(defs.upgrade_limit(card, item), 2, "{item}");
         }
-        assert_eq!(defs.upgrade_limit(card, UNIVERSAL_TERMINAL), 6);
+        assert_eq!(defs.upgrade_limit(card, UNIVERSAL_TERMINAL), if cfg!(feature = "ae2-merequester") { 8 } else { 6 });
     }
 
     #[test]

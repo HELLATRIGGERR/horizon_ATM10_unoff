@@ -788,6 +788,7 @@ mod tests {
             ("ae2wtlib:has_crafting_terminal", Tag::compound([] as [(&str, Tag); 0])),
             ("ae2wtlib:has_pattern_encoding_terminal", Tag::compound([] as [(&str, Tag); 0])),
             ("ae2wtlib:has_pattern_access_terminal", Tag::compound([] as [(&str, Tag); 0])),
+            ("ae2wtlib:has_requester_terminal", Tag::compound([] as [(&str, Tag); 0])),
             ("ae2wtlib:pattern_encoding_logic", Tag::compound([("mode", string("CRAFTING")), ("substitute", Tag::Byte(0))])),
             ("ae2wtlib:magnet_settings", Tag::Byte(3)),
             ("ae2wtlib:pickup_config", Tag::compound([("", list())])),
@@ -842,7 +843,7 @@ mod tests {
         ];
         let expected: std::collections::BTreeSet<_> = crate::ae2_components::PERSISTENT_IDS.iter().copied().collect();
         assert_eq!(samples.iter().map(|(id, _)| *id).collect::<std::collections::BTreeSet<_>>(), expected);
-        assert_eq!(samples.len(), 53);
+        assert_eq!(samples.len(), 54);
         for (id, value) in &samples {
             crate::ae2_components::validate(id, value).unwrap_or_else(|error| panic!("invalid source-shaped sample for {id}: {error}"));
         }

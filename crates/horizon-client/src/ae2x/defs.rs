@@ -78,13 +78,15 @@ pub struct PartDef {
 
 /// What a wireless terminal opens (`WTDefinition.menuType`): AE2's ME and
 /// crafting terminal menus, the pattern encoding terminal's, the pattern
-/// access terminal's.
+/// access terminal's, or another addon's menu by its id (ME Requester's
+/// Requester Terminal).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TerminalKind {
     Me,
     Crafting,
     PatternEncoding,
     PatternAccess,
+    Addon(&'static str),
 }
 
 /// A wireless terminal item: AE2's two, and AE2WTLib's `WTDefinition`
@@ -504,6 +506,13 @@ pub fn get() -> &'static Defs {
         super::extendedae::register(&mut defs);
         #[cfg(feature = "ae2-ae2wtlib")]
         super::ae2wtlib::register(&mut defs);
+        // The addons' terminals (`AddTerminalEvent.register`, ME Requester's
+        // loading after AE2WTLib), then the cards on all of them
+        // (`UpgradeHelper.addUpgrades`).
+        #[cfg(all(feature = "ae2-merequester", feature = "ae2-ae2wtlib"))]
+        super::merequester::register_ae2wt(&mut defs);
+        #[cfg(feature = "ae2-ae2wtlib")]
+        super::ae2wtlib::add_upgrades(&mut defs);
         #[cfg(all(feature = "ae2-megacells", feature = "ae2-ae2wtlib"))]
         super::megacells::register_ae2wt(&mut defs);
         #[cfg(feature = "ae2-aeinfinitybooster")]

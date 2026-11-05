@@ -20,6 +20,9 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2wtlib:has_crafting_terminal",
     "ae2wtlib:has_pattern_encoding_terminal",
     "ae2wtlib:has_pattern_access_terminal",
+    // ME Requester's terminal in a universal terminal (`AddTerminalEvent`
+    // registers it under AE2WTLib's namespace).
+    "ae2wtlib:has_requester_terminal",
     "ae2wtlib:pattern_encoding_logic",
     // The Magnet Card's mode (`MagnetMode`, a byte), its pickup and insert
     // filters (`ConfigInventory` under "") and their modes (`Codec.BOOL`,
@@ -416,7 +419,10 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
         "megacells:compression_cutoff" => Ok(Tag::Int(integer(&t)?)),
         "ae2wtlib:current_terminal" => Ok(Tag::String(string(&t)?.as_str().into())),
         // Codec.EMPTY: any map, stored as the empty one.
-        "ae2wtlib:has_crafting_terminal" | "ae2wtlib:has_pattern_encoding_terminal" | "ae2wtlib:has_pattern_access_terminal" => {
+        "ae2wtlib:has_crafting_terminal"
+        | "ae2wtlib:has_pattern_encoding_terminal"
+        | "ae2wtlib:has_pattern_access_terminal"
+        | "ae2wtlib:has_requester_terminal" => {
             map(t)?;
             Ok(Tag::Compound(Compound::new()))
         }

@@ -21,6 +21,8 @@ horizon-dualsense = { path = "../horizon-dualsense", optional = true }
 ae2-lab = []
 # AE2WTLib's (ae2/addons/ae2wtlib).
 ae2-ae2wtlib = ["ae2-lab"]
+# ME Requester's wireless terminal key, with AE2WTLib (ae2/addons/merequester).
+ae2-merequester = ["ae2-lab"]
 controllers = ["dep:horizon-dualsense"]
 
 [lints]

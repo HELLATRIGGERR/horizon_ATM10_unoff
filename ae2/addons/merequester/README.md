@@ -30,6 +30,9 @@ Feature `ae2-merequester`; content `content/merequester` from
 | recipes `requester` and `requester_terminal`, loot table, pickaxe tag | from the jar |
 | Memory Card: `exported_requests` copied with sneak, pasted without | `ae2_try_requester_memory` |
 | Requester Terminal part: `getActiveMachines`, grouped by name, sorted by position, search on names and keys | `menu.rs`, its part model from the jar |
+| Wireless Requester Terminal (`WirelessTerminalCompat`, with AE2WTLib): `ReqWirelessTerminalItem` (`ItemWT`), AE2WTLib's terminal `requester` (hotkey `wireless_requester_terminal`, two upgrade slots, `ae2wtlib:has_requester_terminal`), registered after AE2WTLib's terminals (the mod loads after it), `GridLinkables`, the energy capability | `register_ae2wt` (`ae2x/merequester.rs`, features `ae2-merequester` and `ae2-ae2wtlib`): a row of the wireless terminal registry, `TerminalKind::Addon`; AE2's energy cards on it and two slots more on the universal terminal (`UpgradeHelper.addUpgrades` runs after every addon's terminal); the key mapping `key.ae2.wireless_requester_terminal` |
+| `ReqWirelessTerminalMenu`/`ReqWirelessTerminalMenuHost`: the Requester Terminal's menu over the grid the item's access point is on; `ReqWirelessTerminalScreen`'s `cycleTerminalButton` on a universal terminal | `lan_open_merequester_wireless`: the terminal's session on the item, its access point and battery ticked as AE2's wireless menus', nothing listed out of range; the selector under the help button (`ae2wtlib:select_terminal`) |
+| recipes `wireless/wireless_requester_terminal`, `wireless/combine_crafting`, `combine_encoding`, `combine_access`, `upgrade_requester` (`neoforge:mod_loaded` ae2wtlib) | from the jar, the condition answered by the game; the combine and upgrade recipes are AE2WTLib's types |
 
 `/ae2 requester status|set|toggle|clear x y z ...` shows and edits a requester (rows, buffers, known
 amounts, the server status, jobs submitted in this run).
@@ -40,8 +43,10 @@ amounts, the server status, jobs submitted in this run).
   and `terminalMargin = 25`. The setting comes with the AE2 terminal screens' branch.
 - The help button opens AE2's guide at its home page: addon guide pages aren't compiled yet, so
   `merequester.md` isn't there.
-- No fluid-container tooltip on a ghost slot (`getEmptyingTooltip`), no JEI drag and drop, no wireless
-  terminal (needs AE2WTLib).
+- No fluid-container tooltip on a ghost slot (`getEmptyingTooltip`), no JEI drag and drop.
+- The Wireless Requester Terminal's screen has no upgrade panel (`ScrollingUpgradesPanel`) and no toolbox: its cards go
+  in by AE2's crafting-grid upgrade recipe, as AE2WTLib's terminals' do here. Its selector shows the terminals' items,
+  not AE2WTLib's icons.
 - The status bar's and fields' tooltips are the mod's; the number fields' validation messages
   (`whole_number`, `NumberLessThanMinValue`) aren't shown, the text only turns red.
 - The scrollbar jumps to a press and moves with the wheel; its handle can't be dragged.
@@ -51,9 +56,13 @@ amounts, the server status, jobs submitted in this run).
 ## Tests
 
 `ae2-merequester-core` (rows, buffers, every status path), `horizon-client` (config, saved tags,
-drops) and the world test `merequester-stock` (a real pattern provider and molecular assembler; Crafting,
-Missing, No CPU, a job through a restart, a broken CPU, the screen, a Memory Card, the terminal):
+drops), `horizon-client-lib` (the wireless terminal's row, combining it), and the world tests `merequester-stock` (a
+real pattern provider and molecular assembler; Crafting, Missing, No CPU, a job through a restart, a broken CPU, the
+screen, a Memory Card, the terminal) and `merequester-wireless` (with AE2WTLib: the wireless terminal edits a requester
+twelve blocks away and does not open out of range; combined with a crafting terminal, the universal terminal's
+hotkey and selector turn between the two):
 
 ```sh
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts merequester-stock
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts merequester-wireless
 ```

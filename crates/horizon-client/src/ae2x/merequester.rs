@@ -18,6 +18,9 @@ pub const NAMESPACE: &str = "merequester";
 pub const REQUESTER: &str = "merequester:requester";
 /// `MERequester.TERMINAL_ID`: the part item.
 pub const TERMINAL: &str = "merequester:requester_terminal";
+/// `WirelessTerminalCompat.TERMINAL_ID`: the Wireless Requester Terminal's
+/// item and its menu (with AE2WTLib).
+pub const WIRELESS_TERMINAL: &str = "merequester:wireless_requester_terminal";
 /// `Registration.EXPORTED_REQUESTS`: what a Memory Card copies.
 pub const EXPORTED_REQUESTS: &str = "merequester:exported_requests";
 
@@ -87,6 +90,26 @@ pub fn register(defs: &mut Defs) {
     });
     // AbstractDisplayPart: 0.5 AE/t, and it needs a channel.
     defs.add_part(PartDef { id: TERMINAL.into(), idle_power: 0.5, requires_channel: true, cells: 0 });
+}
+
+/// `WirelessTerminalCompat.Guard.registerWirelessTerminal`: the Wireless
+/// Requester Terminal, `ReqWirelessTerminalItem` (an `ItemWT`), as
+/// AE2WTLib's terminal `requester` (`AddTerminalEvent.builder("requester",
+/// ...)`: the hotkey `wireless_requester_terminal`, two upgrade slots, the
+/// component `ae2wtlib:has_requester_terminal`); its menu is the Requester
+/// Terminal's (`ReqWirelessTerminalMenu`). `GridLinkables` and the energy
+/// capability follow from the registry's row.
+#[cfg(feature = "ae2-ae2wtlib")]
+pub fn register_ae2wt(defs: &mut Defs) {
+    use super::defs::{TerminalKind, WirelessTerminal};
+    defs.add_wireless_terminal(WirelessTerminal {
+        name: "requester".to_owned(),
+        item: WIRELESS_TERMINAL.to_owned(),
+        kind: TerminalKind::Addon(WIRELESS_TERMINAL),
+        hotkey: "wireless_requester_terminal".to_owned(),
+        upgrade_slots: 2,
+        installed: Some(format!("{}:has_requester_terminal", super::ae2wtlib::NAMESPACE)),
+    });
 }
 
 /// A row's key: an item or a fluid (`AEKey`).

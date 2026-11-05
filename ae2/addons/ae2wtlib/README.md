@@ -141,3 +141,5 @@ amount; the trash takes dirt and has none when it opens again.
   cross-dimension work with AEInfinityBooster's Dimension Card: both need the wireless path (`ae2_wireless_reach`, today
   the guest's own dimension only) to reach a grid in another dimension; the magnet's `inRange` follows it.
 - **Curios** slot, when Horizon has accessory slots (`findTerminal` looks there first).
+- Other addons' terminals go into the universal terminal by the registry's rows: ME Requester's is in
+  (`ae2/addons/merequester`); ExtendedAE's, Expanded AE's and Advanced AE's come with those addons.

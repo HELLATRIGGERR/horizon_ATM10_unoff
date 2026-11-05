@@ -471,6 +471,27 @@ impl Game<'_> {
         false
     }
 
+    /// The menu of an addon's wireless terminal (`TerminalKind::Addon`, by
+    /// its menu id), over the grid of the access point at `anchor`: ME
+    /// Requester's Requester Terminal. True when one opened.
+    pub(super) fn lan_open_ae2x_wireless(&mut self, host: &mut super::lan::LanHost, conn: u32, anchor: (i32, i32, i32), ctx: super::ae2_wireless::WirelessContext, menu: &str) -> bool {
+        let _ = (&host, conn, anchor, &ctx, menu);
+        #[cfg(feature = "ae2-merequester")]
+        if menu == horizon_client::ae2x::merequester::WIRELESS_TERMINAL {
+            return self.lan_open_merequester_wireless(host, conn, anchor, ctx);
+        }
+        false
+    }
+    /// The item slot of the addon's wireless menu `conn` has open.
+    pub(super) fn lan_ae2x_wireless_source(&self, conn: u32) -> Option<usize> {
+        let _ = conn;
+        #[cfg(feature = "ae2-merequester")]
+        if let Some(source) = self.merequester_wireless_source(conn) {
+            return Some(source);
+        }
+        None
+    }
+
     /// A guest uses the item in hand `hand` (0 main, 1 off) in the air
     /// (`Item.use`): true when an addon's item opened its menu.
     pub(super) fn lan_ae2x_use_item(&mut self, host: &mut super::lan::LanHost, conn: u32, hand: i32) -> bool {
@@ -619,14 +640,23 @@ impl Game<'_> {
     /// The addons' hotkey actions (`HotkeyActions.register` after AE2's), by
     /// id: the key mapping is `key.ae2.<id>`.
     pub(super) fn ae2x_hotkeys() -> &'static [&'static str] {
-        #[cfg(feature = "ae2-ae2wtlib")]
-        {
-            ae2wtlib::HOTKEYS
-        }
-        #[cfg(not(feature = "ae2-ae2wtlib"))]
-        {
-            &[]
-        }
+        static HOTKEYS: std::sync::LazyLock<Vec<&'static str>> = std::sync::LazyLock::new(|| {
+            #[allow(unused_mut)]
+            let mut hotkeys = Vec::new();
+            #[cfg(feature = "ae2-ae2wtlib")]
+            hotkeys.extend(ae2wtlib::HOTKEYS);
+            // The other addons' terminals in AE2WTLib's registry: their
+            // `WTDefinitionBuilder.hotkeyName`s (ME Requester's).
+            #[cfg(feature = "ae2-ae2wtlib")]
+            hotkeys.extend(
+                horizon_client::ae2x::defs::get()
+                    .wireless_terminals()
+                    .filter(|t| t.installed.is_some() && matches!(t.kind, horizon_client::ae2x::defs::TerminalKind::Addon(_)))
+                    .map(|t| t.hotkey.as_str()),
+            );
+            hotkeys
+        });
+        &HOTKEYS
     }
     /// An addon's hotkey action for a guest: true when it ran
     /// (`HotkeyAction.run`).

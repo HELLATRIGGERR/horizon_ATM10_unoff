@@ -1,14 +1,16 @@
 {
   "namespace": "merequester",
   "name": "ME Requester",
-  "description": "ME Requester 1.21.1-1.5.0 for the AE2 port: the ME Requester block and the ME Requester Terminal.",
+  "description": "ME Requester 1.21.1-1.5.0 for the AE2 port: the ME Requester block, the ME Requester Terminal and, with AE2WTLib, the Wireless Requester Terminal.",
   "authors": ["AlmostReliable (ME Requester)"],
   "slices": [
     "1: the ME Requester block, its request rows, statuses and screen",
-    "2: the ME Requester Terminal part"
+    "2: the ME Requester Terminal part",
+    "3: the Wireless Requester Terminal, its recipe and its combine and upgrade recipes (with AE2WTLib)"
   ],
   "items": {
-    "requester_terminal": {}
+    "requester_terminal": {},
+    "wireless_requester_terminal": {"max_stack_size": 1}
   },
   "blocks": {
     "requester": {

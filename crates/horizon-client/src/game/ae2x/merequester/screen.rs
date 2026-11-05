@@ -38,6 +38,9 @@ const CURSOR_ROOM: f32 = 6.0;
 /// The help button (`OpenGuideButton`), alone on the left toolbar: the
 /// `verticalToolbar` of `common.json` at (3, 1).
 const HELP: [i32; 4] = [3 - 2 - 16, 1 + 2, 16, 16];
+/// `ReqWirelessTerminalScreen`'s `cycleTerminalButton` (a universal
+/// terminal's `TerminalSelectionButton`), under the help button.
+const SELECTOR: [i32; 4] = [HELP[0], HELP[1] + 22, 16, 16];
 /// `Scrollbar.BIG`'s handle.
 const HANDLE: (i32, i32) = (12, 15);
 
@@ -56,6 +59,10 @@ pub(in crate::game) struct View {
     field: Option<Field>,
     /// The terminal's search (`requester_terminal.json`: 65 x 12 at 104, 4).
     search: EditBox,
+    /// A universal terminal's: the terminal it opens, those it holds (name,
+    /// item); the selector's panel is open.
+    universal: Option<(String, Vec<(String, String)>)>,
+    selector: bool,
 }
 struct Field {
     line: usize,
@@ -184,15 +191,19 @@ impl Game<'_> {
             })
             .unwrap_or_default();
         let terminal = value.get("terminal").and_then(Value::as_bool).unwrap_or(false);
-        let (field, search) = match self.ae2x.merequester.client.take().filter(|v| v.window == window) {
-            Some(old) => (old.field, old.search),
+        let universal = value.get("universal").filter(|u| u.is_object()).and_then(|u| {
+            let terminals = u.get("terminals")?.as_array()?.iter().take(16).filter_map(|t| Some((t.get("name")?.as_str()?.to_owned(), t.get("item")?.as_str()?.to_owned()))).collect();
+            Some((u.get("current")?.as_str()?.to_owned(), terminals))
+        });
+        let (field, search, selector) = match self.ae2x.merequester.client.take().filter(|v| v.window == window) {
+            Some(old) => (old.field, old.search, old.selector),
             None => {
                 // `setInitialFocus(searchField)`.
                 let mut search = EditBox::new(SEARCH[0], SEARCH[1], SEARCH[2], SEARCH[3]);
                 search.max_length = 128;
                 search.bordered = false;
                 search.focused = terminal;
-                (None, search)
+                (None, search, false)
             }
         };
         self.ae2x.merequester.client = Some(View {
@@ -202,8 +213,62 @@ impl Game<'_> {
             offset: value.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize,
             lines,
             field,
+            selector: selector && universal.is_some(),
+            universal,
         });
         true
+    }
+    /// The selector's panel while it is open: to the left of its button, up
+    /// to three rows of 18 x 20 a column, 2 apart (as the terminals' own).
+    fn merequester_selector_panel(view: &View) -> Vec<[i32; 4]> {
+        let Some((_, terminals)) = view.universal.as_ref().filter(|_| view.selector) else { return Vec::new() };
+        let n = terminals.len();
+        let rows = n.clamp(1, 3);
+        let columns = n.div_ceil(rows).max(1);
+        let width = (6 + columns * 18 + columns.saturating_sub(1) * 2) as i32;
+        let (px, py) = (SELECTOR[0] - 5 - width, SELECTOR[1]);
+        (0..n)
+            .map(|i| {
+                let last = n % rows;
+                let shift = if last != 0 && i / rows == columns - 1 { ((rows - last) * 22 / 2) as i32 } else { 0 };
+                [px + 3 + (i / rows) as i32 * 20, py + 3 + (i % rows) as i32 * 22 + shift, 18, 20]
+            })
+            .collect()
+    }
+    /// The selector's button and its panel's terminals: the backdrop, the
+    /// terminal's item (AE2WTLib draws its own icons), the current one
+    /// focused.
+    fn merequester_draw_selector(&self, batch: &mut HudBatch, ox: f32, oy: f32, view: &View) {
+        let Some((current, terminals)) = view.universal.as_ref() else { return };
+        let mouse = [self.cursor.0 - ox, self.cursor.1 - oy];
+        let button = terminals.iter().find(|t| t.0 == *current).map(|t| (SELECTOR, t, false));
+        let panel = Self::merequester_selector_panel(view).into_iter().zip(terminals).map(|(rect, t)| (rect, t, t.0 == *current));
+        for (rect, (_, item), selected) in button.into_iter().chain(panel) {
+            let hover = inside(rect.map(|n| n as f32), mouse);
+            let backdrop = if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else if selected { (194, 128) } else { icon::TOOLBAR_BUTTON_BACKGROUND };
+            let lift = if hover { 1.0 } else { 0.0 };
+            let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);
+            self.ae2_icon(batch, backdrop, (18, 20), x - 1.0, y + lift);
+            self.draw_item(batch, &horizon_client::items::ItemStack::new(item, 1), x, y + 1.0 + lift);
+        }
+    }
+    /// A press on the selector: its button opens and closes the panel, a
+    /// terminal in it is chosen (`SelectTerminalPacket`) and opens. A press
+    /// elsewhere closes the panel. True when the selector took it.
+    fn merequester_selector_press(&mut self, at: [f32; 2]) -> bool {
+        let Some(view) = self.merequester_view().filter(|v| v.universal.is_some()) else { return false };
+        let chosen = Self::merequester_selector_panel(view).into_iter().position(|r| inside(r.map(|n| n as f32), at));
+        let name = chosen.and_then(|i| view.universal.as_ref().and_then(|(_, t)| t.get(i)).map(|t| t.0.clone()));
+        let on_button = inside(SELECTOR.map(|n| n as f32), at);
+        if let Some(view) = self.ae2x.merequester.client.as_mut() {
+            view.selector = on_button && !view.selector;
+        }
+        if let Some(name) = name {
+            self.audio.play_button_click();
+            self.ae2_send_payload("ae2wtlib:select_terminal", name.into_bytes());
+            return true;
+        }
+        on_button
     }
     fn merequester_send(&self, channel: &str, mut value: Value) {
         let Some(view) = self.ae2x.merequester.client.as_ref() else { return };
@@ -231,8 +296,10 @@ impl Game<'_> {
         let (_, h) = self.merequester_screen_size().unwrap_or((GUI_WIDTH, 0.0));
         batch.text(atlas, &self.translate("container.inventory", "Inventory"), ox + 8.0, oy + h - 95.0, text_colour, false);
         let mouse = [self.cursor.0 - ox, self.cursor.1 - oy];
-        self.ae2_draw_toolbar(batch, ox, oy, HELP, HELP);
+        let last = if view.universal.is_some() { SELECTOR } else { HELP };
+        self.ae2_draw_toolbar(batch, ox, oy, HELP, last);
         self.ae2_draw_icon_button(batch, ox, oy, HELP, icon::HELP, mouse);
+        self.merequester_draw_selector(batch, ox, oy, view);
         if view.terminal {
             self.merequester_text_field(batch, ox + SEARCH[0], oy + SEARCH[1], SEARCH[2], if view.search.focused { 24 } else { 0 });
             let mut search = view.search.clone();
@@ -325,6 +392,10 @@ impl Game<'_> {
     /// A press on the screen's widgets: true when one took it. The ghost
     /// slots are left to the menu.
     pub(in crate::game) fn merequester_press(&mut self, at: [f32; 2], right: bool) -> bool {
+        let Some(_) = self.merequester_view() else { return false };
+        if !right && self.merequester_selector_press(at) {
+            return true;
+        }
         let Some(view) = self.merequester_view() else { return false };
         // `OpenGuideButton`.
         if !right && inside(HELP.map(|n| n as f32), at) {
@@ -577,6 +648,10 @@ impl Game<'_> {
             "kind": if view.terminal { "merequester:requester_terminal" } else { "merequester:requester" },
             "title": self.merequester_title(view), "origin": origin.map(|(x, y)| [x, y]), "size": [w, h], "rows": rows, "offset": view.offset,
             "help": HELP,
+            "universal": view.universal.as_ref().map(|(current, terminals)| json!({
+                "current": current, "terminals": terminals.iter().map(|t| &t.0).collect::<Vec<_>>(),
+                "button": SELECTOR, "panel": Self::merequester_selector_panel(view),
+            })),
             "search": view.search.value, "search_focused": view.terminal && view.search.focused,
             "focused": view.field.as_ref().map(|f| json!({"line": f.line, "batch": f.batch, "text": f.edit.value})),
             "lines": lines,

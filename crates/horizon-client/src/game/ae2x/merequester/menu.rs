@@ -5,7 +5,7 @@
 //! payload (`RequesterSyncPacket`). The screen's edits come back as
 //! `merequester:*` payloads (`RequestUpdatePacket`).
 use super::{Config, Key, Requester, core, is_requester, rows};
-use crate::game::{Game, ae2_fluids, ae2_global::GridAddress, ae2_lab, lan::LanHost, lan_crafting};
+use crate::game::{Game, ae2_fluids, ae2_global::GridAddress, ae2_lab, ae2_wireless::WirelessContext, lan::LanHost, lan_crafting};
 use horizon_client::{
     ae2_generic_stack::{self, GenericStack},
     containers::BlockEntity,
@@ -49,6 +49,11 @@ pub(in crate::game) struct Session {
     sent: Vec<u8>,
     sent_items: Vec<Option<ItemStack>>,
     menu: Menu,
+    /// The Wireless Requester Terminal's item (`ReqWirelessTerminalMenuHost`,
+    /// with AE2WTLib): `pos` is then the access point it reaches, and the
+    /// menu lists nothing while it reaches none (`connected`).
+    wireless: Option<WirelessContext>,
+    connected: bool,
 }
 
 /// `RequestManager.convertToSuitableStack`: a wrapped generic stack is its
@@ -113,7 +118,7 @@ impl Game<'_> {
     /// terminal groups requesters by name, sorted, each name's requesters by
     /// position, filtered by the search.
     fn merequester_lines(&self, s: &Session) -> (Vec<GridAddress>, Vec<Line>, Vec<Requester>) {
-        let listed = self.merequester_listed(s.pos, s.face.as_deref());
+        let listed = if s.wireless.is_some() && !s.connected { Vec::new() } else { self.merequester_listed(s.pos, s.face.as_deref()) };
         let loaded: Vec<(GridAddress, Requester)> = listed.into_iter().filter_map(|a| Some((a, self.merequester_load(a)?))).collect();
         if s.face.is_none() {
             let (addresses, requesters): (Vec<_>, Vec<_>) = loaded.into_iter().unzip();
@@ -166,6 +171,40 @@ impl Game<'_> {
         if block && host.hub.guests.iter().any(|g| g.conn == conn && g.sneaking) {
             return false;
         }
+        self.merequester_close_others(host, conn);
+        let title = if block { self.pack.names.display_item(rows::REQUESTER) } else { "ME Requ. Terminal".to_string() };
+        let Some(window) = host.hub.open_window(conn, "minecraft:generic_9x6", horizon_protocol::text::literal(&title)) else { return true };
+        let session = Session {
+            window, state: 0, pos, face: terminal.then(|| face.to_string()), dim: self.dim.id().to_string(),
+            offset: 0, search: String::new(), requesters: Vec::new(), lines: Vec::new(), sent: Vec::new(),
+            sent_items: Vec::new(), menu: Menu::new(Kind::Chest(6)), wireless: None, connected: true,
+        };
+        self.ae2x.merequester.sessions.insert(conn, session);
+        self.lan_send_merequester(host, conn, true);
+        true
+    }
+    /// The Wireless Requester Terminal (`ReqWirelessTerminalMenu`, a
+    /// `RequesterTerminalMenu` on its item): the requesters of the grid of
+    /// the access point at `anchor` the item reaches.
+    pub(in crate::game) fn lan_open_merequester_wireless(&mut self, host: &mut LanHost, conn: u32, anchor: (i32, i32, i32), ctx: WirelessContext) -> bool {
+        self.merequester_close_others(host, conn);
+        let title = self.pack.names.display_item(rows::WIRELESS_TERMINAL);
+        let Some(window) = host.hub.open_window(conn, "minecraft:generic_9x6", horizon_protocol::text::literal(&title)) else { return true };
+        let session = Session {
+            window, state: 0, pos: anchor, face: Some(String::new()), dim: self.dim.id().to_string(),
+            offset: 0, search: String::new(), requesters: Vec::new(), lines: Vec::new(), sent: Vec::new(),
+            sent_items: Vec::new(), menu: Menu::new(Kind::Chest(6)), wireless: Some(ctx), connected: true,
+        };
+        self.ae2x.merequester.sessions.insert(conn, session);
+        self.lan_send_merequester(host, conn, true);
+        true
+    }
+    /// The item slot of the Wireless Requester Terminal `conn` has open.
+    pub(in crate::game) fn merequester_wireless_source(&self, conn: u32) -> Option<usize> {
+        self.ae2x.merequester.sessions.get(&conn)?.wireless.as_ref().map(|ctx| ctx.source)
+    }
+    /// The menus a requester's menu replaces.
+    fn merequester_close_others(&mut self, host: &mut LanHost, conn: u32) {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
@@ -178,16 +217,8 @@ impl Game<'_> {
         self.lan_crafting_closed(host, conn, None);
         self.guest_container_closed(host, conn);
         self.lan_merequester_closed(host, conn, None);
-        let title = if block { self.pack.names.display_item(rows::REQUESTER) } else { "ME Requ. Terminal".to_string() };
-        let Some(window) = host.hub.open_window(conn, "minecraft:generic_9x6", horizon_protocol::text::literal(&title)) else { return true };
-        let session = Session {
-            window, state: 0, pos, face: terminal.then(|| face.to_string()), dim: self.dim.id().to_string(),
-            offset: 0, search: String::new(), requesters: Vec::new(), lines: Vec::new(), sent: Vec::new(),
-            sent_items: Vec::new(), menu: Menu::new(Kind::Chest(6)),
-        };
-        self.ae2x.merequester.sessions.insert(conn, session);
-        self.lan_send_merequester(host, conn, true);
-        true
+        #[cfg(feature = "ae2-ae2wtlib")]
+        self.lan_ae2wtlib_trash_closed(host, conn, None);
     }
     pub(in crate::game) fn lan_merequester_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
         let open = self.ae2x.merequester.sessions.get(&conn).is_some_and(|s| window.is_none_or(|w| w == s.window));
@@ -202,6 +233,11 @@ impl Game<'_> {
     }
     /// Whether the session's player may still use it (`stillValid`).
     fn merequester_valid(&self, host: &LanHost, conn: u32, s: &Session) -> bool {
+        // `ItemMenuHost.isValid`: the item is still in its slot.
+        if let Some(ctx) = &s.wireless {
+            let here = host.hub.guests.iter().any(|g| g.conn == conn && host.hub.here(g) && g.next_window == s.window);
+            return here && self.ae2_wireless_source_valid(host, conn, ctx);
+        }
         let here = host.hub.guests.iter().any(|g| {
             g.conn == conn && host.hub.here(g) && g.next_window == s.window && g.within_block_range([s.pos.0, s.pos.1, s.pos.2], 4.0)
         });
@@ -239,7 +275,9 @@ impl Game<'_> {
                 }
             })
             .collect();
-        let view = serde_json::to_vec(&json!({"window": s.window, "terminal": s.face.is_some(), "offset": s.offset, "lines": line_json}))
+        // `ReqWirelessTerminalScreen`: the universal terminal's selector.
+        let universal = s.wireless.as_ref().and_then(|ctx| self.lan_wireless_universal_view(host, conn, ctx));
+        let view = serde_json::to_vec(&json!({"window": s.window, "terminal": s.face.is_some(), "offset": s.offset, "lines": line_json, "universal": universal}))
             .unwrap_or_default();
         let mut items: Vec<Option<ItemStack>> = (0..SLOTS)
             .map(|j| match lines.get(s.offset + j) {
@@ -271,6 +309,18 @@ impl Game<'_> {
             // A player in another level is seen on that level's pass.
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) {
                 continue;
+            }
+            // `WTMenuHost.tick`: the nearest access point and the battery.
+            if let Some(mut ctx) = self.ae2x.merequester.sessions.get(&conn).and_then(|s| s.wireless.clone()) {
+                let connected = self.ae2_wireless_source_valid(host, conn, &ctx) && self.ae2_wireless_tick(host, conn, &mut ctx);
+                let nearest = if connected { self.ae2_wireless_nearest(host, conn, &ctx) } else { None };
+                if let Some(s) = self.ae2x.merequester.sessions.get_mut(&conn) {
+                    s.connected = nearest.is_some();
+                    if let Some((pos, _)) = nearest {
+                        s.pos = pos;
+                    }
+                    s.wireless = Some(ctx);
+                }
             }
             self.lan_send_merequester(host, conn, false);
         }

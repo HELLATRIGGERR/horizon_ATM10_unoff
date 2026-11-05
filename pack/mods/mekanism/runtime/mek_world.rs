@@ -21,7 +21,7 @@
 // call into the game.
 
 use super::{
-    Game, mek_machines,
+    Game, mek_factories, mek_machines,
     native_hooks::{NativeFeInfo, NativeFluidTankInfo},
     native_lifecycle::WorldPhase,
     native_server::{NativeCommand, NativeServerPlayer},
@@ -168,6 +168,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     GENERATORS.with(|g| g.borrow_mut().clear());
     mek_machines::clear();
     super::mek_tubes::clear();
+    mek_factories::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -270,6 +271,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some((block.to_owned(), Compound::new()));
         return;
     }
+    if let Some(kind) = mek_factories::kind_of(block) {
+        *entity = Some(mek_factories::new_entity(kind));
+        return;
+    }
     if let Some(kind) = mek_machines::kind_of(block) {
         *entity = Some(mek_machines::new_entity(kind));
         return;
@@ -305,6 +310,9 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
     {
         *ticks = true;
     }
+    if mek_factories::kind_of(block).is_some() {
+        *ticks = true;
+    }
 }
 
 /// `native_block_entity_container`: the discharge slot (0, fills the cube
@@ -317,6 +325,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
         *container = Some(generator_container(kind));
+        return;
+    }
+    if let Some(kind) = mek_factories::kind_of(block) {
+        *container = Some(mek_factories::container(kind));
         return;
     }
     if let Some(kind) = mek_machines::kind_of(block) {
@@ -392,6 +404,9 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     if let Some(exposed) = generator {
         return exposed.then_some(Target::Generator);
     }
+    if let Some(open) = game.native_with_mod_block_entity(at, |m| mek_factories::takes_energy(m, side)).flatten() {
+        return open.then_some(Target::Machine);
+    }
     if let Some(open) = game.native_with_mod_block_entity(at, |m| mek_machines::takes_energy(m, side)).flatten() {
         return open.then_some(Target::Machine);
     }
@@ -452,7 +467,10 @@ fn hand_over(
         Target::Generator => amount,
         Target::Machine => {
             let rest = game
-                .native_with_mod_block_entity(at, |m| mek_machines::offer(m, config, face.opposite(), amount, simulate))
+                .native_with_mod_block_entity(at, |m| match mek_factories::offer(m, config, face.opposite(), amount, simulate) {
+                    Some(rest) => Some(rest),
+                    None => mek_machines::offer(m, config, face.opposite(), amount, simulate),
+                })
                 .flatten()
                 .unwrap_or(amount);
             if !simulate && rest < amount {
@@ -480,6 +498,10 @@ fn hand_over(
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         tick_generator(game, pos, entity, kind);
+        return;
+    }
+    if let Some(kind) = mek_factories::kind_of(&entity.id) {
+        mek_factories::tick(game, pos, entity, kind);
         return;
     }
     if let Some(kind) = mek_machines::kind_of(&entity.id) {
@@ -617,6 +639,10 @@ pub(super) fn fe_storage(
         return;
     }
     let (config, _) = energy_config();
+    if mek_factories::kind_of(&entity.id).is_some() {
+        mek_factories::fe_storage(entity, face, &config, info);
+        return;
+    }
     if mek_machines::kind_of(&entity.id).is_some() {
         mek_machines::fe_storage(entity, face, &config, info);
         return;
@@ -682,6 +708,10 @@ pub(super) fn fe_transfer(
         return;
     }
     let (config, _) = energy_config();
+    if mek_factories::kind_of(&entity.id).is_some() {
+        mek_factories::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
+        return;
+    }
     if mek_machines::kind_of(&entity.id).is_some() {
         mek_machines::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
         return;
@@ -801,7 +831,7 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if has_chemicals(&entity.id) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some();
     let Some(tier) = CableTier::of_block(&entity.id) else {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
         if energy && ANY_CABLES.get() {
@@ -832,9 +862,10 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     if has_chemicals(&entity.id) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some();
     if machine && !removed {
         mek_machines::forget(dimension, pos);
+        mek_factories::forget(dimension, pos);
     }
     if CableTier::of_block(&entity.id).is_none() {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
@@ -932,7 +963,7 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
     if let Some(given) = generator {
         return given;
     }
-    if game.native_with_mod_block_entity(at, |m| mek_machines::kind_of(&m.id).is_some()) == Some(true) {
+    if game.native_with_mod_block_entity(at, |m| mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some()) == Some(true) {
         return 0;
     }
     let cube = game
@@ -1122,6 +1153,10 @@ fn probe_cable(game: &mut Game<'_>, pos: [i32; 3], id: &str, tier: CableTier) ->
 /// (`mek_ui`). A changed energy side shows on the block at once: the face's
 /// property is set with `UPDATE_CLIENTS`, as Mekanism updates its model.
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
+    if mek_factories::kind_of(&entity.id).is_some() {
+        mek_factories::button(game, pos, entity, id);
+        return;
+    }
     if mek_machines::kind_of(&entity.id).is_some() {
         mek_machines::button(game, pos, entity, id);
         return;
@@ -1172,6 +1207,31 @@ pub(super) fn item_data(stack: &ItemStack) -> Option<Compound> {
         Tag::Compound(c) => Some(c.clone()),
         _ => None,
     }
+}
+
+/// `EnergyInventorySlot.fillContainerFromItem` for an energy cube's item in a
+/// machine's energy slot: up to `needed` Joules out of it, at most its tier's
+/// output a tick (`ComponentBackedEnergyCubeContainer`'s rate), the creative
+/// cube's without end. None for an item that holds no energy here (other
+/// energy items aren't ported); else the Joules taken, its custom data
+/// changed to what is left.
+pub(super) fn drain_energy_item(stack: &mut ItemStack, needed: u64) -> Option<u64> {
+    let tier = CubeTier::of_block(&stack.item)?;
+    let (config, _) = energy_config();
+    let (capacity, output) = config.cube(tier);
+    let mut data = item_data(stack).unwrap_or_default();
+    let stored = cube::stored_from(tier, saved_energy(&data), capacity);
+    let taken = needed.min(output).min(stored);
+    if taken > 0 && tier != CubeTier::Creative {
+        write_energy(&mut data, stored - taken);
+        let custom = (!data.is_empty()).then(|| {
+            let mut custom = Compound::new();
+            custom.insert(key("mekanism"), Tag::Compound(data));
+            Tag::Compound(custom)
+        });
+        stack.data_mut().set_other(CUSTOM_DATA, custom);
+    }
+    Some(taken)
 }
 
 /// What a cube's item keeps of its block entity: its energy, and its side
@@ -1510,6 +1570,10 @@ fn generator_container(kind: GeneratorKind) -> ModContainer {
 /// what burns in a furnace, a lava bucket included (`fuelValue > 0`); a
 /// machine's slots take what they work with (`mek_machines::slot_accepts`).
 pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bool, accepts: &mut bool) {
+    if let Some(kind) = mek_factories::kind_of(block) {
+        mek_factories::slot_accepts(kind, slot, stack, accepts);
+        return;
+    }
     if let Some(kind) = mek_machines::kind_of(block) {
         mek_machines::slot_accepts(kind, slot, stack, accepts);
         return;
@@ -1832,6 +1896,7 @@ pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek chemical <pos:block_pos> <args:text>", 2));
     commands.push(NativeCommand::op("mek chemicals", 2));
     commands.push(NativeCommand::op("mek chemicals <id:word>", 2));
+    commands.push(NativeCommand::op("mek install <pos:block_pos> <installer:word>", 2));
 }
 
 /// A coordinate of the command line: a number, or `~`/`~n` from the player.
@@ -1878,6 +1943,21 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             }
         }
         Some("chemicals") => super::mek_chemicals::registry_command(game, words.next()),
+        // `/mek install x y z <tier installer>`: a tier installer used on the block, as a sneaking player would.
+        Some("install") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            match (at, words.next()) {
+                ((Some(x), Some(y), Some(z)), Some(item)) => {
+                    let item = if item.contains(':') { item.to_owned() } else { format!("mekanism:{item}") };
+                    match mek_factories::install(game, [x, y, z], &item) {
+                        Ok(block) => serde_json::json!({ "pos": [x, y, z], "block": block }),
+                        Err(error) => serde_json::json!({ "pos": [x, y, z], "error": error }),
+                    }
+                }
+                _ => serde_json::json!({ "error": "usage: /mek install <x> <y> <z> <tier installer>" }),
+            }
+        }
         _ => serde_json::json!({ "error": "usage: /mek probe <x> <y> <z>" }),
     };
     let mut answer = answer;
@@ -1893,6 +1973,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     let Some((id, nbt, input, data, items)) = found else {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };
+    if mek_factories::kind_of(&id).is_some() {
+        return mek_factories::probe(game, pos, &id, &nbt, &data, &items);
+    }
     if mek_machines::kind_of(&id).is_some() {
         return mek_machines::probe(game, pos, &id, &nbt, &data, &items);
     }

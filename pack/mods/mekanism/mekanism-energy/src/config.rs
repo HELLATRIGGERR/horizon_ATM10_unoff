@@ -63,9 +63,9 @@ impl Default for EnergyConfig {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MachinesConfig {
     /// Joules a tick of each machine, in `MachineKind::ALL` order, 0 or more.
-    pub usage: [u64; 5],
+    pub usage: [u64; MachineKind::ALL.len()],
     /// Joules each machine holds, 1 or more.
-    pub storage: [u64; 5],
+    pub storage: [u64; MachineKind::ALL.len()],
     /// `maxUpgradeMultiplier`: how far eight upgrades of a kind go, more than 1.
     pub max_upgrade_multiplier: f64,
     /// `general.toml` `[auto_eject] chemical`: mB a tick a block ejects of

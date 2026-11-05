@@ -47,11 +47,25 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   items; the Basic to Ultimate Pressurized Tubes (`network` with a chemical content, runtime `mek_tubes`, their OBJ
   model from `mekanism-content`). Measured on the NeoForge oracle over RCON (local `chem-work/tanks`, t1-t4:
   `mekmach-oracle` started headless by `tanks/server.sh`). World tests `chemical-tank`, `pressurized-tube`.
+- Machines 2 (branch `feat/mekanism-machines-2`, hook points API 165): the Combiner and the Precision Sawmill, the
+  factories of smelting, enriching, crushing, combining and sawing in four tiers (`mekanism_energy::factory`,
+  `runtime/mek_factories.rs`, screens in `runtime/mek_factory_ui.rs` on `mek_ui`'s tabs and windows), tier installers
+  (`native_use_item_on`, `/mek install`), energy cube items charging machines' energy slots. World tests
+  `combiner-sawmill`, `factories`, `tier-installer`; their numbers were measured on a private copy of the NeoForge
+  oracle (Mekanism 10.7.19, ATM10's configs, RCON 25611; local `mekm2-work/oracle`, `x1.py`, `x2.py`). Learned for
+  the next ones: the infusing factory (`TileEntityItemStackChemicalToItemStackFactory`, shared with the injecting
+  and purifying ones) keeps one chemical tank for all processes, an extra slot, and `used_so_far` (a long array of
+  the chemical used a process, for per-tick usage) beside `progress`; the Osmium Compressor, Purification Chamber and
+  Chemical Injection Chamber are `TileEntityAdvancedElectricMachine` (an item and a chemical in, the chemical used
+  each tick, randomized by `randomizedConsumption`) with `ADVANCED_MACHINE` side configs (chemical sides
+  `OUT_NO_EJECT`); their factories are the same class with another recipe type. Tier installers also upgrade energy
+  cubes, fluid and chemical tanks and bins (`AttributeUpgradeable` on those blocks), not ported. The Configurator's
+  modes (`ItemConfigurator`) would replace `/mek connection`; multiblocks stay out.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick), S11's Configurator in place of `/mek connection`;
-  the machines' next tier (factories, the Osmium Compressor, Combiner, Purification Chamber) on the same `machine`
-  crate module, energy items charging machines.
+  the chemical machines and their factories (the Osmium Compressor, Purification Chamber, Chemical Injection Chamber,
+  the infusing factory), other energy items charging machines.
 
 ## How to run
 

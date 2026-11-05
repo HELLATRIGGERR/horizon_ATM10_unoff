@@ -41,6 +41,13 @@ pub enum MachineKind {
     /// `mekanism:electrolytic_separator`, `mekanism:separating` recipes
     /// (`TileEntityElectrolyticSeparator`: no progress, operations a tick).
     ElectrolyticSeparator,
+    /// `mekanism:combiner`, `mekanism:combining` recipes (`TileEntityCombiner`:
+    /// a main and an extra item in, an item out; `crate::factory`).
+    Combiner,
+    /// `mekanism:precision_sawmill`, `mekanism:sawing` recipes
+    /// (`TileEntityPrecisionSawmill`: an item in, an item and a chance of a
+    /// secondary one out; `crate::factory`).
+    PrecisionSawmill,
 }
 
 /// Where a machine keeps its items: Mekanism's own slot order (input,
@@ -48,6 +55,7 @@ pub enum MachineKind {
 /// component's input and output slots, which Mekanism keeps apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Slots {
+    /// The `EXTRA` slot: the infuser's infusion slot, the combiner's extra input.
     pub infusion: Option<usize>,
     /// The separator's fluid slot is its `input`; its outputs are chemical
     /// item slots (left `output`, right `output2`).
@@ -61,7 +69,15 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 5] = [Self::EnrichmentChamber, Self::Crusher, Self::EnergizedSmelter, Self::MetallurgicInfuser, Self::ElectrolyticSeparator];
+    pub const ALL: [Self; 7] = [
+        Self::EnrichmentChamber,
+        Self::Crusher,
+        Self::EnergizedSmelter,
+        Self::MetallurgicInfuser,
+        Self::ElectrolyticSeparator,
+        Self::Combiner,
+        Self::PrecisionSawmill,
+    ];
 
     pub fn id(self) -> &'static str {
         match self {
@@ -70,6 +86,8 @@ impl MachineKind {
             Self::EnergizedSmelter => "mekanism:energized_smelter",
             Self::MetallurgicInfuser => "mekanism:metallurgic_infuser",
             Self::ElectrolyticSeparator => "mekanism:electrolytic_separator",
+            Self::Combiner => "mekanism:combiner",
+            Self::PrecisionSawmill => "mekanism:precision_sawmill",
         }
     }
 
@@ -85,6 +103,8 @@ impl MachineKind {
             Self::EnergizedSmelter => "energizedSmelter",
             Self::MetallurgicInfuser => "metallurgicInfuser",
             Self::ElectrolyticSeparator => "electrolyticSeparator",
+            Self::Combiner => "combiner",
+            Self::PrecisionSawmill => "precisionSawmill",
         }
     }
 
@@ -96,6 +116,8 @@ impl MachineKind {
             Self::EnergizedSmelter => "minecraft:smelting",
             Self::MetallurgicInfuser => "mekanism:metallurgic_infusing",
             Self::ElectrolyticSeparator => "mekanism:separating",
+            Self::Combiner => "mekanism:combining",
+            Self::PrecisionSawmill => "mekanism:sawing",
         }
     }
 
@@ -107,7 +129,11 @@ impl MachineKind {
 
     /// `StorageConfig`'s default Joules held.
     pub fn default_storage(self) -> u64 {
-        if self.separates() { 160_000 } else { 20_000 }
+        match self {
+            Self::ElectrolyticSeparator => 160_000,
+            Self::Combiner => 40_000,
+            _ => 20_000,
+        }
     }
 
     pub fn separates(self) -> bool {
@@ -123,6 +149,18 @@ impl MachineKind {
         self == Self::MetallurgicInfuser
     }
 
+    /// The Combiner and the Precision Sawmill, which `crate::factory` runs
+    /// with the factories (`ProcessKind`).
+    pub fn processes_like_a_factory(self) -> bool {
+        matches!(self, Self::Combiner | Self::PrecisionSawmill)
+    }
+
+    /// Whether its items have an `EXTRA` slot (`setupItemIOExtraConfig`): the
+    /// infuser's infusion slot, the combiner's extra input.
+    pub fn has_extra_slot(self) -> bool {
+        matches!(self, Self::MetallurgicInfuser | Self::Combiner)
+    }
+
     /// Whether its block shows `active` (`AttributeStateActive`): the
     /// infuser's and the separator's models have no such state.
     pub fn shows_active(self) -> bool {
@@ -132,8 +170,11 @@ impl MachineKind {
     pub fn slots(self) -> Slots {
         if self.infuses() {
             Slots { infusion: Some(0), input: 1, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
-        } else if self.separates() {
+        } else if self.separates() || self == Self::PrecisionSawmill {
             Slots { infusion: None, input: 0, output: 1, output2: Some(2), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
+        } else if self == Self::Combiner {
+            // Main input, extra input, output, energy (`TileEntityCombiner.getInitialInventory`).
+            Slots { infusion: Some(1), input: 0, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
         } else {
             Slots { infusion: None, input: 0, output: 1, output2: None, energy: 2, upgrade: 3, upgrade_out: 4, count: 5 }
         }
@@ -149,7 +190,7 @@ impl MachineKind {
         }
         match data {
             DataType::None | DataType::Input | DataType::Output | DataType::InputOutput | DataType::Energy => true,
-            DataType::Extra => self.infuses(),
+            DataType::Extra => self.has_extra_slot(),
             _ => false,
         }
     }
@@ -182,7 +223,7 @@ impl MachineKind {
         RelativeSide::ALL.map(|side| match side {
             RelativeSide::Right => DataType::Output,
             RelativeSide::Back => DataType::Energy,
-            RelativeSide::Bottom if self.infuses() => DataType::Extra,
+            RelativeSide::Bottom if self.has_extra_slot() => DataType::Extra,
             _ => DataType::Input,
         })
     }

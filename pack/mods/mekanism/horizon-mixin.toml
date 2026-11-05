@@ -1,15 +1,16 @@
-# Mekanism's energy, its first processing machines, its chemicals (the
+# Mekanism's energy, its processing machines and factories, its chemicals (the
 # registry, tanks, the chemical handler, the Electrolytic Separator, the
 # Chemical Tanks and their items, the Pressurized Tubes) and
 # Mekanism Generators' Solar and Heat Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
-# It hooks only Horizon's named hook points (API 3, 7, 8, 12, 14-20, 23, 26,
+# It hooks only Horizon's named hook points (API 3, 7, 8, 12-20, 23, 26,
 # 42, 47, 60, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
-# `native_dimension_type`), 159 (`native_cooking_recipes`), 160 (`FluidStack`) and 162
-# (`native_data_files`, the content's chemical declarations), so it builds on
-# any Horizon with hooks API 162 or later: it pins no revision (horizon-mixins
+# `native_dimension_type`), 159 (`native_cooking_recipes`), 160 (`FluidStack`), 162
+# (`native_data_files`, the content's chemical declarations) and 165 (`native_used_stack`,
+# `native_instabuild`, `native_default_state`: the tier installers), so it builds on
+# any Horizon with hooks API 165 or later: it pins no revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.
@@ -33,6 +34,18 @@ id = "machines"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_machines"
 source = "runtime/mek_machines.rs"
+
+[[module]]
+id = "factories"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_factories"
+source = "runtime/mek_factories.rs"
+
+[[module]]
+id = "factory-ui"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_factory_ui"
+source = "runtime/mek_factory_ui.rs"
 
 [[module]]
 id = "chemicals"
@@ -213,6 +226,19 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
   { name = "id", ty = "i32", value = "id" },
+]
+
+[[injection]]
+id = "use-item-on"
+hook = "use_item_on"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/use_item_on.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
 ]
 
 [[injection]]

@@ -66,13 +66,13 @@ const INFUSE_TANK: i64 = 1000;
 /// An item ingredient as Mekanism's `ItemStackIngredient` reads it: the items
 /// it takes and how many.
 #[derive(Clone, Debug)]
-struct ItemIn {
-    items: HashSet<String>,
-    count: u32,
+pub(super) struct ItemIn {
+    pub(super) items: HashSet<String>,
+    pub(super) count: u32,
 }
 
 impl ItemIn {
-    fn takes(&self, stack: &ItemStack) -> bool {
+    pub(super) fn takes(&self, stack: &ItemStack) -> bool {
         self.items.contains(&*stack.item)
     }
 }
@@ -216,7 +216,7 @@ fn items_of(game: &Game<'_>, v: &Value) -> Option<HashSet<String>> {
     }
 }
 
-fn item_in(game: &Game<'_>, v: &Value) -> Option<ItemIn> {
+pub(super) fn item_in(game: &Game<'_>, v: &Value) -> Option<ItemIn> {
     let count = v.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, 99) as u32;
     Some(ItemIn { items: items_of(game, v)?, count })
 }
@@ -224,7 +224,7 @@ fn item_in(game: &Game<'_>, v: &Value) -> Option<ItemIn> {
 /// Makes the book again from the world's tables when one changed. A chemical
 /// ingredient or stack the registry can't read leaves its recipe out, as
 /// Mekanism's codecs fail the recipe.
-fn refresh_book(game: &Game<'_>) {
+pub(super) fn refresh_book(game: &Game<'_>) {
     let cooking = game.native_cooking_recipes();
     let mut stamp: Vec<(usize, usize)> = TYPES
         .iter()
@@ -366,6 +366,18 @@ fn find_separating(fluid: &FluidStack) -> Option<Rc<SeparatingRecipe>> {
         return None;
     }
     BOOK.with(|b| b.borrow().separating.iter().find(|r| r.input.ingredient.test(fluid)).cloned())
+}
+
+/// The energy slot's conversion of `stack` (`mekanism:energy_conversion`):
+/// how many it takes and the Joules they give, for `mek_factories`.
+pub(super) fn energy_conversion(stack: &ItemStack) -> Option<(u32, u64)> {
+    BOOK.with(|b| b.borrow().energy.iter().find(|e| e.input.takes(stack)).map(|e| (e.input.count, e.joules)))
+}
+
+/// Whether an energy slot takes `item` (`EnergyInventorySlot.fillOrConvert`);
+/// before a world has read its recipes, anything.
+pub(super) fn energy_item(item: &str) -> bool {
+    TAKES.read().ok().and_then(|t| t.as_ref().map(|t| t.energy.contains(item))).unwrap_or(true)
 }
 
 /// The fluid tank's validator (`containsRecipe`): a fluid a separating recipe takes.
@@ -525,8 +537,10 @@ fn store(saved: &Saved, config: &EnergyConfig, kind: MachineKind) -> EnergyConta
 
 // ---- Block entities and slots -----------------------------------------------------
 
+/// The machines this module runs: not the Combiner and the Precision Sawmill,
+/// which `mek_factories` runs with the factories.
 pub(super) fn kind_of(block: &str) -> Option<MachineKind> {
-    MachineKind::of_block(block)
+    MachineKind::of_block(block).filter(|k| !k.processes_like_a_factory())
 }
 
 /// `native_block_entity` for a machine: its item's side config
@@ -602,7 +616,7 @@ pub(super) fn slot_accepts(kind: MachineKind, slot: usize, stack: &ItemStack, ac
         // `ChemicalInventorySlot.drain`: a chemical item, alone.
         super::mek_tanks::tier_of(item).is_some() && stack.count == 1
     } else if slot == s.energy {
-        known(&|t| t.energy.contains(item))
+        known(&|t| t.energy.contains(item)) || mekanism_energy::tier::CubeTier::of_block(item).is_some()
     } else if slot == s.upgrade {
         Upgrade::of_item(item).is_some_and(|u| machine::MACHINE_UPGRADES.contains(&u))
     } else {
@@ -613,11 +627,11 @@ pub(super) fn slot_accepts(kind: MachineKind, slot: usize, stack: &ItemStack, ac
     }
 }
 
-fn stack_in(entity: &ModBlockEntity, slot: usize) -> Option<&ItemStack> {
+pub(super) fn stack_in(entity: &ModBlockEntity, slot: usize) -> Option<&ItemStack> {
     entity.items.get(slot).and_then(Option::as_ref).filter(|s| s.count > 0)
 }
 
-fn shrink(entity: &mut ModBlockEntity, slot: usize, by: u32) {
+pub(super) fn shrink(entity: &mut ModBlockEntity, slot: usize, by: u32) {
     if let Some(cell) = entity.items.get_mut(slot) {
         if let Some(stack) = cell.as_mut() {
             stack.count = stack.count.saturating_sub(by);
@@ -628,7 +642,7 @@ fn shrink(entity: &mut ModBlockEntity, slot: usize, by: u32) {
     }
 }
 
-fn same_kind(a: &ItemStack, b: &ItemStack) -> bool {
+pub(super) fn same_kind(a: &ItemStack, b: &ItemStack) -> bool {
     a.item == b.item && a.damage == b.damage && a.extra == b.extra
 }
 
@@ -727,8 +741,18 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
 
     let mut store = store(&saved, &config, kind);
-    // The energy slot: an item that converts to energy, when all of it fits.
-    if let Some(stack) = stack_in(entity, slots.energy).cloned()
+    // The energy slot (`fillContainerOrConvert`): an energy cube's item gives
+    // what it can, else an item that converts to energy, when all of it fits.
+    let mut item = stack_in(entity, slots.energy).cloned();
+    if let Some(cube) = item.as_mut()
+        && store.needed() > 0
+        && let Some(taken) = mek_world::drain_energy_item(cube, store.needed()).filter(|t| *t > 0)
+    {
+        store.insert(taken, false, Automation::Internal);
+        if let Some(cell) = entity.items.get_mut(slots.energy) {
+            *cell = item;
+        }
+    } else if let Some(stack) = stack_in(entity, slots.energy).cloned()
         && store.needed() > 0
     {
         let found = BOOK.with(|b| b.borrow().energy.iter().find(|e| e.input.takes(&stack)).cloned());
@@ -1109,7 +1133,7 @@ fn eject_separator_items(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlo
 /// `TileComponentEjector.outputItems`: the output slot's stack goes to each
 /// face in turn, as much as fits (`native_insert_item` through the
 /// neighbour's touching face), until none is left.
-fn eject_items(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, slot: usize, faces: &[Direction]) {
+pub(super) fn eject_items(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, slot: usize, faces: &[Direction]) {
     for &face in faces {
         let Some(stack) = stack_in(entity, slot).cloned() else {
             return;

@@ -6,6 +6,11 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 165 adds what a mod's item used on a block needs to act as the item's `useOn`: the stack in the hand
+//! that acts (`native_used_stack`, `getItemInHand(hand)`, to use it up), whether the player builds without
+//! using items up (`native_instabuild`, `Abilities.instabuild`), and a block's default state by name
+//! (`native_default_state`, for `native_set_block`): Mekanism's tier installers turn a machine into a factory.
+//!
 //! API 162 adds the content's data files of one kind in every namespace (`native_data_files`, NeoForge's
 //! `ResourceManager.listResources`): a mod reads its own registries' entries that content mods declare as
 //! data (Mekanism's chemicals at `data/<ns>/mekanism/chemical/`) with `native_data`.
@@ -565,7 +570,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 162;
+pub(crate) const NATIVE_HOOKS_API: u32 = 165;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -7331,6 +7336,23 @@ impl Game<'_> {
     /// API 39.
     pub(super) fn native_carried_stack(&mut self, slot: i32) -> Option<&mut ItemStack> {
         self.native_carried_slot(slot)?.as_mut()
+    }
+    /// The stack in the hand the acting player uses (`getItemInHand(hand)`)
+    /// where `native_use_item_on` and `native_use_item` run: shrink it to use
+    /// the item up, `None` empties the hand. API 165.
+    pub(super) fn native_used_stack(&mut self) -> &mut Option<ItemStack> {
+        self.held_mut()
+    }
+    /// Whether the acting player builds without using items up (creative,
+    /// `Abilities.instabuild`): an item used on a block stays. API 165.
+    pub(super) fn native_instabuild(&self) -> bool {
+        self.creative
+    }
+    /// The default state of block `name` (`Block.defaultBlockState()`), for
+    /// `native_set_block` and `native_state_with_property`; none for a block
+    /// the game doesn't know. API 165.
+    pub(super) fn native_default_state(&self, name: &str) -> Option<BlockStateId> {
+        self.pack.assets.registry.default_state(name)
     }
     /// Whether the player left mod `mod_id` on in Options > Mods. A mod
     /// turned off does nothing (check this first in each hook) until the

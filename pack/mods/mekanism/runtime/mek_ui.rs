@@ -13,7 +13,9 @@
 // energy, item and chemical pages, and the upgrade window. A machine's slots fill its panel,
 // so its windows open beside it, on the left, and the upgrade component's
 // two slots sit in a holder on the right, under the upgrade tab (Mekanism
-// shows them only in its upgrade window).
+// shows them only in its upgrade window). The Combiner's, the Precision
+// Sawmill's and the factories' screens (`mek_factory_ui`) share the tabs and
+// windows.
 //
 // Mekanism draws the side configuration as a floating 156x135 window; here
 // the game draws a screen's items over everything the mod draws, so it is a
@@ -32,6 +34,7 @@ use mekanism_energy::{
     config::{self, EnergyConfig},
     cube,
     display,
+    factory::ProcessKind,
     generator::GeneratorKind,
     machine::{self, MachineKind, Upgrade},
     menu::{Button, GeneratorView, Kind, MachineButton, MachineView, SeparatorView, View},
@@ -49,7 +52,7 @@ pub(super) const SCREEN_TEXT: u32 = 0x3CFE9A;
 
 thread_local! {
     /// 0: the cube; 1: energy side configuration; 2: item side configuration.
-    static PAGE: Cell<u8> = const { Cell::new(0) };
+    pub(super) static PAGE: Cell<u8> = const { Cell::new(0) };
     /// The settings this side reads (`energyType`, tier sizes), when their
     /// files last changed, and when that was last looked at.
     static SETTINGS: RefCell<Option<(EnergyConfig, Stamp, Instant)>> = const { RefCell::new(None) };
@@ -86,6 +89,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(super::mek_tanks::screen());
         return;
     }
+    if let Some(kind) = ProcessKind::of_block(block) {
+        *screen = Some(super::mek_factory_ui::screen(kind));
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(block) {
         *screen = Some(generator_screen(kind));
         return;
@@ -120,7 +127,7 @@ pub(super) fn inside(r: Rect, at: [f32; 2]) -> bool {
 
 pub(super) const CONFIG_TAB: Rect = [-26.0, 6.0, 26.0, 26.0];
 pub(super) const CONFIG_BUTTON: Rect = [-21.0, 10.0, 18.0, 18.0];
-const ENERGY_TAB: Rect = [-26.0, 137.0, 26.0, 26.0];
+pub(super) const ENERGY_TAB: Rect = [-26.0, 137.0, 26.0, 26.0];
 const GAUGE: Rect = [55.0, 18.0, 66.0, 50.0];
 /// The side configuration page.
 const WINDOW: Rect = [36.0, 2.0, 104.0, 81.0];
@@ -223,6 +230,10 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
         super::mek_tanks::click(data, at, right, button);
         return;
     }
+    if let Some(kind) = ProcessKind::of_block(block) {
+        super::mek_factory_ui::click(kind, data, at, right, button);
+        return;
+    }
     if let Some(kind) = MachineKind::of_block(block) {
         machine_click(kind, data, at, right, button);
         return;
@@ -270,6 +281,10 @@ pub(super) fn side_name(side: RelativeSide) -> &'static str {
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
     if super::mek_tanks::tier_of(block).is_some() {
         super::mek_tanks::tooltip(data, at, lines);
+        return;
+    }
+    if let Some(kind) = ProcessKind::of_block(block) {
+        super::mek_factory_ui::tooltip(kind, data, at, lines);
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
@@ -427,6 +442,10 @@ pub(super) fn side_color(t: DataType) -> u32 {
 pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
     if super::mek_tanks::tier_of(block).is_some() {
         super::mek_tanks::draw(game, data, batch, origin);
+        return;
+    }
+    if let Some(kind) = ProcessKind::of_block(block) {
+        super::mek_factory_ui::draw(game, kind, data, batch, origin);
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
@@ -729,7 +748,7 @@ fn machine_screen(kind: MachineKind) -> NativeScreen {
 }
 
 /// The side window's kinds: energy and items, and the infuser's chemicals.
-fn machine_kinds(view: &MachineView) -> Vec<Kind> {
+pub(super) fn machine_kinds(view: &MachineView) -> Vec<Kind> {
     let mut kinds = vec![Kind::Energy, Kind::Items];
     if view.chemicals.is_some() {
         kinds.push(Kind::Chemicals);
@@ -770,7 +789,7 @@ fn kind_page(kind: Kind) -> u8 {
     }
 }
 
-fn sides_of_kind(view: &MachineView, kind: Kind) -> [DataType; 6] {
+pub(super) fn sides_of_kind(view: &MachineView, kind: Kind) -> [DataType; 6] {
     match kind {
         Kind::Energy => view.energy,
         Kind::Items => view.items,
@@ -788,67 +807,17 @@ fn uninstall_button(window: Rect, i: usize) -> Rect {
     [row[0] + row[2] - 15.0, row[1] + 4.0, 14.0, 12.0]
 }
 
-enum MachineHit {
+pub(super) enum MachineHit {
     Press(MachineButton),
     Tip(Vec<String>),
 }
 
 fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &EnergyConfig, at: [f32; 2], right: bool) -> Option<MachineHit> {
-    let press = |b: Button| Some(MachineHit::Press(MachineButton::Config(b)));
-    let window = machine_window(view);
-    if let Some(side_kind) = page_kind(page) {
-        for side in RelativeSide::ALL {
-            if inside(side_button_in(window, side), at) {
-                return press(Button::Side { kind: side_kind, side: side.index(), forward: !right });
-            }
-        }
-        if inside(at_window(window, [4.0, 4.0, 8.0, 8.0]), at) {
-            return press(Button::Page(0));
-        }
-        if inside(at_window(window, [86.0, 14.0, 14.0, 14.0]), at) && side_kind == Kind::Items {
-            return if right { Some(MachineHit::Tip(vec!["Auto-eject".into()])) } else { press(Button::Eject(side_kind)) };
-        }
-        if inside(at_window(window, [86.0, 63.0, 14.0, 14.0]), at) {
-            return press(Button::Clear { kind: side_kind, forward: !right });
-        }
-        for (i, k) in machine_kinds(view).into_iter().enumerate() {
-            if inside(at_window(window, [4.0, 31.0 + 21.0 * i as f32, 18.0, 18.0]), at) {
-                return press(Button::Page(kind_page(k)));
-            }
-        }
-        if inside(window, at) {
-            return None;
-        }
-    }
-    if page == 4 {
-        for (i, upgrade) in machine::MACHINE_UPGRADES.into_iter().enumerate() {
-            if inside(uninstall_button(window, i), at) {
-                return Some(MachineHit::Press(MachineButton::Remove { upgrade, all: right }));
-            }
-        }
-        if inside(at_window(window, [4.0, 4.0, 8.0, 8.0]), at) {
-            return press(Button::Page(0));
-        }
-        if inside(window, at) {
-            return None;
-        }
-    }
-    if inside(CONFIG_BUTTON, at) {
-        return press(Button::Page(if page_kind(page).is_some() { 0 } else { 1 }));
-    }
-    if inside(UPGRADE_BUTTON, at) {
-        return press(Button::Page(if page == 4 { 0 } else { 4 }));
+    if let Some(hit) = window_hit(page, view, settings, at, right, 176.0) {
+        return hit;
     }
     if kind.infuses() && inside(DUMP, at) {
         return Some(MachineHit::Press(MachineButton::Dump));
-    }
-    let energy = |j: u64| display::energy(j, settings);
-    if inside(ENERGY_TAB, at) {
-        let using = if view.active { view.per_tick } else { 0 };
-        return Some(MachineHit::Tip(vec![
-            format!("Using: {}/t", energy(using)),
-            format!("Needed: {}", energy(view.capacity.saturating_sub(view.stored))),
-        ]));
     }
     if inside(machine_power_bar(kind), at) {
         return Some(MachineHit::Tip(vec![display::fraction(view.stored, view.capacity, settings)]));
@@ -861,6 +830,73 @@ fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &Energ
         return Some(MachineHit::Tip(vec![chemical_line(view.infuse, view.infused)]));
     }
     None
+}
+
+/// What `at` hits of a machine screen's windows and tabs (`width` its
+/// panel's width, the upgrade tab beside it): the side configuration and
+/// upgrade windows, their tab buttons and the energy tab. `Some(None)` is a
+/// window's empty part; none, nothing of these.
+pub(super) fn window_hit(page: u8, view: &MachineView, settings: &EnergyConfig, at: [f32; 2], right: bool, width: f32) -> Option<Option<MachineHit>> {
+    let press = |b: Button| Some(MachineHit::Press(MachineButton::Config(b)));
+    let window = machine_window(view);
+    if let Some(side_kind) = page_kind(page) {
+        for side in RelativeSide::ALL {
+            if inside(side_button_in(window, side), at) {
+                return Some(press(Button::Side { kind: side_kind, side: side.index(), forward: !right }));
+            }
+        }
+        if inside(at_window(window, [4.0, 4.0, 8.0, 8.0]), at) {
+            return Some(press(Button::Page(0)));
+        }
+        if inside(at_window(window, [86.0, 14.0, 14.0, 14.0]), at) && side_kind == Kind::Items {
+            return Some(if right { Some(MachineHit::Tip(vec!["Auto-eject".into()])) } else { press(Button::Eject(side_kind)) });
+        }
+        if inside(at_window(window, [86.0, 63.0, 14.0, 14.0]), at) {
+            return Some(press(Button::Clear { kind: side_kind, forward: !right }));
+        }
+        for (i, k) in machine_kinds(view).into_iter().enumerate() {
+            if inside(at_window(window, [4.0, 31.0 + 21.0 * i as f32, 18.0, 18.0]), at) {
+                return Some(press(Button::Page(kind_page(k))));
+            }
+        }
+        if inside(window, at) {
+            return Some(None);
+        }
+    }
+    if page == 4 {
+        for (i, upgrade) in machine::MACHINE_UPGRADES.into_iter().enumerate() {
+            if inside(uninstall_button(window, i), at) {
+                return Some(Some(MachineHit::Press(MachineButton::Remove { upgrade, all: right })));
+            }
+        }
+        if inside(at_window(window, [4.0, 4.0, 8.0, 8.0]), at) {
+            return Some(press(Button::Page(0)));
+        }
+        if inside(window, at) {
+            return Some(None);
+        }
+    }
+    if inside(CONFIG_BUTTON, at) {
+        return Some(press(Button::Page(if page_kind(page).is_some() { 0 } else { 1 })));
+    }
+    if inside(beside_panel(UPGRADE_BUTTON, width), at) {
+        return Some(press(Button::Page(if page == 4 { 0 } else { 4 })));
+    }
+    let energy = |j: u64| display::energy(j, settings);
+    if inside(ENERGY_TAB, at) {
+        let using = if view.active { view.per_tick } else { 0 };
+        return Some(Some(MachineHit::Tip(vec![
+            format!("Using: {}/t", energy(using)),
+            format!("Needed: {}", energy(view.capacity.saturating_sub(view.stored))),
+        ])));
+    }
+    None
+}
+
+/// A rectangle of the upgrade tab, which Mekanism puts right of the panel,
+/// for a panel `width` wide (176 but for the ultimate factory's 210).
+pub(super) fn beside_panel(r: Rect, width: f32) -> Rect {
+    [r[0] + width - 176.0, r[1], r[2], r[3]]
 }
 
 /// A chemical tank's tooltip line: its chemical's name and mB, or "Empty".
@@ -910,7 +946,7 @@ fn separator_hit(extra: &SeparatorView, at: [f32; 2]) -> Option<MachineHit> {
     None
 }
 
-fn upgrade_name(upgrade: Upgrade) -> &'static str {
+pub(super) fn upgrade_name(upgrade: Upgrade) -> &'static str {
     match upgrade {
         Upgrade::Speed => "Speed",
         Upgrade::Energy => "Energy",
@@ -963,7 +999,12 @@ fn machine_tip(kind: MachineKind, data: &[i32], settings: &EnergyConfig, at: [f3
     if inside(UPGRADE_BUTTON, at) {
         return vec!["Upgrades".into()];
     }
-    match machine_hit(kind, page, view, settings, at, false) {
+    hit_lines(view, machine_hit(kind, page, view, settings, at, false))
+}
+
+/// The tooltip of what a machine screen's hit test found.
+pub(super) fn hit_lines(view: &MachineView, hit: Option<MachineHit>) -> Vec<String> {
+    match hit {
         Some(MachineHit::Tip(tip)) => tip,
         Some(MachineHit::Press(MachineButton::Config(Button::Side { kind: k, side, .. }))) => {
             let side = RelativeSide::ALL[side];
@@ -1034,21 +1075,7 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     let view = &MachineView::unpack(data).unwrap_or_default();
     let page = PAGE.with(Cell::get);
     pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, 176.0, 166.0]);
-    // The tabs: side configuration (left), energy (left, bottom), upgrades (right).
-    pen.holder(CONFIG_TAB, true);
-    pen.image_button("configuration", 18.0, CONFIG_BUTTON, true);
-    let unit = if settings.show_fe { "fe" } else { "j" };
-    pen.whole(&format!("tabs/energy_info_{unit}"), [26.0, 26.0], ENERGY_TAB);
-    pen.holder(UPGRADE_TAB, false);
-    pen.image_button("upgrade", 18.0, UPGRADE_BUTTON, true);
-    pen.holder(UPGRADE_HOLDER, false);
-    pen.slot("normal", Some("overlay_upgrade"), UPGRADE_SLOTS[0][0] - 1.0, UPGRADE_SLOTS[0][1] - 1.0);
-    pen.slot("normal", None, UPGRADE_SLOTS[1][0] - 1.0, UPGRADE_SLOTS[1][1] - 1.0);
-    // The upgrade going in: `ProgressType.INSTALLING`'s arrow down between the two.
-    let installing = view.upgrade_ticks as f32 / machine::UPGRADE_TICKS as f32;
-    if installing > 0.0 {
-        pen.fill([180.0, 57.5, 18.0 * installing.min(1.0), 2.0], 0xFF3CFE9A);
-    }
+    draw_tabs(pen, view, settings, 176.0);
 
     // The slots: Mekanism's, coloured by what their side type is (`SlotType.get`).
     let s = kind.slots();
@@ -1122,6 +1149,37 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
     pen.centered(&title, 0.0, 176.0, 6.0, TITLE);
     pen.text("Inventory", [8.0, 72.0], TITLE);
 
+    draw_windows(pen, view, page, settings);
+}
+
+/// A machine screen's tabs, its panel `width` wide: side configuration
+/// (left), energy (left, bottom), upgrades (right) and the holder of the
+/// upgrade component's slots under it.
+pub(super) fn draw_tabs(pen: &mut Pen<'_, '_>, view: &MachineView, settings: &EnergyConfig, width: f32) {
+    pen.holder(CONFIG_TAB, true);
+    pen.image_button("configuration", 18.0, CONFIG_BUTTON, true);
+    let unit = if settings.show_fe { "fe" } else { "j" };
+    pen.whole(&format!("tabs/energy_info_{unit}"), [26.0, 26.0], ENERGY_TAB);
+    let dx = width - 176.0;
+    pen.holder(beside_panel(UPGRADE_TAB, width), false);
+    pen.image_button("upgrade", 18.0, beside_panel(UPGRADE_BUTTON, width), true);
+    pen.holder(beside_panel(UPGRADE_HOLDER, width), false);
+    pen.slot("normal", Some("overlay_upgrade"), UPGRADE_SLOTS[0][0] + dx - 1.0, UPGRADE_SLOTS[0][1] - 1.0);
+    pen.slot("normal", None, UPGRADE_SLOTS[1][0] + dx - 1.0, UPGRADE_SLOTS[1][1] - 1.0);
+    // The upgrade going in: `ProgressType.INSTALLING`'s arrow down between the two.
+    let installing = view.upgrade_ticks as f32 / machine::UPGRADE_TICKS as f32;
+    if installing > 0.0 {
+        pen.fill([180.0 + dx, 57.5, 18.0 * installing.min(1.0), 2.0], 0xFF3CFE9A);
+    }
+}
+
+/// Where the upgrade component's two slots sit beside a panel `width` wide.
+pub(super) fn upgrade_slots(width: f32) -> [[f32; 2]; 2] {
+    UPGRADE_SLOTS.map(|[x, y]| [x + width - 176.0, y])
+}
+
+/// A machine screen's side configuration and upgrade windows, left of its panel.
+pub(super) fn draw_windows(pen: &mut Pen<'_, '_>, view: &MachineView, page: u8, settings: &EnergyConfig) {
     let window = machine_window(view);
     let [wx, wy, ww, wh] = window;
     if let Some(side_kind) = page_kind(page) {

@@ -9504,7 +9504,7 @@ fn data_files(root: &std::path::Path, dir: &str) -> Vec<String> {
         let Some(ns) = namespace.file_name().to_str().map(str::to_owned) else {
             continue;
         };
-        let mut folders = vec![(data.join(&ns).join(dir), String::new())];
+        let mut folders = Vec::from([(data.join(&ns).join(dir), String::new())]);
         while let Some((folder, rel)) = folders.pop() {
             let Ok(entries) = fs::read_dir(&folder) else {
                 continue;
@@ -9513,12 +9513,12 @@ fn data_files(root: &std::path::Path, dir: &str) -> Vec<String> {
                 let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                     continue;
                 };
-                let child = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+                let child = if rel.is_empty() { name.clone() } else { [rel.as_str(), "/", name.as_str()].concat() };
                 let path = entry.path();
                 if path.is_dir() {
                     folders.push((path, child));
                 } else if name.ends_with(".json") {
-                    out.push(format!("data/{ns}/{dir}/{child}"));
+                    out.push(["data/", ns.as_str(), "/", dir, "/", child.as_str()].concat());
                 }
             }
         }

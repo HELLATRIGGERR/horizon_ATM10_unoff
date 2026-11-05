@@ -58,7 +58,8 @@ pub fn chemical_inputs(stored: i64, amount: i64) -> Inputs {
     }
 }
 
-/// What one tick of a machine without progress did (the washer).
+/// What one tick of a machine without progress did (the washer, the rotary
+/// condensentrator).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Operated {
     pub operations: u32,

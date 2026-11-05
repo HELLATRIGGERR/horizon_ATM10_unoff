@@ -242,6 +242,17 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   (`inputModern(containsRecipe)`) filled by its chemical slot; configs `CRYSTALLIZER` (items `MACHINE`, chemicals
   `INPUT_ONLY`). All the Ores' 13 recipes make its crystals from 200 mB of a clean slurry. Measured (c1): 200 ticks of
   400 J, a crystal and 200 mB on the 200th; 8 speed and 8 energy upgrades 12 ticks of 6400 J; 150 mB does nothing.
+- **The Rotary Condensentrator** (slice 5, `TileEntityRotaryCondensentrator`, `mekanism_energy::rotary`): a
+  chemical tank and a fluid tank of 10 000 mB and a mode (`mode`): condensentrating (the default) turns its chemical
+  into the fluid of a `mekanism:rotary` recipe (Mekanism's 10, 1 mB into 1), decondensentrating the fluid back,
+  `2^speed` operations a tick of `rotaryCondensentrator` Joules (50, 20 000 J). Its tanks take and give by the mode
+  (`createModern`: the chemical tank takes while condensentrating and gives while decondensentrating, the fluid tank
+  the other way round; the machine itself fills its output, a player empties either); its configs `ROTARY` (chemicals
+  `OUT_EJECT_LEFT`, fluids `OUT_EJECT`, both `setupIOConfig(..., true)`: every type takes and gives, the tanks
+  decide), the chemical ejecting while decondensentrating; its chemical slots drain and fill chemical items and its
+  fluid slot fills or empties a container by the mode, the container to the slot below; the mode button toggles it
+  (`NEXT_MODE`). Measured (c1): 1 mB of hydrogen into liquid hydrogen a tick for 50 J, 3 speed upgrades 8 of 400 J,
+  1 mB a tick back.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -277,15 +288,16 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    one) (done: as above; the world test `chemical-oxidizer-infuser`, `chemical_machine::tests`, `machine` and `menu`),
    the Osmium Compressor, Purification Chamber and Chemical Injection Chamber (done: as above; the world test
    `advanced-machines`, `advanced::tests`, `machine`, `config`).
-5. **The ore chain (done).** As above: the Chemical Dissolution Chamber, Chemical Washer and Chemical Crystallizer
-   (`ore`), three more `MachineKind`s run by `mek_ore_machines` on `mek_machines`' block entity, energy, config,
-   handlers and probe; the fluid handler of API 160 for the washer's fluid tank. All the Ores' slurries are declared
-   by the content step in a content mod of its carry (`mekanism-content` with the oracle's facts and no overlay of its
-   own: `MEK_ATO_CONTENT_DIR`), so its 65 recipes of the chain load. Tests: `mekanism-energy` (`ore::tests`: the
-   oracle's numbers), `mekanism-content` (another carry's chemicals), the world test `ore-chain` (an ore through the
-   three into All the Ores' crystals). Left: the Rotary Condensentrator (fluid and chemical both ways), the
-   compressing, purifying, injecting and infusing factories (`mekmach2`'s `factory` on `advanced`: one shared
-   chemical tank and a `used_so_far` long array); Mekanism has no factory of the ore chain's machines.
+5. **The ore chain and the Rotary Condensentrator (done).** As above: the Chemical Dissolution Chamber, Chemical
+   Washer and Chemical Crystallizer (`ore`), the Rotary Condensentrator (`rotary`), four more `MachineKind`s run by
+   `mek_ore_machines` and `mek_rotary` on `mek_machines`' block entity, energy, config, handlers and probe; the fluid handler of
+   API 160 for the washer's and the rotary's fluid tanks. All the Ores' slurries are declared by the content step in a
+   content mod of its carry (`mekanism-content` with the oracle's facts and no overlay of its own:
+   `MEK_ATO_CONTENT_DIR`), so its 65 recipes of the chain load. Tests: `mekanism-energy` (`ore::tests`,
+   `rotary::tests`: the oracle's numbers), `mekanism-content` (another carry's chemicals), the world tests `ore-chain`
+   (an ore through the three into All the Ores' crystals) and `rotary-condensentrator`. Left: the compressing,
+   purifying, injecting and infusing factories (`mekmach2`'s `factory` on `advanced`: one shared chemical tank and a
+   `used_so_far` long array); Mekanism has no factory of the ore chain's machines.
 6. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
    polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`.
 7. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
@@ -328,10 +340,13 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
 - A network's acceptors are sorted by position (Java: `HashMap` order); only who gets a leftover mB differs. Which
   of two tanks ejecting different chemicals into an empty network first gets in follows the port's block entity
   order, not Java's. Radiation, the tubes' contents rendering and redstone sensitivity aren't ported.
-- The washer's fluid config stays at its default (no fluid page). Its two fluid slots sit beside the panel below the
-  upgrade holder (Mekanism: at (180, 71) and (180, 102)).
-- The dissolution chamber's draws come from the bundle's own random source. A container in the washer's fluid
-  slot moves to the slot below one at a time, as Java's; a stack of mod containers is filled or emptied
+- The washer's and the rotary condensentrator's fluid configs stay at their defaults (no fluid page). The rotary's
+  fluid isn't ejected (no helper fills another block's fluid handler): it leaves by a block that drains it (AE2's
+  buses) or its fluid slot; its chemical fill slot's emptied items stay for the player or a hopper. The washer's two
+  fluid slots sit beside the panel below the upgrade holder (Mekanism: at (180, 71) and (180, 102)); the rotary's
+  mode button is a plain button with an arrow.
+- The dissolution chamber's draws come from the bundle's own random source. A container in the washer's or the
+  rotary's fluid slot moves to the slot below one at a time, as Java's; a stack of mod containers is filled or emptied
   one item a tick.
 - All the Ores' slurries come from a content mod the content step makes of its carry (its namespace, its chemicals
   from the oracle's facts), not from the carry itself (slice 8).

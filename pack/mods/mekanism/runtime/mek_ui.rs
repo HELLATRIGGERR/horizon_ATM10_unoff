@@ -847,6 +847,9 @@ fn machine_hit(kind: MachineKind, page: u8, view: &MachineView, settings: &Energ
     if kind.infuses() && inside(DUMP, at) {
         return Some(MachineHit::Press(MachineButton::Dump));
     }
+    if kind.rotates() && page == 0 && inside(super::mek_rotary::MODE, at) {
+        return Some(MachineHit::Press(MachineButton::NextMode(0)));
+    }
     if inside(machine_power_bar(kind), at) {
         return Some(MachineHit::Tip(vec![display::fraction(view.stored, view.capacity, settings)]));
     }

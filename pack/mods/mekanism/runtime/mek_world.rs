@@ -1611,12 +1611,12 @@ pub(super) fn fluid_drain(
     entity: &mut ModBlockEntity,
     resource: Option<&FluidStack>,
     max: i32,
-    _simulate: bool,
+    simulate: bool,
     drained: &mut Option<FluidStack>,
 ) {
     if drained.is_some()
-        || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, _simulate, drained)
-        || mek_machines::fluid_drain(entity, face, drained)
+        || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
+        || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
     {
         return;
     }

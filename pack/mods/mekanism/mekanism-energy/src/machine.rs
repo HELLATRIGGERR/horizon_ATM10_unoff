@@ -63,6 +63,9 @@ pub enum MachineKind {
     /// `mekanism:chemical_crystallizer`, `mekanism:crystallizing` recipes (a
     /// chemical in, an item out; `crate::ore`).
     ChemicalCrystallizer,
+    /// `mekanism:rotary_condensentrator`, `mekanism:rotary` recipes (a chemical
+    /// into a fluid or back by its mode, operations a tick; `crate::rotary`).
+    RotaryCondensentrator,
     /// `mekanism:combiner`, `mekanism:combining` recipes (`TileEntityCombiner`:
     /// a main and an extra item in, an item out; `crate::factory`).
     Combiner,
@@ -91,7 +94,7 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::EnrichmentChamber,
         Self::Crusher,
         Self::EnergizedSmelter,
@@ -105,6 +108,7 @@ impl MachineKind {
         Self::ChemicalDissolutionChamber,
         Self::ChemicalWasher,
         Self::ChemicalCrystallizer,
+        Self::RotaryCondensentrator,
         Self::Combiner,
         Self::PrecisionSawmill,
     ];
@@ -124,6 +128,7 @@ impl MachineKind {
             Self::ChemicalDissolutionChamber => "mekanism:chemical_dissolution_chamber",
             Self::ChemicalWasher => "mekanism:chemical_washer",
             Self::ChemicalCrystallizer => "mekanism:chemical_crystallizer",
+            Self::RotaryCondensentrator => "mekanism:rotary_condensentrator",
             Self::Combiner => "mekanism:combiner",
             Self::PrecisionSawmill => "mekanism:precision_sawmill",
         }
@@ -149,6 +154,7 @@ impl MachineKind {
             Self::ChemicalDissolutionChamber => "chemicalDissolutionChamber",
             Self::ChemicalWasher => "chemicalWasher",
             Self::ChemicalCrystallizer => "chemicalCrystallizer",
+            Self::RotaryCondensentrator => "rotaryCondensentrator",
             Self::Combiner => "combiner",
             Self::PrecisionSawmill => "precisionSawmill",
         }
@@ -170,6 +176,7 @@ impl MachineKind {
             Self::ChemicalDissolutionChamber => "mekanism:dissolution",
             Self::ChemicalWasher => "mekanism:washing",
             Self::ChemicalCrystallizer => "mekanism:crystallizing",
+            Self::RotaryCondensentrator => "mekanism:rotary",
             Self::Combiner => "mekanism:combining",
             Self::PrecisionSawmill => "mekanism:sawing",
         }
@@ -202,7 +209,7 @@ impl MachineKind {
 
     /// A machine of `TileEntityProgressMachine`, whose recipes take ticks.
     pub fn progresses(self) -> bool {
-        !self.separates() && !self.infuses_chemicals() && !self.washes()
+        !self.separates() && !self.infuses_chemicals() && !self.washes() && !self.rotates()
     }
 
     /// The advanced machines (`TileEntityAdvancedElectricMachine`, `crate::advanced`):
@@ -230,10 +237,14 @@ impl MachineKind {
         self == Self::ChemicalCrystallizer
     }
 
-    /// The machines of slice 5 (`crate::ore`), whose ticks are the runtime's
-    /// `mek_ore_machines`.
+    pub fn rotates(self) -> bool {
+        self == Self::RotaryCondensentrator
+    }
+
+    /// The machines of slice 5 (`crate::ore`, `crate::rotary`), whose ticks
+    /// are the runtime's `mek_ore_machines`.
     pub fn ore_chain(self) -> bool {
-        self.dissolves() || self.washes() || self.crystallizes()
+        self.dissolves() || self.washes() || self.crystallizes() || self.rotates()
     }
 
     pub fn oxidizes(self) -> bool {
@@ -255,7 +266,7 @@ impl MachineKind {
     pub fn chemicals_eject(self) -> bool {
         matches!(
             self,
-            Self::ElectrolyticSeparator | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalDissolutionChamber | Self::ChemicalWasher
+            Self::ElectrolyticSeparator | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalDissolutionChamber | Self::ChemicalWasher | Self::RotaryCondensentrator
         )
     }
 
@@ -287,6 +298,11 @@ impl MachineKind {
             // Its fluid slot, the fluid slot's output, the slurry output's drain
             // slot and energy (`TileEntityChemicalWasher.getInitialInventory`).
             return Slots { infusion: None, input: 0, output: 2, output2: Some(1), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 };
+        }
+        if self.rotates() {
+            // The chemical tank's drain (`input`) and fill (`infusion`) slots,
+            // the fluid tank's slot (`output2`) and its output, energy.
+            return Slots { infusion: Some(1), input: 0, output: 3, output2: Some(2), energy: 4, upgrade: 5, upgrade_out: 6, count: 7 };
         }
         if self.infuses() || self.dissolves() {
             Slots { infusion: Some(0), input: 1, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
@@ -336,8 +352,8 @@ impl MachineKind {
             // `setupOutputConfig(CHEMICAL, tank, RIGHT)`.
             Self::ChemicalOxidizer => matches!(data, DataType::None | DataType::Output),
             Self::ChemicalInfuser => matches!(data, DataType::None | DataType::Input1 | DataType::Input2 | DataType::Output | DataType::InputOutput),
-            // `setupIOConfig(CHEMICAL, input, output, RIGHT)`.
-            Self::ChemicalDissolutionChamber | Self::ChemicalWasher => chemical_supports(data),
+            // `setupIOConfig(CHEMICAL, input, output, RIGHT)`; the rotary's one tank.
+            Self::ChemicalDissolutionChamber | Self::ChemicalWasher | Self::RotaryCondensentrator => chemical_supports(data),
             // `setupInputConfig(CHEMICAL, inputTank)`.
             Self::ChemicalCrystallizer => matches!(data, DataType::None | DataType::Input),
             _ => false,
@@ -406,12 +422,18 @@ impl MachineKind {
             }
             // `CRYSTALLIZER`'s `INPUT_ONLY`.
             Self::ChemicalCrystallizer => Some([DataType::Input; 6]),
+            // `ROTARY`'s `OUT_EJECT_LEFT`.
+            Self::RotaryCondensentrator => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Left { DataType::Output } else { DataType::Input })),
             _ => None,
         }
     }
 
-    /// Its fluid config: the separator's and the washer's `INPUT_ONLY`.
+    /// Its fluid config: the separator's and the washer's `INPUT_ONLY`, the
+    /// rotary condensentrator's `OUT_EJECT` (right output, the rest input).
     pub fn default_fluids(self) -> Option<[DataType; 6]> {
+        if self.rotates() {
+            return Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input }));
+        }
         (self.separates() || self.washes()).then_some([DataType::Input; 6])
     }
 }

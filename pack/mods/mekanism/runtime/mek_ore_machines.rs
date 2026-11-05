@@ -1,6 +1,7 @@
 // Mekanism's ore chain in the game (support module `crate::game::mek_ore_machines`
 // of the `mekanism` native bundle): the Chemical Dissolution Chamber, the Chemical
-// Washer and the Chemical Crystallizer. Their rules are the bundle's crate
+// Washer and the Chemical Crystallizer, and the way to the Rotary Condensentrator
+// (`mek_rotary`), which shares their glue. Their rules are the bundle's crate
 // (`mekanism_energy::ore`, `advanced` and `machine`, MIT, from Mekanism 10.7.19,
 // Copyright (c) 2017-2025 Aidan C. Brady); this module is their part of the glue:
 // their recipes (`mekanism:dissolution`, `mekanism:washing`,
@@ -180,6 +181,7 @@ fn refresh(game: &Game<'_>) {
 
 pub(super) fn clear() {
     BOOK.with(|b| *b.borrow_mut() = Book::default());
+    super::mek_rotary::clear();
 }
 
 /// The number of each kind's recipes, for the probe.
@@ -190,7 +192,7 @@ pub(super) fn recipe_count(kind: MachineKind) -> usize {
             MachineKind::ChemicalDissolutionChamber => b.dissolution.len(),
             MachineKind::ChemicalWasher => b.washing.len(),
             MachineKind::ChemicalCrystallizer => b.crystallizing.len(),
-            _ => 0,
+            _ => super::mek_rotary::recipe_count(),
         }
     })
 }
@@ -234,21 +236,22 @@ pub(super) fn capacities(kind: MachineKind) -> &'static [i64] {
         MachineKind::ChemicalDissolutionChamber => &[ore::DISSOLUTION_TANK, ore::DISSOLUTION_TANK],
         MachineKind::ChemicalWasher => &[ore::WASHER_TANK, ore::WASHER_TANK],
         MachineKind::ChemicalCrystallizer => &[ore::CRYSTALLIZER_TANK],
-        _ => &[],
+        _ => super::mek_rotary::CAPACITIES,
     }
 }
 
-/// The fluid tank's capacity (the washer's water), none without one.
+/// The fluid tank's capacity (the washer's water, the rotary's), none without one.
 pub(super) fn fluid_capacity(kind: MachineKind) -> Option<i32> {
     match kind {
         MachineKind::ChemicalWasher => Some(ore::WASHER_FLUID),
+        MachineKind::RotaryCondensentrator => Some(super::mek_rotary::FLUID_CAPACITY),
         _ => None,
     }
 }
 
 /// The chemical tanks' rules (`getInitialChemicalTanks`), in their order, run
 /// with `use_them`: `item` is the input slot's (the dissolution chamber's),
-/// `fluid` the fluid tank's (the washer's):
+/// `fluid` the fluid tank's (the washer's), `mode` the rotary's (`mek_rotary`):
 /// the dissolution chamber's `inputModern(containsRecipeBA(item, gas), containsRecipeB)`
 /// and `output`, the washer's `inputModern(containsRecipeBA(fluid, slurry), containsRecipeB)`
 /// and `output`, the crystallizer's `inputModern(containsRecipe)`: only the machine
@@ -257,6 +260,7 @@ pub(super) fn with_rules<R>(
     kind: MachineKind,
     item: Option<&ItemStack>,
     fluid: &FluidStack,
+    mode: bool,
     registry: &ChemicalRegistry,
     use_them: impl FnOnce(&[&TankRules<'_>]) -> R,
 ) -> R {
@@ -280,7 +284,7 @@ pub(super) fn with_rules<R>(
             let input = TankRules { can_extract: &chemical::not_external, can_insert: &can_insert, valid: &valid };
             use_them(&[&input])
         }
-        _ => use_them(&[]),
+        _ => super::mek_rotary::with_rules(mode, registry, use_them),
     }
 }
 
@@ -293,21 +297,29 @@ pub(super) fn chemical_side(kind: MachineKind, data: DataType) -> Option<(Vec<us
         (MachineKind::ChemicalDissolutionChamber | MachineKind::ChemicalWasher, DataType::Output) => (vec![1], false, true),
         (MachineKind::ChemicalDissolutionChamber | MachineKind::ChemicalWasher, DataType::InputOutput) => (vec![0, 1], true, true),
         (MachineKind::ChemicalCrystallizer, DataType::Input) => (vec![0], true, false),
+        (MachineKind::RotaryCondensentrator, _) => return super::mek_rotary::chemical_side(data),
         _ => return None,
     })
 }
 
 /// Whether another block may fill the fluid tank with `fluid` (`canInsert`
 /// as `EXTERNAL` and the validators): the washer's `input(containsRecipeAB(fluid,
-/// slurry), containsRecipeA)`.
-pub(super) fn fluid_fill_allowed(kind: MachineKind, fluid: &FluidStack, slurry: &ChemicalStack, registry: Option<&ChemicalRegistry>) -> bool {
+/// slurry), containsRecipeA)`, the rotary's (`mek_rotary`).
+pub(super) fn fluid_fill_allowed(kind: MachineKind, fluid: &FluidStack, slurry: &ChemicalStack, mode: bool, registry: Option<&ChemicalRegistry>) -> bool {
     match kind {
         MachineKind::ChemicalWasher => match registry {
             Some(r) if BOOK.with(|b| !b.borrow().washing.is_empty()) => washing_takes_fluid(fluid, slurry, r),
             _ => washes_fluid(fluid),
         },
+        MachineKind::RotaryCondensentrator => super::mek_rotary::fluid_fill_allowed(fluid, mode),
         _ => false,
     }
+}
+
+/// Whether another block may drain the fluid tank (`canExtract` as `EXTERNAL`):
+/// the rotary's (`mek_rotary`); never the washer's (`notExternal`).
+pub(super) fn fluid_drain_allowed(kind: MachineKind, mode: bool) -> bool {
+    kind.rotates() && super::mek_rotary::fluid_drain_allowed(mode)
 }
 
 // ---- Slots -----------------------------------------------------------------------
@@ -317,8 +329,8 @@ pub(super) fn fluid_fill_allowed(kind: MachineKind, fluid: &FluidStack, slurry: 
 /// converts, its input what a recipe takes, its output a chemical item; the
 /// washer's fluid slot a container of a fluid it washes with, its slurry
 /// output a chemical item; the crystallizer's input a chemical item holding a
-/// chemical. Their other output slots take nothing. Before a world has read
-/// its recipes, inputs pass.
+/// chemical (the rotary's: `mek_rotary`). Their other output slots take
+/// nothing. Before a world has read its recipes, inputs pass.
 pub(super) fn slot_takes(kind: MachineKind, slot: usize, stack: &ItemStack) -> bool {
     let item = &*stack.item;
     let known = |pick: &dyn Fn(&Takes) -> bool| TAKES.read().ok().and_then(|t| t.as_ref().map(pick)).unwrap_or(true);
@@ -342,7 +354,8 @@ pub(super) fn slot_takes(kind: MachineKind, slot: usize, stack: &ItemStack) -> b
                 slot == s.output && chemical_item
             }
         }
-        _ => slot == s.input && holding,
+        MachineKind::ChemicalCrystallizer => slot == s.input && holding,
+        _ => super::mek_rotary::slot_takes(slot, stack),
     }
 }
 
@@ -353,7 +366,8 @@ pub(super) fn hopper_slots(kind: MachineKind) -> (Vec<usize>, Vec<usize>) {
     match kind {
         MachineKind::ChemicalDissolutionChamber => (vec![s.input, s.energy, s.infusion.unwrap_or(0), s.output], vec![]),
         MachineKind::ChemicalWasher => (vec![s.input, s.energy, s.output], s.output2.into_iter().collect()),
-        _ => (vec![s.input, s.energy], vec![s.output]),
+        MachineKind::ChemicalCrystallizer => (vec![s.input, s.energy], vec![s.output]),
+        _ => super::mek_rotary::hopper_slots(),
     }
 }
 
@@ -463,7 +477,8 @@ pub(super) fn tick(
     match kind {
         MachineKind::ChemicalDissolutionChamber => dissolve(entity, saved, tanks, store, memo, registry, config),
         MachineKind::ChemicalWasher => wash(game, entity, saved, tanks, store, memo, registry, config),
-        _ => crystallize(game, entity, saved, tanks, store, memo, registry, config),
+        MachineKind::ChemicalCrystallizer => crystallize(game, entity, saved, tanks, store, memo, registry, config),
+        _ => super::mek_rotary::tick(game, entity, saved, tanks, store, memo, registry, config),
     }
 }
 
@@ -504,7 +519,7 @@ fn dissolve(
     let [inject, output] = tanks else {
         return Made { per_tick: 0, required: 0, warnings: 0, active: None, extra: Vec::new() };
     };
-    with_rules(kind, input.as_ref(), &FluidStack::EMPTY, registry, |rules| {
+    with_rules(kind, input.as_ref(), &FluidStack::EMPTY, false, registry, |rules| {
         let filled = inject.needed() > 0 && fill_chemical(entity, extra, inject, rules[0], registry, config);
         if !filled
             && inject.needed() > 0
@@ -667,7 +682,7 @@ fn crystallize(
     let [tank] = tanks else {
         return Made { per_tick: 0, required: 0, warnings: 0, active: None, extra: Vec::new() };
     };
-    with_rules(kind, None, &FluidStack::EMPTY, registry, |rules| {
+    with_rules(kind, None, &FluidStack::EMPTY, false, registry, |rules| {
         fill_chemical(entity, slots.input, tank, rules[0], registry, config);
     });
     let multiplier = config.machines.max_upgrade_multiplier;
@@ -726,7 +741,7 @@ fn output_faces(sides: &[DataType; 6], facing: Direction) -> Vec<Direction> {
 /// `TileComponentEjector.outputItems`: the slots of their `OUTPUT` type to the
 /// faces whose item type gives out: a chemical item once it takes no more of
 /// its tank (the dissolution chamber's and the washer's drain slots), the
-/// washer's fluid output and the crystallizer's crystals.
+/// washer's fluid output, the crystallizer's crystals and the rotary's fluid output.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn eject_items(
     game: &mut Game<'_>,
@@ -749,15 +764,16 @@ pub(super) fn eject_items(
     }
     match kind {
         MachineKind::ChemicalWasher => mek_machines::eject_items(game, pos, entity, s.output2.unwrap_or(1), &faces),
-        MachineKind::ChemicalCrystallizer => mek_machines::eject_items(game, pos, entity, s.output, &faces),
+        MachineKind::ChemicalCrystallizer | MachineKind::RotaryCondensentrator => mek_machines::eject_items(game, pos, entity, s.output, &faces),
         _ => {}
     }
 }
 
-/// Whether the ejector puts the last chemical tank out (`setCanTankEject`):
-/// the dissolution chamber's and the washer's output.
-pub(super) fn ejects_chemicals(kind: MachineKind) -> bool {
-    kind.dissolves() || kind.washes()
+/// Whether the ejector puts the last chemical tank out (`setCanTankEject`,
+/// `setCanEject`): the dissolution chamber's and the washer's output, the
+/// rotary's tank while decondensentrating.
+pub(super) fn ejects_chemicals(kind: MachineKind, mode: bool) -> bool {
+    kind.dissolves() || kind.washes() || (kind.rotates() && super::mek_rotary::ejects_chemicals(mode))
 }
 
 // ---- The screens -----------------------------------------------------------------
@@ -786,7 +802,8 @@ pub(super) fn slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
         MachineKind::ChemicalDissolutionChamber => vec![Some([8.0, 65.0]), Some([28.0, 36.0]), Some([152.0, 55.0]), Some([152.0, 14.0])],
         // The fluid slots sit below the upgrade holder (Mekanism: at (180, 71) and (180, 102)).
         MachineKind::ChemicalWasher => vec![Some([180.0, 89.0]), Some([180.0, 120.0]), Some([152.0, 56.0]), Some([152.0, 14.0])],
-        _ => vec![Some([8.0, 65.0]), Some([129.0, 57.0]), Some([152.0, 5.0])],
+        MachineKind::ChemicalCrystallizer => vec![Some([8.0, 65.0]), Some([129.0, 57.0]), Some([152.0, 5.0])],
+        _ => super::mek_rotary::slots(),
     }
 }
 
@@ -810,7 +827,7 @@ pub(super) fn progress(pen: &mut Pen<'_, '_>, r: Rect, share: f64, name: &str) {
 }
 
 /// Their own elements over the machine panel: the power bar, the gauges, the
-/// progress.
+/// progress (the rotary's: `mek_rotary`).
 pub(super) fn draw(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, data: &[i32]) {
     let level = if view.capacity == 0 { 0.0 } else { view.stored as f64 / view.capacity as f64 };
     if kind.crystallizes() {
@@ -844,10 +861,11 @@ pub(super) fn draw(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView,
             fluid_gauge(pen, WASHER_GAUGES[2], extra.tanks[2].0, extra.tanks[2].1, ore::WASHER_FLUID);
             progress(pen, [64.0, 39.0, 48.0, 8.0], on, "progress/large_right");
         }
-        _ => {
+        MachineKind::ChemicalCrystallizer => {
             mek_chem_machines::gauge(pen, CRYSTALLIZER_GAUGE, extra.tanks[0].0, extra.tanks[0].1, ore::CRYSTALLIZER_TANK);
             progress(pen, CRYSTALLIZER_PROGRESS, share, "progress/large_right");
         }
+        _ => super::mek_rotary::draw(pen, &extra, on),
     }
 }
 
@@ -859,7 +877,7 @@ pub(super) fn fluid_line(id: i32, amount: u64) -> String {
     format!("{name}: {} mB", display::thousands(amount))
 }
 
-/// The gauges' and progress's tooltips.
+/// The gauges' and progress's tooltips (the rotary's: `mek_rotary`).
 pub(super) fn tip(kind: MachineKind, view: &MachineView, data: &[i32], at: [f32; 2]) -> Option<Vec<String>> {
     let extra = InfuserView::unpack(data)?;
     let chemical = |i: usize| vec![mek_chem_machines::tank_line(extra.tanks[i].0, extra.tanks[i].1)];
@@ -880,12 +898,13 @@ pub(super) fn tip(kind: MachineKind, view: &MachineView, data: &[i32], at: [f32;
             }
             WASHER_GAUGES[..2].iter().position(|r| mek_ui::inside(*r, at)).map(chemical)
         }
-        _ => {
+        MachineKind::ChemicalCrystallizer => {
             if mek_ui::inside(CRYSTALLIZER_GAUGE, at) {
                 return Some(chemical(0));
             }
             mek_ui::inside(CRYSTALLIZER_PROGRESS, at).then(share)
         }
+        _ => super::mek_rotary::tip(&extra, at),
     }
 }
 

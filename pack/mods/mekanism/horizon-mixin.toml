@@ -2,8 +2,8 @@
 # registry, tanks, the chemical handler, the Electrolytic Separator, the
 # Chemical Tanks and their items, the Pressurized Tubes, the Chemical Oxidizer
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
-# Washer and Chemical Crystallizer), its Mechanical Pipes, Fluid Tanks,
-# Logistical Transporters and Configurator, and
+# Washer and Chemical Crystallizer, the Rotary Condensentrator), its Mechanical
+# Pipes, Fluid Tanks, Logistical Transporters and Configurator, and
 # Mekanism Generators' Solar, Heat and Gas-Burning Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
@@ -110,6 +110,12 @@ id = "ore-machines"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_ore_machines"
 source = "runtime/mek_ore_machines.rs"
+
+[[module]]
+id = "rotary"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_rotary"
+source = "runtime/mek_rotary.rs"
 
 [[module]]
 id = "gas"

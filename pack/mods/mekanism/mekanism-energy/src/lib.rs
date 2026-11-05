@@ -25,7 +25,8 @@
 //! the Chemical Oxidizer and Chemical Infuser make chemicals (`chemical_machine`),
 //! and the advanced machines take one a tick (`advanced`); the ore chain's
 //! Chemical Dissolution Chamber, Chemical Washer and Chemical Crystallizer
-//! (`ore`) carry an ore through slurries to crystals.
+//! (`ore`) and the Rotary Condensentrator (`rotary`) carry an ore through
+//! slurries to crystals and chemicals to fluids.
 //! The Combiner, the Precision Sawmill and the factories (`factory`) run
 //! their recipes in processes of their own on one store, and tier
 //! installers turn a machine into a factory and a factory into the next tier.
@@ -54,6 +55,7 @@ pub mod machine;
 pub mod menu;
 pub mod network;
 pub mod ore;
+pub mod rotary;
 pub mod separator;
 pub mod sides;
 pub mod sky;

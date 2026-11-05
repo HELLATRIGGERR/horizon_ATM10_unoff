@@ -411,6 +411,9 @@ pub enum Special {
     },
     /// `RepairItemRecipe`: two damaged items of one kind.
     RepairItem,
+    /// AE2WTLib's `ae2wtlib:combine` and `ae2wtlib:upgrade`.
+    #[cfg(feature = "ae2-ae2wtlib")]
+    Ae2wtlib(crate::ae2x::ae2wtlib::recipes::Recipe),
 }
 impl Special {
     /// The recipe-book displays of a learnable (non-custom) crafting recipe:
@@ -523,6 +526,8 @@ impl Special {
                     )
                 }]
             }
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Self::Ae2wtlib(recipe) => vec![recipe.book_display()],
             _ => Vec::new(),
         }
     }
@@ -896,6 +901,8 @@ impl Special {
                     && input.get(1, 2).is_some_and(|s| front.test(s))
             }
             Self::RepairItem => Self::repair_pair(ctx, &stacks).is_some(),
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Self::Ae2wtlib(recipe) => recipe.matches(&stacks),
         }
     }
     /// `RepairItemRecipe.getItemsToCombine`.
@@ -1143,6 +1150,8 @@ impl Special {
                 }
                 out
             }
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Self::Ae2wtlib(recipe) => recipe.assemble(&stacks)?,
             Self::RepairItem => {
                 let (first, second) = Self::repair_pair(ctx, &stacks)?;
                 let max = |s: &ItemStack| ctx.facts(s).map_or(0, |f| f.max_damage) as i64;
@@ -1448,6 +1457,14 @@ impl Recipes {
         let mut meta = HashMap::new();
         let mut unsupported_ae2 = 0usize;
         for (name, v) in sources {
+            // AE2WTLib's two crafting-grid types are special crafting
+            // recipes (`Common.category`: equipment).
+            #[cfg(feature = "ae2-ae2wtlib")]
+            if let Some(recipe) = crate::ae2x::ae2wtlib::recipes::parse(&v, items) {
+                meta.insert(name.clone(), (crate::ae2x::ae2wtlib::recipes::CATEGORY.to_owned(), String::new()));
+                crafting.push((name, Recipe::Special(Special::Ae2wtlib(recipe))));
+                continue;
+            }
             if let Some(kind) = custom_type(&v).filter(|k| *k != "ae2:quartz_cutting") {
                 // AE2's handlers read their recipes by file name, with the JSON.
                 ae2_custom
@@ -1885,6 +1902,9 @@ impl Recipes {
                     .collect(),
                 None,
             ),
+            // AE2WTLib's are plain `CraftingRecipe`s: their ingredients.
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Recipe::Special(Special::Ae2wtlib(recipe)) => recipe.placement(),
             // CustomRecipe.placementInfo: NOT_PLACEABLE.
             Recipe::Special(_) => Placement::default(),
         })

@@ -7,6 +7,8 @@
 //! `game/ae2x/ae2wtlib/`.
 use super::defs::{Defs, TerminalKind, UniversalTerminal, WirelessTerminal};
 
+pub mod recipes;
+
 pub const NAMESPACE: &str = "ae2wtlib";
 /// `AE2wtlibItems.UNIVERSAL_TERMINAL`.
 pub const UNIVERSAL_TERMINAL: &str = "ae2wtlib:wireless_universal_terminal";

@@ -20,6 +20,7 @@
   "requires": ["ae2 19.2.18"],
   "derived_files": [
     "crates/horizon-client/src/ae2x/ae2wtlib.rs",
+    "crates/horizon-client/src/ae2x/ae2wtlib/recipes.rs",
     "crates/horizon-client/src/ae2x/wireless.rs",
     "crates/horizon-client/src/game/ae2x/ae2wtlib/mod.rs"
   ]

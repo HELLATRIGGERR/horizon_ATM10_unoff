@@ -45,11 +45,29 @@ wireless pattern encoding terminal encodes a pattern from a physical blank and k
 restart, the universal terminal opens its current terminal and the crafting and pattern access terminals chosen in its
 selector, shift and the wheel turn it, and an Energy Card makes its battery (3 + 1) × 1,600,000.
 
+## Slice 2: the combine and upgrade recipes
+
+| AE2WTLib | Port |
+|---|---|
+| `CombineSerializer`, `UpgradeSerializer` (`terminalA`/`terminalB` and `terminalAName`/`terminalBName`; `terminal` and `terminalName`, names by `WTDefinition.CODEC`: with an unknown name the recipe does not load) | `ae2x/ae2wtlib/recipes.rs` reads them; the crafting loader keeps them as special crafting recipes (`crafting::Special::Ae2wtlib`); `prepare-addon.ts` carries the six recipes (`recipe_types` in `content.json`) |
+| `Combine.matches`: exactly two stacks, each ingredient taking one (`InputHelper.getInputStack`, the first in the grid's box) | the same |
+| `Upgrade.matches`: a universal terminal not holding the terminal yet, and the terminal | the same |
+| `assemble`: `Common.mergeTerminal` of each terminal into `outputStack` (a universal terminal already holding both, so its battery counts both from the first merge), or into a copy of the universal terminal | `ae2x::wireless::merge_terminal` over the same output |
+| `getResultItem` (`outputStack`), `getIngredients`, `category` equipment, not `isSpecial` | the recipe book's and the recipe panel's display: a shapeless recipe of the two ingredients showing the universal terminal holding the recipe's terminals, under equipment, one display id each; placeable from the book |
+
+Differences, known:
+
+- AE2WTLib's recipe advancements (`data/ae2wtlib/advancement/recipe/`) are not carried yet, so the book does not unlock the
+  six recipes; the recipe panel lists them anyway. In the jar, `ce.json`'s advancement rewards
+  `wireless_universal_terminal/cp`, a recipe that does not exist, so in Java the book never unlocks that one either.
+
+Tests: `horizon-client-lib` (`recipes`: combining keeps cards and energy, the upgrade's check, the book display) and the
+world test `ae2wtlib-recipes`: the crafting terminal with an Energy Card and the encoding terminal combine into a universal
+terminal with both, the card, (2 + 1) x 1,600,000 of battery and both terminals' energy, the encoding terminal's name kept;
+the pattern access terminal is added by the upgrade recipe; a universal terminal already holding it gives no result.
+
 ## Later slices (`.build/ae2-addons-plan.md` §5.3)
 
-- **`combine` and `upgrade` recipes**: `Combine` (two terminals into a universal one) and `Upgrade` (a terminal into one)
-  call `mergeTerminal`, already `ae2x::wireless::merge_terminal`; they need the two recipe types read from the jar
-  (`prepare-addon.ts` keeps them out today) and the crafting grid's special-recipe path.
 - **Magnet Card** (`magnet_card`, range 16 from `ae2wtlib.toml`), **Restock** and **Pick Block**: player ticks and
   pickups; `RESTOCK`, `PICK_BLOCK`, `PICKUP_CONFIG`, `INSERT_CONFIG` components; the settings and trash screens.
 - **Quantum Bridge Card**: `WTMenuHost.isQuantumLinked` (a singularity in `SINGULARITY`, the bridge by frequency, 22.5 AE/t,

@@ -158,6 +158,18 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   000; a pull side draws 750 (basic), 2000 (advanced) a tick; a push side takes nothing in; a tank side of none
   doesn't connect; a separator with a full tank ejects 1024 a tick (`chemicalAutoEjectRate`) into a tube; three
   basic tubes holding 5000 save 1667, 1667, 1666; a hydrogen line takes no oxygen.
+- **The Gas-Burning Generator** (slice 4, `TileEntityGasGenerator`, `mekanism_energy::gas`, runtime `mek_gas`): a
+  `VariableCapacityChemicalTank` of `[gas_generator] tankCapacity` (18 000 mB) taking any chemical with a fuel
+  attribute (`HAS_FUEL`; `notExternal` out, anything in) on every side but the front (`ChemicalTankHelper.forSide`),
+  its fuel slot a `ChemicalInventorySlot.fill`. Each tick, after the ejector (out of its front at `maxOutput`, twice
+  what it made last tick, at least twice hydrogen's Joules a tick, the tank's fuel's when loaded) and the slot, it
+  burns `min(needed / rate, ceil(256 * stored / capacity), ticks left)` burn ticks of the fuel (`burnTicks` a mB,
+  `energyPerTick` each: hydrogen 1 and 200 on ATM10, ethene 20 and 300) into a store of 1000 times hydrogen's
+  energy density (200 000 J); a tick's Joules that don't fit rest it. What it is burning (`burnTicks`, `maxBurnTicks`,
+  `generationRate`) isn't saved. Measured on a NeoForge 1.21.1 server with Mekanism and Mekanism Generators 10.7.19
+  and ATM10's configs (`chem-work/m4`, g1 and g2): 1000 mB of hydrogen burns 15, 15, 14, 14 mB a tick (3000 J each),
+  18 000 mB 256 then 253; 1500 J of room take 7 mB; an energy cube on its front gets 400, 102 400, 99 000, 49 800 J;
+  hydrogen from a tank on its side goes in, oxygen doesn't; a basic tank item in its fuel slot gives 1000 mB a tick.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
   (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
@@ -188,7 +200,8 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    (`[transmitters.chemical]`), the runtime `mek_tubes`, `mekanism-content`'s tube models. Tests: `mekanism-energy`
    (`network::tests`: one chemical a network, two that touch without joining, the oracle's shares),
    `mekanism-content` (`transmitter::tests`), the world test `pressurized-tube`.
-4. **More chemical machines.** The Chemical Oxidizer (items to chemicals), Chemical Infuser (two chemicals to one),
+4. **More chemical machines.** The Gas-Burning Generator (done: as above; the world test `gas-burning-generator`,
+   `mekanism-energy`'s `gas::tests`). The Chemical Oxidizer (items to chemicals), Chemical Infuser (two chemicals to one),
    Chemical Injection Chamber and Purification Chamber (item and chemical per tick, `ItemStackConstantChemical...`),
    Rotary Condensentrator (fluid and chemical both ways), the brine recipe's sodium and chlorine, the Gas-Burning
    Generator (hydrogen and ethene by their fuel attribute).

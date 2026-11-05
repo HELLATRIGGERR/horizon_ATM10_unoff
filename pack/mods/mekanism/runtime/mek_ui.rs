@@ -5,7 +5,8 @@
 // and charge (+) slots, the side configuration and energy tabs, and the side
 // configuration (`GuiSideConfiguration`) with its energy and item pages. The
 // Solar and Heat Generators' screens (`GuiSolarGenerator`, `GuiHeatGenerator`)
-// are drawn the same way, with Mekanism Generators' textures for the sun, and
+// are drawn the same way, with Mekanism Generators' textures for the sun (the
+// Gas-Burning Generator's own elements are `mek_gas`'s), and
 // so are the processing machines' (`GuiElectricMachine`,
 // `GuiMetallurgicInfuser`, `GuiElectrolyticSeparator`): their slots, progress,
 // power bar, the infuser's infusion bar and dump button, the separator's
@@ -288,6 +289,12 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
+        if kind == GeneratorKind::GasBurning
+            && let Some(tip) = super::mek_gas::tip(data, at)
+        {
+            lines.extend(tip);
+            return;
+        }
         lines.extend(generator_tip(kind, &generator_view(data), &settings(), at));
         return;
     }
@@ -452,7 +459,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         let cursor = game.native_cursor();
         let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
         let mut pen = Pen { game, batch, origin, cursor };
-        draw_generator(&mut pen, kind, &generator_view(data), &settings());
+        draw_generator(&mut pen, kind, &generator_view(data), &settings(), data);
         return;
     }
     if let Some(kind) = MachineKind::of_block(block) {
@@ -570,7 +577,7 @@ fn generator_view(data: &[i32]) -> GeneratorView {
 fn generator_screen(kind: GeneratorKind) -> NativeScreen {
     let slots = match kind {
         GeneratorKind::Solar => vec![Some([143.0, 35.0]), None, None, None, None],
-        GeneratorKind::Heat => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
+        GeneratorKind::Heat | GeneratorKind::GasBurning => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
     };
     NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false }
 }
@@ -606,7 +613,7 @@ fn fit(game: &Game<'_>, text: String, short: String, width: f32) -> String {
 }
 
 /// Draws a generator's screen.
-fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorView, settings: &EnergyConfig) {
+fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorView, settings: &EnergyConfig, data: &[i32]) {
     pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, 176.0, 166.0]);
     let unit = if settings.show_fe { "fe" } else { "j" };
     pen.whole(&format!("tabs/energy_info_{unit}"), [26.0, 26.0], ENERGY_TAB);
@@ -666,6 +673,7 @@ fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorVi
             }
             pen.whole("gauge/wide", [64.0, 48.0], [GAUGE[0] + 1.0, GAUGE[1] + 1.0, 64.0, 48.0]);
         }
+        GeneratorKind::GasBurning => super::mek_gas::draw(pen, data),
     }
     for row in 0..4 {
         let y = if row == 3 { 141.0 } else { 83.0 + 18.0 * row as f32 };

@@ -2,7 +2,7 @@
 # registry, tanks, the chemical handler, the Electrolytic Separator, the
 # Chemical Tanks and their items, the Pressurized Tubes), its Mechanical Pipes,
 # Fluid Tanks, Logistical Transporters and Configurator, and
-# Mekanism Generators' Solar and Heat Generators as a native mod of this fork
+# Mekanism Generators' Solar, Heat and Gas-Burning Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
@@ -96,6 +96,12 @@ id = "transmit"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_transmit"
 source = "runtime/mek_transmit.rs"
+
+[[module]]
+id = "gas"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_gas"
+source = "runtime/mek_gas.rs"
 
 [[module]]
 id = "ui"

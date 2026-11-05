@@ -171,6 +171,8 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
     game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
             super::mek_tanks::chemical_handler(m, face, &registry, use_it)
+        } else if super::mek_gas::is_gas(&m.id) {
+            super::mek_gas::chemical_handler(m, face, &registry, use_it)
         } else {
             mek_machines::chemical_handler(m, face, &registry, use_it)
         }

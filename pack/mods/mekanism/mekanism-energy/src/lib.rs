@@ -13,7 +13,8 @@
 //! screen reads data slots and sends buttons (`menu`), and writes energy as
 //! Mekanism's screens do (`display`). Mekanism Generators' Solar Generator
 //! (`solar`, over Minecraft 1.21.1's sun and weather in `sky`) and Heat
-//! Generator (`heat`) fill stores of their own and eject like a cube.
+//! Generator (`heat`) fill stores of their own and eject like a cube, as does
+//! the Gas-Burning Generator (`gas`), which burns chemicals by their fuel.
 //! Mekanism's first processing machines (`machine`: the Enrichment Chamber,
 //! Crusher, Energized Smelter and Metallurgic Infuser) run recipes on their
 //! Joules at the pace their upgrades set. Mekanism 10.7's chemicals
@@ -40,6 +41,7 @@ pub mod display;
 pub mod factory;
 pub mod fe;
 pub mod fluid_tank;
+pub mod gas;
 pub mod generator;
 pub mod heat;
 pub mod machine;

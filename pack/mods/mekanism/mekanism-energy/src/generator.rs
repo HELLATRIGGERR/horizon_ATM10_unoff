@@ -1,4 +1,5 @@
-//! Mekanism Generators' blocks this port has (`GeneratorsBlocks`), and what
+//! Mekanism Generators' blocks this port has (`GeneratorsBlocks`): the Solar,
+//! Heat and Gas-Burning Generators, and what
 //! they share (`TileEntityGenerator`): a store that only they fill, emptied
 //! out of their energy face each tick at up to their max output.
 use crate::config::GeneratorsConfig;
@@ -10,15 +11,18 @@ pub enum GeneratorKind {
     Solar,
     /// `mekanismgenerators:heat_generator`.
     Heat,
+    /// `mekanismgenerators:gas_burning_generator` (`crate::gas`).
+    GasBurning,
 }
 
 impl GeneratorKind {
-    pub const ALL: [Self; 2] = [Self::Solar, Self::Heat];
+    pub const ALL: [Self; 3] = [Self::Solar, Self::Heat, Self::GasBurning];
 
     pub fn id(self) -> &'static str {
         match self {
             Self::Solar => "mekanismgenerators:solar_generator",
             Self::Heat => "mekanismgenerators:heat_generator",
+            Self::GasBurning => "mekanismgenerators:gas_burning_generator",
         }
     }
 
@@ -26,12 +30,12 @@ impl GeneratorKind {
         Self::ALL.into_iter().find(|k| k.id() == id)
     }
 
-    /// `getEnergySides`: the solar generator's bottom, the heat generator's
-    /// front (`TileEntityGenerator`'s default).
+    /// `getEnergySides`: the solar generator's bottom, the heat and
+    /// gas-burning generators' front (`TileEntityGenerator`'s default).
     pub fn energy_side(self) -> RelativeSide {
         match self {
             Self::Solar => RelativeSide::Bottom,
-            Self::Heat => RelativeSide::Front,
+            Self::Heat | Self::GasBurning => RelativeSide::Front,
         }
     }
 
@@ -40,11 +44,14 @@ impl GeneratorKind {
         self.energy_side().direction(facing)
     }
 
-    /// Joules it holds (`generator-storage.toml`).
+    /// Joules it holds (`generator-storage.toml`); the gas-burning
+    /// generator's are 1000 times hydrogen's energy density, a chemical fact
+    /// (`crate::gas::storage`), 200 000 J with hydrogen's 200 J/mB.
     pub fn capacity(self, config: &GeneratorsConfig) -> u64 {
         match self {
             Self::Solar => config.solar_storage,
             Self::Heat => config.heat_storage,
+            Self::GasBurning => crate::gas::storage(200),
         }
     }
 }
@@ -64,5 +71,8 @@ mod tests {
         let atm10 = GeneratorsConfig { solar_storage: 96_000, heat_storage: 160_000, ..GeneratorsConfig::default() };
         assert_eq!(GeneratorKind::Solar.capacity(&atm10), 96_000);
         assert_eq!(GeneratorKind::Heat.capacity(&atm10), 160_000);
+        assert_eq!(GeneratorKind::of_block("mekanismgenerators:gas_burning_generator"), Some(GeneratorKind::GasBurning));
+        assert_eq!(GeneratorKind::GasBurning.energy_face(Direction::East), Direction::East);
+        assert_eq!(GeneratorKind::GasBurning.capacity(&atm10), 200_000);
     }
 }

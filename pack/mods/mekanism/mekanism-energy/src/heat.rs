@@ -345,6 +345,7 @@ mod tests {
             heat_fluid_rate: 10,
             solar_storage: 96_000,
             heat_storage: 160_000,
+            gas_tank_capacity: 18_000,
         }
     }
 

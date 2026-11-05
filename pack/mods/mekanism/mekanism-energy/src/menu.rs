@@ -201,6 +201,45 @@ impl GeneratorView {
     }
 }
 
+/// The Gas-Burning Generator's own data slots after a generator's
+/// (`GENERATOR_SLOTS`, `GuiGasGenerator`): 0 its fuel
+/// (`ChemicalRegistry::number`), 1..5 its mB, 5..9 the tank's capacity, 9..13
+/// the mB it burnt last tick (`getUsed`, an `f64`'s bits).
+pub const GAS_SLOTS: usize = 13;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GasView {
+    pub chemical: i32,
+    pub amount: u64,
+    pub capacity: u64,
+    pub burn_rate: f64,
+}
+
+impl GasView {
+    pub fn pack(&self) -> Vec<i32> {
+        let mut out = Vec::with_capacity(GAS_SLOTS);
+        out.push(self.chemical);
+        push_bits(&mut out, self.amount, 4);
+        push_bits(&mut out, self.capacity, 4);
+        push_bits(&mut out, self.burn_rate.to_bits(), 4);
+        out
+    }
+
+    /// The view after a generator's slots in `data`.
+    pub fn unpack(data: &[i32]) -> Option<Self> {
+        let data = data.get(GENERATOR_SLOTS..)?;
+        if data.len() < GAS_SLOTS {
+            return None;
+        }
+        Some(Self {
+            chemical: i32::from(data[0] as u16 as i16),
+            amount: read_bits(data, 1, 4),
+            capacity: read_bits(data, 5, 4),
+            burn_rate: f64::from_bits(read_bits(data, 9, 4)),
+        })
+    }
+}
+
 /// A machine's buttons: its side configuration, as a cube's, and the upgrade
 /// window's uninstall (`GuiInteraction.REMOVE_UPGRADE`, `REMOVE_ALL_UPGRADE`)
 /// and the infuser's dump (`GuiDumpButton`), the separator's dump modes.
@@ -556,5 +595,12 @@ mod tests {
         assert_eq!(wire.len(), GENERATOR_SLOTS);
         assert_eq!(GeneratorView::unpack(&wire), Some(view));
         assert_eq!(GeneratorView::unpack(&wire[..20]), None);
+        let gas = GasView { chemical: 31, amount: 17_744, capacity: 18_000, burn_rate: 253.0 };
+        let mut both = view.pack();
+        both.extend(gas.pack());
+        let wire: Vec<i32> = both.iter().map(|&v| i32::from(v as i16)).collect();
+        assert_eq!(wire.len(), GENERATOR_SLOTS + GAS_SLOTS);
+        assert_eq!((GeneratorView::unpack(&wire), GasView::unpack(&wire)), (Some(view), Some(gas)));
+        assert_eq!(GasView::unpack(&wire[..GENERATOR_SLOTS]), None);
     }
 }

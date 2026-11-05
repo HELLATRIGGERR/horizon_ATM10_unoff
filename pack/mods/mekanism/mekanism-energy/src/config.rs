@@ -152,6 +152,9 @@ pub struct GeneratorsConfig {
     pub solar_storage: u64,
     /// `generator-storage.toml` `heatGenerator`: Joules it holds, 1 or more.
     pub heat_storage: u64,
+    /// `[gas_generator] tankCapacity`: the Gas-Burning Generator's fuel tank,
+    /// in mB, 1 or more.
+    pub gas_tank_capacity: i64,
 }
 
 impl Default for GeneratorsConfig {
@@ -165,6 +168,7 @@ impl Default for GeneratorsConfig {
             heat_fluid_rate: 10,
             solar_storage: 96_000,
             heat_storage: 160_000,
+            gas_tank_capacity: crate::gas::TANK,
         }
     }
 }
@@ -202,6 +206,11 @@ impl GeneratorsConfig {
             {
                 config.heat_fluid_rate = v as u32;
             }
+        }
+        if let Some(gas) = section("gas_generator")
+            && let Some(v) = positive(gas, "tankCapacity")
+        {
+            config.gas_tank_capacity = v.min(i64::MAX as u64) as i64;
         }
         if let Some(storage) = storage {
             if let Some(v) = positive(storage, "solarGenerator") {
@@ -470,6 +479,9 @@ energizedSmelter = 20000
             .unwrap();
         let storage: toml::Table = "heatGenerator = 160000\nsolarGenerator = 96000\n".parse().unwrap();
         let g = GeneratorsConfig::from_tables(Some(&generators), Some(&storage));
+        assert_eq!(g.gas_tank_capacity, 18_000, "Mekanism's default where ATM10's file says the same");
+        let small: toml::Table = "[gas_generator]\ntankCapacity = 500\n".parse().unwrap();
+        assert_eq!(GeneratorsConfig::from_tables(Some(&small), None).gas_tank_capacity, 500);
         assert_eq!((g.solar_generation, g.heat_generation, g.heat_generation_lava, g.heat_generation_nether), (150, 800, 30, 100));
         assert_eq!((g.heat_tank_capacity, g.heat_fluid_rate, g.solar_storage, g.heat_storage), (24_000, 10, 96_000, 160_000));
         assert_eq!(GeneratorsConfig::from_tables(None, None), GeneratorsConfig::default());

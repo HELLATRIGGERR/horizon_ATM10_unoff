@@ -83,6 +83,10 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   is configured, emptied and turned away with a sneaking use; a plain use of the rotate mode turns it clockwise
   (`tryWrenchRotate`); the wrench mode bypasses sneaking (`doesSneakBypassUse`) to dismantle. 10.7 removed the
   Configurator's energy (no settings, no `ItemEnergized`). World test `configurator`.
+- Chemicals, slice 4 (branch `feat/mek-chemicals-4`, no new hook point): the Gas-Burning Generator
+  (`mekanism_energy::gas`, runtime `mek_gas`; `GeneratorKind::GasBurning` in `mek_world`'s generators), measured on a
+  NeoForge oracle with Mekanism Generators as well (local `chem-work/oracle4`, driven by `chem-work/m4/*.py`). World
+  test `gas-burning-generator`.
 - Next: chemicals slices 4-7 (`docs/mekanism-chemicals.md`: more chemical machines, radiation, Applied Mekanistics
   after AE2's key type registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),

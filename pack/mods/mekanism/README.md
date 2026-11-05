@@ -1,7 +1,7 @@
 # Mekanism on this fork
 
 Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters and its Configurator,
-and Mekanism Generators' Solar and Heat Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+and Mekanism Generators' Solar, Heat and Gas-Burning Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -38,8 +38,12 @@ assets when `mekanism-content` is given them.
   `blockDeactivationDelay`. Its tank is a fluid handler (hook points API 160) on every side but the front: any block
   (AE2's export and storage buses) fills it with lava, none drains it; its fuel slot fills it through the item's fluid
   handler (a whole bucket, or what a container gives).
-- Both generators: Forge Energy on their energy face, cables connecting there, a screen like Mekanism's
-  (`GuiSolarGenerator`, `GuiHeatGenerator`), and `/mek probe` answers for tests.
+- The Gas-Burning Generator: an 18 000 mB tank (`[gas_generator] tankCapacity`) of any chemical with a fuel attribute
+  (hydrogen: a tick of 200 J a mB), filled by any block on its sides but the front and by a chemical tank item in its
+  fuel slot, burning up to 256 of its ticks a tick by how full the tank is and as far as its 200 000 J store (1000
+  times hydrogen's density) has room, out of its front at twice what it made last tick.
+- The generators: Forge Energy on their energy face, cables connecting there, a screen like Mekanism's
+  (`GuiSolarGenerator`, `GuiHeatGenerator`, `GuiGasGenerator`), and `/mek probe` answers for tests.
 - The Enrichment Chamber, the Crusher and the Energized Smelter (`TileEntityElectricMachine`) and the Metallurgic
   Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
   (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and

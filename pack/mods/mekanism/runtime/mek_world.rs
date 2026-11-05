@@ -170,6 +170,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_tubes::clear();
     mek_factories::clear();
     super::mek_transmit::clear();
+    super::mek_gas::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -539,7 +540,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
 /// The ejector (`CableUtils.emit`): up to `max_output` out of `container`
 /// through `faces`, split among the neighbours that take energy there. What
 /// went out.
-fn eject(game: &mut Game<'_>, config: &EnergyConfig, pos: [i32; 3], faces: &[Direction], container: &mut EnergyContainer, max_output: u64) -> u64 {
+pub(super) fn eject(game: &mut Game<'_>, config: &EnergyConfig, pos: [i32; 3], faces: &[Direction], container: &mut EnergyContainer, max_output: u64) -> u64 {
     if container.stored == 0 {
         return 0;
     }
@@ -898,7 +899,7 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
 /// (`UniversalCable.write`), left out at zero.
 /// A block with a chemical handler: tubes beside it look again as it comes and goes.
 fn has_chemicals(id: &str) -> bool {
-    super::mek_tanks::tier_of(id).is_some() || mek_machines::kind_of(id).is_some_and(|k| k.infuses() || k.separates())
+    super::mek_tanks::tier_of(id).is_some() || mek_machines::kind_of(id).is_some_and(|k| k.default_chemicals().is_some()) || super::mek_gas::is_gas(id)
 }
 
 pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut Compound) {
@@ -1472,9 +1473,15 @@ pub(super) fn generator_facing(nbt: &Compound) -> Direction {
     }
 }
 
+/// The Joules a generator holds: the gas-burning generator's by hydrogen's
+/// energy density (`mek_gas::storage`), the others' by their config.
+fn generator_capacity(kind: GeneratorKind, config: &EnergyConfig) -> u64 {
+    if kind == GeneratorKind::GasBurning { super::mek_gas::storage() } else { kind.capacity(&config.generators) }
+}
+
 /// A generator's store as its compound holds it.
 fn generator_store(nbt: &Compound, kind: GeneratorKind, config: &EnergyConfig) -> EnergyContainer {
-    let mut container = EnergyContainer::output(kind.capacity(&config.generators));
+    let mut container = EnergyContainer::output(generator_capacity(kind, config));
     container.stored = saved_energy(nbt).unwrap_or(0).min(container.capacity);
     container
 }
@@ -1669,7 +1676,7 @@ pub(super) fn write_activity(nbt: &mut Compound, activity: Activity) {
 fn generator_container(kind: GeneratorKind) -> ModContainer {
     let (shown, inputs, outputs) = match kind {
         GeneratorKind::Solar => (vec![0], vec![0], vec![0]),
-        GeneratorKind::Heat => (vec![0, 1], vec![0], vec![1]),
+        GeneratorKind::Heat | GeneratorKind::GasBurning => (vec![0, 1], vec![0], vec![1]),
     };
     ModContainer {
         slots: 5,
@@ -1699,6 +1706,11 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
     if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {
         *accepts = false;
     }
+    // The gas-burning generator's fuel slot (`ChemicalInventorySlot.fill`): a
+    // chemical tank item holding a chemical, alone.
+    if super::mek_gas::is_gas(block) && slot == 0 && !(super::mek_tanks::tier_of(&stack.item).is_some() && stack.count == 1 && super::mek_tanks::item_holds(stack)) {
+        *accepts = false;
+    }
 }
 
 /// The generator's reading of its biome, made on its first tick (`recheckSettings`,
@@ -1720,6 +1732,7 @@ fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind)
             let sides = Direction::ALL.map(|d| air(beside(pos, d)).unwrap_or(own));
             Climate::Heat(Ambient { own, sides })
         }
+        GeneratorKind::GasBurning => return None,
     };
     GENERATORS.with(|g| g.borrow_mut().insert(id, made));
     Some(made)
@@ -1727,6 +1740,7 @@ fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind)
 
 fn forget_climate(dimension: &str, pos: [i32; 3]) {
     GENERATORS.with(|g| g.borrow_mut().remove(&(dimension.to_owned(), pos)));
+    super::mek_gas::forget(dimension, pos);
 }
 
 /// `native_block_entity_tick` of a generator (`TileEntityGenerator.onUpdateServer`
@@ -1740,6 +1754,7 @@ fn tick_generator(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntit
     match kind {
         GeneratorKind::Solar => tick_solar(game, &config, dimension, pos, entity),
         GeneratorKind::Heat => tick_heat(game, &config, dimension, pos, entity),
+        GeneratorKind::GasBurning => super::mek_gas::tick(game, &config, pos, entity),
     }
 }
 
@@ -1932,7 +1947,7 @@ fn probe_generator(game: &Game<'_>, pos: [i32; 3], id: &str, kind: GeneratorKind
         "pos": pos,
         "id": id,
         "energy": saved_energy(nbt).unwrap_or(0),
-        "capacity": kind.capacity(&config.generators),
+        "capacity": generator_capacity(kind, &config),
         "produced": view.produced,
         "max_output": view.max_output,
         "energy_face": kind.energy_face(generator_facing(nbt)).name(),
@@ -1973,6 +1988,7 @@ fn probe_generator(game: &Game<'_>, pos: [i32; 3], id: &str, kind: GeneratorKind
                 out["ambient"] = a.own.into();
             }
         }
+        GeneratorKind::GasBurning => super::mek_gas::probe(game, pos, nbt, data, &mut out),
     }
     out
 }

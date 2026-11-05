@@ -10,7 +10,8 @@ committed. Provenance in [SOURCE_MANIFEST.json](SOURCE_MANIFEST.json), the decla
 Feature `ae2-extendedae`; content `content/extendedae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts extendedae`. ATM10's `config/extendedae-common.toml` keeps
 the mod's defaults (ATM10 8.4 ships none: `extended_io_bus_multiplier` 8, `infinity_cell_energy_cost` 8,
-`assembler_matrix_max_size` 6, `wireless_connector_max_range` 1,000, `wireless_connector_power_multiplier` 1). Of
+`assembler_matrix_max_size` 6, `wireless_connector_max_range` 1,000, `wireless_connector_power_multiplier` 1, `pattern_modifier_multipliers` 2, 3, 5, 7, the mod's
+`me_packing_tape_whitelist`). Of
 ATM10's KubeJS, only its infinity cells (slice 6) touch the mod; its recipes for them are the pack's own, in
 the full pack's carry.
 
@@ -232,7 +233,49 @@ matter balls it makes, a restart):
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-cells
 ```
 
+## Slice 7, first part: the Pattern and Config Modifiers, ME Packing Tape, the Extended Pattern Access Terminal
+
+| ExtendedAE | Port |
+|---|---|
+| `HostPatternModifier`: 27 patterns, a target, four blank patterns, a clone and the two items of a replacement in `STACK_TAG` (`extendedae:generic_nbt`, AE2's `writeToNBT` lists) | `game/ae2x/extendedae/tools.rs`, `Modifier` |
+| `ContainerPatternModifier.modify(scale, div)`: each processing pattern's amounts times or divided by the factor, when all divide by it or stay within 999,999 units (`getAmountPerUnit`); the factors of `item.pattern_modifier_multipliers` (`getPatternModifierNumber`, the default past the list's end) | `Modifier::modify`, `Config::modifier_multiplier` |
+| `clear` (encoded patterns to blank ones), `clonePattern` (the target into the clone slot for a blank pattern, or over a pattern there), `replace` (in processing patterns the replaced item becomes the other or goes; a crafting pattern only when its recipe still makes it), `changePatternMode` (crafting patterns' substitutions and fluid substitutions) | the same `Modifier` methods; a crafting pattern's recipe checked by `assemble_named` |
+| `GuiPatternModifier`: four pages (`CUpdatePage`), the patterns (`PROVIDER_PATTERN`), the target, the clone (`OutputSlot`), the blanks, two `SingleFakeSlot`s; `pattern_editor_1/2/3.png` | a window a page (27 entries for multiply and property, 54 for replace and clone), layouts `extendedae:pattern_modifier`, `_replace`, `_mode`, `_clone` (`screens.rs`) with the buttons where `init` puts them; the background from `style_slots`; clicks checked against each slot's filter (`lan_extendedae_tool_click`), buttons as window buttons (`lan_extendedae_tool_button`) |
+| `ItemPatternModifier.onItemUseFirst`, not sneaking: its patterns into the pattern provider used on (block or part), each that fits whole | `extendedae_tool_use_on`, through `ae2x_use_on` |
+| `ItemConfigModifier`: `MODIFIER_CONFIG_SETTINGS` `{mode, data}` (ADD, SUB, MUL, DIV, MAX, MIN, SET, RMV; times 1 by default); `onItemUseFirst` on an `IConfigInvHost`: each config slot's amount through `ConfigSettings.modify` between 1 (0 for types) and `getMaxAmount` (an item's stack size up to 99, a fluid four buckets), -1 removes it | `Settings`; on AE2's and the Extended Interface, block or part (`extendedae_config_apply`) |
+| `ContainerConfigModifier`, `GuiConfigModifier`: the mode's button, the number's text field | a layout of `config_modifier.json`: the mode's button (data slot 0), the number (data slot 1) |
+| `ItemMEPackingTape.onItemUseFirst` (64 uses): a block of `item.me_packing_tape_whitelist` with all it holds (`TAPE_TILE_DATA`: its type, block, state, `saveWithFullMetadata`), or the part hit (`TAPE_PART_DATA`: its item, `writeToNBT`), into a package dropped where it was; nothing else drops | `game/ae2x/extendedae/tape.rs`: the port's saved block entity (`save::encode_block_entity`, its name), the part's record on the cable |
+| `ItemPackedDevice.useOn`: the block placed as its item would be and loaded, or the part placed (`PartPlacement`) and loaded | `extendedae_package_use`: the block where the use lands, the part through `ae2_try_attach_part` with the packed record over the new one (its place and node kept) |
+| `PartExPatternAccessTerminal`: AE2's Pattern Access Terminal; `ContainerExPatternTerminal.quickMovePattern`: a pattern the Molecular Assembler takes only to a group shown by an assembler (AE2's, the Extended Molecular Assembler, the matrix's pattern core), any other only to the rest, across groups | a part variant of `ae2:pattern_access_terminal` (`MACHINES`); AE2's menu (`ae2_pattern_access.rs` goes by `base_id`), its quick move by `pattern_terminal_extended` and `pattern_quick_move_target`; its screen model over AE2's display base (`display_part_screen`) |
+| `ItemPatternAccessTerminalUpgrade` on AE2's terminal part | a `Kit` (`upgrade.rs`) |
+| `ItemWirelessExPAT`: AE2WTLib's terminal `ex_pattern_access` (`AddTerminalEvent`, hotkey `wireless_pattern_access_terminal`, two cards, `ae2wtlib:has_ex_pattern_access_terminal`), the Pattern Access menu over its access point's grid | `register_ae2wt`, a `TerminalKind::PatternAccess` row (after ME Requester's) in `ae2x/defs.rs`; the same quick move |
+| the items and their recipes (the tape's, the modifiers', the terminal's, its kit's and its wireless form's, AE2WTLib's `ae2wtlib:combine` into the universal terminal) | `content.json`; the tape's durability by the new `components` of `prepare-addon.ts` |
+
+Differences, known:
+
+- The modifiers' buttons are AE2's icon buttons with the mod's tooltips: the factors are not written on them. A page
+  change opens the page's window anew.
+- The Config Modifier's number is set by four step buttons (+1, -1, +10, -10), not typed; the screen shows it up
+  to 32,767. It acts on interfaces only: the other `IConfigInvHost`s (storage, import and export buses, level
+  emitters, formation planes, the Cell Workbench) take nothing from it yet.
+- An amount's unit is an item's 1 or a fluid's bucket; other key types come with AE2's key-type ids.
+- A package holds the port's records, not the mod's NBT: one from a Java world does not unpack here. The whitelist's
+  Oversize Interfaces come with that interface.
+- The Extended Pattern Access Terminal's screen is AE2's: no search by inputs or outputs, no highlight in the world.
+
+Tests: `horizon-client` (scaling, its limits, the record, replace, clear and clone, the settings' modes and the
+pages in `game::ae2x::extendedae::tools`; the config lists in `ae2x::extendedae`) and the world test
+`extendedae-tools`: the Pattern Modifier takes two processing patterns by shift-click and not stone, x2, ÷2 (and
+not ÷2 again), x2, then fills an Extended Pattern Provider; the Config Modifier's +1 makes it x2 and an interface
+stocks 6 diamonds and 64 stone; the tape packs the provider with its patterns in one use and the package puts it
+back; the kit makes AE2's terminal the extended one, which, a placed one and the wireless form at an access point
+list the provider's patterns:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-tools
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
 5. Special buses, emitters and planes.
-7. Oversize (x16) and Vacuum interfaces, modifiers, ME Packing Tape, Extended Pattern Access Terminal.
+7. Oversize (x16) and Vacuum interfaces: after AE2's key types become ids (NOTES).

@@ -4,7 +4,8 @@
 //! `TileExDrive`, `TileExIOPort`, `TileCrystalAssembler`, `TileCircuitCutter`,
 //! `TileCrystalFixer`, `TileExInscriber`, `TileExCharger`,
 //! `TileExMolecularAssembler`, `TileWirelessConnector`, `TileWirelessHub`,
-//! `WirelessConnect`, `EAERegistryHandler.registerUpgrades`, `MEGACommonLoad`, `EAEConfig`),
+//! `WirelessConnect`, `ItemPatternModifier`, `ItemConfigModifier`, `ItemMEPackingTape`,
+//! `PartExPatternAccessTerminal`, `EAERegistryHandler.registerUpgrades`, `MEGACommonLoad`, `EAEConfig`),
 //! https://github.com/GlodBlock/ExtendedAE commit
 //! `1f86f927552f02451236465c0c96a12a3de8f66c` (2.2.42), LGPL-3.0; see
 //! `ae2/addons/extendedae/`.
@@ -73,6 +74,27 @@ pub const HUB_PORTS: usize = 8;
 /// The idle draw a wireless block's tick sets (`powerUse`, which the mod
 /// does not save), in the machine's config for its grid node.
 pub const WIRELESS_POWER: &str = "eae_wireless_power";
+
+/// `ItemPatternModifier`: 27 patterns to scale, edit and clone.
+pub const PATTERN_MODIFIER: &str = "extendedae:pattern_modifier";
+/// `ItemConfigModifier`: one change to every amount an interface stocks.
+pub const CONFIG_MODIFIER: &str = "extendedae:config_modifier";
+/// `ItemMEPackingTape` (64 uses) and the package it makes (`ItemPackedDevice`).
+pub const PACKING_TAPE: &str = "extendedae:me_packing_tape";
+pub const PACKAGE: &str = "extendedae:package";
+/// `PartExPatternAccessTerminal`, its kit (`ItemPatternAccessTerminalUpgrade`)
+/// and its wireless form (`ItemWirelessExPAT`).
+pub const EX_PATTERN_TERMINAL: &str = "extendedae:ex_pattern_access_part";
+pub const PATTERN_TERMINAL_KIT: &str = "extendedae:pattern_terminal_upgrade";
+pub const WIRELESS_EX_PAT: &str = "extendedae:wireless_ex_pat";
+/// The mod's item components: `STACK_TAG` (the Pattern Modifier's inventories),
+/// `MODIFIER_CONFIG_SETTINGS`, and the package's `IS_PART`, `TAPE_PART_DATA`,
+/// `TAPE_TILE_DATA`.
+pub const STACK_TAG: &str = "extendedae:generic_nbt";
+pub const MODIFIER_SETTINGS: &str = "extendedae:modifier_config_settings";
+pub const IS_PART: &str = "extendedae:is_part";
+pub const TAPE_PART_DATA: &str = "extendedae:tape_part_data";
+pub const TAPE_TILE_DATA: &str = "extendedae:tape_tile_data";
 
 /// The links a wireless block has: one for the connector, eight for the hub.
 pub fn wireless_ports(id: &str) -> Option<usize> {
@@ -229,10 +251,51 @@ pub struct Config {
     pub wireless_range: f64,
     /// `device.wireless_connector_power_multiplier`, 0 to 100.
     pub wireless_power: f64,
+    /// `item.pattern_modifier_multipliers`: the Pattern Modifier's four
+    /// factors; a list with any number under 1 is the default.
+    pub modifier_multipliers: Vec<i64>,
+    /// `item.me_packing_tape_whitelist`: the blocks and parts ME Packing Tape packs.
+    pub tape_whitelist: Vec<String>,
+}
+/// `EAEConfig.defaultModifierMultiplier`.
+pub const DEFAULT_MODIFIER_MULTIPLIERS: [i64; 4] = [2, 3, 5, 7];
+/// The default of `item.me_packing_tape_whitelist`.
+pub const DEFAULT_TAPE_WHITELIST: [&str; 12] = [
+    "extendedae:ex_interface_part",
+    "extendedae:ex_pattern_provider_part",
+    "extendedae:ex_interface",
+    "extendedae:ex_pattern_provider",
+    "extendedae:ex_drive",
+    "extendedae:oversize_interface",
+    "extendedae:oversize_interface_part",
+    "ae2:cable_interface",
+    "ae2:cable_pattern_provider",
+    "ae2:interface",
+    "ae2:pattern_provider",
+    "ae2:drive",
+];
+impl Config {
+    /// `getPatternModifierNumber`: the list's `index`-th, or the default's
+    /// past its end.
+    pub fn modifier_multiplier(&self, index: usize) -> i64 {
+        self.modifier_multipliers.get(index).copied().unwrap_or(DEFAULT_MODIFIER_MULTIPLIERS[index.min(3)])
+    }
+    /// `ItemMEPackingTape.invalid`: whether the tape takes block or part item `id`.
+    pub fn tape_takes(&self, id: &str) -> bool {
+        self.tape_whitelist.iter().any(|entry| entry == id)
+    }
 }
 impl Default for Config {
     fn default() -> Self {
-        Self { bus_speed: 8, infinity_cell_cost: 8.0, matrix_size: 6, wireless_range: 1000.0, wireless_power: 1.0 }
+        Self {
+            bus_speed: 8,
+            infinity_cell_cost: 8.0,
+            matrix_size: 6,
+            wireless_range: 1000.0,
+            wireless_power: 1.0,
+            modifier_multipliers: DEFAULT_MODIFIER_MULTIPLIERS.to_vec(),
+            tape_whitelist: DEFAULT_TAPE_WHITELIST.iter().map(|s| (*s).to_owned()).collect(),
+        }
     }
 }
 impl Config {
@@ -263,6 +326,20 @@ impl Config {
         }
         if let Some(n) = float("device", "wireless_connector_power_multiplier").filter(|n| (0.0..=100.0).contains(n)) {
             config.wireless_power = n;
+        }
+        // defineList(.., checkPositive): one element that fails corrects the whole list.
+        let list = |key: &str| value.get("item").and_then(|d| d.get(key)).and_then(toml::Value::as_array);
+        if let Some(numbers) = list("pattern_modifier_multipliers") {
+            let parsed: Option<Vec<i64>> = numbers.iter().map(|n| n.as_integer().filter(|n| *n > 0)).collect();
+            if let Some(parsed) = parsed {
+                config.modifier_multipliers = parsed;
+            }
+        }
+        if let Some(ids) = list("me_packing_tape_whitelist") {
+            let parsed: Option<Vec<String>> = ids.iter().map(|id| id.as_str().map(str::to_owned)).collect();
+            if let Some(parsed) = parsed {
+                config.tape_whitelist = parsed;
+            }
         }
         Ok(config)
     }
@@ -380,6 +457,17 @@ pub const MACHINES: &[MachineVariant] = &[
     // 36 patterns, so the grid's crafting service and the Pattern Access
     // Terminal take it as a provider; its jobs go to the matrix's crafter
     // cores, not to its neighbours (`game/ae2x/extendedae/matrix.rs`).
+    // PartExPatternAccessTerminal: AE2's Pattern Access Terminal (an
+    // AbstractDisplayPart, no machine) with its own quick move.
+    MachineVariant {
+        id: EX_PATTERN_TERMINAL,
+        base: "ae2:pattern_access_terminal",
+        block: EX_PATTERN_TERMINAL,
+        kind: MachineKind::CableBus,
+        slots: 0,
+        upgrades: 0,
+        part: true,
+    },
     MachineVariant {
         id: MATRIX_PATTERN,
         base: "ae2:pattern_provider",
@@ -537,6 +625,25 @@ pub fn infinity_cell_name(id: &str, translate: &dyn Fn(&str) -> Option<String>, 
     };
     let format = translate("item.extendedae.infinity_cell_name").unwrap_or_else(|| "ME Infinity %s Cell".into());
     Some(format.replacen("%s", &record, 1).replace("%1$s", &record))
+}
+
+/// `AddTerminalEvent.register(event -> event.builder("ex_pattern_access",
+/// HostWirelessExPAT::new, ContainerWirelessExPAT.TYPE, WIRELESS_EX_PAT, ..)
+/// .hotkeyName("wireless_pattern_access_terminal"))`: AE2WTLib's terminal
+/// `ex_pattern_access`, two upgrade slots (the builder's), the component
+/// `ae2wtlib:has_ex_pattern_access_terminal`; its menu is the Pattern Access
+/// Terminal's with the mod's quick move (`ContainerWirelessExPAT`).
+#[cfg(feature = "ae2-ae2wtlib")]
+pub fn register_ae2wt(defs: &mut Defs) {
+    use super::defs::{TerminalKind, WirelessTerminal};
+    defs.add_wireless_terminal(WirelessTerminal {
+        name: "ex_pattern_access".to_owned(),
+        item: WIRELESS_EX_PAT.to_owned(),
+        kind: TerminalKind::PatternAccess,
+        hotkey: "wireless_pattern_access_terminal".to_owned(),
+        upgrade_slots: 2,
+        installed: Some(format!("{}:has_ex_pattern_access_terminal", super::ae2wtlib::NAMESPACE)),
+    });
 }
 
 pub fn register(defs: &mut Defs) {
@@ -767,5 +874,22 @@ mod tests {
         let config = Config::parse("[device]\nwireless_connector_max_range = 2000\nwireless_connector_power_multiplier = 0.5").unwrap();
         assert_eq!((config.wireless_range, config.wireless_power), (2000.0, 0.5));
         assert_eq!(Config::parse("[device]\nwireless_connector_max_range = 5.0").unwrap().wireless_range, 1000.0);
+    }
+
+    #[test]
+    fn the_tools_config_lists() {
+        use super::*;
+        crate::ae2x::install();
+        let config = Config::default();
+        assert_eq!((0..5).map(|i| config.modifier_multiplier(i)).collect::<Vec<_>>(), [2, 3, 5, 7, 7]);
+        assert!(config.tape_takes("ae2:pattern_provider") && !config.tape_takes(EX_PATTERN_TERMINAL));
+        let short = Config::parse("[item]\npattern_modifier_multipliers = [4, 9]").unwrap();
+        // getPatternModifierNumber: the default past the list's end.
+        assert_eq!((0..4).map(|i| short.modifier_multiplier(i)).collect::<Vec<_>>(), [4, 9, 5, 7]);
+        // One number under 1: the whole list is the default.
+        assert_eq!(Config::parse("[item]\npattern_modifier_multipliers = [4, 0]").unwrap().modifier_multipliers, DEFAULT_MODIFIER_MULTIPLIERS.to_vec());
+        let tape = Config::parse("[item]\nme_packing_tape_whitelist = [\"ae2:drive\"]").unwrap();
+        assert!(tape.tape_takes("ae2:drive") && !tape.tape_takes("ae2:interface"));
+        assert_eq!(crate::ae2_world::base_id(EX_PATTERN_TERMINAL), "ae2:pattern_access_terminal");
     }
 }

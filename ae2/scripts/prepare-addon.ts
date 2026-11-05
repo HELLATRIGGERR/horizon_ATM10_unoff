@@ -7,7 +7,9 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { root, help } from './common';
 
-type Declared = { fire_resistant?: boolean; max_stack_size?: number };
+type Declared = { fire_resistant?: boolean; max_stack_size?: number;
+  /** Item components beside its template's (ExtendedAE's tape: `minecraft:max_damage`). */
+  components?: Record<string, unknown> };
 type Block = Declared & { template?: string; properties?: Record<string, unknown>;
   state_properties?: Record<string, string[]>; state_defaults?: Record<string, string>;
   /** The block model to draw when the jar's needs a custom loader (`extendedae:ex_drive`). */
@@ -132,7 +134,7 @@ if (!help(usage)) {
     put(join(out, 'data', ns, 'horizon/item', item + '.json'), {
       template: 'minecraft:iron_ingot',
       ...(spec.max_stack_size ? { max_stack_size: spec.max_stack_size } : {}),
-      ...(spec.fire_resistant ? { components: fireResistant } : {}),
+      ...(spec.fire_resistant || spec.components ? { components: { ...(spec.fire_resistant ? fireResistant : {}), ...(spec.components ?? {}) } } : {}),
     });
   }
   // An item model whose 1.21.1 `overrides` all test one mod property (AE2's `ae2:fill_level` on an energy cell)

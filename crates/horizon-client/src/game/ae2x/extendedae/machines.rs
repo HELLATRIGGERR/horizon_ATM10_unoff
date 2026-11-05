@@ -446,6 +446,8 @@ pub(in crate::game) struct State {
     pub(in crate::game) matrix_menus: HashMap<u32, super::matrix::MatrixMenu>,
     /// The Wireless Connectors' and Hubs' links.
     pub(in crate::game) wireless: super::wireless::Wireless,
+    /// The open Pattern Modifier and Config Modifier menus, by player.
+    pub(in crate::game) tool_menus: HashMap<u32, super::tools::ToolMenu>,
 }
 
 /// What a tick of [`execute`] needs from the world.

@@ -291,11 +291,43 @@ pub(super) fn pattern_inventory_accepts(machine: &Machine, item: &horizon_client
 }
 
 
+/// An addon's Pattern Access Terminal (part or wireless item) with its own
+/// quick move (ExtendedAE's Extended Pattern Access Terminal).
+pub(super) fn pattern_terminal_extended(id: &str) -> bool {
+    #[cfg(feature = "ae2-extendedae")]
+    if extendedae::pattern_terminal_extended(id) {
+        return true;
+    }
+    let _ = id;
+    false
+}
+/// Whether such a terminal's quick move may put `pattern` into a provider of
+/// the group shown by `icon`.
+pub(super) fn pattern_quick_move_target(pattern: &horizon_client::items::ItemStack, icon: &ae2_cell_core::ItemKey) -> bool {
+    #[cfg(feature = "ae2-extendedae")]
+    return extendedae::pattern_quick_move_target(pattern, icon);
+    #[cfg(not(feature = "ae2-extendedae"))]
+    {
+        let _ = (pattern, icon);
+        true
+    }
+}
+/// An addon's display part: its screen model, drawn `_on` or `_off` over
+/// AE2's display base and status.
+pub(super) fn display_part_screen(id: &str) -> Option<&'static str> {
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(screen) = extendedae::display_part_screen(id) {
+        return Some(screen);
+    }
+    let _ = id;
+    None
+}
+
 /// Whether an addon's item opens a menu when used (`Item.use` succeeds on
 /// the client, `sidedSuccess`): the client then stops at this hand.
 pub(super) fn item_opens_menu(id: &str) -> bool {
     #[cfg(feature = "ae2-extendedae")]
-    if id == horizon_client::ae2x::extendedae::VOID_CELL {
+    if matches!(id, horizon_client::ae2x::extendedae::VOID_CELL | horizon_client::ae2x::extendedae::PATTERN_MODIFIER | horizon_client::ae2x::extendedae::CONFIG_MODIFIER) {
         return true;
     }
     #[cfg(feature = "ae2-megacells")]
@@ -681,7 +713,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.lan_open_void_cell(host, conn, hand) {
+        if self.lan_open_void_cell(host, conn, hand) || self.lan_open_extendedae_tool(host, conn, hand) {
             return true;
         }
         // ItemWirelessConnectTool.use, sneaking.
@@ -696,7 +728,7 @@ impl Game<'_> {
     pub(super) fn lan_ae2x_button(&mut self, host: &mut super::lan::LanHost, conn: u32, window: i32, id: i32) -> bool {
         let _ = (&host, conn, window, id);
         #[cfg(feature = "ae2-extendedae")]
-        if self.lan_void_cell_button(host, conn, window, id) || self.lan_matrix_button(host, conn, window, id) {
+        if self.lan_void_cell_button(host, conn, window, id) || self.lan_matrix_button(host, conn, window, id) || self.lan_extendedae_tool_button(host, conn, window, id) {
             return true;
         }
         false
@@ -718,7 +750,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.lan_matrix_click(host, conn, click) {
+        if self.lan_matrix_click(host, conn, click) || self.lan_extendedae_tool_click(host, conn, click) {
             return true;
         }
         false
@@ -739,7 +771,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.lan_void_cell_closed(host, conn, Some(window)) || self.lan_matrix_closed(host, conn, Some(window)) {
+        if self.lan_void_cell_closed(host, conn, Some(window)) || self.lan_matrix_closed(host, conn, Some(window)) || self.lan_extendedae_tool_closed(host, conn, Some(window)) {
             return true;
         }
         false
@@ -939,6 +971,8 @@ impl Game<'_> {
         self.lan_refresh_void_cells(host);
         #[cfg(feature = "ae2-extendedae")]
         self.lan_refresh_matrix_menus(host);
+        #[cfg(feature = "ae2-extendedae")]
+        self.lan_refresh_extendedae_tools(host);
     }
 
     /// `/ae2 <addon> ...`: none when no addon has the command.
@@ -964,7 +998,13 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-extendedae")]
-        if self.extendedae_wireless_tool_use(pos) || self.extendedae_kit_use(pos, face) || self.extendedae_seed_use(pos) {
+        if self.extendedae_wireless_tool_use(pos)
+            || self.extendedae_tool_use_on(pos, face)
+            || self.extendedae_tape_use(pos, face)
+            || self.extendedae_kit_use(pos, face)
+            || self.extendedae_seed_use(pos)
+            || self.extendedae_package_on(pos, face)
+        {
             return true;
         }
         false

@@ -70,7 +70,10 @@ impl Game<'_> {
         let BlockEntity::Ae2(host)=self.world.block_entities.get(&pos)? else{return None};
         let Tag::List(parts)=host.config.get(&"parts".into())? else{return None};
         let mut found=parts.iter().filter(|p|p.get("face")==Some(&Tag::String(face.into())));
-        let part=found.next()?;if found.next().is_some() || part.get("id")!=Some(&Tag::String("ae2:pattern_access_terminal".into())){return None;}
+        let part=found.next()?;
+        // AE2's terminal, or an addon's variant of it (ExtendedAE's).
+        let id=match part.get("id") {Some(Tag::String(id))=>id.to_string().ok()?,_=>return None};
+        if found.next().is_some() || horizon_client::ae2_world::base_id(&id)!="ae2:pattern_access_terminal"{return None;}
         match part.get("ae2_access_filter") {None=>Some(0),Some(Tag::Byte(n)) if (0..=2).contains(n)=>Some(*n as u8),_=>None}
     }
     fn access_set_filter(&mut self,pos:(i32,i32,i32),face:&str,filter:u8)->bool {
@@ -366,7 +369,10 @@ impl Game<'_> {
                     self.access_provider_action(owner,first+index,button,input);
                 }
             },
-            Some(index @ 0..=35) if input==Input::QuickMove=>self.access_quick_move_player(index,&session.view.rows),
+            Some(index @ 0..=35) if input==Input::QuickMove=>{
+                let extended=self.access_part_id(session.pos,&session.face).is_some_and(|id|super::ae2x::pattern_terminal_extended(&id));
+                self.access_quick_move_player(index,&session.view.rows,extended)
+            },
             Some(index @ 0..=35)=>{let wire=if index<9 {81+index}else{54+index-9};self.access_local_player_menu(&mut session,Some(wire),button,input);},
             None if input==Input::QuickCraft || input==Input::Pickup=>self.access_local_player_menu(&mut session,None,button,input),
             _=>{}
@@ -506,9 +512,25 @@ impl Game<'_> {
             self.ae2_restore_blocks(snapshot);self.inventory=old_inventory;self.carried=old_cursor;
         }
     }
-    fn access_quick_move_player(&mut self,index:usize,rows:&[Row]) {
+    /// Whether the session's terminal is an addon's with a quick move of its
+    /// own (ExtendedAE's `ContainerExPatternTerminal`): the part at its face,
+    /// or the wireless item it was opened with.
+    fn access_extended(&self,host:&LanHost,conn:u32,s:&GuestPatternAccess)->bool {
+        match &s.wireless {
+            Some(ctx)=>host.hub.guests.iter().find(|g|g.conn==conn).and_then(|g|super::ae2_wireless::source_stack(g,ctx.source))
+                .and_then(horizon_client::ae2x::wireless::terminal).is_some_and(|t|super::ae2x::pattern_terminal_extended(&t.item)),
+            None=>self.access_part_id(s.pos,&s.face).is_some_and(|id|super::ae2x::pattern_terminal_extended(&id)),
+        }
+    }
+    fn access_part_id(&self,pos:(i32,i32,i32),face:&str)->Option<String> {
+        let BlockEntity::Ae2(host)=self.world.block_entities.get(&pos)? else{return None};
+        let Tag::List(parts)=host.config.get(&"parts".into())? else{return None};
+        match parts.iter().find(|p|p.get("face")==Some(&Tag::String(face.into())))?.get("id")? {Tag::String(id)=>id.to_string().ok(),_=>None}
+    }
+    fn access_quick_move_player(&mut self,index:usize,rows:&[Row],extended:bool) {
         if let Some(item)=self.inventory.get(index).and_then(Clone::clone).filter(|v|v.count==1 && pattern(v)) {
             for row in rows {
+                if extended && !super::ae2x::pattern_quick_move_target(&item,&row.group.icon) {continue}
                 let Some(mut machine)=self.access_machine(row.owner) else{continue};
                 // InternalInventory.addItems: a provider whose filter refuses it is passed over.
                 if !provider_pattern_valid(&machine,&item) {continue}
@@ -551,7 +573,8 @@ impl Game<'_> {
         }
         else if (54..90).contains(&p.slot) && input==Input::QuickMove {
             let index=if p.slot<81 {9+(p.slot as usize-54)} else {p.slot as usize-81};
-            self.as_guest(host,conn,|game|game.access_quick_move_player(index,&rows));
+            let extended=self.access_extended(host,conn,&s);
+            self.as_guest(host,conn,|game|game.access_quick_move_player(index,&rows,extended));
         }
         else if (54..90).contains(&p.slot) {
             self.guest_menu_op(host,gi,&mut s.menu,|m,env|{let _=m.click(env,i32::from(p.slot),i32::from(p.button),input);});

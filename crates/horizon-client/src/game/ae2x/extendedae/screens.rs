@@ -544,6 +544,125 @@ const LAYOUTS: &[(&str, Layout)] = &[
         page_line: None,
         panels: &[],
     }),
+    // ContainerPatternModifier, GuiPatternModifier: a window a page (`IPage`,
+    // `CUpdatePage`), its slots where the style places them, its buttons
+    // where `init` puts them. Multiply: the 27 patterns, x and ÷ the config's
+    // four factors, Clear.
+    (horizon_client::ae2x::extendedae::PATTERN_MODIFIER, Layout {
+        kind: OWN,
+        style: "pattern_modifier.json",
+        slots: &[(0, "ENCODED_PATTERN"), (1, "ENCODED_PATTERN"), (2, "ENCODED_PATTERN"), (3, "ENCODED_PATTERN"), (4, "ENCODED_PATTERN"), (5, "ENCODED_PATTERN"), (6, "ENCODED_PATTERN"), (7, "ENCODED_PATTERN"), (8, "ENCODED_PATTERN"), (9, "ENCODED_PATTERN"), (10, "ENCODED_PATTERN"), (11, "ENCODED_PATTERN"), (12, "ENCODED_PATTERN"), (13, "ENCODED_PATTERN"), (14, "ENCODED_PATTERN"), (15, "ENCODED_PATTERN"), (16, "ENCODED_PATTERN"), (17, "ENCODED_PATTERN"), (18, "ENCODED_PATTERN"), (19, "ENCODED_PATTERN"), (20, "ENCODED_PATTERN"), (21, "ENCODED_PATTERN"), (22, "ENCODED_PATTERN"), (23, "ENCODED_PATTERN"), (24, "ENCODED_PATTERN"), (25, "ENCODED_PATTERN"), (26, "ENCODED_PATTERN")],
+        icons: &[(0, icon::BACKGROUND_BLANK_PATTERN), (1, icon::BACKGROUND_BLANK_PATTERN), (2, icon::BACKGROUND_BLANK_PATTERN), (3, icon::BACKGROUND_BLANK_PATTERN), (4, icon::BACKGROUND_BLANK_PATTERN), (5, icon::BACKGROUND_BLANK_PATTERN), (6, icon::BACKGROUND_BLANK_PATTERN), (7, icon::BACKGROUND_BLANK_PATTERN), (8, icon::BACKGROUND_BLANK_PATTERN), (9, icon::BACKGROUND_BLANK_PATTERN), (10, icon::BACKGROUND_BLANK_PATTERN), (11, icon::BACKGROUND_BLANK_PATTERN), (12, icon::BACKGROUND_BLANK_PATTERN), (13, icon::BACKGROUND_BLANK_PATTERN), (14, icon::BACKGROUND_BLANK_PATTERN), (15, icon::BACKGROUND_BLANK_PATTERN), (16, icon::BACKGROUND_BLANK_PATTERN), (17, icon::BACKGROUND_BLANK_PATTERN), (18, icon::BACKGROUND_BLANK_PATTERN), (19, icon::BACKGROUND_BLANK_PATTERN), (20, icon::BACKGROUND_BLANK_PATTERN), (21, icon::BACKGROUND_BLANK_PATTERN), (22, icon::BACKGROUND_BLANK_PATTERN), (23, icon::BACKGROUND_BLANK_PATTERN), (24, icon::BACKGROUND_BLANK_PATTERN), (25, icon::BACKGROUND_BLANK_PATTERN), (26, icon::BACKGROUND_BLANK_PATTERN)],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle { entry: 36, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.change", values: &[("press", icon::COG, "gui.extendedae.pattern_modifier.change")], place: None, shown_by: None },
+            Toggle { entry: 37, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.multi.desc", values: &[("press", icon::ARROW_RIGHT, "gui.extendedae.pattern_modifier.multi.desc")], place: Some((7, 16)), shown_by: None },
+            Toggle { entry: 38, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.multi.desc", values: &[("press", icon::ARROW_RIGHT, "gui.extendedae.pattern_modifier.multi.desc")], place: Some((37, 16)), shown_by: None },
+            Toggle { entry: 39, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.multi.desc", values: &[("press", icon::ARROW_RIGHT, "gui.extendedae.pattern_modifier.multi.desc")], place: Some((67, 16)), shown_by: None },
+            Toggle { entry: 40, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.multi.desc", values: &[("press", icon::ARROW_RIGHT, "gui.extendedae.pattern_modifier.multi.desc")], place: Some((97, 16)), shown_by: None },
+            Toggle { entry: 41, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.div.desc", values: &[("press", icon::ARROW_LEFT, "gui.extendedae.pattern_modifier.div.desc")], place: Some((7, 38)), shown_by: None },
+            Toggle { entry: 42, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.div.desc", values: &[("press", icon::ARROW_LEFT, "gui.extendedae.pattern_modifier.div.desc")], place: Some((37, 38)), shown_by: None },
+            Toggle { entry: 43, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.div.desc", values: &[("press", icon::ARROW_LEFT, "gui.extendedae.pattern_modifier.div.desc")], place: Some((67, 38)), shown_by: None },
+            Toggle { entry: 44, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.div.desc", values: &[("press", icon::ARROW_LEFT, "gui.extendedae.pattern_modifier.div.desc")], place: Some((97, 38)), shown_by: None },
+            Toggle { entry: 45, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.clear.desc", values: &[("press", icon::INVALID, "gui.extendedae.pattern_modifier.clear.desc")], place: Some((133, 26)), shown_by: None },
+        ],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // Replace: the patterns and the two fake slots (EX_4, EX_5).
+    ("extendedae:pattern_modifier_replace", Layout {
+        kind: OWN,
+        style: "pattern_modifier.json",
+        slots: &[(0, "ENCODED_PATTERN"), (1, "ENCODED_PATTERN"), (2, "ENCODED_PATTERN"), (3, "ENCODED_PATTERN"), (4, "ENCODED_PATTERN"), (5, "ENCODED_PATTERN"), (6, "ENCODED_PATTERN"), (7, "ENCODED_PATTERN"), (8, "ENCODED_PATTERN"), (9, "ENCODED_PATTERN"), (10, "ENCODED_PATTERN"), (11, "ENCODED_PATTERN"), (12, "ENCODED_PATTERN"), (13, "ENCODED_PATTERN"), (14, "ENCODED_PATTERN"), (15, "ENCODED_PATTERN"), (16, "ENCODED_PATTERN"), (17, "ENCODED_PATTERN"), (18, "ENCODED_PATTERN"), (19, "ENCODED_PATTERN"), (20, "ENCODED_PATTERN"), (21, "ENCODED_PATTERN"), (22, "ENCODED_PATTERN"), (23, "ENCODED_PATTERN"), (24, "ENCODED_PATTERN"), (25, "ENCODED_PATTERN"), (26, "ENCODED_PATTERN"), (27, "EX_4"), (28, "EX_5")],
+        icons: &[(0, icon::BACKGROUND_BLANK_PATTERN), (1, icon::BACKGROUND_BLANK_PATTERN), (2, icon::BACKGROUND_BLANK_PATTERN), (3, icon::BACKGROUND_BLANK_PATTERN), (4, icon::BACKGROUND_BLANK_PATTERN), (5, icon::BACKGROUND_BLANK_PATTERN), (6, icon::BACKGROUND_BLANK_PATTERN), (7, icon::BACKGROUND_BLANK_PATTERN), (8, icon::BACKGROUND_BLANK_PATTERN), (9, icon::BACKGROUND_BLANK_PATTERN), (10, icon::BACKGROUND_BLANK_PATTERN), (11, icon::BACKGROUND_BLANK_PATTERN), (12, icon::BACKGROUND_BLANK_PATTERN), (13, icon::BACKGROUND_BLANK_PATTERN), (14, icon::BACKGROUND_BLANK_PATTERN), (15, icon::BACKGROUND_BLANK_PATTERN), (16, icon::BACKGROUND_BLANK_PATTERN), (17, icon::BACKGROUND_BLANK_PATTERN), (18, icon::BACKGROUND_BLANK_PATTERN), (19, icon::BACKGROUND_BLANK_PATTERN), (20, icon::BACKGROUND_BLANK_PATTERN), (21, icon::BACKGROUND_BLANK_PATTERN), (22, icon::BACKGROUND_BLANK_PATTERN), (23, icon::BACKGROUND_BLANK_PATTERN), (24, icon::BACKGROUND_BLANK_PATTERN), (25, icon::BACKGROUND_BLANK_PATTERN), (26, icon::BACKGROUND_BLANK_PATTERN)],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle { entry: 36, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.change", values: &[("press", icon::COG, "gui.extendedae.pattern_modifier.change")], place: None, shown_by: None },
+            Toggle { entry: 46, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.replace_button", values: &[("press", icon::ENTER, "gui.extendedae.pattern_modifier.replace_button")], place: Some((123, 26)), shown_by: None },
+        ],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // Property: the patterns, substitutions and fluid substitutions on and off.
+    ("extendedae:pattern_modifier_mode", Layout {
+        kind: OWN,
+        style: "pattern_modifier.json",
+        slots: &[(0, "ENCODED_PATTERN"), (1, "ENCODED_PATTERN"), (2, "ENCODED_PATTERN"), (3, "ENCODED_PATTERN"), (4, "ENCODED_PATTERN"), (5, "ENCODED_PATTERN"), (6, "ENCODED_PATTERN"), (7, "ENCODED_PATTERN"), (8, "ENCODED_PATTERN"), (9, "ENCODED_PATTERN"), (10, "ENCODED_PATTERN"), (11, "ENCODED_PATTERN"), (12, "ENCODED_PATTERN"), (13, "ENCODED_PATTERN"), (14, "ENCODED_PATTERN"), (15, "ENCODED_PATTERN"), (16, "ENCODED_PATTERN"), (17, "ENCODED_PATTERN"), (18, "ENCODED_PATTERN"), (19, "ENCODED_PATTERN"), (20, "ENCODED_PATTERN"), (21, "ENCODED_PATTERN"), (22, "ENCODED_PATTERN"), (23, "ENCODED_PATTERN"), (24, "ENCODED_PATTERN"), (25, "ENCODED_PATTERN"), (26, "ENCODED_PATTERN")],
+        icons: &[(0, icon::BACKGROUND_BLANK_PATTERN), (1, icon::BACKGROUND_BLANK_PATTERN), (2, icon::BACKGROUND_BLANK_PATTERN), (3, icon::BACKGROUND_BLANK_PATTERN), (4, icon::BACKGROUND_BLANK_PATTERN), (5, icon::BACKGROUND_BLANK_PATTERN), (6, icon::BACKGROUND_BLANK_PATTERN), (7, icon::BACKGROUND_BLANK_PATTERN), (8, icon::BACKGROUND_BLANK_PATTERN), (9, icon::BACKGROUND_BLANK_PATTERN), (10, icon::BACKGROUND_BLANK_PATTERN), (11, icon::BACKGROUND_BLANK_PATTERN), (12, icon::BACKGROUND_BLANK_PATTERN), (13, icon::BACKGROUND_BLANK_PATTERN), (14, icon::BACKGROUND_BLANK_PATTERN), (15, icon::BACKGROUND_BLANK_PATTERN), (16, icon::BACKGROUND_BLANK_PATTERN), (17, icon::BACKGROUND_BLANK_PATTERN), (18, icon::BACKGROUND_BLANK_PATTERN), (19, icon::BACKGROUND_BLANK_PATTERN), (20, icon::BACKGROUND_BLANK_PATTERN), (21, icon::BACKGROUND_BLANK_PATTERN), (22, icon::BACKGROUND_BLANK_PATTERN), (23, icon::BACKGROUND_BLANK_PATTERN), (24, icon::BACKGROUND_BLANK_PATTERN), (25, icon::BACKGROUND_BLANK_PATTERN), (26, icon::BACKGROUND_BLANK_PATTERN)],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle { entry: 36, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.change", values: &[("press", icon::COG, "gui.extendedae.pattern_modifier.change")], place: None, shown_by: None },
+            Toggle { entry: 47, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.pattern_mode.substitute", values: &[("press", icon::REDSTONE_ON, "gui.extendedae.pattern_modifier.pattern_mode.substitute")], place: Some((116, 16)), shown_by: None },
+            Toggle { entry: 48, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.pattern_mode.substitute", values: &[("press", icon::REDSTONE_OFF, "gui.extendedae.pattern_modifier.pattern_mode.substitute")], place: Some((146, 16)), shown_by: None },
+            Toggle { entry: 49, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.pattern_mode.fluid_substitute", values: &[("press", icon::REDSTONE_ON, "gui.extendedae.pattern_modifier.pattern_mode.fluid_substitute")], place: Some((116, 38)), shown_by: None },
+            Toggle { entry: 50, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.pattern_mode.fluid_substitute", values: &[("press", icon::REDSTONE_OFF, "gui.extendedae.pattern_modifier.pattern_mode.fluid_substitute")], place: Some((146, 38)), shown_by: None },
+        ],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // Clone: the target (EX_1), the clone (EX_2), four blank patterns (EX_3).
+    ("extendedae:pattern_modifier_clone", Layout {
+        kind: OWN,
+        style: "pattern_modifier.json",
+        slots: &[(27, "EX_1"), (28, "EX_2"), (29, "EX_3"), (30, "EX_3"), (31, "EX_3"), (32, "EX_3")],
+        icons: &[(27, icon::BACKGROUND_BLANK_PATTERN), (29, icon::BACKGROUND_BLANK_PATTERN), (30, icon::BACKGROUND_BLANK_PATTERN), (31, icon::BACKGROUND_BLANK_PATTERN), (32, icon::BACKGROUND_BLANK_PATTERN)],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle { entry: 36, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.change", values: &[("press", icon::COG, "gui.extendedae.pattern_modifier.change")], place: None, shown_by: None },
+            Toggle { entry: 51, key: "", stored: Stored::Index, default: 0, data: 4, title: "gui.extendedae.pattern_modifier.clone.desc", values: &[("press", icon::ARROW_RIGHT, "gui.extendedae.pattern_modifier.clone.desc")], place: Some((80, 36)), shown_by: None },
+        ],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &[],
+    }),
+    // ContainerConfigModifier, GuiConfigModifier: the mode's button (its
+    // name, `getNext`), the number (data slot 1) where its text field is, and
+    // four steps for it.
+    (horizon_client::ae2x::extendedae::CONFIG_MODIFIER, Layout {
+        kind: OWN,
+        style: "config_modifier.json",
+        slots: &[],
+        icons: &[],
+        upgrades: 0..0,
+        toggles: &[
+            Toggle { entry: 0, key: "", stored: Stored::Index, default: 0, data: 0, title: "gui.extendedae.config_modifier.change_mode", values: &[("ADD", icon::ENTER, "gui.extendedae.config_modifier.mode.add"), ("SUB", icon::ENTER, "gui.extendedae.config_modifier.mode.sub"), ("MUL", icon::ARROW_RIGHT, "gui.extendedae.config_modifier.mode.mul"), ("DIV", icon::ARROW_LEFT, "gui.extendedae.config_modifier.mode.div"), ("MAX", icon::REDSTONE_HIGH, "gui.extendedae.config_modifier.mode.max"), ("MIN", icon::REDSTONE_LOW, "gui.extendedae.config_modifier.mode.min"), ("SET", icon::COG, "gui.extendedae.config_modifier.mode.set"), ("RMV", icon::INVALID, "gui.extendedae.config_modifier.mode.rmv")], place: Some((12, 22)), shown_by: None },
+            Toggle { entry: 1, key: "", stored: Stored::Index, default: 0, data: 4, title: "+1", values: &[("press", icon::ARROW_RIGHT, "+1")], place: Some((72, 40)), shown_by: None },
+            Toggle { entry: 2, key: "", stored: Stored::Index, default: 0, data: 4, title: "-1", values: &[("press", icon::ARROW_LEFT, "-1")], place: Some((90, 40)), shown_by: None },
+            Toggle { entry: 3, key: "", stored: Stored::Index, default: 0, data: 4, title: "+10", values: &[("press", icon::ARROW_RIGHT, "+10")], place: Some((108, 40)), shown_by: None },
+            Toggle { entry: 4, key: "", stored: Stored::Index, default: 0, data: 4, title: "-10", values: &[("press", icon::ARROW_LEFT, "-10")], place: Some((126, 40)), shown_by: None },
+        ],
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: Some(PageLine { data: 1, key: "gui.extendedae.config_modifier.data_input", fallback: "%s", at: (74.0, 28.0), per_value: false, count: true }),
+        panels: &[],
+    }),
     // ContainerWirelessConnector, ContainerWirelessHub (UpgradeableMenu): the
     // four energy cards; the hub's Disconnect buttons where GuiWirelessHub puts
     // them (window entries 10 to 17, `killPort`).
@@ -594,6 +713,16 @@ const LAYOUTS: &[(&str, Layout)] = &[
 /// `(row + 1) * 18 + 13`, which its style does not hold.
 pub(super) fn style_slots(block: &str, style: &mut horizon_client::ae2_screen_style::ScreenStyle) {
     use horizon_client::ae2_screen_style::{Grid, Position, SlotStyle};
+    // GuiPatternModifier.drawBG: pattern_editor_1 (multiply, property), _3 (replace), _2 (clone), 176 x 212.
+    let editor = match block {
+        horizon_client::ae2x::extendedae::PATTERN_MODIFIER | "extendedae:pattern_modifier_mode" => Some("guis/pattern_editor_1"),
+        "extendedae:pattern_modifier_replace" => Some("guis/pattern_editor_3"),
+        "extendedae:pattern_modifier_clone" => Some("guis/pattern_editor_2"),
+        _ => None,
+    };
+    if let Some(texture) = editor {
+        style.background = Some(horizon_client::ae2_screen_style::Image { texture: texture.into(), texture_size: (256, 256), src: Some([0, 0, 176, 212]) });
+    }
     if block == "extendedae:assembler_matrix" {
         let position = Position { left: Some(8), top: Some(31), right: None, bottom: None };
         style.slots.insert("EAE_MATRIX_PATTERN".into(), SlotStyle { position, grid: Some(Grid::BreakAfter(9)), hidden: false });

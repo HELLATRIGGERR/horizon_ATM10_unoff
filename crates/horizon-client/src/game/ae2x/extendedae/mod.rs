@@ -5,13 +5,16 @@
 //! the Extended Inscriber, Charger and Molecular Assembler in `devices.rs`,
 //! Entro's growth in `entro.rs`, the Infinity and Void Cells in `cells.rs`,
 //! the Assembler Matrix in `matrix.rs`, the Wireless Connector and Hub in
-//! `wireless.rs`.
+//! `wireless.rs`, the Pattern and Config Modifiers in `tools.rs`, ME Packing
+//! Tape in `tape.rs`.
 //! What needs the game's own code is here, reached through `game/ae2x/mod.rs`.
 pub(in crate::game) mod cells;
 pub(in crate::game) mod devices;
 pub(in crate::game) mod entro;
 pub(in crate::game) mod machines;
 pub(in crate::game) mod matrix;
+pub(in crate::game) mod tape;
+pub(in crate::game) mod tools;
 pub(in crate::game) mod upgrade;
 pub(in crate::game) mod wireless;
 
@@ -38,6 +41,29 @@ pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
         "extendedae:ex_export_bus_part" => Some("extendedae:part/ex_export_bus_base"),
         _ => None,
     }
+}
+
+/// `PartExPatternAccessTerminal` and `ItemWirelessExPAT`: AE2's Pattern
+/// Access Terminal with `ContainerExPatternTerminal.quickMovePattern`.
+pub(in crate::game) fn pattern_terminal_extended(id: &str) -> bool {
+    use horizon_client::ae2x::extendedae as rows;
+    id == rows::EX_PATTERN_TERMINAL || id == rows::WIRELESS_EX_PAT
+}
+/// `ContainerExPatternTerminal.quickMovePattern`'s targets: a pattern the
+/// Molecular Assembler crafts (`IMolecularAssemblerSupportedPattern`:
+/// crafting, smithing table, stonecutting) goes to a group an assembler
+/// shows (AE2's, the Extended Molecular Assembler, the Assembler Matrix's
+/// pattern core), any other to the rest. Unlike AE2's, the targets need not
+/// share a group.
+pub(in crate::game) fn pattern_quick_move_target(pattern: &ItemStack, icon: &ae2_cell_core::ItemKey) -> bool {
+    use horizon_client::ae2x::extendedae as rows;
+    let assembler_pattern = crate::game::ae2_processing::decode_pattern(pattern).is_some() || crate::game::ae2_processing::ae2_decode_special_pattern(pattern).is_some();
+    let assembler = matches!(icon.item_id.as_str(), "ae2:molecular_assembler" | rows::MATRIX_PATTERN | rows::EX_ASSEMBLER);
+    assembler_pattern == assembler
+}
+/// `PartExPatternAccessTerminal.MODELS`: its screen over AE2's display base.
+pub(in crate::game) fn display_part_screen(id: &str) -> Option<&'static str> {
+    (id == horizon_client::ae2x::extendedae::EX_PATTERN_TERMINAL).then_some("extendedae:part/ex_pattern_access_terminal")
 }
 
 /// `PartExImportBus` and `PartExExportBus` open `ContainerExIOBus` with the

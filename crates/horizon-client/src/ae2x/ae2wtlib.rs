@@ -91,6 +91,10 @@ mod tests {
         if cfg!(feature = "ae2-merequester") {
             expected.push("requester");
         }
+        // ExtendedAE's Wireless Extended Pattern Access Terminal, after them.
+        if cfg!(feature = "ae2-extendedae") {
+            expected.push("ex_pattern_access");
+        }
         assert_eq!(names, expected);
         let crafting = defs.wireless_terminal("ae2:wireless_crafting_terminal").unwrap();
         assert_eq!((crafting.kind, crafting.hotkey.as_str()), (TerminalKind::Crafting, "wireless_terminal"));
@@ -99,7 +103,7 @@ mod tests {
         assert_eq!(access.hotkey, "wireless_pattern_access_terminal");
         assert!(defs.is_wireless_terminal(UNIVERSAL_TERMINAL));
         assert_eq!(defs.upgrade_limit("ae2:energy_card", PATTERN_ENCODING_TERMINAL), 2);
-        let terminals = if cfg!(feature = "ae2-merequester") { 4 } else { 3 };
+        let terminals = 3 + usize::from(cfg!(feature = "ae2-merequester")) + usize::from(cfg!(feature = "ae2-extendedae"));
         assert_eq!(defs.upgrade_limit("ae2:energy_card", UNIVERSAL_TERMINAL), 2 * terminals, "two for each terminal it can hold");
         assert_eq!(defs.wireless_terminal("ae2:wireless_terminal").unwrap().installed, None, "AE2's own terminal can't be combined");
         for (item, magnet) in [("ae2:wireless_crafting_terminal", 1), (UNIVERSAL_TERMINAL, 1), (PATTERN_ACCESS_TERMINAL, 0), ("ae2:wireless_terminal", 0)] {
@@ -139,7 +143,9 @@ mod tests {
         for item in [PATTERN_ENCODING_TERMINAL, PATTERN_ACCESS_TERMINAL, "ae2:wireless_crafting_terminal", "ae2:wireless_terminal"] {
             assert_eq!(defs.upgrade_limit(card, item), 2, "{item}");
         }
-        assert_eq!(defs.upgrade_limit(card, UNIVERSAL_TERMINAL), if cfg!(feature = "ae2-merequester") { 8 } else { 6 });
+        // Two more for each addon's terminal it can hold.
+        let addons = usize::from(cfg!(feature = "ae2-merequester")) + usize::from(cfg!(feature = "ae2-extendedae"));
+        assert_eq!(defs.upgrade_limit(card, UNIVERSAL_TERMINAL), 6 + 2 * addons);
     }
 
     #[test]

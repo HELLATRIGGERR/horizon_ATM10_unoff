@@ -466,6 +466,13 @@ impl Game<'_> {
                         model(&format!("ae2:part/display_status_{}",if part.online {"has_channel"} else {"off"}),pose,None);
                         continue;
                     }
+                    // An addon's display part (ExtendedAE's Extended Pattern Access Terminal).
+                    if let Some(screen) = super::ae2x::display_part_screen(part.id.as_str()) {
+                        model("ae2:part/display_base",pose,None);
+                        model(&format!("{screen}_{}",if part.online {"on"} else {"off"}),pose,None);
+                        model(&format!("ae2:part/display_status_{}",if part.online {"has_channel"} else {"off"}),pose,None);
+                        continue;
+                    }
                     let terminal = match name {"terminal"=>Some("terminal"),"crafting_terminal"=>Some("crafting_terminal"),"pattern_encoding_terminal"=>Some("pattern_encoding_terminal"),"pattern_access_terminal"=>Some("pattern_access_terminal"),_=>None};
                     if let Some(terminal) = terminal {
                         model("ae2:part/display_base",pose,None);

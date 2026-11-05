@@ -511,6 +511,8 @@ pub fn get() -> &'static Defs {
         // (`UpgradeHelper.addUpgrades`).
         #[cfg(all(feature = "ae2-merequester", feature = "ae2-ae2wtlib"))]
         super::merequester::register_ae2wt(&mut defs);
+        #[cfg(all(feature = "ae2-extendedae", feature = "ae2-ae2wtlib"))]
+        super::extendedae::register_ae2wt(&mut defs);
         #[cfg(feature = "ae2-ae2wtlib")]
         super::ae2wtlib::add_upgrades(&mut defs);
         #[cfg(all(feature = "ae2-megacells", feature = "ae2-ae2wtlib"))]

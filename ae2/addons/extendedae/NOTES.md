@@ -69,6 +69,28 @@ kit through `ae2x_use_on`, its clear through `lan_ae2x_use_item`, `connected` th
 Disconnect through `extendedae_machine_click`. `upgrade::upgraded` also turns one of the mod's own blocks into
 another (the hub's kit).
 
+Slice 7's first part: `tools.rs` (the modifiers' inventories and actions, their item menus `ToolMenu` in
+`machines::State.tool_menus`, a window a page, their layouts in `screens.rs`, the pattern editor backgrounds through
+`style_slots`), `tape.rs` (ME Packing Tape and the package). The Extended Pattern Access Terminal is a part variant
+of AE2's (`ae2_pattern_access.rs` reads `base_id`; `access_extended` picks the mod's quick move) and AE2WTLib's
+terminal `ex_pattern_access`. Hooks added: `pattern_terminal_extended`, `pattern_quick_move_target`,
+`display_part_screen` (`ae2_render.rs`); the tools through `ae2x_use_on`, `lan_ae2x_use_item`, `lan_ae2x_button`,
+`lan_ae2x_click`, `lan_ae2x_closed`, `lan_refresh_ae2x`; `prepare-addon.ts` takes an item's `components`.
+
+Waiting for AE2's key types (another agent turns `fluid: bool` and the item/fluid enums into key-type ids):
+
+- The Oversize Interface (`TileOversizeInterface`, `PartOversizeInterface`): `OversizeConfigInv` over
+  `AEKeyTypes.getAll()`, each key type's capacity times `oversize_interface_multiplier` (16) or its own
+  (`custom_oversize_interface_multiplier`, by key-type id: `appbot:mana 2`, `appflux:flux 4`). The port's interface
+  keeps items (`ae2_interface_config`) and fluids (`ae2_interface_fluid_config`, `INTERFACE_FLUID_CAPACITY`) apart, so
+  this needs a capacity by key-type id.
+- The Vacuum Interface: item entities in its work area (`set_work_area.json`) into the grid, its 63 filters
+  `configTypes(63).supportedType(items())`: its config is the `ConfigInventory` the key-type work reshapes.
+- Slice 5: the Smart Annihilation Plane (`supportedTypes(items, fluids)`), the precise buses and the threshold
+  emitter by `AEKey` and its amounts; the tag and mod buses by key.
+- Here, `tools.rs::per_unit` (an item's 1, a fluid's 1,000) and the replace's item-only match are the places that
+  would follow `getAmountPerUnit` and key types.
+
 Next: a Memory Card on the extended buses and the inscriber; the Extended Molecular Assembler's thread pages; the
 matrix's pattern item handler.
 
@@ -129,6 +151,21 @@ Facts checked for slice 4, at the source:
 - The kit: the hub checks for a free port before anything; out of range is checked on the pairing use only; a
   locator with no place is `MISSING`.
 - `TileWirelessHub.loadTag` reads a connector's `freq` as its first port and then ignores `freq0`..`freq7`.
+
+Facts checked for slice 7, at the source:
+
+- `getPatternModifierNumber(index)` falls back to the default list past the configured list's end; `defineList` with
+  `checkPositive` corrects the whole list when one element fails.
+- `ContainerPatternModifier.modify` re-encodes from the decoded pattern (`encodeProcessingPattern`), dropping the
+  stack's other components; the limit is `999999 * getAmountPerUnit()`.
+- `ItemConfigModifier.onItemUseFirst` has no sneak check and acts on any `IConfigInvHost`; `ConfigSettings.DEFAULT`
+  is MUL 1.
+- `ItemMEPackingTape` removes the block entity and the block (no drops) and spawns the package; `hurtAndBreak(1)`,
+  which creative skips.
+- `ContainerExPatternTerminal.quickMovePattern` has no single-group rule (AE2's has); it counts the matrix pattern
+  core and the Extended Molecular Assembler as assemblers.
+- ATM10's KubeJS gives the universal terminal `ae2wtlib:has_ex_pattern_access_terminal` (`att_items.js`): the
+  terminal name is `ex_pattern_access`.
 
 ## Verification log
 

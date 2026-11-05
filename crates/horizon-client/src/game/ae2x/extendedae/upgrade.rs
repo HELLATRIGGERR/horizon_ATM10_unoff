@@ -44,6 +44,8 @@ pub(in crate::game) const KITS: &[Kit] = &[
         block: None,
         parts: &[("ae2:export_bus", "extendedae:ex_export_bus_part"), ("ae2:import_bus", "extendedae:ex_import_bus_part")],
     },
+    // ItemPatternAccessTerminalUpgrade.
+    Kit { item: horizon_client::ae2x::extendedae::PATTERN_TERMINAL_KIT, block: None, parts: &[("ae2:pattern_access_terminal", horizon_client::ae2x::extendedae::EX_PATTERN_TERMINAL)] },
     // The mod's own blocks: the hub loads the connector's `freq` as its first link.
     Kit {
         item: horizon_client::ae2x::extendedae::WIRELESS_HUB_KIT,

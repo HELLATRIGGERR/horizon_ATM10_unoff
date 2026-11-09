@@ -1,0 +1,11 @@
+{
+  "template": "minecraft:lime_concrete",
+  "properties": {
+    "hardness": 3.5,
+    "explosion_resistance": 16.0,
+    "requires_tool": true,
+    "push_reaction": "IMMOVEABLE",
+    "map_color": 19,
+    "light": 0
+  }
+}

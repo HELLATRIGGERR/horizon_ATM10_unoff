@@ -37,7 +37,7 @@
 //! Configurator's modes (`configurator`) set sides, colours and facings.
 //! Multiblocks form as Mekanism's do (`multiblock`: the structure, its
 //! cuboid, the check of its blocks, the cache by its id): the Dynamic Tank
-//! (`dynamic_tank`).
+//! (`dynamic_tank`) and the Induction Matrix (`induction`).
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod advanced;
 pub mod chemical;
@@ -55,6 +55,7 @@ pub mod fluid_tank;
 pub mod gas;
 pub mod generator;
 pub mod heat;
+pub mod induction;
 pub mod machine;
 pub mod menu;
 pub mod multiblock;

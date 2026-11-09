@@ -193,6 +193,16 @@ assets when `mekanism-content` is given them.
   reads only); pipes, tubes, tanks and AE2 fill and drain it there. Its two slots fill and empty containers as its
   edit mode says (`HybridInventorySlot.handleTank`: both, fill, empty; chemical tank items through the chemical
   side); a plain use with a bucket fills or empties it. Its screen is `GuiDynamicTank`'s, with the edit mode tab.
+- The Induction Matrix (`mekanism_energy::induction`, runtime `mek_matrix`): induction casings with induction ports and
+  structural glass in the sides, and induction cells, providers or air inside. Its Joules live in its cells
+  (`energy_containers` in each cell's block entity, kept by a broken cell's item), its room is their capacity and its
+  transfer each way a tick its providers' output (ATM10's `tiers.toml` `[induction]`: 8, 64, 512 and 4000 GJ; 256 000,
+  2 048 000, 16 384 000 and 131 072 000 J a tick). What goes in and out during a tick is queued and lands in the cells
+  at its next tick (`MatrixEnergyContainer`), before the level's blocks tick. A port takes energy in its input mode
+  and gives it in its output mode (its `active_state`, shown as `active`; the Configurator's sneaking use toggles it),
+  to cables, cubes, machines and Forge Energy (hook points API 154) alike, and in its output mode puts out to the block
+  it faces, split among the output ports, the transfer at most. Its slots charge an energy cube's item and take one's
+  Joules or an item that converts to energy. Its screen is `GuiInductionMatrix`'s, with `GuiMatrixStats` as a page.
 
 ## Differences from Mekanism
 
@@ -276,6 +286,10 @@ assets when `mekanism-content` is given them.
   casing reaches nothing, on a valve both slots. The slots' `isDraining` and `isFilling` aren't saved. A bucket used
   on it acts on the tank's own merged tank, a creative player's bucket changing too. The valves don't show their
   transfer (`activeTicks`), and the tank draws no fluid inside.
+- The matrix's cells take and give in position order (Mekanism: its hash map's), which only decides which cell holds
+  the Joules. Its tick runs before the level's blocks (`native_level_tick_pre`), as the oracle's matrix ticked before
+  the cube placed after it; one placed before its master casing would land a tick sooner in Mekanism. Only an energy
+  cube's item charges or discharges in its slots.
 - The Configurator's mode is set with `/mek configurator`: Mekanism's mode key and sneak-scroll aren't ported. Its
   messages go to the chat, not the action bar. A transmitter's arms aren't hit (its outline is its core), so a
   sneaking use configures the side used, and on a transporter a connected side bumps the colour, as a use on

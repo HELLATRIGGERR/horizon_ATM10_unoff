@@ -122,7 +122,14 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
                 }
                 return;
             }
-            // `IConfigurable`: transmitters and fluid tanks; a multiblock's blocks have nothing to configure here.
+            // `IConfigurable`: induction ports, transmitters and fluid tanks.
+            if id == super::mek_matrix::PORT {
+                if sneaking {
+                    *claimed = true;
+                    super::mek_matrix::toggle(game, pos);
+                }
+                return;
+            }
             if super::mek_multiblock::is_part(&id) {
                 return;
             }

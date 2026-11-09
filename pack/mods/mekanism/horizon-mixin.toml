@@ -108,6 +108,12 @@ name = "mek_dynamic_tank"
 source = "runtime/mek_dynamic_tank.rs"
 
 [[module]]
+id = "matrix"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_matrix"
+source = "runtime/mek_matrix.rs"
+
+[[module]]
 id = "transmit"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_transmit"

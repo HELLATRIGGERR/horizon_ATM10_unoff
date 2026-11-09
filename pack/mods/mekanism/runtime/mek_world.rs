@@ -379,7 +379,7 @@ pub(super) fn take_received(pos: [i32; 3]) -> u64 {
 
 /// What takes energy on an output face.
 #[derive(Clone, Copy)]
-enum Target {
+pub(super) enum Target {
     /// Another cube, in Joules.
     Cube,
     /// A cable, whose network takes Joules.
@@ -389,6 +389,8 @@ enum Target {
     Generator,
     /// A processing machine's face that takes energy.
     Machine,
+    /// An induction port, which takes in its input mode (`mek_matrix`).
+    Port { output: bool },
     /// Any other block with Forge Energy on the touching side, as Mekanism
     /// sees it through `ForgeStrictEnergyHandler`.
     Fe { can_receive: bool },
@@ -402,6 +404,9 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     let cable = with_cables(dimension, |d| d.nets.cable(at).map(|_| d.nets.exposed(at, Some(side as usize)).is_some()));
     if let Some(open) = cable {
         return open.then_some(Target::Cable);
+    }
+    if let Some(output) = super::mek_matrix::port_at(game, at) {
+        return Some(Target::Port { output });
     }
     let generator = game
         .native_with_mod_block_entity(at, |m| {
@@ -487,6 +492,7 @@ fn hand_over(
             rest
         }
         Target::Cable => with_cables(dimension, |d| d.nets.insert_at(at, Some(face.opposite() as usize), amount, simulate)),
+        Target::Port { output } => super::mek_matrix::offer(dimension, at, output, amount, simulate),
         Target::Fe { can_receive } => {
             let side = Some(engine_face(face.opposite()));
             let joules = amount.min(i64::MAX as u64) as i64;
@@ -496,6 +502,27 @@ fn hand_over(
             rest.max(0) as u64
         }
     }
+}
+
+/// What takes energy on `face` of `pos` (`target_on`), for an induction matrix's output ports.
+pub(super) fn energy_target(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 3], face: Direction) -> Option<Target> {
+    target_on(game, config, dimension, pos, face)
+}
+
+/// `hand_over` for an induction matrix's output ports: what `target` didn't take.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn energy_hand_over(
+    game: &mut Game<'_>,
+    config: &EnergyConfig,
+    rate: Conversion,
+    dimension: &str,
+    pos: [i32; 3],
+    face: Direction,
+    target: Target,
+    amount: u64,
+    simulate: bool,
+) -> u64 {
+    hand_over(game, config, rate, dimension, pos, face, target, amount, simulate)
 }
 
 /// `native_block_entity_tick` of a cube (`TileEntityEnergyCube.onUpdateServer`):
@@ -650,6 +677,9 @@ pub(super) fn fe_storage(
         return;
     }
     let (config, _) = energy_config();
+    if super::mek_matrix::fe_storage(dimension, pos, entity, &config, info) {
+        return;
+    }
     if mek_factories::kind_of(&entity.id).is_some() {
         mek_factories::fe_storage(entity, face, &config, info);
         return;
@@ -719,6 +749,9 @@ pub(super) fn fe_transfer(
         return;
     }
     let (config, _) = energy_config();
+    if super::mek_matrix::fe_transfer(dimension, pos, face, entity, &config, max, simulate, extract, moved) {
+        return;
+    }
     if mek_factories::kind_of(&entity.id).is_some() {
         mek_factories::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
         return;
@@ -836,6 +869,9 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
         return;
     }
     if super::mek_multiblock::loaded(dimension, pos, &entity.id) {
+        if entity.id == super::mek_matrix::PORT && ANY_CABLES.get() {
+            with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
+        }
         return;
     }
     if GeneratorKind::of_block(&entity.id).is_some() {
@@ -873,6 +909,9 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
         return;
     }
     if super::mek_multiblock::unloaded(dimension, pos, &entity.id, removed) {
+        if entity.id == super::mek_matrix::PORT && ANY_CABLES.get() {
+            with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
+        }
         return;
     }
     if GeneratorKind::of_block(&entity.id).is_some() {
@@ -990,6 +1029,9 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
         .flatten();
     if let Some(given) = generator {
         return given;
+    }
+    if let Some(output) = super::mek_matrix::port_at(game, at) {
+        return super::mek_matrix::draw_energy(dimension, at, output, amount, simulate);
     }
     if game.native_with_mod_block_entity(at, |m| mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some()) == Some(true) {
         return 0;
@@ -1212,6 +1254,9 @@ pub(super) fn dismantle(game: &mut Game<'_>, pos: [i32; 3]) -> Option<ItemStack>
             if super::mek_tanks::tier_of(&m.id).is_some() {
                 return super::mek_tanks::drop_data(&m.nbt);
             }
+            if super::mek_matrix::is_cell(&m.id) {
+                return super::mek_matrix::cell_drop(&m.nbt);
+            }
             let tier = CubeTier::of_block(&m.id)?;
             drop_data(&m.nbt, tier, config.cube(tier).0)
         })
@@ -1354,6 +1399,31 @@ pub(super) fn drain_energy_item(stack: &mut ItemStack, needed: u64) -> Option<u6
     Some(taken)
 }
 
+/// `EnergyInventorySlot.drainContainer` into an energy cube's item: up to `offered` Joules into it, at most its tier's
+/// output a tick and its room (a creative cube's takes none). None for an item that holds no energy here; else
+/// the Joules it takes, its custom data changed unless `simulate`.
+pub(super) fn charge_energy_item(stack: &mut ItemStack, offered: u64, simulate: bool) -> Option<u64> {
+    let tier = CubeTier::of_block(&stack.item)?;
+    if tier == CubeTier::Creative || stack.count != 1 {
+        return Some(0);
+    }
+    let (config, _) = energy_config();
+    let (capacity, output) = config.cube(tier);
+    let mut data = item_data(stack).unwrap_or_default();
+    let stored = cube::stored_from(tier, saved_energy(&data), capacity);
+    let taken = offered.min(output).min(capacity.saturating_sub(stored));
+    if taken > 0 && !simulate {
+        write_energy(&mut data, stored + taken);
+        let mut custom = match stack.data().and_then(|d| d.other(CUSTOM_DATA)) {
+            Some(Tag::Compound(c)) => c.clone(),
+            _ => Compound::new(),
+        };
+        custom.insert(key("mekanism"), Tag::Compound(data));
+        stack.data_mut().set_other(CUSTOM_DATA, Some(Tag::Compound(custom)));
+    }
+    Some(taken)
+}
+
 /// What a cube's item keeps of its block entity: its energy, and its side
 /// config when it isn't the default one, so an untouched cube's drop stacks
 /// with new ones (Mekanism's copied components equal the item's defaults).
@@ -1376,6 +1446,16 @@ fn drop_data(nbt: &Compound, tier: CubeTier, capacity: u64) -> Option<Compound> 
 /// its faces.
 pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     if super::mek_tanks::placed(game, stack, pos) {
+        return;
+    }
+    if super::mek_matrix::is_cell(&stack.item) {
+        if let Some(energy) = item_data(stack).and_then(|d| d.get(&key("energy_containers")).cloned()) {
+            game.native_with_mod_block_entity(pos, |m| {
+                if super::mek_matrix::is_cell(&m.id) {
+                    m.nbt.insert(key("energy_containers"), energy);
+                }
+            });
+        }
         return;
     }
     let Some(tier) = CubeTier::of_block(&stack.item) else {
@@ -1411,6 +1491,9 @@ pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
     let found = game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
             return Some((m.id.clone(), super::mek_tanks::drop_data(&m.nbt)?));
+        }
+        if super::mek_matrix::is_cell(&m.id) {
+            return Some((m.id.clone(), super::mek_matrix::cell_drop(&m.nbt)?));
         }
         let tier = CubeTier::of_block(&m.id)?;
         Some((m.id.clone(), drop_data(&m.nbt, tier, config.cube(tier).0)?))
@@ -2155,8 +2238,14 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     if super::mek_tubes::tier_of(&id).is_some() {
         return super::mek_tubes::probe(game, pos);
     }
-    if let Some(answer) = super::mek_multiblock::probe(game, pos, &id) {
+    if let Some(mut answer) = super::mek_multiblock::probe(game, pos, &id) {
+        if let Some(port) = super::mek_matrix::port_probe(game, pos) {
+            answer["port"] = port;
+        }
         return answer;
+    }
+    if super::mek_matrix::is_inner(&id) {
+        return serde_json::json!({ "pos": pos, "id": id, "energy": saved_energy(&nbt).unwrap_or(0) });
     }
     if let Some(answer) = super::mek_transmit::probe(game, pos, &id) {
         return answer;

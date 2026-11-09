@@ -135,6 +135,13 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   18x18x18; an ultimate pipe pulling from a valve takes 32 000 a tick; a basic chemical tank putting hydrogen out of
   every side fills it by 1000 a tick through a valve, and water isn't taken then. World test `dynamic-tank`. The
   Dynamic Valve has no output mode in 10.7.19 (no `ACTIVE` attribute, no ejector): what a valve gives, others take.
+- Multiblocks, part 3: the Induction Matrix (`mekanism_energy::induction`, runtime `mek_matrix`, its tick in
+  `native_level_tick_pre`). Measured on the oracle (x6 M1-M4): with one basic provider a creative cube against the
+  input port and an ultimate cube against the output port move 256 000 J a tick each, the cell staying put; with the
+  source gone the cell loses 256 000 a tick, the last 232 000; two basic providers take in 512 000 a tick, landing in
+  the cell a tick after the cube gives them; broken, what was queued lands in the cell, which keeps it; a port placed
+  with `active=true` comes up in input mode (its saved `active_state`); a cell emptied saves no `energy_containers`.
+  World test `induction-matrix`.
 - Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),

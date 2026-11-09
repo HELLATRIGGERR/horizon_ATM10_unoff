@@ -91,6 +91,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(super::mek_dynamic_tank::screen());
         return;
     }
+    if super::mek_matrix::is_matrix_block(block) {
+        *screen = Some(super::mek_matrix::screen());
+        return;
+    }
     if super::mek_tanks::tier_of(block).is_some() {
         *screen = Some(super::mek_tanks::screen());
         return;
@@ -236,6 +240,10 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
         super::mek_dynamic_tank::click(at, right, button);
         return;
     }
+    if super::mek_matrix::is_matrix_block(block) {
+        super::mek_matrix::click(at, button);
+        return;
+    }
     if super::mek_tanks::tier_of(block).is_some() {
         super::mek_tanks::click(data, at, right, button);
         return;
@@ -291,6 +299,10 @@ pub(super) fn side_name(side: RelativeSide) -> &'static str {
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
     if super::mek_dynamic_tank::is_tank_block(block) {
         super::mek_dynamic_tank::tooltip(data, at, lines);
+        return;
+    }
+    if super::mek_matrix::is_matrix_block(block) {
+        super::mek_matrix::tooltip(data, at, lines);
         return;
     }
     if super::mek_tanks::tier_of(block).is_some() {
@@ -462,6 +474,10 @@ pub(super) fn side_color(t: DataType) -> u32 {
 pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
     if super::mek_dynamic_tank::is_tank_block(block) {
         super::mek_dynamic_tank::draw(game, data, batch, origin);
+        return;
+    }
+    if super::mek_matrix::is_matrix_block(block) {
+        super::mek_matrix::draw(game, data, batch, origin);
         return;
     }
     if super::mek_tanks::tier_of(block).is_some() {

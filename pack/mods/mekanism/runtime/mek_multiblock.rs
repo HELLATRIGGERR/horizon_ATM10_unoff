@@ -1,7 +1,7 @@
 // Mekanism's multiblocks in the game (support module `crate::game::mek_multiblock`
 // of the `mekanism` native bundle): the framework the Dynamic Tank
-// (`mek_dynamic_tank`) and the Induction Matrix stand on, and the later
-// cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
+// (`mek_dynamic_tank`) and the Induction Matrix (`mek_matrix`) stand on, and
+// the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -382,6 +382,7 @@ pub(super) fn clear() {
     DIMS.with(|d| d.borrow_mut().clear());
     SET.with(|s| s.borrow_mut().clear());
     ANY.set(false);
+    super::mek_matrix::clear();
 }
 
 // ---- Block entities --------------------------------------------------------------------------
@@ -598,7 +599,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
     // `onCreated`: the contents capped to the new size, the matrix's cells and providers.
     match kind {
         Kind::Tank => super::mek_dynamic_tank::created(dimension, id),
-        Kind::Matrix => {}
+        Kind::Matrix => super::mek_matrix::created(game, dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -611,6 +612,10 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
     if let Some(game) = game {
         pull_views(game, dimension, id);
         let Some(formed) = take_formed(dimension, id) else { return };
+        if formed.kind == Kind::Matrix {
+            super::mek_matrix::removed(dimension, id);
+            super::mek_matrix::flush(game, dimension);
+        }
         for p in &formed.views {
             game.native_with_mod_block_entity(*p, |m| {
                 for slot in m.items.iter_mut().take(2) {
@@ -622,6 +627,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
         return;
     }
     let Some(formed) = take_formed(dimension, id) else { return };
+    if formed.kind == Kind::Matrix {
+        super::mek_matrix::removed(dimension, id);
+    }
     PENDING_CLEAR.with(|p| p.borrow_mut().push(Clear { dimension: dimension.to_owned(), kind: formed.kind, id, views: formed.views.iter().copied().collect(), pushed: formed.pushed }));
 }
 
@@ -739,6 +747,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
         return;
     }
     load_caches(game, dimension);
+    super::mek_matrix::flush(game, dimension);
     let clears: Vec<Clear> = PENDING_CLEAR.with(|p| {
         let mut p = p.borrow_mut();
         let (mine, rest): (Vec<_>, Vec<_>) = p.drain(..).partition(|c| c.dimension == dimension);
@@ -834,12 +843,13 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
         return;
     }
     load_caches(game, dimension);
+    super::mek_matrix::flush(game, dimension);
     let ids: Vec<(Kind, Uuid)> = with_dim(dimension, |d| d.formed.values().map(|f| (f.kind, f.id)).collect());
     for (kind, id) in ids {
         pull_views(game, dimension, id);
         match kind {
             Kind::Tank => super::mek_dynamic_tank::tick(game, dimension, id),
-            Kind::Matrix => {}
+            Kind::Matrix => super::mek_matrix::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -880,7 +890,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
     let items = with_cache(dimension, kind, id, |c| c.items.clone()).unwrap_or_default();
     let data = match kind {
         Kind::Tank => super::mek_dynamic_tank::view(game, dimension, id),
-        Kind::Matrix => Vec::new(),
+        Kind::Matrix => super::mek_matrix::view(dimension, id),
     };
     for p in views {
         game.native_with_mod_block_entity(p, |m| {
@@ -1013,7 +1023,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
         };
         let extra = match kind {
             Kind::Tank => super::mek_dynamic_tank::probe(game, dimension, owner),
-            Kind::Matrix => json!({}),
+            Kind::Matrix => super::mek_matrix::probe(dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);

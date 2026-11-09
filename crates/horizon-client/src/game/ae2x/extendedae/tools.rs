@@ -13,6 +13,7 @@
 //! `extendedae:modifier_config_settings`; used on an interface it applies the
 //! change to every amount the interface stocks.
 use crate::game::{Game, KeyCode, ae2_source_patterns as source, lan::LanHost, shield::OFFHAND_SLOT};
+use ae2_cell_core::KeyType;
 use horizon_client::{
     ae2_generic_stack::GenericStack,
     ae2_world::{Machine, MachineKind},
@@ -165,7 +166,7 @@ impl Modifier {
                 let swap = |list: &[Option<GenericStack>]| {
                     list.iter()
                         .map(|s| match s {
-                            Some(s) if !s.fluid && s.key == from => with.clone().map(|key| GenericStack { key, fluid: false, amount: s.amount }),
+                            Some(s) if s.key_type == KeyType::ITEMS && s.key == from => with.clone().map(|key| GenericStack::item(key, s.amount)),
                             other => other.clone(),
                         })
                         .collect::<Vec<_>>()
@@ -204,9 +205,10 @@ impl Modifier {
         }
     }
 }
-/// `AEKeyType.getAmountPerUnit`: an item 1, a fluid a bucket.
+/// `AEKeyType.getAmountPerUnit`: an item 1, a fluid a bucket, an addon
+/// type's own unit.
 fn per_unit(stack: &GenericStack) -> i64 {
-    if stack.fluid { 1000 } else { 1 }
+    stack.key_type.amount_per_unit() as i64
 }
 /// `checkModify`.
 fn scalable(stacks: &[Option<GenericStack>], scale: i64, div: bool) -> bool {
@@ -765,11 +767,11 @@ mod tests {
     use ae2_cell_core::ItemKey;
 
     fn item(id: &str, amount: i64) -> Option<GenericStack> {
-        Some(GenericStack { key: horizon_client::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap(), fluid: false, amount })
+        Some(GenericStack::item(horizon_client::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap(), amount))
     }
     fn fluid(id: &str, amount: i64) -> Option<GenericStack> {
         let key = horizon_client::ae2_cell_codec::key(&ItemStack::new("minecraft:stone", 1)).unwrap();
-        Some(GenericStack { key: ItemKey { item_id: id.into(), ..key }, fluid: true, amount })
+        Some(GenericStack::fluid(ItemKey { item_id: id.into(), ..key }, amount))
     }
 
     #[test]

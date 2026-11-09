@@ -185,6 +185,14 @@ assets when `mekanism-content` is given them.
   (`Couldn't create frame, invalid block at ...`, `Inner structure contains an illegal block ...`); a plain use with an
   empty hand on one that doesn't form opens no screen. `/mek probe` of a part answers the multiblocks it is in,
   `/mek multiblock caches` every cache.
+- The Dynamic Tank (`mekanism_energy::dynamic_tank`, runtime `mek_dynamic_tank`): dynamic tank casings with dynamic
+  valves and structural glass in the sides and air inside, holding one fluid or one chemical (not both, no
+  radioactive one) of `volume * fluidPerTank` mB or `volume * chemicalPerTank` (ATM10's `general.toml`: 350 000 and
+  16 000 000 a block of the whole box: 9 450 000 mB of fluid for a 3x3x3, 2 041 200 000 for an 18x18x18). Every valve
+  is its fluid handler (hook points API 160) and its chemical handler on every side, without a rate (the null side
+  reads only); pipes, tubes, tanks and AE2 fill and drain it there. Its two slots fill and empty containers as its
+  edit mode says (`HybridInventorySlot.handleTank`: both, fill, empty; chemical tank items through the chemical
+  side); a plain use with a bucket fills or empties it. Its screen is `GuiDynamicTank`'s, with the edit mode tab.
 
 ## Differences from Mekanism
 
@@ -264,6 +272,10 @@ assets when `mekanism-content` is given them.
   read nothing of a valve or port. With an item in hand, a casing, valve
   or port that doesn't form opens its (empty) screen as a container block does, so a sneaking use places against it;
   Mekanism opens nothing then and the item acts.
+- The Dynamic Tank's slots are the multiblock's, shown on the blocks a player opened and on its valves; a hopper on a
+  casing reaches nothing, on a valve both slots. The slots' `isDraining` and `isFilling` aren't saved. A bucket used
+  on it acts on the tank's own merged tank, a creative player's bucket changing too. The valves don't show their
+  transfer (`activeTicks`), and the tank draws no fluid inside.
 - The Configurator's mode is set with `/mek configurator`: Mekanism's mode key and sneak-scroll aren't ported. Its
   messages go to the chat, not the action bar. A transmitter's arms aren't hit (its outline is its core), so a
   sneaking use configures the side used, and on a transporter a connected side bumps the colour, as a use on

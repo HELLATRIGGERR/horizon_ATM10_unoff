@@ -36,7 +36,8 @@
 //! along the cheapest paths to the inventories that take them. The
 //! Configurator's modes (`configurator`) set sides, colours and facings.
 //! Multiblocks form as Mekanism's do (`multiblock`: the structure, its
-//! cuboid, the check of its blocks, the cache by its id).
+//! cuboid, the check of its blocks, the cache by its id): the Dynamic Tank
+//! (`dynamic_tank`).
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod advanced;
 pub mod chemical;
@@ -47,6 +48,7 @@ pub mod configurator;
 pub mod container;
 pub mod cube;
 pub mod display;
+pub mod dynamic_tank;
 pub mod factory;
 pub mod fe;
 pub mod fluid_tank;

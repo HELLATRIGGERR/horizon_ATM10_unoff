@@ -1269,6 +1269,10 @@ fn probe_cable(game: &mut Game<'_>, pos: [i32; 3], id: &str, tier: CableTier) ->
 /// (`mek_ui`). A changed energy side shows on the block at once: the face's
 /// property is set with `UPDATE_CLIENTS`, as Mekanism updates its model.
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
+    if super::mek_dynamic_tank::is_tank_block(&entity.id) {
+        super::mek_dynamic_tank::button(game, pos, id);
+        return;
+    }
     if mek_factories::kind_of(&entity.id).is_some() {
         mek_factories::button(game, pos, entity, id);
         return;
@@ -1560,6 +1564,7 @@ pub(super) fn fluid_tanks(
     tanks: &mut Option<Vec<NativeFluidTankInfo>>,
 ) {
     if tanks.is_some()
+        || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || heat_tank_side(entity, face).is_none()
@@ -1588,6 +1593,7 @@ pub(super) fn fluid_fill(
     filled: &mut Option<i32>,
 ) {
     if filled.is_some()
+        || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
     {
@@ -1629,6 +1635,7 @@ pub(super) fn fluid_drain(
     drained: &mut Option<FluidStack>,
 ) {
     if drained.is_some()
+        || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
     {
@@ -1715,6 +1722,12 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
     }
     if super::mek_tanks::tier_of(block).is_some() {
         super::mek_tanks::slot_accepts(slot, stack, accepts);
+        return;
+    }
+    if super::mek_dynamic_tank::is_tank_block(block) {
+        if !super::mek_dynamic_tank::slot_accepts(slot, stack) {
+            *accepts = false;
+        }
         return;
     }
     if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {

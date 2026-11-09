@@ -130,6 +130,11 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   inner columns (fuel assemblies, rotors, coils, condensers) are checked after the walls (`postcheck`), their ports
   and vents have modes, and reactor glass is the only glass that interfaces with a "reactor" manager. Radiation of
   rejected chemicals, comparators and glass opening the multiblock's screen aren't there yet.
+- Multiblocks, part 2: the Dynamic Tank (`mekanism_energy::dynamic_tank`, runtime `mek_dynamic_tank`). Measured on the
+  oracle (x6 D1-D6): 9 450 000 mB of water for a 3x3x3 (27 * 350 000), 43 750 000 for a 5x5x5, 2 041 200 000 for an
+  18x18x18; an ultimate pipe pulling from a valve takes 32 000 a tick; a basic chemical tank putting hydrogen out of
+  every side fills it by 1000 a tick through a valve, and water isn't taken then. World test `dynamic-tank`. The
+  Dynamic Valve has no output mode in 10.7.19 (no `ACTIVE` attribute, no ejector): what a valve gives, others take.
 - Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),

@@ -1,6 +1,7 @@
 // Mekanism's multiblocks in the game (support module `crate::game::mek_multiblock`
-// of the `mekanism` native bundle): the framework the Dynamic Tank and the
-// Induction Matrix stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
+// of the `mekanism` native bundle): the framework the Dynamic Tank
+// (`mek_dynamic_tank`) and the Induction Matrix stand on, and the later
+// cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -594,6 +595,11 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
     for p in &formation.locations {
         set_tile_id(game, *p, Some(id));
     }
+    // `onCreated`: the contents capped to the new size, the matrix's cells and providers.
+    match kind {
+        Kind::Tank => super::mek_dynamic_tank::created(dimension, id),
+        Kind::Matrix => {}
+    }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
 }
@@ -829,8 +835,12 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
     }
     load_caches(game, dimension);
     let ids: Vec<(Kind, Uuid)> = with_dim(dimension, |d| d.formed.values().map(|f| (f.kind, f.id)).collect());
-    for (_, id) in ids {
+    for (kind, id) in ids {
         pull_views(game, dimension, id);
+        match kind {
+            Kind::Tank => super::mek_dynamic_tank::tick(game, dimension, id),
+            Kind::Matrix => {}
+        }
         push_views(game, dimension, id);
     }
     save_caches(game, dimension);
@@ -868,7 +878,10 @@ fn pull_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
 fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
     let Some((kind, views)) = with_formed(dimension, id, |f| (f.kind, f.views.clone())) else { return };
     let items = with_cache(dimension, kind, id, |c| c.items.clone()).unwrap_or_default();
-    let data: Vec<i32> = Vec::new();
+    let data = match kind {
+        Kind::Tank => super::mek_dynamic_tank::view(game, dimension, id),
+        Kind::Matrix => Vec::new(),
+    };
     for p in views {
         game.native_with_mod_block_entity(p, |m| {
             if m.items.len() < items.len() {
@@ -937,6 +950,10 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: Pos, canceled: &mut bool) {
     }
     let formed = formed_at(dimension, kind, pos);
     if let Some(id) = formed {
+        if kind == Kind::Tank && super::mek_dynamic_tank::use_container(game, dimension, id) {
+            *canceled = true;
+            return;
+        }
         with_dim(dimension, |d| d.formed.get_mut(&id).map(|f| f.views.insert(pos)));
         push_views(game, dimension, id);
         return;
@@ -994,7 +1011,10 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
         }) else {
             continue;
         };
-        let extra = json!({});
+        let extra = match kind {
+            Kind::Tank => super::mek_dynamic_tank::probe(game, dimension, owner),
+            Kind::Matrix => json!({}),
+        };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);
         }

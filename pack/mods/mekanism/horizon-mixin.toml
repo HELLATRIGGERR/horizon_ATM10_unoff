@@ -102,6 +102,12 @@ name = "mek_multiblock"
 source = "runtime/mek_multiblock.rs"
 
 [[module]]
+id = "dynamic-tank"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_dynamic_tank"
+source = "runtime/mek_dynamic_tank.rs"
+
+[[module]]
 id = "transmit"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_transmit"

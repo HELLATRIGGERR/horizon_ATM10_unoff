@@ -168,6 +168,9 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
         return super::mek_tubes::with_handler(dimension, pos, face, use_it);
     }
     let registry = registry(game);
+    if game.native_block(pos) == super::mek_dynamic_tank::VALVE {
+        return super::mek_dynamic_tank::chemical_handler(dimension, pos, super::mek_dynamic_tank::VALVE, face, &registry, use_it);
+    }
     game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
             super::mek_tanks::chemical_handler(m, face, &registry, use_it)

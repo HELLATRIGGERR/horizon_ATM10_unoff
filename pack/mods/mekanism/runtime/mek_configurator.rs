@@ -122,7 +122,10 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
                 }
                 return;
             }
-            // `IConfigurable`: transmitters and fluid tanks.
+            // `IConfigurable`: transmitters and fluid tanks; a multiblock's blocks have nothing to configure here.
+            if super::mek_multiblock::is_part(&id) {
+                return;
+            }
             if mek_fluid_tanks::tier_of(&id).is_some() {
                 if sneaking {
                     *claimed = true;

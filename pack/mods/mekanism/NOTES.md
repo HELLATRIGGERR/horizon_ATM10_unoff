@@ -111,6 +111,25 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   The Rotary Condensentrator's fluid ejector (`mek_rotary::eject_fluid`): API 160's `native_fluid_fill` already
   fills another block's fluid handler, so it needed no new hook point (slice 5's note said otherwise); measured
   with `chem-work/m6/f4.py`, checked in `rotary-condensentrator`.
+- Multiblocks, part 1: the framework (branch `feat/mekanism-multiblocks`, hook points API 167: `native_level_particles`,
+  `ServerLevel.sendParticles` from a hook outside a block's tick, for the sparkles): `mekanism_energy::multiblock`
+  (cuboid, planes, the check of its blocks, the cache merge, ids) and runtime `mek_multiblock` (managers, nodes from
+  the block entity lifecycle, formations in the level tick, caches in the level's attachments as Mekanism's saved
+  data, the slots mirrored into the blocks that show them, the Configurator's reason). Measured on the oracle
+  (`mekm2-work/oracle`, x6): a hole in a side or an edge, stone in a side, glass or a valve on an edge, dirt inside, a
+  casing touching it from outside and 3x2x3 or 19 long don't form; glass in a side or beside it, 5x5x5 and 18x18x18
+  do; dirt put into the middle of a formed 5x5x5 goes unseen, beside a wall it breaks it; a 3x3x3 forms 11-12 ticks
+  after it is built; broken, the cache keeps the contents under the old id; formed again, every block names a new id.
+  The saved data is `{cache: [{inventory_id, fluid_tanks_stored, fluid_tanks, chemical_tanks_stored, chemical_tanks,
+  items_stored, items, edit_mode}]}` (the matrix's: `energy_containers_stored`, `energy_containers`, `items_stored`).
+  Learned for the next multiblocks: the Thermal Evaporation Plant's validator takes `fetchCuboid`'s other form (sides
+  and a tolerance: an open top), a controller block (`invalid_no_controller`, `invalid_controller_conflict`) and
+  `IGNORED` positions; the Boiler adds heat capacitors to the cache (`heat_capacitors`, not in `Cache` yet), a layer
+  of dispersers splitting two volumes and superheating elements inside; the SPS and the Fusion Reactor are shapes with
+  their corners left out (per-position requirements over the cuboid's); the Fission Reactor's and the Turbine's
+  inner columns (fuel assemblies, rotors, coils, condensers) are checked after the walls (`postcheck`), their ports
+  and vents have modes, and reactor glass is the only glass that interfaces with a "reactor" manager. Radiation of
+  rejected chemicals, comparators and glass opening the multiblock's screen aren't there yet.
 - Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),

@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters and its Configurator,
+Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters, its Configurator and its multiblocks,
 and Mekanism Generators' Solar, Heat and Gas-Burning Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
@@ -169,6 +169,22 @@ assets when `mekanism-content` is given them.
   used (sneaking) or clockwise (a plain use, before its screen opens: `native_right_click_block`); wrench takes a
   Mekanism block up into the player's inventory with what its drop keeps (sneaking). In Mekanism 10.7 the
   Configurator holds no energy. `/mek connection` stays for tests.
+- Mekanism's multiblock framework (`mekanism_energy::multiblock`, runtime `mek_multiblock`), as its cuboid multiblocks
+  form (`FormationProtocol`, `CuboidStructureValidator`, `StructureHelper.fetchCuboid`): the casings, valves, ports
+  and structural glass of one manager that touch are a structure (at most 5832); the first and last full planes of
+  frames on each axis make its cuboid, from 3x3x3 to 18x18x18, and every block of it is checked, x then y then z: a
+  casing on each edge, a casing, valve or glass on the sides, what the multiblock takes inside. A formation runs on the
+  level tick after one of its blocks comes or goes, or a block inside it beside one of its blocks changes (a block
+  deeper inside goes unseen, as in Mekanism). What a multiblock holds lives in a cache by its id (`MultiblockCache`,
+  `inventory_id` in every one of its blocks), kept in the level's saved data as Mekanism's `mekanism_<manager>`
+  (`native_attachments`): broken, the cache stays; formed again (under a new id), the caches its blocks name merge
+  into it, capped to the new size. Its two slots are mirrored into the blocks whose screen a player opened and into
+  its valves and ports (hoppers reach those), and none of its blocks drops them. Formed, it sends red dust sparkles
+  over its faces (`SparkleAnimation`, hook points API 167's `native_level_particles`). A Configurator in a
+  configurating mode, used plainly on a casing, valve or port that doesn't form, says why when Mekanism does
+  (`Couldn't create frame, invalid block at ...`, `Inner structure contains an illegal block ...`); a plain use with an
+  empty hand on one that doesn't form opens no screen. `/mek probe` of a part answers the multiblocks it is in,
+  `/mek multiblock caches` every cache.
 
 ## Differences from Mekanism
 
@@ -237,6 +253,17 @@ assets when `mekanism-content` is given them.
   ported, nor the coloured glass of a transporter's model (its colour shows in the Configurator's messages), nor
   the Diversion and Restrictive Transporters or the Logistical Sorter. Clients get a transporter's stacks when
   they change and move them on by its speed a tick from the frame they first draw them.
+- A multiblock forms on the level tick after its last block comes; Mekanism's tiles look on their tenth tick (the
+  oracle formed a 3x3x3 eleven or twelve ticks after it was built). Every formation, even of a structure that was
+  formed already (a node loading with its chunk, glass placed beside it), is a new one under a new id, as Mekanism
+  removes and forms it anew; caches that merge go in id order (Mekanism: its hash map's), and rejected contents are
+  lost (Mekanism drops rejected items at the nearest player and radiates rejected radioactive chemicals). Changes are
+  seen in the dimension that ticks next (`native_block_changed` says no dimension). A multiblock's caches are kept in
+  its own dimension's level (Mekanism keeps them all in the Overworld's), and a Java world's `mekanism_*.dat` isn't
+  read. Structural glass opens no screen of the multiblock (Mekanism's `allowsStructuralGuiAccess`), and comparators
+  read nothing of a valve or port. With an item in hand, a casing, valve
+  or port that doesn't form opens its (empty) screen as a container block does, so a sneaking use places against it;
+  Mekanism opens nothing then and the item acts.
 - The Configurator's mode is set with `/mek configurator`: Mekanism's mode key and sneak-scroll aren't ported. Its
   messages go to the chat, not the action bar. A transmitter's arms aren't hit (its outline is its core), so a
   sneaking use configures the side used, and on a transporter a connected side bumps the colour, as a use on

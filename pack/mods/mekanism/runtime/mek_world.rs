@@ -171,6 +171,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     mek_factories::clear();
     super::mek_transmit::clear();
     super::mek_gas::clear();
+    super::mek_multiblock::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -266,7 +267,7 @@ fn write_config(nbt: &mut Compound, cube: &CubeState) {
 /// `native_block_entity`: a cube's entity, with the item's default config.
 /// A creative cube saves no energy, so it counts as full.
 pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
-    if entity.is_some() || super::mek_transmit::new_entity(block, entity) {
+    if entity.is_some() || super::mek_transmit::new_entity(block, entity) || super::mek_multiblock::new_entity(block, entity) {
         return;
     }
     if GeneratorKind::of_block(block).is_some() {
@@ -340,6 +341,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if super::mek_tanks::tier_of(block).is_some() {
         *container = Some(super::mek_tanks::container());
+        return;
+    }
+    if let Some(multiblock) = super::mek_multiblock::container(block) {
+        *container = Some(multiblock);
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -830,6 +835,9 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if super::mek_transmit::loaded(dimension, pos, entity) {
         return;
     }
+    if super::mek_multiblock::loaded(dimension, pos, &entity.id) {
+        return;
+    }
     if GeneratorKind::of_block(&entity.id).is_some() {
         forget_climate(dimension, pos);
     }
@@ -862,6 +870,9 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
 /// it takes nothing and the rest of the network keeps the energy.
 pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) {
     if super::mek_transmit::unloaded(dimension, pos, entity, removed) {
+        return;
+    }
+    if super::mek_multiblock::unloaded(dimension, pos, &entity.id, removed) {
         return;
     }
     if GeneratorKind::of_block(&entity.id).is_some() {
@@ -927,6 +938,7 @@ pub(super) fn entity_saved(dimension: &str, pos: [i32; 3], id: &str, nbt: &mut C
 
 /// `native_block_changed`: every block set; the cables beside it look again.
 pub(super) fn block_set(pos: [i32; 3]) {
+    super::mek_multiblock::block_set(pos);
     super::mek_tubes::block_set(pos);
     super::mek_transmit::block_set(pos);
     if ANY_CABLES.get() {
@@ -1390,6 +1402,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 /// `native_destroy_block`: a player breaks a cube; its drop, when it comes,
 /// takes the cube's energy and config (Mekanism's `copy_components` loot).
 pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
+    super::mek_multiblock::breaking(game, pos);
     let (config, _) = energy_config();
     let found = game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
@@ -1437,6 +1450,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     tick_cables(game, dimension);
     super::mek_tubes::level_ticked(game, dimension);
     super::mek_transmit::level_ticked(game, dimension);
+    super::mek_multiblock::level_ticked(game, dimension);
     let due = LOOKED_AT.get().is_none_or(|at| at.elapsed() >= Duration::from_secs(1));
     if due {
         LOOKED_AT.set(Some(Instant::now()));
@@ -2027,6 +2041,7 @@ pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek chemicals", 2));
     commands.push(NativeCommand::op("mek chemicals <id:word>", 2));
     commands.push(NativeCommand::op("mek install <pos:block_pos> <installer:word>", 2));
+    commands.push(NativeCommand::op("mek multiblock <what:word>", 2));
     super::mek_transmit::commands(commands);
 }
 
@@ -2074,6 +2089,8 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             }
         }
         Some("chemicals") => super::mek_chemicals::registry_command(game, words.next()),
+        // `/mek multiblock caches`: every multiblock cache of the dimension, as the level keeps them.
+        Some("multiblock") => super::mek_multiblock::caches_json(game),
         // `/mek install x y z <tier installer>`: a tier installer used on the block, as a sneaking player would.
         Some("install") => {
             let p = player.position;
@@ -2124,6 +2141,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if super::mek_tubes::tier_of(&id).is_some() {
         return super::mek_tubes::probe(game, pos);
+    }
+    if let Some(answer) = super::mek_multiblock::probe(game, pos, &id) {
+        return answer;
     }
     if let Some(answer) = super::mek_transmit::probe(game, pos, &id) {
         return answer;

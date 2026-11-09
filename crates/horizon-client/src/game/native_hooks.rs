@@ -6,6 +6,10 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 167 adds particles a server hook sends outside a block's tick (`native_level_particles`,
+//! `ServerLevel.sendParticles` from the level in place, as `native_send_particles` sends them from a block's
+//! tick): the red sparkles of a Mekanism multiblock forming at the end of a level's tick.
+//!
 //! API 166 adds whether the acting player sneaks (`native_sneaking`, `Player.isShiftKeyDown`: a mod's tool acts
 //! otherwise then), a container's slots as a side reaches them for putting a stack in (`native_insert_slots`: what
 //! each holds, whether it takes the stack and up to how many, `IItemHandler.isItemValid` and `getSlotLimit`, so a mod
@@ -576,7 +580,7 @@ pub(super) use horizon_world::level::flags;
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
 #[allow(dead_code)]
-pub(crate) const NATIVE_HOOKS_API: u32 = 166;
+pub(crate) const NATIVE_HOOKS_API: u32 = 167;
 
 impl GameLevel<'_> {
     /// A hopper at `pos` is about to pick up `count` of `item`. Set `cancel` to leave the dropped stack in the world. Server-side. @API:hopper_pickup_item@.
@@ -7374,6 +7378,63 @@ impl Game<'_> {
         if stack.count > 0 {
             self.pop_resource(pos, stack);
         }
+    }
+    /// Particles in the level in place from a server hook outside a block's
+    /// tick (a Mekanism multiblock forming at the end of a level's tick: its
+    /// red sparkles), as `native_send_particles` sends them from inside one
+    /// (`ServerLevel.sendParticles`): a packet to each player whose block is
+    /// within 32 blocks of `at`, and this window draws its own copy when its
+    /// player is that near. A `count` of 0 is one particle at `at` moving by
+    /// `spread` times `speed`; more are spread around `at` by up to `spread`.
+    /// False for values that aren't finite or a negative count. API 167.
+    pub(super) fn native_level_particles(
+        &mut self,
+        options: &ParticleOptions,
+        at: [f64; 3],
+        spread: [f64; 3],
+        speed: f64,
+        count: i32,
+    ) -> bool {
+        let finite = at.iter().chain(spread.iter()).all(|v| v.is_finite()) && speed.is_finite();
+        if !finite || count < 0 {
+            return false;
+        }
+        let dimension = self.native_dimension();
+        self.lan_send_particles(super::lan_particles::QueuedParticle {
+            dimension,
+            options: options.clone(),
+            state: None,
+            at,
+            spread,
+            speed,
+            count,
+            randomization: 0,
+        });
+        let Some(p) = self.native_player() else {
+            return true;
+        };
+        let near = (at[0] - p.x).powi(2) + (at[1] - p.y).powi(2) + (at[2] - p.z).powi(2) <= 1024.0;
+        if !self.native_window() || !near {
+            return true;
+        }
+        if count == 0 {
+            let velocity = [spread[0] * speed, spread[1] * speed, spread[2] * speed];
+            self.particles.add(options, at, velocity);
+            return true;
+        }
+        let mut seed = at[0].to_bits() ^ at[1].to_bits().rotate_left(21) ^ at[2].to_bits().rotate_left(42) | 1;
+        for _ in 0..count.min(256) {
+            let mut offset = [0.0; 3];
+            for (o, d) in offset.iter_mut().zip(spread) {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                *o = d * ((seed >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0);
+            }
+            let here = [at[0] + offset[0], at[1] + offset[1], at[2] + offset[2]];
+            self.particles.add(options, here, [0.0; 3]);
+        }
+        true
     }
     /// Whether the player left mod `mod_id` on in Options > Mods. A mod
     /// turned off does nothing (check this first in each hook) until the

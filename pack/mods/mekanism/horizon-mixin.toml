@@ -3,7 +3,8 @@
 # Chemical Tanks and their items, the Pressurized Tubes, the Chemical Oxidizer
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
 # Washer and Chemical Crystallizer, the Rotary Condensentrator), its Mechanical
-# Pipes, Fluid Tanks, Logistical Transporters and Configurator, and
+# Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
+# (the Dynamic Tank and the Induction Matrix), and
 # Mekanism Generators' Solar, Heat and Gas-Burning Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
@@ -12,9 +13,10 @@
 # 42, 45, 47, 60, 71, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
 # `native_dimension_type`), 159 (`native_cooking_recipes`), 160 (`FluidStack`, the fluid handler helpers), 162
 # (`native_data_files`, the content's chemical declarations), 165 (`native_used_stack`,
-# `native_instabuild`, `native_default_state`: the tier installers) and 166 (`native_sneaking`,
-# `native_insert_slots`, `native_pop_resource`: the transporters and the Configurator), so it builds on
-# any Horizon with hooks API 166 or later: it pins no revision (horizon-mixins
+# `native_instabuild`, `native_default_state`: the tier installers), 166 (`native_sneaking`,
+# `native_insert_slots`, `native_pop_resource`: the transporters and the Configurator), the attachments helper
+# (`native_attachments`: the multiblocks' caches in the level's saved data) and 167 (`native_level_particles`: a
+# multiblock's sparkles), so it builds on any Horizon with hooks API 167 or later: it pins no revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.
@@ -92,6 +94,12 @@ id = "configurator"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_configurator"
 source = "runtime/mek_configurator.rs"
+
+[[module]]
+id = "multiblock"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_multiblock"
+source = "runtime/mek_multiblock.rs"
 
 [[module]]
 id = "transmit"
@@ -337,6 +345,17 @@ bindings = [
   { name = "kind", ty = "&str", value = "kind" },
   { name = "pos", ty = "[f64; 3]", value = "pos" },
   { name = "loaded_from_disk", ty = "bool", value = "loaded_from_disk" },
+]
+
+[[injection]]
+id = "level-tick-pre"
+hook = "level_tick_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/level_tick_pre.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
 ]
 
 [[injection]]

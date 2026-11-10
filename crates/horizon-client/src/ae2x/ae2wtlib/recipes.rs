@@ -222,7 +222,7 @@ mod tests {
         let recipe = upgrade(CRAFTING, "crafting");
         let shown = recipe.book_display();
         let Display::Shapeless(ingredients) = &shown.display else { panic!("shapeless") };
-        assert_eq!(ingredients.iter().map(|i| i.1.clone()).collect::<Vec<_>>(), [vec![CRAFTING.to_owned()], vec![UNIVERSAL_TERMINAL.to_owned()]]);
+        assert_eq!(ingredients.iter().map(|i| i.order.clone()).collect::<Vec<_>>(), [vec![CRAFTING.to_owned()], vec![UNIVERSAL_TERMINAL.to_owned()]]);
         assert_eq!(wireless::installed(&shown.result).len(), 1);
         assert_eq!(recipe.placement().ingredients.len(), 2);
         assert!(definition("ae2:wireless_terminal").is_none() && definition("restock").is_none(), "only the terminals it can hold");

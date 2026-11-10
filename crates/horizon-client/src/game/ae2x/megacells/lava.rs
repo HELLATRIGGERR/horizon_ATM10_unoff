@@ -146,26 +146,9 @@ mod tests {
         ]]);
         assert!(lava.transformable("minecraft:iron_ingot"));
         assert!(!lava.transformable("minecraft:gold_ingot"));
-        let entity = |id: u32, item: &str, x: f64| ItemEntity {
-            target: None,
-            health: 5,
-            fire_ticks: 0,
-            id,
-            stack: horizon_client::items::ItemStack::new(item, 1),
-            thrower: None,
-            position: Vec3::new(x, 64.0, 0.5),
-            previous: Vec3::new(x, 64.0, 0.5),
-            velocity: Vec3::ZERO,
-            on_ground: false,
-            age: 0,
-            pickup_delay: 0,
-            bob_offset: 0.0,
-            ticks: 0,
-            needs_sync: false,
-            stuck: Vec3::ZERO,
-            no_gravity: false,
-            vertical_collision: false,
-            horizontal_collision: false,
+        let entity = |id: u32, item: &str, x: f64| {
+            let at = Vec3::new(x, 64.0, 0.5);
+            ItemEntity::new(id, horizon_client::items::ItemStack::new(item, 1), at, Vec3::ZERO, 0.0)
         };
         let mut items = vec![
             entity(1, "ae2:charged_certus_quartz_crystal", 0.5),

@@ -14,7 +14,10 @@
 //! Mekanism's screens do (`display`). Mekanism Generators' Solar Generator
 //! (`solar`, over Minecraft 1.21.1's sun and weather in `sky`) and Heat
 //! Generator (`heat`) fill stores of their own and eject like a cube, as does
-//! the Gas-Burning Generator (`gas`), which burns chemicals by their fuel.
+//! the Gas-Burning Generator (`gas`), which burns chemicals by their fuel,
+//! the Bio-Generator (`bio`), which burns bioethanol, the Wind Generator
+//! (`wind`), which follows its height, and the Advanced Solar Generator
+//! (`solar`'s nine checks).
 //! Mekanism's first processing machines (`machine`: the Enrichment Chamber,
 //! Crusher, Energized Smelter and Metallurgic Infuser) run recipes on their
 //! Joules at the pace their upgrades set. Mekanism 10.7's chemicals
@@ -40,6 +43,7 @@
 //! (`dynamic_tank`) and the Induction Matrix (`induction`).
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod advanced;
+pub mod bio;
 pub mod chemical;
 pub mod chemical_machine;
 pub mod chemical_tank;
@@ -70,6 +74,7 @@ pub mod split;
 pub mod tier;
 pub mod transmitter;
 pub mod transporter;
+pub mod wind;
 
 /// Java's `(long) d` for the energy maths: NaN is 0, the rest saturates.
 pub(crate) fn clamp_to_long(d: f64) -> i64 {

@@ -138,6 +138,15 @@ pub enum SlotUse {
 /// mB of lava when that fits, leaving its remainder (a stack of several with
 /// a remainder waits).
 pub fn fill_or_burn(lava: &mut u32, capacity: u32, fuel: Option<Fuel>) -> SlotUse {
+    let value = fuel.map_or(0, |f| f.burn_time / 20);
+    fill_or_burn_value(lava, capacity, fuel, value)
+}
+
+/// `fillOrBurn` with the slot's `fuelValue` given: `value` mB of the tank's
+/// fuel for the item (the heat generator's `burnTime / 20` of lava, the
+/// bio-generator's 200 or 1800 of bioethanol); `takes_lava` says whether
+/// the tank takes that fuel.
+pub fn fill_or_burn_value(lava: &mut u32, capacity: u32, fuel: Option<Fuel>, value: i32) -> SlotUse {
     let Some(fuel) = fuel.filter(|f| f.count > 0) else {
         return SlotUse::Kept;
     };
@@ -155,7 +164,6 @@ pub fn fill_or_burn(lava: &mut u32, capacity: u32, fuel: Option<Fuel>) -> SlotUs
         *lava += take;
         return SlotUse::Drained(take);
     }
-    let value = fuel.burn_time / 20;
     if value <= 0 || value as u32 > needed {
         return SlotUse::Kept;
     }
@@ -346,6 +354,7 @@ mod tests {
             solar_storage: 96_000,
             heat_storage: 160_000,
             gas_tank_capacity: 18_000,
+            ..GeneratorsConfig::default()
         }
     }
 

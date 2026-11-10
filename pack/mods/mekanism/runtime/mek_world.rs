@@ -172,6 +172,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_transmit::clear();
     super::mek_gas::clear();
     super::mek_multiblock::clear();
+    super::mek_gen2::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -411,7 +412,7 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     let generator = game
         .native_with_mod_block_entity(at, |m| {
             let kind = GeneratorKind::of_block(&m.id)?;
-            Some(kind.energy_face(generator_facing(&m.nbt)) == side)
+            Some(kind.exposes(generator_facing(&m.nbt), side))
         })
         .flatten();
     if let Some(exposed) = generator {
@@ -689,8 +690,8 @@ pub(super) fn fe_storage(
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
-        let energy_face = kind.energy_face(generator_facing(&entity.nbt));
-        if config.blacklist_forge || face.is_some_and(|f| mek_direction(f) != energy_face) {
+        let facing = generator_facing(&entity.nbt);
+        if config.blacklist_forge || face.is_some_and(|f| !kind.exposes(facing, mek_direction(f))) {
             return;
         }
         let container = generator_store(&entity.nbt, kind, &config);
@@ -761,8 +762,8 @@ pub(super) fn fe_transfer(
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
-        let energy_face = kind.energy_face(generator_facing(&entity.nbt));
-        if config.blacklist_forge || face.is_some_and(|f| mek_direction(f) != energy_face) {
+        let facing = generator_facing(&entity.nbt);
+        if config.blacklist_forge || face.is_some_and(|f| !kind.exposes(facing, mek_direction(f))) {
             return;
         }
         let container = generator_store(&entity.nbt, kind, &config);
@@ -914,8 +915,11 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
         }
         return;
     }
-    if GeneratorKind::of_block(&entity.id).is_some() {
+    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         forget_climate(dimension, pos);
+        if removed {
+            super::mek_gen2::removed(dimension, pos, kind);
+        }
     }
     if super::mek_tubes::tier_of(&entity.id).is_some() {
         super::mek_tubes::unloaded(dimension, pos, removed);
@@ -1016,7 +1020,7 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
     let generator = game
         .native_with_mod_block_entity(at, |m| {
             let kind = GeneratorKind::of_block(&m.id)?;
-            if kind.energy_face(generator_facing(&m.nbt)) != side {
+            if !kind.exposes(generator_facing(&m.nbt), side) {
                 return Some(0);
             }
             let mut container = generator_store(&m.nbt, kind, config);
@@ -1445,7 +1449,7 @@ fn drop_data(nbt: &Compound, tier: CubeTier, capacity: u64) -> Option<Compound> 
 /// (`AttributeStateFacing`), takes its item's energy and config, and shows
 /// its faces.
 pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
-    if super::mek_tanks::placed(game, stack, pos) {
+    if super::mek_tanks::placed(game, stack, pos) || super::mek_gen2::placed(game, stack, pos) {
         return;
     }
     if super::mek_matrix::is_cell(&stack.item) {
@@ -1535,6 +1539,7 @@ pub(super) fn joined(game: &mut Game<'_>, dimension: &str, entity: u32, kind: &s
 /// as Mekanism's configs reload live.
 pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     tick_cables(game, dimension);
+    super::mek_gen2::level_ticked(game, dimension);
     super::mek_tubes::level_ticked(game, dimension);
     super::mek_transmit::level_ticked(game, dimension);
     super::mek_multiblock::level_ticked(game, dimension);
@@ -1581,7 +1586,7 @@ fn generator_capacity(kind: GeneratorKind, config: &EnergyConfig) -> u64 {
 }
 
 /// A generator's store as its compound holds it.
-fn generator_store(nbt: &Compound, kind: GeneratorKind, config: &EnergyConfig) -> EnergyContainer {
+pub(super) fn generator_store(nbt: &Compound, kind: GeneratorKind, config: &EnergyConfig) -> EnergyContainer {
     let mut container = EnergyContainer::output(generator_capacity(kind, config));
     container.stored = saved_energy(nbt).unwrap_or(0).min(container.capacity);
     container
@@ -1650,6 +1655,7 @@ pub(super) fn fluid_tanks(
         || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
+        || super::mek_gen2::fluid_tanks(entity, face, tanks)
         || heat_tank_side(entity, face).is_none()
     {
         return;
@@ -1679,6 +1685,7 @@ pub(super) fn fluid_fill(
         || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
+        || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
     {
         return;
     }
@@ -1721,6 +1728,7 @@ pub(super) fn fluid_drain(
         || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
+        || super::mek_gen2::fluid_drain(entity, face, drained)
     {
         return;
     }
@@ -1779,8 +1787,8 @@ pub(super) fn write_activity(nbt: &mut Compound, activity: Activity) {
 /// from the energy slot, as a fuel slot's coal must stay.
 fn generator_container(kind: GeneratorKind) -> ModContainer {
     let (shown, inputs, outputs) = match kind {
-        GeneratorKind::Solar => (vec![0], vec![0], vec![0]),
-        GeneratorKind::Heat | GeneratorKind::GasBurning => (vec![0, 1], vec![0], vec![1]),
+        GeneratorKind::Solar | GeneratorKind::Wind | GeneratorKind::AdvancedSolar => (vec![0], vec![0], vec![0]),
+        GeneratorKind::Heat | GeneratorKind::GasBurning | GeneratorKind::Bio => (vec![0, 1], vec![0], vec![1]),
     };
     ModContainer {
         slots: 5,
@@ -1816,6 +1824,9 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
     if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {
         *accepts = false;
     }
+    if GeneratorKind::of_block(block) == Some(GeneratorKind::Bio) {
+        super::mek_gen2::slot_accepts(slot, stack, accepts);
+    }
     // The gas-burning generator's fuel slot (`ChemicalInventorySlot.fill`): a
     // chemical tank item holding a chemical, alone.
     if super::mek_gas::is_gas(block) && slot == 0 && !(super::mek_tanks::tier_of(&stack.item).is_some() && stack.count == 1 && super::mek_tanks::item_holds(stack)) {
@@ -1842,7 +1853,7 @@ fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind)
             let sides = Direction::ALL.map(|d| air(beside(pos, d)).unwrap_or(own));
             Climate::Heat(Ambient { own, sides })
         }
-        GeneratorKind::GasBurning => return None,
+        GeneratorKind::GasBurning | GeneratorKind::Bio | GeneratorKind::Wind | GeneratorKind::AdvancedSolar => return None,
     };
     GENERATORS.with(|g| g.borrow_mut().insert(id, made));
     Some(made)
@@ -1851,6 +1862,7 @@ fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind)
 fn forget_climate(dimension: &str, pos: [i32; 3]) {
     GENERATORS.with(|g| g.borrow_mut().remove(&(dimension.to_owned(), pos)));
     super::mek_gas::forget(dimension, pos);
+    super::mek_gen2::forget(dimension, pos);
 }
 
 /// `native_block_entity_tick` of a generator (`TileEntityGenerator.onUpdateServer`
@@ -1865,6 +1877,7 @@ fn tick_generator(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntit
         GeneratorKind::Solar => tick_solar(game, &config, dimension, pos, entity),
         GeneratorKind::Heat => tick_heat(game, &config, dimension, pos, entity),
         GeneratorKind::GasBurning => super::mek_gas::tick(game, &config, pos, entity),
+        GeneratorKind::Bio | GeneratorKind::Wind | GeneratorKind::AdvancedSolar => super::mek_gen2::tick(game, &config, pos, entity, kind),
     }
 }
 
@@ -2099,6 +2112,7 @@ fn probe_generator(game: &Game<'_>, pos: [i32; 3], id: &str, kind: GeneratorKind
             }
         }
         GeneratorKind::GasBurning => super::mek_gas::probe(game, pos, nbt, data, &mut out),
+        GeneratorKind::Bio | GeneratorKind::Wind | GeneratorKind::AdvancedSolar => super::mek_gen2::probe(game, pos, kind, nbt, data, &mut out),
     }
     out
 }

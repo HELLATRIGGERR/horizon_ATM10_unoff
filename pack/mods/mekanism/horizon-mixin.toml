@@ -5,7 +5,7 @@
 # Washer and Chemical Crystallizer, the Rotary Condensentrator), its Mechanical
 # Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
 # (the Dynamic Tank and the Induction Matrix), and
-# Mekanism Generators' Solar, Heat and Gas-Burning Generators as a native mod of this fork
+# Mekanism Generators' Solar, Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
@@ -142,6 +142,12 @@ id = "gas"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_gas"
 source = "runtime/mek_gas.rs"
+
+[[module]]
+id = "gen2"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_gen2"
+source = "runtime/mek_gen2.rs"
 
 [[module]]
 id = "ui"

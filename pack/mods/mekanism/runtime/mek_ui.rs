@@ -609,8 +609,8 @@ fn generator_view(data: &[i32]) -> GeneratorView {
 /// `native_screen` for a generator: its slots where Mekanism puts them.
 fn generator_screen(kind: GeneratorKind) -> NativeScreen {
     let slots = match kind {
-        GeneratorKind::Solar => vec![Some([143.0, 35.0]), None, None, None, None],
-        GeneratorKind::Heat | GeneratorKind::GasBurning => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
+        GeneratorKind::Solar | GeneratorKind::Wind | GeneratorKind::AdvancedSolar => vec![Some([143.0, 35.0]), None, None, None, None],
+        GeneratorKind::Heat | GeneratorKind::GasBurning | GeneratorKind::Bio => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
     };
     NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false }
 }
@@ -623,6 +623,9 @@ fn generator_tip(kind: GeneratorKind, view: &GeneratorView, settings: &EnergyCon
     }
     if inside(POWER_BAR, at) {
         return vec![display::fraction(view.stored, view.capacity, settings)];
+    }
+    if let Some(tip) = super::mek_gen2::tip(kind, view, at) {
+        return tip;
     }
     if kind == GeneratorKind::Heat {
         if inside(HEAT_TAB, at) {
@@ -661,7 +664,7 @@ fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorVi
     // The energy slot charges items (`EnergyInventorySlot.drain`).
     pen.slot("power", Some("overlay_power"), 142.0, 34.0);
     match kind {
-        GeneratorKind::Solar => {
+        GeneratorKind::Solar | GeneratorKind::AdvancedSolar => {
             let [x, y, w, h] = SOLAR_SCREEN;
             pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], SOLAR_SCREEN);
             let width = w - 6.0;
@@ -707,6 +710,7 @@ fn draw_generator(pen: &mut Pen<'_, '_>, kind: GeneratorKind, view: &GeneratorVi
             pen.whole("gauge/wide", [64.0, 48.0], [GAUGE[0] + 1.0, GAUGE[1] + 1.0, 64.0, 48.0]);
         }
         GeneratorKind::GasBurning => super::mek_gas::draw(pen, data),
+        GeneratorKind::Bio | GeneratorKind::Wind => super::mek_gen2::draw(pen, kind, view, settings, data),
     }
     for row in 0..4 {
         let y = if row == 3 { 141.0 } else { 83.0 + 18.0 * row as f32 };

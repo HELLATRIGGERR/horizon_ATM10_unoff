@@ -2,6 +2,10 @@
 //! `SolarCheck`): Joules from the sun, by the biome it stands in, the time of
 //! day and the weather, out of its bottom face. Its energy store gives to
 //! anything and takes only what it makes (`BasicEnergyContainer.output`).
+//! The Advanced Solar Generator (`TileEntityAdvancedSolarGenerator`,
+//! `AdvancedSolar`) reads nine checks over the three by three panel two
+//! blocks above it, each looking at its sky every 10 to 30 ticks, and works
+//! while more than four of them see the sun.
 use crate::container::{Automation, EnergyContainer};
 use crate::sky;
 
@@ -108,6 +112,114 @@ pub fn generate(container: &mut EnergyContainer, solar_generation: u64, check: &
     Made { sees_sun: true, active: true, produced: joules - rest }
 }
 
+/// Where the advanced solar generator's checks stand, relative to it
+/// (`recheckSettings`): the panel's centre (`solarCheck`, two above it),
+/// then `solarChecks` 0 to 7: x - 1 by z, the centre column's north and
+/// south, x + 1 by z.
+pub const ADVANCED_CHECKS: [[i32; 3]; 9] =
+    [[0, 2, 0], [-1, 2, -1], [-1, 2, 0], [-1, 2, 1], [0, 2, -1], [0, 2, 1], [1, 2, -1], [1, 2, 0], [1, 2, 1]];
+
+/// One `AdvancedSolarCheck`: a `SolarCheck` that looks at its sky only
+/// every `frequency` ticks (`Mth.nextInt(random, 10, 30)`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AdvancedCheck {
+    pub check: SolarCheck,
+    pub frequency: u32,
+    /// `lastCheckedSun`; none before its first look, which comes at once
+    /// (Java's 0 against a world's game time).
+    pub last_checked: Option<i64>,
+    /// `canSeeSun`.
+    pub sees: bool,
+}
+
+/// The advanced solar generator's nine checks, in `ADVANCED_CHECKS` order,
+/// made on its first tick (`recheckSettings`) and kept until it unloads.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AdvancedSolar {
+    pub checks: [AdvancedCheck; 9],
+}
+
+/// More than this many of its nine checks must see the sun (`count > 4`).
+pub const ADVANCED_SEES_OVER: u32 = 4;
+
+impl AdvancedSolar {
+    /// The checks over the biomes at `ADVANCED_CHECKS` and their frequencies.
+    pub fn new(checks: [SolarCheck; 9], frequencies: [u32; 9]) -> Self {
+        let mut i = 0;
+        Self {
+            checks: checks.map(|check| {
+                let frequency = frequencies[i];
+                i += 1;
+                AdvancedCheck { check, frequency, last_checked: None, sees: false }
+            }),
+        }
+    }
+
+    /// `recheckSettings`' raw max output: `advancedSolarGeneration` times the
+    /// mean peak, the peaks summed in float in check order.
+    pub fn peak_output(&self, generation: u64) -> u64 {
+        let total = self.checks.iter().fold(0.0_f32, |sum, c| sum + c.check.peak);
+        crate::clamp_to_long(f64::from(generation as f32 * (total / 9.0_f32))).max(0) as u64
+    }
+
+    /// `checkCanSeeSun`: each check looks again when its time came
+    /// (`recheckCanSeeSun`); none sees while the dimension has no sky light
+    /// or the sky is darkened 4 or more; `sees_at(i)` reads check `i`'s sky.
+    /// Whether more than four see the sun.
+    pub fn recheck(&mut self, time: i64, has_skylight: bool, sky_darken: i32, mut sees_at: impl FnMut(usize) -> bool) -> bool {
+        let mut count = 0;
+        for (i, c) in self.checks.iter_mut().enumerate() {
+            if has_skylight && sky_darken < 4 {
+                if c.last_checked.is_none_or(|last| time >= last + i64::from(c.frequency)) {
+                    c.last_checked = Some(time);
+                    c.sees = sees_at(i);
+                }
+            } else {
+                c.sees = false;
+            }
+            if c.sees {
+                count += 1;
+            }
+        }
+        count > ADVANCED_SEES_OVER
+    }
+
+    /// `getProduction`: `advancedSolarGeneration * (brightness * mean)`, the
+    /// mean of the checks' generation multipliers summed in float.
+    pub fn production(&self, generation: u64, brightness: f32, raining: bool) -> u64 {
+        let sum = self.checks.iter().fold(0.0_f32, |sum, c| sum + c.check.generation_multiplier(c.sees, raining));
+        production(generation, brightness, sum / 9.0_f32)
+    }
+}
+
+/// The advanced solar generator's `getMaxOutput`: twice the mean peak's
+/// production, or twice `advancedSolarGeneration` before its first tick.
+pub fn advanced_max_output(generation: u64, solar: Option<&AdvancedSolar>) -> u64 {
+    solar.map_or(generation, |s| s.peak_output(generation)).saturating_mul(2).min(i64::MAX as u64)
+}
+
+/// `onUpdateServer` of the advanced solar generator after the ejector: its
+/// checks look at the sky, and with more than four seeing the sun and room
+/// in its store, its production goes in.
+pub fn advanced_generate(
+    container: &mut EnergyContainer,
+    generation: u64,
+    solar: &mut AdvancedSolar,
+    sky: &Sky,
+    time: i64,
+    sees_at: impl FnMut(usize) -> bool,
+) -> Made {
+    let darken = sky::sky_darken(sky.day_time, sky.rain, sky.thunder);
+    let sees = solar.recheck(time, sky.has_skylight, darken, sees_at);
+    if !sees || container.needed() == 0 {
+        return Made { sees_sun: sees, active: false, produced: 0 };
+    }
+    let brightness = sky::sun_brightness(sky.day_time, sky.rain, sky.thunder);
+    let joules = solar.production(generation, brightness, sky.raining());
+    let rest = container.insert(joules, false, Automation::Internal);
+    Made { sees_sun: true, active: true, produced: joules - rest }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +294,51 @@ mod tests {
         assert_eq!(c.insert(500, false, Automation::Internal), 0);
         assert_eq!(c.extract(200, false, Automation::External), 200, "anything can draw from it");
         assert_eq!(c.stored, 300);
+    }
+
+    fn advanced(check: SolarCheck) -> AdvancedSolar {
+        AdvancedSolar::new([check; 9], [10, 11, 12, 13, 14, 15, 16, 17, 18])
+    }
+
+    #[test]
+    fn the_advanced_solar_generator_reads_nine_checks() {
+        // Measured on the oracle (g2/w1, w1b): 1056 J a tick in plains at a clear noon and at 9000,
+        // 2400 J out on its first tick (twice 1200), then 2112 split between a cube in front and
+        // one below; three of the eight outer checks shaded 704, four 586, five none.
+        let plains = SolarCheck::new(0.8, 0.4, true);
+        let mut solar = advanced(plains);
+        assert_eq!(advanced_max_output(1200, None), 2400);
+        assert_eq!(advanced_max_output(1200, Some(&solar)), 2112);
+        let mut store = EnergyContainer::output(2_500_000);
+        let made = advanced_generate(&mut store, 1200, &mut solar, &NOON, 0, |_| true);
+        assert_eq!(made, Made { sees_sun: true, active: true, produced: 1056 });
+        let afternoon = Sky { day_time: 9000, ..NOON };
+        assert_eq!(advanced_generate(&mut store, 1200, &mut solar, &afternoon, 1, |_| true).produced, 1056);
+        for (shaded, made) in [(3, 704), (4, 586), (5, 0)] {
+            let mut s = advanced(plains);
+            let m = advanced_generate(&mut EnergyContainer::output(2_500_000), 1200, &mut s, &NOON, 0, |i| i == 0 || i > shaded);
+            assert_eq!(m.produced, made, "{shaded} shaded");
+            assert_eq!(m.sees_sun, made > 0);
+        }
+    }
+
+    #[test]
+    fn advanced_checks_look_again_on_their_own_time() {
+        let plains = SolarCheck::new(0.8, 0.4, true);
+        let mut solar = advanced(plains);
+        assert!(solar.recheck(100, true, 0, |_| true), "the first look is at once");
+        // A roof over all: each check sees it only when its time comes (10 to 18 ticks here).
+        let seen: Vec<bool> = (101..=118).map(|t| solar.recheck(t, true, 0, |_| false)).collect();
+        assert_eq!(seen.iter().position(|s| !s), Some(13), "the fifth check to look again leaves four");
+        // Night or no sky light: none at once, whatever the times.
+        let mut solar = advanced(plains);
+        solar.recheck(0, true, 0, |_| true);
+        assert!(!solar.recheck(1, true, 4, |_| true));
+        assert!(solar.checks.iter().all(|c| !c.sees));
+        assert!(!solar.recheck(2, false, 0, |_| true));
+        // A desert's peak runs the max output down: 1 + 0.3 * (0.8 - 2.0) = 0.64, a hair under in
+        // float, so 767 J and not 768.
+        let desert = advanced(SolarCheck::new(2.0, 0.0, false));
+        assert_eq!(advanced_max_output(1200, Some(&desert)), 2 * 767);
     }
 }

@@ -2,6 +2,8 @@
 
 Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters, its Configurator and its multiblocks,
 and Mekanism Generators' Solar, Heat and Gas-Burning Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters and its Configurator,
+and Mekanism Generators' Solar, Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -42,8 +44,28 @@ assets when `mekanism-content` is given them.
   (hydrogen: a tick of 200 J a mB), filled by any block on its sides but the front and by a chemical tank item in its
   fuel slot, burning up to 256 of its ticks a tick by how full the tank is and as far as its 200 000 J store (1000
   times hydrogen's density) has room, out of its front at twice what it made last tick.
-- The generators: Forge Energy on their energy face, cables connecting there, a screen like Mekanism's
-  (`GuiSolarGenerator`, `GuiHeatGenerator`, `GuiGasGenerator`), and `/mek probe` answers for tests.
+- The Bio-Generator (`mekanism_energy::bio`, runtime `mek_gen2`): a bioethanol tank (`[bio_generator] tankCapacity`,
+  24 000 mB) that any block fills on every side but the front with what is in `c:bioethanol` and none drains, a fuel
+  slot that empties a bioethanol container into it or turns an item of `c:fuels/bio` into 200 mB and of
+  `c:fuels/block/bio` into 1800 when that fits, and a burn of one mB a tick for `bioGeneration` Joules (350 on ATM10)
+  while all of them fit its 160 000 J store, out of its front at twice that; `facing` and `active` (light 13).
+- The Wind Generator (`mekanism_energy::wind`): Joules by the height of its top, four blocks up, in a line from
+  `generationMin` at `minY` to `generationMax` at the world's logical top (150 to 900 J on ATM10: 353 at y 100, 607
+  at 200), nothing while its top holds a fluid or can't see the sky; it looks every 20 ticks, the first on its first
+  tick, and puts out of its front and bottom at twice `generationMax`; `facing` and `active` (light 8). Mekanism
+  10.7's wind doesn't follow the weather.
+- The Advanced Solar Generator (`mekanism_energy::solar`'s `AdvancedSolar`): nine sun checks over the three by three
+  panel two blocks up, each with the biome there and its own look every 10 to 30 ticks (`AdvancedSolarCheck`);
+  while more than four see the sun it makes `advancedSolarGeneration` (1200 on ATM10) times the sun's brightness
+  times the checks' mean multiplier (1056 J in plains at a clear noon), into a 2 500 000 J store, out of its front
+  and bottom at twice the mean peak's production (2112), twice 1200 before its first tick.
+- Bounding blocks (`AttributeHasBounding`): a player placing a wind generator gets four `mekanism:bounding_block`s
+  over it, an advanced solar generator one and nine over that; the item isn't placed (the use is claimed in
+  `native_use_item_on`) where one of them wouldn't fit (`#minecraft:replaceable` or air, inside the world), and a
+  generator taken out of the world takes its bounding blocks with it at the end of the tick.
+- The generators: Forge Energy on their energy faces, cables connecting there, a screen like Mekanism's
+  (`GuiSolarGenerator`, `GuiHeatGenerator`, `GuiGasGenerator`, `GuiBioGenerator`, `GuiWindGenerator`, the advanced
+  solar generator's as the solar's), and `/mek probe` answers for tests.
 - The Enrichment Chamber, the Crusher and the Energized Smelter (`TileEntityElectricMachine`) and the Metallurgic
   Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
   (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and
@@ -226,6 +248,19 @@ assets when `mekanism-content` is given them.
 - Hoppers take nothing out of the heat generator's fuel slot (an empty bucket stays until a player takes it): a hook
   point for what a slot gives is missing, and coal must stay. Its energy slots charge nothing until items carry energy.
 - Generators drop plain: their energy, lava and heat stay behind, as the cube did before its items kept energy.
+- Bounding blocks keep no `main` position: the generator a bounding block belongs to is the one whose positions hold
+  it. Their outline is empty and they have no collision (the carry's declaration: Mekanism gives them the main
+  block's shape, offset), so a player can't hit, use or break one, nor stand on the advanced solar panel; one taken
+  away alone (an explosion, `/setblock`) leaves its generator, and none is waterlogged. `/setblock` of a generator
+  places none, as in Java.
+- The wind generator reads the world's build height as its logical height (`native_world_height`; the Nether's lower
+  one has no sky to see), and no dimension tag (`c:no_wind`, which no dimension of ATM10 has); its blades aren't
+  drawn (Mekanism's renderer). The advanced solar generator's checks draw their frequency from the bundle's own
+  random source and count their time in its own ticks; over a fluid a check reads the sky of the block above
+  without its light-blocking. A block set over a wind generator's top or a check is seen at its next look once the
+  engine's sky light has settled, a tick or more later (Java's light was there on the oracle's next tick).
+- The bio-generator's fuel slot takes from hoppers the items the content's `c:fuels/bio` and `c:fuels/block/bio` tag
+  files list (the slot's own use reads the world's tags).
 - Machines drop plain too: their energy, upgrades and items in the slots stay behind (Java's item keeps them).
 - A machine's container faces are its block's, not its facing's: hoppers reach its input and energy slots (and the
   infuser's infusion slot) and its output from every face, where Java's item side config says which face reaches

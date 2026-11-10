@@ -142,12 +142,26 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   the cell a tick after the cube gives them; broken, what was queued lands in the cell, which keeps it; a port placed
   with `active=true` comes up in input mode (its saved `active_state`); a cell emptied saves no `energy_containers`.
   World test `induction-matrix`.
+- Generators 2 (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
+  the Bio-Generator, Wind Generator and Advanced Solar Generator (`mekanism_energy::bio`, `wind`, `solar`'s
+  `AdvancedSolar`; three more `GeneratorKind`s run by `runtime/mek_gen2.rs`, which also places and removes their
+  bounding blocks). Their Generators sources were decompiled from the jar into the local
+  `chem-work/g2/mekgen-src` (the shared `src-mekgen` held only the gas generator). Measured on the oracle (local
+  `chem-work/oracle4`, `chem-work/g2/w1.py`, `w1b.py`): bio 350 J and one mB a tick, bio fuel 200 mB a tick
+  into the tank before the burn; wind 150/150/353/607/900 J a tick at y -60/0/100/200/315, a blocked top stopping it
+  at the next 20-tick look; advanced solar 1056 J at noon in plains, 2400 J out on its first tick then 2112 split
+  front and bottom, three shaded checks 704, four 586, five none. World test `generators-2`. Learned: Mekanism
+  10.7's wind ignores the weather; `/setblock` places no bounding blocks; Java's `/setblock` cube has every side `NONE`,
+  so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
+  under a block set while the world is held settles a tick or more later, so the tests let it settle before the
+  generators look again.
 - Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical
   Sorter on `transporter::round_robin`, hoppers into transporters, redstone sensitivity), the Fluid Tank's screen
   and item, the Configurator's mode key;
+  bounding blocks with the main block's shape that pass uses and breaks on to it;
   other energy items charging machines.
 
 ## How to run

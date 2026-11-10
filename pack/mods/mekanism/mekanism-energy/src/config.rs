@@ -171,7 +171,31 @@ pub struct GeneratorsConfig {
     /// `[gas_generator] tankCapacity`: the Gas-Burning Generator's fuel tank,
     /// in mB, 1 or more.
     pub gas_tank_capacity: i64,
+    /// `[solar_generator] advancedSolarGeneration`: the Advanced Solar
+    /// Generator's Joules a tick at peak, 0 or more.
+    pub advanced_solar_generation: u64,
+    /// `[bio_generator] bioGeneration`: Joules a tick a mB of bioethanol makes, 0 or more.
+    pub bio_generation: u64,
+    /// `[bio_generator] tankCapacity`: the bioethanol tank, in mB, 1..=Integer.MAX.
+    pub bio_tank_capacity: u32,
+    /// `[wind_generator] generationMin` and `generationMax`: Joules a tick
+    /// at `minY` and at `maxY`, 0 or more.
+    pub wind_generation_min: u64,
+    pub wind_generation_max: u64,
+    /// `[wind_generator] minY` (`DimensionType.MIN_Y..MAX_Y - 1`) and `maxY`
+    /// (above `minY`): the heights between which the wind grows.
+    pub wind_min_y: i32,
+    pub wind_max_y: i32,
+    /// `generator-storage.toml` `bioGenerator`, `advancedSolarGenerator` and
+    /// `windGenerator`: Joules each holds, 1 or more.
+    pub bio_storage: u64,
+    pub advanced_solar_storage: u64,
+    pub wind_storage: u64,
 }
+
+/// `DimensionType.MIN_Y` and `MAX_Y`: the range a wind height may take.
+pub const DIMENSION_MIN_Y: i32 = -2032;
+pub const DIMENSION_MAX_Y: i32 = 2031;
 
 impl Default for GeneratorsConfig {
     fn default() -> Self {
@@ -185,6 +209,16 @@ impl Default for GeneratorsConfig {
             solar_storage: 96_000,
             heat_storage: 160_000,
             gas_tank_capacity: crate::gas::TANK,
+            advanced_solar_generation: 300,
+            bio_generation: 350,
+            bio_tank_capacity: 24_000,
+            wind_generation_min: 60,
+            wind_generation_max: 480,
+            wind_min_y: 24,
+            wind_max_y: DIMENSION_MAX_Y,
+            bio_storage: 160_000,
+            advanced_solar_storage: 200_000,
+            wind_storage: 200_000,
         }
     }
 }
@@ -195,10 +229,43 @@ impl GeneratorsConfig {
     pub fn from_tables(generators: Option<&toml::Table>, storage: Option<&toml::Table>) -> Self {
         let mut config = Self::default();
         let section = |name: &str| generators.and_then(|t| t.get(name)?.as_table());
-        if let Some(solar) = section("solar_generator")
-            && let Some(v) = positive(solar, "solarGeneration")
-        {
-            config.solar_generation = v;
+        if let Some(solar) = section("solar_generator") {
+            if let Some(v) = positive(solar, "solarGeneration") {
+                config.solar_generation = v;
+            }
+            if let Some(v) = non_negative(solar, "advancedSolarGeneration") {
+                config.advanced_solar_generation = v;
+            }
+        }
+        if let Some(bio) = section("bio_generator") {
+            if let Some(v) = non_negative(bio, "bioGeneration") {
+                config.bio_generation = v;
+            }
+            if let Some(v) = bio.get("tankCapacity").and_then(toml::Value::as_integer)
+                && (1..=i64::from(i32::MAX)).contains(&v)
+            {
+                config.bio_tank_capacity = v as u32;
+            }
+        }
+        if let Some(wind) = section("wind_generator") {
+            if let Some(v) = non_negative(wind, "generationMin") {
+                config.wind_generation_min = v;
+            }
+            if let Some(v) = non_negative(wind, "generationMax") {
+                config.wind_generation_max = v;
+            }
+            if let Some(v) = wind.get("minY").and_then(toml::Value::as_integer)
+                && (i64::from(DIMENSION_MIN_Y)..i64::from(DIMENSION_MAX_Y)).contains(&v)
+            {
+                config.wind_min_y = v as i32;
+            }
+            // `value > windGenerationMinY.getOrDefault()`: an `Integer` above the minimum.
+            if let Some(v) = wind.get("maxY").and_then(toml::Value::as_integer)
+                && v > i64::from(config.wind_min_y)
+                && v <= i64::from(i32::MAX)
+            {
+                config.wind_max_y = v as i32;
+            }
         }
         if let Some(heat) = section("heat_generator") {
             if let Some(v) = positive(heat, "heatGeneration") {
@@ -234,6 +301,15 @@ impl GeneratorsConfig {
             }
             if let Some(v) = positive(storage, "heatGenerator") {
                 config.heat_storage = v;
+            }
+            if let Some(v) = positive(storage, "bioGenerator") {
+                config.bio_storage = v;
+            }
+            if let Some(v) = positive(storage, "advancedSolarGenerator") {
+                config.advanced_solar_storage = v;
+            }
+            if let Some(v) = positive(storage, "windGenerator") {
+                config.wind_storage = v;
             }
         }
         config
@@ -371,6 +447,12 @@ pub fn shows_fe(common: Option<&toml::Table>) -> bool {
 
 fn float(v: &toml::Value) -> Option<f64> {
     v.as_float().or_else(|| v.as_integer().map(|i| i as f64))
+}
+
+/// A `long` setting of range 0..=Long.MAX_VALUE (`CachedLongValue.definePositive`).
+fn non_negative(table: &toml::Table, key: &str) -> Option<u64> {
+    let v = table.get(key)?.as_integer()?;
+    (v >= 0).then_some(v as u64)
 }
 
 /// A `long` setting of range 1..=Long.MAX_VALUE.
@@ -516,5 +598,28 @@ energizedSmelter = 20000
             .unwrap();
         let g = GeneratorsConfig::from_tables(Some(&odd), None);
         assert_eq!((g.heat_tank_capacity, g.heat_fluid_rate, g.heat_generation_lava, g.heat_generation), (100, 10, 0, 200));
+    }
+
+    #[test]
+    fn atm10_bio_wind_and_advanced_solar_settings() {
+        // ATM10 8.4's [bio_generator], [wind_generator] and their storage.
+        let generators: toml::Table = "[solar_generator]\nadvancedSolarGeneration = 1200\n\
+             [bio_generator]\nbioGeneration = 350\ntankCapacity = 24000\n\
+             [wind_generator]\ngenerationMin = 150\ngenerationMax = 900\nminY = 24\nmaxY = 2031\n"
+            .parse()
+            .unwrap();
+        let storage: toml::Table = "bioGenerator = 160000\nadvancedSolarGenerator = 2500000\nwindGenerator = 200000\n".parse().unwrap();
+        let g = GeneratorsConfig::from_tables(Some(&generators), Some(&storage));
+        assert_eq!((g.advanced_solar_generation, g.bio_generation, g.bio_tank_capacity), (1200, 350, 24_000));
+        assert_eq!((g.wind_generation_min, g.wind_generation_max, g.wind_min_y, g.wind_max_y), (150, 900, 24, 2031));
+        assert_eq!((g.bio_storage, g.advanced_solar_storage, g.wind_storage), (160_000, 2_500_000, 200_000));
+        let d = GeneratorsConfig::default();
+        assert_eq!((d.advanced_solar_generation, d.wind_generation_min, d.wind_generation_max, d.advanced_solar_storage), (300, 60, 480, 200_000));
+        // A generation of 0 is allowed (`definePositive` is 0..); a maxY not above minY isn't, nor a minY at MAX_Y.
+        let odd: toml::Table = "[bio_generator]\nbioGeneration = 0\ntankCapacity = 0\n[wind_generator]\nminY = 100\nmaxY = 100\n".parse().unwrap();
+        let g = GeneratorsConfig::from_tables(Some(&odd), None);
+        assert_eq!((g.bio_generation, g.bio_tank_capacity, g.wind_min_y, g.wind_max_y), (0, 24_000, 100, 2031));
+        let top: toml::Table = "[wind_generator]\nminY = 2031\n".parse().unwrap();
+        assert_eq!(GeneratorsConfig::from_tables(Some(&top), None).wind_min_y, 24);
     }
 }

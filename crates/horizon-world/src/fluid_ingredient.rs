@@ -546,8 +546,8 @@ mod tests {
         assert_eq!(
             twice.stacks(),
             [
-                FluidStack::new(brine.flowing(), 1000),
-                FluidStack::new(brine, 1000)
+                FluidStack::new(brine, 1000),
+                FluidStack::new(brine.flowing(), 1000)
             ],
             "the tag's fluids in registry order, then nothing new"
         );
@@ -593,7 +593,7 @@ mod tests {
         let flat =
             SizedFluidIngredient::parse_flat(&json!({"tag": "c:brine", "amount": 10})).unwrap();
         assert!(flat.test(&FluidStack::new(brine, 10)) && !flat.test(&FluidStack::new(brine, 9)));
-        assert_eq!(flat.fluids()[1], FluidStack::new(brine, 10));
+        assert_eq!(flat.fluids()[0], FluidStack::new(brine, 10));
         let bucket = SizedFluidIngredient::parse_flat(&json!({"fluid": "test:brine"})).unwrap();
         assert_eq!(bucket.amount, 1000, "a bucket when absent");
         let nested = SizedFluidIngredient::parse_nested(

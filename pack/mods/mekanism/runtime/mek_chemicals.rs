@@ -4,7 +4,7 @@
 // 2017-2025 Aidan C. Brady); this module is the glue: the `mekanism:chemical`
 // registry read from the content's declarations
 // (`data/<ns>/mekanism/chemical/<path>.json`, listed with hook points API
-// 162's `native_data_files`), chemical stacks and tanks in Mekanism's saved
+// 423's `native_data_files`), chemical stacks and tanks in Mekanism's saved
 // form (`chemical_tanks: [{tank: 0b, stored: {id, amount}}]`), the chemical
 // handler of the bundle's blocks by side (Mekanism's
 // `Capabilities.CHEMICAL.block()`: the infuser's tank, the separator's two),

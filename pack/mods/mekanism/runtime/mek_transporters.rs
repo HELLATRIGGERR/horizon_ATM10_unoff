@@ -6,7 +6,7 @@
 // 156), each level's tick looking at their sides (any block with a container
 // on the touching side), pulling, moving the stacks and committing the new
 // ones; the containers around them as the rules' inventories (hook points API
-// 48's container helpers and API 166's `native_insert_slots`, a broken
+// 48's container helpers and API 425's `native_insert_slots`, a broken
 // transporter's stacks dropped with `native_pop_resource`); a transporter's
 // stacks and colour saved as Mekanism saves them (`items`, `color`); a
 // machine's ejector putting its output into one; the stacks drawn on clients

@@ -2469,7 +2469,7 @@ impl Game<'_> {
         let entity=self.world.block_entities.get(&target).cloned();
         let saved=super::spill::saved_entity(&self.world,at);
         let components=entity.as_ref().and_then(|entity|self.world.block_entities.vanilla_metadata(&target).map(|raw|(entity,raw))).map(|(entity,raw)|{
-            let mut current=save::live_vanilla_block_entity(target,entity,&facts.name,self.world.block_names.get(&target).map(String::as_str),Some(raw));
+            let mut current=save::live_vanilla_block_entity(target,entity,&facts.name,self.world.block_names.get(&target),Some(raw));
             let table=save::text(raw.get("LootTable"));
             let current_roll=self.world.chunks.get(&(target.0>>4,target.2>>4))
                 .and_then(|chunk|chunk.saved.as_deref())
@@ -2511,8 +2511,8 @@ impl Game<'_> {
         }
         if let Some(BlockEntity::Ae2(machine))=entity.as_ref() {
             if let Some(block)=drops.iter_mut().find(|item|item.item.as_ref()==facts.name.as_ref()) {
-                let name=self.world.block_names.get(&target).map(String::as_str);
-                block.set_custom_name_component(super::ae2_memory_host::machine_name_component(machine,name));
+                let name=self.block_name_plain(target);
+                block.set_custom_name_component(super::ae2_memory_host::machine_name_component(machine,name.as_deref()));
                 if machine.kind.is_energy_cell() && machine.energy>0.0 {
                     block.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(machine.energy.to_bits())));
                 }

@@ -240,7 +240,7 @@ impl Game<'_>{
         let (target,machine,name,name_component,push)=if host.kind==MachineKind::PatternProvider {
             let state=self.pack.assets.registry.state(self.world.block(pos[0],pos[1],pos[2])).ok_or("invalid provider state")?;
             if state.name!="ae2:pattern_provider"{return Ok(None)}
-            let name=self.world.block_names.get(&key).cloned();
+            let name=self.block_name_plain(key);
             let component=super::ae2_memory_host::machine_name_component(host,name.as_deref());
             (Target::Block,(**host).clone(),name,component,state.properties.get("push_direction").cloned().unwrap_or_else(||"all".into()))
         }else if host.kind==MachineKind::CableBus {
@@ -287,7 +287,7 @@ impl Game<'_>{
         let Some(BlockEntity::Ae2(current))=self.world.block_entities.get_mut(&key) else{return Err("provider disappeared".into())};
         if **current!=before.host{return Err("provider changed during import".into())}
         std::mem::swap(&mut **current,&mut next);
-        if matches!(before.target,Target::Block){if let Some(name)=name{match name{Some(name)=>{self.world.block_names.insert(key,horizon_client::entity_nbt::name_text(&name).plain());},None=>{self.world.block_names.remove(&key);}}}}
+        if matches!(before.target,Target::Block){if let Some(name)=name{match name{Some(name)=>{self.world.block_names.insert(key,name);},None=>{self.world.block_names.remove(&key);}}}}
         self.world.modified.insert((pos[0]>>4,pos[2]>>4));
         // Source full pattern imports and generic priority setters request a
         // remove/add refresh even when the final priority value is unchanged.

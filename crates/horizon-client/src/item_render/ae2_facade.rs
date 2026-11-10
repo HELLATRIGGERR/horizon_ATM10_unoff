@@ -47,7 +47,7 @@ impl ItemRenderer {
     use super::*;
     #[test]
     fn north_facade_clamps_thin_geometry_and_reinterpolates_side_uvs() {
-        let side=ModelQuad{positions:[[1.,1.,1.],[1.,0.,1.],[1.,0.,0.],[1.,1.,0.]],uv:[[1.,0.],[1.,1.],[0.,1.],[0.,0.]],facing:Direction::East,cull:Some(Direction::East),material:horizon_assets::model::Material{sprite:"minecraft:block/oak_log".into(),force_translucent:false},tint_index:2,shade_direction_override:None,light_emission:0};
+        let side=ModelQuad{positions:[[1.,1.,1.],[1.,0.,1.],[1.,0.,0.],[1.,1.,0.]],uv:[[1.,0.],[1.,1.],[0.,1.],[0.,0.]],facing:Direction::East,cull:Some(Direction::East),material:horizon_assets::model::Material{sprite:"minecraft:block/oak_log".into(),force_translucent:false},tint_index:2,shade_direction_override:None,light_emission:0,light:[0,0],color:None,ambient_occlusion:None,render_type:None,shade:true};
         let result=clip(&side).unwrap();let thin=(1.0f64/16.0-0.002) as f32;
         assert_eq!(result.positions,[[1.,1.,thin],[1.,0.,thin],[1.,0.,0.],[1.,1.,0.]]);
         let expected=[[thin,0.],[thin,1.],[0.,1.],[0.,0.]];for i in 0..4 {for a in 0..2 {assert!((result.uv[i][a]-expected[i][a]).abs()<1e-7);}}

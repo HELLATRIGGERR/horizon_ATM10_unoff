@@ -8052,7 +8052,7 @@ mod terminal_filter_tests {
         let enchantments=horizon_client::enchant::Enchantments::default();
         let names=horizon_client::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
-            station_recipes:&stations,enchantments:&enchantments,names:&names,trade:None,maps:None};
+            station_recipes:&stations,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
         let mut menu=Menu::new(Kind::Chest(2));menu.network_tool_slot=Some(8);menu.network_tool_main_limit=Some(9);
         menu.set_player_item(0,Some(ItemStack::new("ae2:wireless_crafting_terminal",1)));
         menu.set_player_item(8,Some(ItemStack::new("ae2:network_tool",1)));
@@ -8076,7 +8076,7 @@ mod terminal_filter_tests {
         let enchantments=horizon_client::enchant::Enchantments::default();
         let names=horizon_client::creative::Names::default();
         let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
-            station_recipes:&stations,enchantments:&enchantments,names:&names,trade:None,maps:None};
+            station_recipes:&stations,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
         let mut menu=Menu::new(Kind::Chest(2));
         menu.network_tool_slot=Some(8);menu.network_tool_main_limit=Some(9);
         menu.set_player_item(8,Some(ItemStack::new("ae2:network_tool",1)));

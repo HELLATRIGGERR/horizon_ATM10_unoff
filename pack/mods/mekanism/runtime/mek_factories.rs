@@ -11,7 +11,7 @@
 // order (upgrades in, the active state's delay, the ejector, the energy slot,
 // the sorting, each process's recipe on the one store), Joules from cables,
 // cubes and Forge Energy on the faces their energy config opens, the tier
-// installers (`native_use_item_on`, hook points API 165, and `/mek install`)
+// installers (`native_use_item_on`, hook points API 424, and `/mek install`)
 // and `/mek probe`. Each process's cached recipe, the upgrade slot's progress
 // and the sorting's last look are kept here by position, not saved.
 

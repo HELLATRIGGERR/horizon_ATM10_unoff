@@ -8,14 +8,14 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
 - S5 (tiers, creative semantics, config reload) and S4 (cube on Forge Energy): committed; see the log for what ran.
 - S6 (engine: block entity load, unload, save, changed): committed as hooks API 64 on the old base (85020d24a), moved
   onto `int/atm10` as API 83 (Forge Energy, once 63, is 81 there). Since the upstream merge at 6e1635c1e (upstream
-  API 153) they are API 156 and Forge Energy is API 154.
+  API 153) they are API 418 and Forge Energy is API 416.
 - S7 (Universal Cables): committed. World test `universal-cable`.
-- S8 (Solar Generator) and S9 (Heat Generator): on `feat/mekanism-generators`. The world reads S8 needed are hooks API 84 (157 since the upstream merge):
-  the helpers `native_biome` and `native_dimension_type`; light, weather and the day time were there (`native_light`,
+- S8 (Solar Generator) and S9 (Heat Generator): on `feat/mekanism-generators`. The world reads S8 needed are hooks API 84 (419 since the upstream merge):
+  the helpers `native_biome` (`native_biome_climate` since the merge of 21a750533) and `native_dimension_type`; light, weather and the day time were there (`native_light`,
   `native_weather`, `native_day_time`), and lava beside a block is `native_block`. World tests `solar-generator`,
   `heat-generator`.
 - S12 (the Enrichment Chamber, Crusher, Energized Smelter and Metallurgic Infuser): on `feat/mekanism-machines`, with
-  hook points API 159 (`native_cooking_recipes`, the world's smelting recipes for the smelter). World tests
+  hook points API 421 (`native_cooking_recipes`, the world's smelting recipes for the smelter). World tests
   `electric-machines` and `metallurgic-infuser`; their numbers were measured on a NeoForge 1.21.1 server with only
   Mekanism 10.7.19 and ATM10's configs, driven over RCON (`/tick freeze`, `/tick step`, `data get block`; the scripts
   and logs stay in the local work folder).
@@ -27,11 +27,11 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   declared from the NeoForge oracle's server and client facts; the overlay's two hand declarations went (the oracle's
   are the same values). `mekanism-content` counts the carry's fluids and warns when a carry from before the client's
   oracle run has none: carry again then (`tools/atm10/oracle-client.sh`, docs/mod-fluids.md).
-- Mod fluids, slice 5 (branch `feat/mod-fluids-5`, hook points API 160): the heat generator's lava tank is a fluid
+- Mod fluids, slice 5 (branch `feat/mod-fluids-5`, hook points API 422): the heat generator's lava tank is a fluid
   handler (`fluid_handler_tanks`, `fluid_handler_fill`, `fluid_handler_drain`): every side but the front, lava from any
   block, none out; its fuel slot fills it through the item's fluid handler; `fluid_tanks` is read and written as a
   `FluidStack`. World test `heat-generator-tank` (AE2's export, storage and import buses against it).
-- Chemicals, slice 1 (`docs/mekanism-chemicals.md`, branch `feat/mek-chemicals-1`, hook points API 162): the
+- Chemicals, slice 1 (`docs/mekanism-chemicals.md`, branch `feat/mek-chemicals-1`, hook points API 423): the
   `mekanism:chemical` registry from the content's declarations (`data/<ns>/mekanism/chemical/`, written by
   `mekanism-content --chemicals` from the server oracle's chemicals-only run, `ChemicalFacts`: 112 chemicals in ATM10
   8.4, Mekanism's 64 and Generators' 3 declared), listed with the engine's new `native_data_files`;
@@ -47,7 +47,7 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   items; the Basic to Ultimate Pressurized Tubes (`network` with a chemical content, runtime `mek_tubes`, their OBJ
   model from `mekanism-content`). Measured on the NeoForge oracle over RCON (local `chem-work/tanks`, t1-t4:
   `mekmach-oracle` started headless by `tanks/server.sh`). World tests `chemical-tank`, `pressurized-tube`.
-- Machines 2 (branch `feat/mekanism-machines-2`, hook points API 165): the Combiner and the Precision Sawmill, the
+- Machines 2 (branch `feat/mekanism-machines-2`, hook points API 424): the Combiner and the Precision Sawmill, the
   factories of smelting, enriching, crushing, combining and sawing in four tiers (`mekanism_energy::factory`,
   `runtime/mek_factories.rs`, screens in `runtime/mek_factory_ui.rs` on `mek_ui`'s tabs and windows), tier installers
   (`native_use_item_on`, `/mek install`), energy cube items charging machines' energy slots. World tests
@@ -68,7 +68,7 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   private oracle (`mekm2-work/oracle`, x3 and x3b): pull 250/1000/8000/32 000 mB a tick by tier, two full basic pipes
   2000 each, an active tank's output split by a normal up side, push and none taking nothing, a pull side sending
   nothing back, one fluid a network. World test `mechanical-pipe`.
-- Transmitters, part 2 (hook points API 166: `native_sneaking`, `native_insert_slots`, `native_pop_resource`): the
+- Transmitters, part 2 (hook points API 425: `native_insert_slots`, `native_pop_resource`; `native_sneaking` is upstream's): the
   Logistical Transporters (`mekanism_energy::transporter`: colours, stacks, requests, the predicted insert with the
   stacks on their way, A*, idle and home paths, the pull's delay, `round_robin`; runtime `mek_transporters`).
   Measured on the oracle (x4): first pull on the second tick then every 11, arrivals on ticks 59/29/14/5 over three

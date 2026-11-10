@@ -52,14 +52,13 @@ impl Game<'_> {
         format!("{}[{}]", s.name, props.join(","))
     }
     fn put_block(&mut self, pos: [i32; 3], state: BlockStateId) -> Result<()> {
-        let name = self.res.facts().get(state).name.clone();
         #[cfg(feature = "ae2-lab")]
         let old_state = self.world.block(pos[0], pos[1], pos[2]);
         #[cfg(feature = "ae2-lab")]
         let old_ae2 = horizon_client::ae2_world::is_machine_block(&self.res.facts().get(old_state).name);
         #[cfg(feature = "ae2-lab")]
         if self.world.block(pos[0], pos[1], pos[2]) == state
-            && horizon_client::ae2_world::Machine::for_block(&name).is_some()
+            && horizon_client::ae2_world::Machine::for_block(&self.res.facts().get(state).name).is_some()
         {
             return Ok(());
         }
@@ -92,7 +91,10 @@ impl Game<'_> {
                 );
             });
         }
-        if let Some(entity) = self.new_block_entity(&name) {
+        if !self.world.block_entities.stateful_entity(state.0)
+            && let Some(entity) = self.new_block_entity_for_state(state)
+        {
+            // A live AE2 entity level_set left in place stays.
             self.world.block_entities.get_or_insert_with(key, || entity);
         }
         Ok(())

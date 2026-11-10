@@ -57,13 +57,13 @@
         let mut authoritative=Chunk::empty(0,0);
         authoritative.set(1,64,1,stone.0);
         authoritative.block_entities.push(((1,64,1),crate::containers::BlockEntity::Chest(vec![None;27])));
-        authoritative.block_names.push(((1,64,1),"owned".into()));
+        authoritative.block_names.push(((1,64,1),Tag::String("owned".into())));
         authoritative.entities.push(Tag::compound([("id",Tag::String("minecraft:pig".into()))]));
         streaming.test_generating().insert((0,0));
         streaming.insert_authoritative_flat(&mut world,authoritative).map_err(|e|format!("{e}"))?;
         assert_eq!(world.block(1,64,1),stone);
         assert!(matches!(world.block_entities.get(&(1,64,1)),Some(crate::containers::BlockEntity::Chest(_))));
-        assert_eq!(world.block_names.get(&(1,64,1)).map(String::as_str),Some("owned"));
+        assert_eq!(world.block_names.get(&(1,64,1)),Some(&Tag::String("owned".into())));
         assert_eq!(world.loaded_entities.len(),1);
         assert!(world.dirty_light.contains(&(0,0)));
         assert!(!world.chunks[&(0,0)].lit);
@@ -72,11 +72,11 @@
         // It must not recreate a stale column, names, BEs or entities.
         world.chunks.remove(&(0,0));
         let mut stale=Chunk::empty(0,0);
-        stale.block_names.push(((1,64,1),"stale".into()));
+        stale.block_names.push(((1,64,1),Tag::String("stale".into())));
         stale.entities.push(Tag::compound([("id",Tag::String("minecraft:cow".into()))]));
         streaming.test_receive(0,0,Some(stale),&mut world);
         assert!(!world.chunks.contains_key(&(0,0)));
-        assert_eq!(world.block_names.get(&(1,64,1)).map(String::as_str),Some("owned"));
+        assert_eq!(world.block_names.get(&(1,64,1)),Some(&Tag::String("owned".into())));
         assert_eq!(world.loaded_entities.len(),1);
         // A separate in-flight Generate returns a Proto rather than a Chunk.
         // It too must be discarded after an authoritative install and unload.

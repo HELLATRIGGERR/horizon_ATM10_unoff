@@ -733,8 +733,8 @@ mod tests {
         let brine = FluidKind::from_name("test:brine").unwrap();
         let flowing = FluidKind::from_name("test:flowing_brine").unwrap();
         let sludge = FluidKind::from_name("test:sludge").unwrap();
-        // flowing then source, after vanilla's five; by id.
-        assert_eq!((flowing.id(), brine.id(), sludge.id()), (5, 6, 8));
+        // Upstream's mod rows after vanilla's five: each source, then its flowing form.
+        assert_eq!((brine.id(), flowing.id(), sludge.id()), (5, 6, 7));
         assert!(brine.same_family(flowing) && !brine.same_family(sludge));
         assert!(!brine.same_family(FluidKind::Water) && !flowing.same_family(FluidKind::Lava));
         assert_eq!((flowing.source(), brine.flowing()), (brine, flowing));

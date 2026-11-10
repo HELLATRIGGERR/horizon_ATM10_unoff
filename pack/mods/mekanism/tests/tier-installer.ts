@@ -11,7 +11,7 @@
  * - a basic factory's processes go to the same processes of the advanced one, its sorting too;
  * - an installer of the wrong tier changes nothing.
  *
- * The installer is used as a sneaking player's right click uses it (`native_use_item_on`, hook points API 165); the
+ * The installer is used as a sneaking player's right click uses it (`native_use_item_on`, hook points API 424); the
  * world test runs the same conversion with `/mek install`, as the harness has no sneaking click. Everything is read
  * from the saved compound (`data get block`) and `/mek probe`. */
 import assert from 'node:assert/strict';

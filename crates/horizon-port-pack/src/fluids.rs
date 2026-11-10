@@ -1,7 +1,7 @@
 //! A pack's fluids from the NeoForge oracle (docs/mod-fluids.md, slice 2): what the server's run writes of each fluid
 //! and fluid type (`FluidFacts`, in each batch's facts) and what the client's run writes of them
 //! (`ClientFactsExporter`, `client-facts.json`), and the content mod declaration
-//! (`data/<ns>/horizon/fluid/<path>.json`, `horizon_mods::content::Fluid`) made from both: Java's own numbers,
+//! (`data/<ns>/horizon/fluid/<path>.json`, `horizon_mods::content::CarriedFluid`) made from both: Java's own numbers,
 //! textures, tint and render layer, none guessed.
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -678,7 +678,7 @@ mod tests {
         )
         .unwrap();
         // The file slice 1 wrote by hand from Mekanism's source, now from the two runs.
-        let file: horizon_mods::content::Fluid = serde_json::from_value(heavy.clone()).unwrap();
+        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(heavy.clone()).unwrap();
         assert_eq!(file.tint, 0xFF0D_1455);
         assert!(file.translucent);
         assert_eq!(file.flowing, "mekanism:flowing_heavy_water");
@@ -711,7 +711,7 @@ mod tests {
             &yes,
         )
         .unwrap();
-        let file: horizon_mods::content::Fluid = serde_json::from_value(latex).unwrap();
+        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(latex).unwrap();
         assert_eq!(file.flowing, "industrialforegoing:latex_flowing");
         assert_eq!((file.tint, file.translucent), (0xFFFF_FFFF, false));
         assert_eq!(file.overlay_texture, None);
@@ -748,7 +748,7 @@ mod tests {
         // A fluid that doesn't flow (Modern Industrialization's `MIFluid`): no flowing fluid, no liquid block.
         let virtual_ =
             declaration(&fluids, &types, world(), &client, "test:virtual", &yes).unwrap();
-        let file: horizon_mods::content::Fluid = serde_json::from_value(virtual_).unwrap();
+        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(virtual_).unwrap();
         assert!(!file.flows);
         assert_eq!(
             (file.flowing.as_str(), file.block.as_str()),
@@ -995,7 +995,7 @@ mod tests {
             json!({"block": "create_dragons_plus:dragon_breath_cauldron", "total_amount": 1000, "max_level": 4,
                 "level_property": "level"})
         );
-        let file: horizon_mods::content::Fluid = serde_json::from_value(breath).unwrap();
+        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(breath).unwrap();
         assert_eq!(
             file.vaporizes,
             horizon_mods::content::FluidVaporizes::Ultrawarm

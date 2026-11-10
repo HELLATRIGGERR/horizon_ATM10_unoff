@@ -25,7 +25,7 @@
 //! cutout ones, so one pass over all of them draws the runs it drew before.
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::{OPAQUE_LAYER, TerrainVertex};
+use super::{OPAQUE_LAYER, TerrainSource, TerrainVertex};
 
 /// The buckets in mesh order: +X, +Z, other, +Y, -Z, -X, -Y. Seen from
 /// above (+Y, the commonest case), each pair of horizontal sides with a
@@ -74,7 +74,7 @@ fn slot(grouped: bool, n: usize) -> (usize, bool) {
 
 /// Where each part of each bucket of a mesh's solid quads ends, and the
 /// planes that tell whether a bucket can face the eye.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Sides {
     /// The solid quads up to the end of each part of each bucket, in mesh
     /// order (`slot`).
@@ -103,6 +103,22 @@ impl Sides {
         }
     }
 
+    /// A sort with these parts' `ends` and `planes`, for tests.
+    #[cfg(test)]
+    pub(crate) fn from_parts(
+        ends: [u32; 14],
+        grouped: bool,
+        split: bool,
+        planes: [f32; 7],
+    ) -> Self {
+        Self {
+            ends,
+            grouped,
+            split,
+            planes,
+        }
+    }
+
     /// The number of solid quads the buckets hold.
     pub fn quads(&self) -> u32 {
         self.ends[13]
@@ -126,6 +142,26 @@ impl Sides {
             Bucket::Other => true,
         };
         self.runs(seen, part, draw);
+    }
+
+    /// For GPU culling's copy of `visible_from` with every part (`gfx::gpu_culling`),
+    /// which then only compares: where each bucket of a mesh sorted for one pass ends,
+    /// in `BUCKETS` order, and what `visible_from` compares the eye with for each. That
+    /// is the lowest plane less `MARGIN` for a bucket facing a positive direction, the
+    /// highest plus `MARGIN` for one facing a negative direction, and 0 for the other
+    /// bucket, which it never compares. `None` for a mesh sorted for two passes
+    /// (`group_parts`), whose buckets lie in two stretches each.
+    pub fn thresholds(&self) -> Option<([u32; 7], [f32; 7])> {
+        if self.grouped {
+            return None;
+        }
+        let t: [f32; 7] = std::array::from_fn(|i| match BUCKETS[i] {
+            Bucket::Side(_, true) => self.planes[i] - MARGIN,
+            Bucket::Side(_, false) => self.planes[i] + MARGIN,
+            Bucket::Other => 0.0,
+        });
+        // A bucket's cutout quads end it (`slot`).
+        Some((std::array::from_fn(|b| self.ends[b * 2 + 1]), t))
     }
 
     /// The runs of `part`'s quads facing every way.
@@ -205,13 +241,35 @@ fn bucket(quad: &[TerrainVertex; 4]) -> usize {
 /// cutout quads are also ordered front to back within each axis-facing
 /// bucket; quads that tie keep the mesher's order (the quad's index ends its
 /// sort key), so coplanar overlays still draw over their base.
-pub fn sort(solid: &mut Vec<TerrainVertex>) -> Sides {
-    sort_parts(solid, GROUPED.load(Ordering::Relaxed))
+#[cfg(test)]
+fn sort(solid: &mut Vec<TerrainVertex>) -> Sides {
+    sort_tinted(solid, &mut Vec::new())
+}
+
+/// `sort`, moving each quad's tint in `tints` (one per quad, or none) with it.
+#[cfg(test)]
+pub fn sort_tinted(solid: &mut Vec<TerrainVertex>, tints: &mut Vec<u32>) -> Sides {
+    sort_sourced(solid, tints, &mut Vec::new())
+}
+
+pub(super) fn sort_sourced(
+    solid: &mut Vec<TerrainVertex>,
+    tints: &mut Vec<u32>,
+    sources: &mut Vec<TerrainSource>,
+) -> Sides {
+    if !sources.is_empty() {
+        sources.resize(solid.len() / 4, TerrainSource::default());
+    }
+    let grouped = GROUPED.load(Ordering::Relaxed);
+    SORT_SCRATCH.with_borrow_mut(|scratch| sort_with(solid, tints, sources, grouped, scratch))
 }
 
 /// `sort`, with all the opaque parts first when `grouped`.
+#[cfg(test)]
 fn sort_parts(solid: &mut Vec<TerrainVertex>, grouped: bool) -> Sides {
-    SORT_SCRATCH.with_borrow_mut(|scratch| sort_with(solid, grouped, scratch))
+    SORT_SCRATCH.with_borrow_mut(|scratch| {
+        sort_with(solid, &mut Vec::new(), &mut Vec::new(), grouped, scratch)
+    })
 }
 
 /// `sort`'s buffers, kept by each meshing thread so sorting a mesh allocates
@@ -222,6 +280,8 @@ struct SortScratch {
     slots: Vec<u8>,
     keys: Vec<u64>,
     sorted: Vec<[TerrainVertex; 4]>,
+    tints: Vec<u32>,
+    sources: Vec<TerrainSource>,
 }
 thread_local! {
     static SORT_SCRATCH: std::cell::RefCell<SortScratch> = Default::default();
@@ -233,9 +293,16 @@ fn total_order_key(v: f32) -> u32 {
     (bits ^ (((bits >> 31) as u32) >> 1) as i32) as u32 ^ 0x8000_0000
 }
 
-fn sort_with(solid: &mut Vec<TerrainVertex>, grouped: bool, scratch: &mut SortScratch) -> Sides {
+fn sort_with(
+    solid: &mut Vec<TerrainVertex>,
+    tints: &mut Vec<u32>,
+    sources: &mut Vec<TerrainSource>,
+    grouped: bool,
+    scratch: &mut SortScratch,
+) -> Sides {
     let (quads, rest) = solid.as_chunks::<4>();
     debug_assert!(rest.is_empty(), "solid vertices come in quads");
+    let quads_len = quads.len();
     let cutout = |q: &[TerrainVertex; 4]| q[0].layer & OPAQUE_LAYER == 0;
     // Each quad's part, by its place in mesh order (`slot`).
     let position = |b: usize, cutout: bool| match grouped {
@@ -297,6 +364,19 @@ fn sort_with(solid: &mut Vec<TerrainVertex>, grouped: bool, scratch: &mut SortSc
         sorted.extend(keys.iter().map(|&k| quads[(k & 0xFF_FFFF) as usize]));
         solid.clear();
         solid.extend_from_slice(sorted.as_flattened());
+        if tints.len() == quads_len {
+            let sorted_tints = &mut scratch.tints;
+            sorted_tints.clear();
+            sorted_tints.extend(keys.iter().map(|&k| tints[(k & 0xFF_FFFF) as usize]));
+            std::mem::swap(tints, sorted_tints);
+        }
+        if sources.len() == quads_len {
+            scratch.sources.clear();
+            scratch
+                .sources
+                .extend(keys.iter().map(|&k| sources[(k & 0xFF_FFFF) as usize]));
+            std::mem::swap(sources, &mut scratch.sources);
+        }
     }
     Sides {
         ends: slot_ends,
@@ -361,7 +441,7 @@ mod tests {
                 let layer = if round % 3 == 0 {
                     OPAQUE_LAYER
                 } else {
-                    (next() % 2) as u32 * OPAQUE_LAYER
+                    (next() % 2) as u16 * OPAQUE_LAYER
                 };
                 let faces = cube(origin, layer);
                 let face = (next() % 6) as usize;
@@ -378,13 +458,13 @@ mod tests {
         }
     }
 
-    fn quad(corners: [[f32; 3]; 4], layer: u32) -> [TerrainVertex; 4] {
+    fn quad(corners: [[f32; 3]; 4], layer: u16) -> [TerrainVertex; 4] {
         corners.map(|p| TerrainVertex::new(p, [0.0; 2], layer, 0, 0))
     }
 
     /// A unit block's six faces at `origin`, wound counter-clockwise seen
     /// from outside, as block models are.
-    fn cube(origin: [f32; 3], layer: u32) -> Vec<TerrainVertex> {
+    fn cube(origin: [f32; 3], layer: u16) -> Vec<TerrainVertex> {
         let [x, y, z] = origin;
         let (a, b, c) = (x + 1.0, y + 1.0, z + 1.0);
         [
@@ -413,7 +493,7 @@ mod tests {
     }
 
     /// The quads of `solid` whose triangles face `eye`, by their layer.
-    fn front_facing(solid: &[TerrainVertex], eye: [f32; 3]) -> Vec<u32> {
+    fn front_facing(solid: &[TerrainVertex], eye: [f32; 3]) -> Vec<u16> {
         let sub = |a: [f32; 3], b: [f32; 3]| [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
         solid
             .as_chunks::<4>()
@@ -439,11 +519,11 @@ mod tests {
     fn cube_faces_go_to_their_buckets_in_order() {
         let mut solid = cube([3.0, 4.0, 5.0], 0);
         for (i, v) in solid.iter_mut().enumerate() {
-            v.layer = (i / 4) as u32;
+            v.layer = (i / 4) as u16;
         }
         let sides = sort(&mut solid);
         assert_eq!(bucket_ends(&sides), [1, 2, 2, 3, 4, 5, 6]);
-        let layers: Vec<u32> = solid.iter().step_by(4).map(|v| v.layer).collect();
+        let layers: Vec<u16> = solid.iter().step_by(4).map(|v| v.layer).collect();
         // +X, +Z, +Y, -Z, -X, -Y.
         assert_eq!(layers, [0, 4, 2, 5, 1, 3]);
         assert_eq!(sides.planes[0], 4.0); // +X at x = 4
@@ -549,7 +629,7 @@ mod tests {
         // Two blocks: one opaque, one cutout, then an opaque one again, so
         // every bucket holds both kinds out of order.
         let mut solid = Vec::new();
-        let mut id = 0u32;
+        let mut id = 0u16;
         for (origin, opaque) in [
             ([0.0, 0.0, 0.0], true),
             ([4.0, 2.0, 6.0], false),
@@ -565,7 +645,7 @@ mod tests {
         for grouped in [false, true] {
             let mut solid = unsorted.clone();
             let sides = sort_parts(&mut solid, grouped);
-            let layers: Vec<u32> = solid
+            let layers: Vec<u16> = solid
                 .as_chunks::<4>()
                 .0
                 .iter()
@@ -677,7 +757,7 @@ mod tests {
             })
             .collect();
         sort(&mut solid);
-        let layers: Vec<u32> = solid
+        let layers: Vec<u16> = solid
             .as_chunks::<4>()
             .0
             .iter()
@@ -698,7 +778,7 @@ mod tests {
             })
             .collect();
         sort(&mut solid);
-        let layers: Vec<u32> = solid
+        let layers: Vec<u16> = solid
             .as_chunks::<4>()
             .0
             .iter()

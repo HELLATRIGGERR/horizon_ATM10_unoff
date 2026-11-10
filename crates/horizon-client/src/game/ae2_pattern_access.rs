@@ -87,7 +87,7 @@ impl Game<'_> {
         if let Some(special)=super::ae2_processing::ae2_decode_special_pattern(pattern){outputs.push(special.output);}
         if let Some((_,items))=super::ae2_processing::ae2_decode_processing_pattern(pattern){outputs.extend(items.into_iter().flatten());}
         if outputs.iter().any(|item|{
-            let name=horizon_client::stations::hover_name(&|id|self.pack.names.display_item(id),item);
+            let name=horizon_client::stations::hover_name(&self.pack.names,item);
             name.to_lowercase().contains(query) || item.item.to_lowercase().contains(query)
         }) {return true;}
         super::ae2_processing::ae2_decode_processing_fluids(pattern).is_some_and(|(_,fluids)|
@@ -129,7 +129,7 @@ impl Game<'_> {
         match owner {
             Owner::Block(address)=>{
                 let (dim,pos)=self.ae2_address_parts(address)?;
-                self.ae2_world_for(dim)?.block_names.get(&pos).cloned()
+                self.ae2_world_for(dim)?.block_names.get(&pos).map(super::block_items::name_plain)
             }
             Owner::Part(part)=>{
                 let BlockEntity::Ae2(host)=self.ae2_block_entity(part.host)? else{return None};
@@ -189,7 +189,7 @@ impl Game<'_> {
             if !assembler && !self.ae2_native_item_supports(target,side) && !self.ae2_native_fluid_supports(target,side){continue;}
             let Some(block)=self.ae2_grid_block(target) else{continue};
             let id=self.res.facts().get(block).name.to_string();
-            let mut label=self.ae2_world_for(dim).and_then(|world|world.block_names.get(&(x,y,z)).cloned())
+            let mut label=self.ae2_world_for(dim).and_then(|world|world.block_names.get(&(x,y,z)).map(super::block_items::name_plain))
                 .unwrap_or_else(||self.pack.names.display_item(&id));
             let mut icon=ItemStack::new(&id,1);
             if let Some(BlockEntity::Ae2(host))=self.ae2_block_entity(target) {
@@ -198,7 +198,7 @@ impl Game<'_> {
                     let Some(Tag::List(parts))=host.config.get(&"parts".into()) else{continue};
                     let Some(part)=parts.iter().find(|p|p.get("face")==Some(&Tag::String(face.into()))) else{continue};
                     let Some(stack)=part.get("stack").and_then(horizon_client::save::item_from_nbt) else{continue};
-                    icon=stack.clone();label=horizon_client::stations::hover_name(&|id|self.pack.names.display_item(id),&stack);
+                    icon=stack.clone();label=horizon_client::stations::hover_name(&self.pack.names,&stack);
                 }
             }
             if let Ok(icon)=horizon_client::ae2_cell_codec::key(&icon) {groups.insert(Group{icon,name:label,tooltip:Vec::new()});}

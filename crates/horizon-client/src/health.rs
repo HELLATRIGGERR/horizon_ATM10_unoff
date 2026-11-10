@@ -21,163 +21,15 @@ use horizon_world::{
     server_player_damage::ServerDamageEnvironment,
     synced_floats::{FloatValue, Observer, SyncedFloats},
 };
-use std::{fs, io, path::Path, sync::OnceLock};
+use std::{cell::Cell, fs, io, path::Path, sync::OnceLock};
+mod equipment;
+#[doc(hidden)]
+pub use equipment::EquipmentHurt;
+
 pub(crate) type Attributes = LiveAttributes<Box<dyn horizon_world::attributes::live::Identities>>;
 pub(crate) type State = HurtState<DamageTypeId>;
 
 pub use crate::world::HealthRules;
-/// Append mod-owned damage definitions without changing vanilla catalog IDs.
-/// Data-pack tag files are merged into the prepared tag resources.
-fn merge_mod_damage(
-    root: &Path,
-    catalog: &mut serde_json::Value,
-    tags: &mut serde_json::Value,
-) -> Result<()> {
-    fn files(dir: &Path) -> Result<Vec<std::path::PathBuf>> {
-        if !dir.exists() {
-            return Ok(vec![]);
-        }
-        let mut found = Vec::new();
-        let mut pending = vec![dir.to_path_buf()];
-        while let Some(path) = pending.pop() {
-            for entry in fs::read_dir(path)? {
-                let p = entry?.path();
-                if p.is_dir() {
-                    pending.push(p)
-                } else if p.extension().is_some_and(|e| e == "json") {
-                    found.push(p)
-                }
-            }
-        }
-        found.sort();
-        Ok(found)
-    }
-    let namespaces = crate::mod_content::namespaces(root);
-    let types = catalog["types"]
-        .as_array_mut()
-        .ok_or("missing damage definitions")?;
-    let mut known: std::collections::BTreeSet<String> = types
-        .iter()
-        .filter_map(|v| v["id"].as_str().map(str::to_owned))
-        .collect();
-    for ns in &namespaces {
-        let dir = root.join("data").join(ns).join("damage_type");
-        for path in files(&dir)? {
-            let relative = path
-                .strip_prefix(&dir)?
-                .with_extension("")
-                .to_string_lossy()
-                .replace('\\', "/");
-            let id = format!("{ns}:{relative}");
-            if !known.insert(id.clone()) {
-                continue;
-            }
-            let source: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
-            let exhaustion = source["exhaustion"]
-                .as_f64()
-                .ok_or("missing damage exhaustion")? as f32;
-            if !exhaustion.is_finite() {
-                return Err("invalid damage exhaustion".into());
-            }
-            // NeoForge lets mods add effects and death message types (Productive Metalworks'
-            // `productivemetalworks:foundry`), drawn by their own code: here they hurt and read
-            // as vanilla's defaults, rather than the whole catalog failing and the game with it.
-            let known_or = |key: &str, vanilla: &[&str], default: &'static str| {
-                let value = source[key].as_str().unwrap_or(default);
-                if vanilla.contains(&value) {
-                    value.to_owned()
-                } else {
-                    log::warn!("Horizon: damage type {id}: {key} {value:?} is a mod's own; {default} instead");
-                    default.to_owned()
-                }
-            };
-            let effects = known_or(
-                "effects",
-                &["hurt", "thorns", "drowning", "burning", "poking", "freezing"],
-                "hurt",
-            );
-            let death = known_or(
-                "death_message_type",
-                &["default", "fall_variants", "intentional_game_design"],
-                "default",
-            );
-            types.push(serde_json::json!({"id":id,"message_id":source["message_id"].as_str().ok_or("missing damage message_id")?,"exhaustion":format!("{:08x}",exhaustion.to_bits()),"scaling":source["scaling"].as_str().ok_or("missing damage scaling")?,"effects":effects,"death_message_type":death}));
-        }
-    }
-    let resources = tags.as_object_mut().ok_or("invalid damage tag resources")?;
-    for ns in crate::mod_content::tag_namespaces(root) {
-        let dir = root.join("data").join(&ns).join("tags/damage_type");
-        for path in files(&dir)? {
-            let relative = path
-                .strip_prefix(&dir)?
-                .with_extension("")
-                .to_string_lossy()
-                .replace('\\', "/");
-            let id = format!("{ns}:{relative}");
-            let incoming: serde_json::Value = serde_json::from_slice(&fs::read(path)?)?;
-            let mut values = if incoming["replace"].as_bool() == Some(true) {
-                vec![]
-            } else {
-                resources
-                    .get(&id)
-                    .and_then(|v| v.as_str())
-                    .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
-                    .and_then(|v| v["values"].as_array().cloned())
-                    .unwrap_or_default()
-            };
-            values.extend(
-                incoming["values"]
-                    .as_array()
-                    .ok_or("invalid damage tag")?
-                    .iter()
-                    .cloned(),
-            );
-            resources.insert(
-                id,
-                serde_json::Value::String(
-                    serde_json::json!({"replace":false,"values":values}).to_string(),
-                ),
-            );
-        }
-    }
-    // Mods name damage types and tags of mods that aren't here (an addon's, a mod not carried).
-    // Java fails such a tag whole; here the references go, said once each, and the tag keeps the
-    // rest, rather than the catalog failing and the game with it.
-    let tag_ids: std::collections::BTreeSet<String> = resources.keys().cloned().collect();
-    for (id, text) in resources.iter_mut() {
-        let Some(mut tag) = text
-            .as_str()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok())
-        else {
-            continue;
-        };
-        let Some(values) = tag["values"].as_array_mut() else {
-            continue;
-        };
-        let before = values.len();
-        values.retain(|v| {
-            let (name, required) = match v {
-                serde_json::Value::Object(o) => (
-                    o.get("id").and_then(|i| i.as_str()).unwrap_or_default(),
-                    o.get("required").and_then(|r| r.as_bool()).unwrap_or(true),
-                ),
-                other => (other.as_str().unwrap_or_default(), true),
-            };
-            let found = match name.strip_prefix('#') {
-                Some(tag) => tag_ids.contains(tag),
-                None => known.contains(name),
-            };
-            if !found && required {
-                log::warn!("Horizon: damage type tag {id}: {name} is not here; left out");
-            }
-            found
-        });
-        if values.len() != before {
-            *text = serde_json::Value::String(tag.to_string());
-        }
-    }
-    Ok(())
-}
 /// A hit's `DamageSource` for [`HURT_SERVER`]: its type (`minecraft:fall`),
 /// and the entity ids of `getEntity` (`causing`) and `getDirectEntity`
 /// (`direct`), 0 for none or not known.
@@ -197,6 +49,8 @@ pub enum Hurting<'a> {
     Mob(&'a crate::mobs::Mob, &'a crate::mobs::Damage),
     /// The ender dragon, by its entity id.
     Dragon(i32, HurtSource<'a>),
+    /// An armor stand, by its entity id, for sweep knockback.
+    ArmorStand(i32, HurtSource<'a>),
 }
 /// The game's native damage hook (`native_living_incoming_damage`), set once by the
 /// game: `LivingEntity.hurtServer` once its guards passed. It may change the
@@ -206,8 +60,39 @@ pub static HURT_SERVER: OnceLock<fn(Hurting<'_>, &mut f32) -> bool> = OnceLock::
 pub fn hurt_server_canceled(hurting: Hurting<'_>, amount: &mut f32) -> bool {
     HURT_SERVER.get().is_some_and(|hook| hook(hurting, amount))
 }
+/// The game's `LivingDamageEvent.Pre` hook (`native_living_damage_pre`), set
+/// once by the game: `LivingEntity.actuallyHurt` once armour, enchantments,
+/// effects and absorption took their part, before the health. It may change
+/// the amount.
+pub static DAMAGE_PRE: OnceLock<fn(Hurting<'_>, &mut f32)> = OnceLock::new();
+/// The game's `LivingDamageEvent.Post` hook (`native_living_damage_post`), set
+/// once by the game: the end of `actuallyHurt`, with what came off the health.
+pub static DAMAGE_POST: OnceLock<fn(Hurting<'_>, f32)> = OnceLock::new();
+/// [`DAMAGE_PRE`] on what is about to come off the health (nothing while it is
+/// unset). An amount it made negative or NaN takes nothing, an infinite one
+/// `Float.MAX_VALUE`.
+pub fn damage_pre(hurting: Hurting<'_>, amount: &mut f32) {
+    let Some(hook) = DAMAGE_PRE.get() else {
+        return;
+    };
+    let before = amount.to_bits();
+    hook(hurting, amount);
+    if amount.to_bits() != before {
+        *amount = if amount.is_nan() || *amount < 0.0 {
+            0.0
+        } else {
+            amount.min(f32::MAX)
+        };
+    }
+}
+/// [`DAMAGE_POST`] with what came off the health (nothing while it is unset).
+pub fn damage_post(hurting: Hurting<'_>, amount: f32) {
+    if let Some(hook) = DAMAGE_POST.get() {
+        hook(hurting, amount);
+    }
+}
 /// A knockback's strength and direction, as `LivingEntity.knockback` has them
-/// once the knockback resistance is applied. The entity is pushed away from
+/// before knockback resistance is applied. The entity is pushed away from
 /// the direction (`x`, `z`), which vanilla points at the source of the hit.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Knock {
@@ -220,6 +105,44 @@ pub struct Knock {
 /// and before the knockback resistance and the motion change. It may change the [`Knock`]; true
 /// cancels it.
 pub static KNOCKBACK: OnceLock<fn(Hurting<'_>, &mut Knock) -> bool> = OnceLock::new();
+
+thread_local! {
+    static KNOCKBACK_ATTACKER: Cell<i32> = const { Cell::new(0) };
+    static KNOCKBACK_HELD: std::cell::RefCell<[Option<crate::items::ItemStack>; 2]> =
+        const { std::cell::RefCell::new([None, None]) };
+}
+
+/// The entity behind the synchronous attack, or 0 outside an attack scope.
+pub fn knockback_attacker() -> i32 {
+    KNOCKBACK_ATTACKER.get()
+}
+
+/// What the attacker holds in the main and off hand, or none when it is not known (or no
+/// native mod listens: the game only records it then).
+pub fn knockback_held() -> [Option<crate::items::ItemStack>; 2] {
+    KNOCKBACK_HELD.with(|held| held.borrow().clone())
+}
+
+/// Restore the previous attacker on return or unwind, including nested guest actions.
+pub fn knockback_from(entity: i32) -> impl Drop {
+    knockback_from_holding(entity, [None, None])
+}
+
+/// [`knockback_from`] that also records the attacker's held stacks (main hand, off hand).
+pub fn knockback_from_holding(
+    entity: i32,
+    held: [Option<crate::items::ItemStack>; 2],
+) -> impl Drop {
+    struct Restore(i32, [Option<crate::items::ItemStack>; 2]);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            KNOCKBACK_ATTACKER.set(self.0);
+            KNOCKBACK_HELD.with(|held| *held.borrow_mut() = std::mem::take(&mut self.1));
+        }
+    }
+    let held = KNOCKBACK_HELD.with(|slot| std::mem::replace(&mut *slot.borrow_mut(), held));
+    Restore(KNOCKBACK_ATTACKER.replace(entity), held)
+}
 /// Whether [`KNOCKBACK`] canceled the knockback (never while it is unset). A
 /// value it leaves that is not a finite number is put back as it was.
 pub fn knockback_canceled(pushed: Hurting<'_>, knock: &mut Knock) -> bool {
@@ -239,6 +162,7 @@ pub fn knockback_canceled(pushed: Hurting<'_>, knock: &mut Knock) -> bool {
     }
     canceled
 }
+#[derive(Clone)]
 pub struct HealthResources {
     pub damage: Catalog,
     pub ids: PlayerFloatIds,
@@ -254,10 +178,7 @@ impl HealthResources {
                 ids[name].as_u64().ok_or("missing player float ID")?,
             )?)
         };
-        let mut damage_catalog = read("damage-catalog.json")?;
-        let mut damage_tags = read("damage-tags.json")?;
-        merge_mod_damage(root, &mut damage_catalog, &mut damage_tags)?;
-        let damage = Catalog::from_json(&damage_catalog, &damage_tags)?;
+        let damage = Catalog::load(root, &horizon_world::loot::PackOverlay::NONE)?;
         for name in ["minecraft:fall", "minecraft:stalagmite", "minecraft:starve"] {
             if damage.id(name).is_none() {
                 return Err(format!("missing damage type {name}").into());
@@ -269,6 +190,23 @@ impl HealthResources {
                 health: id("health")?,
                 absorption: id("absorption")?,
             },
+        })
+    }
+    /// A world's frozen damage registry at open, or reloaded tags against
+    /// that same registry. Player metadata IDs stay the prepared version's.
+    pub fn with_packs(
+        &self,
+        root: &Path,
+        overlay: &horizon_world::loot::PackOverlay<'_>,
+        reload: bool,
+    ) -> Result<Self> {
+        Ok(Self {
+            damage: if reload {
+                self.damage.reload_tags(root, overlay)?
+            } else {
+                Catalog::load(root, overlay)?
+            },
+            ids: self.ids,
         })
     }
     pub fn landing_source(&self, source: LandingDamage) -> DamageTypeId {
@@ -553,8 +491,6 @@ impl PlayerMotion {
             .damage
             .source::<()>(source, None, None, None)
             .ok_or("unknown resident damage source")?;
-        let armor = self.attribute("minecraft:armor").unwrap_or(0.0) as f32;
-        let toughness = self.attribute("minecraft:armor_toughness").unwrap_or(0.0) as f32;
         let before = self.health.health() + self.health.absorption();
         let fire_ticks = self.fire_ticks;
         let source_name = source.definition().name.clone();
@@ -614,6 +550,22 @@ impl PlayerMotion {
             h.indicate_damage(0.0, 0.0, self.yaw);
         }
         let after = h.health() + h.absorption();
+        // `LivingEntity.getDamageAfterArmorAbsorb` is the hit's only reader of
+        // these two instances, and a source in `#minecraft:bypasses_armor`
+        // makes it return before `getArmorValue` and
+        // `getAttributeValue(ARMOR_TOUGHNESS)`. Native `getValue` is what
+        // clears an instance's dirty flag, so the record takes the caches the
+        // hit left instead of recomputing them: one that does meet the armour
+        // has already recomputed both in `after_armor`, and one that bypassed
+        // it leaves creation's zero cache untouched.
+        let armor = self
+            .attributes
+            .cached_value_of("minecraft:armor")
+            .unwrap_or(0.0) as f32;
+        let toughness = self
+            .attributes
+            .cached_value_of("minecraft:armor_toughness")
+            .unwrap_or(0.0) as f32;
         if self.hurt_log.len() >= HURT_LOG {
             self.hurt_log.remove(0);
         }
@@ -710,7 +662,10 @@ pub struct HurtRecord {
     /// Health and absorption lost.
     pub taken: f32,
     pub hurt: bool,
-    /// `minecraft:armor` and `minecraft:armor_toughness` when it came.
+    /// `minecraft:armor` and `minecraft:armor_toughness` as the hit left their
+    /// instances' caches. `getDamageAfterArmorAbsorb` reads them only for a
+    /// source outside `#minecraft:bypasses_armor`, so a hit that bypassed the
+    /// armour reports the cache that source never recomputed.
     pub armor: f32,
     pub toughness: f32,
     pub health: f32,
@@ -759,6 +714,14 @@ impl horizon_world::blocking_rules::TypeMatchWorld for MatchedSets {
     }
 }
 impl Environment<'_> {
+    /// The hit's `DamageSource`, for the native damage hooks.
+    fn hurt_source(&self) -> HurtSource<'_> {
+        HurtSource {
+            damage_type: &self.source.definition().name,
+            causing: self.causing,
+            direct: 0,
+        }
+    }
     fn event(&mut self, event: HealthEvent) {
         self.events.push(MotionEvent::Health(event));
     }
@@ -859,6 +822,14 @@ impl ServerDamageEnvironment<Attributes> for Environment<'_> {
     fn damage_event(&mut self) -> io::Result<()> {
         self.phase("entity-damage")
     }
+    fn damage_pre(&mut self, damage: &mut f32) -> io::Result<()> {
+        damage_pre(Hurting::Player(self.entity, self.hurt_source()), damage);
+        Ok(())
+    }
+    fn damage_post(&mut self, damage: f32) -> io::Result<()> {
+        damage_post(Hurting::Player(self.entity, self.hurt_source()), damage);
+        Ok(())
+    }
 }
 impl CombatEnvironment<Attributes> for Environment<'_> {
     fn dead_flag(&self) -> bool {
@@ -934,11 +905,7 @@ impl HurtWorld for Environment<'_> {
         Ok(self.status.fire_resistance)
     }
     fn hurt_start(&mut self, _: &mut State, damage: &mut f32) -> io::Result<bool> {
-        let source = HurtSource {
-            damage_type: &self.source.definition().name,
-            causing: self.causing,
-            direct: 0,
-        };
+        let source = self.hurt_source();
         let canceled = hurt_server_canceled(Hurting::Player(self.entity, source), damage);
         self.canceled |= canceled;
         Ok(canceled)
@@ -1102,14 +1069,19 @@ impl ServerPlayerHurtWorld for Environment<'_> {
 }
 
 #[cfg(test)]
+mod datapack_tests;
+
+#[cfg(test)]
 mod tests {
     #[test]
     fn mod_damage_definitions_and_tags_preserve_vanilla_ids() {
+        // ATM10's mods: a damage type's own effects and death message type (NeoForge's
+        // extensible enums) read as vanilla's defaults, and a tag naming a type of a mod
+        // that isn't here loses that reference only, not the whole tag or the catalog.
         let root = std::env::temp_dir().join(format!("horizon-damage-mod-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("data/ae2/damage_type")).unwrap();
         std::fs::create_dir_all(root.join("data/minecraft/tags/damage_type")).unwrap();
-        std::fs::write(root.join("horizon-mod-content.json"), r#"["ae2"]"#).unwrap();
         std::fs::write(root.join("data/ae2/damage_type/matter_cannon.json"),r#"{"exhaustion":0.1,"message_id":"matter_cannon","scaling":"when_caused_by_living_non_player"}"#).unwrap();
         // NeoForge's extensible enums: a mod's own death message type and effects.
         std::fs::write(root.join("data/ae2/damage_type/foundry.json"),r#"{"exhaustion":0.1,"message_id":"foundry","scaling":"never","effects":"ae2:melting","death_message_type":"ae2:foundry"}"#).unwrap();
@@ -1119,10 +1091,15 @@ mod tests {
             r##"{"values":["ae2:matter_cannon","powah:zap",{"id":"#c:none","required":false}]}"##,
         )
         .unwrap();
-        let mut catalog = serde_json::json!({"data_version":horizon_world::DATA_VERSION,"types":[{"id":"minecraft:generic","message_id":"generic","exhaustion":"00000000","scaling":"never","effects":"hurt","death_message_type":"default"}]});
-        let mut tags = serde_json::json!({"minecraft:test":"{\"values\":[\"minecraft:generic\"]}"});
-        super::merge_mod_damage(&root, &mut catalog, &mut tags).unwrap();
-        let c = horizon_world::damage_source::Catalog::from_json(&catalog, &tags).unwrap();
+        let catalog = serde_json::json!({"data_version":horizon_world::DATA_VERSION,"types":[{"id":"minecraft:generic","message_id":"generic","exhaustion":"00000000","scaling":"never","effects":"hurt","death_message_type":"default"}]});
+        let tags = serde_json::json!({"minecraft:test":"{\"values\":[\"minecraft:generic\"]}"});
+        std::fs::write(root.join("damage-catalog.json"), catalog.to_string()).unwrap();
+        std::fs::write(root.join("damage-tags.json"), tags.to_string()).unwrap();
+        let c = horizon_world::damage_source::Catalog::load(
+            &root,
+            &horizon_world::loot::PackOverlay::NONE,
+        )
+        .unwrap();
         let vanilla = c.id("minecraft:generic").unwrap();
         let ae2 = c.id("ae2:matter_cannon").unwrap();
         assert_eq!(c.entries().next().unwrap().0, vanilla);
@@ -1136,6 +1113,27 @@ mod tests {
         let foundry = c.definition(c.id("ae2:foundry").unwrap()).unwrap();
         assert_eq!((foundry.effects.as_str(), foundry.death_message_type.as_str()), ("hurt", "default"));
         let _ = std::fs::remove_dir_all(root);
+    }
+    #[test]
+    fn knockback_attacker_scopes_restore_on_return_and_unwind() {
+        assert_eq!(super::knockback_attacker(), 0);
+        {
+            let _outer = super::knockback_from(7);
+            let panic = std::panic::catch_unwind(|| {
+                let _inner = super::knockback_from(9);
+                assert_eq!(super::knockback_attacker(), 9);
+                panic!("test unwind");
+            });
+            assert!(panic.is_err());
+            assert_eq!(super::knockback_attacker(), 7);
+            assert_eq!(
+                std::thread::spawn(super::knockback_attacker)
+                    .join()
+                    .unwrap(),
+                0
+            );
+        }
+        assert_eq!(super::knockback_attacker(), 0);
     }
     #[test]
     fn a_hit_in_the_hurt_cooldown_knocks_nobody_back() {
@@ -1218,6 +1216,41 @@ mod tests {
         assert!(o.fully_blocked && !o.knockback);
     }
 
+    /// #7309: on Hard a mob's 4 is scaled to 6 (`Player.hurtServer`), on
+    /// Normal it stays 4, and a non-mob source is never scaled.
+    #[test]
+    fn hard_scales_a_mob_hit_by_one_and_a_half() {
+        use horizon_world::food::Difficulty;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
+        if !root.join("movement-properties.nbt").exists() {
+            return;
+        }
+        let assets = crate::assets::Assets::load(&root).unwrap();
+        let resources = crate::motion::MotionResources::load(&root, &assets).unwrap();
+        let health = &resources.health;
+        let id = health.damage.id("minecraft:mob_attack").unwrap();
+        let lost = |difficulty, living| {
+            let mut player =
+                crate::motion::PlayerMotion::new(&resources, horizon_core::geometry::Vec3::ZERO)
+                    .unwrap();
+            let rules = super::HealthRules {
+                difficulty,
+                ..Default::default()
+            };
+            let before = player.health.health();
+            player
+                .hurt_caused_by(health, rules, id, 4.0, None, living, 0)
+                .unwrap();
+            before - player.health.health()
+        };
+        assert_eq!(lost(Difficulty::Hard, true), 6.0);
+        assert_eq!(lost(Difficulty::Normal, true), 4.0);
+        assert_eq!(lost(Difficulty::Easy, true), 3.0);
+        assert_eq!(lost(Difficulty::Hard, false), 4.0);
+    }
+
     /// #2141: an arrow that takes the last of the player's health must kill
     /// them: `LivingEntity.hurt` leaves the health at zero and `Player.die`
     /// follows.
@@ -1253,7 +1286,7 @@ mod tests {
         use super::Hurting;
         fn hook(hurting: Hurting<'_>, amount: &mut f32) -> bool {
             let (entity, seen) = match hurting {
-                Hurting::Player(e, s) | Hurting::Dragon(e, s) => {
+                Hurting::Player(e, s) | Hurting::Dragon(e, s) | Hurting::ArmorStand(e, s) => {
                     (e, format!("{} {}", s.damage_type, s.causing))
                 }
                 Hurting::Mob(mob, source) => (mob.id as i32, format!("{:?}", source.kind)),
@@ -1298,6 +1331,7 @@ mod tests {
             kind: DamageKind::PlayerAttack,
             attacker: None,
             from: Some([3.0, 0.0, 0.0]),
+            attacker_species: None,
         };
         // Canceled: no damage, cooldown, sound or knockback.
         let mut kept = mob(9001);
@@ -1351,6 +1385,136 @@ mod tests {
         assert_eq!(seen(9013), [("minecraft:arrow 44".to_owned(), 5.0)]);
     }
 
+    /// What the `LivingDamageEvent` hooks of these tests were handed: the
+    /// entity, Post (true) or Pre, and the amount.
+    static TAKEN: std::sync::Mutex<Vec<(i32, bool, f32)>> = std::sync::Mutex::new(Vec::new());
+    /// Sets the native `LivingDamageEvent.Pre` and `.Post` hooks of these
+    /// tests (global: they stay set for the process), for entities 9201 to
+    /// 9205 and 9211 to 9212 only: they record what each is handed, and Pre
+    /// halves x2's amount and makes 9203's -5, 9204's NaN and 9205's infinite.
+    fn set_damage_hooks() -> fn(i32) -> Vec<(bool, f32)> {
+        use super::Hurting;
+        fn entity(hurting: &Hurting<'_>) -> Option<i32> {
+            let entity = match hurting {
+                Hurting::Player(e, _) | Hurting::Dragon(e, _) | Hurting::ArmorStand(e, _) => *e,
+                Hurting::Mob(mob, _) => mob.id as i32,
+            };
+            matches!(entity, 9201..=9205 | 9211..=9212).then_some(entity)
+        }
+        fn pre(hurting: Hurting<'_>, amount: &mut f32) {
+            let Some(entity) = entity(&hurting) else {
+                return;
+            };
+            TAKEN.lock().unwrap().push((entity, false, *amount));
+            match entity {
+                9202 | 9212 => *amount /= 2.0,
+                9203 => *amount = -5.0,
+                9204 => *amount = f32::NAN,
+                9205 => *amount = f32::INFINITY,
+                _ => {}
+            }
+        }
+        fn post(hurting: Hurting<'_>, amount: f32) {
+            if let Some(entity) = entity(&hurting) {
+                TAKEN.lock().unwrap().push((entity, true, amount));
+            }
+        }
+        let installed = (
+            *super::DAMAGE_PRE.get_or_init(|| pre),
+            *super::DAMAGE_POST.get_or_init(|| post),
+        );
+        assert!(std::ptr::fn_addr_eq(
+            installed.0,
+            pre as fn(Hurting<'_>, &mut f32)
+        ));
+        assert!(std::ptr::fn_addr_eq(
+            installed.1,
+            post as fn(Hurting<'_>, f32)
+        ));
+        |entity| {
+            let taken = TAKEN.lock().unwrap();
+            taken
+                .iter()
+                .filter(|t| t.0 == entity)
+                .map(|t| (t.1, t.2))
+                .collect()
+        }
+    }
+
+    #[test]
+    fn the_native_damage_hooks_see_and_change_what_a_mobs_health_takes() {
+        use crate::mobs::{Damage, DamageKind, Mob};
+        let taken = set_damage_hooks();
+        let mob = |id| {
+            Mob::new(
+                id,
+                crate::mobs::sensor_scan_tests::kind(),
+                Default::default(),
+                0.0,
+            )
+        };
+        let hit = Damage {
+            kind: DamageKind::PlayerAttack,
+            attacker: None,
+            from: Some([3.0, 0.0, 0.0]),
+            attacker_species: None,
+        };
+        let mut plain = mob(9201);
+        assert!(plain.damage(2.0, hit));
+        // Within the cooldown only what exceeds the last hit reaches the health.
+        assert!(plain.damage(5.0, hit));
+        assert_eq!(plain.health, 5.0);
+        assert_eq!(
+            taken(9201),
+            [(false, 2.0), (true, 2.0), (false, 3.0), (true, 3.0)]
+        );
+        let mut halved = mob(9202);
+        assert!(halved.damage(2.0, hit));
+        assert_eq!(halved.health, 9.0);
+        assert_eq!(taken(9202), [(false, 2.0), (true, 1.0)]);
+        // A negative or NaN amount takes nothing and an infinite one
+        // Float.MAX_VALUE; the hit lands all the same.
+        let (mut negative, mut nan, mut infinite) = (mob(9203), mob(9204), mob(9205));
+        assert!(negative.damage(2.0, hit) && nan.damage(2.0, hit) && infinite.damage(2.0, hit));
+        assert_eq!(
+            (negative.health, nan.health, negative.hurt_time),
+            (10.0, 10.0, 10)
+        );
+        assert!(infinite.health <= 0.0);
+        assert_eq!(taken(9204), [(false, 2.0), (true, 0.0)]);
+        assert_eq!(taken(9205), [(false, 2.0), (true, f32::MAX)]);
+    }
+
+    /// Needs the prepared data in `.local/horizon-client/26.3`; skipped
+    /// without it.
+    #[test]
+    fn the_native_damage_hooks_see_and_change_what_a_players_health_takes() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
+        if !root.join("movement-properties.nbt").exists() {
+            return;
+        }
+        let taken = set_damage_hooks();
+        let assets = crate::assets::Assets::load(&root).unwrap();
+        let resources = crate::motion::MotionResources::load(&root, &assets).unwrap();
+        let (health, rules) = (&resources.health, super::HealthRules::default());
+        let id = health.damage.id("minecraft:arrow").unwrap();
+        let player = |entity| {
+            let mut p = crate::motion::PlayerMotion::new(&resources, Default::default()).unwrap();
+            p.entity_id = entity;
+            p
+        };
+        let mut plain = player(9211);
+        assert!(plain.hurt(health, rules, id, 5.0).unwrap());
+        assert_eq!(plain.health.health(), 15.0);
+        assert_eq!(taken(9211), [(false, 5.0), (true, 5.0)]);
+        let mut halved = player(9212);
+        assert!(halved.hurt(health, rules, id, 5.0).unwrap());
+        assert_eq!(halved.health.health(), 17.5);
+        assert_eq!(taken(9212), [(false, 5.0), (true, 2.5)]);
+    }
+
     /// What the knockback hook of these tests saw: the entity, the hit that
     /// causes it (a mob's damage kind) and the push it was handed.
     static PUSHES: std::sync::Mutex<Vec<(i32, String, super::Knock)>> =
@@ -1400,8 +1564,33 @@ mod tests {
         }
     }
 
-    /// `LivingEntity.knockback`: the hook runs once the knockback resistance
-    /// took its share and before the motion changes; a mod's strength or
+    /// A zombie in full netherite (0.1 a piece) is pushed 60 % as far as one
+    /// with no armour: `knockback` scales by the attribute's value with the
+    /// gear's modifiers, which the game hands the mob as `gear_knockback_resistance`.
+    #[test]
+    fn a_mobs_gear_resists_knockback() {
+        use crate::mobs::{Damage, Mob};
+        let hit = Damage::player([3.0, 0.0, 0.0]);
+        let pushed = |gear: Option<f64>, own: f64| {
+            let mut m = Mob::new(
+                9200,
+                crate::mobs::sensor_scan_tests::kind(),
+                Default::default(),
+                0.0,
+            );
+            m.on_ground = true;
+            m.attrs.knockback_resistance = own;
+            m.gear_knockback_resistance = gear;
+            m.knockback(0.4, 3.0, 0.0, &hit);
+            m.velocity.x
+        };
+        assert_eq!(pushed(None, 0.0), -0.4);
+        assert!((pushed(Some(0.4), 0.0) - -0.4 * 0.6).abs() < 1e-12);
+        // The gear's value is the whole attribute: it replaces the mob's own.
+        assert!((pushed(Some(0.4), 0.5) - -0.4 * 0.6).abs() < 1e-12);
+    }
+    /// `LivingEntity.knockback`: the hook runs before knockback resistance
+    /// takes its share and before motion changes; a mod's strength or
     /// direction is what pushes, a cancel pushes nothing, and with no mod in
     /// the way the push is vanilla's. Expected values are worked out by hand
     /// from vanilla's formula: the horizontal speed halves and the push is
@@ -1447,6 +1636,7 @@ mod tests {
         // A stronger push the other way: twice the strength, x turned around.
         let turned = push(9102, 0.0);
         assert_eq!(velocity(&turned), (0.8, 0.4, 0.0));
+        assert_eq!(velocity(&push(9102, 0.5)), (0.4, 0.4, 0.0));
         // Numbers that are not finite are put back as the game made them.
         assert_eq!(velocity(&push(9103, 0.0)), (-0.4, 0.4, 0.0));
         // Before the resistance (`LivingKnockBackEvent`): the hook is handed the raw 0.4, and
@@ -1513,5 +1703,84 @@ mod tests {
         ] {
             assert_eq!(super::hurt_sound(effects), sound, "{effects}");
         }
+    }
+
+    /// `LivingEntity.getDamageAfterArmorAbsorb` returns before
+    /// `getArmorValue` and `getAttributeValue(ARMOR_TOUGHNESS)` for a source in
+    /// `#minecraft:bypasses_armor`, and native `AttributeInstance.getValue` is
+    /// what clears an instance's dirty flag. A hit must therefore leave both
+    /// instances dirty with creation's zero cache when it bypasses the armour,
+    /// and recompute them when it does not.
+    #[test]
+    fn a_bypassing_hit_leaves_the_armor_instances_dirty() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../.local/horizon-client")
+            .join(horizon_core::VANILLA_VERSION);
+        if !root.join("movement-properties.nbt").exists() {
+            return;
+        }
+        let assets = crate::assets::Assets::load(&root).unwrap();
+        let resources = crate::motion::MotionResources::load(&root, &assets).unwrap();
+        let (health, rules) = (&resources.health, super::HealthRules::default());
+        // `setBaseValue` is what a command or a spawn uses; a base other than
+        // the attribute's default is what makes the fresh instance's cache
+        // stale, and it is the value a recompute would produce.
+        let armoured = |resources: &crate::motion::MotionResources| {
+            let mut player =
+                crate::motion::PlayerMotion::new(resources, horizon_core::geometry::Vec3::ZERO)
+                    .unwrap();
+            let mut handles = Vec::new();
+            for name in ["minecraft:armor", "minecraft:armor_toughness"] {
+                let key = player.attributes.key(name).unwrap();
+                let handle = player
+                    .attributes
+                    .get_instance(Some(key))
+                    .unwrap()
+                    .expect("the player supplier has this attribute");
+                player
+                    .attributes
+                    .edit(&handle, |a, o| a.set_base_value(7.0, o))
+                    .unwrap();
+                handles.push(handle);
+            }
+            (player, handles)
+        };
+        let states = |player: &crate::motion::PlayerMotion,
+                      handles: &[horizon_world::attributes::live::Handle]| {
+            handles
+                .iter()
+                .map(|handle| {
+                    let a = player.attributes.instance(handle).unwrap();
+                    (a.base_value(), a.is_dirty(), a.cached_value())
+                })
+                .collect::<Vec<_>>()
+        };
+        // `minecraft:fall` is in the tag: neither instance is read.
+        let (mut bypassing, bypassing_handles) = armoured(&resources);
+        let fall = health.damage.id("minecraft:fall").unwrap();
+        assert!(bypassing.hurt(health, rules, fall, 5.0).unwrap());
+        assert_eq!(
+            states(&bypassing, &bypassing_handles),
+            [(7.0, true, 0.0), (7.0, true, 0.0)],
+            "a bypassing hit must leave both instances dirty and uncached"
+        );
+        let record = bypassing.hurt_log.last().unwrap();
+        assert_eq!(
+            (record.armor, record.toughness),
+            (0.0, 0.0),
+            "the hit reports the cache it left"
+        );
+        // `minecraft:mob_attack` is not: `getDamageAfterAbsorb` asks for both
+        // values, so the hit recomputes them and the record reads them back.
+        let (mut meeting, meeting_handles) = armoured(&resources);
+        let attack = health.damage.id("minecraft:mob_attack").unwrap();
+        assert!(meeting.hurt(health, rules, attack, 5.0).unwrap());
+        assert_eq!(
+            states(&meeting, &meeting_handles),
+            [(7.0, false, 7.0), (7.0, false, 7.0)],
+            "a hit the armour meets must recompute both instances"
+        );
+        let record = meeting.hurt_log.last().unwrap();
+        assert_eq!((record.armor, record.toughness), (7.0, 7.0));
     }
 }

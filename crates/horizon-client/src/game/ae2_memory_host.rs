@@ -112,7 +112,7 @@ impl Game<'_> {
         if host.variant.is_some(){return Ok(None)}
         let (target,machine,name,name_component)=if matches!(host.kind,MachineKind::Inscriber|MachineKind::IoPort|MachineKind::VibrationChamber|MachineKind::Interface|MachineKind::MolecularAssembler|MachineKind::Condenser|MachineKind::Drive|MachineKind::Chest) {
             if self.res.facts().get(self.world.block(pos[0],pos[1],pos[2])).name.as_ref()!=host.id(){return Ok(None)}
-            let name=self.world.block_names.get(&key).cloned();let component=machine_name_component(host,name.as_deref());
+            let name=self.block_name_plain(key);let component=machine_name_component(host,name.as_deref());
             (Target::Block,(**host).clone(),name,component)
         }else if host.kind==MachineKind::CableBus {
             let Some(face)=face else{return Ok(None)};
@@ -161,7 +161,7 @@ impl Game<'_> {
         let Some(BlockEntity::Ae2(current))=self.world.block_entities.get_mut(&key) else{return Err("machine disappeared".into())};
         if **current!=before.host{return Err("machine changed during import".into())}
         std::mem::swap(&mut **current,&mut next);
-        if matches!(before.target,Target::Block){if let Some(name)=name{match name{Some(name)=>{self.world.block_names.insert(key,horizon_client::entity_nbt::name_text(&name).plain());},None=>{self.world.block_names.remove(&key);}}}}
+        if matches!(before.target,Target::Block){if let Some(name)=name{match name{Some(name)=>{self.world.block_names.insert(key,name);},None=>{self.world.block_names.remove(&key);}}}}
         if mark_dirty {self.world.modified.insert((pos[0]>>4,pos[2]>>4));}Ok(())
     }
     pub(super) fn ae2_try_machine_memory_face(&mut self,pos:[i32;3],face:&str)->bool {

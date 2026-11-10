@@ -6,7 +6,7 @@ move them, its items carry them, Mekanism Generators burns hydrogen and fuses de
 them through Applied Mekanistics. ATM10 8.4 registers 112 chemicals: Mekanism's 64, All the Ores' 26 slurries,
 Allthemodium's 6, Mekanism More Machines' (`mekmm`) 6, KubeJS's 4, Mekanism Generators' 3, XyCraft World's 2 and
 Starbunclemania's source gas. Everything here lives in the Mekanism bundle (`pack/mods/mekanism`); the engine gained
-one generic helper (hook points API 162); slices 2 and 3 need no hook point.
+one generic helper (hook points API 423); slices 2 and 3 need no hook point.
 
 ## What there was
 
@@ -48,7 +48,7 @@ them (after KubeJS), so the registry needs no data map loader of its own; the ca
 (`data/<ns>/tags/mekanism/chemical/`) stay in the content as they are.
 
 **Registry.** The bundle reads the declarations once a process (`mek_chemicals::registry`), listing them with the
-engine's `native_data_files("mekanism/chemical")` (API 162: NeoForge's `ResourceManager.listResources` over the
+engine's `native_data_files("mekanism/chemical")` (API 423: NeoForge's `ResourceManager.listResources` over the
 content root, every namespace) and reading each with `native_data`. `mekanism_energy::chemical::ChemicalRegistry`
 holds them sorted by id, numbers them from 1 in that order for menus' data slots (0 is none), and answers `get`, `is`
 (a chemical's tags), `tagged` and the default attribute validator (`passes_default`). Both sides of a game read the
@@ -107,7 +107,7 @@ networks or a tube's saved share joining only when compatible (`CompatibleTransm
 both the same, the last chemical counting while it moved some last tick; tubes of two chemicals touch without
 joining, and join once one empties: `Networks::mend`), a pull side drawing the tier's `<tier>PullAmount` (not its
 capacity), each tube's share saved as `boxed_chemical`. They are kept in the bundle per dimension (`mek_tubes`),
-through the cables' lifecycle hook points (API 156), and committed, looked at, pulled and emitted after each
+through the cables' lifecycle hook points (API 418), and committed, looked at, pulled and emitted after each
 level's tick; each side's acceptor is any block with a chemical handler on the touching side, and each tube is a
 chemical handler for the blocks around it (normal and pull sides take in, normal and push give out, the null side
 reads). Their OBJ model becomes a multipart blockstate as the cables' (`mekanism-content`'s `small_models`).
@@ -115,7 +115,7 @@ reads). Their OBJ model becomes a multipart blockstate as the cables' (`mekanism
 **AE2 (later).** Applied Mekanistics stores chemicals as an AE2 key type (`MekanismKey`, `AEKeyType` registered with
 AE2's `AEKeyTypes`). The port's AE2 keys items and fluids by id and knows no other key type: AE2 first needs its key
 type registry opened to mods (the AE2 stream's G6), then chemical cells, the ME Chemical Interface and the storage bus
-on `IChemicalHandler` (which then becomes a hook point, as API 160 made fluid handlers one).
+on `IChemicalHandler` (which then becomes a hook point, as API 422 made fluid handlers one).
 
 **From the NeoForge oracle.** The server oracle has a chemicals-only mode (`-Dhorizon.oracle.chemicals_only=true`,
 `ChemicalFacts`): once the pack's data packs are loaded it writes every entry of `mekanism:chemical` (but the empty
@@ -159,7 +159,7 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
   doesn't connect; a separator with a full tank ejects 1024 a tick (`chemicalAutoEjectRate`) into a tube; three
   basic tubes holding 5000 save 1667, 1667, 1666; a hydrogen line takes no oxygen.
 - **The Electrolytic Separator** (`TileEntityElectrolyticSeparator`): a fluid tank of 24 000 mB
-  (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 160 on its fluid config's input sides, every side
+  (`BasicFluidTank.input(containsRecipe)`, a fluid handler of API 422 on its fluid config's input sides, every side
   by default; nothing drains it), two output tanks of 2400 mB (`BasicChemicalTank.output`), `mekanism:separating`
   recipes (a `SizedFluidIngredient` in, two `ChemicalStack`s out, an `energy_multiplier`), `2^speed` operations a tick
   of `2 * hydrogen's energy density * multiplier` Joules each (`FixedUsageEnergyContainer`: hydrogen's fuel data map,
@@ -195,7 +195,7 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
 5. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
    polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`.
 6. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
-   bus over `IChemicalHandler` (then a hook point, as fluids' API 160), Mekanistic Routers' and Pipez' chemical
+   bus over `IChemicalHandler` (then a hook point, as fluids' API 422), Mekanistic Routers' and Pipez' chemical
    transfer.
 7. **The rest of the pack's chemicals.** The carry declares each mod's chemicals in its own content (All the Ores',
    Allthemodium's, `mekmm`'s, KubeJS's in `atm10-pack`), and slurries meet the Chemical Washer and Crystallizer.

@@ -22,20 +22,20 @@ assets when `mekanism-content` is given them.
   ejection, the screen, placement facing, an item that keeps its energy.
 - Settings from ATM10's `config/Mekanism/` (`general.toml`, `tiers.toml`, `common.toml`, `generators.toml`,
   `generator-storage.toml`), read again when a file changes.
-- Forge Energy at a cube's edge (hook points API 154): each side as an `IEnergyStorage`, and the ejector feeding any block
+- Forge Energy at a cube's edge (hook points API 416): each side as an `IEnergyStorage`, and the ejector feeding any block
   with Forge Energy, such as AE2's Energy Acceptor, at `feConversionRate` Joules to the FE.
-- Basic, Advanced, Elite and Ultimate Universal Cables (block entity lifecycle hook points, API 156): networks with one
+- Basic, Advanced, Elite and Ultimate Universal Cables (block entity lifecycle hook points, API 418): networks with one
   buffer as big as their cables together, kept in the bundle per dimension; they connect to cubes and to any block with
   Forge Energy, emit to all of them each tick, pull through a pull side, and keep their shares across saves, restarts
   and chunks unloading. Their OBJ model becomes a multipart blockstate in `mekanism-content`.
-- The Solar Generator: Joules from the sun by its biome (the helpers `native_biome` and `native_dimension_type` of hook
-  points API 157), the time of day and the weather, Minecraft 1.21.1's maths for the sun as Mekanism reads it on ATM10,
+- The Solar Generator: Joules from the sun by its biome (the helpers `native_biome_climate` and `native_dimension_type` of hook
+  points API 419), the time of day and the weather, Minecraft 1.21.1's maths for the sun as Mekanism reads it on ATM10,
   out of its bottom, at ATM10's `solarGeneration = 150` (`generators.toml`) and 96 000 J (`generator-storage.toml`).
 - The Heat Generator: a lava tank (24 000 mB) filled from lava buckets and furnace fuel in its fuel slot (`burnTime / 20`
   mB; a hopper puts only fuel there), heat from burning 10 mB a tick (800), from lava on each face (30) and in an
   ultra-warm dimension (100), a heat capacitor that loses heat to the biome's air and turns it into Joules at the Carnot
   efficiency, out of its front; `facing` and `active` (light 13) in its block, `active` going off after
-  `blockDeactivationDelay`. Its tank is a fluid handler (hook points API 160) on every side but the front: any block
+  `blockDeactivationDelay`. Its tank is a fluid handler (hook points API 422) on every side but the front: any block
   (AE2's export and storage buses) fills it with lava, none drains it; its fuel slot fills it through the item's fluid
   handler (a whole bucket, or what a container gives).
 - Both generators: Forge Energy on their energy face, cables connecting there, a screen like Mekanism's
@@ -44,7 +44,7 @@ assets when `mekanism-content` is given them.
   Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
   (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and
   `mekanism:metallurgic_infusing` recipes (`native_recipes_of_type`, from the carries the content mods come from) and
-  the world's smelting recipes (`native_cooking_recipes`, hook points API 159), item, tag, compound and intersection
+  the world's smelting recipes (`native_cooking_recipes`, hook points API 421), item, tag, compound and intersection
   ingredients; 200 ticks of energy a tick a recipe (`CachedRecipe.process`: short of a tick's energy it waits, an input
   that no longer fits starts it over, a full output waits), the progress saved.
 - Their upgrades: speed and energy (and muffling) from the upgrade slot, in on the 21st tick
@@ -56,7 +56,7 @@ assets when `mekanism-content` is given them.
   bio, fungi, gold, tin), one item a tick, into a 1000 mB tank of one type, used when an operation ends.
 - Mekanism 10.7's chemicals (`docs/mekanism-chemicals.md`): the `mekanism:chemical` registry, each chemical as the
   NeoForge oracle saw it (icon, tint, kind, fuel, radioactivity, coolants, tags), declared by `mekanism-content` in
-  the content mods (`data/<ns>/mekanism/chemical/`) and read with hook points API 162 (`native_data_files`);
+  the content mods (`data/<ns>/mekanism/chemical/`) and read with hook points API 423 (`native_data_files`);
   chemical stacks and tanks in Mekanism's saved form; the chemical handler of the bundle's blocks by side
   (`IChemicalHandler`): the infuser's tank takes an infuse type a recipe takes on its input sides and gives it out of
   its right side.
@@ -90,8 +90,8 @@ assets when `mekanism-content` is given them.
   wider panel, the sawing factories' 21 pixels taller one) with the sorting tab (`GuiSortingTab`): sorting on, the
   inputs are spread evenly over the processes whenever their slots changed (`sortInventory`), in multiples of what an
   operation takes, empty processes joining the kinds that can fill more of them.
-- Tier installers (hook points API 165: `native_use_item_on` with `native_used_stack`, `native_instabuild`,
-  `native_default_state`): a sneaking player's basic installer turns an Enrichment Chamber, Crusher, Energized
+- Tier installers (hook points API 424: `native_use_item_on` with `native_used_stack`, `native_instabuild`,
+  and upstream's `native_default_state`): a sneaking player's basic installer turns an Enrichment Chamber, Crusher, Energized
   Smelter, Combiner or Precision Sawmill into the basic factory of its type, an advanced, elite or ultimate one a
   factory into the next tier, with what it held (`MachineUpgradeData`): each process's input, outputs and progress,
   the energy and extra slots, the upgrades and the upgrade slots, the side configuration and ejecting, the sorting,
@@ -108,7 +108,7 @@ assets when `mekanism-content` is given them.
   windows.
 - Basic, Advanced, Elite and Ultimate Mechanical Pipes (`[transmitters.fluid]`, runtime `mek_pipes`): networks of one
   fluid as the tubes' (`network` with a fluid as its content: its id, or the id and a number for one with components),
-  connecting to any block with a fluid handler on the touching side (hook points API 160: the bundle's tanks and
+  connecting to any block with a fluid handler on the touching side (hook points API 422: the bundle's tanks and
   machines, cauldrons, AE2), emitting to all of them each tick with the even split, pulling through a pull side at
   the tier's pull amount (250, 1000, 8000, 32 000 mB on ATM10) when all of it fits, each pipe's share saved as
   `fluid`, the network a fluid handler on each side for the blocks around it (normal and pull sides take in, normal
@@ -118,7 +118,7 @@ assets when `mekanism-content` is given them.
   down at its output a tick while active (`active_state`; at most what a fluid tank below still takes), a creative
   tank keeping what it gives and voiding what it gets; saved as Mekanism saves it (`fluid_tanks`).
 - Basic, Advanced, Elite and Ultimate Logistical Transporters (`[transmitters.items]`, `mekanism_energy::transporter`,
-  runtime `mek_transporters`, hook points API 166): stacks travel through touching transporters as moving items,
+  runtime `mek_transporters`, hook points API 425): stacks travel through touching transporters as moving items,
   the tier's speed in hundredths of a block a tick (5, 10, 20, 50), each on the cheapest path (A* over
   `ULTIMATE.speed / speed` a transporter) to an inventory of the network that takes it, the stacks already on their
   way there counting against its room (`TransporterManager`); a pull side takes up to the tier's pull amount (1,

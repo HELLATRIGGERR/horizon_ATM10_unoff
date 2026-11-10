@@ -3,12 +3,12 @@
 // `mekanism_energy` (MIT, from Mekanism and Mekanism Generators 10.7.19,
 // Copyright (c) 2017-2025 Aidan C. Brady); this module is the glue: the
 // Solar and Heat Generators (what they read of the world: the sun, the weather,
-// the biome and its dimension through hook points API 157, lava beside them, the
+// the biome and its dimension through hook points API 419, lava beside them, the
 // fuel in their slot, the heat generator's lava tank as a fluid handler through
-// hook points API 160), the cubes' block entities and
+// hook points API 422), the cubes' block entities and
 // their saved compound, the ejector's neighbours, Forge Energy at the cube's
-// edge (hook points API 154), universal cables and their networks (kept here,
-// per dimension, through the block entity lifecycle hook points API 156; each
+// edge (hook points API 416), universal cables and their networks (kept here,
+// per dimension, through the block entity lifecycle hook points API 418; each
 // level's tick commits them, refreshes connections, pulls, emits and marks their
 // chunks changed), the settings from `config/Mekanism/`, the menu's
 // data slots and buttons (its screen is `mek_ui`), placing a cube (facing the
@@ -560,7 +560,7 @@ fn last_input(entity: &ModBlockEntity) -> u64 {
     View::unpack(&entity.data).map_or(0, |view| view.input)
 }
 
-// ---- Forge Energy (hook points API 154) -------------------------------------
+// ---- Forge Energy (hook points API 416) -------------------------------------
 
 pub(super) fn mek_direction(face: Face) -> Direction {
     Direction::ALL[face as usize]
@@ -805,7 +805,7 @@ impl StrictEnergy for CableSide<'_> {
     }
 }
 
-// ---- Universal cables (hook points API 156) ---------------------------------
+// ---- Universal cables (hook points API 418) ---------------------------------
 
 /// `connection`: the raw `ConnectionType` ordinal of each side, by `Direction`.
 fn connections_of(nbt: &Compound) -> [Connection; 6] {
@@ -1710,12 +1710,12 @@ fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind)
     }
     let made = match kind {
         GeneratorKind::Solar => {
-            let biome = game.native_biome(pos)?;
+            let biome = game.native_biome_climate(pos)?;
             let rain = biome.precipitation != super::native_hooks::NativePrecipitation::None;
             Climate::Solar(SolarCheck::new(biome.temperature, biome.downfall, rain))
         }
         GeneratorKind::Heat => {
-            let air = |p: [i32; 3]| game.native_biome(p).map(|b| heat::ambient_temperature(b.temperature));
+            let air = |p: [i32; 3]| game.native_biome_climate(p).map(|b| heat::ambient_temperature(b.temperature));
             let own = air(pos)?;
             let sides = Direction::ALL.map(|d| air(beside(pos, d)).unwrap_or(own));
             Climate::Heat(Ambient { own, sides })
@@ -1939,7 +1939,7 @@ fn probe_generator(game: &Game<'_>, pos: [i32; 3], id: &str, kind: GeneratorKind
         "config": { "from_files": from_files, "solar_generation": config.generators.solar_generation,
                     "heat_generation": config.generators.heat_generation },
     });
-    let biome = game.native_biome(pos);
+    let biome = game.native_biome_climate(pos);
     out["biome"] = biome.as_ref().map_or(serde_json::Value::Null, |b| {
         serde_json::json!({ "id": b.id, "temperature": b.temperature, "downfall": b.downfall,
                             "precipitation": format!("{:?}", b.precipitation) })

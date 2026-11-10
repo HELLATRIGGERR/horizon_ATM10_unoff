@@ -7,7 +7,7 @@ use super::args::{
 use super::codec::{either, is_number, not_map, snbt};
 use super::packrat::{Grammar, Reason, State, Sugg, Term, Value, alt, ch, opt, seq};
 use super::{CmdResult, CommandError, Reader, SuggestionsBuilder};
-use horizon_world::nbt::Tag;
+use horizon_world::nbt::{Compound, Tag};
 use std::rc::Rc;
 
 fn int_of(t: &Tag) -> Option<i64> {
@@ -22,9 +22,19 @@ fn int_of(t: &Tag) -> Option<i64> {
     })
 }
 /// The codecs of the item components commands commonly set.
-pub fn decode_component(id: &str, t: &Tag) -> Result<(), String> {
+pub fn decode_component(id: &str, t: &Tag, reg: &Registries) -> Result<(), String> {
+    decode_component_in(id, t, Some(reg))
+}
+/// [`decode_component`]'s shapes without the registries' membership checks: AE2's saved
+/// components (`ae2_components`) check the stacks they hold, with no registry at hand.
+pub fn decode_component_shape(id: &str, t: &Tag) -> Result<(), String> {
+    decode_component_in(id, t, None)
+}
+fn decode_component_in(id: &str, t: &Tag, reg: Option<&Registries>) -> Result<(), String> {
     #[cfg(feature = "ae2-lab")]
-    if crate::ae2_components::is_known(id) { return crate::ae2_components::validate(id, t); }
+    if crate::ae2_components::is_known(id) {
+        return crate::ae2_components::validate(id, t);
+    }
     match id {
         "minecraft:damage" | "minecraft:repair_cost" => {
             let v = int_of(t).ok_or("Not a number")?;
@@ -58,10 +68,7 @@ pub fn decode_component(id: &str, t: &Tag) -> Result<(), String> {
             }
             _ => Err("Not a string".into()),
         },
-        "minecraft:enchantments" | "minecraft:stored_enchantments" => match t {
-            Tag::Compound(_) => Ok(()),
-            _ => Err(not_map(t)),
-        },
+        "minecraft:enchantments" | "minecraft:stored_enchantments" => enchantment_map(t, reg),
         "minecraft:custom_name" | "minecraft:item_name" => super::component::decode(t),
         // TypedEntityData.codec: the type is the compound's id.
         "minecraft:block_entity_data" => match t {
@@ -93,6 +100,47 @@ pub fn decode_component(id: &str, t: &Tag) -> Result<(), String> {
         _ => Ok(()),
     }
 }
+/// `ItemEnchantments.CODEC`: registry keys and boxed-number levels in 1..=255.
+/// `UnboundedMapCodec` reports failed entries; commands do not retain its partial map.
+fn enchantment_map(t: &Tag, reg: Option<&Registries>) -> Result<(), String> {
+    let Tag::Compound(map) = t else {
+        return Err(not_map(t));
+    };
+    let mut errors = Vec::new();
+    let mut missed = Compound::new();
+    for (key, value) in map {
+        let mut entry_errors = Vec::new();
+        match int_of(value) {
+            None => entry_errors.push("Not a number".to_owned()),
+            Some(level) if !(1..=255).contains(&level) => {
+                entry_errors.push(format!("Value {level} outside of range [1:255]"));
+            }
+            _ => {}
+        }
+        let raw = key.to_string_lossy();
+        match parse_identifier(&raw) {
+            Some(id) if reg.is_none_or(|reg| reg.ids("minecraft:enchantment").contains(&id)) => {}
+            Some(id) => entry_errors.push(format!(
+                "Failed to get element {id} from registry minecraft:enchantment"
+            )),
+            None => entry_errors.push(format!("Not a valid resource location: {raw}")),
+        }
+        if !entry_errors.is_empty() {
+            errors.extend(entry_errors);
+            missed.insert(key.clone(), value.clone());
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} missed input: {}",
+            errors.join("; "),
+            snbt(&Tag::Compound(missed))
+        ))
+    }
+}
+
 /// MinMaxBounds.Ints.CODEC.
 fn int_bounds(t: &Tag) -> Result<(), String> {
     match t {
@@ -214,9 +262,15 @@ impl ItemState<'_, '_> {
                 self.reader.skip_whitespace();
                 let cursor = self.reader.cursor;
                 let tag = super::snbt::parse_tag_argument(self.reader)?;
-                let decoded=decode_component(&ty,&tag);
+                let decoded = decode_component(&ty, &tag, self.reg);
                 #[cfg(feature = "ae2-lab")]
-                let decoded=decoded.and_then(|()|if crate::ae2_components::is_known(&ty){crate::ae2_components::validate_registered(&ty,&tag,self.reg)}else{Ok(())});
+                let decoded = decoded.and_then(|()| {
+                    if crate::ae2_components::is_known(&ty) {
+                        crate::ae2_components::validate_registered(&ty, &tag, self.reg)
+                    } else {
+                        Ok(())
+                    }
+                });
                 if let Err(m) = decoded {
                     self.reader.cursor = cursor;
                     return Err(CommandError::tr_at(
@@ -536,7 +590,7 @@ fn predicate_grammar() -> Grammar<IV> {
                     CommandError::tr_at("arguments.item.predicate.malformed", &[&p, &m], &reader)
                 })
             } else if let (Some(IV::Comp(c)), Some(v)) = (s.scope.get("component_type"), value) {
-                decode_component(&c, &v).map_err(|m| {
+                decode_component(&c, &v, reg(s)).map_err(|m| {
                     CommandError::tr_at("arguments.item.component.malformed", &[&c, &m], &reader)
                 })
             } else {
@@ -642,9 +696,78 @@ pub fn suggest_predicate(builder: &mut SuggestionsBuilder, reg: &Registries) {
 mod tests {
     use super::decode_component;
 
+    #[test]
+    fn enchantment_maps_validate_entries_against_the_supplied_registry() {
+        use super::{Reader, Registries, parse_predicate, parse_stack};
+        use crate::args::RegistryIds;
+        let mut reg = Registries {
+            items: vec!["minecraft:diamond_sword".into()],
+            persistent_components: vec![
+                "minecraft:enchantments".into(),
+                "minecraft:stored_enchantments".into(),
+            ],
+            ..Default::default()
+        };
+        reg.by_registry.insert(
+            "minecraft:data_component_type".into(),
+            RegistryIds {
+                ids: reg.persistent_components.clone(),
+                tags: vec![],
+            },
+        );
+        reg.by_registry.insert(
+            "minecraft:enchantment".into(),
+            RegistryIds {
+                ids: vec!["minecraft:sharpness".into()],
+                tags: vec![],
+            },
+        );
+        for component in ["enchantments", "stored_enchantments"] {
+            for value in [
+                "{}",
+                "{sharpness:1}",
+                "{sharpness:255}",
+                "{sharpness:1.5f}",
+                "{sharpness:1b}",
+                "{sharpness:4294967297L}",
+                "{sharpness:9007199254740993L}",
+                "{\"minecraft:sharpness\":1}",
+            ] {
+                let input = format!("diamond_sword[{component}={value}]");
+                for parser in [parse_stack, parse_predicate] {
+                    let mut reader = Reader::new(&input);
+                    assert!(parser(&mut reader, &reg).is_ok(), "{input}");
+                    assert_eq!(reader.cursor, input.len());
+                }
+            }
+            for value in [
+                "{sharpness:-1}",
+                "{sharpness:0}",
+                "{sharpness:256}",
+                "{sharpness:100000}",
+                "{sharpness:-0.5d}",
+                "{sharpness:\"1\"}",
+                "{levels:{sharpness:1}}",
+                "{\"audit:missing\":1}",
+            ] {
+                let input = format!("diamond_sword[{component}={value}]");
+                for parser in [parse_stack, parse_predicate] {
+                    assert!(
+                        parser(&mut Reader::new(&input), &reg).is_err(),
+                        "{input} crossed command parsing"
+                    );
+                }
+            }
+        }
+    }
+
     fn check(snbt: &str) -> Result<(), String> {
         let tag = horizon_world::nbt::parse_snbt(snbt).expect("snbt").0;
-        decode_component("minecraft:block_entity_data", &tag)
+        decode_component(
+            "minecraft:block_entity_data",
+            &tag,
+            &super::Registries::default(),
+        )
     }
 
     #[test]

@@ -4,7 +4,7 @@
 // MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue, as `mek_world` is the cables': the tubes of each
 // dimension and their networks kept here through the block entity lifecycle
-// hook points (API 156), each level's tick committing them, looking at their
+// hook points (API 418), each level's tick committing them, looking at their
 // sides (a block with a chemical handler on the touching side, `IChemicalHandler`
 // by `mek_chemicals::with_handler`), joining networks that may now meet,
 // pulling through pull sides (first, as the tubes' own ticks do), emitting to

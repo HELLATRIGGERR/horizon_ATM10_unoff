@@ -30,7 +30,6 @@ pub(super) struct SpatialEntities {
     carts: Vec<minecarts::Minecart>,
     bolts: Vec<lightning::Bolt>,
     crystals: Vec<dragon::Crystal>,
-    fireballs: Vec<dragon::DragonFireball>,
     breaths: Vec<dragon::Breath>,
     tridents: Vec<trident::ThrownTrident>,
     rockets: Vec<fireworks::Rocket>,
@@ -40,7 +39,7 @@ pub(super) struct SpatialEntities {
     dragon: Option<dragon::Dragon>,
     uuids: HashMap<u32, [i32; 4]>,
     raw: HashMap<u32, Tag>,
-    anonymous: Vec<(String, Vec3, Option<[i32; 4]>, Tag)>,
+    anonymous: Vec<(String, Vec3, Tag)>,
     unknown: Vec<Tag>,
 }
 fn array(p: Vec3) -> [f64; 3] {
@@ -206,7 +205,6 @@ impl Game<'_> {
             count_bodies!(self.carts, |e: &minecarts::Minecart| e.bounds());
             count_bodies!(self.bolts, |e: &lightning::Bolt| type_box(types, "minecraft:lightning_bolt", e.at, None));
             count_bodies!(self.crystals, |e: &dragon::Crystal| type_box(types, "minecraft:end_crystal", array(e.position), None));
-            count_bodies!(self.dragon_fireballs, |e: &dragon::DragonFireball| type_box(types, "minecraft:dragon_fireball", array(e.position), None));
             count_bodies!(self.breath_clouds, |e: &dragon::Breath| sized_box(e.at, e.radius * 2.0, 0.5));
             count_bodies!(self.tridents, |e: &trident::ThrownTrident| type_box(types, "minecraft:trident", array(e.position), None));
             count_bodies!(self.rockets, |e: &fireworks::Rocket| type_box(types, "minecraft:firework_rocket", array(e.position), None));
@@ -256,7 +254,6 @@ impl Game<'_> {
         let mut carts = drain_bounds(&mut self.carts, min, size, |e| e.bounds());
         let bolts = drain_bounds(&mut self.bolts, min, size, |e| type_box(types,"minecraft:lightning_bolt",e.at,None));
         let crystals = drain_bounds(&mut self.crystals, min, size, |e| type_box(types,"minecraft:end_crystal",array(e.position),None));
-        let fireballs = drain_bounds(&mut self.dragon_fireballs, min, size, |e| type_box(types,"minecraft:dragon_fireball",array(e.position),None));
         let breaths = drain_bounds(&mut self.breath_clouds, min, size, |e| sized_box(e.at,e.radius*2.0,0.5));
         let tridents = drain_bounds(&mut self.tridents, min, size, |e| type_box(types,"minecraft:trident",array(e.position),None));
         let rockets = drain_bounds(&mut self.rockets, min, size, |e| type_box(types,"minecraft:firework_rocket",array(e.position),None));
@@ -283,7 +280,7 @@ impl Game<'_> {
                     left_boats.push(boat);
                 }
             }
-            self.boats = left_boats;
+            self.boats = left_boats.into();
             let mut left_carts = Vec::new();
             for cart in std::mem::take(&mut self.carts) {
                 if connected.contains(&cart.id) {
@@ -292,7 +289,7 @@ impl Game<'_> {
                     left_carts.push(cart);
                 }
             }
-            self.carts = left_carts;
+            self.carts = left_carts.into();
             let mut remaining = Vec::new();
             let mut linked = Vec::new();
             for mob in std::mem::take(&mut self.mobs) {
@@ -304,7 +301,7 @@ impl Game<'_> {
                     remaining.push(mob);
                 }
             }
-            self.mobs = remaining;
+            self.mobs = remaining.into();
             if linked.is_empty() && previous_vehicles == boats.len() + carts.len() {
                 break;
             }
@@ -335,7 +332,6 @@ impl Game<'_> {
             carts,
             bolts,
             crystals,
-            fireballs,
             breaths,
             tridents,
             rockets,
@@ -363,9 +359,9 @@ impl Game<'_> {
         for e in &projectiles {remember_anon(e.kind.id(),array(e.position));}
         if let Some(e)=&dragon {remember_anon("minecraft:ender_dragon",array(e.position));}
         let mut anonymous = Vec::new();
-        self.persist.anon.retain(|key, (pos, uuid, tag)| {
+        self.persist.anon.retain(|key, (pos, tag)| {
             if selected_anon.contains(key) {
-                anonymous.push((key.0.clone(), *pos, *uuid, tag.clone()));
+                anonymous.push((key.0.clone(), *pos, tag.clone()));
                 false
             } else { true }
         });
@@ -399,7 +395,6 @@ impl Game<'_> {
             carts,
             bolts,
             crystals,
-            fireballs,
             breaths,
             tridents,
             rockets,
@@ -441,6 +436,9 @@ impl Game<'_> {
                 dim: destination,
                 at: mapped(guest.position, batch.min, to, batch.size),
                 rotation: None,
+                // The vehicle went with the batch: the guest rides on as its passenger.
+                vehicle: guest.vehicle.filter(|id| vehicles.contains(id)),
+                cause: None,
             })
             .collect()
     }
@@ -494,7 +492,6 @@ impl Game<'_> {
         xyz_previous!(b.boats, self.boats);
         xyz_previous!(b.carts, self.carts);
         xyz!(b.crystals, self.crystals);
-        xyz_previous!(b.fireballs, self.dragon_fireballs);
         xyz_velocity!(b.tridents, self.tridents);
         xyz_velocity!(b.rockets, self.rockets);
         xyz_previous!(b.tnts, self.tnts);
@@ -529,7 +526,7 @@ impl Game<'_> {
             d.previous = d.position;
             self.dragon = Some(d)
         }
-        for (kind, position, uuid, mut tag) in b.anonymous {
+        for (kind, position, mut tag) in b.anonymous {
             map_entity_nbt(&mut tag, from, to, size);
             let position = vec3(mapped(array(position), from, to, size));
             let key = (
@@ -540,7 +537,7 @@ impl Game<'_> {
                     position.z.to_bits(),
                 ],
             );
-            self.persist.anon.insert(key, (position, uuid, tag));
+            self.persist.anon.insert(key, (position, tag));
         }
         for mut tag in b.unknown {
             let Some(position) = horizon_client::entity_nbt::position(&tag) else {

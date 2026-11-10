@@ -322,7 +322,7 @@ fn patch(t: Tag, depth: usize) -> Result<Tag, String> {
         } else if is_known(&id) {
             value = decode(&id, value, depth + 1)?;
         } else {
-            crate::item::decode_component(&id, &value)?;
+            crate::item::decode_component_shape(&id, &value)?;
         }
         let key = if removed { format!("!{id}") } else { id };
         if out.insert(key.as_str().into(), value).is_some() {

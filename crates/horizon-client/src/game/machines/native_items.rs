@@ -8,7 +8,6 @@ use horizon_client::items::ItemStack;
 use horizon_core::geometry::Direction;
 
 /// A slot of a container as a side reaches it (`native_container_slots`).
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NativeContainerSlot {
     /// Its number, for `native_extract_item`.
@@ -52,7 +51,7 @@ fn insert_max(c: &super::Containers<'_>, view: &View, slot: usize, stack: &ItemS
 }
 
 // Native mods use these; nothing in Horizon does.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "native mod API (docs/native-mods.md)")]
 impl Game<'_> {
     /// The level in place (`minecraft:overworld`), for a hook that isn't told
     /// which it runs in. API 48.
@@ -91,7 +90,7 @@ impl Game<'_> {
         let mut rest = Some(one);
         for &slot in slots {
             let Some(one) = rest.take() else { break };
-            rest = self.move_in_item(None, view, one, slot).0;
+            rest = self.move_in_item(None, view, one, slot, Some(face)).0;
         }
         rest
     }
@@ -167,7 +166,7 @@ impl Game<'_> {
     /// how many of it: what an `IItemHandler` of that side tells by
     /// `isItemValid` and `getSlotLimit`, for a mod to work out what a
     /// container will take before it sends anything. None where no container
-    /// is (as `native_container_slots`, and for a composter). API 166.
+    /// is (as `native_container_slots`, and for a composter). API 425.
     pub(in crate::game) fn native_insert_slots(
         &self,
         dimension: &str,

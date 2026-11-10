@@ -2233,10 +2233,15 @@ fn strict_pattern_slots(tag: &Tag, size: usize) -> Option<Vec<Option<ItemStack>>
     }
     Some(slots)
 }
+/// AE2's processing pattern item, or an addon's (`Defs::add_processing_pattern`):
+/// both decode to processing details from their components.
+pub(super) fn processing_pattern_item(id: &str) -> bool {
+    horizon_client::ae2x::defs::get().processing_pattern_component(id).is_some()
+}
 pub(super) fn ae2_decode_processing_pattern(
     pattern: &ItemStack,
 ) -> Option<(Vec<Option<ItemStack>>, Vec<Option<ItemStack>>)> {
-    if pattern.item.as_ref() != "ae2:processing_pattern" || pattern.count != 1 {
+    if !processing_pattern_item(&pattern.item) || pattern.count != 1 {
         return None;
     }
     if let Some(source) = source_processing_view(pattern) {
@@ -2408,7 +2413,7 @@ pub(super) fn ae2_encode_processing_with_fluids(
 pub(super) fn ae2_decode_processing_fluids(
     pattern: &ItemStack,
 ) -> Option<(Vec<PatternFluid>, Vec<PatternFluid>)> {
-    if pattern.item.as_ref() != "ae2:processing_pattern" || pattern.count != 1 { return None; }
+    if !processing_pattern_item(&pattern.item) || pattern.count != 1 { return None; }
     if let Some(source) = source_processing_view(pattern) {
         let source = source.ok()?;
         return Some((source.fluid_inputs.into_iter().flatten().collect(), source.fluid_outputs.into_iter().flatten().collect()));
@@ -2499,7 +2504,7 @@ pub(super) fn ae2_encode_processing_positioned(
 pub(super) fn ae2_decode_processing_positions(
     pattern: &ItemStack,
 ) -> Result<Option<(Vec<Option<PatternFluid>>, Vec<Option<PatternFluid>>)>, String> {
-    if pattern.item.as_ref() != "ae2:processing_pattern" || pattern.count != 1 { return Err("invalid processing pattern".into()); }
+    if !processing_pattern_item(&pattern.item) || pattern.count != 1 { return Err("invalid processing pattern".into()); }
     if let Some(source) = source_processing_view(pattern) {
         let source = source?;
         return Ok(Some((source.fluid_inputs, source.fluid_outputs)));

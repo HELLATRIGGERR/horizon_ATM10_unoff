@@ -202,7 +202,7 @@ fn apply_patterns(m:&mut Machine,player:&mut Player,definitions:&[Option<ItemSta
     let mut changes=Changes::default();
     if creative {m.slots.fill(None);} else {
         let mut blanks=0u32;for slot in &mut m.slots{if let Some(stack)=slot.take(){
-            if matches!(stack.item.as_ref(),"ae2:blank_pattern"|"ae2:crafting_pattern"|"ae2:processing_pattern"|"ae2:smithing_table_pattern"|"ae2:stonecutting_pattern"){
+            if stack.item.as_ref()=="ae2:blank_pattern" || super::ae2_pattern_access::encoded_pattern_item(&stack){
                 blanks=blanks.checked_add(stack.count).ok_or("blank count overflow")?;
             }else{let limit=max(&stack).max(1);return_item(player,copy_count(&stack,stack.count),limit,&mut changes);}
         }}

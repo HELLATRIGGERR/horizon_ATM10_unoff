@@ -1,0 +1,26 @@
+{
+  "namespace": "advanced_ae",
+  "name": "Advanced AE",
+  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slice 1).",
+  "authors": ["pedroksl (Advanced AE)"],
+  "slices": [
+    "1: the Small Advanced Pattern Provider block (directional push), the Advanced Processing Pattern, the Advanced Pattern Encoder (item; its screen is to come)"
+  ],
+  "items": {
+    "adv_processing_pattern": {},
+    "adv_pattern_encoder": {"max_stack_size": 1}
+  },
+  "blocks": {
+    "small_adv_pattern_provider": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {
+        "push_direction": ["all", "down", "up", "north", "south", "west", "east"],
+        "connection_state": ["false", "true"]
+      },
+      "state_defaults": {"push_direction": "all", "connection_state": "false"}
+    }
+  },
+  "ae2_namespace": {
+    "screens": ["small_adv_pattern_provider.json"]
+  }
+}

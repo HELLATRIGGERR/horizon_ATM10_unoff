@@ -65,8 +65,12 @@ pub(super) fn encode_crafting(grid:&[Option<ItemStack>],output:&ItemStack,recipe
     ]))
 }
 
+/// The sparse inputs and outputs of a processing pattern: AE2's, in
+/// `ae2:encoded_processing_pattern`, or an addon's in its own component
+/// (`Defs::processing_pattern_component`).
 pub(super) fn processing(stack:&ItemStack)->Option<Result<(Vec<Option<GenericStack>>,Vec<Option<GenericStack>>),String>> {
-    let source=stack.data()?.other("ae2:encoded_processing_pattern")?;
+    let component=horizon_client::ae2x::defs::get().processing_pattern_component(&stack.item).unwrap_or("ae2:encoded_processing_pattern");
+    let source=stack.data()?.other(component)?;
     Some((||{
         let lists=|field:&str,max:usize|->Result<Vec<Option<GenericStack>>,String>{
             let Some(Tag::List(entries))=source.get(field) else{return Err(format!("invalid {field}"));};

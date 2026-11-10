@@ -66,6 +66,10 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2:energy_capacity",
     "ae2:encoded_crafting_pattern",
     "ae2:encoded_processing_pattern",
+    // Advanced AE's Advanced Processing Pattern (`AAEComponents`,
+    // `EncodedAdvProcessingPattern.CODEC`): AE2's sparse inputs and outputs,
+    // and a `NullableDirection` per input.
+    "advanced_ae:encoded_adv_processing_pattern",
     "ae2:encoded_stonecutting_pattern",
     "ae2:encoded_smithing_table_pattern",
     "ae2:enabled_key_types",
@@ -581,6 +585,16 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
             }
             Ok(record(m, &["sparseInputs", "sparseOutputs"]))
         }
+        "advanced_ae:encoded_adv_processing_pattern" => {
+            let mut m = map(t)?;
+            for k in ["sparseInputs", "sparseOutputs"] {
+                field(&mut m, k, |t| tolerant_generics(t, true, depth))?;
+            }
+            // NullableDirection.FAULT_TOLERANT_NULLABLE_LIST_CODEC: a list
+            // whose entries that are no direction stay as they are.
+            field(&mut m, "directionMap", |t| Ok(Tag::List(list(t)?)))?;
+            Ok(record(m, &["sparseInputs", "sparseOutputs", "directionMap"]))
+        }
         "ae2:encoded_crafting_pattern" => {
             let mut m = map(t)?;
             field(&mut m, "inputs", |t| {
@@ -750,6 +764,15 @@ mod tests {
         );
         assert!(validate("ae2:wrapped_stack", &snbt("{id:stone,\"#\":1}")).is_ok());
         assert!(validate("ae2:wrapped_stack", &snbt("{id:stone}")).is_err());
+    }
+    #[test]
+    fn advanced_ae_patterns_keep_their_direction_lists() {
+        let ok = snbt("{sparseInputs:[{},7],sparseOutputs:[],directionMap:[\"null\",\"UP\"]}");
+        assert!(validate("advanced_ae:encoded_adv_processing_pattern", &ok).is_ok());
+        let missing = snbt("{sparseInputs:[],sparseOutputs:[]}");
+        assert!(validate("advanced_ae:encoded_adv_processing_pattern", &missing).is_err());
+        let not_list = snbt("{sparseInputs:[],sparseOutputs:[],directionMap:7}");
+        assert!(validate("advanced_ae:encoded_adv_processing_pattern", &not_list).is_err());
     }
     #[test]
     fn ae2_component_records_validate_source_shape_and_tolerant_lists() {

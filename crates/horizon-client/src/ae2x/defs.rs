@@ -170,8 +170,32 @@ pub struct Defs {
     wireless_terminals: Vec<WirelessTerminal>,
     universal_terminal: Option<UniversalTerminal>,
     access_point_cards: Vec<AccessPointCard>,
+    /// Addons' encoded processing pattern items and the component each keeps
+    /// its sparse inputs and outputs in.
+    processing_patterns: Vec<(String, String)>,
 }
 impl Defs {
+    /// An addon's encoded processing pattern item
+    /// (`PatternDetailsHelper.encodedPatternItemBuilder` with a decoder of its
+    /// own whose details are processing ones, Advanced AE's
+    /// `AdvProcessingPattern`), whose `component` holds `sparseInputs` and
+    /// `sparseOutputs` as AE2's `EncodedProcessingPattern` does.
+    pub fn add_processing_pattern(&mut self, item: &str, component: &str) {
+        self.processing_patterns.retain(|(id, _)| id != item);
+        self.processing_patterns.push((item.to_owned(), component.to_owned()));
+    }
+    /// The component of processing pattern item `item`: AE2's
+    /// `ae2:encoded_processing_pattern` for its own, an addon's for its.
+    pub fn processing_pattern_component(&self, item: &str) -> Option<&str> {
+        if item == "ae2:processing_pattern" {
+            return Some("ae2:encoded_processing_pattern");
+        }
+        self.processing_patterns.iter().find(|(id, _)| id == item).map(|(_, component)| component.as_str())
+    }
+    /// The addons' processing pattern items.
+    pub fn processing_pattern_items(&self) -> impl Iterator<Item = &str> {
+        self.processing_patterns.iter().map(|(id, _)| id.as_str())
+    }
     /// An item the access point's booster slot takes, with the signal it gives.
     pub fn add_access_point_card(&mut self, card: AccessPointCard) {
         self.access_point_cards.retain(|c| c.item != card.item);
@@ -553,6 +577,8 @@ pub fn get() -> &'static Defs {
         // Ender Drives' disks, cells of its own handler.
         #[cfg(feature = "ae2-enderdrives")]
         super::enderdrives::register(&mut defs);
+        #[cfg(feature = "ae2-advancedae")]
+        super::advancedae::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
         // variants of AE2's, for `Machine::for_block`, the crafting CPU
         // blocks' bytes and threads, and the energy cells' capacities.

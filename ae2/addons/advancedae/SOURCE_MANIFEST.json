@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "addon": "advancedae",
+  "name": "Advanced AE",
+  "version": "1.6.12-1.21.1",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/pedroksl/AdvancedAE",
+    "tag": "1.6.12-1.21.1-neoforge",
+    "commit": "c322dad81e6f2ad94cb1fb861e73a7ba68e5907a",
+    "license": "LGPL-3.0",
+    "license_file": "LICENSE.md at the commit; ae2/LICENSES/AdvancedAE-LGPL-3.0.txt",
+    "note": "The tag 1.6.12-1.21.1-neoforge points at 779c9c1ce33fe961e62101ad0585052bb94feb3d, whose gradle.properties is 26.1.6 for Minecraft 26.1.2; the jar's version, 1.6.12-1.21.1, is set by c322dad on branch forge/1.21.1, which the port follows."
+  },
+  "assets_license": "not stated (LGPL-3.0 covers the repository; models by Jm³ and Sea_Kerman)",
+  "jar": {
+    "file": "AdvancedAE-1.6.12-1.21.1.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "a01d9718667ac13899013e91c5b0b7708b9b9db1da9b8e380772dde54bbe8f41"
+  },
+  "bundled": {
+    "ae2addonlib 1.0.3": "not used: its mods.toml says LGPL-3.0, its repository GPL-3.0; the port reads only the saved form of NullableDirection, and nothing of its code is derived",
+    "ae2wtlib_api 19.2.5": "MIT; not needed by slice 1"
+  },
+  "requires": ["ae2 19.2.18"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/advancedae.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/mod.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/screens.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/lab.rs"
+  ]
+}

@@ -2552,6 +2552,53 @@ mod recursive {
         if &condensed!=inputs {return Err("processing inputs changed before dispatch".into());}
         Ok(ordered)
     }
+    /// An input key's face of the target (none: the provider's), and a face.
+    type Faces=BTreeMap<String,Option<horizon_core::geometry::Direction>>;
+    type Dir=horizon_core::geometry::Direction;
+    /// Each input key of `pattern` with the face of the target Advanced AE's
+    /// provider sends it to (`AdvProcessingPattern.dirMap`: a key's last
+    /// direction; none for the face the provider pushes to). None where
+    /// `provider` pushes `pattern` as AE2's does.
+    fn directional_faces(provider:&Machine,pattern:&ItemStack)->Option<Faces> {
+        let directions=super::super::ae2x::provider_input_directions(provider,pattern)?;
+        let (items,_)=ae2_processing::ae2_decode_processing_pattern(pattern)?;
+        let (fluids,_)=ae2_processing::ae2_decode_processing_positions(pattern).ok()??;
+        let mut faces=BTreeMap::new();
+        for (index,(item,fluid)) in items.iter().zip(&fluids).enumerate() {
+            let key=match (item,fluid) {(Some(item),None)=>canon(item),(None,Some(fluid))=>fluid_name(&fluid.key),_=>continue};
+            faces.insert(key,directions.get(index).copied().flatten());
+        }
+        Some(faces)
+    }
+    /// The face input `key` goes to: its own in `faces`, else `default`.
+    fn input_face(faces:Option<&Faces>,key:&str,default:Dir)->Dir {
+        faces.and_then(|faces|faces.get(key).copied().flatten()).unwrap_or(default)
+    }
+    /// The send list's faces (`AdvPatternProviderLogic.directionMap`), as the
+    /// provider keeps them while it holds a send list.
+    const SEND_FACES:&str="advanced_ae_send_faces";
+    fn write_send_faces(config:&mut Compound,faces:Option<&Faces>) {
+        let entries:Vec<Tag>=faces.into_iter().flatten().filter_map(|(key,face)|face.map(|face|Tag::compound([
+            ("key",Tag::String(key.as_str().into())),
+            ("dir",Tag::Byte(direction_byte(face))),
+        ]))).collect();
+        if entries.is_empty() {config.remove(&SEND_FACES.into());} else {config.insert(SEND_FACES.into(),Tag::List(entries));}
+    }
+    fn read_send_faces(config:&Compound)->Option<Faces> {
+        let Some(Tag::List(entries))=config.get(&SEND_FACES.into()) else{return None};
+        Some(entries.iter().filter_map(|entry|{
+            let Some(Tag::String(key))=entry.get("key") else{return None};
+            let Some(Tag::Byte(dir))=entry.get("dir") else{return None};
+            Some((key.to_string_lossy(),byte_direction(*dir)))
+        }).collect())
+    }
+    /// `Direction.get3DDataValue` and `from3DDataValue`.
+    fn direction_byte(face:Dir)->i8 {
+        use horizon_core::geometry::Direction::*;match face {Down=>0,Up=>1,North=>2,South=>3,West=>4,East=>5}
+    }
+    fn byte_direction(value:i8)->Option<Dir> {
+        use horizon_core::geometry::Direction::*;Some(match value {0=>Down,1=>Up,2=>North,3=>South,4=>West,5=>East,_=>return None})
+    }
     fn pattern_grid(spec: &Spec) -> Result<Vec<Option<ItemStack>>, String> {
         if spec.grid.len() != 9 {
             return Err("invalid pattern grid".into());
@@ -2899,6 +2946,8 @@ mod recursive {
             };
             let Some(target)=self.recursive_neighbors(owner.anchor()).into_iter().find(|at|self.provider_target_face(owner.anchor(),*at)==Some(face)) else{return Ok(());};
             let entries=horizon_client::ae2_provider_queue::read(&machine.config)?;
+            // sendStacksOut: each entry to its face of the push's direction map.
+            let faces=read_send_faces(&machine.config);
             let before=snapshot(self);
             let previous=plan.len();
             let result=(|| {
@@ -2910,6 +2959,7 @@ mod recursive {
                         Entry::Item{prototype,amount}=>{
                             let count=amount.min(u64::from(u32::MAX)) as u32;
                             let item=ItemStack{count,..prototype.clone()};
+                            let face=input_face(faces.as_ref(),&canon(&prototype),face);
                             let moved=match self.ae2_item_p2p_insert_staged(target,face,&item,false,plan) {
                                 Some(n)=>n,None=>self.ae2_native_item_insert_staged(target,face,&item,item.count,false,plan),
                             };
@@ -2917,7 +2967,7 @@ mod recursive {
                             if u64::from(moved)<amount {remaining.push(Entry::Item{prototype,amount:amount-u64::from(moved)});}
                         }
                         Entry::Fluid{key,amount}=>{
-                            let moved=self.provider_target_fluid_insert(target,face,&key,amount,false,plan);
+                            let moved=self.provider_target_fluid_insert(target,input_face(faces.as_ref(),&fluid_name(&key),face),&key,amount,false,plan);
                             if moved>amount{return Err("provider target overaccepted fluid".into());}
                             if moved<amount {remaining.push(Entry::Fluid{key,amount:amount-moved});}
                         }
@@ -2925,7 +2975,7 @@ mod recursive {
                 }
                 let mut updated=self.provider_machine(owner).ok_or("provider disappeared")?;
                 horizon_client::ae2_provider_queue::write(&mut updated.config,&remaining)?;
-                if !Self::provider_send_pending(&updated){updated.config.remove(&"ae2_provider_send_face".into());}
+                if !Self::provider_send_pending(&updated){updated.config.remove(&"ae2_provider_send_face".into());updated.config.remove(&SEND_FACES.into());}
                 self.store_provider(owner,&updated)?;Ok(())
             })();
             if result.is_err(){restore(self,before);plan.truncate(previous);}result
@@ -3035,6 +3085,7 @@ mod recursive {
                         }
                     }
                 }
+                let directional=directional_faces(&provider,pattern);
                 return positions.iter().copied().map(|p|(p,0)).find(|(p,_)| {
                     if excluded.is_some_and(|entries|entries.contains(p)) {return false;}
                     let Some(face)=self.provider_target_face(spec.provider.anchor(),*p) else {return false;};
@@ -3050,8 +3101,13 @@ mod recursive {
                         let fluids=self.ae2_fluid_p2p_entries(*p,face).or_else(||self.ae2_interface_fluid_entries(*p,face)).unwrap_or_else(||self.ae2_tank_contents_encoded(*p).ok().flatten().into_iter().collect());
                         if fluids.iter().any(|(key,amount)|*amount>0 && blocked_fluids.contains(&fluid_name(key))) {return false;}
                     }
-                    inputs.iter().flatten().all(|input|self.ae2_item_p2p_insert(*p,face,input,true).unwrap_or_else(||self.ae2_native_item_insert(*p,face,input,input.count,true))>0)
-                        && fluid_inputs.iter().all(|fluid|self.provider_target_fluid_insert(*p,face,&fluid.key,fluid.amount,true,plan)>0)
+                    let mut accepts=|faces:Option<&Faces>| {
+                        inputs.iter().flatten().all(|input|{let face=input_face(faces,&canon(input),face);self.ae2_item_p2p_insert(*p,face,input,true).unwrap_or_else(||self.ae2_native_item_insert(*p,face,input,input.count,true))>0})
+                            && fluid_inputs.iter().all(|fluid|{let face=input_face(faces,&fluid_name(&fluid.key),face);self.provider_target_fluid_insert(*p,face,&fluid.key,fluid.amount,true,plan)>0})
+                    };
+                    // AdvPatternProviderLogic.pushPattern: each input to its own face
+                    // first, then all to the one face, as AE2's.
+                    (directional.is_some() && accepts(directional.as_ref())) || accepts(None)
                 });
             }
             let stored=&stored;
@@ -4333,10 +4389,19 @@ mod recursive {
                     offered.try_reserve(ordered.len()).map_err(|_|"processing input allocation failed")?;
                     let mut fits = true;
                     let face=self.provider_target_face(spec.provider.anchor(),at).ok_or("invalid provider target face")?;
+                    // pushInputsDirectionally when every input goes into its face
+                    // (adapterAcceptsItem), else AE2's push to the one face.
+                    let directional=directional_faces(&provider,&pattern).filter(|faces|ordered.iter().all(|(key,amount)|{
+                        let face=input_face(Some(faces),key,face);
+                        match parse_fluid(key) {
+                            Some(fluid)=>self.provider_target_fluid_insert(at,face,&fluid,*amount,true,formation)>0,
+                            None=>item_data::parse_stack(key).ok().flatten().is_some_and(|item|self.ae2_item_p2p_insert(at,face,&item,true).unwrap_or_else(||self.ae2_native_item_insert(at,face,&item,item.count,true))>0),
+                        }
+                    }));
                     for (key,amount) in ordered {
                         if let Some(fluid)=parse_fluid(&key) {
                             let old=next_fluids.get(&fluid).copied().unwrap_or(0);
-                            if old<amount || self.provider_target_fluid_insert(at,face,&fluid,amount,true,formation)==0 {fits=false;break;}
+                            if old<amount || self.provider_target_fluid_insert(at,input_face(directional.as_ref(),&key,face),&fluid,amount,true,formation)==0 {fits=false;break;}
                             if old==amount {next_fluids.remove(&fluid);}else{next_fluids.insert(fluid.clone(),old-amount);}
                             offered.push(Entry::Fluid{key:fluid,amount});
                         } else {
@@ -4361,6 +4426,7 @@ mod recursive {
                             Entry::Item{prototype,amount}=>{
                                 let count=u32::try_from(amount).map_err(|_|"processing item amount overflow")?;
                                 let stack=ItemStack{count,..prototype.clone()};
+                                let face=input_face(directional.as_ref(),&canon(&prototype),face);
                                 let accepted=match self.ae2_item_p2p_insert_staged(at,face,&stack,false,formation) {
                                     Some(n)=>n,None=>self.ae2_native_item_insert_staged(at,face,&stack,count,false,formation),
                                 };
@@ -4368,7 +4434,7 @@ mod recursive {
                                 if accepted<count {send.push(Entry::Item{prototype,amount:u64::from(count-accepted)});}
                             }
                             Entry::Fluid{key,amount}=>{
-                                let accepted=self.provider_target_fluid_insert(at,face,&key,amount,false,formation);
+                                let accepted=self.provider_target_fluid_insert(at,input_face(directional.as_ref(),&fluid_name(&key),face),&key,amount,false,formation);
                                 if accepted>amount{return Err("provider target overaccepted fluid".into());}
                                 if accepted<amount {send.push(Entry::Fluid{key,amount:amount-accepted});}
                             }
@@ -4377,6 +4443,7 @@ mod recursive {
                     if !send.is_empty() {
                         let mut provider=self.provider_machine(spec.provider).ok_or("provider disappeared")?;
                         provider.config.insert("ae2_provider_send_face".into(),Tag::Byte(Self::provider_send_direction(face)));
+                        write_send_faces(&mut provider.config,directional.as_ref());
                         horizon_client::ae2_provider_queue::write(&mut provider.config,&send)?;
                         self.store_provider(spec.provider,&provider)?;
                     }

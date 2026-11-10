@@ -56,7 +56,7 @@ fn pattern(s:&ItemStack)->bool {
 /// type without decoding its payload. Invalid patterns remain recoverable
 /// physical items even though they contribute no crafting definition.
 pub(super) fn encoded_pattern_item(s:&ItemStack)->bool {
-    s.count>0 && matches!(s.item.as_ref(),"ae2:crafting_pattern"|"ae2:processing_pattern"|"ae2:smithing_table_pattern"|"ae2:stonecutting_pattern")
+    s.count>0 && (matches!(s.item.as_ref(),"ae2:crafting_pattern"|"ae2:smithing_table_pattern"|"ae2:stonecutting_pattern") || super::ae2_processing::processing_pattern_item(&s.item))
 }
 /// `PatternProviderLogic.getPatternInv().isItemValid` with the
 /// `RestrictedInputSlot` (`ENCODED_PATTERN`) over it: an encoded pattern,

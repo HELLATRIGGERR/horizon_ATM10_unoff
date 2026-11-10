@@ -115,6 +115,16 @@ feature = "ae2-enderdrives"
 content = "enderdrives"
 configs = ["enderdrives-server.toml"]
 
+# Advanced AE: the Small Advanced Pattern Provider (directional push) and the
+# Advanced Processing Pattern (slice 1; ae2/addons/advancedae). Its config is
+# the Quantum Computer's, a later slice's.
+[mods.advanced_ae]
+name = "Advanced AE"
+enabled = true
+feature = "ae2-advancedae"
+content = "advanced_ae"
+configs = ["advanced_ae-common.toml"]
+
 # Applied Flux: FE as an ME key type, the FE storage cells, and FE between the
 # grid and FE blocks through storage, import and export buses (slice 1;
 # ae2/addons/appflux). Its import strategy follows `misc.enable` of

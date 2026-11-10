@@ -20,6 +20,8 @@ pub mod importexportcard;
 pub mod appflux;
 #[cfg(feature = "ae2-enderdrives")]
 pub mod enderdrives;
+#[cfg(feature = "ae2-advancedae")]
+pub mod advancedae;
 
 /// Builds the registry, which installs the addon machines' block ids and
 /// the variants of AE2's machines: call before any world or block entity

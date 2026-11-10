@@ -88,3 +88,11 @@ LGPL 3.0 code; the files are listed in
 [addons/enderdrives/SOURCE_MANIFEST.json](addons/enderdrives/SOURCE_MANIFEST.json).
 Its assets, whose licence the mod does not state, are generated locally from the
 player's jar and not distributed here.
+Code derived from [Advanced AE](https://github.com/pedroksl/AdvancedAE) 1.6.12-1.21.1
+by pedroksl (commit `c322dad81e6f2ad94cb1fb861e73a7ba68e5907a` on branch `forge/1.21.1`,
+which sets that version; its tag `1.6.12-1.21.1-neoforge` points at a later port) is
+under its [LGPL 3.0](LICENSES/AdvancedAE-LGPL-3.0.txt); the files are listed in
+[addons/advancedae/SOURCE_MANIFEST.json](addons/advancedae/SOURCE_MANIFEST.json).
+Nothing is derived from AE2AddonLib, which Advanced AE bundles under conflicting
+licence statements. Advanced AE's assets (models by Jm³ and Sea_Kerman, licence not
+stated) are generated locally from the player's jar and not distributed here.

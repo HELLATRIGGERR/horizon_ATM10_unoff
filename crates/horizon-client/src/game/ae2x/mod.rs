@@ -21,6 +21,8 @@ pub(super) mod importexportcard;
 pub(super) mod appflux;
 #[cfg(feature = "ae2-enderdrives")]
 pub(super) mod enderdrives;
+#[cfg(feature = "ae2-advancedae")]
+pub(super) mod advancedae;
 
 /// The addons' key types' world strategies (`StackWorldBehaviors.register*`),
 /// registered once, before `ae2_key_strategies` is first read.
@@ -103,6 +105,23 @@ pub(super) fn bus_config_amount(part: &mut horizon_world::nbt::Compound, slot: u
     let _ = (&part, slot, amount);
     #[cfg(feature = "ae2-extendedae")]
     extendedae::special::config_amount(part, slot, amount);
+}
+
+/// An addon provider's directional push (Advanced AE's
+/// `AdvPatternProviderLogic.pushInputsDirectionally`): the face of its target
+/// each of `pattern`'s sparse inputs goes into, none for the face it pushes
+/// to. None where `provider` pushes `pattern` as AE2's does.
+pub(super) fn provider_input_directions(
+    provider: &Machine,
+    pattern: &horizon_client::items::ItemStack,
+) -> Option<Vec<Option<horizon_core::geometry::Direction>>> {
+    #[cfg(feature = "ae2-advancedae")]
+    return advancedae::provider_input_directions(provider, pattern);
+    #[cfg(not(feature = "ae2-advancedae"))]
+    {
+        let _ = (provider, pattern);
+        None
+    }
 }
 
 /// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
@@ -1257,6 +1276,10 @@ impl Game<'_> {
         #[cfg(feature = "ae2-enderdrives")]
         if words.first() == Some(&"enderdrives") {
             return Some(self.ae2_enderdrives_command(&words[1..]));
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if words.first() == Some(&"advae") {
+            return Some(self.ae2_advancedae_command(&words[1..]));
         }
         None
     }

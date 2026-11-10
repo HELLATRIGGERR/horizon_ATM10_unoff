@@ -882,6 +882,9 @@ mod extendedae_screens;
 #[cfg(feature = "ae2-megacells")]
 #[path = "ae2x/megacells/screens.rs"]
 mod megacells_screens;
+#[cfg(feature = "ae2-advancedae")]
+#[path = "ae2x/advancedae/screens.rs"]
+mod advancedae_screens;
 
 /// The layout of an addon's block, and its namespace: where its style is.
 fn addon_layout(block: &str) -> Option<&'static Layout> {
@@ -891,6 +894,10 @@ fn addon_layout(block: &str) -> Option<&'static Layout> {
     }
     #[cfg(feature = "ae2-megacells")]
     if let Some(found) = megacells_screens::layout(block) {
+        return Some(found);
+    }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae_screens::layout(block) {
         return Some(found);
     }
     let _ = block;

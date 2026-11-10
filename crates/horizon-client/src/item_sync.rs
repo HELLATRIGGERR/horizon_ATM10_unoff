@@ -1292,6 +1292,9 @@ mod tests {
                 ("canSubstitute", Tag::Byte(0)), ("canSubstituteFluids", Tag::Byte(0)),
             ])),
             ("ae2:encoded_processing_pattern", Tag::compound([("sparseInputs", list()), ("sparseOutputs", list())])),
+            ("advanced_ae:encoded_adv_processing_pattern", Tag::compound([
+                ("sparseInputs", list()), ("sparseOutputs", list()), ("directionMap", Tag::List(vec![string("null")])),
+            ])),
             ("ae2:encoded_stonecutting_pattern", Tag::compound([
                 ("input", item()), ("output", item()), ("recipeId", string("minecraft:stone")), ("canSubstitute", Tag::Byte(0)),
             ])),

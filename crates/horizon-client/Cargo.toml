@@ -133,6 +133,8 @@ ae2-importexportcard = ["ae2-lab", "horizon-client-lib/ae2-importexportcard"]
 ae2-appflux = ["ae2-lab", "horizon-client-lib/ae2-appflux"]
 # Ender Drives 1.5.23 (ae2/addons/enderdrives).
 ae2-enderdrives = ["ae2-lab", "horizon-client-lib/ae2-enderdrives"]
+# Advanced AE 1.6.12-1.21.1 (ae2/addons/advancedae).
+ae2-advancedae = ["ae2-lab", "horizon-client-lib/ae2-advancedae"]
 default = ["audio", "controllers", "horizon-extras"]
 # Sound output. Without it (and `controllers`) the program links neither libasound nor libudev on
 # Linux: the server build (`--no-default-features`, released as horizon-engine; docs/server.md).

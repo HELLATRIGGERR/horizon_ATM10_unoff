@@ -91,6 +91,8 @@ pub(super) struct BlockSnapshot {
     horizon_client::world::ModifiedChunks,
 )>,
     monitors: super::ae2_storage_monitor_host::StorageMonitors,
+    /// The AE2 addons' own storage (Ender Drives').
+    addons: super::ae2x::Snapshot,
 }
 impl Game<'_> {
     /// A position of the level in place, or a node of another level named by
@@ -172,7 +174,7 @@ impl Game<'_> {
                 )
             })
             .collect();
-        BlockSnapshot {levels, monitors:self.ae2_storage_monitors.borrow().clone()}
+        BlockSnapshot {levels, monitors:self.ae2_storage_monitors.borrow().clone(), addons:self.ae2x_snapshot()}
     }
     pub(super) fn ae2_restore_blocks(&mut self, snapshot: BlockSnapshot) {
         for (dim, entries, dirty) in snapshot.levels {
@@ -186,6 +188,7 @@ impl Game<'_> {
             }
         }
         *self.ae2_storage_monitors.borrow_mut()=snapshot.monitors;
+        self.ae2x_restore(snapshot.addons);
     }
     pub(super) fn ae2_grid_block(&self, p: GridAddress) -> Option<BlockStateId> {
         let (dim, local) = decode(p)?;

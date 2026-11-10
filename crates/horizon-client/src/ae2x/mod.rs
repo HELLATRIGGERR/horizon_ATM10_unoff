@@ -18,6 +18,8 @@ pub mod aeinfinitybooster;
 pub mod importexportcard;
 #[cfg(feature = "ae2-appflux")]
 pub mod appflux;
+#[cfg(feature = "ae2-enderdrives")]
+pub mod enderdrives;
 
 /// Builds the registry, which installs the addon machines' block ids and
 /// the variants of AE2's machines: call before any world or block entity
@@ -73,6 +75,11 @@ pub fn handler_cell_fits_inside(stack: &crate::items::ItemStack) -> Option<bool>
     }
     #[cfg(feature = "ae2-extendedae")]
     if stack.item.as_ref() == extendedae::VOID_CELL {
+        return Some(false);
+    }
+    // EnderDiskInventory keeps StorageCell's default: no.
+    #[cfg(feature = "ae2-enderdrives")]
+    if enderdrives::is_disk(&stack.item) {
         return Some(false);
     }
     None

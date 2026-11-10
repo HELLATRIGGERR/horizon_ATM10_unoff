@@ -1,0 +1,28 @@
+{
+  "namespace": "enderdrives",
+  "name": "Ender Drives",
+  "description": "Ender Drives 1.5.23 for the AE2 port: the Ender Item Storage Cells, sharing a storage by scope and frequency (slice 1).",
+  "authors": ["STS15 (Ender Drives)"],
+  "slices": [
+    "1: the Ender Item Storage Cells, their components and housing: one storage of the world per scope and frequency on AE2 networks, the duplicate guard, the save, the tooltip, /ae2 enderdrives",
+    "2 (planned): the frequency screen, shift-use disassembly, the disks' status models and LED colours, the IO Port mixin, type counts for clients of a remote server, the sleeping-duplicate flag",
+    "3 (planned): the Ender Fluid Storage Cells and the Ender Fluid Housing",
+    "4 (planned): the Tape Disk",
+    "5 (planned): the mod's commands, the FTB Teams scope"
+  ],
+  "items": {
+    "ender_disk_1k": {"max_stack_size": 1},
+    "ender_disk_4k": {"max_stack_size": 1},
+    "ender_disk_16k": {"max_stack_size": 1},
+    "ender_disk_64k": {"max_stack_size": 1},
+    "ender_disk_256k": {"max_stack_size": 1},
+    "ender_disk_creative": {"max_stack_size": 1},
+    "ender_storage_component_1k": {},
+    "ender_storage_component_4k": {},
+    "ender_storage_component_16k": {},
+    "ender_storage_component_64k": {},
+    "ender_storage_component_256k": {},
+    "ender_item_housing": {}
+  },
+  "blocks": {}
+}

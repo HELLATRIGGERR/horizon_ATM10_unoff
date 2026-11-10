@@ -550,6 +550,9 @@ pub fn get() -> &'static Defs {
         // Applied Flux's key type and FE cells.
         #[cfg(feature = "ae2-appflux")]
         super::appflux::register(&mut defs);
+        // Ender Drives' disks, cells of its own handler.
+        #[cfg(feature = "ae2-enderdrives")]
+        super::enderdrives::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
         // variants of AE2's, for `Machine::for_block`, the crafting CPU
         // blocks' bytes and threads, and the energy cells' capacities.

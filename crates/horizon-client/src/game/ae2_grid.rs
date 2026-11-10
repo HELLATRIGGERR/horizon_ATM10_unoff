@@ -203,11 +203,15 @@ impl Game<'_> {
                     );
                     d.energy = m.energy.min(d.energy_capacity()).max(0.0);
                     if matches!(m.kind, MachineKind::Drive | MachineKind::Chest) {
+                        // An addon's cell may drain by what it holds (Ender Drives' disks).
                         let cell_idle = m
                             .slots
                             .iter()
-                            .flatten()
-                            .filter_map(super::ae2_storage_devices::cell_idle_drain)
+                            .enumerate()
+                            .filter_map(|(slot, s)| {
+                                let s = s.as_ref()?;
+                                self.ae2x_cell_idle_drain(address, slot, s).or_else(|| super::ae2_storage_devices::cell_idle_drain(s))
+                            })
                             .sum::<f64>();
                         d.idle_override = Some(
                             if m.kind == MachineKind::Drive {
@@ -786,9 +790,10 @@ impl Game<'_> {
     pub(super) fn ae2_grid_cells_encoded(&self, anchor: super::ae2_global::GridAddress) -> Result<Vec<ItemStack>, String> {
         let (blocks, parts) = self.ae2_cell_hosts_encoded(anchor)?;
         let mut cells = Vec::new();
-        for p in blocks {
+        for &p in &blocks {
             if let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(p) {
-                cells.extend(m.slots.iter().flatten().cloned());
+                // An addon may leave a cell out (Ender Drives' second disk of one storage).
+                cells.extend(m.slots.iter().enumerate().filter_map(|(slot, s)| s.as_ref().filter(|s| self.ae2x_cell_mounted(p, slot, s, &blocks))).cloned());
             }
         }
         for part in parts {

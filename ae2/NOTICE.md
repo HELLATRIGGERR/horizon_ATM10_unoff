@@ -80,3 +80,11 @@ of its own) is under its [LGPL 3.0](LICENSES/AppliedFlux-LGPL-3.0.txt), the repo
 the files are listed in [addons/appflux/SOURCE_MANIFEST.json](addons/appflux/SOURCE_MANIFEST.json).
 Its assets, whose licence the mod does not state, are generated locally from the
 player's jar and not distributed here.
+Code derived from [Ender Drives](https://github.com/sts15/EnderDrives) 1.5.23 by
+STS15 (commit `264ec0aa40c4757de172d52a910b9327813dfc23`, 1.5.0, the newest public
+1.21.1 source, and the 1.5.23 jar's classes) is under its
+[MIT licence](LICENSES/EnderDrives-MIT.txt), combined in the same files with AE2's
+LGPL 3.0 code; the files are listed in
+[addons/enderdrives/SOURCE_MANIFEST.json](addons/enderdrives/SOURCE_MANIFEST.json).
+Its assets, whose licence the mod does not state, are generated locally from the
+player's jar and not distributed here.

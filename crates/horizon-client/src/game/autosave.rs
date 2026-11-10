@@ -54,6 +54,8 @@ impl Game<'_> {
         let stored_owner = self.store_owner();
         #[cfg(feature = "ae2-lab")]
         self.ae2_save_anchor_tickets()?;
+        #[cfg(feature = "ae2-lab")]
+        self.ae2x_save();
         write_level_for_role(
             &mut self.level,
             &self.world_root,

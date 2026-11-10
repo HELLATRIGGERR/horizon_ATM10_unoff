@@ -42,10 +42,11 @@ impl Game<'_> {
     pub(super) fn ae2_cell_mounts_encoded(&self,anchor:GridAddress)->Result<Vec<CellMount>,String>{
         let mut mounts=Vec::new();
         let (drives,parts)=self.ae2_cell_hosts_encoded(anchor)?;
-        for address in drives{
+        for &address in &drives{
             let priority=self.ae2_storage_priority(address)?;
             let Some(BlockEntity::Ae2(machine))=self.ae2_block_entity(address) else{continue};
-            for (slot,stack) in machine.slots.iter().enumerate(){if stack.is_some(){mounts.push(CellMount{address,part:None,slot,priority,kind:machine.kind});}}
+            // An addon may leave a cell out (Ender Drives' second disk of one storage).
+            for (slot,stack) in machine.slots.iter().enumerate(){if stack.as_ref().is_some_and(|stack|self.ae2x_cell_mounted(address,slot,stack,&drives)){mounts.push(CellMount{address,part:None,slot,priority,kind:machine.kind});}}
         }
         // CellDockPart.mountInventories: its DriveWatcher, at its priority.
         for part in parts{

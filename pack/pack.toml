@@ -105,6 +105,16 @@ feature = "ae2-importexportcard"
 content = "ae2importexportcard"
 configs = ["ae2importexportcard-server.toml"]
 
+# Ender Drives: AE2 storage cells that share one storage of the world by
+# scope and frequency (slice 1, the item cells; ae2/addons/enderdrives). Its
+# config is a server config (`serverconfig/`); All the Mods 10 ships none.
+[mods.enderdrives]
+name = "Ender Drives"
+enabled = true
+feature = "ae2-enderdrives"
+content = "enderdrives"
+configs = ["enderdrives-server.toml"]
+
 # Applied Flux: FE as an ME key type, the FE storage cells, and FE between the
 # grid and FE blocks through storage, import and export buses (slice 1;
 # ae2/addons/appflux). Its import strategy follows `misc.enable` of

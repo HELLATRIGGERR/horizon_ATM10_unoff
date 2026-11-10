@@ -337,6 +337,7 @@ impl Game<'_> {
                 if connected {v.connections.push(face.to_owned());}
             }
         }
+        self.ae2x_enrich_visual(v);
     }
     pub(super) fn ae2_sync_visuals(&mut self, host: &mut LanHost) {
         let dim = self.dim.id().to_owned();

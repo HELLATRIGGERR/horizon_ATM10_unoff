@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "addon": "enderdrives",
+  "name": "Ender Drives",
+  "version": "1.5.23",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/sts15/EnderDrives",
+    "tag": "none (no tags; 1.5.23 is not public: commit 264ec0a, 1.5.0, the newest 1.21.1 source)",
+    "commit": "264ec0aa40c4757de172d52a910b9327813dfc23",
+    "license": "MIT",
+    "license_file": "LICENSE at the commit"
+  },
+  "assets_license": "not stated (MIT covers the repository)",
+  "jar": {
+    "file": "enderdrives-neoforge-1.21.1-1.5.23.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "5266b6c871c5e0d0cd355ab09205d415727de9563ff51204b93633bfefc14ae6"
+  },
+  "verified": "the jar's mods.toml points at another repository (sts15/enchantmentsunrestricted); the source is sts15/EnderDrives, whose public 1.21.1 history ends at 1.5.0 (commit 264ec0a, 4 March 2026). What 1.5.23 changed was read from the jar's classes: DuplicateCellGuard and the AppEngCellInventory and Drive mixins that bind it, EnderDBManager's insertItem and clamped deltas, the AbstractEnderDiskInventory split, serverConfig's defaults",
+  "requires": ["ae2 19.2.12"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/enderdrives.rs",
+    "crates/horizon-client/src/game/ae2x/enderdrives/mod.rs"
+  ]
+}

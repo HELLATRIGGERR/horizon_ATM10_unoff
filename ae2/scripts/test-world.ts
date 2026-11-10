@@ -75,12 +75,15 @@ const suites = [
   'aeinfinitybooster-range',
   'ae2importexportcard-cards',
   'appflux-cells', 'appflux-accessor',
+  'enderdrives-disks',
   'ae2-crossdim',
 ];
 // Suites of an addon (pack/pack.toml): the default run skips them while the addon's content is absent.
 const addonSuites: Record<string, string> = { 'megacells-cells': 'megacells', 'megacells-crafting-cpu': 'megacells', 'megacells-energy': 'megacells', 'megacells-portable': 'megacells', 'megacells-provider-interface': 'megacells', 'megacells-cell-dock': 'megacells', 'megacells-bulk': 'megacells', 'merequester-stock': 'merequester', 'extendedae-machines': 'extendedae', 'extendedae-crystal': 'extendedae', 'extendedae-buses': 'extendedae', 'ae2wtlib-terminals': 'ae2wtlib', 'ae2wtlib-recipes': 'ae2wtlib', 'ae2wtlib-magnet': 'ae2wtlib', 'ae2wtlib-restock': 'ae2wtlib', 'merequester-wireless': 'merequester', 'aeinfinitybooster-range': 'aeinfinitybooster', 'ae2importexportcard-cards': 'ae2importexportcard', 'appflux-cells': 'appflux', 'appflux-accessor': 'appflux' };
 // ExtendedAE's later suites, on a line of their own.
 Object.assign(addonSuites, { 'extendedae-devices': 'extendedae', 'extendedae-cells': 'extendedae', 'extendedae-matrix': 'extendedae', 'extendedae-wireless': 'extendedae', 'extendedae-tools': 'extendedae', 'extendedae-buses-2': 'extendedae', 'extendedae-interfaces': 'extendedae' });
+// Ender Drives' suite.
+Object.assign(addonSuites, { 'enderdrives-disks': 'enderdrives' });
 // The cross-dimension suite needs AEInfinityBooster's content too (its fixture loads both).
 Object.assign(addonSuites, { 'ae2-crossdim': 'ae2wtlib' });
 // Explicitly selectable before-cases, not part of the default passing checkpoint.

@@ -133,8 +133,49 @@ fn range_property_reads_zero() {
         ))
         .unwrap()
     };
+    // The range stays the host's to answer (`NumericProperty::Host`); one that
+    // knows no such property (`NoEnv`) answers 0.
+    let drawn = |n: ItemModelNode| {
+        let models = ItemModels {
+            definitions: BTreeMap::from([(
+                "a:item".to_owned(),
+                ClientItem {
+                    model: n,
+                    hand_animation_on_swap: true,
+                    oversized_in_gui: false,
+                    swap_animation_scale: 1.0,
+                },
+            )]),
+            prototypes: BTreeMap::from([(
+                "a:item".to_owned(),
+                Components::from([(
+                    "minecraft:item_model".to_owned(),
+                    Value::String("a:item".into()),
+                )]),
+            )]),
+        };
+        let ctx = Context {
+            display: DisplayContext::Gui,
+            owner: None,
+            level: None,
+            seed: 0,
+        };
+        let layers = models
+            .resolve(&StackView::new("a:item", 1), &ctx, &NoEnv)
+            .layers;
+        layers
+            .into_iter()
+            .map(|layer| match layer.content {
+                LayerContent::Model { model } => model,
+                other => panic!("not a model: {other:?}"),
+            })
+            .collect::<Vec<_>>()
+    };
     let n = make(&[entry(0.2, "a:one"), entry(0.4, "a:two")], fallback);
-    assert_eq!(model_id(&n), "a:fb");
+    assert!(
+        matches!(&n, ItemModelNode::RangeDispatch { property: NumericProperty::Host(p), .. } if p == "mod:fill")
+    );
+    assert_eq!(drawn(n), ["a:fb"]);
     let n = make(
         &[
             entry(0.0, "a:zero"),
@@ -143,9 +184,9 @@ fn range_property_reads_zero() {
         ],
         fallback,
     );
-    assert_eq!(model_id(&n), "a:zero");
+    assert_eq!(drawn(n), ["a:zero"]);
     let n = make(&[entry(0.2, "a:one")], "");
-    assert!(matches!(n, ItemModelNode::Empty));
+    assert!(drawn(n).is_empty());
 }
 
 #[test]

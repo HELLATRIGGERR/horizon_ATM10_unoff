@@ -518,25 +518,21 @@ impl ItemModelNode {
                     .collect::<Result<Vec<_>>>()?;
                 // `Comparator.comparingDouble`: Double.compare, a total order.
                 entries.sort_by(|a, b| f64::from(a.0).total_cmp(&f64::from(b.0)));
-                if foreign_property {
-                    // A property Horizon cannot read is 0.
-                    let fallback = get(m, "fallback").map(Self::decode).transpose()?;
-                    let chosen = last_index_less_or_equal(&entries, 0.0)
-                        .map(|i| entries.swap_remove(i).1)
-                        .or(fallback);
-                    return Ok(foreign::wrap(
-                        chosen.unwrap_or(Self::Empty),
-                        optional_transformation(m)?,
-                    ));
+                let mut fallback = get(m, "fallback")
+                    .map(|f| Self::decode(f).map(Box::new))
+                    .transpose()?;
+                // A mod's property stays a range its host answers per stack
+                // (`NumericProperty::Host`, `ItemEnv::numeric_property`); a host that
+                // knows none answers 0, and with no fallback nothing is drawn.
+                if foreign_property && fallback.is_none() {
+                    fallback = Some(Box::new(Self::Empty));
                 }
                 Self::RangeDispatch {
                     transformation: optional_transformation(m)?,
                     property: NumericProperty::decode(m)?,
                     scale: get(m, "scale").map_or(Ok(1.0), float)?,
                     entries,
-                    fallback: get(m, "fallback")
-                        .map(|f| Self::decode(f).map(Box::new))
-                        .transpose()?,
+                    fallback,
                 }
             }
             "minecraft:special" if SpecialModel::is_foreign(required(m, "model")?) => {

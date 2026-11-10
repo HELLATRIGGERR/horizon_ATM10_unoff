@@ -7647,7 +7647,13 @@ mod guest_close_listener_tests {
 /// Whether a guest's plugin channel message is for one of Horizon's own handlers in
 /// `lan_guest_packet` (its `CustomPayload` arms), not for the mods.
 fn horizon_channel(channel: &str) -> bool {
-    [
+    // The fork's built-in AE2 and its addons (ae2:terminal_action, ae2wtlib:..., ...) have their
+    // arms below too: handed to the mods, a terminal's buttons never reached the host.
+    let ae2 = cfg!(feature = "ae2-lab")
+        && channel.split_once(':').is_some_and(|(namespace, _)| {
+            matches!(namespace, "ae2" | "ae2wtlib" | "merequester" | "ae2importexportcard")
+        });
+    ae2 || [
         horizon_protocol::quiet::CHANNEL,
         horizon_protocol::mod_net::CHANNEL,
         horizon_client::lod_net::CHANNEL,
@@ -7672,6 +7678,8 @@ mod horizon_channel_tests {
         assert!(horizon_channel(horizon_client::lod_net::CHANNEL));
         assert!(!horizon_channel("mymod:hello"));
         assert!(!horizon_channel("minecraft:brand"));
+        assert_eq!(horizon_channel("ae2:terminal_action"), cfg!(feature = "ae2-lab"));
+        assert_eq!(horizon_channel("ae2wtlib:cycle_terminal"), cfg!(feature = "ae2-lab"));
     }
 }
 

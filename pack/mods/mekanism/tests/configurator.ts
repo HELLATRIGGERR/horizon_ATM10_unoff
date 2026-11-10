@@ -49,6 +49,12 @@ try {
   const at = (dx: number, dy = 0, dz = 0) => `${x + dx} ${y + dy} ${z + dz}`;
   await fixture.command(`fill ${at(-3, -1, -3)} ${at(20, 3, 6)} minecraft:air`);
   await fixture.command(`fill ${at(-3, -2, -3)} ${at(20, -2, 6)} minecraft:stone`);
+  // Clearing the area can drop its grass's seeds: they'd pass for the empty mode's items below.
+  const near = `@e[type=minecraft:item,x=${x - 4},y=${y - 3},z=${z - 4},dx=26,dy=8,dz=12]`;
+  await until(async () => {
+    await fixture.command('kill @e[type=minecraft:item]');
+    return (await fixture.command(`execute if entity ${near}`)).chat?.join(' ') ?? '';
+  }, line => !/passed/i.test(line), 'no items left in the cleared area');
   await fixture.replace('hotbar.0', 'mekanism:configurator');
   await fixture.select(0, 'mekanism:configurator');
   /** Stands the player east of the block `dx` along, facing its east side. */

@@ -56,6 +56,14 @@ try {
   const at = (dx: number, dy = 0, dz = 0) => `${x + dx} ${y + dy} ${z + dz}`;
   await fixture.command(`fill ${at(-2, -2, -2)} ${at(10, 4, 26)} minecraft:air`);
   await fixture.hold();
+  // Clearing the area takes its grass, which now and then drops wheat seeds there (the item entities the failed
+  // runs counted as drops, all of this tick): they are listed and cleared away before any transporter is placed.
+  await fixture.stepServer(1);
+  const area = `x=${x - 3},y=${y - 3},z=${z - 3},dx=15,dy=8,dz=31`;
+  log.cleared = (await fixture.command(`execute as @e[type=minecraft:item,${area}] run data get entity @s Item`)).chat;
+  await fixture.command('kill @e[type=minecraft:item]');
+  const stray = await fixture.command(`execute if entity @e[type=minecraft:item,${area}]`);
+  assert(!(stray.chat ?? []).some((l: string) => /passed/i.test(l)), 'no items left in the cleared area');
   let row = 0;
 
   /** A chest at x0 of `stacks`, transporters of `tiers` from x1 (the first pulling west), and an empty chest after them. */
@@ -149,11 +157,18 @@ try {
   assert.deepEqual(idle.transit.map((s: any) => [s.progress, s.path_type, s.idle_dir]), [[50, 'None', 4]]);
   await fixture.stepServer(20);
   const wandering = [1, 2, 3].map(dx => at(dx, 0, row));
-  let travelling = 0;
-  for (const p of wandering) travelling += (await mek(`mek probe ${p}`)).transit.length;
-  assert.equal(travelling, 1, 'still travelling');
+  let travelling = 0, inTransit = 0;
+  for (const p of wandering) {
+    const transit = (await mek(`mek probe ${p}`)).transit;
+    travelling += transit.length;
+    inTransit += transit.reduce((n: number, t: any) => n + t.count, 0);
+  }
+  assert.deepEqual([travelling, inTransit], [1, 16], 'one stack still travelling, with all 16 items');
   const dropped = await fixture.command(`execute if entity @e[type=minecraft:item,x=${x - 2},y=${y - 2},z=${z + row - 2},dx=8,dy=4,dz=4]`);
-  assert(!(dropped.chat ?? []).some((l: string) => /passed/i.test(l)), 'nothing dropped');
+  if ((dropped.chat ?? []).some((l: string) => /passed/i.test(l))) {
+    log.dropped = (await fixture.command(`execute as @e[type=minecraft:item,x=${x - 2},y=${y - 2},z=${z + row - 2},dx=8,dy=4,dz=4] run data get entity @s Item`)).chat;
+  }
+  assert(!(dropped.chat ?? []).some((l: string) => /passed/i.test(l)), `nothing dropped: ${JSON.stringify(log.dropped)}`);
   row += 2;
   fixture.mark('a stack whose target goes turns for home past half way; with no home it wanders the line');
 

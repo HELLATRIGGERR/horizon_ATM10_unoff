@@ -173,6 +173,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_gas::clear();
     super::mek_multiblock::clear();
     super::mek_gen2::clear();
+    super::mek_pump::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -275,6 +276,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some((block.to_owned(), Compound::new()));
         return;
     }
+    if let Some(kind) = super::mek_pump::kind_of(block) {
+        *entity = Some(super::mek_pump::new_entity(kind));
+        return;
+    }
     if let Some(kind) = mek_factories::kind_of(block) {
         *entity = Some(mek_factories::new_entity(kind));
         return;
@@ -310,6 +315,7 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
     if CubeTier::of_block(block).is_some()
         || GeneratorKind::of_block(block).is_some()
         || mek_machines::kind_of(block).is_some()
+        || super::mek_pump::kind_of(block).is_some()
         || super::mek_tanks::tier_of(block).is_some()
         || super::mek_transmit::ticks(block)
     {
@@ -330,6 +336,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if let Some(kind) = GeneratorKind::of_block(block) {
         *container = Some(generator_container(kind));
+        return;
+    }
+    if super::mek_pump::kind_of(block).is_some() {
+        *container = Some(super::mek_pump::container());
         return;
     }
     if let Some(kind) = mek_factories::kind_of(block) {
@@ -424,6 +434,9 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     if let Some(open) = game.native_with_mod_block_entity(at, |m| mek_machines::takes_energy(m, side)).flatten() {
         return open.then_some(Target::Machine);
     }
+    if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_pump::takes_energy(m, side)).flatten() {
+        return open.then_some(Target::Machine);
+    }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
             let tier = CubeTier::of_block(&m.id)?;
@@ -483,7 +496,10 @@ fn hand_over(
             let rest = game
                 .native_with_mod_block_entity(at, |m| match mek_factories::offer(m, config, face.opposite(), amount, simulate) {
                     Some(rest) => Some(rest),
-                    None => mek_machines::offer(m, config, face.opposite(), amount, simulate),
+                    None => match mek_machines::offer(m, config, face.opposite(), amount, simulate) {
+                        Some(rest) => Some(rest),
+                        None => super::mek_pump::offer(m, config, face.opposite(), amount, simulate),
+                    },
                 })
                 .flatten()
                 .unwrap_or(amount);
@@ -545,6 +561,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     if let Some(kind) = mek_machines::kind_of(&entity.id) {
         mek_machines::tick(game, pos, entity, kind);
+        return;
+    }
+    if let Some(kind) = super::mek_pump::kind_of(&entity.id) {
+        super::mek_pump::tick(game, pos, entity, kind);
         return;
     }
     if let Some(tier) = super::mek_tanks::tier_of(&entity.id) {
@@ -689,6 +709,9 @@ pub(super) fn fe_storage(
         mek_machines::fe_storage(entity, face, &config, info);
         return;
     }
+    if super::mek_pump::fe_storage(entity, face, &config, info) {
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         let facing = generator_facing(&entity.nbt);
         if config.blacklist_forge || face.is_some_and(|f| !kind.exposes(facing, mek_direction(f))) {
@@ -759,6 +782,9 @@ pub(super) fn fe_transfer(
     }
     if mek_machines::kind_of(&entity.id).is_some() {
         mek_machines::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
+        return;
+    }
+    if super::mek_pump::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved) {
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
@@ -885,7 +911,7 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if has_chemicals(&entity.id) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some() || super::mek_pump::kind_of(&entity.id).is_some();
     let Some(tier) = CableTier::of_block(&entity.id) else {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
         if energy && ANY_CABLES.get() {
@@ -928,10 +954,11 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     if has_chemicals(&entity.id) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some() || super::mek_pump::kind_of(&entity.id).is_some();
     if machine && !removed {
         mek_machines::forget(dimension, pos);
         mek_factories::forget(dimension, pos);
+        super::mek_pump::forget(dimension, pos);
     }
     if CableTier::of_block(&entity.id).is_none() {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
@@ -1037,7 +1064,8 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
     if let Some(output) = super::mek_matrix::port_at(game, at) {
         return super::mek_matrix::draw_energy(dimension, at, output, amount, simulate);
     }
-    if game.native_with_mod_block_entity(at, |m| mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some()) == Some(true) {
+    let machine = |m: &mut ModBlockEntity| mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some() || super::mek_pump::kind_of(&m.id).is_some();
+    if game.native_with_mod_block_entity(at, machine) == Some(true) {
         return 0;
     }
     let cube = game
@@ -1656,6 +1684,7 @@ pub(super) fn fluid_tanks(
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || super::mek_gen2::fluid_tanks(entity, face, tanks)
+        || super::mek_pump::fluid_tanks(entity, face, tanks)
         || heat_tank_side(entity, face).is_none()
     {
         return;
@@ -1686,6 +1715,7 @@ pub(super) fn fluid_fill(
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
+        || super::mek_pump::fluid_fill(entity, face, resource, simulate, filled)
     {
         return;
     }
@@ -1729,6 +1759,7 @@ pub(super) fn fluid_drain(
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
         || super::mek_gen2::fluid_drain(entity, face, drained)
+        || super::mek_pump::fluid_drain(entity, face, resource, max, simulate, drained)
     {
         return;
     }
@@ -1809,6 +1840,10 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
     }
     if let Some(kind) = mek_machines::kind_of(block) {
         mek_machines::slot_accepts(kind, slot, stack, accepts);
+        return;
+    }
+    if let Some(kind) = super::mek_pump::kind_of(block) {
+        super::mek_pump::slot_accepts(kind, slot, stack, accepts);
         return;
     }
     if super::mek_tanks::tier_of(block).is_some() {
@@ -2245,6 +2280,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if mek_machines::kind_of(&id).is_some() {
         return mek_machines::probe(game, pos, &id, &nbt, &data, &items);
+    }
+    if super::mek_pump::kind_of(&id).is_some() {
+        return super::mek_pump::probe(game, pos, &id, &nbt, &data, &items);
     }
     if super::mek_tanks::tier_of(&id).is_some() {
         return super::mek_tanks::probe(game, pos, &id, &nbt, &items);

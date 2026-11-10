@@ -107,6 +107,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(generator_screen(kind));
         return;
     }
+    if super::mek_pump::kind_of(block).is_some() {
+        *screen = Some(super::mek_pump::screen());
+        return;
+    }
     if let Some(kind) = MachineKind::of_block(block) {
         PAGE.with(|p| p.set(0));
         *screen = Some(machine_screen(kind));
@@ -313,6 +317,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         super::mek_factory_ui::tooltip(kind, data, at, lines);
         return;
     }
+    if super::mek_pump::kind_of(block).is_some() {
+        super::mek_pump::tooltip(data, at, lines);
+        return;
+    }
     if let Some(kind) = GeneratorKind::of_block(block) {
         if kind == GeneratorKind::GasBurning
             && let Some(tip) = super::mek_gas::tip(data, at)
@@ -486,6 +494,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if let Some(kind) = ProcessKind::of_block(block) {
         super::mek_factory_ui::draw(game, kind, data, batch, origin);
+        return;
+    }
+    if let Some(kind) = super::mek_pump::kind_of(block) {
+        super::mek_pump::draw(game, kind, data, batch, origin);
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(block) {

@@ -41,6 +41,8 @@
 //! Multiblocks form as Mekanism's do (`multiblock`: the structure, its
 //! cuboid, the check of its blocks, the cache by its id): the Dynamic Tank
 //! (`dynamic_tank`) and the Induction Matrix (`induction`).
+//! The Electric Pump and the Fluidic Plenisher (`pump`) take the world's
+//! fluid blocks into a tank and put them back.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod advanced;
 pub mod bio;
@@ -65,6 +67,7 @@ pub mod menu;
 pub mod multiblock;
 pub mod network;
 pub mod ore;
+pub mod pump;
 pub mod rotary;
 pub mod separator;
 pub mod sides;

@@ -3,7 +3,8 @@
 Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters, its Configurator and its multiblocks,
 and Mekanism Generators' Solar, Heat and Gas-Burning Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters and its Configurator,
-and Mekanism Generators' Solar, Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+its Electric Pump and Fluidic Plenisher, and Mekanism Generators' Solar, Heat, Gas-Burning, Bio, Wind and Advanced Solar
+Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -66,6 +67,21 @@ assets when `mekanism-content` is given them.
 - The generators: Forge Energy on their energy faces, cables connecting there, a screen like Mekanism's
   (`GuiSolarGenerator`, `GuiHeatGenerator`, `GuiGasGenerator`, `GuiBioGenerator`, `GuiWindGenerator`, the advanced
   solar generator's as the solar's), and `/mek probe` answers for tests.
+- The Electric Pump (`mekanism_energy::pump`, runtime `mek_pump`): a source block every 19 ticks of its Joules
+  (`machine-usage.toml` `electricPump`, 100 J a tick, from its first source on) into a 10 000 mB tank: the block under
+  it first, then in a shuffled order the sources it took (`recurring_nodes`) and those beside them within `[pump]
+  range` (80) blocks, one fluid at a time; water stays in the world while `waterSourceConversion` makes it endless,
+  lava goes; a filter upgrade turns water into `heavyWaterAmount` mB of heavy water (50 on ATM10); its tank goes up
+  into the fluid handler above it (a mechanical pipe, a tank) at `256 * (1 + speed)` mB a tick, and is drained
+  through its top. Speed and energy upgrades as the machines', its slot filling a container from the tank.
+- The Fluidic Plenisher: a 10 000 mB tank filled through its top or from a container in its slot (a fluid with a
+  block), a bucket out into the world every 20 ticks: it walks the space under it (down, north, south, west, east,
+  never up) one block an operation up to `maxPlenisherNodes` (4000), taking 100 J every tick while it walks; then it
+  keeps the block under it full, 100 J a placement. Water evaporates in an ultra-warm dimension; a waterloggable
+  block takes water in.
+- Both take Joules through their back from cables, cubes and Forge Energy, save as Mekanism does (`progress`,
+  `fluid`, `recurring_nodes`, `finished`, `active_nodes`, `used_nodes`, `fluid_tanks`, `component_upgrade`), and
+  have a screen like `GuiElectricPump` with their upgrade slots beside it.
 - The Enrichment Chamber, the Crusher and the Energized Smelter (`TileEntityElectricMachine`) and the Metallurgic
   Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
   (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and
@@ -261,6 +277,13 @@ assets when `mekanism-content` is given them.
   engine's sky light has settled, a tick or more later (Java's light was there on the oracle's next tick).
 - The bio-generator's fuel slot takes from hoppers the items the content's `c:fuels/bio` and `c:fuels/block/bio` tag
   files list (the slot's own use reads the world's tags).
+- The pump and plenisher read `waterSourceConversion` and `lavaSourceConversion` as vanilla's defaults (no hook point
+  reads game rules), shuffle from the bundle's random source, and play no sound or game event. The plenisher replaces
+  air, flowing fluids, `#minecraft:replaceable` and waterloggable blocks (Java also any block that isn't solid), drops
+  a replaced block's default state's loot, can't tell an unloaded position from air, and its waterlogging schedules no
+  fluid tick. Their reset (a sneaking Configurator, `onSneakRightClick`), redstone control and comparators aren't
+  ported; their upgrades go in only through the upgrade slot (no upgrade window). Their outline and collision are
+  one box, the part every facing shares, and their block has `facing` only (Java's `active` never changes).
 - Machines drop plain too: their energy, upgrades and items in the slots stay behind (Java's item keeps them).
 - A machine's container faces are its block's, not its facing's: hoppers reach its input and energy slots (and the
   infuser's infusion slot) and its output from every face, where Java's item side config says which face reaches

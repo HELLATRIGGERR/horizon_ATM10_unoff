@@ -38,6 +38,9 @@ pub struct EnergyConfig {
     pub generators: GeneratorsConfig,
     /// The processing machines' settings.
     pub machines: MachinesConfig,
+    /// The Electric Pump's and the Fluidic Plenisher's (`general.toml`
+    /// `[pump]`, their Joules a tick and store).
+    pub pump: crate::pump::PumpConfig,
 }
 
 impl Default for EnergyConfig {
@@ -53,6 +56,7 @@ impl Default for EnergyConfig {
             deactivation_delay: 60,
             generators: GeneratorsConfig::default(),
             machines: MachinesConfig::default(),
+            pump: crate::pump::PumpConfig::default(),
         }
     }
 }
@@ -350,6 +354,11 @@ impl EnergyConfig {
         config.generators =
             GeneratorsConfig::from_tables(read("generators.toml").as_ref(), read("generator-storage.toml").as_ref());
         config.machines = MachinesConfig::from_tables(
+            read("general.toml").as_ref(),
+            read("machine-usage.toml").as_ref(),
+            read("machine-storage.toml").as_ref(),
+        );
+        config.pump = crate::pump::PumpConfig::from_tables(
             read("general.toml").as_ref(),
             read("machine-usage.toml").as_ref(),
             read("machine-storage.toml").as_ref(),

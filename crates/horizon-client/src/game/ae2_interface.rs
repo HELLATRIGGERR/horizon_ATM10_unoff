@@ -216,11 +216,31 @@ pub(super) fn interface_config(machine: &Machine) -> Result<Vec<Option<ItemStack
         }
         seen[i] = true;
     }
-    Ok(save::decode_items(Some(tag), size))
+    let mut items = save::decode_items(Some(tag), size);
+    // `item_from_nbt` reads a count outside 1..=99 as 1 (ItemStack.CODEC); a slot's amount here is
+    // an interface's stock amount, up to the Oversize Interface's 16 times AE2's.
+    for entry in entries {
+        if let (Some(Tag::Byte(slot)), Some(Tag::Int(count))) = (entry.get("Slot"), entry.get("count"))
+            && let Some(Some(stack)) = items.get_mut(*slot as usize)
+        {
+            stack.count = *count as u32;
+        }
+    }
+    Ok(items)
 }
 // InterfaceLogic calls useRegisteredCapacities for both rows; AE2 registers
 // four buckets for fluids in GenericSlotCapacities.
 pub(super) const INTERFACE_FLUID_CAPACITY: u64 = 4000;
+/// An interface slot's fluid capacity: AE2's, times an addon's multiplier
+/// (ExtendedAE's Oversize Interface: `OversizeConfigInv`).
+pub(super) fn interface_fluid_capacity(machine: &Machine) -> u64 {
+    super::ae2x::interface_capacity(machine, ae2_cell_core::KeyType::FLUIDS, INTERFACE_FLUID_CAPACITY)
+}
+/// The most of an item of `stack_max` an interface slot holds: the stack
+/// size, or an addon's (`OversizeConfigInv.getMaxAmount`).
+pub(super) fn interface_item_max(machine: &Machine, stack_max: u32) -> u32 {
+    super::ae2x::interface_item_max(machine, stack_max)
+}
 const FLUID_CONFIG: &str = "ae2_interface_fluid_config";
 const FLUID_STOCK: &str = "ae2_interface_fluids";
 // InterfaceLogic.isAllowedInStorageSlot uses AEKey.fuzzyEquals; fluid keys
@@ -268,7 +288,7 @@ fn fluid_slots(machine: &Machine, name: &str) -> Result<Vec<Option<(ItemKey, u64
         if i >= slots.len()
             || slots[i].is_some()
             || *amount <= 0
-            || *amount > INTERFACE_FLUID_CAPACITY as i64
+            || *amount > interface_fluid_capacity(machine) as i64
             || !super::ae2_fluids::valid_fluid_id(&id)
         {
             return Err("invalid interface fluid slot".into());
@@ -326,7 +346,8 @@ pub(super) fn set_interface_fluid_config_amount(
     if value.is_some_and(|(_,amount)|amount==0) {return Err("invalid interface fluid amount".into());}
     let mut fluid = interface_fluid_config(machine)?;
     let mut item = interface_config(machine)?;
-    fluid[index] = value.map(|(key,amount)| (key.clone(), amount.min(INTERFACE_FLUID_CAPACITY)));
+    let capacity = interface_fluid_capacity(machine);
+    fluid[index] = value.map(|(key,amount)| (key.clone(), amount.min(capacity)));
     if value.is_some() {
         item[index] = None;
     }
@@ -369,7 +390,7 @@ pub(super) fn interface_bucket_exchange(
             Some(_) => return Ok(None),
             None => 0,
         };
-        if n > INTERFACE_FLUID_CAPACITY - 1000 {
+        if n > interface_fluid_capacity(machine).saturating_sub(1000) {
             return Ok(None);
         }
         stock[index] = Some((key, n + 1000));
@@ -526,7 +547,7 @@ impl Game<'_> {
         {
             return Ok(0);
         }
-        let max = self.res.items().stack_max(stack);
+        let max = interface_item_max(&machine, self.res.items().stack_max(stack));
         let existing = machine.slots[slot].as_ref();
         if existing.is_some_and(|v| !v.same_item_same_components(stack)) {
             return Ok(0);
@@ -575,7 +596,7 @@ impl Game<'_> {
             return Ok(0);
         }
         let old = stock[slot].as_ref().map_or(0, |(_, n)| *n);
-        let moved = amount.min(INTERFACE_FLUID_CAPACITY.saturating_sub(old));
+        let moved = amount.min(interface_fluid_capacity(&machine).saturating_sub(old));
         if moved > 0 && !simulate {
             stock[slot] = Some((key.clone(), old + moved));
             store_fluids(&mut machine, FLUID_STOCK, &stock);
@@ -1231,7 +1252,7 @@ impl Game<'_> {
         }
         let mut left = limit.min(stack.count);
         let before = left;
-        let max = self.res.items().stack_max(stack);
+        let max = interface_item_max(&machine, self.res.items().stack_max(stack));
         for i in 0..machine.slots.len() {
             if left == 0 {
                 break;
@@ -1427,6 +1448,7 @@ impl Game<'_> {
         let items = interface_config(&machine).ok()?;
         let config = interface_fluid_config(&machine).ok()?;
         let mut stock = interface_fluid_stock(&machine).ok()?;
+        let capacity = interface_fluid_capacity(&machine);
         let _guard = ForwardGuard::enter(owner)?;
         if items.iter().all(Option::is_none) && config.iter().all(Option::is_none) {
             return Some(
@@ -1448,12 +1470,12 @@ impl Game<'_> {
                 }
                 match &mut stock[i] {
                     Some((stored, n)) if stored == key => {
-                        let moved = left.min(INTERFACE_FLUID_CAPACITY.saturating_sub(*n));
+                        let moved = left.min(capacity.saturating_sub(*n));
                         *n += moved;
                         left -= moved
                     }
                     None => {
-                        let moved = left.min(INTERFACE_FLUID_CAPACITY);
+                        let moved = left.min(capacity);
                         stock[i] = Some((key.clone(), moved));
                         left -= moved
                     }

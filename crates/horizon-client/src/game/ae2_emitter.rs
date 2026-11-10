@@ -38,7 +38,7 @@ fn validate(state: &EmitterState) -> Result<(), String> {
     Ok(())
 }
 pub(super) fn emitter_read(part: &Compound) -> Result<EmitterState, String> {
-    if part.get(&"id".into()) != Some(&Tag::String("ae2:level_emitter".into())) { return Err("not a storage level emitter".into()); }
+    if super::ae2_buses::part_kind(part).as_deref() != Some("ae2:level_emitter") { return Err("not a storage level emitter".into()); }
     let threshold=match part.get(&"emitter_threshold".into()) {None=>0,Some(Tag::Long(v))=>*v,_=>return Err("invalid emitter threshold".into())};
     let fuzzy_mode=match part.get(&"fuzzy_mode".into()) {None=>"ignore_all".to_owned(),Some(Tag::String(v))=>v.to_string().map_err(|_|"invalid emitter fuzzy text")?,_=>return Err("invalid emitter fuzzy mode".into())};
     let upgrades=match part.get(&"upgrades".into()) {None=>vec![None],Some(Tag::List(v))=>horizon_client::ae2_upgrade_inventory::decode(v,1)?,_=>return Err("invalid emitter upgrades".into())};
@@ -55,7 +55,7 @@ pub(super) fn emitter_read(part: &Compound) -> Result<EmitterState, String> {
     validate(&state)?;Ok(state)
 }
 pub(super) fn emitter_store(part: &mut Compound, state: &EmitterState) -> Result<(), String> {
-    if part.get(&"id".into()) != Some(&Tag::String("ae2:level_emitter".into())) { return Err("not a storage level emitter".into()); }
+    if super::ae2_buses::part_kind(part).as_deref() != Some("ae2:level_emitter") { return Err("not a storage level emitter".into()); }
     validate(state)?;
     let upgrades=horizon_client::ae2_upgrade_inventory::encode(&state.upgrades)?;
     part.insert("emitter_threshold".into(),Tag::Long(state.threshold));

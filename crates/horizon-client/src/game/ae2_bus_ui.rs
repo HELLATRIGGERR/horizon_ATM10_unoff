@@ -628,6 +628,7 @@ impl Game<'_> {
             if index < state.slots() {
                 let held = self.carried.as_ref();
                 let wrapped=held.map(|item|super::ae2_encoding::wrapped_ghost(item,&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()))).transpose();
+                let fluid=matches!(wrapped,Ok(Some(Some(super::ae2_encoding::WrappedGhost::Fluid(_)))))||(button==1&&held.and_then(|s|super::ae2_fluids::bucket_fluid(&s.item)).is_some());
                 let selected=match wrapped {
                     Ok(Some(Some(super::ae2_encoding::WrappedGhost::Fluid(fluid))))=>Some(Key::from(&fluid.key)),
                     Ok(Some(Some(super::ae2_encoding::WrappedGhost::Item(item))))=>super::ae2_lab::key(&item).ok().as_ref().map(Key::from),
@@ -635,6 +636,9 @@ impl Game<'_> {
                     _ if button==1=>held.and_then(|s|super::ae2_fluids::bucket_fluid(&s.item)).map(super::ae2_fluids::fluid_key).as_ref().map(Key::from),
                     _=>held.and_then(|s|super::ae2_lab::key(s).ok()).as_ref().map(Key::from),
                 };
+                // An addon bus's amount a slot (CONFIG_STACKS): what the hand holds.
+                let amount=selected.as_ref().map(|_|if fluid {1000} else if button==1 {1} else {held.map_or(1,|s|u64::from(s.count))});
+                super::ae2x::bus_config_amount(&mut data,index,amount);
                 state.config[index]=selected;
                 changed = true;
             }

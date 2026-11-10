@@ -1339,8 +1339,8 @@ impl LevelAccess for GameLevel<'_> {
             if m.kind != horizon_client::ae2_world::MachineKind::CableBus { return None; }
             let face = match direction.opposite() { Direction::Down=>"down", Direction::Up=>"up", Direction::North=>"north", Direction::South=>"south", Direction::West=>"west", Direction::East=>"east" };
             let Some(horizon_world::nbt::Tag::List(parts)) = m.config.get(&"parts".into()) else { return None; };
-            let part = parts.iter().find(|part| part.get("face")==Some(&horizon_world::nbt::Tag::String(face.into())) && matches!(part.get("id"), Some(horizon_world::nbt::Tag::String(id)) if id.to_string().is_ok_and(|id| matches!(id.as_str(),"ae2:level_emitter"|"ae2:energy_level_emitter"|"ae2:redstone_p2p_tunnel"))))?;
-            return Some(if matches!(part.get("id"),Some(horizon_world::nbt::Tag::String(id)) if matches!(id.to_string_lossy().as_str(),"ae2:level_emitter"|"ae2:energy_level_emitter")) {
+            let part = parts.iter().find(|part| part.get("face")==Some(&horizon_world::nbt::Tag::String(face.into())) && matches!(part.get("id"), Some(horizon_world::nbt::Tag::String(id)) if id.to_string().is_ok_and(|id| matches!(horizon_client::ae2_world::base_id(&id),"ae2:level_emitter"|"ae2:energy_level_emitter"|"ae2:redstone_p2p_tunnel"))))?;
+            return Some(if matches!(part.get("id"),Some(horizon_world::nbt::Tag::String(id)) if matches!(horizon_client::ae2_world::base_id(&id.to_string_lossy()),"ae2:level_emitter"|"ae2:energy_level_emitter")) {
                 if part.get("emitter_active")==Some(&horizon_world::nbt::Tag::Byte(1)) {15} else {0}
             } else if part.get("p2p_output")==Some(&horizon_world::nbt::Tag::Byte(1)) {
                 match part.get("p2p_power") { Some(horizon_world::nbt::Tag::Int(power)) => (*power).clamp(0,15), _=>0 }

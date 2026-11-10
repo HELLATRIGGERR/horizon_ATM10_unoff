@@ -20,6 +20,8 @@ use crate::ae2_world::{ExtMachine, MachineKind, MachineVariant};
 use ae2_cell_core::KeyType;
 use std::sync::OnceLock;
 
+pub mod special;
+
 pub const NAMESPACE: &str = "extendedae";
 /// `TileCrystalAssembler`: nine inputs, one output, a fluid tank of 16 buckets.
 pub const CRYSTAL_ASSEMBLER: &str = "extendedae:crystal_assembler";
@@ -256,6 +258,12 @@ pub struct Config {
     pub modifier_multipliers: Vec<i64>,
     /// `item.me_packing_tape_whitelist`: the blocks and parts ME Packing Tape packs.
     pub tape_whitelist: Vec<String>,
+    /// `device.oversize_interface_multiplier`, 2 to 4,096: the Oversize
+    /// Interface's slots, times AE2's.
+    pub oversize_multiplier: u64,
+    /// `device.custom_oversize_interface_multiplier`: `"<key type id> <n>"`
+    /// entries that set a key type's own; one that does not parse is left out.
+    pub oversize_custom: Vec<(String, u64)>,
 }
 /// `EAEConfig.defaultModifierMultiplier`.
 pub const DEFAULT_MODIFIER_MULTIPLIERS: [i64; 4] = [2, 3, 5, 7];
@@ -284,6 +292,27 @@ impl Config {
     pub fn tape_takes(&self, id: &str) -> bool {
         self.tape_whitelist.iter().any(|entry| entry == id)
     }
+    /// `getOversizeMultiplier`: a key type's own, else the common one.
+    pub fn oversize_multiplier(&self, key_type: &str) -> u64 {
+        self.oversize_custom.iter().find(|(id, _)| id == key_type).map_or(self.oversize_multiplier, |(_, n)| *n)
+    }
+}
+/// `parseOversizeMultiplier`: an id, a space, an `Integer.decode` number.
+fn parse_oversize_entry(entry: &str) -> Option<(String, u64)> {
+    let mut parts = entry.split(' ');
+    let (id, n) = (parts.next()?, parts.next()?);
+    let (ns, path) = id.split_once(':').unwrap_or(("minecraft", id));
+    let valid = |s: &str, extra: bool| s.chars().all(|c| matches!(c, 'a'..='z' | '0'..='9' | '_' | '-' | '.') || (extra && c == '/'));
+    if !valid(ns, false) || !valid(path, true) {
+        return None;
+    }
+    let (digits, radix) = match n.strip_prefix('+').unwrap_or(n) {
+        hex if hex.starts_with("0x") || hex.starts_with("0X") || hex.starts_with('#') => (hex.trim_start_matches("0x").trim_start_matches("0X").trim_start_matches('#'), 16),
+        oct if oct.len() > 1 && oct.starts_with('0') => (&oct[1..], 8),
+        dec => (dec, 10),
+    };
+    let n = i32::from_str_radix(digits, radix).ok()?;
+    Some((format!("{ns}:{path}"), u64::try_from(n).unwrap_or(0)))
 }
 impl Default for Config {
     fn default() -> Self {
@@ -295,6 +324,8 @@ impl Default for Config {
             wireless_power: 1.0,
             modifier_multipliers: DEFAULT_MODIFIER_MULTIPLIERS.to_vec(),
             tape_whitelist: DEFAULT_TAPE_WHITELIST.iter().map(|s| (*s).to_owned()).collect(),
+            oversize_multiplier: 16,
+            oversize_custom: vec![("appbot:mana".to_owned(), 2), ("appflux:flux".to_owned(), 4)],
         }
     }
 }
@@ -340,6 +371,14 @@ impl Config {
             if let Some(parsed) = parsed {
                 config.tape_whitelist = parsed;
             }
+        }
+        if let Some(n) = value.get("device").and_then(|d| d.get("oversize_interface_multiplier")).and_then(toml::Value::as_integer).filter(|n| (2..=4096).contains(n)) {
+            config.oversize_multiplier = n as u64;
+        }
+        let custom = value.get("device").and_then(|d| d.get("custom_oversize_interface_multiplier")).and_then(toml::Value::as_array);
+        if let Some(entries) = custom {
+            // defineList(.., o -> true): any list; its entries parsed one by one.
+            config.oversize_custom = entries.iter().filter_map(|e| parse_oversize_entry(e.as_str()?)).collect();
         }
         Ok(config)
     }
@@ -468,6 +507,22 @@ pub const MACHINES: &[MachineVariant] = &[
         upgrades: 0,
         part: true,
     },
+    // Slice 5: AE2's storage bus, export bus, level emitter and planes with
+    // their own filters, amounts and cards (`special`; `getUpgradeSlots`).
+    MachineVariant { id: special::TAG_STORAGE_BUS, base: "ae2:storage_bus", block: special::TAG_STORAGE_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 2, part: true },
+    MachineVariant { id: special::MOD_STORAGE_BUS, base: "ae2:storage_bus", block: special::MOD_STORAGE_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 2, part: true },
+    MachineVariant { id: special::PRECISE_STORAGE_BUS, base: "ae2:storage_bus", block: special::PRECISE_STORAGE_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 5, part: true },
+    MachineVariant { id: special::TAG_EXPORT_BUS, base: "ae2:export_bus", block: special::TAG_EXPORT_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 4, part: true },
+    MachineVariant { id: special::MOD_EXPORT_BUS, base: "ae2:export_bus", block: special::MOD_EXPORT_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 4, part: true },
+    MachineVariant { id: special::PRECISE_EXPORT_BUS, base: "ae2:export_bus", block: special::PRECISE_EXPORT_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 5, part: true },
+    MachineVariant { id: special::THRESHOLD_EXPORT_BUS, base: "ae2:export_bus", block: special::THRESHOLD_EXPORT_BUS, kind: MachineKind::CableBus, slots: 0, upgrades: 5, part: true },
+    MachineVariant { id: special::THRESHOLD_LEVEL_EMITTER, base: "ae2:level_emitter", block: special::THRESHOLD_LEVEL_EMITTER, kind: MachineKind::CableBus, slots: 0, upgrades: 1, part: true },
+    MachineVariant { id: special::ACTIVE_FORMATION_PLANE, base: "ae2:formation_plane", block: special::ACTIVE_FORMATION_PLANE, kind: MachineKind::CableBus, slots: 0, upgrades: 5, part: true },
+    MachineVariant { id: special::SMART_ANNIHILATION_PLANE, base: "ae2:annihilation_plane", block: special::SMART_ANNIHILATION_PLANE, kind: MachineKind::CableBus, slots: 0, upgrades: 5, part: true },
+    // TileOversizeInterface and PartOversizeInterface: the Extended
+    // Interface's 36 slots, each key type's capacity times its multiplier.
+    MachineVariant { id: special::OVERSIZE_INTERFACE, base: "ae2:interface", block: special::OVERSIZE_INTERFACE, kind: MachineKind::Interface, slots: 36, upgrades: 1, part: false },
+    MachineVariant { id: special::OVERSIZE_INTERFACE_PART, base: "ae2:cable_interface", block: special::OVERSIZE_INTERFACE, kind: MachineKind::Interface, slots: 36, upgrades: 1, part: true },
     MachineVariant {
         id: MATRIX_PATTERN,
         base: "ae2:pattern_provider",
@@ -479,10 +534,11 @@ pub const MACHINES: &[MachineVariant] = &[
     },
 ];
 
-/// `PartExImportBus` and `PartExExportBus.getOperationsPerTick`: AE2's times
-/// `extended_io_bus_multiplier`; 1 for any other bus.
+/// `getOperationsPerTick` of the Extended Import and Export Buses and the
+/// Tag, Mod and Precise Export Buses: AE2's times `extended_io_bus_multiplier`;
+/// 1 for any other bus (the Threshold Export Bus's is AE2's).
 pub fn bus_operations_multiplier(id: &str) -> u64 {
-    if matches!(id, EX_IMPORT_BUS | EX_EXPORT_BUS) { Config::get().bus_speed } else { 1 }
+    if matches!(id, EX_IMPORT_BUS | EX_EXPORT_BUS | special::TAG_EXPORT_BUS | special::MOD_EXPORT_BUS | special::PRECISE_EXPORT_BUS) { Config::get().bus_speed } else { 1 }
 }
 
 /// `TileExIOPort.tickingRequest`: 2,048 items a tick, doubled by each speed
@@ -545,6 +601,8 @@ pub const OWN_MACHINES: &[ExtMachine] = &[
     // UpgradeInventories.forMachine(WIRELESS_CONNECTOR, 4); the hub's the same.
     ExtMachine { id: WIRELESS_CONNECTOR, physical_slots: 0, upgrade_slots: 4, key_drops: None, power_capacity: None, part: false },
     ExtMachine { id: WIRELESS_HUB, physical_slots: 0, upgrade_slots: 4, key_drops: None, power_capacity: None, part: false },
+    // TileVacuumInterface: 63 filters (its config), five cards, 1 AE/t.
+    ExtMachine { id: special::VACUUM_INTERFACE, physical_slots: 0, upgrade_slots: 5, key_drops: None, power_capacity: None, part: false },
 ];
 
 /// An `ItemInfinityCell` (`InfinityCellInventory`): the one key it holds
@@ -654,7 +712,7 @@ pub fn register(defs: &mut Defs) {
         defs.add_machine(*machine);
     }
     // EAERegistryHandler.registerUpgrades, for the devices carried so far.
-    for host in ["extendedae:ex_interface", "extendedae:ex_interface_part"] {
+    for host in ["extendedae:ex_interface", "extendedae:ex_interface_part", special::OVERSIZE_INTERFACE, special::OVERSIZE_INTERFACE_PART] {
         defs.add_upgrade("ae2:fuzzy_card", host, 1);
         defs.add_upgrade("ae2:crafting_card", host, 1);
     }
@@ -663,6 +721,24 @@ pub fn register(defs: &mut Defs) {
     }
     for (card, max) in [("ae2:capacity_card", 5), ("ae2:redstone_card", 1), ("ae2:speed_card", 4), ("ae2:inverter_card", 1), ("ae2:fuzzy_card", 1)] {
         defs.add_upgrade(card, EX_IMPORT_BUS, max);
+    }
+    use special::*;
+    for (host, cards) in [
+        (TAG_STORAGE_BUS, &[("ae2:inverter_card", 1), ("ae2:void_card", 1)][..]),
+        (MOD_STORAGE_BUS, &[("ae2:inverter_card", 1), ("ae2:void_card", 1)]),
+        (PRECISE_STORAGE_BUS, &[("ae2:capacity_card", 5), ("ae2:void_card", 1)]),
+        (TAG_EXPORT_BUS, &[("ae2:redstone_card", 1), ("ae2:speed_card", 4)]),
+        (MOD_EXPORT_BUS, &[("ae2:redstone_card", 1), ("ae2:speed_card", 4)]),
+        (PRECISE_EXPORT_BUS, &[("ae2:capacity_card", 5), ("ae2:redstone_card", 1), ("ae2:crafting_card", 1), ("ae2:speed_card", 4)]),
+        (THRESHOLD_EXPORT_BUS, &[("ae2:capacity_card", 5), ("ae2:redstone_card", 1), ("ae2:speed_card", 4)]),
+        (THRESHOLD_LEVEL_EMITTER, &[("ae2:fuzzy_card", 1)]),
+        (ACTIVE_FORMATION_PLANE, &[("ae2:fuzzy_card", 1), ("ae2:crafting_card", 1), ("ae2:redstone_card", 1), ("ae2:inverter_card", 1), ("ae2:speed_card", 4), ("ae2:capacity_card", 5)]),
+        (SMART_ANNIHILATION_PLANE, &[("ae2:fuzzy_card", 1), ("ae2:inverter_card", 1), ("ae2:capacity_card", 5)]),
+        (VACUUM_INTERFACE, &[("ae2:capacity_card", 5), ("ae2:fuzzy_card", 1), ("ae2:redstone_card", 1)]),
+    ] {
+        for (card, max) in cards {
+            defs.add_upgrade(card, host, *max);
+        }
     }
     defs.add_upgrade("ae2:speed_card", EX_IO_PORT, 5);
     defs.add_upgrade("ae2:redstone_card", EX_IO_PORT, 1);
@@ -891,5 +967,47 @@ mod tests {
         let tape = Config::parse("[item]\nme_packing_tape_whitelist = [\"ae2:drive\"]").unwrap();
         assert!(tape.tape_takes("ae2:drive") && !tape.tape_takes("ae2:interface"));
         assert_eq!(crate::ae2_world::base_id(EX_PATTERN_TERMINAL), "ae2:pattern_access_terminal");
+    }
+
+    #[test]
+    fn extendedae_slice5_rows_and_oversize_config() {
+        use super::{Config, special::*};
+        crate::ae2x::install();
+        let defs = crate::ae2x::defs::get();
+        for (id, base, cards) in [
+            (TAG_STORAGE_BUS, "ae2:storage_bus", 2),
+            (MOD_STORAGE_BUS, "ae2:storage_bus", 2),
+            (PRECISE_STORAGE_BUS, "ae2:storage_bus", 5),
+            (TAG_EXPORT_BUS, "ae2:export_bus", 4),
+            (MOD_EXPORT_BUS, "ae2:export_bus", 4),
+            (PRECISE_EXPORT_BUS, "ae2:export_bus", 5),
+            (THRESHOLD_EXPORT_BUS, "ae2:export_bus", 5),
+            (THRESHOLD_LEVEL_EMITTER, "ae2:level_emitter", 1),
+            (ACTIVE_FORMATION_PLANE, "ae2:formation_plane", 5),
+            (SMART_ANNIHILATION_PLANE, "ae2:annihilation_plane", 5),
+        ] {
+            assert_eq!(crate::ae2_world::base_id(id), base, "{id}");
+            assert_eq!(crate::ae2_world::bus_card_slots(id), cards, "{id}");
+        }
+        assert_eq!(crate::ae2_world::base_id(OVERSIZE_INTERFACE_PART), "ae2:cable_interface");
+        assert_eq!(defs.upgrade_limit("ae2:void_card", TAG_STORAGE_BUS), 1);
+        assert_eq!(defs.upgrade_limit("ae2:speed_card", TAG_STORAGE_BUS), 0);
+        assert_eq!(defs.upgrade_limit("ae2:crafting_card", PRECISE_EXPORT_BUS), 1);
+        assert_eq!(defs.upgrade_limit("ae2:crafting_card", THRESHOLD_EXPORT_BUS), 0);
+        assert_eq!(defs.upgrade_limit("ae2:inverter_card", VACUUM_INTERFACE), 0, "the mod registers none");
+        assert_eq!(defs.upgrade_limit("ae2:crafting_card", OVERSIZE_INTERFACE), 1);
+        // The Tag, Mod and Precise Export Buses move AE2's times the bus speed; the threshold one AE2's.
+        assert_eq!(super::bus_operations_multiplier(TAG_EXPORT_BUS), 8);
+        assert_eq!(super::bus_operations_multiplier(THRESHOLD_EXPORT_BUS), 1);
+        let config = Config::default();
+        assert_eq!((config.oversize_multiplier("ae2:i"), config.oversize_multiplier("appflux:flux"), config.oversize_multiplier("appbot:mana")), (16, 4, 2));
+        let config = Config::parse("[device]
+oversize_interface_multiplier = 32
+custom_oversize_interface_multiplier = [\"ae2:f 0x8\", \"bad id 3\", \"appflux:flux\"]").unwrap();
+        assert_eq!(config.oversize_multiplier("ae2:i"), 32);
+        assert_eq!(config.oversize_multiplier("ae2:f"), 8, "Integer.decode reads hex");
+        assert_eq!(config.oversize_custom.len(), 1, "the entries that do not parse are left out");
+        assert_eq!(Config::parse("[device]
+oversize_interface_multiplier = 1").unwrap().oversize_multiplier, 16, "out of range");
     }
 }

@@ -1,7 +1,7 @@
 {
   "namespace": "extendedae",
   "name": "ExtendedAE",
-  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, Import and Export Buses and their kit, the Extended Inscriber, Charger and Molecular Assembler, Entro's budding blocks, clusters and seeds, and the materials of their recipes (slice 2); the Assembler Matrix (slice 3); the Wireless Connector and Hub and the Wireless Setup Kit (slice 4); the Infinity and Void Cells (slice 6); the Pattern and Config Modifiers, ME Packing Tape and the Extended Pattern Access Terminal (slice 7).",
+  "description": "ExtendedAE 1.21-2.2.42 for the AE2 port: the Extended Pattern Provider, Interface and Drive, their parts and upgrade kits (slice 1); the Crystal Assembler, Circuit Slicer and Crystal Fixer with their recipe types, the Extended IO Port, Import and Export Buses and their kit, the Extended Inscriber, Charger and Molecular Assembler, Entro's budding blocks, clusters and seeds, and the materials of their recipes (slice 2); the Assembler Matrix (slice 3); the Wireless Connector and Hub and the Wireless Setup Kit (slice 4); the Infinity and Void Cells (slice 6); the Pattern and Config Modifiers, ME Packing Tape and the Extended Pattern Access Terminal (slice 7); the Tag, Mod and Precise Storage and Export Buses, the Threshold Level Emitter and Export Bus, the Active Formation Plane and the Smart Annihilation Plane (slice 5); the Oversize and Vacuum Interfaces.",
   "authors": ["GlodBlock (ExtendedAE)"],
   "slices": [
     "1: Extended Pattern Provider and Interface, block and part; ME Extended Drive; their upgrade kits",
@@ -9,6 +9,7 @@
     "3: the Assembler Matrix: its frame, walls, glass, crafter, pattern and speed cores",
     "4: the Wireless Connector and Wireless Hub, the Wireless Setup Kit and the hub's upgrade kit",
     "6: ME Infinity Water and Cobblestone Cells and the pack's KubeJS infinity cells; ME Void Cell",
+    "5: the Tag, Mod and Precise Storage and Export Buses, the Threshold Level Emitter and Threshold Export Bus, the Active Formation Plane, the Smart Annihilation Plane; the Oversize Interface, block and part, and the Vacuum Interface",
     "7: the Pattern Modifier and Config Modifier, ME Packing Tape and its package, the Extended Pattern Access Terminal, its kit and its wireless form"
   ],
   "items": {
@@ -39,7 +40,18 @@
     "package": {"max_stack_size": 1},
     "ex_pattern_access_part": {},
     "pattern_terminal_upgrade": {},
-    "wireless_ex_pat": {"max_stack_size": 1}
+    "wireless_ex_pat": {"max_stack_size": 1},
+    "tag_storage_bus": {},
+    "tag_export_bus": {},
+    "mod_storage_bus": {},
+    "mod_export_bus": {},
+    "precise_storage_bus": {},
+    "precise_export_bus": {},
+    "threshold_export_bus": {},
+    "threshold_level_emitter": {},
+    "active_formation_plane": {},
+    "smart_annihilation_plane": {},
+    "oversize_interface_part": {}
   },
   "blocks": {
     "ex_pattern_provider": {
@@ -168,13 +180,19 @@
       "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
       "state_properties": {"connected": ["false", "true"], "color": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16"]},
       "state_defaults": {"connected": "false", "color": "16"}
+    },
+    "oversize_interface": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"}
+    },
+    "vacuum_interface": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"}
     }
   },
   "recipe_types": ["extendedae:crystal_assembler", "extendedae:circuit_cutter", "extendedae:crystal_fixer"],
   "pack_kubejs_items": {"script": "kubejs/startup_scripts/ExtendedAE/InfinityCells.js", "builder": "custom_infinity_cell", "namespace": "kubejs", "out": "data/extendedae/ae2x/infinity_cells.json", "calls": {"itemType": "item", "fluidType": "fluid", "cellModel": "model"}},
   "config_conditions": {"assembler_circuit": {"file": "extendedae-common.toml", "key": "device.enable_crystal_assembler_inscribe_processors", "default": true}},
   "ae2_namespace": {
-    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json", "ex_import_bus.json", "ex_export_bus.json", "ex_inscriber.json", "ex_molecular_assembler.json", "assembler_matrix.json", "void_cell.json", "wireless_connector.json", "wireless_hub.json", "pattern_modifier.json", "pattern_modifier_inventory.json", "config_modifier.json"],
-    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png", "crystal_assembler.png", "circuit_cutter.png", "ex_inscriber.png", "ex_molecular_assembler.png", "assembler_matrix.png", "void_cell.png", "wireless_connector.png", "wireless_hub.png", "pattern_editor_1.png", "pattern_editor_2.png", "pattern_editor_3.png", "config_modifier.png"]
+    "screens": ["ex_pattern_provider.json", "ex_interface.json", "ex_drive.json", "ex_io_port.json", "crystal_assembler.json", "circuit_cutter.json", "ex_import_bus.json", "ex_export_bus.json", "ex_inscriber.json", "ex_molecular_assembler.json", "assembler_matrix.json", "void_cell.json", "wireless_connector.json", "wireless_hub.json", "pattern_modifier.json", "pattern_modifier_inventory.json", "config_modifier.json", "tag_storage_bus.json", "tag_export_bus.json", "mod_storage_bus.json", "mod_export_bus.json", "precise_storage_bus.json", "precise_export_bus.json", "threshold_export_bus.json", "threshold_level_emitter.json", "active_formation_plane.json", "smart_annihilation_plane.json", "oversize_interface.json", "vacuum_interface.json"],
+    "gui_textures": ["ex_pattern_provider.png", "ex_interface.png", "ex_drive.png", "crystal_assembler.png", "circuit_cutter.png", "ex_inscriber.png", "ex_molecular_assembler.png", "assembler_matrix.png", "void_cell.png", "wireless_connector.png", "wireless_hub.png", "pattern_editor_1.png", "pattern_editor_2.png", "pattern_editor_3.png", "config_modifier.png", "tag_storage_bus.png", "mod_storage_bus.png", "precise_storage_bus.png", "threshold_level_emitter.png"]
   }
 }

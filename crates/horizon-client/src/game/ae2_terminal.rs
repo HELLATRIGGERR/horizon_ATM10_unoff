@@ -6040,12 +6040,12 @@ impl Game<'_> {
             (Some(mut item),None)=>{
                 let amount=u64::from(item.count);let key=super::ae2_lab::key(&item).ok()?;
                 self.res.items().get(&item.item)?;
-                let max=i64::from(self.ae2_config_item_max(&item));
+                let max=i64::from(super::ae2_interface::interface_item_max(machine,self.ae2_config_item_max(&item)));
                 item.count=1;Some((StockKey::Item(key),amount,max,1,item))
             },
             (None,Some((key,amount)))=>{
                 let display=encoding_fluid_icon(&super::ae2_processing::PatternFluid{key:key.clone(),amount})?;
-                Some((StockKey::Fluid(key),amount,super::ae2_interface::INTERFACE_FLUID_CAPACITY as i64,1000,display))
+                Some((StockKey::Fluid(key),amount,super::ae2_interface::interface_fluid_capacity(machine) as i64,1000,display))
             },
             _=>None,
         }
@@ -6473,10 +6473,11 @@ impl Game<'_> {
             let mut item=super::ae2_interface::interface_config(&machine)?[index].clone();
             let mut fluid=super::ae2_interface::interface_fluid_config(&machine)?[index].as_ref().map(|(key,amount)|super::ae2_processing::PatternFluid{key:key.clone(),amount:*amount});
             let held=super::ae2_encoding::cursor_ghost(cursor.as_ref(),&|id,kind|horizon_client::ae2_key_types::known_id(kind,id,|id|self.res.items().get(id).is_some()))?;
-            let max_for=|item:&ItemStack|self.ae2_config_item_max(item);
+            let max_for=|item:&ItemStack|super::ae2_interface::interface_item_max(&machine,self.ae2_config_item_max(item));
             let displayed_max=item.as_ref().map_or(64,&max_for);
             let item_capacity=held.as_ref().and_then(|(value,_)|if let super::ae2_encoding::WrappedGhost::Item(item)=value {Some(max_for(item))}else{None}).or_else(||item.as_ref().map(&max_for)).unwrap_or(64);
-            super::ae2_encoding::click_ghost(&mut item,&mut fluid,held,button==1,displayed_max,item_capacity,super::ae2_interface::INTERFACE_FLUID_CAPACITY);
+            let fluid_capacity=super::ae2_interface::interface_fluid_capacity(&machine);
+            super::ae2_encoding::click_ghost(&mut item,&mut fluid,held,button==1,displayed_max,item_capacity,fluid_capacity);
             if let Some(fluid)=fluid {super::ae2_interface::set_interface_fluid_config_amount(&mut machine,index,Some((&fluid.key,fluid.amount)))}
             else {super::ae2_interface::set_interface_config(&mut machine,index,item.as_ref())}
         })();

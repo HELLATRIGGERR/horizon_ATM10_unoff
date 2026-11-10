@@ -38,21 +38,7 @@ impl Game<'_> {
             }
         }
         for mount in self.ae2_fluid_storage_mounts_encoded(pos) {
-            let entries =
-                if matches!(self.ae2_block_entity(mount.target),Some(BlockEntity::Ae2(machine)) if machine.kind==horizon_client::ae2_world::MachineKind::Condenser) {
-                    // CondenserMEStorage exposes output items, but no fluids.
-                    Vec::new()
-                } else if let Some(entries) = self.ae2_interface_fluid_entries(mount.target, mount.face) {
-                    entries
-                } else if let Some(entries) =
-                    self.ae2_mod_fluid_entries(mount.target, mount.face, mount.extractable_only)
-                {
-                    // A native block's IFluidHandler, read as it stands: its storage bus's
-                    // monitor (one per bus) follows the block's items when it has any.
-                    entries
-                } else {
-                    self.ae2_monitor_read(&mount)?.1
-                };
+            let entries = self.ae2_fluid_mount_entries(&mount)?;
             for (key, amount) in entries {
                 if mount.visible(&ae2_machines_core::Key::from(&key)) {
                     let total = totals.entry(key).or_default();
@@ -294,15 +280,41 @@ impl Game<'_> {
         }
         Ok(moved)
     }
+    /// What a fluid storage bus's target holds, before its filters.
+    pub(super) fn ae2_fluid_mount_entries(&self, mount: &super::ae2_buses::StorageMount) -> Result<Vec<(ItemKey, u64)>, String> {
+        Ok(if matches!(self.ae2_block_entity(mount.target),Some(BlockEntity::Ae2(machine)) if machine.kind==horizon_client::ae2_world::MachineKind::Condenser) {
+            // CondenserMEStorage exposes output items, but no fluids.
+            Vec::new()
+        } else if let Some(entries) = self.ae2_interface_fluid_entries(mount.target, mount.face) {
+            entries
+        } else if let Some(entries) =
+            self.ae2_mod_fluid_entries(mount.target, mount.face, mount.extractable_only)
+        {
+            // A native block's IFluidHandler, read as it stands: its storage bus's
+            // monitor (one per bus) follows the block's items when it has any.
+            entries
+        } else {
+            self.ae2_monitor_read(&mount)?.1
+        })
+    }
     fn ae2_fluid_bus_preferred(&mut self,mount:&super::ae2_buses::StorageMount,key:&ItemKey,plan:&mut FormationPlan)->Result<bool,String>{
         let mut delegate=mount.clone();delegate.access=ae2_machines_core::Access::ReadWrite;
-        if !mount.inverted&&!mount.filter.is_empty()&&delegate.allows(&ae2_machines_core::Key::from(key),false){return Ok(true)}
+        if mount.prefers(&ae2_machines_core::Key::from(key))&&delegate.allows(&ae2_machines_core::Key::from(key),false){return Ok(true)}
         delegate.filter_on_extract=false;
         Ok(self.ae2_fluid_mount_change(&delegate,key,1,false,true,plan)?.0>0)
     }
     /// Keep the existing interface and tank transaction rules behind one
     /// storage operation while priority/preferred passes choose its order.
     fn ae2_fluid_mount_change(&mut self,mount:&super::ae2_buses::StorageMount,key:&ItemKey,amount:u64,insert:bool,simulate:bool,plan:&mut FormationPlan)->Result<(u64,Option<TankChange>),String>{
+        // ExtendedAE's precise bus: no more of a key in its target than set.
+        let amount=match mount.addon.as_ref().and_then(|a|a.cap.as_ref()).filter(|_|insert) {
+            Some(cap)=>{
+                let present:u64=self.ae2_fluid_mount_entries(mount)?.iter().filter(|(k,_)|k==key).map(|(_,n)|*n).sum();
+                amount.min(cap(&ae2_machines_core::Key::from(key)).saturating_sub(present))
+            },
+            None=>amount,
+        };
+        if amount==0 {return Ok((0,None))}
         if matches!(self.ae2_block_entity(mount.target),Some(BlockEntity::Ae2(machine)) if machine.kind==horizon_client::ae2_world::MachineKind::Condenser) {
             if !mount.allows(&ae2_machines_core::Key::from(key),!insert){return Ok((0,None))}
             let moved=if insert {self.ae2_condenser_me_fluid_insert_at(mount.target,amount,simulate)}else{0};

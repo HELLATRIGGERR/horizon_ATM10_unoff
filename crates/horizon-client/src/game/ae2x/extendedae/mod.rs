@@ -11,8 +11,10 @@
 pub(in crate::game) mod cells;
 pub(in crate::game) mod devices;
 pub(in crate::game) mod entro;
+pub(in crate::game) mod interfaces;
 pub(in crate::game) mod machines;
 pub(in crate::game) mod matrix;
+pub(in crate::game) mod special;
 pub(in crate::game) mod tape;
 pub(in crate::game) mod tools;
 pub(in crate::game) mod upgrade;
@@ -39,6 +41,15 @@ pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
         "extendedae:ex_interface_part" => Some("extendedae:part/ex_interface"),
         "extendedae:ex_import_bus_part" => Some("extendedae:part/ex_import_bus_base"),
         "extendedae:ex_export_bus_part" => Some("extendedae:part/ex_export_bus_base"),
+        // Slice 5's buses (`MODEL_BASE`); their status models are AE2's.
+        "extendedae:tag_storage_bus" => Some("extendedae:part/tag_storage_bus_base"),
+        "extendedae:tag_export_bus" => Some("extendedae:part/tag_export_bus_base"),
+        "extendedae:mod_storage_bus" => Some("extendedae:part/mod_storage_bus_base"),
+        "extendedae:mod_export_bus" => Some("extendedae:part/mod_export_bus_base"),
+        "extendedae:precise_storage_bus" => Some("extendedae:part/precise_storage_bus_base"),
+        "extendedae:precise_export_bus" => Some("extendedae:part/precise_export_bus_base"),
+        "extendedae:threshold_export_bus" => Some("extendedae:part/threshold_export_bus_base"),
+        "extendedae:oversize_interface_part" => Some("extendedae:part/oversize_interface"),
         _ => None,
     }
 }
@@ -123,7 +134,7 @@ fn device_connectable(facing: &str) -> Vec<Direction> {
 /// (`setFlags()`, `setIdlePowerUsage(0)`; the Extended Inscriber sets no flags
 /// either), on their connectable sides.
 pub(in crate::game) fn device(machine: &Machine, properties: Option<&horizon_world::block_state_properties::BlockProperties>, device: &mut ae2_network_core::Device) -> bool {
-    if wireless::device(machine, device) {
+    if wireless::device(machine, device) || interfaces::device(machine, device) {
         return true;
     }
     // The Assembler Matrix's blocks (`TileAssemblerMatrixBase`): MULTIBLOCK

@@ -15,7 +15,7 @@ impl Game<'_> {
         parts.iter().any(|part| {
             let face=match part.get("face") {Some(Tag::String(face))=>super::ae2_grid::face_index(&face.to_string_lossy()),_=>None};
             face==Some(owner.face) && super::ae2_channels::part_identity(part)==owner.identity.part
-                && matches!(part.get("id"),Some(Tag::String(id)) if id.to_string_lossy()=="ae2:formation_plane")
+                && matches!(part.get("id"),Some(Tag::String(id)) if horizon_client::ae2_world::base_id(&id.to_string_lossy())=="ae2:formation_plane")
         })
     }
     fn ae2_try_formation_block(&mut self,pos:(i32,i32,i32),stack:&ItemStack,plane:PlaneOwner,player_owner:Option<[i32;4]>)->Result<bool,String> {

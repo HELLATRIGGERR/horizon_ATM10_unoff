@@ -18,6 +18,82 @@ pub(super) mod aeinfinitybooster;
 #[cfg(feature = "ae2-importexportcard")]
 pub(super) mod importexportcard;
 
+/// An addon storage bus's own partition list (`IPartitionList`) beside or in
+/// place of AE2's config slots: ExtendedAE's tag, mod and precise buses.
+#[derive(Clone)]
+pub(super) struct MountFilter {
+    /// `isEmpty`: an empty list lets every key pass.
+    pub(super) empty: bool,
+    /// `isListed`, also what makes the bus preferred storage.
+    pub(super) listed: std::rc::Rc<dyn Fn(&ae2_machines_core::Key) -> bool>,
+    /// `PreciseInventory.insert`: the most of a key the target may hold.
+    pub(super) cap: Option<std::rc::Rc<dyn Fn(&ae2_machines_core::Key) -> u64>>,
+    /// What the list is made of, for the storage monitor's cache.
+    pub(super) describe: String,
+}
+impl std::fmt::Debug for MountFilter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.describe)
+    }
+}
+
+/// An addon export bus's own `doBusWork` in place of AE2's config-slot loop
+/// (`BusState::tick`), with the bus's cards, redstone and schedule.
+pub(super) trait ExportLoop {
+    fn run(&mut self, state: &mut ae2_machines_core::BusState, active: bool, loaded: bool, host: &mut dyn super::ae2_buses::ExportHost) -> Result<ae2_machines_core::TickResult, String>;
+}
+
+/// An addon level emitter's output for the grid's `count` of its key, its
+/// `LOW_SIGNAL` setting `low` (ExtendedAE's Threshold Level Emitter: its
+/// band and saved state); none for AE2's own.
+pub(super) fn emitter_signal(part: &mut horizon_world::nbt::Compound, low: bool, count: i64) -> Option<bool> {
+    let _ = (&part, low, count);
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(on) = extendedae::special::emitter_signal(part, low, count) {
+        return Some(on);
+    }
+    None
+}
+
+/// Whether a formation plane `part` is the grid's storage (AE2's); an
+/// addon's that places on its own is not (ExtendedAE's Active Formation Plane).
+pub(super) fn formation_storage(part: &horizon_world::nbt::Compound) -> bool {
+    let _ = part;
+    #[cfg(feature = "ae2-extendedae")]
+    if part.get(&"id".into()) == Some(&horizon_world::nbt::Tag::String(horizon_client::ae2x::extendedae::special::ACTIVE_FORMATION_PLANE.into())) {
+        return false;
+    }
+    true
+}
+
+/// An interface slot's capacity for a key type, from AE2's `base`: an
+/// addon's interface multiplies it (ExtendedAE's Oversize Interface).
+pub(super) fn interface_capacity(machine: &Machine, key_type: ae2_cell_core::KeyType, base: u64) -> u64 {
+    let _ = (machine, key_type);
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(n) = extendedae::interfaces::oversize_multiplier(machine, key_type) {
+        return horizon_client::ae2x::extendedae::special::oversize_capacity(base, n);
+    }
+    base
+}
+/// The most of an item of `stack_max` an interface slot holds.
+pub(super) fn interface_item_max(machine: &Machine, stack_max: u32) -> u32 {
+    let _ = machine;
+    #[cfg(feature = "ae2-extendedae")]
+    if let Some(n) = extendedae::interfaces::oversize_multiplier(machine, ae2_cell_core::KeyType::ITEMS) {
+        return horizon_client::ae2x::extendedae::special::oversize_item_max(stack_max, n).min(u64::from(u32::MAX)) as u32;
+    }
+    stack_max
+}
+
+/// A config slot of an addon bus set from the hand: the amount it keeps
+/// beside the key (ExtendedAE's precise and threshold buses).
+pub(super) fn bus_config_amount(part: &mut horizon_world::nbt::Compound, slot: usize, amount: Option<u64>) {
+    let _ = (&part, slot, amount);
+    #[cfg(feature = "ae2-extendedae")]
+    extendedae::special::config_amount(part, slot, amount);
+}
+
 /// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
 /// Pattern Encoding Terminal, by itself or as the universal terminal's
 /// current one); none for any other item.
@@ -367,6 +443,42 @@ pub(super) enum NetworkPick {
 }
 
 impl Game<'_> {
+    /// The export loop of an addon's export bus `part`; none for AE2's.
+    pub(super) fn ae2x_export_loop(&self, part: &horizon_world::nbt::Compound) -> Option<Box<dyn ExportLoop>> {
+        let _ = part;
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_export_loop(part) {
+            return Some(found);
+        }
+        None
+    }
+    /// What an addon's annihilation plane `part` takes into the grid
+    /// (ExtendedAE's Smart Annihilation Plane); none for AE2's, which takes all.
+    pub(super) fn ae2x_plane_filter(&self, part: &horizon_world::nbt::Compound) -> Option<Box<dyn Fn(&horizon_client::items::ItemStack) -> bool>> {
+        let _ = part;
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(found) = self.extendedae_plane_filter(part) {
+            return Some(found);
+        }
+        None
+    }
+    /// A formation plane that works on its own, once a bus tick: an addon's
+    /// (ExtendedAE's Active Formation Plane); AE2's is storage and does nothing here.
+    pub(super) fn ae2x_plane_tick(&mut self, pos: (i32, i32, i32), part: &mut horizon_world::nbt::Compound, identity: ae2_network_core::NodeIdentity, service: Option<u64>, now: u64) {
+        let _ = (pos, &part, identity, service, now);
+        #[cfg(feature = "ae2-extendedae")]
+        self.extendedae_active_plane_tick(pos, part, identity, service, now);
+    }
+    /// The partition list of an addon's storage bus `part`, on its item or
+    /// fluid channel; none for AE2's own.
+    pub(super) fn ae2x_mount_filter(&self, part: &horizon_world::nbt::Compound, fluid: bool) -> Option<MountFilter> {
+        let _ = (part, fluid);
+        #[cfg(feature = "ae2-extendedae")]
+        if let Some(filter) = self.extendedae_mount_filter(part, fluid) {
+            return Some(filter);
+        }
+        None
+    }
     /// Whether a slot of an addon machine's menu takes `item` from the cursor.
     pub(super) fn ae2x_machine_may_place(&self, machine: &Machine, slot: usize, item: &horizon_client::items::ItemStack) -> Option<bool> {
         let _ = (machine, slot, item);
@@ -604,6 +716,8 @@ impl Game<'_> {
         self.tick_extendedae_matrix();
         #[cfg(feature = "ae2-extendedae")]
         self.tick_extendedae_wireless();
+        #[cfg(feature = "ae2-extendedae")]
+        self.tick_extendedae_vacuum();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -981,6 +1095,10 @@ impl Game<'_> {
         #[cfg(feature = "ae2-merequester")]
         if words.first() == Some(&"requester") {
             return Some(self.ae2_requester_command(&words[1..]));
+        }
+        #[cfg(feature = "ae2-extendedae")]
+        if words.first() == Some(&"eae") {
+            return Some(self.extendedae_command(&words[1..]));
         }
         #[cfg(feature = "ae2-importexportcard")]
         if words.first() == Some(&"iecard") {

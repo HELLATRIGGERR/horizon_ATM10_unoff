@@ -103,7 +103,7 @@ impl Game<'_> {
     pub(super) fn ae2_item_bus_preferred(&mut self,mount:&super::ae2_buses::StorageMount,key:&ItemKey)->Result<bool,String>{
         let mut delegate=mount.clone();delegate.access=ae2_machines_core::Access::ReadWrite;
         // MEInventoryHandler's whitelist test is independent of access mode.
-        if !mount.inverted&&!mount.filter.is_empty()&&delegate.allows(&ae2_machines_core::Key::from(key),false){return Ok(true)}
+        if mount.prefers(&ae2_machines_core::Key::from(key))&&delegate.allows(&ae2_machines_core::Key::from(key),false){return Ok(true)}
         // Its super.extract check bypasses the wrapper's own extract filter
         // while retaining the real sided delegate's extraction constraints.
         delegate.filter_on_extract=false;

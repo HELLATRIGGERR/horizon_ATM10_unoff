@@ -203,7 +203,13 @@ pub(super) fn bus_state(part: &Compound) -> Result<BusState, String> {
             _ => return Err("unsupported bus card".into()),
         }
     }
-    let valid = match id.as_str() {
+    // An addon's part keeps to its own registry limits (`Upgrades.add`).
+    let addon = (own != id).then(|| {
+        let defs = horizon_client::ae2x::defs::get();
+        [("ae2:speed_card", speed), ("ae2:capacity_card", capacity), ("ae2:fuzzy_card", fuzzy), ("ae2:inverter_card", inverter), ("ae2:redstone_card", redstone), ("ae2:crafting_card", crafting), ("ae2:void_card", void)]
+            .iter().all(|(card, n)| usize::from(*n) <= defs.upgrade_limit(card, &own))
+    });
+    let valid = addon.unwrap_or_else(|| match id.as_str() {
         "ae2:import_bus" => {
             speed <= 4
                 && capacity <= 5
@@ -241,7 +247,7 @@ pub(super) fn bus_state(part: &Compound) -> Result<BusState, String> {
                 && crafting == 0
         }
         _ => false,
-    };
+    });
     if !valid {
         return Err("bus cards exceed source limits".into());
     }
@@ -310,6 +316,8 @@ pub(super) struct StorageMount {
     pub void_overflow: bool,
     /// Physical cards and all ghost slots, including currently inactive slots.
     pub monitor_configuration: String,
+    /// An addon bus's own partition list (`super::ae2x::MountFilter`).
+    pub addon: Option<super::ae2x::MountFilter>,
 }
 impl StorageMount {
     pub(super) fn allows(&self, key: &Key, extract: bool) -> bool {
@@ -323,6 +331,9 @@ impl StorageMount {
             || (!extract && self.access == Access::ReadOnly)
         {
             return false;
+        }
+        if let Some(addon) = &self.addon {
+            return addon.empty || (addon.listed)(key) != self.inverted;
         }
         if self.filter.is_empty() {
             return true;
@@ -346,6 +357,10 @@ impl StorageMount {
         matched != self.inverted
     }
 
+    /// `MEInventoryHandler.isPreferredStorageFor`'s whitelist half: a listed key.
+    pub(super) fn prefers(&self, key: &Key) -> bool {
+        !self.inverted && self.addon.as_ref().map_or(!self.filter.is_empty(), |addon| (addon.listed)(key))
+    }
     pub(super) fn visible(&self, key: &Key) -> bool {
         !self.extractable_only || !self.filter_on_extract || self.allows(key, true)
     }
@@ -669,6 +684,55 @@ fn bus_key_type(key: &Key) -> KeyType {
 }
 fn fluid_bus_key(key: &Key) -> bool {
     bus_key_type(key) == KeyType::FLUIDS
+}
+/// What an addon's own export loop (`super::ae2x::ExportLoop`: ExtendedAE's
+/// tag, mod, precise and threshold export buses) asks of the bus's host.
+pub(super) trait ExportHost {
+    fn key_type(&self, key: &Key) -> KeyType;
+    /// The grid's keys of the types with an export strategy, with their
+    /// amounts (`getCachedInventory`).
+    fn grid_keys(&self) -> Vec<(Key, u64)>;
+    /// The export strategy's `transfer`, at most `limit`.
+    fn export(&mut self, key: &Key, limit: u64) -> Result<u64, String>;
+    /// What `export` would move now; nothing moves.
+    fn export_simulated(&mut self, key: &Key, limit: u64) -> Result<u64, String>;
+    fn random_slot(&mut self, bound: usize) -> usize;
+    fn craft_only(&self) -> bool;
+    fn request_craft(&mut self, slot: usize, key: &Key, limit: u64) -> Result<u64, String>;
+}
+impl ExportHost for MixedHost<'_, '_> {
+    fn key_type(&self, key: &Key) -> KeyType {
+        bus_key_type(key)
+    }
+    fn grid_keys(&self) -> Vec<(Key, u64)> {
+        let mut out = Vec::new();
+        for kind in super::ae2_key_strategies::with_export_strategy() {
+            let keys = self.game.ae2_grid_keys(self.cable, kind).unwrap_or_default();
+            out.extend(keys.into_iter().map(|(key, n)| match kind {
+                KeyType::ITEMS | KeyType::FLUIDS => (Key::from(&key), n),
+                _ => (Key::from(&horizon_client::ae2_key_types::addon_marker(kind, &key)), n),
+            }));
+        }
+        out
+    }
+    fn export(&mut self, key: &Key, limit: u64) -> Result<u64, String> {
+        self.transfer_atomic(Direction::Export, key, limit)
+    }
+    fn export_simulated(&mut self, key: &Key, limit: u64) -> Result<u64, String> {
+        let before = self.game.ae2_snapshot_blocks();
+        let moved = self.transfer_atomic(Direction::Export, key, limit);
+        self.game.ae2_restore_blocks(before);
+        moved
+    }
+    fn random_slot(&mut self, bound: usize) -> usize {
+        TransferHost::random_slot(self, bound)
+    }
+    fn craft_only(&self) -> bool {
+        TransferHost::craft_only(self)
+    }
+    fn request_craft(&mut self, slot: usize, key: &Key, limit: u64) -> Result<u64, String> {
+        TransferHost::request_craft(self, slot, key, limit)
+    }
 }
 impl TransferHost for MixedHost<'_, '_> {
     type Error = String;
@@ -1413,7 +1477,8 @@ impl Game<'_> {
                     })
                     .collect();
                 let Some(identity)=network.part_identities.get(&(*node,side)).copied() else {continue};
-                let monitor_configuration = format!("{:?}:{:?}:{:?}:{:?}", state.config, data.get(&"upgrades".into()), state.redstone, state.schedule);
+                let addon = self.ae2x_mount_filter(data, fluid);
+                let monitor_configuration = format!("{:?}:{:?}:{:?}:{:?}:{addon:?}", state.config, data.get(&"upgrades".into()), state.redstone, state.schedule);
                 mounts.push(StorageMount {
                     identity,
                     target,
@@ -1431,6 +1496,7 @@ impl Game<'_> {
                     damage_limits,
                     void_overflow: matches!(data.get(&"upgrades".into()), Some(Tag::List(cards)) if cards.iter().any(|card|card.get("id")==Some(&Tag::String("ae2:void_card".into())))),
                     monitor_configuration,
+                    addon,
                 });
             }
         }
@@ -1491,6 +1557,17 @@ impl Game<'_> {
     ) -> Result<u64, String> {
         let key = Key::from(&ae2_lab::key(stack)?);
         if !mount.allows(&key, false) {
+            return Ok(0);
+        }
+        // ExtendedAE's precise bus: no more of a key in its target than set.
+        let amount = match mount.addon.as_ref().and_then(|a| a.cap.as_ref()) {
+            Some(cap) => {
+                let present: u64 = self.ae2_storage_inventory(mount).iter().filter(|(k, _)| Key::from(k) == key).map(|(_, n)| *n).sum();
+                amount.min(cap(&key).saturating_sub(present))
+            }
+            None => amount,
+        };
+        if amount == 0 {
             return Ok(0);
         }
         if self.ae2_has_interface_face(mount.target, mount.face) {
@@ -1893,12 +1970,16 @@ impl Game<'_> {
                         continue;
                     };
                     let online=self.ae2_part_online(pos,&face);
+                    // An addon plane's filter on what it takes in (`insertIntoGrid`).
+                    let smart=self.ae2x_plane_filter(data);
+                    let passes=|stack:&ItemStack|smart.as_ref().is_none_or(|f|f(stack));
                     // Entity collision pickup: capture only real dropped stacks
                     // intersecting the plane, and remove exactly what the grid accepted.
                     if !frozen && online {
                     let hits: Vec<_> = self
                         .dropped
                         .iter()
+                        .filter(|e| passes(&e.stack))
                         .filter(|e| {
                             if self
                                 .res
@@ -1981,7 +2062,7 @@ impl Game<'_> {
                         let part_stack = data
                             .get(&"stack".into())
                             .and_then(horizon_client::save::item_from_nbt);
-                        let picked=self.ae2_plane_pickup_block(pos, &face, part_stack.as_ref()).unwrap_or(false);
+                        let picked=self.ae2_plane_pickup_block(pos, &face, part_stack.as_ref(), &passes).unwrap_or(false);
                         let modulation=if picked {super::ae2_tick_tracker::Modulation::Urgent} else {super::ae2_tick_tracker::Modulation::Idle};
                         self.ae2_device_scheduler.borrow_mut().completed(identity,now,modulation);
                     }
@@ -2048,10 +2129,22 @@ impl Game<'_> {
                             (Some(host),Some(face))=>self.ae2_crafting_is_requesting(super::ae2_parts::PartAddress{host,face},requested.as_deref()).unwrap_or(false),
                             _=>false,
                         }
-                    }else{super::ae2_emitter::emitter_threshold_signal(&emitter,count)};
+                    }else{super::ae2x::emitter_signal(data,emitter.low,count).unwrap_or_else(||super::ae2_emitter::emitter_threshold_signal(&emitter,count))};
                     if data.get(&"emitter_active".into())!=Some(&Tag::Byte(i8::from(on))){emitter_changed.push(face.clone());}
                     data.insert("emitter_count".into(),Tag::Long(count));
                     data.insert("emitter_active".into(),Tag::Byte(i8::from(on)));
+                    continue;
+                }
+                if id == "ae2:formation_plane" {
+                    // An addon's plane that is no storage but works itself
+                    // (ExtendedAE's Active Formation Plane).
+                    let (Some(face), Some(address)) = (str_field(data, "face"), self.ae2_local_address(pos)) else { continue };
+                    let Some(face_index) = super::ae2_grid::face_index(&face) else { continue };
+                    let Some(identity) = network.part_identities.get(&(address.network_pos(), face_index)).copied() else { continue };
+                    let service = services.as_ref().and_then(|s| s.get(&identity).copied());
+                    if !frozen {
+                        self.ae2x_plane_tick(pos, data, identity, service, now);
+                    }
                     continue;
                 }
                 let direction = match id.as_str() {
@@ -2130,6 +2223,8 @@ impl Game<'_> {
                         None
                     };
                     let links = export_craft_links(data).unwrap_or_default();
+                    // An addon's export bus with its own loop (`doBusWork`).
+                    let mut own_export = if direction == Direction::Export { self.ae2x_export_loop(data) } else { None };
                     let craft = CraftState {
                         owner,
                         links,
@@ -2148,7 +2243,10 @@ impl Game<'_> {
                         craft,
                         key_types,
                     };
-                    let outcome = state.tick(direction, active, loaded, &mut host);
+                    let outcome = match own_export.as_mut() {
+                        Some(export) => export.run(&mut state, active, loaded, &mut host),
+                        None => state.tick(direction, active, loaded, &mut host),
+                    };
                     craft_requests.extend(host.craft.requests);
                     let modulation = match outcome {
                         Ok(ae2_machines_core::TickResult::Faster) => super::ae2_tick_tracker::Modulation::Faster,
@@ -2234,7 +2332,7 @@ mod tests {
                 priority:0,access:Access::ReadWrite,filter:vec![accepted.clone()],inverted:false,
                 filter_on_extract:true,extractable_only:true,fuzzy:false,fluid,
                 fuzzy_mode:"ignore_all".into(),damage_limits:Default::default(),
-                void_overflow:false,monitor_configuration:String::new(),
+                void_overflow:false,monitor_configuration:String::new(),addon:None,
             };
             assert!(mount.visible(&accepted));
             assert!(!mount.visible(&rejected));
@@ -2390,7 +2488,7 @@ impl Game<'_> {
             return Err("missing emitter".into());
         };
         let Some(Tag::Compound(part)) = parts.iter_mut().find(|p| {
-            p.get("id") == Some(&Tag::String("ae2:level_emitter".into()))
+            matches!(p, Tag::Compound(c) if part_kind(c).as_deref() == Some("ae2:level_emitter"))
                 && p.get("face") == Some(&Tag::String(face.into()))
         }) else {
             return Err("missing emitter".into());
@@ -2467,6 +2565,7 @@ impl Game<'_> {
         pos: (i32, i32, i32),
         face: &str,
         plane: Option<&ItemStack>,
+        passes: &dyn Fn(&ItemStack) -> bool,
     ) -> Result<bool, String> {
         use horizon_core::random::RandomSource;
         let Some(target) = target(pos, face) else {
@@ -2626,7 +2725,7 @@ impl Game<'_> {
         }
         let mut can_store = drops.is_empty();
         for stack in &drops {
-            let result = self.ae2_grid_insert_simulate(pos, stack, u64::from(stack.count));
+            let result = if passes(stack) { self.ae2_grid_insert_simulate(pos, stack, u64::from(stack.count)) } else { Ok(0) };
             if result.is_ok_and(|n| n == u64::from(stack.count)) {
                 can_store = true;
             }
@@ -2661,7 +2760,7 @@ impl Game<'_> {
                 && p.z+0.125>f64::from(target.2)-0.2 && p.z-0.125<f64::from(target.2)+1.2
         }).map(|e|(e.id,e.stack.clone())).collect();
         for (id,stack) in extra {
-            let inserted=self.ae2_grid_insert(pos,&stack,u64::from(stack.count)).unwrap_or(0).min(u64::from(stack.count)) as u32;
+            let inserted=if passes(&stack) {self.ae2_grid_insert(pos,&stack,u64::from(stack.count)).unwrap_or(0).min(u64::from(stack.count)) as u32} else {0};
             if inserted>0 {
                 if let Some(entity)=self.dropped.iter_mut().find(|entity|entity.id==id && entity.stack.same_item_same_components(&stack)) {
                     entity.stack.count=entity.stack.count.saturating_sub(inserted);
@@ -2670,10 +2769,10 @@ impl Game<'_> {
         }
         self.dropped.retain(|e|e.stack.count>0);
         for mut stack in drops {
-            let inserted = self
+            let inserted = if !passes(&stack) { 0 } else { self
                 .ae2_grid_insert(pos, &stack, u64::from(stack.count))
                 .unwrap_or(0)
-                .min(u64::from(stack.count)) as u32;
+                .min(u64::from(stack.count)) as u32 };
             stack.count -= inserted;
             if stack.count > 0 {
                 self.spawn_item(
@@ -2731,7 +2830,7 @@ impl Game<'_> {
             };
             for part in parts {
                 let Tag::Compound(data) = part else { continue };
-                if part_kind(data).as_deref() != Some("ae2:formation_plane") {
+                if part_kind(data).as_deref() != Some("ae2:formation_plane") || !super::ae2x::formation_storage(data) {
                     continue;
                 }
                 let Some(face) = str_field(data, "face") else {
@@ -2796,7 +2895,7 @@ impl Game<'_> {
             };
             for part in parts {
                 let Tag::Compound(data) = part else { continue };
-                if part_kind(data).as_deref() != Some("ae2:formation_plane") {
+                if part_kind(data).as_deref() != Some("ae2:formation_plane") || !super::ae2x::formation_storage(data) {
                     continue;
                 }
                 let plane_priority = match data.get(&"priority".into()) {

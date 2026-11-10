@@ -11,7 +11,8 @@ Feature `ae2-extendedae`; content `content/extendedae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts extendedae`. ATM10's `config/extendedae-common.toml` keeps
 the mod's defaults (ATM10 8.4 ships none: `extended_io_bus_multiplier` 8, `infinity_cell_energy_cost` 8,
 `assembler_matrix_max_size` 6, `wireless_connector_max_range` 1,000, `wireless_connector_power_multiplier` 1, `pattern_modifier_multipliers` 2, 3, 5, 7, the mod's
-`me_packing_tape_whitelist`). Of
+`me_packing_tape_whitelist`, `oversize_interface_multiplier` 16, `custom_oversize_interface_multiplier`
+`appbot:mana 2`, `appflux:flux 4`). Of
 ATM10's KubeJS, only its infinity cells (slice 6) touch the mod; its recipes for them are the pack's own, in
 the full pack's carry.
 
@@ -205,6 +206,53 @@ the hub's kit keeps a link, the links come back after a restart, a broken connec
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-wireless
 ```
 
+## Slice 5: the special buses, emitters and planes
+
+Each is a part variant of AE2's storage bus, export bus, level emitter or plane (`special` in the library,
+`game/ae2x/extendedae/special.rs`), with the mod's cards (`getUpgradeSlots`, `registerUpgrades`). A part keeps the
+mod's fields under the mod's names (`oreExp`, `oreExp2`, `modid`, `cmod`, `lowerValue`, `currentState`); the
+amounts of the precise and threshold buses' config slots, which AE2's bus state keeps as keys, are `config2`.
+
+| ExtendedAE | Port |
+|---|---|
+| `TagPriorityList`, `TagExpParserV2`: a white and a black expression, blanks removed; tags joined by `&`, `\|`, `^`, `!` and parentheses (`&&`, `\|\|` too); a tag pattern matched whole as a regular expression with `*` as `.*` against an item's tags, its block's tags and its id, or a fluid's tags and id; a broken expression lists nothing; with neither, every key | `TagExpression`, `TagFilter`; the ids each pattern covers through tags are looked up once (`extendedae_tag_set`, cached by resources) |
+| `ModPriorityList`: the comma list of mod ids or names (`String.split`, `trim`: an empty text is one empty entry, so it lists nothing) | `ModFilter`; the names the port knows are the terminal's search's (Minecraft, Applied Energistics 2) |
+| `PartSpecialStorageBus`: AE2's storage bus whose partition list is the mod's (`createFilter`), two cards (Inverter, Void) | `MountFilter` on AE2's `StorageMount` (`ae2x_mount_filter`): its `isEmpty`, `isListed` (also what makes the bus preferred) |
+| `PartPreciseStorageBus`: 63 config stacks; `PreciseInventory.insert`: no more of a key in the target than its slot's amount, 1 of anything when empty; five cards (Capacity, Void) | the bus state's keys and `config2`; the limit (`MountFilter.cap`) on item and fluid insertion against what the target shows |
+| `PartSpecialExportBus.doBusWork`: every grid key the list has (`isListed`), AE2's operations times `extended_io_bus_multiplier` (`getOperationsPerTick`), four cards (Redstone, Speed) | `ExportLoop` in place of AE2's config loop (`ae2x_export_loop`); grid keys of every type with an export strategy (`ExportHost`) |
+| `PartPreciseExportBus.doBusWork`: each slot's amount in whole batches, what the grid gives and the target holds rounded down to it, the loop stopped when one batch needs more operations than are left; a redstone pulse sends one; Crafting Card (`attemptCrafting`), `PreciseInventory.getMaxAmount` 64 units | `precise_batch`; the target's take simulated by moving and putting the world back (`ExportHost::export_simulated`) |
+| `PartThresholdExportBus`: `ThresholdMode` GREATER (only what is above the amount) or LOWER (while the grid holds at most it); AE2's operations | `ThresholdMode`, `cmod` |
+| `PartThresholdLevelEmitter`: on from `upperValue`, off under `lowerValue` (`checkState`), off when lower > upper; `currentState` saved; one card (Fuzzy) | `Threshold`; the upper bound is the level emitter's threshold (`emitter_threshold`, what AE2's screen and `/ae2 emitter threshold` set), the band through `ae2x::emitter_signal`; the emitter's redstone by `base_id` |
+| `PartActiveFormationPlane`: no storage; takes what its 18 + 9 a Capacity Card config keys name (fuzzy, or all but them with an Inverter Card) from the grid and places it (`placeInWorld`): one block, or a dropped stack of the speed cards' multiple; the rest back; AE2's export bus pace from 2 ticks, redstone control | `extendedae_active_plane_tick` (`ae2x_plane_tick`) on AE2's formation plan, preview and commit; left out of the formation planes the grid stores in (`ae2x::formation_storage`) |
+| `PartSmartAnnihilationPlane`: AE2's annihilation plane whose `insertIntoGrid` takes only what its 63 config keys (18 + 9 a Capacity Card, fuzzy, inverted) pass, so a block whose drops it would not take stays | `ae2x_plane_filter`: on its entity pickup, its drops' check and their insertion (`ae2_plane_pickup_block`) |
+| the items, their recipes (the Crystal Assembler's for the planes) | `content.json` |
+
+The settings the mod's text and number fields set are commands: `/ae2 eae tag|mod|amount|mode|band|config|area|show`
+(`special::USAGE`). A precise or threshold bus's config slot set in its screen with a held stack takes the stack's
+count (a bucket for a fluid), as `CONFIG_STACKS` does.
+
+Differences, known:
+
+- The tag and mod buses' expressions, the threshold emitter's lower bound and the planes' and the Vacuum
+  Interface's filters have no screen fields yet: they are set by `/ae2 eae`. Their parts open AE2's base screens
+  (the tag and mod buses show AE2's unused config slots); the jar's screen styles are installed for later.
+- The Active Formation Plane places items only, not fluids, and its Crafting Card does not request crafts.
+- The planes and the threshold emitter draw AE2's models; the buses draw the mod's base models.
+- Mod names past the two above are not known: a mod is named by its id.
+
+Tests: `horizon-client` lib (`ae2x::extendedae::special`: expressions, filters, the band, the modes, batches; the
+rows, cards and the oversize config in `ae2x::extendedae`) and the world test `extendedae-buses-2`: the Tag Export Bus
+sends planks and logs but not oak logs; the Mod Export Bus only an ae2 item; the Precise Export Bus 6 of its 8
+operations in batches of 3; the Threshold Export Bus the 10 above 6,990 and no more, and with LOWER while under; the
+Active Formation Plane places an oak log, again once taken; the Tag and Mod Storage Buses show the grid only their
+logs and their ae2 item (an empty mod list nothing); the Threshold Level Emitter, on from before its band was set,
+still on at 1,000, off at 990, still off at 1,000, on at 1,010, still on at 1,000; the Smart Annihilation Plane breaks cobblestone, not dirt; the Precise Storage Bus fills its
+barrel to 10 of 64; all through a restart:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-buses-2
+```
+
 ## Slice 6: Infinity and Void Cells
 
 | ExtendedAE | Port |
@@ -256,11 +304,11 @@ Differences, known:
 - The modifiers' buttons are AE2's icon buttons with the mod's tooltips: the factors are not written on them. A page
   change opens the page's window anew.
 - The Config Modifier's number is set by four step buttons (+1, -1, +10, -10), not typed; the screen shows it up
-  to 32,767. It acts on interfaces only: the other `IConfigInvHost`s (storage, import and export buses, level
-  emitters, formation planes, the Cell Workbench) take nothing from it yet.
+  to 32,767. It acts on interfaces only (AE2's, the Extended and the Oversize Interface): the other
+  `IConfigInvHost`s (storage, import and export buses, the precise and threshold buses, level emitters, formation
+  planes, the Cell Workbench) take nothing from it yet.
 - An amount's unit is an item's 1 or a fluid's bucket; other key types come with AE2's key-type ids.
-- A package holds the port's records, not the mod's NBT: one from a Java world does not unpack here. The whitelist's
-  Oversize Interfaces come with that interface.
+- A package holds the port's records, not the mod's NBT: one from a Java world does not unpack here.
 - The Extended Pattern Access Terminal's screen is AE2's: no search by inputs or outputs, no highlight in the world.
 
 Tests: `horizon-client` (scaling, its limits, the record, replace, clear and clone, the settings' modes and the
@@ -275,7 +323,34 @@ list the provider's patterns:
 AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-tools
 ```
 
+## The Oversize and Vacuum Interfaces
+
+| ExtendedAE | Port |
+|---|---|
+| `TileOversizeInterface`, `PartOversizeInterface`: the Extended Interface's 36 slots and card; `OversizeConfigInv`: each key type's slot capacity (`GenericSlotCapacities`: an item's 99, a fluid's four buckets) times `oversize_interface_multiplier` (16) or the key type's own (`custom_oversize_interface_multiplier`, `appbot:mana 2`, `appflux:flux 4`); an item at most its stack size times it | variants of AE2's interface; `interface_fluid_capacity` and `interface_item_max` in `ae2_interface` ask `ae2x::interface_capacity` (config, stock, deliveries, outside insertion, the screen's clamp, the Config Modifier) |
+| `TileVacuumInterface`: dropped items whose box meets its work area (5 by 5 by 5, at most 10 a side, offset at most 16; `createWorkArea`) into the grid, by 63 filters (18 + 9 a Capacity Card, fuzzy), what does not fit left; Redstone Card (`checkEnable`); no channel, 1 AE/t | an `ExtMachine` (`interfaces.rs`, `tick_extendedae_vacuum`); `size` and `offset` saved as `BlockPos.asLong` |
+| the blocks, the part, their recipes | `content.json`; the Oversize Interface's Crystal Assembler recipe needs the Ingredient Buffer, not carried: its crafting recipe (`oversize_interface_alt`) is |
+
+The Config Modifier (slice 7) clamps an Oversize Interface's slots to its own maximum. On the Vacuum Interface it
+has nothing to change: its config holds keys without amounts.
+
+Differences, known:
+
+- The Vacuum Interface has no screen yet (its filters and area by `/ae2 eae config|area`), and does not show its
+  area in the world.
+- Only items and fluids reach an interface's slots in the port, so an addon type's multiplier applies once AE2's
+  interface holds that type.
+
+Tests: the world test `extendedae-interfaces`: the Config Modifier at MAX makes an AE2 interface's slots 64
+cobblestone, 16 ender pearls and four buckets, and an Oversize Interface's 1,024, 256 and 64 buckets, which it then
+stocks from the grid; the part goes on a cable; the Vacuum Interface takes the cobblestone in its area and not the
+dirt three blocks past it, with a filter only diamonds, moved four blocks east the dirt; all through a restart:
+
+```sh
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts extendedae-interfaces
+```
+
 ## Later slices (`.build/ae2-addons-plan.md` §6.1)
 
-5. Special buses, emitters and planes.
-7. Oversize (x16) and Vacuum interfaces: after AE2's key types become ids (NOTES).
+7. The rest: the Ingredient Buffer, the Caner, the ME Renamer, the EMC parts (with ProjectE); the screens' text and
+   number fields of slice 5 and the Vacuum Interface (NOTES).

@@ -726,10 +726,13 @@ impl Game<'_> {
         let Ok(mut items) = crate::game::ae2_interface::interface_config(&interface) else { return true };
         let Ok(mut fluids) = crate::game::ae2_interface::interface_fluid_config(&interface) else { return true };
         // CONFIG_STACKS: at least 1; an item up to its stack size (at most 99),
-        // a fluid four buckets (useRegisteredCapacities).
+        // a fluid four buckets (useRegisteredCapacities); the Oversize
+        // Interface's times its multipliers (`OversizeConfigInv.getMaxAmount`).
+        let fluid_max = crate::game::ae2_interface::interface_fluid_capacity(&interface) as i64;
         for slot in items.iter_mut() {
             let Some(stack) = slot.as_mut() else { continue };
-            let max = i64::from(self.res.items().get(&stack.item).map_or(64, |i| i.max_stack).clamp(1, 99));
+            let stack_max = self.res.items().get(&stack.item).map_or(64, |i| i.max_stack).clamp(1, 99);
+            let max = i64::from(crate::game::ae2_interface::interface_item_max(&interface, stack_max));
             let amount = settings.modify(i64::from(stack.count), 1, max);
             if amount < 0 {
                 *slot = None;
@@ -739,7 +742,7 @@ impl Game<'_> {
         }
         for slot in fluids.iter_mut() {
             let Some((_, amount)) = slot.as_mut() else { continue };
-            let next = settings.modify(*amount as i64, 1, crate::game::ae2_interface::INTERFACE_FLUID_CAPACITY as i64);
+            let next = settings.modify(*amount as i64, 1, fluid_max);
             if next < 0 {
                 *slot = None;
             } else {

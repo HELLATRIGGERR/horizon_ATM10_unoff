@@ -1,5 +1,10 @@
 # ExtendedAE port: working notes
 
+Slice 5 and the Oversize and Vacuum Interfaces: branch `feat/extendedae-6` (from `f8c670409`, `int/all-1011`: main
+with Mekanism, ExtendedAE 4/7 and AE2's key types), the same worktree and target; content in
+`atm10-work\eae6-content`, scripts and logs in `atm10-work\logs\eae6` (`prepare.sh`, `build.sh`, `check.sh`,
+`unit.sh`, `suites.sh`).
+
 Slices 4 and 7 (its first part): branch `feat/extendedae-5` (from `f43aae259`, rebased onto `atm10-horizon-rework` `f724393f1`), the same
 worktree and target;
 content in `atm10-work\eae3-content`, scripts and logs in `atm10-work\logs\eae5`.
@@ -77,19 +82,31 @@ terminal `ex_pattern_access`. Hooks added: `pattern_terminal_extended`, `pattern
 `display_part_screen` (`ae2_render.rs`); the tools through `ae2x_use_on`, `lan_ae2x_use_item`, `lan_ae2x_button`,
 `lan_ae2x_click`, `lan_ae2x_closed`, `lan_refresh_ae2x`; `prepare-addon.ts` takes an item's `components`.
 
-Waiting for AE2's key types (another agent turns `fluid: bool` and the item/fluid enums into key-type ids):
+Slice 5 and the interfaces: the library's `ae2x/extendedae/special.rs` (ids, `TagExpression`, `TagFilter`,
+`ModFilter`, `Threshold`, `ThresholdMode`, `precise_batch`, `precise_insert`, the oversize and vacuum sizes) and the
+game's `special.rs` (filters, export loops, the band, the planes, `/ae2 eae`) and `interfaces.rs` (the oversize
+multiplier, the Vacuum Interface's node and tick). Hooks added, all small and in AE2's files only where the
+behaviour is reached:
 
-- The Oversize Interface (`TileOversizeInterface`, `PartOversizeInterface`): `OversizeConfigInv` over
-  `AEKeyTypes.getAll()`, each key type's capacity times `oversize_interface_multiplier` (16) or its own
-  (`custom_oversize_interface_multiplier`, by key-type id: `appbot:mana 2`, `appflux:flux 4`). The port's interface
-  keeps items (`ae2_interface_config`) and fluids (`ae2_interface_fluid_config`, `INTERFACE_FLUID_CAPACITY`) apart, so
-  this needs a capacity by key-type id.
-- The Vacuum Interface: item entities in its work area (`set_work_area.json`) into the grid, its 63 filters
-  `configTypes(63).supportedType(items())`: its config is the `ConfigInventory` the key-type work reshapes.
-- Slice 5: the Smart Annihilation Plane (`supportedTypes(items, fluids)`), the precise buses and the threshold
-  emitter by `AEKey` and its amounts; the tag and mod buses by key.
-- Here, `tools.rs::per_unit` (an item's 1, a fluid's 1,000) and the replace's item-only match are the places that
-  would follow `getAmountPerUnit` and key types.
+- `ae2_buses`: `StorageMount.addon` (`ae2x::MountFilter`: `empty`, `listed`, `cap`) read by `allows`, the new
+  `prefers` (the two preferred-storage checks in `ae2_fluid_grid` and `ae2_storage_order`) and the insert limit
+  (items here, fluids in `ae2_fluid_mount_change`, whose target listing is now `ae2_fluid_mount_entries`);
+  `ExportHost` (implemented for `MixedHost`) and `ae2x_export_loop` in place of `BusState::tick`;
+  `ae2x::emitter_signal` in the level emitter's tick; `ae2x_plane_filter` on the annihilation plane's pickups;
+  `ae2x_plane_tick` for a formation plane, which `ae2x::formation_storage` keeps out of the grid's formation
+  storage; `bus_state` checks an addon part's cards against its own registry limits; the `/ae2 emitter` command
+  finds a variant by `part_kind`.
+- `ae2_emitter`: `emitter_read`/`emitter_store` by `part_kind`; `game.rs`'s redstone of an emitter by `base_id`;
+  `ae2_formation_placement`'s owner check by `base_id`.
+- `ae2_interface`: `interface_fluid_capacity` and `interface_item_max` (through `ae2x::interface_capacity` and
+  `interface_item_max`) where `INTERFACE_FLUID_CAPACITY` and the stack size were; `ae2_terminal`'s interface clamp
+  uses them.
+- `ae2_bus_ui`: `ae2x::bus_config_amount` when a config slot is set from the hand.
+- `ae2x::ae2x_command` routes `/ae2 eae`; `tick_ae2x` ticks the Vacuum Interface; `extendedae::device` gives its node.
+
+Left for later: the screens' text and number fields (the tag and mod expressions, the threshold emitter's lower
+bound, the Vacuum Interface's area) and the planes' and vacuum's filter slots, now set by `/ae2 eae`; the Active
+Formation Plane's fluids and crafting; the planes' and emitter's own models.
 
 Next: a Memory Card on the extended buses and the inscriber; the Extended Molecular Assembler's thread pages; the
 matrix's pattern item handler.
@@ -167,6 +184,23 @@ Facts checked for slice 7, at the source:
 - ATM10's KubeJS gives the universal terminal `ae2wtlib:has_ex_pattern_access_terminal` (`att_items.js`): the
   terminal name is `ex_pattern_access`.
 
+Facts checked for slice 5 and the interfaces, at the source:
+
+- `TagExpParserV2.checkTag` uses `String.matches` with `*` turned into `.*`: the pattern is a regular expression, so
+  `.` is any character; the names are the item's tags, its block's tags (a BlockItem) and its id, or a fluid's.
+  `TagPriorityList.isListed` is true for an empty filter, so an empty Tag Export Bus exports everything.
+- `ModPriorityList` splits with `String.split(",")`: `""` gives one empty entry (lists nothing, not empty), `","`
+  none (empty: everything passes the storage bus).
+- The Tag, Mod and Precise Export Buses multiply AE2's operations by `extended_io_bus_multiplier`; the Threshold
+  Export Bus does not. The tag and mod export buses take four cards, the precise and threshold five.
+- `PartThresholdLevelEmitter` has a Crafting Card branch, but `registerUpgrades` gives it only the Fuzzy Card.
+- `TileVacuumInterface.createFilter` reads an Inverter Card, but `registerUpgrades` gives it none: always a
+  whitelist. Its node has no flags (`setFlags()`): no channel.
+- `GenericSlotCapacities` registers 99 for items (`Item.ABSOLUTE_MAX_STACK_SIZE`) and four buckets for fluids;
+  `OversizeConfigInv.getMaxAmount` of an item is `min(stack size x multiplier, 99 x multiplier)`.
+- The Oversize Interface's Crystal Assembler recipe needs `extendedae:ingredient_buffer`; its crafting recipe
+  (`oversize_interface_alt`) does not.
+
 ## Verification log
 
 - 2026-11-02, old laptop: the earlier tree did not compile (a raw string ended at the `"#` of a colour); fixed.
@@ -183,3 +217,9 @@ Facts checked for slice 7, at the source:
     the part's menu. The test waits two client ticks first (`sneakInteract`). Other suites that sneak-use the same
     way share the race.
   - The craft request in the terminal is a middle click now (AE2's gesture on the head).
+- 2026-11-10, slice 5 and the interfaces on `f8c670409`: the suites' first runs failed on themselves, not the port:
+  `stepServer` needs a held server (the suites wait on game time instead); the Config Modifier's settings
+  component does not parse in `/item replace` (the suite presses its mode button); the threshold emitter's saved
+  state outlives a band change, as the mod's does (the suite starts from it). One real bug: the Active Formation
+  Plane kept its target's blocked flag after the block was taken away (it now reads the target first, as
+  `clearBlocked` on a neighbour change).

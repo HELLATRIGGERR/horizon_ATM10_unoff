@@ -120,7 +120,7 @@ impl EncodingState {
         fn items(tag:&Tag,key:&str,dest:&mut [Option<ItemStack>])->Result<(),String> {
             let Some(value)=tag.get(key) else{return Ok(())};let Tag::List(entries)=value else{return Err(format!("invalid {key}"));};
             for entry in entries {let Some(Tag::Int(i))=entry.get("slot") else{return Err(format!("invalid {key} slot"));};let n=usize::try_from(*i).map_err(|_|format!("invalid {key} slot"))?;let target=dest.get_mut(n).ok_or_else(||format!("invalid {key} slot"))?;
-                let stack=entry.get("item").and_then(save::item_from_nbt).filter(|s|s.count>0).ok_or_else(||format!("invalid {key} item"))?;
+                let stack=entry.get("item").and_then(save::item_from_nbt_exact).filter(|s|s.count>0).ok_or_else(||format!("invalid {key} item"))?;
                 if target.replace(stack).is_some(){return Err(format!("duplicate {key} slot"));}
             } Ok(())
         }
@@ -296,5 +296,13 @@ mod tests {
         let Tag::Compound(data)=machine.config.get_mut(&"ae2_encoding_state".into()).unwrap() else{panic!()};
         let Tag::List(inputs)=data.get_mut(&"inputs".into()).unwrap() else{panic!()};inputs.push(inputs[0].clone());
         assert!(EncodingState::load(&machine).is_err());
+    }
+    /// A processing amount is the stack's count, past ItemStack.CODEC's 1..=99.
+    #[test]
+    fn encoding_state_keeps_processing_amounts_past_a_stack() {
+        let mut machine=Machine::new(MachineKind::PatternEncodingTerminal);
+        let mut state=EncodingState::default();state.processing=true;
+        state.inputs[0]=Some(ItemStack::new("minecraft:stone",999_999));state.outputs[0]=Some(ItemStack::new("minecraft:diamond",128));
+        state.save(&mut machine).unwrap();assert_eq!(EncodingState::load(&machine).unwrap(),state);
     }
 }

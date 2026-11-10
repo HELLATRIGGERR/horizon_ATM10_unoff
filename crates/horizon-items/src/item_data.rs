@@ -907,6 +907,14 @@ pub fn canon_stack(stack: Option<&ItemStack>) -> String {
 }
 /// The stack of an SNBT `ItemStack.CODEC` compound; None for "-".
 pub fn parse_stack(snbt: &str) -> Result<Option<ItemStack>, String> {
+    Ok(parse_stack_tag(snbt)?.as_ref().and_then(crate::item_nbt::item_from_nbt))
+}
+/// [`parse_stack`] of a [`canon_stack`] key that keeps the count it was written with,
+/// past `ItemStack.CODEC`'s 1..=99 ([`crate::item_nbt::item_from_nbt_exact`]).
+pub fn parse_stack_exact(snbt: &str) -> Result<Option<ItemStack>, String> {
+    Ok(parse_stack_tag(snbt)?.as_ref().and_then(crate::item_nbt::item_from_nbt_exact))
+}
+fn parse_stack_tag(snbt: &str) -> Result<Option<Tag>, String> {
     if snbt == "-" {
         return Ok(None);
     }
@@ -922,7 +930,7 @@ pub fn parse_stack(snbt: &str) -> Result<Option<ItemStack>, String> {
             horizon_world::nbt::parse_snbt(&repaired)?
         }
     };
-    Ok(crate::item_nbt::item_from_nbt(&tag))
+    Ok(Some(tag))
 }
 fn repair_legacy_stack_keys(input: &str) -> Option<String> {
     if input.len() > 1_048_576 { return None; }

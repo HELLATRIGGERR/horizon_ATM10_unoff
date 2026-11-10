@@ -104,7 +104,7 @@ fn legacy_waiting(m:&Machine) -> Result<Option<Inventory>,String> {
     let mut waiting=Inventory::new();
     if let Some(step)=job.waiting() {
         if step.output.is_empty() || step.count==0 {return Err("invalid legacy CPU waiting output".into());}
-        let output=item_data::parse_stack(&step.output)?.ok_or("invalid legacy CPU waiting output")?;
+        let output=item_data::parse_stack_exact(&step.output)?.ok_or("invalid legacy CPU waiting output")?;
         waiting.insert(canon(&output),step.count);
     }
     Ok(Some(waiting))
@@ -862,7 +862,7 @@ mod recursive {
         Ok(found.pop())
     }
     fn from_key(key: &str) -> Result<ItemStack, String> {
-        item_data::parse_stack(key)?.ok_or_else(|| "empty item key".into())
+        item_data::parse_stack_exact(key)?.ok_or_else(|| "empty item key".into())
     }
     fn unloaded_waiting_conflicts(waiting:&Inventory,key:Option<&str>) -> bool {
         key.is_none_or(|key|waiting.contains_key(key))
@@ -1019,7 +1019,7 @@ mod recursive {
         // every item identity together before checking physical ownership.
         let normalize=|value:&str| -> Result<String,String> {
             if value=="-" || value.starts_with("fluid|") {return Ok(value.to_owned());}
-            Ok(item_data::canon_stack(item_data::parse_stack(value)?.as_ref()))
+            Ok(item_data::canon_stack(item_data::parse_stack_exact(value)?.as_ref()))
         };
         session.cpu.remap_keys(normalize)?;
         for spec in session.specs.values_mut() {
@@ -1386,7 +1386,7 @@ mod recursive {
             if ordered {
                 for definition in self.ae2_ordered_provider_definitions(pos)? {
                     let owner = ordered_owner(&definition.medium)?;
-                    let pattern = item_data::parse_stack(&definition.key)?.ok_or("missing registered pattern")?;
+                    let pattern = item_data::parse_stack_exact(&definition.key)?.ok_or("missing registered pattern")?;
                     let mut provider = Machine::new(MachineKind::PatternProvider);
                     provider.slots[0] = Some(pattern);
                     providers.push((owner, provider, Some((definition.key, definition.primary_output))));
@@ -1741,7 +1741,7 @@ mod recursive {
                     if !super::super::ae2_event_live::ordered_provider_enabled() { outputs.extend(s.extra_outputs); }
                     outputs
                 })
-                .filter_map(|s| item_data::parse_stack(&s).ok().flatten())
+                .filter_map(|s| item_data::parse_stack_exact(&s).ok().flatten())
                 .filter_map(|s| ae2_lab::key(&s).ok())
                 .collect()
         }
@@ -2558,7 +2558,7 @@ mod recursive {
         }
         spec.grid
             .iter()
-            .map(|v| item_data::parse_stack(v))
+            .map(|v| item_data::parse_stack_exact(v))
             .collect()
     }
     fn choose_grid(
@@ -2597,7 +2597,7 @@ mod recursive {
                 if let Some((kind,id))=&spec.special {
                     let logical=if spec.special_grid_version==0 {grid.to_vec()}else{let Some(grid)=ae2_processing::special_logical_grid(kind,grid) else{return false};grid};
                     let Some(result)=ae2_processing::special_recipe_result(stations,kind,id,&logical) else{return false;};
-                    let Ok(Some(expected))=item_data::parse_stack(&spec.output) else{return false;};
+                    let Ok(Some(expected))=item_data::parse_stack_exact(&spec.output) else{return false;};
                     let mut output=Inventory::new();return result==expected && output_add(&mut output,&result).is_ok() && output==step.outputs;
                 }
                 let (name, result) = if let Some(name) = spec.crafting_recipe.as_deref() {
@@ -2607,7 +2607,7 @@ mod recursive {
                     let Some(result) = recipes.find(grid, 3) else { return false; };
                     result
                 };
-                let Ok(Some(expected)) = item_data::parse_stack(&spec.output) else {
+                let Ok(Some(expected)) = item_data::parse_stack_exact(&spec.output) else {
                     return false;
                 };
                 if result != expected {
@@ -2811,7 +2811,7 @@ mod recursive {
             provider: ProviderOwner,
             output: &str,
         ) -> Result<(), String> {
-            let expected = item_data::parse_stack(output)
+            let expected = item_data::parse_stack_exact(output)
                 .ok()
                 .flatten()
                 .map(|s| canon(&s))
@@ -2949,7 +2949,7 @@ mod recursive {
             let stored = match spec.definition.as_ref() {
                 Some(definition) => {
                     if !effective_patterns?.iter().any(|key|key == definition) {return None;}
-                    item_data::parse_stack(definition).ok()??
+                    item_data::parse_stack_exact(definition).ok()??
                 }
                 None => provider.slots.get(spec.slot)?.clone()?,
             };
@@ -3012,7 +3012,7 @@ mod recursive {
                 let mut blocked_fluids = std::collections::BTreeSet::new();
                 if blocking {
                     let cached: Vec<ItemStack> = match effective_patterns {
-                        Some(patterns) => patterns.iter().map(|key|item_data::parse_stack(key).ok().flatten()).collect::<Option<Vec<_>>>()?,
+                        Some(patterns) => patterns.iter().map(|key|item_data::parse_stack_exact(key).ok().flatten()).collect::<Option<Vec<_>>>()?,
                         None => provider.slots.iter().flatten().cloned().collect(),
                     };
                     for stack in &cached {
@@ -4311,7 +4311,7 @@ mod recursive {
                         return Err("global pattern dispatch ownership mismatch".into());
                     }
                     for (key, amount) in &step.outputs {
-                        let stack = item_data::parse_stack(key)?.ok_or("missing global pattern output")?;
+                        let stack = item_data::parse_stack_exact(key)?.ok_or("missing global pattern output")?;
                         self.ae2x_push_global_pattern(cpu_address, &stack, *amount);
                     }
                     session.cpu = next;
@@ -4323,7 +4323,7 @@ mod recursive {
                     use horizon_client::ae2_provider_queue::Entry;
                     let provider=self.provider_machine(spec.provider).ok_or("provider disappeared")?;
                     let pattern=match &spec.definition {
-                        Some(definition)=>item_data::parse_stack(definition)?.ok_or("missing processing definition")?,
+                        Some(definition)=>item_data::parse_stack_exact(definition)?.ok_or("missing processing definition")?,
                         None=>provider.slots.get(spec.slot).and_then(Clone::clone).ok_or("missing processing pattern")?,
                     };
                     let ordered=checked_processing_input_order(&pattern,&step.inputs)?;
@@ -4452,12 +4452,12 @@ mod recursive {
                 updated.slots[..9].clone_from_slice(&staged);
                 updated.progress = 0.0;
                 let output =
-                    item_data::parse_stack(&spec.output)?.ok_or("missing pattern output")?;
+                    item_data::parse_stack_exact(&spec.output)?.ok_or("missing pattern output")?;
                 let mut data=pattern_data(&template,&output);
                 if let Some((kind,recipe))=&spec.special {if let Tag::Compound(values)=&mut data {values.insert("special_kind".into(),Tag::String(kind.as_str().into()));values.insert("recipe".into(),Tag::String(recipe.as_str().into()));}}
                 if let (Some(recipe), Tag::Compound(values))=(&spec.crafting_recipe, &mut data) { values.insert("crafting_recipe".into(),Tag::String(recipe.as_str().into())); }
                 let definition=match &spec.definition {
-                    Some(encoded)=>item_data::parse_stack(encoded)?,
+                    Some(encoded)=>item_data::parse_stack_exact(encoded)?,
                     None=>self.provider_machine(spec.provider).and_then(|provider|provider.slots.get(spec.slot).cloned().flatten()),
                 };
                 if let (Some(definition),Tag::Compound(values))=(definition,&mut data) {

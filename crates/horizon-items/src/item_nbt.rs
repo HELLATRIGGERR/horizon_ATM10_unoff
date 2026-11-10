@@ -92,6 +92,16 @@ pub fn item_from_nbt(tag: &Tag) -> Option<crate::items::ItemStack> {
         extra,
     })
 }
+/// [`item_from_nbt`] for a record of Horizon's own whose count is a runtime amount past
+/// ItemStack.CODEC's 1..=99 (an AE2 amount, a crafting job's key): the count
+/// [`item_to_nbt`] wrote, at least one.
+pub fn item_from_nbt_exact(tag: &Tag) -> Option<crate::items::ItemStack> {
+    let mut stack = item_from_nbt(tag)?;
+    if let Some(count) = number(tag.get("count")).or_else(|| number(tag.get("Count"))) {
+        stack.count = u32::try_from(count.max(1)).unwrap_or(u32::MAX);
+    }
+    Some(stack)
+}
 pub fn encode_items(slots: &[Option<crate::items::ItemStack>]) -> Tag {
     Tag::List(
         slots
@@ -178,6 +188,43 @@ mod tests {
         let stack = crate::items::ItemStack::new("minecraft:diamond_sword", 1000);
         assert_eq!(stack.count, 1000);
         assert_eq!(number(item_to_nbt(&stack).get("count")), Some(1000));
+    }
+
+    /// A record of Horizon's own (an AE2 amount) reads back the count it wrote.
+    #[test]
+    fn exact_reads_keep_a_written_runtime_count() {
+        let stack = crate::items::ItemStack::new("minecraft:stone", 999_999);
+        assert_eq!(item_from_nbt(&item_to_nbt(&stack)).unwrap().count, 1);
+        assert_eq!(
+            item_from_nbt_exact(&item_to_nbt(&stack)).unwrap().count,
+            999_999
+        );
+        let key = crate::item_data::canon_stack(Some(&stack));
+        assert_eq!(
+            crate::item_data::parse_stack(&key).unwrap().unwrap().count,
+            1
+        );
+        assert_eq!(
+            crate::item_data::parse_stack_exact(&key).unwrap().unwrap(),
+            stack
+        );
+        for (raw, expected) in [
+            (None, 1),
+            (Some(Tag::Int(0)), 1),
+            (Some(Tag::Int(-5)), 1),
+            (Some(Tag::Byte(7)), 7),
+        ] {
+            let mut tag = Tag::compound([("id", string("minecraft:stone"))]);
+            if let (Tag::Compound(map), Some(raw)) = (&mut tag, &raw) {
+                map.insert("count".into(), raw.clone());
+            }
+            assert_eq!(
+                item_from_nbt_exact(&tag).unwrap().count,
+                expected,
+                "{raw:?}"
+            );
+        }
+        assert_eq!(crate::item_data::parse_stack_exact("-").unwrap(), None);
     }
 }
 

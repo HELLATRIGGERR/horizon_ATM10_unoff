@@ -609,7 +609,7 @@ fn fluid_id(name: &str) -> Option<u32> {
 }
 
 pub use horizon_items::item_nbt::{
-    decode_items, encode_item, encode_items, item_from_nbt, item_to_nbt,
+    decode_items, encode_item, encode_items, item_from_nbt, item_from_nbt_exact, item_to_nbt,
 };
 /// The block entity type ID for the block it sits in (a chest-like container
 /// is a chest, trapped chest or barrel).

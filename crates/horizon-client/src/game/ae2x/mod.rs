@@ -17,6 +17,15 @@ pub(super) mod ae2wtlib;
 pub(super) mod aeinfinitybooster;
 #[cfg(feature = "ae2-importexportcard")]
 pub(super) mod importexportcard;
+#[cfg(feature = "ae2-appflux")]
+pub(super) mod appflux;
+
+/// The addons' key types' world strategies (`StackWorldBehaviors.register*`),
+/// registered once, before `ae2_key_strategies` is first read.
+pub(super) fn register_key_strategies() {
+    #[cfg(feature = "ae2-appflux")]
+    appflux::register_strategies();
+}
 
 /// An addon storage bus's own partition list (`IPartitionList`) beside or in
 /// place of AE2's config slots: ExtendedAE's tag, mod and precise buses.
@@ -116,10 +125,15 @@ pub(super) fn item_store_encoding(stack: &mut horizon_client::items::ItemStack, 
 }
 
 /// A storage cell of an addon's own `ICellHandler` (`StorageCells.getCellInventory`
-/// for a cell no basic handler takes): MEGA's Bulk Item Cell. Item keys
-/// only; a change is written back to its stack with [`HandlerCell::store`].
+/// for a cell no basic handler takes): MEGA's Bulk Item Cell, Applied Flux's
+/// FE cells. Keys of one type, [`HandlerCell::key_type`]; a change is written
+/// back to its stack with [`HandlerCell::store`].
 /// Its LED is `horizon_client::ae2x::handler_cell_state`.
 pub(super) trait HandlerCell {
+    /// The type of the keys it holds: items unless it says otherwise.
+    fn key_type(&self) -> ae2_cell_core::KeyType {
+        ae2_cell_core::KeyType::ITEMS
+    }
     /// `getAvailableStacks`, in the cell's order; amounts may be 0.
     fn available_stacks(&mut self) -> Vec<(ae2_cell_core::ItemKey, u64)>;
     fn insert(&mut self, key: &ae2_cell_core::ItemKey, amount: u64, action: ae2_cell_core::Action) -> u64;
@@ -545,6 +559,10 @@ impl Game<'_> {
         #[cfg(feature = "ae2-extendedae")]
         if stack.item.as_ref() == horizon_client::ae2x::extendedae::VOID_CELL {
             return Some(self.extendedae_void_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
+        }
+        #[cfg(feature = "ae2-appflux")]
+        if horizon_client::ae2x::appflux::cell_bytes(&stack.item).is_some() {
+            return Some(self.appflux_fe_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
         }
         let _ = stack;
         None

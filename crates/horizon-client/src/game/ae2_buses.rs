@@ -1344,19 +1344,33 @@ impl Game<'_> {
         &self,
         pos: super::ae2_global::GridAddress,
     ) -> Vec<StorageMount> {
-        self.ae2_storage_mounts_for(pos, false)
+        self.ae2_storage_mounts_for(pos, KeyType::ITEMS)
     }
     pub(super) fn ae2_fluid_storage_mounts_encoded(
         &self,
         pos: super::ae2_global::GridAddress,
     ) -> Vec<StorageMount> {
-        self.ae2_storage_mounts_for(pos, true)
+        self.ae2_storage_mounts_for(pos, KeyType::FLUIDS)
+    }
+    /// The storage buses that mount an addon type's storage: those facing a
+    /// block its `ExternalStorageStrategy` finds storage in.
+    pub(super) fn ae2_typed_storage_mounts_encoded(
+        &self,
+        pos: super::ae2_global::GridAddress,
+        kind: KeyType,
+    ) -> Vec<StorageMount> {
+        if super::ae2_key_strategies::addon(kind).external_storage.is_none() {
+            return Vec::new();
+        }
+        self.ae2_storage_mounts_for(pos, kind)
     }
     fn ae2_storage_mounts_for(
         &self,
         pos: super::ae2_global::GridAddress,
-        fluid: bool,
+        kind: KeyType,
     ) -> Vec<StorageMount> {
+        let fluid = kind == KeyType::FLUIDS;
+        let strategy = super::ae2_key_strategies::addon(kind).external_storage;
         let network = self.ae2_network();
         let Ok(analysis) = network.analyze() else {
             return Vec::new();
@@ -1414,13 +1428,17 @@ impl Game<'_> {
                 let Some(target_side) = target_face(&face) else {
                     continue;
                 };
-                let target_exists = self.ae2_has_interface_face(target, target_side)
-                    || if fluid {
-                        matches!(self.ae2_block_entity(target),Some(BlockEntity::Ae2(m)) if matches!(m.kind,MachineKind::SkyStoneTank|MachineKind::Condenser))
-                            || self.ae2_mod_fluid_supports(target, target_side)
-                    } else {
-                        self.ae2_native_container_supports(target, target_side)
-                    };
+                // An addon type's storage is its strategy's alone.
+                let target_exists = match strategy {
+                    Some(strategy) => (strategy.entries)(self, target, target_side).is_some(),
+                    None => self.ae2_has_interface_face(target, target_side)
+                        || if fluid {
+                            matches!(self.ae2_block_entity(target),Some(BlockEntity::Ae2(m)) if matches!(m.kind,MachineKind::SkyStoneTank|MachineKind::Condenser))
+                                || self.ae2_mod_fluid_supports(target, target_side)
+                        } else {
+                            self.ae2_native_container_supports(target, target_side)
+                        },
+                };
                 if !target_exists {
                     continue;
                 }
@@ -1833,6 +1851,18 @@ impl Game<'_> {
                     .transpose()?
                     .as_ref()
                     .map(Key::from);
+            }
+            // A key of an addon's type, `<type id>|<key id>` (Applied Flux's
+            // `appflux:flux|appflux:fe`), as the terminal marks one.
+            "filter_key" if args.len() == 7 => {
+                let slot: usize = args[5].parse().map_err(|_| "invalid filter slot")?;
+                if slot >= state.slots() {
+                    return Err("filter slot not enabled by capacity cards".into());
+                }
+                let (kind, id) = args[6].split_once('|').ok_or("expected <type id>|<key id>")?;
+                let kind = KeyType::get(kind).filter(|kind| !matches!(*kind, KeyType::ITEMS | KeyType::FLUIDS)).ok_or("not an addon's key type")?;
+                let key = ae2_cell_core::ItemKey { item_id: id.to_owned(), components: Vec::new() };
+                state.config[slot] = Some(Key::from(&horizon_client::ae2_key_types::addon_marker(kind, &key)));
             }
             "filter_fluid" if args.len() == 6 => {
                 let slot: usize = args[5].parse().map_err(|_| "invalid filter slot")?;

@@ -16,6 +16,8 @@ pub mod ae2wtlib;
 pub mod aeinfinitybooster;
 #[cfg(feature = "ae2-importexportcard")]
 pub mod importexportcard;
+#[cfg(feature = "ae2-appflux")]
+pub mod appflux;
 
 /// Builds the registry, which installs the addon machines' block ids and
 /// the variants of AE2's machines: call before any world or block entity
@@ -86,6 +88,15 @@ pub fn handler_cell_state(stack: &crate::items::ItemStack) -> Option<u8> {
     #[cfg(feature = "ae2-extendedae")]
     if stack.item.as_ref() == extendedae::VOID_CELL {
         return Some(2);
+    }
+    // FluxCellInventory.getStatus.
+    #[cfg(feature = "ae2-appflux")]
+    if let Some(cell) = appflux::fe_cell(stack) {
+        return Some(match cell.status() {
+            appflux::FeCellState::Empty => 1,
+            appflux::FeCellState::NotEmpty => 2,
+            appflux::FeCellState::Full => 4,
+        });
     }
     #[cfg(feature = "ae2-megacells")]
     if stack.item.as_ref() == megacells::BULK_ITEM_CELL {

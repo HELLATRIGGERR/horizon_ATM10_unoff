@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "addon": "appflux",
+  "name": "Applied Flux",
+  "version": "1.21-2.1.7-neoforge",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/GlodBlock/ExtendedAE",
+    "tag": "none: the tag 1.21-2.1.7-neoforge of that repository is ExtendedAE's; Applied Flux 2.1.7 is the version bump at the head of branch appflux/1.21.1-neoforge",
+    "branch": "appflux/1.21.1-neoforge",
+    "commit": "523c3e5aa1579f0cba54a18af1382e36083699c9",
+    "license": "LGPL-3.0",
+    "license_file": "LICENSE.txt at the commit; mods.toml license LGPL-3.0"
+  },
+  "assets_license": "not stated",
+  "jar": {
+    "file": "AppliedFlux-1.21-2.1.7-neoforge.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "3fa19f02317a795334805d67318708c5025911b55c24ae273125f1a0652311b8"
+  },
+  "requires": ["ae2 19.2.18", "glodium 1.21-2.2"],
+  "derived_files": [
+    "crates/horizon-client/src/ae2x/appflux.rs",
+    "crates/horizon-client/src/game/ae2x/appflux/mod.rs"
+  ]
+}

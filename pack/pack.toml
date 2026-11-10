@@ -105,8 +105,13 @@ feature = "ae2-importexportcard"
 content = "ae2importexportcard"
 configs = ["ae2importexportcard-server.toml"]
 
-# AE2 addon: FE stored in ME cells and the Flux Accessor.
+# Applied Flux: FE as an ME key type, the FE storage cells, and FE between the
+# grid and FE blocks through storage, import and export buses (slice 1;
+# ae2/addons/appflux). Its import strategy follows `misc.enable` of
+# appflux-common.toml, which All the Mods 10 ships none of (off).
 [mods.appflux]
 name = "Applied Flux"
-enabled = false
+enabled = true
+feature = "ae2-appflux"
+content = "appflux"
 configs = ["appflux-common.toml"]

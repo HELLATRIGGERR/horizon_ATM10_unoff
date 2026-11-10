@@ -522,6 +522,9 @@ pub fn get() -> &'static Defs {
         // AE2 Import Export Card's cards, on the terminals above.
         #[cfg(feature = "ae2-importexportcard")]
         super::importexportcard::register(&mut defs);
+        // Applied Flux's key type and FE cells.
+        #[cfg(feature = "ae2-appflux")]
+        super::appflux::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the
         // variants of AE2's, for `Machine::for_block`, the crafting CPU
         // blocks' bytes and threads, and the energy cells' capacities.

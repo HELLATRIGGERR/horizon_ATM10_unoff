@@ -1,0 +1,33 @@
+{
+  "namespace": "appflux",
+  "name": "Applied Flux",
+  "description": "Applied Flux 1.21-2.1.7 for the AE2 port: FE as an ME key type, the 1k-256M FE storage cells and their materials, FE through storage, import and export buses (slice 1).",
+  "authors": ["GlodBlock (Applied Flux)"],
+  "slices": [
+    "1: the appflux:flux key type, the 1k-256M FE storage cells, their cores, housing and materials, FE through storage, import and export buses"
+  ],
+  "items": {
+    "charged_redstone": {},
+    "redstone_crystal": {},
+    "insulating_resin": {},
+    "harden_insulating_resin": {},
+    "energy_processor": {},
+    "printed_energy_processor": {},
+    "energy_processor_press": {},
+    "diamond_dust": {},
+    "emerald_dust": {},
+    "fe_cell_housing": {},
+    "core_1k": {}, "core_4k": {}, "core_16k": {}, "core_64k": {}, "core_256k": {},
+    "core_1m": {}, "core_4m": {}, "core_16m": {}, "core_64m": {}, "core_256m": {},
+    "fe_1k_cell": {"max_stack_size": 1}, "fe_4k_cell": {"max_stack_size": 1}, "fe_16k_cell": {"max_stack_size": 1},
+    "fe_64k_cell": {"max_stack_size": 1}, "fe_256k_cell": {"max_stack_size": 1}, "fe_1m_cell": {"max_stack_size": 1},
+    "fe_4m_cell": {"max_stack_size": 1}, "fe_16m_cell": {"max_stack_size": 1}, "fe_64m_cell": {"max_stack_size": 1},
+    "fe_256m_cell": {"max_stack_size": 1}
+  },
+  "blocks": {
+    "charged_redstone_block": {}
+  },
+  "key_icons": {
+    "fe": "appflux:energy/fe"
+  }
+}

@@ -29,10 +29,9 @@ pub(super) struct ExportStrategy {
     pub transfer: for<'g> fn(&mut Game<'g>, GridAddress, GridAddress, Direction, &ItemKey, u64) -> Result<u64, String>,
 }
 /// `ExternalStorageStrategy`: a storage bus's view of the block, its stored
-/// keys and a change of `amount` (insert or extract, simulated or not). The
-/// port's storage buses mount items and fluids only so far; this is where an
-/// addon type's will be read.
-#[allow(dead_code)]
+/// keys and a change of `amount` (insert, then simulate). `entries` is none
+/// where the block has no storage of the type on that side: no mount. The
+/// target is the block the bus faces, `face` its side towards the bus.
 #[derive(Clone, Copy)]
 pub(super) struct ExternalStorageStrategy {
     pub entries: for<'g> fn(&Game<'g>, GridAddress, Direction) -> Option<Vec<(ItemKey, u64)>>,
@@ -54,6 +53,8 @@ pub(super) struct WorldStrategies {
 }
 /// An addon type's strategies, by raw id from 2 on.
 static ADDED: RwLock<Vec<WorldStrategies>> = RwLock::new(Vec::new());
+/// The built-in addons' strategies, registered on the first read.
+static ADDONS: std::sync::Once = std::sync::Once::new();
 
 /// Register `strategies` for an addon's `kind`; a slot it already has stays.
 #[allow(dead_code)]
@@ -77,6 +78,7 @@ pub(super) fn addon(kind: KeyType) -> WorldStrategies {
     if matches!(kind, KeyType::ITEMS | KeyType::FLUIDS) {
         return WorldStrategies::default();
     }
+    ADDONS.call_once(super::ae2x::register_key_strategies);
     ADDED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(usize::from(kind.raw_id() - 2)).copied().unwrap_or_default()
 }
 fn built_in(kind: KeyType) -> bool {

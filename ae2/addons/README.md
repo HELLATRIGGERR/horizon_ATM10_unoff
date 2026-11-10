@@ -48,7 +48,7 @@ tables built once on first use: AE2's own rows (`Defs::ae2`), then each built-in
 | Table | AE2 API | Read by |
 |---|---|---|
 | cells: id, key type, tier (kilobytes), types, idle drain, portable, drive model; a portable cell's battery and charge-rate factors over AE2's | `IBasicCellItem`, `StorageCells`, `StorageCellModels`; `PortableCellItem` (`getAEMaxPower`, `getChargeRate`, `HotkeyActions.registerPortableCell`) | the cell codec (`is_cell`, `is_fluid_cell`, `idle_drain`), drives, chests, IO port, workbench, condenser, drive rendering; for the portable cells (`portable_cell`, `portable_cells` in registration order): their menu, battery and charge in a Charger, energy capability, upgrade store, disassembly and hotkeys |
-| cells of an addon's own handler: id, idle drain, drive model, filters; their card slots | `StorageCells.addCellHandler` with an `ICellHandler` of its own (MEGA's Bulk Item Cell) | the codec (`is_cell`, `idle_drain`, `config_slots`), `is_valid_storage_cell`; the game's `ae2x::HandlerCell` for the listing, storage, preference, the ME Chest and the IO Port; `handler_cell_state` for LEDs |
+| cells of an addon's own handler: id, idle drain, drive model, filters; their card slots | `StorageCells.addCellHandler` with an `ICellHandler` of its own (MEGA's Bulk Item Cell; Applied Flux's FE cells, of its key type) | the codec (`is_cell`, `idle_drain`, `config_slots`), `is_valid_storage_cell`; the game's `ae2x::HandlerCell` for the listing, storage, preference, the ME Chest and the IO Port; `handler_cell_state` for LEDs |
 | storage components: id, tier | `IStorageComponent` | the Condenser |
 | item upgrade slots: host, size | `IUpgradeableItem.getUpgrades` | `ae2_upgrade_inventory::capacity` |
 | upgrade rows: card, host, max | `Upgrades.add` | `ae2_upgrade_inventory` |
@@ -87,7 +87,8 @@ CPU's byte scale, a bus state's channel, the selections of an import bus and a w
 | Icon in item slots | `KeyBehaviour.icon` | `AEKeyRendering.register` |
 | Ids the game knows | `KeyBehaviour.known` (an unknown one loads as Missing Content) | the registry lookup of `AEKey.MAP_CODEC` |
 | Items that hold the type | `KeyBehaviour.container`: `ContainerStrategy` (contained, fill, drain) | `ContainerItemStrategies.register` |
-| Import, export, storage bus, formation | the game's `ae2_key_strategies::register` (`ImportStrategy`, `ExportStrategy`, `ExternalStorageStrategy`, `PlacementStrategy`) | `StackWorldBehaviors.register*Strategy` |
+| Import, export, storage bus, formation | the game's `ae2_key_strategies::register` (`ImportStrategy`, `ExportStrategy`, `ExternalStorageStrategy`, `PlacementStrategy`), from `game/ae2x/mod.rs` `register_key_strategies` before the first read | `StackWorldBehaviors.register*Strategy` |
+| An addon's key type, all of it | Applied Flux's `appflux:flux` (`ae2x/appflux.rs`, `game/ae2x/appflux/`): FE keys, FE cells of its own handler, FE through storage, import and export buses | `FluxKeyType`, `FECellHandler`, `FE*Strategy` |
 
 `horizon_client::ae2_key_types::register(def, behaviour)` registers both halves; registering the same
 definition again returns the same type, another definition under a taken id is refused. The raw id is
@@ -98,8 +99,9 @@ state's JSON keeps `"Item"` and `"Fluid"` for AE2's two.
 
 What reaches a key of an addon's type, and what doesn't yet:
 
-- **Storage**: a basic cell of the type (a `CellDef` with its `key_type`) holds it with the type's bytes,
-  in AE2's form only (`ae2:storage_cell_inv`); drives, the ME Chest, cell docks, the IO Port and portable
+- **Storage**: a cell of an addon's own handler holds keys of its `HandlerCell::key_type` (Applied Flux's FE
+  cells) in drives, the ME Chest and the IO Port. A basic cell of the type (a `CellDef` with its `key_type`)
+  holds it with the type's bytes, in AE2's form only (`ae2:storage_cell_inv`); drives, the ME Chest, cell docks, the IO Port and portable
   cells read and write it (`ae2_cell_codec::read_any_cell_checked`, `write_any_cell`). The grid's storage of
   the type is its cells' (`game/ae2_key_storage.rs`: `ae2_grid_keys_encoded`, `ae2_grid_key_move`), paid in
   AE per `getAmountPerOperation`; creative and fixed cells may name its keys.
@@ -108,8 +110,9 @@ What reaches a key of an addon's type, and what doesn't yet:
   with the key-type buttons, which list every registered type.
 - **Buses**: an import bus selects among the types with an import strategy; import and export buses move
   an addon type's keys through its `ImportStrategy` / `ExportStrategy`.
-- **Not yet**: storage buses and formation planes mount items and fluids only (their strategy slots are
-  registered but not read); patterns, the crafting CPU's escrow and the Pattern Provider's queue hold items
-  and fluids only; the terminal's fill and drain gestures use the bucket strategy of fluids, not an addon
+- **Storage buses**: a bus mounts a block the type's `ExternalStorageStrategy` finds storage in, and the grid's
+  storage of the type lists and moves through it by priority, partition, access and Void Card.
+- **Not yet**: formation planes place items and fluids only (the placement strategy is registered but not
+  read); patterns, the crafting CPU's escrow and the Pattern Provider's queue hold items and fluids only; the terminal's fill and drain gestures use the bucket strategy of fluids, not an addon
   type's `ContainerStrategy`; the native workbench keeps an addon type's filter in AE2's `GenericStack` form
   (`stack`).

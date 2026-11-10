@@ -823,9 +823,11 @@ impl Game<'_> {
                     let n = total.entry(k.clone()).or_default();
                     *n = n.checked_add(*v).ok_or("network item count overflow")?;
                 }
-            } else if let Some(Ok(mut cell)) = self.ae2x_handler_cell(stack) {
-                // An addon handler's cell (MEGA's bulk cell): its available
-                // stacks; a 0 the terminal does not list.
+            } else if let Some(Ok(mut cell)) = self.ae2x_handler_cell(stack)
+                && cell.key_type() == ae2_cell_core::KeyType::ITEMS
+            {
+                // An addon handler's cell of items (MEGA's bulk cell): its
+                // available stacks; a 0 the terminal does not list.
                 for (k, v) in cell.available_stacks() {
                     if v > 0 {
                         let n = total.entry(k).or_default();
@@ -1357,8 +1359,14 @@ impl Game<'_> {
                     .iter()
                     .map(|(k, v)| json!({"item":k.item_id,"count":v}))
                     .collect::<Vec<_>>();
+                // The keys of addons' types (Applied Flux's FE), by type.
+                let keys = ae2_cell_core::KeyType::all()
+                    .into_iter()
+                    .filter(|kind| !matches!(*kind, ae2_cell_core::KeyType::ITEMS | ae2_cell_core::KeyType::FLUIDS))
+                    .flat_map(|kind| self.ae2_grid_keys(p, kind).unwrap_or_default().into_iter().map(move |(k, v)| json!({"type":kind.id(),"id":k.item_id,"amount":v})))
+                    .collect::<Vec<_>>();
                 Ok(
-                    json!({"position":[p.0,p.1,p.2],"online":s.online,"powered":s.powered,"channel":s.channel,"energy":c.energy,"channels":c.channels_in_use,"channel_mode":c.channel_mode.source_name(),"nodes":c.positions.len(),"items":entries}),
+                    json!({"position":[p.0,p.1,p.2],"online":s.online,"powered":s.powered,"channel":s.channel,"energy":c.energy,"channels":c.channels_in_use,"channel_mode":c.channel_mode.source_name(),"nodes":c.positions.len(),"items":entries,"keys":keys}),
                 )
             }
             "mode" if w.len() == 5 => {

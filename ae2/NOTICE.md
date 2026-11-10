@@ -72,3 +72,11 @@ with AE2's LGPL 3.0 code; the files are listed in
 [addons/ae2importexportcard/SOURCE_MANIFEST.json](addons/ae2importexportcard/SOURCE_MANIFEST.json).
 Its assets, whose licence the mod does not state, are generated locally from the
 player's jar and not distributed here.
+Code derived from [Applied Flux](https://github.com/GlodBlock/ExtendedAE/tree/appflux/1.21.1-neoforge)
+1.21-2.1.7 by GlodBlock (commit `523c3e5aa1579f0cba54a18af1382e36083699c9` on branch
+`appflux/1.21.1-neoforge` of ExtendedAE's repository, which sets that version; it has no tag
+of its own) is under its [LGPL 3.0](LICENSES/AppliedFlux-LGPL-3.0.txt), the repository's
+`LICENSE.txt`, with the GPL 3.0 it extends in [AE2-LGPL-3.0.txt](LICENSES/AE2-LGPL-3.0.txt);
+the files are listed in [addons/appflux/SOURCE_MANIFEST.json](addons/appflux/SOURCE_MANIFEST.json).
+Its assets, whose licence the mod does not state, are generated locally from the
+player's jar and not distributed here.

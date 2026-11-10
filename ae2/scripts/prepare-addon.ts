@@ -42,7 +42,11 @@ type Content = { namespace: string; name: string; description: string; authors: 
   pack_removed?: Record<string, string>;
   /** The pack's own items of an addon's KubeJS builder (ExtendedAE's `custom_infinity_cell`), read from its startup
    * script: each item's id (`namespace:name`) and the key and model its builder calls name, written to `out`. */
-  pack_kubejs_items?: { script: string; builder: string; namespace: string; out: string; calls: Record<string, string> } };
+  pack_kubejs_items?: { script: string; builder: string; namespace: string; out: string; calls: Record<string, string> };
+  /** Items that stand for an addon key type's keys in slots (`AEKeyRenderHandler`'s sprite: Applied Flux's FE is
+   * `appflux:energy/fe`), by the key's path: each an item of that id drawn flat from the sprite, copied to
+   * `textures/item/horizon_key/`, and named as the language files name the key (`<ns>.type.<path>.name`). */
+  key_icons?: Record<string, string> };
 type Manifest = { addon: string; name: string; version: string; source: { url: string; tag: string; commit: string; license: string };
   assets_license: string; jar: { file: string; sha256: string } };
 
@@ -155,6 +159,20 @@ if (!help(usage)) {
     const path = item.slice(ns.length + 1);
     if (!existsSync(join(assets, 'models/item', path + '.json'))) throw new Error(`${item} has no item model in the jar`);
     put(join(out, 'assets', ns, 'items', path + '.json'), { model: itemModel(path) });
+  }
+  for (const [icon, sprite] of Object.entries(content.key_icons ?? {})) {
+    const [spriteNs, spritePath] = sprite.split(':');
+    const texture = join(jarDir, 'assets', spriteNs, 'textures', spritePath + '.png');
+    if (!existsSync(texture)) throw new Error(`${sprite} has no texture in the jar`);
+    for (const ext of ['', '.mcmeta']) if (existsSync(texture + ext)) copy(texture + ext, join(out, 'assets', ns, 'textures/item/horizon_key', icon + '.png' + ext));
+    put(join(out, 'assets', ns, 'models/item/horizon_key', icon + '.json'), { parent: 'minecraft:item/generated', textures: { layer0: `${ns}:item/horizon_key/${icon}` } });
+    put(join(out, 'assets', ns, 'items', icon + '.json'), { model: { type: 'minecraft:model', model: `${ns}:item/horizon_key/${icon}` } });
+    put(join(out, 'data', ns, 'horizon/item', icon + '.json'), { template: 'minecraft:iron_ingot', max_stack_size: 1 });
+    for (const file of walk(join(out, 'assets', ns, 'lang')).filter(f => f.endsWith('.json'))) {
+      const lang = read(file), name = lang[`${ns}.type.${icon}.name`];
+      if (name && !lang[`item.${ns}.${icon}`]) put(file, { ...lang, [`item.${ns}.${icon}`]: name });
+    }
+    report.items.push(`${ns}:${icon}`);
   }
 
   // Recipes: those of the declared items only, in their 1.21.1 form, which

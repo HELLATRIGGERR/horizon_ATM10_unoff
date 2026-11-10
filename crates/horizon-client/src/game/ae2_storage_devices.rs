@@ -521,6 +521,9 @@ impl Game<'_> {
         mode: &str,
         mut operations: u64,
     ) -> Result<u64, String> {
+        if cell.key_type() != KeyType::ITEMS {
+            return self.ae2_io_transfer_handler_typed(pos, slot, item, cell, mode, operations);
+        }
         while operations > 0 {
             let candidates: Vec<(ae2_cell_core::ItemKey, u64)> = if mode == "empty" {
                 cell.available_stacks().into_iter().filter(|(_, n)| *n > 0).collect()
@@ -571,6 +574,68 @@ impl Game<'_> {
                 let transfer = transfer.and_then(|moved| self.ae2_commit_formation(formation).map(|_| moved));
                 match transfer {
                     Ok(moved) => Ok(Some(moved)),
+                    Err(e) => {
+                        self.io_restore(before);
+                        Err(e)
+                    }
+                }
+            })?;
+            if used == 0 {
+                break;
+            }
+            operations = operations.saturating_sub(used);
+        }
+        Ok(operations)
+    }
+    /// `transferContents` for a handler cell of an addon's key type (Applied
+    /// Flux's FE cells): its keys through the grid's storage of that type, an
+    /// operation `getAmountPerOperation` of them.
+    fn ae2_io_transfer_handler_typed(
+        &mut self,
+        pos: Pos,
+        slot: usize,
+        item: &mut ItemStack,
+        cell: &mut dyn super::ae2x::HandlerCell,
+        mode: &str,
+        mut operations: u64,
+    ) -> Result<u64, String> {
+        let kind = cell.key_type();
+        let factor = kind.amount_per_operation().max(1);
+        while operations > 0 {
+            let candidates: Vec<(ae2_cell_core::ItemKey, u64)> = if mode == "empty" {
+                cell.available_stacks().into_iter().filter(|(_, n)| *n > 0).collect()
+            } else {
+                self.ae2_grid_keys(pos, kind)?.into_iter().filter(|(_, n)| *n > 0).collect()
+            };
+            let used = io_transfer_pass(candidates, mode == "fill", |(key, available)| {
+                let max = operations.saturating_mul(factor).min(available);
+                let room = if mode == "empty" { self.ae2_grid_key_move(pos, kind, &key, max, true, true)? } else { cell.insert(&key, max, Action::Simulate) };
+                if room == 0 {
+                    return Ok(None);
+                }
+                let before = self.io_snapshot();
+                let transfer = (|| -> Result<u64, String> {
+                    let moved = self.ae2_grid_key_move(pos, kind, &key, room, mode == "empty", false)?;
+                    if moved == 0 {
+                        return Ok(0);
+                    }
+                    let changed = if mode == "empty" { cell.extract(&key, moved, Action::Modulate) } else { cell.insert(&key, moved, Action::Modulate) };
+                    if changed != moved {
+                        return Err("I/O cell refused staged transfer".into());
+                    }
+                    cell.store(item)?;
+                    let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
+                        return Err("I/O port disappeared".into());
+                    };
+                    let Some(place) = m.slots.get_mut(slot) else {
+                        return Err("I/O input slot disappeared".into());
+                    };
+                    *place = Some(item.clone());
+                    self.world.modified.insert((pos.0 >> 4, pos.2 >> 4));
+                    Ok(moved)
+                })();
+                match transfer {
+                    Ok(moved) => Ok(Some(if moved == 0 { 0 } else { (moved / factor).max(1) })),
                     Err(e) => {
                         self.io_restore(before);
                         Err(e)

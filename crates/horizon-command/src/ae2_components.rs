@@ -46,6 +46,8 @@ pub const PERSISTENT_IDS: &[&str] = &[
     "ae2importexportcard:selected_inventory_slots",
     "ae2importexportcard:selected_curio_slots",
     "ae2importexportcard:block_picker_amount",
+    // Applied Flux (`AFSingletons.FE_ENERGY`): an FE cell's stored FE (`Codec.LONG`).
+    "appflux:fe_energy",
     "ae2:exported_custom_name",
     "ae2:exported_upgrades",
     "ae2:exported_settings",
@@ -473,6 +475,7 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
             Ok(Tag::Compound(slots))
         }
         "ae2importexportcard:block_picker_amount" => Ok(Tag::Int(integer(&t)?)),
+        "appflux:fe_energy" => Ok(Tag::Long(number(&t)?)),
         "merequester:exported_requests" => {
             let Tag::List(rows) = &t else {
                 return Err("Not a list".into());

@@ -34,7 +34,10 @@ fn store(machine:&Machine,host:u64)->Result<Option<Store>,String>{
         MachineKind::CreativeEnergyCell=>(CREATIVE_STORED,CREATIVE_STORED,i32::MAX,true),
         _=>return Ok(None),
     };
-    Store::new(amount,capacity,priority,host,true,true,creative).map(Some).map_err(str::to_owned)
+    // Applied Flux's MixinCreativeEnergyCellBlockEntity: injectAEPower gives
+    // it all back, the creative cell takes no power ("not an energy trash can").
+    let can_insert=!(creative&&cfg!(feature="ae2-appflux"));
+    Store::new(amount,capacity,priority,host,true,can_insert,creative).map(Some).map_err(str::to_owned)
 }
 impl EnergyObserver {
     fn insert(&mut self,id:NodeIdentity,address:GridAddress,face:Option<u8>,share:f64,store:Option<Store>,emitter:Option<super::ae2_emitter::EnergyEmitterState>,reported:i64,output:bool)->Result<(),String>{

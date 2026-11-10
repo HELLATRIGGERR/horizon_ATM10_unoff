@@ -61,6 +61,14 @@ pub struct HandlerCellDef {
     pub config_slots: usize,
 }
 
+/// A portable cell's battery (`AbstractPortableCell`): `getAEMaxPower` and
+/// `getChargeRate` over AE2's `PortableCellItem`'s, as [`CellDef`] keeps them.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PortableBattery {
+    pub battery_scale: f64,
+    pub charge_scale: f64,
+}
+
 /// A part an addon puts on cables (`IPart` with its grid node).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartDef {
@@ -145,6 +153,8 @@ pub struct AccessPointCard {
 pub struct Defs {
     cells: HashMap<String, CellDef>,
     handler_cells: HashMap<String, HandlerCellDef>,
+    /// The batteries of portable cells of an addon's own handler.
+    portable_handler_cells: HashMap<String, PortableBattery>,
     components: HashMap<String, Tier>,
     upgrade_slots: HashMap<String, usize>,
     upgrades: HashMap<(String, String), usize>,
@@ -248,6 +258,21 @@ impl Defs {
     pub fn add_handler_cell(&mut self, cell: HandlerCellDef, upgrade_slots: usize) {
         self.upgrade_slots.insert(cell.id.clone(), upgrade_slots);
         self.handler_cells.insert(cell.id.clone(), cell);
+    }
+    /// A portable cell of the addon's own handler (an `AbstractPortableCell`
+    /// whose inventory is the handler's: Applied Flux's portable FE cells),
+    /// with `upgrade_slots` card slots and its battery.
+    pub fn add_portable_handler_cell(&mut self, cell: HandlerCellDef, upgrade_slots: usize, battery: PortableBattery) {
+        self.portable_handler_cells.insert(cell.id.clone(), battery);
+        self.add_handler_cell(cell, upgrade_slots);
+    }
+    /// The battery of any portable cell, AE2's, a basic one of an addon or
+    /// one of an addon's own handler (`AbstractPortableCell`): none for any
+    /// other item.
+    pub fn portable_battery(&self, id: &str) -> Option<PortableBattery> {
+        self.portable_cell(id)
+            .map(|cell| PortableBattery { battery_scale: cell.battery_scale, charge_scale: cell.charge_scale })
+            .or_else(|| self.portable_handler_cells.get(id).copied())
     }
     /// A cell of an addon's own handler; none for AE2's and the basic cells.
     pub fn handler_cell(&self, id: &str) -> Option<&HandlerCellDef> {

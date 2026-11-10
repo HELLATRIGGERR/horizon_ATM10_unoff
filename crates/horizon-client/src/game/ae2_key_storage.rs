@@ -110,12 +110,30 @@ impl Game<'_> {
     /// AE pays for `getAmountPerOperation` of the key (`StorageHelper`). A
     /// bus moves at once, the cells when the whole move is done.
     fn ae2_grid_typed_move(&mut self, pos: GridAddress, kind: KeyType, key: &ItemKey, amount: u64, insert: bool, simulate: bool) -> Result<u64, String> {
+        self.ae2_grid_typed_move_paid(pos, kind, key, amount, insert, simulate, true)
+    }
+    /// `IStorageService.getInventory().insert` / `extract` of a key of an
+    /// addon's `kind`: [`Self::ae2_grid_key_move_encoded`]'s move, no AE paid
+    /// (Applied Flux's `NetworkFEPower`).
+    #[cfg_attr(not(feature = "ae2-appflux"), allow(dead_code))]
+    pub(super) fn ae2_grid_typed_move_free(&mut self, pos: GridAddress, kind: KeyType, key: &ItemKey, amount: u64, insert: bool, simulate: bool) -> Result<u64, String> {
+        if matches!(kind, KeyType::ITEMS | KeyType::FLUIDS) {
+            return Err("not an addon key type".into());
+        }
+        self.ae2_grid_typed_move_paid(pos, kind, key, amount, insert, simulate, false)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn ae2_grid_typed_move_paid(&mut self, pos: GridAddress, kind: KeyType, key: &ItemKey, amount: u64, insert: bool, simulate: bool, paid: bool) -> Result<u64, String> {
         let cells = self.ae2_cell_mounts_encoded(pos)?;
         let buses = self.ae2_typed_storage_mounts_encoded(pos, kind);
         let strategy = super::ae2_key_strategies::addon(kind).external_storage;
         let factor = kind.amount_per_operation().max(1) as f64;
-        let energy = self.ae2_take_power_encoded(pos, amount as f64 / factor, true);
-        let mut left = amount.min((energy * factor + 0.9).floor() as u64);
+        let mut left = if paid {
+            let energy = self.ae2_take_power_encoded(pos, amount as f64 / factor, true);
+            amount.min((energy * factor + 0.9).floor() as u64)
+        } else {
+            amount
+        };
         let wanted = left;
         let priorities: BTreeSet<i32> = cells.iter().map(|mount| mount.priority).chain(buses.iter().map(|mount| mount.priority)).collect();
         let priorities: Vec<i32> = if insert { priorities.into_iter().rev().collect() } else { priorities.into_iter().collect() };
@@ -174,7 +192,9 @@ impl Game<'_> {
         }
         let moved = wanted - left;
         if !simulate && moved > 0 {
-            self.ae2_take_power_encoded(pos, moved as f64 / factor, false);
+            if paid {
+                self.ae2_take_power_encoded(pos, moved as f64 / factor, false);
+            }
             for (mount, stack) in changes {
                 self.ae2_store_mounted_cell(&mount, stack);
             }

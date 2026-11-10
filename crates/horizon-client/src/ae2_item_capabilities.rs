@@ -22,8 +22,8 @@ fn powered_ae2_item(stack: &ItemStack) -> bool {
         // The registry's wireless terminals, the universal one included.
         || crate::ae2x::defs::get().is_wireless_terminal(id)
         // The portable cells, AE2's (`InitCapabilityProviders`) and an
-        // addon's (`MEGACells.initCapabilities`).
-        || crate::ae2x::defs::get().portable_cell(id).is_some()
+        // addon's (`MEGACells.initCapabilities`, Applied Flux's portable FE cells).
+        || crate::ae2x::defs::get().portable_battery(id).is_some()
 }
 fn native_fluid_container(stack: &ItemStack) -> bool {
     // These are the physical bucket handlers currently implemented by this host.

@@ -101,11 +101,11 @@ impl Game<'_> {
 /// 20,000 AE base and each point of energy-card multiplier adds 8x the base
 /// capacity. Returns the registry's row of the portable cell (AE2's or an
 /// addon's) and `Upgrades.getEnergyCardMultiplier` of its cards.
-fn portable_energy_cards(stack: &ItemStack) -> Result<(&'static horizon_client::ae2x::defs::CellDef, u32), String> {
+fn portable_energy_cards(stack: &ItemStack) -> Result<(horizon_client::ae2x::defs::PortableBattery, u32), String> {
     if stack.count != 1 {
         return Err("portable cell must be unstackable".into());
     }
-    let cell = horizon_client::ae2x::defs::get().portable_cell(&stack.item).ok_or("not a portable cell")?;
+    let cell = horizon_client::ae2x::defs::get().portable_battery(&stack.item).ok_or("not a portable cell")?;
     let cards=horizon_client::ae2_upgrade_inventory::Inventory::read(stack)?;
     Ok((cell, cards.energy_card_multiplier()))
 }

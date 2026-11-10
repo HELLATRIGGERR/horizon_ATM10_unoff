@@ -11,10 +11,13 @@ enum Prepared {
     Filled,
     Ready(Vec<ItemStack>),
 }
+/// `handler_empty`: for a cell of an addon's own handler, whether its
+/// handler's inventory is empty (`getAvailableStacks`); none for a basic cell.
 fn prepare(
     stack: &ItemStack,
     recipes: &[(String, serde_json::Value)],
     mut energy: f64,
+    handler_empty: Option<bool>,
 ) -> Result<Prepared, String> {
     let Some((_, recipe)) = recipes
         .iter()
@@ -31,12 +34,12 @@ fn prepare(
     if stack.count != 1 {
         return Err("cell disassembly requires one physical cell".into());
     }
-    let cell = if codec::is_fluid_cell(&stack.item) {
-        codec::read_fluid_cell(stack)?
-    } else {
-        codec::read_cell(stack)?
+    let empty = match handler_empty {
+        Some(empty) => empty,
+        None if codec::is_fluid_cell(&stack.item) => codec::read_fluid_cell(stack)?.total_items() == 0,
+        None => codec::read_cell(stack)?.total_items() == 0,
     };
-    if cell.total_items()!=0 {
+    if !empty {
         return Ok(Prepared::Filled);
     }
     let upgrades = Inventory::read(stack)?;
@@ -86,12 +89,20 @@ impl Game<'_> {
         if self.remote.is_some() {
             return false;
         }
-        // A cell of an addon's own handler is an AEBaseItem with no `use`
-        // (MEGA's BulkCellItem): it passes.
-        let Some(stack) = self.held().filter(|s| codec::is_cell(&s.item) && horizon_client::ae2x::defs::get().handler_cell(&s.item).is_none()).cloned() else {
+        let Some(stack) = self.held().filter(|s| codec::is_cell(&s.item)).cloned() else {
             return false;
         };
-        let portable = horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some();
+        // A cell of an addon's own handler disassembles when its item does
+        // (Applied Flux's FE cells); one with no `use` passes (MEGA's
+        // BulkCellItem, an AEBaseItem).
+        let handler_empty = match horizon_client::ae2x::defs::get().handler_cell(&stack.item) {
+            Some(_) => match self.ae2x_handler_cell_disassembly(&stack) {
+                Some(empty) => Some(empty),
+                None => return false,
+            },
+            None => None,
+        };
+        let portable = horizon_client::ae2x::defs::get().portable_battery(&stack.item).is_some();
         if !self.keys.contains(&KeyCode::ShiftLeft) || self.hand != Hand::Main || stack.count != 1 {
             return air && !portable;
         }
@@ -109,6 +120,7 @@ impl Game<'_> {
                     .get("ae2:storage_cell_disassembly")
                     .map_or(&[][..], Vec::as_slice),
                 energy,
+                handler_empty,
             )
         });
         match prepared {
@@ -149,9 +161,16 @@ impl Game<'_> {
         {
             return false;
         }
-        if horizon_client::ae2x::defs::get().portable_cell(&stack.item).is_some() {
+        if horizon_client::ae2x::defs::get().portable_battery(&stack.item).is_some() {
             return true;
         }
+        let handler_empty = match horizon_client::ae2x::defs::get().handler_cell(&stack.item) {
+            Some(_) => match self.ae2x_handler_cell_disassembly(stack) {
+                Some(empty) => Some(empty),
+                None => return false,
+            },
+            None => None,
+        };
         matches!(
             prepare(
                 stack,
@@ -160,7 +179,8 @@ impl Game<'_> {
                     .ae2_custom
                     .get("ae2:storage_cell_disassembly")
                     .map_or(&[][..], Vec::as_slice),
-                0.0
+                0.0,
+                handler_empty
             ),
             Ok(Prepared::Ready(_))
         )
@@ -181,7 +201,7 @@ mod tests {
         card.data_mut().custom_name = Some(horizon_client::item_data::text_name("Actual"));
         assert!(inv.insert_one(&card));
         inv.store(&mut holder).unwrap();
-        let Prepared::Ready(items) = prepare(&holder, &recipes, 12345.0).unwrap() else {
+        let Prepared::Ready(items) = prepare(&holder, &recipes, 12345.0, None).unwrap() else {
             panic!("recipe absent")
         };
         assert_eq!(items.len(), 3);
@@ -200,7 +220,7 @@ mod tests {
         cell.insert(&key, 1, ae2_cell_core::Action::Modulate);
         codec::write_cell(&mut holder, &cell).unwrap();
         assert!(matches!(
-            prepare(&holder, &recipes, 12345.0).unwrap(),
+            prepare(&holder, &recipes, 12345.0, None).unwrap(),
             Prepared::Filled
         ));
     }
@@ -219,7 +239,7 @@ mod tests {
         assert!(inv.insert_one(&ItemStack::new("ae2:void_card", 1)));
         assert!(!inv.insert_one(&ItemStack::new("ae2:fuzzy_card", 1)));
         inv.store(&mut holder).unwrap();
-        let Prepared::Ready(items) = prepare(&holder, &recipes, 0.0).unwrap() else {
+        let Prepared::Ready(items) = prepare(&holder, &recipes, 0.0, None).unwrap() else {
             panic!("recipe absent")
         };
         let ids: Vec<_> = items.iter().map(|item| item.item.as_ref()).collect();
@@ -227,6 +247,6 @@ mod tests {
         let mut cell = codec::read_fluid_cell(&holder).unwrap();
         cell.insert(&codec::fluid_key("minecraft:water"), 1000, ae2_cell_core::Action::Modulate);
         codec::write_fluid_cell(&mut holder, &cell).unwrap();
-        assert!(matches!(prepare(&holder, &recipes, 0.0).unwrap(), Prepared::Filled));
+        assert!(matches!(prepare(&holder, &recipes, 0.0, None).unwrap(), Prepared::Filled));
     }
 }

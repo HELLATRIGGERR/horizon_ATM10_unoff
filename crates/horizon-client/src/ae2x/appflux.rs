@@ -6,7 +6,7 @@
 //! `appflux/1.21.1-neoforge` commit `523c3e5a`, LGPL-3.0; see
 //! `ae2/addons/appflux/`. The game's side (the cells in a grid, the storage,
 //! import and export bus strategies) is in `game/ae2x/appflux/`.
-use super::defs::{Defs, HandlerCellDef};
+use super::defs::{Defs, HandlerCellDef, PortableBattery};
 use crate::ae2_key_types::{self, KeyBehaviour, KeyCodec, KeyType, KeyTypeDef};
 use crate::items::ItemStack;
 use ae2_cell_core::ItemKey;
@@ -37,14 +37,124 @@ pub const CELLS: [(&str, u64, f64); 10] = [
     ("64m", 64 * 1024, 6.0),
     ("256m", 256 * 1024, 7.0),
 ];
+/// `AFSingletons`: `ItemPortableFECell(quartKilobytes, idleDrain, 0x80caff)`,
+/// 1k to 256M: a quarter of the cell's bytes.
+pub const PORTABLE_CELLS: [(&str, u64, f64); 10] = [
+    ("1k", 1, 0.5),
+    ("4k", 4, 1.0),
+    ("16k", 16, 1.5),
+    ("64k", 64, 2.0),
+    ("256k", 256, 2.5),
+    ("1m", 1024, 3.0),
+    ("4m", 4 * 1024, 3.5),
+    ("16m", 16 * 1024, 4.0),
+    ("64m", 64 * 1024, 4.5),
+    ("256m", 256 * 1024, 5.0),
+];
 /// `appflux:fe_<size>_cell`.
 pub fn cell_id(size: &str) -> String {
     format!("{NAMESPACE}:fe_{size}_cell")
 }
-/// `ItemFECell.getBytes`: kilobytes × 1,024; none for any other item.
+/// `appflux:fe_<size>_portable_cell`.
+pub fn portable_cell_id(size: &str) -> String {
+    format!("{NAMESPACE}:fe_{size}_portable_cell")
+}
+/// `IFluxCell.getBytes`: an `ItemFECell`'s kilobytes × 1,024, an
+/// `ItemPortableFECell`'s quarter kilobytes × 256; none for any other item.
 pub fn cell_bytes(id: &str) -> Option<u64> {
-    let size = id.strip_prefix("appflux:fe_")?.strip_suffix("_cell")?;
+    let rest = id.strip_prefix("appflux:fe_")?;
+    if let Some(size) = rest.strip_suffix("_portable_cell") {
+        return PORTABLE_CELLS.iter().find(|(s, _, _)| *s == size).map(|(_, quarter, _)| quarter * 256);
+    }
+    let size = rest.strip_suffix("_cell")?;
     CELLS.iter().find(|(s, _, _)| *s == size).map(|(_, kilobytes, _)| kilobytes * 1024)
+}
+/// An `ItemPortableFECell`.
+pub fn is_portable_cell(id: &str) -> bool {
+    id.ends_with("_portable_cell") && cell_bytes(id).is_some()
+}
+/// `ItemPortableFECell.getAEMaxPower` (8 times AE2's from 1M up, `isMega`)
+/// and `getChargeRate` ((80 + 80 × energy cards), twice that from 1M up).
+pub fn portable_battery(quarter_kilobytes: u64) -> PortableBattery {
+    let mega = quarter_kilobytes >= 1024;
+    PortableBattery { battery_scale: if mega { 8.0 } else { 1.0 }, charge_scale: if mega { 2.0 } else { 1.0 } }
+}
+
+/// `AFSingletons.FLUX_ACCESSOR`: `BlockFluxAccessor`, `TileFluxAccessor`.
+pub const FLUX_ACCESSOR: &str = "appflux:flux_accessor";
+/// `AFSingletons.PART_FLUX_ACCESSOR`: `PartFluxAccessor`.
+pub const PART_FLUX_ACCESSOR: &str = "appflux:part_flux_accessor";
+/// `TileFluxAccessor` / `PartFluxAccessor`: `setIdlePowerUsage(1.0)`, `GridFlags.REQUIRE_CHANNEL`.
+pub const ACCESSOR_IDLE: f64 = 1.0;
+/// `PartFluxAccessor.getBoxes`: in sixteenths, the part on the south face.
+pub const PART_BOXES: [[f64; 6]; 2] = [[2., 2., 14., 14., 14., 16.], [4., 4., 12., 12., 12., 14.]];
+/// `PartFluxAccessor.RL`: its static model.
+pub const PART_MODEL: &str = "appflux:part/flux_accessor";
+
+/// `EnergyIO`: what an accessor's FE storage lets through, saved as its
+/// ordinal (`io`); `BOTH` by default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum EnergyIo {
+    Input,
+    Output,
+    #[default]
+    Both,
+}
+impl EnergyIo {
+    /// `EnergyIO.byId`; an unknown ordinal throws there, it is `BOTH` here.
+    pub fn by_id(ordinal: i32) -> Self {
+        match ordinal {
+            0 => Self::Input,
+            1 => Self::Output,
+            _ => Self::Both,
+        }
+    }
+    pub fn ordinal(self) -> i32 {
+        self as i32
+    }
+    pub fn is_input(self) -> bool {
+        self != Self::Output
+    }
+    pub fn is_output(self) -> bool {
+        self != Self::Input
+    }
+}
+
+/// `EnergyTickRecord`: how often an accessor pushes on a side, every 1 to
+/// 10 ticks, faster while it sends as much or more, slower while less.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TickRecord {
+    last_sent: u64,
+    pub rate: u32,
+    next_tick: i64,
+}
+impl Default for TickRecord {
+    fn default() -> Self {
+        Self { last_sent: 0, rate: Self::THRESHOLD, next_tick: 0 }
+    }
+}
+impl TickRecord {
+    pub const MIN_RATE: u32 = 1;
+    pub const MAX_RATE: u32 = 10;
+    pub const THRESHOLD: u32 = 4;
+    /// `sent`: the rate after a push of `sent` FE.
+    pub fn sent(&mut self, sent: u64) {
+        let faster = if sent == self.last_sent { sent != 0 } else { sent > self.last_sent };
+        if faster && self.rate > Self::MIN_RATE {
+            self.rate = if self.rate > Self::THRESHOLD { self.rate / 2 } else { self.rate - 1 };
+        } else if !faster && self.rate < Self::MAX_RATE {
+            self.rate = if self.rate < Self::THRESHOLD { self.rate * 2 } else { self.rate + 1 };
+        }
+        self.last_sent = sent;
+    }
+    /// `needTick`: whether tick `current` pushes; the next is `rate` later.
+    pub fn need_tick(&mut self, current: i64) -> bool {
+        if current >= self.next_tick {
+            self.next_tick = current + i64::from(self.rate);
+            return true;
+        }
+        false
+    }
 }
 
 /// `appflux-common.toml` (`AFConfig`). All the Mods 10 ships none, so the
@@ -238,6 +348,14 @@ pub fn fe_cell(stack: &ItemStack) -> Option<FeCell> {
 
 pub fn register(defs: &mut Defs) {
     key_type();
+    // TileFluxAccessor: a grid node of its own kind, no inventory; its `fast`
+    // and `io` in its config. PartFluxAccessor: a part of 1 AE/t with a
+    // channel, its settings a part machine's.
+    use crate::ae2_world::ExtMachine;
+    for (id, part) in [(FLUX_ACCESSOR, false), (PART_FLUX_ACCESSOR, true)] {
+        defs.add_machine(ExtMachine { id, physical_slots: 0, upgrade_slots: 0, key_drops: None, power_capacity: None, part });
+    }
+    defs.add_part(super::defs::PartDef { id: PART_FLUX_ACCESSOR.to_owned(), idle_power: ACCESSOR_IDLE, requires_channel: true, cells: 0 });
     for (size, _, drain) in CELLS {
         let id = cell_id(size);
         // StorageCells.addCellHandler(FECellHandler.HANDLER); UpgradeInventories.forItem(is, 1);
@@ -248,6 +366,20 @@ pub fn register(defs: &mut Defs) {
         );
         // AFRegistryHandler.registerCellUpgrades: a Void Card on each cell.
         defs.add_upgrade("ae2:void_card", &id, 1);
+    }
+    for (size, quarter, drain) in PORTABLE_CELLS {
+        let id = portable_cell_id(size);
+        // FECellHandler takes any IFluxCell; UpgradeInventories.forItem(is, 4);
+        // the drive model is the tier's cell's.
+        defs.add_portable_handler_cell(
+            HandlerCellDef { id: id.clone(), idle_drain: drain, drive_model: format!("{NAMESPACE}:block/drive/fe_{size}_cell"), config_slots: 0 },
+            4,
+            portable_battery(quarter),
+        );
+        // registerPortableCellUpgrades: a Void Card, two Energy Cards (and an
+        // Induction Card, a later slice's item).
+        defs.add_upgrade("ae2:void_card", &id, 1);
+        defs.add_upgrade("ae2:energy_card", &id, 2);
     }
 }
 
@@ -324,6 +456,69 @@ mod tests {
         let bad = Config::parse("[flux_cell]\namount = 0\n[flux_accessor]\nio_limit = -1\nenable = \"yes\"\n").unwrap();
         assert_eq!(bad, Config::default());
         assert_eq!(bad.accessor_limit(), i64::MAX as u64);
+    }
+
+    #[test]
+    fn portable_fe_cells_hold_a_quarter_of_the_bytes_with_appflux_batteries() {
+        // 2^28 FE in a 1k portable cell, 2^46 FE in a 256M one.
+        for ((size, quarter, _), (cell_size, kilobytes, _)) in PORTABLE_CELLS.iter().zip(CELLS) {
+            assert_eq!(size, &cell_size);
+            let id = portable_cell_id(size);
+            assert!(is_portable_cell(&id) && !is_portable_cell(&cell_id(size)));
+            let cell = fe_cell(&ItemStack::new(id.as_str(), 1)).unwrap();
+            assert_eq!(cell.bytes, quarter * 256);
+            assert_eq!(cell.max_energy(), kilobytes * 1024 * 1_048_576 / 4, "{size}");
+        }
+        assert_eq!(portable_battery(256), PortableBattery { battery_scale: 1.0, charge_scale: 1.0 });
+        assert_eq!(portable_battery(1024), PortableBattery { battery_scale: 8.0, charge_scale: 2.0 });
+        assert!(cell_bytes("appflux:fe_2k_portable_cell").is_none());
+        crate::ae2x::install();
+        let defs = crate::ae2x::defs::get();
+        for (size, _, drain) in PORTABLE_CELLS {
+            let id = portable_cell_id(size);
+            assert_eq!(defs.handler_cell(&id).unwrap().idle_drain, drain);
+            assert_eq!(defs.drive_model(&id), Some(format!("appflux:block/drive/fe_{size}_cell").as_str()));
+            assert_eq!(defs.upgrade_slots(&id), Some(4));
+            assert_eq!((defs.upgrade_limit("ae2:void_card", &id), defs.upgrade_limit("ae2:energy_card", &id)), (1, 2));
+            assert!(defs.portable_cell(&id).is_none(), "no basic cell");
+        }
+        assert_eq!(defs.portable_battery("appflux:fe_16m_portable_cell").unwrap().battery_scale, 8.0);
+        assert_eq!(defs.portable_battery("ae2:portable_item_cell_1k").unwrap().battery_scale, 1.0);
+        assert!(defs.portable_battery("appflux:fe_1k_cell").is_none());
+    }
+
+    #[test]
+    fn the_accessor_tick_record_and_io_follow_applied_flux() {
+        let mut record = TickRecord::default();
+        assert!(record.need_tick(0) && !record.need_tick(3) && record.need_tick(4));
+        // Sending more speeds it up by one below the threshold, halves above.
+        record.sent(100);
+        assert_eq!(record.rate, 3);
+        record.sent(100);
+        record.sent(100);
+        assert_eq!(record.rate, 1);
+        record.sent(100);
+        assert_eq!(record.rate, 1, "no faster than every tick");
+        // Nothing sent slows it: doubling below the threshold, one above.
+        for expected in [2, 4, 5, 6, 7, 8, 9, 10, 10] {
+            record.sent(0);
+            assert_eq!(record.rate, expected);
+        }
+        record.sent(5);
+        assert_eq!(record.rate, 5, "more than last time halves it");
+        record.sent(4);
+        assert_eq!(record.rate, 6, "less slows it");
+        assert_eq!(EnergyIo::by_id(0), EnergyIo::Input);
+        assert_eq!(EnergyIo::by_id(7), EnergyIo::Both);
+        assert!(EnergyIo::Input.is_input() && !EnergyIo::Input.is_output());
+        assert!(EnergyIo::Output.is_output() && !EnergyIo::Output.is_input());
+        assert_eq!(EnergyIo::Output.ordinal(), 1);
+        crate::ae2x::install();
+        let defs = crate::ae2x::defs::get();
+        let part = defs.part(PART_FLUX_ACCESSOR).unwrap();
+        assert!(part.requires_channel && part.idle_power == 1.0 && part.cells == 0);
+        assert!(defs.machines().iter().any(|m| m.id == FLUX_ACCESSOR && !m.part));
+        assert!(defs.machines().iter().any(|m| m.id == PART_FLUX_ACCESSOR && m.part));
     }
 
     #[test]

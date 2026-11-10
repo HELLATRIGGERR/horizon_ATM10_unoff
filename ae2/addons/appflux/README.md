@@ -43,13 +43,49 @@ Tests: `horizon-client-lib` (`ae2x::appflux`: the key type, its saved form, the 
 config, the registry rows), `horizon-client` (`game::ae2x::appflux`: the cell's keys, the strategies and the import
 setting), and the world test `appflux-cells`.
 
+## Slice 2: the portable FE cells, the Flux Accessor, FE cell disassembly
+
+| Applied Flux 1.21-2.1.7 | Port |
+|---|---|
+| `ItemPortableFECell(quartKilobytes, idleDrain)`, 1k to 256M: quarter kilobytes × 256 bytes (2^28 FE in a 1k, 2^46 in a 256M), 0.5 to 5 AE/t, `UpgradeInventories.forItem(is, 4)`: a Void Card, two Energy Cards; the drive model of the tier's cell | `ae2x::appflux` `PORTABLE_CELLS`: handler cells (`FECellHandler` takes any `IFluxCell`) in drives, the ME Chest and the IO Port, as the FE cells; `Defs::add_portable_handler_cell` |
+| `getAEMaxPower` 8 times AE2's from 1M up, `getChargeRate` (80 + 80 × energy cards) twice from 1M up; `PoweredItemCapabilities` | `PortableBattery` (`Defs::portable_battery`, which AE2's and MEGA's portable cells answer too): the battery, the Charger, the energy cards' capacity, the item's energy capability |
+| `ItemFECell.use` / `onItemUseFirst` and `AbstractPortableCell.disassembleDrive`: sneak-use an empty cell, `StorageCellDisassemblyRecipe` (`disassembler/*`), the cards back, a portable cell's energy into its energy cell | AE2's cell disassembly (`ae2_cell_disassembly.rs`), now for a handler cell whose item disassembles (`Game::ae2x_handler_cell_disassembly`); MEGA's Bulk Item Cell still passes |
+| `TileFluxAccessor`, `PartFluxAccessor`: 1 AE/t, a channel; `fast` and `io` (`EnergyIO`: input, output, both) saved | addon machines (`ExtMachine`, the part's a part machine), the settings in their config; the part's model and boxes |
+| `NetworkFEPower` as the accessor's `IEnergyStorage` (`CapAdaptor`): the grid's FE, its room, `getInventory().insert` / `extract` as the IO mode allows | the FE dispatcher's AE2 adapters (`ae2_power.rs`) ask the addons first (`Game::ae2x_fe_storage`, `Game::ae2x_fe_move`): the block on every side, the part on its own; the grid's storage of the type without AE (`ae2_grid_typed_move_free`) |
+| `EnergyDistributeService` and `EnergyHandler.send`: an active accessor that lets FE out pushes, each side at its `EnergyTickRecord`'s pace (1 to 10 ticks) or every tick in fast mode, at most `flux_accessor.io_limit`; FE the block refuses goes back | `tick_appflux_accessors`, from the addons' grid tick; `TickRecord` |
+| `MixinCreativeEnergyCellBlockEntity`: `injectAEPower` gives everything back | the creative cell's power store takes no power with the feature (`ae2_energy_observer.rs`) |
+
+Differences, known:
+
+- `getMaxEnergyStored` counts the room in the grid's FE cells; FE blocks behind storage buses add none.
+- The accessor reaches its neighbours as Forge Energy only (`EnergyHandler`'s Mekanism, Long Energy, MI and Flux
+  Networks handlers are not used); Mekanism's machines take it through their FE capability.
+- The accessor's menu (`ContainerFluxAccessor`: fast mode, IO mode) and its memory-card settings are not there yet;
+  the saved `fast` and `io` are honoured.
+- The portable FE cell's own menu (`portable_fe_cell`, AE2's `MEStorageMenu` over the cell) does not open: the
+  portable cell screens read basic cells. The cell works in drives, chests, the IO Port and the Charger.
+- `flux_accessor.enable` (the accessor charging its grid from stored FE, `EnergyHandler.chargeNetwork`) is not
+  ported; All the Mods 10 leaves it off.
+- `MixinChargerBlockEntity` is for the Wireless Chargers mod's charger (applied only with `wirelesschargers`), which
+  this port does not have.
+
+Tests: `horizon-client-lib` (`ae2x::appflux`: the portable cells' bytes, batteries and rows; `TickRecord`; `EnergyIO`;
+the accessor's rows), `horizon-client` (`game::ae2x::appflux::accessor`), and the world test `appflux-accessor`: the
+part powers another grid's Energy Acceptor from an FE cell, the block answers a Storage Bus of another grid, IO Ports
+fill and empty a portable FE cell, a Charger charges it, sneak-use takes empty cells apart. The FE machine is AE2's
+Energy Acceptor; the AE2 fixture loads no Mekanism.
+
 ## Later slices
 
-- The portable FE cells (`ItemPortableFECell`, a quarter of the bytes, their menu and battery).
-- The Flux Accessor, block and part (`TileFluxAccessor`, `PartFluxAccessor`, `NetworkFEPower`, `EnergyTicker`):
-  needs the game's own block to answer the FE dispatcher (`extra_fe_info` reaches AE2's machine kinds only).
-- The Induction Card on Interfaces and Pattern Providers (`MixinInterfaceLogic`, `MixinPatternProviderLogic`): FE in
-  their generic slots, which hold items and fluids only.
+- The Induction Card (`ItemInductionCard`; `registerPortableCellUpgrades`, `Upgrades.add` on the Interface and
+  the Pattern Provider, block and part). On an Interface (`MixinInterfaceLogic`: its upgrade inventory grows to two
+  slots) or a Pattern Provider (`MixinPatternProviderLogic`: an upgrade inventory of its own, with its menu and
+  screen mixins) it wakes an `EnergyTicker`, a grid FE distributor like the accessor's, which pushes the grid's FE
+  into the blocks on the host's sides (`AFUtil.getSides`). On a portable FE cell it charges the energy items in the
+  player's inventory from the cell each tick (`inventoryTick`). Apart from the card, every block with AE2's
+  `GENERIC_INTERNAL_INV` gets an `IEnergyStorage` over the FE in its generic slots (`FEGenericStackInvStorage`,
+  `GenericSlotCapacities` 1,000,000 FE a slot), which needs those slots to hold a key of an addon type.
 - Filling and draining energy items in the terminal (`FEContainerItemStrategy`): the terminal's gestures use the
   bucket strategy of fluids only; marking FE in a config slot with an energy item.
-- `GenericSlotCapacities` (1,000,000 FE), the Charger and Creative Energy Cell mixins, MI EU, Mekanism's long FE.
+- The accessor's menu and memory-card settings; the portable FE cell's menu.
+- MI EU, Mekanism's long FE, the accessor charging its grid.

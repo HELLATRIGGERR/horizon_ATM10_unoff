@@ -11,10 +11,18 @@
 //! block entity's `IEnergyStorage` (Mekanism's cubes), or one of the game's
 //! own machines'. Applied Flux speaks `int` FE there (`AFUtil.clampLong`),
 //! so the calls are narrow.
+pub(in crate::game) mod accessor;
+
 use super::super::{Game, ae2_global::GridAddress, ae2_key_strategies as strategies};
 use ae2_cell_core::{Action, ItemKey, KeyType};
 use horizon_client::{ae2x::appflux as rows, items::ItemStack};
 use horizon_core::geometry::Direction;
+
+/// What Applied Flux keeps while the game runs.
+#[derive(Default)]
+pub(in crate::game) struct State {
+    pub(in crate::game) accessors: accessor::State,
+}
 
 /// `FECellInventory` in a drive, chest or IO Port.
 pub(in crate::game) struct FeCell(rows::FeCell);

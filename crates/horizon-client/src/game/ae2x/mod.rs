@@ -297,6 +297,10 @@ pub(super) fn part_model(id: &str) -> Option<&'static str> {
     if let Some(model) = extendedae::part_model(id) {
         return Some(model);
     }
+    #[cfg(feature = "ae2-appflux")]
+    if id == horizon_client::ae2x::appflux::PART_FLUX_ACCESSOR {
+        return Some(horizon_client::ae2x::appflux::PART_MODEL);
+    }
     let _ = id;
     None
 }
@@ -307,6 +311,10 @@ pub(super) fn part_boxes(id: &str) -> Option<Vec<[f64; 6]>> {
     #[cfg(feature = "ae2-megacells")]
     if let Some(boxes) = megacells::cell_dock::boxes(id).or_else(|| megacells::decompression::boxes(id)) {
         return Some(boxes);
+    }
+    #[cfg(feature = "ae2-appflux")]
+    if id == horizon_client::ae2x::appflux::PART_FLUX_ACCESSOR {
+        return Some(horizon_client::ae2x::appflux::PART_BOXES.to_vec());
     }
     let _ = id;
     None
@@ -443,6 +451,8 @@ pub(super) struct State {
     pub(super) ae2wtlib: ae2wtlib::State,
     #[cfg(feature = "ae2-importexportcard")]
     pub(super) importexportcard: importexportcard::State,
+    #[cfg(feature = "ae2-appflux")]
+    pub(super) appflux: appflux::State,
 }
 
 /// What an addon's pick from the network came to (AE2WTLib's Pick Block,
@@ -563,6 +573,18 @@ impl Game<'_> {
         #[cfg(feature = "ae2-appflux")]
         if horizon_client::ae2x::appflux::cell_bytes(&stack.item).is_some() {
             return Some(self.appflux_fe_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
+        }
+        let _ = stack;
+        None
+    }
+    /// A cell of an addon's own handler whose sneak-use disassembles it when
+    /// empty (Applied Flux's `ItemFECell.disassembleDrive`, and
+    /// `AbstractPortableCell`'s for its portable cells): whether it is empty.
+    /// None for a handler cell with no `use` (MEGA's Bulk Item Cell).
+    pub(super) fn ae2x_handler_cell_disassembly(&self, stack: &horizon_client::items::ItemStack) -> Option<bool> {
+        #[cfg(feature = "ae2-appflux")]
+        if horizon_client::ae2x::appflux::cell_bytes(&stack.item).is_some() {
+            return Some(self.appflux_fe_cell(stack).is_ok_and(|mut cell| cell.available_stacks().is_empty()));
         }
         let _ = stack;
         None
@@ -740,6 +762,9 @@ impl Game<'_> {
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
         self.tick_iecard();
+        // EnergyDistributeService.onLevelEndTick: the Flux Accessors push FE.
+        #[cfg(feature = "ae2-appflux")]
+        self.tick_appflux_accessors();
     }
 
     /// An addon machine on the grid: its node's kind, idle draw, channel
@@ -754,7 +779,33 @@ impl Game<'_> {
         if extendedae::device(machine, properties, device) {
             return true;
         }
+        #[cfg(feature = "ae2-appflux")]
+        if appflux::accessor::device(machine, device) {
+            return true;
+        }
         false
+    }
+
+    /// The Forge Energy storage an addon's machine, or its part on side
+    /// `face` of a cable bus, gives that side (its `IEnergyStorage`
+    /// capability), before AE2's own: none where no addon answers.
+    pub(super) fn ae2x_fe_storage(&self, address: super::ae2_global::GridAddress, face: horizon_core::geometry::Direction) -> Option<super::ae2_power::FeStorage> {
+        #[cfg(feature = "ae2-appflux")]
+        if let Some(storage) = self.appflux_accessor_fe_storage(address, face) {
+            return Some(storage);
+        }
+        let _ = (address, face);
+        None
+    }
+    /// `receiveEnergy` (with `extract`, `extractEnergy`) of `amount` FE on
+    /// that storage: what moved; none where no addon answers.
+    pub(super) fn ae2x_fe_move(&mut self, address: super::ae2_global::GridAddress, face: horizon_core::geometry::Direction, amount: u32, simulate: bool, extract: bool) -> Option<u32> {
+        #[cfg(feature = "ae2-appflux")]
+        if let Some(moved) = self.appflux_accessor_fe_move(address, face, amount, simulate, extract) {
+            return Some(moved);
+        }
+        let _ = (address, face, amount, simulate, extract);
+        None
     }
 
     /// The addons' own grid connections, after AE2's (ExtendedAE's wireless

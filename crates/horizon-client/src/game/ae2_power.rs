@@ -120,6 +120,10 @@ impl Game<'_> {
         address: GridAddress,
         face: Direction,
     ) -> Option<FeStorage> {
+        // An addon's machine or part that answers FE itself (Applied Flux's Flux Accessor).
+        if let Some(storage) = self.ae2x_fe_storage(address, face) {
+            return Some(storage);
+        }
         let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(address) else {
             return self.ae2_mod_fe_storage(address, face);
         };
@@ -168,6 +172,9 @@ impl Game<'_> {
         amount: u32,
         simulate: bool,
     ) -> u32 {
+        if let Some(moved) = self.ae2x_fe_move(address, face, amount, simulate, true) {
+            return moved;
+        }
         if !self.ae2_is_machine(address) {
             return self.ae2_mod_fe_move(address, face, amount, simulate, true);
         }
@@ -189,6 +196,9 @@ impl Game<'_> {
     ) -> u32 {
         if amount == 0 {
             return 0;
+        }
+        if let Some(moved) = self.ae2x_fe_move(address, face, amount, simulate, false) {
+            return moved;
         }
         if !self.ae2_is_machine(address) {
             return self.ae2_mod_fe_move(address, face, amount, simulate, false);

@@ -198,7 +198,7 @@ impl Inventory {
         let multiplier = f64::from(self.energy_card_multiplier());
         let power = if let Some((base, _)) = crate::ae2_powered_items::profile(stack) {
             Some((base, base * (1.0 + 8.0 * multiplier), "ae2:stored_energy"))
-        } else if crate::ae2x::defs::get().portable_cell(&stack.item).is_some() {
+        } else if crate::ae2x::defs::get().portable_battery(&stack.item).is_some() {
             Some((
                 crate::ae2_common_config::batteries().portable_cell,
                 crate::ae2_common_config::batteries().portable_cell * (1.0 + 8.0 * multiplier),

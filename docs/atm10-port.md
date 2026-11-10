@@ -10,7 +10,7 @@ Start here on a new machine. Read "Setting up a machine", then "What to do next"
 
 | Branch | What it holds | State |
 |---|---|---|
-| `atm10-horizon-rework` (default) | Upstream merged (6e1635c1e), AE2, MEGA Cells, ME Requester, ExtendedAE's first slice, Mekanism (cubes, cables, Solar and Heat Generators), Powah, Flux Networks, `horizon-port-pack`, the full pack's start | Unit tests, the default world suites and the bundles' tests pass (3 November 2026). A world opens with all carries (below) |
+| `atm10-horizon-rework` (default) | Upstream merged (21a750533), AE2, MEGA Cells, ME Requester, ExtendedAE's first slice, Mekanism (cubes, cables, Solar and Heat Generators), Powah, Flux Networks, `horizon-port-pack`, the full pack's start | Unit tests, the default world suites and the bundles' tests pass (3 November 2026). A world opens with all carries (below) |
 | `wip/quests` | Quest book native mod, on 85020d24a | World test not passing yet. Its own screen hooks must move onto upstream's native mod screens (`Screen::Mod`, `screen_render_post`) |
 | `wip/upstream-merge`, `int/atm10`, `wip/port-pack`, `wip/port-pack-2`, `wip/fullpack-rebased`, `wip/fullpack-start`, `wip/extendedae`, `wip/mekanism`, `wip/ae2-terminals`, `wip/ae2-screens`, `wip/merequester`, `wip/powah`, `wip/fluxnetworks` | Folded into the default branch | Delete when the owner agrees |
 | `horizon-connect` | The owner's separate project | Leave alone |
@@ -76,7 +76,8 @@ ATM10_DIR=... bun run pack/scripts/fluxnetworks.ts content units stage build wor
 Also run `cargo test -p horizon-client --no-default-features --features ae2-lab --bin horizon-client` and `--lib`,
 `cargo test -p horizon-client-lib --no-default-features --features ae2-lab --lib` (upstream split the client's library:
 the game is in `horizon-client`'s, the rest, with AE2's library modules, in `horizon-client-lib`, which has the same
-`ae2-*` features), `cargo check -p horizon-client` with default features and `cargo run -p xtask -- mod-api --check`.
+`ae2-*` features), `cargo check -p horizon-client` with default features and `cargo run -p xtask -- mod-api`, which
+must leave `native_hooks.rs` as it is (upstream dropped `--check`: the build generates the API and reports a hook left to fill).
 
 Machine notes:
 
@@ -207,15 +208,22 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   even reading LGPL code for its pull requests. Flux Networks' GUI art is CC BY-NC-SA: local only.
 - Native mods hook named hook points (`game/native_hooks.rs`, `native-hooks.json`). Hooks are only appended. That file holds
   no `cfg` or macros outside tests. A new hook is added in upstream's style: its `native_*` function with the placeholder
-  body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract, `python3 tools/stamp_native_hooks.py`
-  run with only the fork's fragment there (upstream's pending ones moved aside, then put back), and
-  `cargo run -p xtask -- mod-api`, which writes its `Hooks` trait method and dispatch. The fork's hooks are APIs 154-159
-  since the merge of upstream 6e1635c1e (whose latest was 153): Forge Energy 154, a machine's item and slots 155, the
-  block entity lifecycle 156, biome and dimension type 157, a bundle's opt-in to entity joins and leaves 158, the
-  world's cooking recipes for a mod's machines 159. Upstream
+  body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract,
+  `python3 tools/stamp_native_hooks.py --only <fragment>` (upstream's pending fragments stay as they are), and
+  `cargo run -p xtask -- mod-api`, which fills the placeholder with the dispatch; the `Hooks` trait, the dispatch and
+  the `Host` helpers are generated into `OUT_DIR` at build time (upstream's 9116ac391), none of it is committed.
+  The fork's hooks are APIs 416-426 since the merge of upstream 21a750533 (whose latest was 415): Forge Energy 416, a
+  machine's item and slots 417, the block entity lifecycle 418, biome climate and dimension type 419, a bundle's opt-in
+  to entity joins and leaves 420, the world's cooking recipes for a mod's machines 421, fluid handlers 422, the
+  content's data files 423, an item's use on a block 424, a container's insert slots and `native_pop_resource` 425,
+  particles from outside a block's tick (`native_level_particles`, Mekanism's multiblocks) 426.
+  At each merge the fork's take the numbers after upstream's latest again, in the same order: the merge notes'
+  `fork_hooks.py unstamp` turns the stamped numbers back into fragments, then each is stamped with `--only`. The
+  fork's biome helper is `native_biome_climate` (upstream's `native_biome` gives the id alone); `native_default_state`
+  and `native_sneaking` are upstream's (pending fragments `default_state` and `host_bridge`). Upstream
   gates a growing list of hooks on `mod_api::mods()`, which holds trait mods only: a bundle's mixin on such a hook never
-  runs unless the gate also asks it (`native_entity_level_listened` is the fork's first). Upstream stamps its pending fragments after 153 too, so
-  at each merge the fork's take the numbers after upstream's latest again. `wip/quests` still says 64.
+  runs unless the gate also asks it (`native_entity_level_listened` is the fork's first; upstream's `native_joins_flush`
+  and `native_joins_skip` ask `entity_level_heard`). `wip/quests` still says 64.
 - Compare behaviour with the Java mod, run on NeoForge where a number matters (`tools/neoforge_oracle.py`), and don't trust
   an assertion that can't fail.
 - One commit per finished stage on the default branch. Merge upstream every two or three days: it moves fast.

@@ -9,7 +9,7 @@
 // tick), its ports (`TileEntityInductionPort`: input or output by their
 // `active_state`, the Configurator's sneaking use toggling it) as energy
 // handlers to cables, cubes and machines and as Forge Energy (hook points API
-// 154), the output ports putting out to the block they face
+// 416), the output ports putting out to the block they face
 // (`CableUtils.emit`), the two energy slots (`EnergyInventorySlot.drainContainer`,
 // `fillContainerOrConvert`), its screen (`GuiInductionMatrix`, with
 // `GuiMatrixStats` as a page) and `/mek probe`.

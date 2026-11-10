@@ -31,7 +31,7 @@ mod tests {
         let station_recipes=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
         let enchantments=horizon_client::enchant::Enchantments::default();let names=horizon_client::creative::Names::default();
         let env=horizon_client::menu::Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
-            station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None};
+            station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
         let card=|n|Some(ItemStack::new("ae2:speed_card",n));
         let mut menu=pocket_menu(0);menu.set_player_item(0,Some(ItemStack::new(TOOL,1)));
         menu.set_slot(&env,0,card(4));menu.click(&env,0,0,Input::QuickMove).unwrap();

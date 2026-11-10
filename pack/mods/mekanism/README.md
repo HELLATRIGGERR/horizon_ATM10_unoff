@@ -25,20 +25,20 @@ assets when `mekanism-content` is given them.
   ejection, the screen, placement facing, an item that keeps its energy.
 - Settings from ATM10's `config/Mekanism/` (`general.toml`, `tiers.toml`, `common.toml`, `generators.toml`,
   `generator-storage.toml`), read again when a file changes.
-- Forge Energy at a cube's edge (hook points API 154): each side as an `IEnergyStorage`, and the ejector feeding any block
+- Forge Energy at a cube's edge (hook points API 416): each side as an `IEnergyStorage`, and the ejector feeding any block
   with Forge Energy, such as AE2's Energy Acceptor, at `feConversionRate` Joules to the FE.
-- Basic, Advanced, Elite and Ultimate Universal Cables (block entity lifecycle hook points, API 156): networks with one
+- Basic, Advanced, Elite and Ultimate Universal Cables (block entity lifecycle hook points, API 418): networks with one
   buffer as big as their cables together, kept in the bundle per dimension; they connect to cubes and to any block with
   Forge Energy, emit to all of them each tick, pull through a pull side, and keep their shares across saves, restarts
   and chunks unloading. Their OBJ model becomes a multipart blockstate in `mekanism-content`.
-- The Solar Generator: Joules from the sun by its biome (the helpers `native_biome` and `native_dimension_type` of hook
-  points API 157), the time of day and the weather, Minecraft 1.21.1's maths for the sun as Mekanism reads it on ATM10,
+- The Solar Generator: Joules from the sun by its biome (the helpers `native_biome_climate` and `native_dimension_type` of hook
+  points API 419), the time of day and the weather, Minecraft 1.21.1's maths for the sun as Mekanism reads it on ATM10,
   out of its bottom, at ATM10's `solarGeneration = 150` (`generators.toml`) and 96 000 J (`generator-storage.toml`).
 - The Heat Generator: a lava tank (24 000 mB) filled from lava buckets and furnace fuel in its fuel slot (`burnTime / 20`
   mB; a hopper puts only fuel there), heat from burning 10 mB a tick (800), from lava on each face (30) and in an
   ultra-warm dimension (100), a heat capacitor that loses heat to the biome's air and turns it into Joules at the Carnot
   efficiency, out of its front; `facing` and `active` (light 13) in its block, `active` going off after
-  `blockDeactivationDelay`. Its tank is a fluid handler (hook points API 160) on every side but the front: any block
+  `blockDeactivationDelay`. Its tank is a fluid handler (hook points API 422) on every side but the front: any block
   (AE2's export and storage buses) fills it with lava, none drains it; its fuel slot fills it through the item's fluid
   handler (a whole bucket, or what a container gives).
 - The Gas-Burning Generator: an 18 000 mB tank (`[gas_generator] tankCapacity`) of any chemical with a fuel attribute
@@ -86,7 +86,7 @@ assets when `mekanism-content` is given them.
   Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
   (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and
   `mekanism:metallurgic_infusing` recipes (`native_recipes_of_type`, from the carries the content mods come from) and
-  the world's smelting recipes (`native_cooking_recipes`, hook points API 159), item, tag, compound and intersection
+  the world's smelting recipes (`native_cooking_recipes`, hook points API 421), item, tag, compound and intersection
   ingredients; 200 ticks of energy a tick a recipe (`CachedRecipe.process`: short of a tick's energy it waits, an input
   that no longer fits starts it over, a full output waits), the progress saved.
 - Their upgrades: speed and energy (and muffling) from the upgrade slot, in on the 21st tick
@@ -98,7 +98,7 @@ assets when `mekanism-content` is given them.
   bio, fungi, gold, tin), one item a tick, into a 1000 mB tank of one type, used when an operation ends.
 - Mekanism 10.7's chemicals (`docs/mekanism-chemicals.md`): the `mekanism:chemical` registry, each chemical as the
   NeoForge oracle saw it (icon, tint, kind, fuel, radioactivity, coolants, tags), declared by `mekanism-content` in
-  the content mods (`data/<ns>/mekanism/chemical/`) and read with hook points API 162 (`native_data_files`);
+  the content mods (`data/<ns>/mekanism/chemical/`) and read with hook points API 423 (`native_data_files`);
   chemical stacks and tanks in Mekanism's saved form; the chemical handler of the bundle's blocks by side
   (`IChemicalHandler`): the infuser's tank takes an infuse type a recipe takes on its input sides and gives it out of
   its right side.
@@ -154,8 +154,8 @@ assets when `mekanism-content` is given them.
   sides, its chemical taken a tick by each process as their machines take it (the compressing one's 200 mB an
   operation spread over its ticks, the purifying and injecting ones' drawn at random) or, infusing, with the item; a
   chemical bar and dump button on their 11 pixels taller screens.
-- Tier installers (hook points API 165: `native_use_item_on` with `native_used_stack`, `native_instabuild`,
-  `native_default_state`): a sneaking player's basic installer turns an Enrichment Chamber, Crusher, Energized
+- Tier installers (hook points API 424: `native_use_item_on` with `native_used_stack`, `native_instabuild`,
+  and upstream's `native_default_state`): a sneaking player's basic installer turns an Enrichment Chamber, Crusher, Energized
   Smelter, Combiner, Precision Sawmill, Osmium Compressor, Purification Chamber, Chemical Injection Chamber or
   Metallurgic Infuser into the basic factory of its type (with its chemical tank, chemical slot and use so far), an
   advanced, elite or ultimate one a
@@ -174,7 +174,7 @@ assets when `mekanism-content` is given them.
   windows.
 - Basic, Advanced, Elite and Ultimate Mechanical Pipes (`[transmitters.fluid]`, runtime `mek_pipes`): networks of one
   fluid as the tubes' (`network` with a fluid as its content: its id, or the id and a number for one with components),
-  connecting to any block with a fluid handler on the touching side (hook points API 160: the bundle's tanks and
+  connecting to any block with a fluid handler on the touching side (hook points API 422: the bundle's tanks and
   machines, cauldrons, AE2), emitting to all of them each tick with the even split, pulling through a pull side at
   the tier's pull amount (250, 1000, 8000, 32 000 mB on ATM10) when all of it fits, each pipe's share saved as
   `fluid`, the network a fluid handler on each side for the blocks around it (normal and pull sides take in, normal
@@ -184,7 +184,7 @@ assets when `mekanism-content` is given them.
   down at its output a tick while active (`active_state`; at most what a fluid tank below still takes), a creative
   tank keeping what it gives and voiding what it gets; saved as Mekanism saves it (`fluid_tanks`).
 - Basic, Advanced, Elite and Ultimate Logistical Transporters (`[transmitters.items]`, `mekanism_energy::transporter`,
-  runtime `mek_transporters`, hook points API 166): stacks travel through touching transporters as moving items,
+  runtime `mek_transporters`, hook points API 425): stacks travel through touching transporters as moving items,
   the tier's speed in hundredths of a block a tick (5, 10, 20, 50), each on the cheapest path (A* over
   `ULTIMATE.speed / speed` a transporter) to an inventory of the network that takes it, the stacks already on their
   way there counting against its room (`TransporterManager`); a pull side takes up to the tier's pull amount (1,
@@ -218,7 +218,7 @@ assets when `mekanism-content` is given them.
   (`native_attachments`): broken, the cache stays; formed again (under a new id), the caches its blocks name merge
   into it, capped to the new size. Its two slots are mirrored into the blocks whose screen a player opened and into
   its valves and ports (hoppers reach those), and none of its blocks drops them. Formed, it sends red dust sparkles
-  over its faces (`SparkleAnimation`, hook points API 167's `native_level_particles`). A Configurator in a
+  over its faces (`SparkleAnimation`, hook points API 426's `native_level_particles`). A Configurator in a
   configurating mode, used plainly on a casing, valve or port that doesn't form, says why when Mekanism does
   (`Couldn't create frame, invalid block at ...`, `Inner structure contains an illegal block ...`); a plain use with an
   empty hand on one that doesn't form opens no screen. `/mek probe` of a part answers the multiblocks it is in,
@@ -227,7 +227,7 @@ assets when `mekanism-content` is given them.
   valves and structural glass in the sides and air inside, holding one fluid or one chemical (not both, no
   radioactive one) of `volume * fluidPerTank` mB or `volume * chemicalPerTank` (ATM10's `general.toml`: 350 000 and
   16 000 000 a block of the whole box: 9 450 000 mB of fluid for a 3x3x3, 2 041 200 000 for an 18x18x18). Every valve
-  is its fluid handler (hook points API 160) and its chemical handler on every side, without a rate (the null side
+  is its fluid handler (hook points API 422) and its chemical handler on every side, without a rate (the null side
   reads only); pipes, tubes, tanks and AE2 fill and drain it there. Its two slots fill and empty containers as its
   edit mode says (`HybridInventorySlot.handleTank`: both, fill, empty; chemical tank items through the chemical
   side); a plain use with a bucket fills or empties it. Its screen is `GuiDynamicTank`'s, with the edit mode tab.
@@ -238,7 +238,7 @@ assets when `mekanism-content` is given them.
   2 048 000, 16 384 000 and 131 072 000 J a tick). What goes in and out during a tick is queued and lands in the cells
   at its next tick (`MatrixEnergyContainer`), before the level's blocks tick. A port takes energy in its input mode
   and gives it in its output mode (its `active_state`, shown as `active`; the Configurator's sneaking use toggles it),
-  to cables, cubes, machines and Forge Energy (hook points API 154) alike, and in its output mode puts out to the block
+  to cables, cubes, machines and Forge Energy (hook points API 416) alike, and in its output mode puts out to the block
   it faces, split among the output ports, the transfer at most. Its slots charge an energy cube's item and take one's
   Joules or an item that converts to energy. Its screen is `GuiInductionMatrix`'s, with `GuiMatrixStats` as a page.
 

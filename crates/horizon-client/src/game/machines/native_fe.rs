@@ -1,5 +1,5 @@
 //! Forge Energy of a block for native server mods (docs/native-mods.md,
-//! API 154): NeoForge's `IEnergyStorage` capability, asked for a block and one
+//! API 416): NeoForge's `IEnergyStorage` capability, asked for a block and one
 //! of its sides. A mod block entity answers through the hook points
 //! `native_fe_storage`, `native_fe_receive` and `native_fe_extract`; the game's
 //! own machines answer through `energy_extras.rs` (AE2's energy acceptors,
@@ -381,7 +381,7 @@ impl Game<'_> {
     }
 }
 
-/// Forge Energy helpers for native mods. API 154.
+/// Forge Energy helpers for native mods. API 416.
 #[allow(dead_code)]
 impl Game<'_> {
     /// The Forge Energy of the block at `pos` in `dimension` through `face`
@@ -391,7 +391,7 @@ impl Game<'_> {
     /// is no energy on that side, in a level that isn't open, on a client's
     /// copy of the world, and for the block entity ticking now. A loop
     /// (asked again inside its own readback) reads as empty. `wide`: read
-    /// 64-bit amounts; otherwise they saturate at `i32::MAX`. API 154.
+    /// 64-bit amounts; otherwise they saturate at `i32::MAX`. API 416.
     pub(in crate::game) fn native_fe_info(
         &self,
         dimension: &str,
@@ -410,7 +410,7 @@ impl Game<'_> {
     /// most `i32::MAX` unless `wide`) and answers what it took, 0 to
     /// `amount`; with `simulate`, what it would take. 0 where
     /// `native_fe_info` is none, and for a call already under way at that
-    /// block and side (a loop). API 154.
+    /// block and side (a loop). API 416.
     pub(in crate::game) fn native_fe_offer(
         &mut self,
         dimension: &str,
@@ -430,7 +430,7 @@ impl Game<'_> {
 
     /// `IEnergyStorage.extractEnergy` on the block at `pos` in `dimension`
     /// through `face`, as `native_fe_offer`: draws up to `amount` FE and
-    /// answers what it gave. API 154.
+    /// answers what it gave. API 416.
     pub(in crate::game) fn native_fe_draw(
         &mut self,
         dimension: &str,

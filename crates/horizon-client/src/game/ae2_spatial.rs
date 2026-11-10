@@ -75,7 +75,7 @@ struct Block {
     state: BlockStateId,
     entity: Option<BlockEntity>,
     raw_entity: Option<Tag>,
-    name: Option<String>,
+    name: Option<Tag>,
     vanilla_metadata: Option<Tag>,
     rolled_loot: Option<horizon_client::save::RolledLoot>,
     skip: bool,

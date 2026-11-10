@@ -3,8 +3,8 @@
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: the mode kept in the item (`custom_data.mekanism.mode`,
 // and `custom_model_data` for the model it shows), its uses on blocks through
-// `native_use_item_on` (where a sneaking use reaches the item, with hook points
-// API 166's `native_sneaking`): a machine's, cube's or tank's side
+// `native_use_item_on` (where a sneaking use reaches the item, with
+// upstream's `native_sneaking`): a machine's, cube's or tank's side
 // configuration bumped through the block's own side button, a transmitter's
 // side or a transporter's colour, a fluid tank turned on or off, a machine's
 // items taken out, a block turned or taken up; a plain use of the rotate mode

@@ -4,13 +4,13 @@
 // `transmitter`'s tiers; MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025
 // Aidan C. Brady); this module is the glue, as `mek_tubes` is the tubes': the
 // pipes of each dimension and their networks kept here through the block
-// entity lifecycle hook points (API 156), each level's tick committing them,
+// entity lifecycle hook points (API 418), each level's tick committing them,
 // looking at their sides (any block with a fluid handler on the touching
-// side, through the fluid handler helpers of API 160), joining networks that
+// side, through the fluid handler helpers of API 422), joining networks that
 // may now meet, pulling through pull sides, emitting to the handlers beside
 // them with the even split, and marking their chunks changed; a pipe's share
 // of its network saved as `fluid`; the network as a fluid handler on each side
-// for the blocks around it (hook points API 160); `/mek connection` and
+// for the blocks around it (hook points API 422); `/mek connection` and
 // `/mek probe`. A network's fluid is a key: the fluid's id, or the id and a
 // number for one with components, kept here with a stack of it. The
 // transmitters' settings (`tiers.toml`) are read here for the pipes, the

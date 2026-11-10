@@ -65,6 +65,9 @@ pub struct ScreenInputs<'a> {
     /// its texture's sprite, drawn as water's.
     pub fluid_overlay: Option<String>,
     pub on_fire: bool,
+    /// How far the fire overlay moves down, in its own heights (PvP & HUD's lower fire; 0 is
+    /// vanilla's place).
+    pub fire_lower: f32,
     /// `Hud.extractCameraOverlays` draws: the full-screen blits become
     /// screen quads (the spyglass, its fills and the nausea swirl do not).
     pub gui_overlays: &'a [GuiDraw],
@@ -206,7 +209,7 @@ impl ScreenEffects {
             for (dx, angle) in [(0.24f32, -10.0f32), (-0.24, 10.0)] {
                 let (s, c) = angle.to_radians().sin_cos();
                 // rotateY about the quad then translate; z = -0.5 feeds into x.
-                let corner = |x: f32, y: f32| [x * c + -0.5 * s + dx, y - 0.3];
+                let corner = |x: f32, y: f32| [x * c + -0.5 * s + dx, y - 0.3 - input.fire_lower];
                 let corners = [
                     corner(-0.5, -0.5),
                     corner(0.5, -0.5),
@@ -353,6 +356,7 @@ mod tests {
             water: Some((1.0, 0.0, 0.0)),
             fluid_overlay: None,
             on_fire: false,
+            fire_lower: 0.0,
             gui_overlays: &[crate::hud_overlays::vignette(320, 240, 1.0, 0.0)],
         };
         let quads = e.build(&input);
@@ -409,6 +413,7 @@ mod tests {
             water: Some((1.0, 0.0, 0.0)),
             fluid_overlay: None,
             on_fire: false,
+            fire_lower: 0.0,
             gui_overlays: &[crate::hud_overlays::vignette(320, 240, 1.0, 0.0)],
         });
         let sampling: Vec<_> = quads.iter().map(|q| q.sampling).collect();

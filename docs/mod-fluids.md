@@ -81,7 +81,7 @@ the biome's water colour, and in the translucent layer when it asks for it (NeoF
 its registry entry's tags; vanilla's water and lava by `minecraft:water`/`minecraft:lava` and NeoForge's
 `c:water`/`c:lava`) and `FluidStack.CODEC`'s NBT (`{id, amount, components}`: `save`, `parse`, `parseOptional`, a bare
 path being `minecraft:`'s), and the fluid type's bucket and bucket sounds. A native mod's block entity has a fluid
-handler by side as NeoForge's `Capabilities.FluidHandler.BLOCK` (`IFluidHandler`): hook points API 160,
+handler by side as NeoForge's `Capabilities.FluidHandler.BLOCK` (`IFluidHandler`): hook points API 422,
 `native_fluid_handler_tanks` (`getTanks`, `getFluidInTank`, `getTankCapacity`, and whether a simulated drain of the
 tank gives anything, which AE2's storage bus filter asks), `native_fluid_handler_fill` and `native_fluid_handler_drain`
 (`drain(FluidStack)` and `drain(int)`), with `FluidAction.SIMULATE`; the dispatcher (`machines/native_fluid_handler.rs`)

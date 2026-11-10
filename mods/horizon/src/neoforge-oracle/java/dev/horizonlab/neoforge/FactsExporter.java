@@ -44,7 +44,9 @@ import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.level.storage.loot.LootParams;
@@ -346,13 +348,22 @@ public final class FactsExporter {
         /** What the state drops per tool; nothing written when its drops need more than the world gives here
          * (a block entity, as Apothic Enchanting's library asks for). */
         void drops(BlockState state) throws IOException {
+            BlockEntity be = null;
+            if (state.getBlock() instanceof EntityBlock eb) {
+                try {
+                    be = eb.newBlockEntity(FLOOR.above(), state);
+                } catch (RuntimeException e) {
+                    // Needs a placed block or extra setup: sample without it.
+                }
+            }
             List<Map<String, Integer>> perTool = new ArrayList<>();
             try {
                 for (ItemStack tool : tools) {
                     LootParams.Builder params =
                             new LootParams.Builder(level)
                                     .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(FLOOR.above()))
-                                    .withParameter(LootContextParams.TOOL, tool.copy());
+                                    .withParameter(LootContextParams.TOOL, tool.copy())
+                                    .withOptionalParameter(LootContextParams.BLOCK_ENTITY, be);
                     Map<String, Integer> counts = new TreeMap<>();
                     for (ItemStack s : state.getDrops(params)) {
                         counts.merge(BuiltInRegistries.ITEM.getKey(s.getItem()).toString(), s.getCount(), Integer::sum);
@@ -502,10 +513,14 @@ public final class FactsExporter {
             json.name("components");
             json.beginObject();
             for (TypedDataComponent<?> c : stack.getComponents()) {
-                var encoded = c.encodeValue(ops).result();
-                if (encoded.isPresent()) {
-                    json.name(BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(c.type()).toString());
-                    json.jsonValue(encoded.get().toString());
+                try {
+                    var encoded = c.encodeValue(ops).result();
+                    if (encoded.isPresent()) {
+                        json.name(BuiltInRegistries.DATA_COMPONENT_TYPE.getKey(c.type()).toString());
+                        json.jsonValue(encoded.get().toString());
+                    }
+                } catch (RuntimeException e) {
+                    // A mod component codec that throws on its own default: leave it out.
                 }
             }
             json.endObject();

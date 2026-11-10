@@ -4,7 +4,7 @@
 // multiblock forms through `mek_multiblock`, and its fluid or chemical lives
 // in the cache by its id there (`fluid_tanks`, `chemical_tanks`, `items`,
 // `edit_mode`). This module is the glue: its size from `general.toml`
-// `[dynamic_tank]`, the valves' fluid handler (hook points API 160) and
+// `[dynamic_tank]`, the valves' fluid handler (hook points API 422) and
 // chemical handler on every side, without a rate (`TileEntityDynamicValve`),
 // the two slots that fill and empty containers as its edit mode says
 // (`HybridInventorySlot.handleTank`, `drainChemicalTank`, `fillChemicalTank`),
@@ -106,7 +106,7 @@ fn held(dimension: &str, id: Uuid) -> (FluidStack, ChemicalStack) {
         .unwrap_or((FluidStack::EMPTY, ChemicalStack::EMPTY))
 }
 
-// ---- The valves' fluid handler (hook points API 160) --------------------------------------------------
+// ---- The valves' fluid handler (hook points API 422) --------------------------------------------------
 
 /// `native_fluid_handler_tanks` of a dynamic valve: the tank's fluid tank on every side once formed, none before.
 pub(super) fn fluid_tanks(dimension: &str, pos: Pos, face: Option<Face>, block: &str, tanks: &mut Option<Vec<NativeFluidTankInfo>>) -> bool {

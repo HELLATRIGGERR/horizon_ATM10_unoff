@@ -1,5 +1,5 @@
 //! AE2's fluid storage bus, import bus and export bus on the fluid handler of
-//! a native mod's block (`Capabilities.FluidHandler.BLOCK`, API 160:
+//! a native mod's block (`Capabilities.FluidHandler.BLOCK`, API 422:
 //! `machines/native_fluid_handler.rs`), as AE2 1.21.1 meets any
 //! `IFluidHandler`: `ExternalStorageFacade.FluidHandlerFacade` (available
 //! stacks from each tank, `fill` to insert, `drain(FluidStack)` to extract),

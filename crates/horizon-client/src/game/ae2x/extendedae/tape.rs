@@ -65,7 +65,7 @@ impl Game<'_> {
             let entity = BlockEntity::Ae2(machine.clone());
             let mut ctx = save::encode_block_entity(key, &entity, &block);
             if let (Tag::Compound(map), Some(name)) = (&mut ctx, self.world.block_names.get(&key)) {
-                map.insert("CustomName".into(), Tag::String(name.as_str().into()));
+                map.insert("CustomName".into(), name.clone());
             }
             let properties = Tag::compound(state.properties.iter().map(|(k, v)| (k.as_str(), Tag::String(v.as_str().into()))).collect::<Vec<_>>());
             let state_tag = Tag::compound([("Name", Tag::String(state.name.as_str().into())), ("Properties", properties)]);
@@ -274,7 +274,7 @@ impl Game<'_> {
         let provider = matches!(&entity, BlockEntity::Ae2(m) if m.kind == MachineKind::PatternProvider);
         self.world.block_entities.insert(key, entity);
         if let Some(name) = custom_name {
-            self.world.block_names.insert(key, name);
+            self.world.block_names.insert(key, Tag::String(name.as_str().into()));
         }
         self.world.modified.insert((key.0 >> 4, key.2 >> 4));
         if provider {

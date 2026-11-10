@@ -3,7 +3,7 @@
 // sources and sinks. The rules are `mekanism_energy::fluid_tank` (MIT, from
 // Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this module is the
 // glue: the tank saved as Mekanism saves it (`fluid_tanks`, `active_state`), a
-// fluid handler on every side (hook points API 160), an active tank giving
+// fluid handler on every side (hook points API 422), an active tank giving
 // what it holds down at its output a tick (`FluidUtils.emit` through the
 // fluid handler helpers), the Configurator's sneaking use turning it on and
 // off (`onSneakRightClick`), and `/mek probe`. Its screen, slots, edit mode

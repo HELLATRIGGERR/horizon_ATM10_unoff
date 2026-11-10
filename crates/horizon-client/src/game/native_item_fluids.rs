@@ -12,7 +12,6 @@ use horizon_world::fluid_stack::{bucket_fluid, filled_bucket};
 use horizon_world::nbt::{Compound, JavaString, Tag};
 
 /// What one item of a stack holds (`native_item_fluid`).
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct NativeItemFluid {
     /// A fluid of the registry (`minecraft:water`, a content mod's); none
@@ -177,7 +176,7 @@ pub(super) fn drain_one(
 }
 
 // Native mods use these; nothing in Horizon does.
-#[allow(dead_code)]
+#[allow(dead_code, reason = "native mod API (docs/native-mods.md)")]
 impl Game<'_> {
     /// The capacity a mod gave item `item`, clamped; none for any other item.
     pub(in crate::game) fn native_item_tank_capacity(&self, item: &str) -> Option<i32> {

@@ -49,8 +49,14 @@ MAVEN = 'https://maven.neoforged.net/releases/net/neoforged/neoforge'
 HOME = os.environ.get('HORIZON_NEOFORGE_HOME')
 JAVA = os.environ.get('HORIZON_ORACLE_JAVA', 'java')
 XMX = os.environ.get('HORIZON_ORACLE_XMX', '4G')
-# unix_args.txt separates its module path with `:`, which Java on Windows refuses.
-ARGS = 'win_args.txt' if os.name == 'nt' else 'unix_args.txt'
+WINDOWS = os.name == 'nt'
+
+
+def args_file(home):
+    """The installer's JVM argument file: `win_args.txt` on Windows (`unix_args.txt` has a `:` classpath
+    separator the JVM rejects there), `unix_args.txt` elsewhere."""
+    name = 'win_args.txt' if WINDOWS else 'unix_args.txt'
+    return home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/{name}'
 
 
 def installer_jar():
@@ -67,7 +73,7 @@ def installer_jar():
 def install():
     """The NeoForge server, installed once per version (or the one HORIZON_NEOFORGE_HOME names)."""
     home = Path(HOME) if HOME else LOCAL / NEOFORGE
-    args = home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/{ARGS}'
+    args = args_file(home)
     if args.exists():
         return home
     if HOME:
@@ -203,16 +209,25 @@ spawn-animals=false
 """
 
 
-def link(path, target, directory=False):
-    """A symbolic link to `target`. Windows makes those only in Developer Mode, so there a directory gets a
-    junction and a file a copy."""
-    if os.name != 'nt':
-        path.symlink_to(target, target_is_directory=directory)
+def link(link_path, target, directory=None):
+    """Makes `link_path` show `target`: a symlink; on Windows, where symlinks need a privilege ordinary users
+    lack (WinError 1314), a junction for a folder and a hard link for a file, a copy when those fail."""
+    link_path, target = Path(link_path), Path(target)
+    if directory is None:
+        directory = target.is_dir()
+    if not WINDOWS:
+        link_path.symlink_to(target, target_is_directory=directory)
     elif directory:
-        import _winapi
-        _winapi.CreateJunction(str(target), str(path))
+        try:
+            import _winapi
+            _winapi.CreateJunction(str(target), str(link_path))
+        except OSError:
+            shutil.copytree(target, link_path)
     else:
-        shutil.copyfile(target, path)
+        try:
+            os.link(target, link_path)
+        except OSError:
+            shutil.copy2(target, link_path)
 
 
 def remove_run(run):
@@ -241,9 +256,8 @@ def instance(name, jars, extra=()):
 
 def start(home, run, props, log_name='server.log', timeout=900):
     """Runs the server to its end; returns (seconds, the log)."""
-    args = home / f'libraries/net/neoforged/neoforge/{NEOFORGE}/{ARGS}'
     extra = os.environ.get('HORIZON_ORACLE_JVM', '').split()
-    command = [JAVA, f'-Xmx{XMX}', *extra, *[f'-D{k}={v}' for k, v in props.items()], f'@{args}', 'nogui']
+    command = [JAVA, f'-Xmx{XMX}', *extra, *[f'-D{k}={v}' for k, v in props.items()], f'@{args_file(home)}', 'nogui']
     began = time.monotonic()
     with (run / log_name).open('w') as log:
         subprocess.run(command, cwd=run, stdin=subprocess.DEVNULL, stdout=log,

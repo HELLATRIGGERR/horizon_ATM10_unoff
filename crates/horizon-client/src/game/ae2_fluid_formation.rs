@@ -18,7 +18,8 @@ fn empty_fluid_patch(bytes: &[u8]) -> bool {
 #[derive(Clone, Default)]
 struct PlaneState {
     // Distinct Fluid registry entries, including flowing/source of one family.
-    blocked: u8,
+    /// The fluids (registry ids) the plane couldn't place: a set, as carried fluids have no mask bit.
+    blocked: std::collections::BTreeSet<u16>,
     item_blocked: bool,
     last_effect_ms: u64,
 }
@@ -30,13 +31,13 @@ pub(super) struct FluidFormationRuntime {
 
 impl FluidFormationRuntime {
     fn blocked(&self, identity: NodeIdentity, fluid: FluidKind) -> bool {
-        self.planes.get(&identity).is_some_and(|entry| entry.blocked & fluid.mask() != 0)
+        self.planes.get(&identity).is_some_and(|entry| entry.blocked.contains(&fluid.id()))
     }
     fn record_blocked(&mut self, identity: NodeIdentity, fluid: FluidKind) {
-        self.planes.entry(identity).or_default().blocked |= fluid.mask();
+        self.planes.entry(identity).or_default().blocked.insert(fluid.id());
     }
     fn clear_blocked(&mut self, identity: NodeIdentity) {
-        if let Some(entry) = self.planes.get_mut(&identity) { entry.blocked = 0; }
+        if let Some(entry) = self.planes.get_mut(&identity) { entry.blocked.clear(); }
     }
     fn item_blocked(&self, identity: NodeIdentity) -> bool {
         self.planes.get(&identity).is_some_and(|entry| entry.item_blocked)

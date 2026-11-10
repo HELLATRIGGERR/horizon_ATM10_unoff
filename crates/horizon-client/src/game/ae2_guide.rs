@@ -260,7 +260,7 @@ impl<'a,'g> Layout<'a,'g> {
             let label=name.split_once(" | ").map(|(label,_)|label).unwrap_or("Crafting");
             let title=format!("{} · {label}",self.game.pack.names.display_item(&result.item));
             self.ops.push(Op::Text{x:self.x0+4.0,y:self.y+3.0,text:title,ink:Ink{bold:true,..Ink::default()},scale:1.0});
-            for (i,ing) in ingredients.iter().enumerate() { if let Some(id)=ing.as_ref().and_then(|v|v.1.first()) {let x=self.x0+5.0+(i%cols) as f32*20.0;let y=self.y+16.0+(i/cols) as f32*20.0;let rect=[x,y,x+16.0,y+16.0];self.ops.push(Op::Item{rect,stack:stack(id)});self.hits.push(Hit{rect,action:Action::Item(id.clone()),tip:Some(self.game.pack.names.display_item(id))});}}
+            for (i,ing) in ingredients.iter().enumerate() { if let Some(id)=ing.as_ref().and_then(|v|v.order.first()) {let x=self.x0+5.0+(i%cols) as f32*20.0;let y=self.y+16.0+(i/cols) as f32*20.0;let rect=[x,y,x+16.0,y+16.0];self.ops.push(Op::Item{rect,stack:stack(id)});self.hits.push(Hit{rect,action:Action::Item(id.clone()),tip:Some(self.game.pack.names.display_item(id))});}}
             let x=(self.x0+10.0+cols as f32*20.0).min(self.x0+self.width-40.0);let y=self.y+18.0;
             self.ops.push(Op::Text{x,y,text:"→".into(),ink:Ink::default(),scale:1.0});let rect=[x+14.0,y-2.0,x+30.0,y+14.0];
             self.hits.push(Hit{rect,action:Action::Item(result.item.to_string()),tip:Some(format!("{} ({name})",self.game.pack.names.display_item(&result.item)))});self.ops.push(Op::Item{rect,stack:result});

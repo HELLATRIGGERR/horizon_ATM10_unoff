@@ -1,5 +1,5 @@
 /** Mekanism Generators' Heat Generator's lava tank as a fluid handler (NeoForge's `Capabilities.FluidHandler.BLOCK`,
- * hook points API 160, docs/mod-fluids.md slice 5), met by AE2's buses, under ATM10's `generators.toml` (a 24 000 mB
+ * hook points API 422, docs/mod-fluids.md slice 5), met by AE2's buses, under ATM10's `generators.toml` (a 24 000 mB
  * tank). As `TileEntityHeatGenerator.getInitialFluidTanks` builds it, the tank is on every side but the front and is
  * `VariableCapacityFluidTank.input`: any block may fill it with lava (`FluidTags.LAVA`), none may drain it.
  *

@@ -153,7 +153,7 @@ fn fluid_legacy_output(
 
 impl Game<'_> {
     pub(super) fn ae2_item_display_name(&self, stack: &ItemStack, base: &str) -> String {
-        if stack.item.as_ref()=="ae2:facade" {return horizon_client::stations::hover_name(&|id|self.pack.names.display_item(id),stack);}
+        if stack.item.as_ref()=="ae2:facade" {return horizon_client::stations::hover_name(&self.pack.names,stack);}
         if stack.item.as_ref() != "ae2:color_applicator" || stack.custom_name().is_some() {
             return base.into();
         }

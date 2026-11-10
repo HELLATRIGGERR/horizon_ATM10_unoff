@@ -11,13 +11,15 @@
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26,
-# 42, 45, 47, 60, 71, 154-156, 158 and 160) and calls the helpers of API 157 (`native_biome`,
-# `native_dimension_type`), 159 (`native_cooking_recipes`), 160 (`FluidStack`, the fluid handler helpers), 162
-# (`native_data_files`, the content's chemical declarations), 165 (`native_used_stack`,
-# `native_instabuild`, `native_default_state`: the tier installers), 166 (`native_sneaking`,
-# `native_insert_slots`, `native_pop_resource`: the transporters and the Configurator), the attachments helper
-# (`native_attachments`: the multiblocks' caches in the level's saved data) and 167 (`native_level_particles`: a
-# multiblock's sparkles), so it builds on any Horizon with hooks API 167 or later: it pins no revision (horizon-mixins
+# 42, 45, 47, 60, 71, 416-418, 420 and 422) and calls the helpers of API 419 (`native_biome_climate`,
+# `native_dimension_type`), 421 (`native_cooking_recipes`), 422 (`FluidStack`, the fluid handler helpers), 423
+# (`native_data_files`, the content's chemical declarations), 424 (`native_used_stack`,
+# `native_instabuild`: the tier installers), 425 (`native_insert_slots`, `native_pop_resource`: the
+# transporters) and 426 (`native_level_particles`: a multiblock's sparkles), the attachments
+# helper (`native_attachments`: the multiblocks' caches in the level's saved data), and upstream's pending
+# `native_default_state` and `native_sneaking` (fragments default_state and host_bridge: the tier installers and
+# the Configurator), so it builds on any Horizon with hooks API 426 or later: it pins no
+# revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
 # `mekanism-content` (see pack/scripts/mekanism.ts), loaded with `--dev-mod`.

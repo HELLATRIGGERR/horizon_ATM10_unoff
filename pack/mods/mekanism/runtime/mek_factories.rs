@@ -14,7 +14,7 @@
 // process's recipe on the one store and the one chemical tank), Joules from
 // cables, cubes and Forge Energy on the faces their energy config opens, the
 // chemical factories' tank as a chemical handler by side, the tier installers
-// (`native_use_item_on`, hook points API 165, and `/mek install`) and
+// (`native_use_item_on`, hook points API 424, and `/mek install`) and
 // `/mek probe`. Each process's cached recipe, the upgrade slot's progress and
 // the sorting's last look are kept here by position, not saved.
 

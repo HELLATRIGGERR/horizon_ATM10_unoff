@@ -1,5 +1,5 @@
 //! Fluid handlers of a block for native server mods (docs/native-mods.md,
-//! API 160): NeoForge 1.21.1's `Capabilities.FluidHandler.BLOCK`
+//! API 422): NeoForge 1.21.1's `Capabilities.FluidHandler.BLOCK`
 //! (`IFluidHandler`), asked for a block and one of its sides, with fluids as
 //! [`FluidStack`]s of the registry (vanilla's and the content mods'). A mod
 //! block entity answers through the hook points `native_fluid_handler_tanks`,
@@ -799,7 +799,7 @@ impl<'g> Game<'g> {
     }
 }
 
-/// Fluid handler helpers for native mods. API 160.
+/// Fluid handler helpers for native mods. API 422.
 #[allow(dead_code)]
 impl Game<'_> {
     /// The fluid handler of the block at `pos` in `dimension` through `face`
@@ -807,7 +807,7 @@ impl Game<'_> {
     /// `IFluidHandler` reads it: each tank's fluid and capacity. None where
     /// it has no handler on that side, in a level that isn't open, on a
     /// client's copy of the world, and for the block entity ticking now.
-    /// API 160.
+    /// API 422.
     pub(in crate::game) fn native_fluid_handler(
         &self,
         dimension: &str,
@@ -822,7 +822,7 @@ impl Game<'_> {
 
     /// `IFluidHandler.fill` of `resource` on the block at `pos` in
     /// `dimension` through `face`, as `native_fluid_handler` finds it: what it
-    /// took (with `simulate`, would take), 0 to the resource's amount. API 160.
+    /// took (with `simulate`, would take), 0 to the resource's amount. API 422.
     pub(in crate::game) fn native_fluid_fill(
         &mut self,
         dimension: &str,
@@ -843,7 +843,7 @@ impl Game<'_> {
     /// `IFluidHandler.drain` on the block at `pos` in `dimension` through
     /// `face`: with `resource`, that fluid (at most its amount); without, at
     /// most `max` of whatever comes out first. What left it (with
-    /// `simulate`, would leave); the empty stack for nothing. API 160.
+    /// `simulate`, would leave); the empty stack for nothing. API 422.
     pub(in crate::game) fn native_fluid_drain(
         &mut self,
         dimension: &str,
@@ -869,7 +869,7 @@ impl Game<'_> {
     /// several is shrunk and the result stowed (or dropped), and a creative
     /// player keeps the container. Whether it moved fluid. False where the
     /// block has no handler on that side, the hand is empty or holds no
-    /// container, and in a level that isn't the one in place. API 160.
+    /// container, and in a level that isn't the one in place. API 422.
     pub(in crate::game) fn native_fluid_interact(
         &mut self,
         hand: Hand,

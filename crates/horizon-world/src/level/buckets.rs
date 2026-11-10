@@ -2,11 +2,11 @@
 //! `DispensibleContainerItem.emptyContents` for filled ones (`BucketItem`,
 //! `MobBucketItem`, `SolidBucketItem`), both without a player.
 use super::{
-    Behaviours, Dimension, LevelAccess, Sim, Ticks,
+    Behaviours, LevelAccess, Sim, Ticks,
     classes::{Class, Interface},
 };
 use crate::{
-    fluid::{FluidKind, FluidState},
+    fluid::{FluidKind, FluidState, FluidTemplate},
     registry::BlockStateId,
 };
 use horizon_core::{position::BlockPos, random::RandomSource};
@@ -49,6 +49,32 @@ impl BucketContent {
     }
 }
 
+/// `minecraft:lava_bucket`, or a content mod fluid's bucket copying lava: it
+/// fills and empties with lava's sounds.
+pub fn is_lava_bucket(item: &str) -> bool {
+    item == "minecraft:lava_bucket"
+        || FluidKind::of_bucket(item).is_some_and(|f| f.template() == FluidTemplate::Lava)
+}
+
+/// A content mod fluid's bucket as `bucket_contents` gives it: it pours the
+/// fluid's source with its template bucket's empty sound.
+pub fn mod_bucket_contents(
+    item: &str,
+) -> Option<(BucketContent, &'static str, Option<&'static str>)> {
+    let fluid = FluidKind::of_bucket(item)?;
+    // A carried fluid's type's `SoundActions.BUCKET_EMPTY` (else the plain
+    // bucket's), a template fluid's its template bucket's.
+    let sound = match fluid.mod_fluid() {
+        Some(m) => m
+            .empty_sound
+            .as_deref()
+            .unwrap_or("minecraft:item.bucket.empty"),
+        None if is_lava_bucket(item) => "minecraft:item.bucket.empty_lava",
+        None => "minecraft:item.bucket.empty",
+    };
+    Some((BucketContent::Fluid(fluid), sound, None))
+}
+
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     /// `BucketPickup.pickupBlock(user, level, pos, state)`: the filled bucket
     /// that results, None when the block gives nothing. `creative` is whether
@@ -58,11 +84,11 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let state = self.state(pos);
         let item = if b.instance_of(state, Class::Liquid) {
             // `LiquidBlock.pickupBlock`: `new ItemStack(fluid.getBucket())`.
-            match b.fluid(state).kind() {
-                FluidKind::Water | FluidKind::FlowingWater => "minecraft:water_bucket",
-                FluidKind::Lava | FluidKind::FlowingLava => "minecraft:lava_bucket",
+            match b.fluid(state).kind().source() {
+                FluidKind::Water => "minecraft:water_bucket",
+                FluidKind::Lava => "minecraft:lava_bucket",
                 FluidKind::Empty => return None,
-                kind => match kind.mod_fluid().and_then(|m| m.bucket.as_deref()) {
+                fluid => match fluid.info().bucket {
                     Some(bucket) => bucket,
                     // `Items.AIR`: the source goes, and the bucket stays empty.
                     None => {
@@ -147,7 +173,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                 self.bucket_empty(beside, None, content, sound, sneaking, creative)
             });
         }
-        let water_evaporates = self.level.dimension() == Dimension::Nether;
+        let water_evaporates = self.level.dimension_type().water_evaporates;
         // NeoForge's `BucketItem.emptyContents`, before vanilla's water: the
         // bucket's contained stack (a content mod's bucket is a
         // `FluidBucketWrapper`) whose type `isVaporizedOnPlacement` here
@@ -189,7 +215,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             self.empty_sound(pos, sound, mob);
             return Some(pos);
         }
-        if may_replace && !b.instance_of(state, Class::Liquid) {
+        // `BlockState.liquid()`: water, lava and the bubble column. A bubble
+        // column is not a `LiquidBlock`, and breaking it first spills break
+        // particles and a `block_destroy` a sculk sensor hears.
+        if may_replace && !b.liquid(state) {
             self.destroy_block(pos, true, super::flags::UPDATE_LIMIT);
         }
         // `this.content.defaultFluidState()`: the bucket's source fluid.
@@ -226,7 +255,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         if !self.formation_fluid_can_place(pos,fluid) {return false;}
         let b=self.b;let state=self.state(pos);let old_fluid=self.fluid_at(pos);
         let water=matches!(fluid,FluidKind::Water|FluidKind::FlowingWater);
-        if water && self.level.dimension()==Dimension::Nether {
+        if water && self.level.dimension_type().water_evaporates {
             return true;
         }
         if self.is_liquid_container(state) && fluid==FluidKind::Water {
@@ -250,7 +279,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     }
     fn formation_fluid_effect(&mut self,pos:BlockPos,fluid:FluidKind) {
         let water=matches!(fluid,FluidKind::Water|FluidKind::FlowingWater);
-        if water && self.level.dimension()==Dimension::Nether {
+        if water && self.level.dimension_type().water_evaporates {
             let pitch=2.6+(self.random().next_float()-self.random().next_float())*0.8;
             self.emit(super::LevelEvent::Sound {pos,sound:"minecraft:block.fire.extinguish".into(),volume:0.5,pitch});
             // Source calls Level.addParticle eight times on ServerLevel;

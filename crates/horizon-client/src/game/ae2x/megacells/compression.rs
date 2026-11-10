@@ -126,8 +126,8 @@ impl Game<'_> {
         let mut recipes = Vec::new();
         for (id, recipe) in &self.recipes().crafting {
             let (ingredients, result): (Vec<&[String]>, _) = match recipe {
-                Recipe::Shaped { cells, result, .. } => (cells.iter().map(|cell| cell.as_ref().map_or(&[][..], |i| i.1.as_slice())).collect(), result),
-                Recipe::Shapeless { ingredients, result, .. } => (ingredients.iter().map(|i| i.1.as_slice()).collect(), result),
+                Recipe::Shaped { cells, result, .. } => (cells.iter().map(|cell| cell.as_ref().map_or(&[][..], |i| i.order.as_slice())).collect(), result),
+                Recipe::Shapeless { ingredients, result, .. } => (ingredients.iter().map(|i| i.order.as_slice()).collect(), result),
                 Recipe::Special(_) => continue,
             };
             let Some(item) = &result.item else { continue };

@@ -398,7 +398,7 @@ fn wind_generation(data: &[i32]) -> u64 {
 fn advanced_checks(game: &Game<'_>, pos: [i32; 3]) -> Option<AdvancedSolar> {
     let mut checks = [SolarCheck::new(0.8, 0.0, false); 9];
     for (i, offset) in solar::ADVANCED_CHECKS.iter().enumerate() {
-        let biome = game.native_biome(beside(pos, *offset))?;
+        let biome = game.native_biome_climate(beside(pos, *offset))?;
         let rain = biome.precipitation != super::native_hooks::NativePrecipitation::None;
         checks[i] = SolarCheck::new(biome.temperature, biome.downfall, rain);
     }

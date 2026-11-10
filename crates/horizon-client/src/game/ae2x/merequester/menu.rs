@@ -91,7 +91,12 @@ impl Game<'_> {
     /// `getTerminalName`: the requester's custom name, or the block's.
     fn merequester_name(&self, address: GridAddress) -> String {
         self.ae2_address_parts(address)
-            .and_then(|(dim, pos)| self.ae2_world_for(dim)?.block_names.get(&pos).cloned())
+            .and_then(|(dim, pos)| {
+                self.ae2_world_for(dim)?
+                    .block_names
+                    .get(&pos)
+                    .map(crate::game::block_items::name_plain)
+            })
             .unwrap_or_else(|| self.pack.names.display_item(rows::REQUESTER))
     }
     /// The requesters a menu shows: the block's own, or the terminal grid's
@@ -156,7 +161,7 @@ impl Game<'_> {
             return self.pack.names.display_item(&key.key.item_id);
         }
         ae2_lab::prototype(&key.key)
-            .map(|item| horizon_client::stations::hover_name(&|id| self.pack.names.display_item(id), &item))
+            .map(|item| horizon_client::stations::hover_name(&self.pack.names, &item))
             .unwrap_or_else(|_| key.key.item_id.clone())
     }
 

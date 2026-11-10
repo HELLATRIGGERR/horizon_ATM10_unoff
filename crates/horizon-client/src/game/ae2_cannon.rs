@@ -176,9 +176,6 @@ impl Game<'_> {
             .chain(self.potions.thrown_entities().into_iter().filter_map(|(kind,position,_)|
                 self.ae2_entity_type_bounds(kind,position)
                     .map(|bounds| (CannonEntity::UnhurtProjectile,bounds))))
-            .chain(self.dragon_fireballs.iter().filter_map(|p|
-                self.ae2_entity_type_bounds("minecraft:dragon_fireball",p.position)
-                    .map(|bounds| (CannonEntity::UnhurtProjectile,bounds))))
             // The native load/summon path currently represents this same
             // source entity as OtherEntity rather than a homing projectile.
             .chain(self.others.iter().enumerate()
@@ -412,6 +409,7 @@ impl Game<'_> {
                                     kind: DamageKind::PlayerAttack,
                                     attacker: Some(Who::Player),
                                     from: Some(origin),
+                                    attacker_species: None,
                                 },
                             );
                         }
@@ -464,6 +462,7 @@ impl Game<'_> {
                         kind: DamageKind::MatterCannon,
                         attacker: Some(Who::Player),
                         from: Some(origin),
+                        attacker_species: None,
                     };
                     let hurt = self.mobs[index].damage(amount, source);
                     if hurt && self.mobs[index].health != old {
@@ -503,7 +502,7 @@ mod tests {
     use super::*;
     #[test]
     fn cannon_projectile_hurt_destroys_only_shulker_bullets() {
-        let bullet = ProjectileKind::ShulkerBullet { target:Who::Player, dir:None, steps:0, delta:[0.0;3], seed:0 };
+        let bullet = ProjectileKind::ShulkerBullet { target:Some(Who::Player), dir:None, steps:0, delta:[0.0;3], seed:0 };
         assert!(cannon_destroys_projectile(&bullet));
         assert!(!cannon_destroys_projectile(&ProjectileKind::Snowball));
         assert!(!cannon_destroys_projectile(&ProjectileKind::LargeFireball { power:1 }));

@@ -873,11 +873,15 @@ mod recursive {
             Some(Tag::List(items)) => items
                 .iter()
                 .map(|t| {
-                    if !matches!(t.get("count"),Some(Tag::Int(n)) if *n>0) {
+                    let Some(&Tag::Int(count))=t.get("count").filter(|n|matches!(n,Tag::Int(n) if *n>0)) else {
                         return Err("invalid physical escrow count".into());
-                    }
-                    horizon_client::save::item_from_nbt(t)
-                        .ok_or_else(|| "invalid physical escrow stack".into())
+                    };
+                    // The escrow's count is AE2's amount, past ItemStack.CODEC's 1..=99 that
+                    // item_from_nbt applies.
+                    let mut item=horizon_client::save::item_from_nbt(t)
+                        .ok_or_else(|| String::from("invalid physical escrow stack"))?;
+                    item.count=count as u32;
+                    Ok(item)
                 })
                 .collect(),
             _ => Err("invalid physical escrow".into()),
@@ -1235,7 +1239,7 @@ mod recursive {
         }
         if substitutions {
             if let Some(ingredient)=source_crafting_ingredient(recipes,name,grid,slot) {
-                for item in &ingredient.1 {
+                for item in &ingredient.order {
                     for key in choices {
                         if from_key(key).is_ok_and(|stack|stack.item.as_ref()==item) {templates.push((key.clone(),1));}
                     }

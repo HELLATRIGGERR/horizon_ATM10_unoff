@@ -88,7 +88,7 @@ pub(super) struct BlockSnapshot {
     levels: Vec<(
     Dim,
     Vec<(LocalPos, BlockEntity)>,
-    horizon_client::fast_hash::FxHashSet<(i32, i32)>,
+    horizon_client::world::ModifiedChunks,
 )>,
     monitors: super::ae2_storage_monitor_host::StorageMonitors,
 }

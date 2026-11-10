@@ -12,7 +12,7 @@ use horizon_mods::{Capability, Package};
 use std::{path::PathBuf, time::Instant};
 
 #[global_allocator]
-static ALLOCATOR: horizon_threads::Allocator = horizon_threads::Allocator;
+static ALLOCATOR: horizon_threads::Allocator = horizon_threads::ALLOCATOR;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     horizon_threads::configure_allocator();

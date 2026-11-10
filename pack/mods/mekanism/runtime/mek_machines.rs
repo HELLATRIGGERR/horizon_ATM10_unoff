@@ -13,13 +13,13 @@
 // their block entities and saved compound in Mekanism's names, their slots
 // (input, output, energy, the upgrade component's two), the recipes they read
 // from the world's tables (`native_recipes_of_type` for Mekanism's types,
-// `native_cooking_recipes` of hook points API 159 for the smelter), each tick
+// `native_cooking_recipes` of hook points API 421 for the smelter), each tick
 // in `TileEntityMekanism.tickServer` order (upgrades in, the active state's
 // delay, the ejector, the energy slot, the infusion or fluid slot, the
 // recipe, the separator's dumps), Joules from cables, cubes and Forge Energy
 // on the faces their energy config opens, their chemical tanks as a chemical
 // handler by side (`mek_chemicals`), the separator's fluid tank as a fluid
-// handler (hook points API 160), and `/mek probe`. A machine's cached recipe
+// handler (hook points API 422), and `/mek probe`. A machine's cached recipe
 // and its upgrade slot's progress are kept here by position, not saved, as
 // Mekanism keeps them in its block entity. No borrow of that state is held
 // across a call into the game.

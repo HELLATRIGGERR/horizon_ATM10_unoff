@@ -95,6 +95,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(super::mek_matrix::screen());
         return;
     }
+    if super::mek_evaporation::is_controller(block) {
+        *screen = Some(super::mek_evaporation::screen());
+        return;
+    }
     if super::mek_tanks::tier_of(block).is_some() {
         *screen = Some(super::mek_tanks::screen());
         return;
@@ -309,6 +313,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         super::mek_matrix::tooltip(data, at, lines);
         return;
     }
+    if super::mek_evaporation::is_controller(block) {
+        super::mek_evaporation::tooltip(data, at, lines);
+        return;
+    }
     if super::mek_tanks::tier_of(block).is_some() {
         super::mek_tanks::tooltip(data, at, lines);
         return;
@@ -486,6 +494,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if super::mek_matrix::is_matrix_block(block) {
         super::mek_matrix::draw(game, data, batch, origin);
+        return;
+    }
+    if super::mek_evaporation::is_controller(block) {
+        super::mek_evaporation::draw(game, data, batch, origin);
         return;
     }
     if super::mek_tanks::tier_of(block).is_some() {

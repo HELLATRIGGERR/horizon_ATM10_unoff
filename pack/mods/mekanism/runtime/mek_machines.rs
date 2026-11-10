@@ -221,7 +221,7 @@ struct Live {
 /// `intersection` (all children), or a list. Items the game doesn't know are
 /// left out; a child that names none is skipped in a compound.
 fn items_of(game: &Game<'_>, v: &Value) -> Option<HashSet<String>> {
-    let one = |s: String| game.native_recipe_ingredient(&Value::String(s)).map(|i| i.0);
+    let one = |s: String| game.native_recipe_ingredient(&Value::String(s)).map(|i| i.items);
     match v {
         Value::String(s) => one(s.clone()),
         Value::Array(list) => {
@@ -397,11 +397,11 @@ pub(super) fn refresh_book(game: &Game<'_>) {
 fn smelting(cooking: &[Cooking]) -> Vec<Rc<Recipe>> {
     cooking
         .iter()
-        .filter(|c| c.kind == "minecraft:smelting" && c.result.count > 0 && !c.ingredient.0.is_empty())
+        .filter(|c| c.kind == "minecraft:smelting" && c.result.count > 0 && !c.ingredient.items.is_empty())
         .map(|c| {
             Rc::new(Recipe {
                 id: format!("minecraft:{}", c.id),
-                input: ItemIn { items: c.ingredient.0.clone(), count: 1 },
+                input: ItemIn { items: c.ingredient.items.clone(), count: 1 },
                 chemical: None,
                 output: c.result.clone(),
                 per_tick: false,

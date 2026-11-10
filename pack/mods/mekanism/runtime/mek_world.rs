@@ -1681,6 +1681,7 @@ pub(super) fn fluid_tanks(
 ) {
     if tanks.is_some()
         || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
+        || super::mek_evaporation::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || super::mek_gen2::fluid_tanks(entity, face, tanks)
@@ -1712,6 +1713,7 @@ pub(super) fn fluid_fill(
 ) {
     if filled.is_some()
         || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
+        || super::mek_evaporation::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
@@ -1756,6 +1758,7 @@ pub(super) fn fluid_drain(
 ) {
     if drained.is_some()
         || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
+        || super::mek_evaporation::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
         || super::mek_gen2::fluid_drain(entity, face, drained)
@@ -1852,6 +1855,12 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
     }
     if super::mek_dynamic_tank::is_tank_block(block) {
         if !super::mek_dynamic_tank::slot_accepts(slot, stack) {
+            *accepts = false;
+        }
+        return;
+    }
+    if super::mek_evaporation::is_controller(block) {
+        if !super::mek_evaporation::slot_accepts(slot, stack) {
             *accepts = false;
         }
         return;

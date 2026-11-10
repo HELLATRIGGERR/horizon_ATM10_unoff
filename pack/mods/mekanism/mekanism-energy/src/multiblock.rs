@@ -51,12 +51,15 @@ pub enum Relative {
 
 /// `FormationProtocol.StructureRequirement` of the cuboid validator: an edge
 /// or a corner needs a frame (`FRAME`), a side any casing (`OTHER`), the rest
-/// is inside (`INNER`).
+/// is inside (`INNER`); a position a validator lets go (`IGNORED`: the Thermal
+/// Evaporation Plant's top corners) is checked as a casing, and only a failure
+/// that says so (`noIgnore`) counts there.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Requirement {
     Frame,
     Other,
     Inner,
+    Ignored,
 }
 
 impl Cuboid {
@@ -167,12 +170,14 @@ impl Cuboid {
     }
 }
 
-/// A block of a structure as the validator sees it: a casing (`CasingType.FRAME`), a valve or port (`VALVE`), or
-/// structural glass (an `IStructuralMultiblock`: never a frame, and no frame of the planes).
+/// A block of a structure as the validator sees it: a casing (`CasingType.FRAME`), a valve or port (`VALVE`), a
+/// multiblock block that is neither (`OTHER`: the Thermal Evaporation Controller), or structural glass (an
+/// `IStructuralMultiblock`: never a frame, and no frame of the planes).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Node {
     Frame,
     Valve,
+    Other,
     Structural,
 }
 
@@ -328,6 +333,62 @@ pub fn fetch_cuboid(nodes: &BTreeMap<Pos, Node>, min: [i32; 3], max: [i32; 3]) -
     prev
 }
 
+/// A side of a cuboid (`VoxelCuboid.CuboidSide`): the axis (0 x, 1 y, 2 z) and whether it is the positive face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Side {
+    pub axis: usize,
+    pub positive: bool,
+}
+
+impl Side {
+    pub const BOTTOM: Side = Side { axis: 1, positive: false };
+    pub const TOP: Side = Side { axis: 1, positive: true };
+    pub const NORTH: Side = Side { axis: 2, positive: false };
+    pub const SOUTH: Side = Side { axis: 2, positive: true };
+    pub const WEST: Side = Side { axis: 0, positive: false };
+    pub const EAST: Side = Side { axis: 0, positive: true };
+    /// `CuboidSide.values()` order.
+    pub const ALL: [Side; 6] = [Self::BOTTOM, Self::TOP, Self::NORTH, Self::SOUTH, Self::WEST, Self::EAST];
+}
+
+/// `StructureHelper.fetchCuboid(structure, minBounds, maxBounds, sides, tolerance)`: the cuboid from the outermost
+/// major plane of each of `sides` (each setting its own coordinate and, without a conflict, the bounds of the two
+/// axes across it), the planes missing at most `tolerance` positions between them, no frame in a minor plane beyond
+/// any of them, and the result within the bounds. Fewer than two sides: none.
+pub fn fetch_cuboid_sides(nodes: &BTreeMap<Pos, Node>, min: [i32; 3], max: [i32; 3], sides: &[Side], tolerance: i32) -> Option<Cuboid> {
+    if sides.len() < 2 {
+        return None;
+    }
+    let mut missing = 0;
+    // [face][axis]: what `CuboidBuilder` was set to so far.
+    let mut bounds: [[Option<i32>; 3]; 2] = [[None; 3]; 2];
+    for side in sides {
+        let planes = planes(nodes, side.axis);
+        let mut majors = planes.iter().filter(|(_, p)| p.major());
+        let (&key, plane) = if side.positive { majors.last()? } else { majors.next()? };
+        missing += plane.length() * plane.height() - plane.size;
+        if missing > tolerance {
+            return None;
+        }
+        bounds[usize::from(side.positive)][side.axis] = Some(key);
+        let (col, row) = plane_axes(side.axis);
+        for (positive, axis, value) in [(false, col, plane.min_col), (true, col, plane.max_col), (false, row, plane.min_row), (true, row, plane.max_row)] {
+            let slot = &mut bounds[usize::from(positive)][axis];
+            if slot.is_some_and(|v| v != value) {
+                return None;
+            }
+            *slot = Some(value);
+        }
+        if planes.iter().any(|(&k, p)| !p.major() && p.frame && if side.positive { k > key } else { k < key }) {
+            return None;
+        }
+    }
+    let lo: [i32; 3] = std::array::from_fn(|i| bounds[0][i].unwrap_or(0));
+    let hi: [i32; 3] = std::array::from_fn(|i| bounds[1][i].unwrap_or(0));
+    let cuboid = Cuboid::new(lo, hi);
+    (cuboid.at_least(min) && cuboid.at_most(max)).then_some(cuboid)
+}
+
 /// What the validator finds inside the cuboid at a position
 /// (`validateInner`): air, a block the multiblock takes (an
 /// `IInternalMultiblock`: an induction cell or provider), anything else, or
@@ -341,12 +402,15 @@ pub enum Inner {
 }
 
 /// Why a structure didn't form: no message (`FormationResult.FAIL`), a bad
-/// block in the walls (`MULTIBLOCK_INVALID_FRAME`), or inside (`MULTIBLOCK_INVALID_INNER`).
+/// block in the walls (`MULTIBLOCK_INVALID_FRAME`), or inside (`MULTIBLOCK_INVALID_INNER`), a second controller
+/// (`MULTIBLOCK_INVALID_CONTROLLER_CONFLICT`, never ignored) or none (`MULTIBLOCK_INVALID_NO_CONTROLLER`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Fail,
     InvalidFrame(Pos),
     InvalidInner(Pos),
+    ControllerConflict(Pos),
+    NoController,
 }
 
 /// A formed multiblock's shape: its cuboid, the positions of its walls (`locations`), the blocks inside that aren't
@@ -361,27 +425,47 @@ pub struct Formation {
 
 /// `CuboidStructureValidator.validate`: every position of the cuboid, x outermost, then y, then z; a wall needs a
 /// node of the structure (an edge a frame), the inside what `inner` says passes. The first failure ends it.
-pub fn validate(cuboid: Cuboid, nodes: &BTreeMap<Pos, Node>, mut inner: impl FnMut(Pos) -> Inner) -> Result<Formation, Failure> {
+pub fn validate(cuboid: Cuboid, nodes: &BTreeMap<Pos, Node>, inner: impl FnMut(Pos) -> Inner) -> Result<Formation, Failure> {
+    validate_with(cuboid, nodes, |p| cuboid.requirement(p), |_, _| None, inner)
+}
+
+/// `CuboidStructureValidator.validate` with a validator's own `getStructureRequirement` (`requirement`) and a check
+/// of its own before `validateFrame`'s (`frame_check`, whose failure counts even where the position is ignored: the
+/// evaporation plant's controller conflict).
+pub fn validate_with(
+    cuboid: Cuboid,
+    nodes: &BTreeMap<Pos, Node>,
+    requirement: impl Fn(Pos) -> Requirement,
+    mut frame_check: impl FnMut(Pos, Option<Node>) -> Option<Failure>,
+    mut inner: impl FnMut(Pos) -> Inner,
+) -> Result<Formation, Failure> {
     let mut formation = Formation { cuboid, locations: Vec::new(), internal: Vec::new(), valves: Vec::new() };
     for p in cuboid.positions() {
-        match cuboid.requirement(p) {
+        match requirement(p) {
             Requirement::Inner => match inner(p) {
                 Inner::Air => {}
                 Inner::Internal => formation.internal.push(p),
                 Inner::Invalid => return Err(Failure::InvalidInner(p)),
                 Inner::Unloaded => return Err(Failure::Fail),
             },
-            requirement => match nodes.get(&p) {
-                Some(node) if requirement != Requirement::Frame || *node == Node::Frame => {
-                    formation.locations.push(p);
-                    if *node == Node::Valve
-                        && let Some(side) = cuboid.side_of(p)
-                    {
-                        formation.valves.push((p, side));
-                    }
+            requirement => {
+                let node = nodes.get(&p).copied();
+                if let Some(failure) = frame_check(p, node) {
+                    return Err(failure);
                 }
-                _ => return Err(Failure::InvalidFrame(p)),
-            },
+                match node {
+                    Some(node) if requirement != Requirement::Frame || node == Node::Frame => {
+                        formation.locations.push(p);
+                        if node == Node::Valve
+                            && let Some(side) = cuboid.side_of(p)
+                        {
+                            formation.valves.push((p, side));
+                        }
+                    }
+                    _ if requirement == Requirement::Ignored => {}
+                    _ => return Err(Failure::InvalidFrame(p)),
+                }
+            }
         }
     }
     Ok(formation)

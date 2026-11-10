@@ -1,7 +1,8 @@
 // Mekanism's multiblocks in the game (support module `crate::game::mek_multiblock`
 // of the `mekanism` native bundle): the framework the Dynamic Tank
-// (`mek_dynamic_tank`) and the Induction Matrix (`mek_matrix`) stand on, and
-// the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
+// (`mek_dynamic_tank`), the Induction Matrix (`mek_matrix`) and the Thermal
+// Evaporation Plant (`mek_evaporation`) stand on, and the later cuboid
+// multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -27,6 +28,7 @@ use horizon_world::{
 };
 use mekanism_energy::{
     chemical::{ChemicalRegistry, ChemicalStack},
+    evaporation::{self, Heat},
     multiblock::{self, Cuboid, Failure, Inner, Node, Pos, Uuid},
     sides::Direction,
 };
@@ -37,23 +39,25 @@ use std::{
     hash::{BuildHasher, Hasher},
 };
 
-/// A multiblock manager (`Mekanism.tankManager`, `matrixManager`).
+/// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Kind {
     Tank,
     Matrix,
+    Evaporation,
 }
 
 pub(super) const GLASS: &str = "mekanism:structural_glass";
 
 impl Kind {
-    pub(super) const ALL: [Self; 2] = [Self::Tank, Self::Matrix];
+    pub(super) const ALL: [Self; 3] = [Self::Tank, Self::Matrix, Self::Evaporation];
 
     /// `MultiblockManager.getName`.
     pub(super) fn name(self) -> &'static str {
         match self {
             Self::Tank => "dynamicTank",
             Self::Matrix => "inductionMatrix",
+            Self::Evaporation => "evaporation",
         }
     }
 
@@ -61,6 +65,7 @@ impl Kind {
         match self {
             Self::Tank => "mekanism:dynamic_tank",
             Self::Matrix => "mekanism:induction_casing",
+            Self::Evaporation => "mekanism:thermal_evaporation_block",
         }
     }
 
@@ -68,13 +73,20 @@ impl Kind {
         match self {
             Self::Tank => "mekanism:dynamic_valve",
             Self::Matrix => "mekanism:induction_port",
+            Self::Evaporation => "mekanism:thermal_evaporation_valve",
         }
     }
 
-    /// The casing or valve of a multiblock (`TileEntityMultiblock`): its manager and whether it is the valve.
+    /// Its block that is neither casing nor valve (`CasingType.OTHER`): the evaporation plant's controller.
+    fn other(self) -> Option<&'static str> {
+        (self == Self::Evaporation).then_some(super::mek_evaporation::CONTROLLER)
+    }
+
+    /// The casing, valve or controller of a multiblock (`TileEntityMultiblock`): its manager and whether it is the
+    /// valve.
     pub(super) fn of_block(block: &str) -> Option<(Self, bool)> {
         Self::ALL.into_iter().find_map(|k| {
-            if block == k.casing() {
+            if block == k.casing() || k.other() == Some(block) {
                 Some((k, false))
             } else if block == k.valve() {
                 Some((k, true))
@@ -84,6 +96,15 @@ impl Kind {
         })
     }
 
+    /// The blocks whose item handler reaches the multiblock's slots (Mekanism's `Attributes.INVENTORY`): the dynamic
+    /// valve and the induction port, the evaporation controller.
+    fn holds_inventory(self, block: &str) -> bool {
+        match self {
+            Self::Evaporation => self.other() == Some(block),
+            _ => block == self.valve(),
+        }
+    }
+
     /// What `block` is to a structure of this manager (`getCasingType`, `isFrameCompatible`): structural glass
     /// interfaces with every manager whose name has no "reactor".
     fn node(self, block: &str) -> Option<Node> {
@@ -91,6 +112,8 @@ impl Kind {
             Some(Node::Frame)
         } else if block == self.valve() {
             Some(Node::Valve)
+        } else if self.other() == Some(block) {
+            Some(Node::Other)
         } else if block == GLASS && !self.name().to_ascii_lowercase().contains("reactor") {
             Some(Node::Structural)
         } else {
@@ -103,6 +126,7 @@ impl Kind {
         match self {
             Self::Tank => "dynamictank",
             Self::Matrix => "inductionmatrix",
+            Self::Evaporation => "evaporation",
         }
     }
 
@@ -110,16 +134,23 @@ impl Kind {
         match self {
             Self::Tank => &TANK_DATA,
             Self::Matrix => &MATRIX_DATA,
+            Self::Evaporation => &EVAPORATION_DATA,
         }
     }
 
     /// How many containers of each type its multiblock has, as its cache is first made (`CacheSubstance.prefab`):
-    /// chemical tanks, item slots, fluid tanks, energy containers.
-    fn shape(self) -> [usize; 4] {
+    /// chemical tanks, item slots, fluid tanks, energy containers, heat capacitors.
+    fn shape(self) -> [usize; 5] {
         match self {
-            Self::Tank => [1, 2, 1, 0],
-            Self::Matrix => [0, 2, 0, 1],
+            Self::Tank => [1, 2, 1, 0, 0],
+            Self::Matrix => [0, 2, 0, 1, 0],
+            Self::Evaporation => [0, 4, 2, 0, 1],
         }
+    }
+
+    /// The slots its blocks show.
+    fn slots(self) -> usize {
+        self.shape()[1]
     }
 }
 
@@ -139,6 +170,14 @@ static TANK_DATA: AttachmentType<Compound> = AttachmentType {
 static MATRIX_DATA: AttachmentType<Compound> = AttachmentType {
     namespace: "mekanism",
     name: "inductionmatrix",
+    default: Compound::new,
+    codec: Some(AttachmentCodec { encode: identity, decode: identity }),
+    copy_on_death: false,
+    sync: false,
+};
+static EVAPORATION_DATA: AttachmentType<Compound> = AttachmentType {
+    namespace: "mekanism",
+    name: "evaporation",
     default: Compound::new,
     codec: Some(AttachmentCodec { encode: identity, decode: identity }),
     copy_on_death: false,
@@ -172,13 +211,23 @@ pub(super) struct Cache {
     pub(super) items: Vec<Option<ItemStack>>,
     pub(super) fluids: Vec<FluidStack>,
     pub(super) energy: Vec<u64>,
+    /// Heat capacitors (`heat_capacitors`): none until the multiblock first saves them, as a new cache's default
+    /// capacitor reads 300 K of a capacity of 1 (`CacheSubstance.HEAT.defaultPrefab`).
+    pub(super) heat: Vec<Option<Heat>>,
     pub(super) edit_mode: i32,
 }
 
 impl Cache {
     fn of_shape(kind: Kind) -> Self {
-        let [c, i, f, e] = kind.shape();
-        Self { chemicals: vec![ChemicalStack::EMPTY; c], items: vec![None; i], fluids: vec![FluidStack::EMPTY; f], energy: vec![0; e], edit_mode: 0 }
+        let [c, i, f, e, h] = kind.shape();
+        Self {
+            chemicals: vec![ChemicalStack::EMPTY; c],
+            items: vec![None; i],
+            fluids: vec![FluidStack::EMPTY; f],
+            energy: vec![0; e],
+            heat: vec![None; h],
+            edit_mode: 0,
+        }
     }
 
     /// `MultiblockCache.merge` (`StackUtils.merge`, `StorageUtils.mergeFluidTanks`, `mergeTanks`,
@@ -211,6 +260,11 @@ impl Cache {
         }
         for (mine, theirs) in self.energy.iter_mut().zip(&other.energy) {
             *mine = mine.saturating_add(*theirs).min(i64::MAX as u64);
+        }
+        // `mergeHeatCapacitors`: heat and capacity add up (an unsaved capacitor is 300 K of a capacity of 1).
+        let unsaved = Heat { stored: evaporation::AMBIENT, capacity: 1.0 };
+        for (mine, theirs) in self.heat.iter_mut().zip(&other.heat) {
+            *mine = Some(mine.unwrap_or(unsaved).merge(theirs.unwrap_or(unsaved)));
         }
         self.edit_mode = other.edit_mode;
     }
@@ -245,6 +299,30 @@ impl Cache {
         list("fluid_tanks", "tank", fluids, self.fluids.len());
         let energy = self.energy.iter().enumerate().filter(|(_, e)| **e > 0).map(|(i, e)| (i, Tag::Long((*e).min(i64::MAX as u64) as i64))).collect();
         list("energy_containers", "container", energy, self.energy.len());
+        let unsaved = Heat { stored: evaporation::AMBIENT, capacity: 1.0 };
+        let heat = self
+            .heat
+            .iter()
+            .enumerate()
+            .map(|(i, h)| {
+                let h = h.unwrap_or(unsaved);
+                let mut e = Compound::new();
+                e.insert(key("heat_capacity"), Tag::Double(h.capacity.to_bits()));
+                (i, Tag::Double(h.stored.to_bits()), e)
+            })
+            .collect::<Vec<_>>();
+        if !heat.is_empty() {
+            c.insert(key("heat_capacitors_stored"), Tag::Int(heat.len() as i32));
+            let list = heat
+                .into_iter()
+                .map(|(i, stored, mut e)| {
+                    e.insert(key("container"), Tag::Byte(i as i8));
+                    e.insert(key("stored"), stored);
+                    Tag::Compound(e)
+                })
+                .collect();
+            c.insert(key("heat_capacitors"), Tag::List(list));
+        }
         c.insert(key("edit_mode"), Tag::Int(self.edit_mode));
         c
     }
@@ -271,8 +349,23 @@ impl Cache {
             items: vec![None; count("items")],
             fluids: vec![FluidStack::EMPTY; count("fluid_tanks")],
             energy: vec![0; count("energy_containers")],
+            heat: vec![None; count("heat_capacitors")],
             edit_mode: mek_world::number(c.get(&key("edit_mode"))).unwrap_or(0) as i32,
         };
+        if let Some(Tag::List(list)) = c.get(&key("heat_capacitors")) {
+            for e in list {
+                let Tag::Compound(e) = e else { continue };
+                let double = |name: &str| match e.get(&key(name)) {
+                    Some(Tag::Double(v)) => Some(f64::from_bits(*v)),
+                    Some(Tag::Float(v)) => Some(f64::from(f32::from_bits(*v))),
+                    _ => None,
+                };
+                let i = mek_world::number(e.get(&key("container"))).unwrap_or(0) as usize;
+                if let (Some(slot), Some(stored), Some(capacity)) = (cache.heat.get_mut(i), double("stored"), double("heat_capacity")) {
+                    *slot = Some(Heat { stored, capacity: capacity.max(1.0) });
+                }
+            }
+        }
         for (i, tag) in entries("chemical_tanks", "tank") {
             if let (Some(slot), Tag::Compound(s)) = (cache.chemicals.get_mut(i), &tag) {
                 *slot = super::mek_chemicals::stack_of(s, registry);
@@ -383,6 +476,7 @@ pub(super) fn clear() {
     SET.with(|s| s.borrow_mut().clear());
     ANY.set(false);
     super::mek_matrix::clear();
+    super::mek_evaporation::clear();
 }
 
 // ---- Block entities --------------------------------------------------------------------------
@@ -397,15 +491,25 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) -
     false
 }
 
-/// `native_block_entity_container`: the multiblock's two slots in a hopper's menu (its screen shows them); the
-/// valves and ports reach them from every face, as Mekanism's do, the casings from none.
+/// `native_block_entity_container`: the multiblock's slots in a hopper's menu (its screen shows them); the dynamic
+/// valves and induction ports reach their two from every face, as Mekanism's do, the evaporation controller its
+/// four (the fill slots take, the output slots give), the casings none.
 pub(super) fn container(block: &str) -> Option<ModContainer> {
-    let (_, valve) = Kind::of_block(block)?;
+    let (kind, _) = Kind::of_block(block)?;
+    let reach = kind.holds_inventory(block);
+    // The evaporation plant's blocks and valves have no screen and no slots.
+    if kind == Kind::Evaporation && !reach {
+        return None;
+    }
+    let (all, inputs, outputs) = match kind {
+        Kind::Evaporation => (vec![0, 1, 2, 3], vec![0, 2], vec![1, 3]),
+        _ => (vec![0, 1], vec![0, 1], vec![0, 1]),
+    };
     Some(ModContainer {
         slots: 5,
-        faces: std::array::from_fn(|_| if valve { vec![0, 1] } else { Vec::new() }),
-        inputs: vec![0, 1],
-        outputs: vec![0, 1],
+        faces: std::array::from_fn(|_| if reach { all.clone() } else { Vec::new() }),
+        inputs,
+        outputs,
         menu: Some("minecraft:hopper".into()),
     })
 }
@@ -514,6 +618,8 @@ fn failure_text(game: &mut Game<'_>, failure: Failure) -> Option<String> {
             let name = block.split_once(':').map_or(block.as_str(), |(_, n)| n).replace('_', " ");
             Some(format!("Inner structure contains an illegal block ({name}) located at ({}, {}, {}).", p[0], p[1], p[2]))
         }
+        Failure::ControllerConflict(p) => Some(format!("Controller conflict: found extra controller at ({}, {}, {}).", p[0], p[1], p[2])),
+        Failure::NoController => Some("Couldn't form, no controller found.".into()),
     }
 }
 
@@ -528,7 +634,10 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         return None;
     }
     let explored: Vec<Pos> = nodes.keys().copied().collect();
-    let result = multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p));
+    let result = match kind {
+        Kind::Evaporation => evaporation::form(&nodes, |p| inner_at(game, kind, p)),
+        _ => multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p)),
+    };
     let touched: BTreeSet<Uuid> = with_dim(dimension, |d| nodes.keys().filter_map(|p| d.at.get(&(kind, *p)).copied()).collect());
     let formation = match result {
         Ok(f) => f,
@@ -558,6 +667,8 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         }
     }
     let id = random_id();
+    let holders: Vec<Pos> =
+        with_dim(dimension, |d| formation.locations.iter().copied().filter(|p| d.nodes.get(p).is_some_and(|b| kind.holds_inventory(b))).collect());
     with_dim(dimension, |d| {
         let caches = d.caches.entry(kind).or_default();
         let mut merged: Option<Cache> = None;
@@ -570,11 +681,12 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             }
         }
         let mut cache = merged.unwrap_or_else(|| Cache::of_shape(kind));
-        let [c, i, f, e] = kind.shape();
+        let [c, i, f, e, h] = kind.shape();
         cache.chemicals.resize(c.max(cache.chemicals.len()), ChemicalStack::EMPTY);
         cache.items.resize(i.max(cache.items.len()), None);
         cache.fluids.resize(f.max(cache.fluids.len()), FluidStack::EMPTY);
         cache.energy.resize(e.max(cache.energy.len()), 0);
+        cache.heat.resize(h.max(cache.heat.len()), None);
         caches.insert(id, cache.clone());
         d.dirty.insert(kind);
         let formed = Formed {
@@ -584,7 +696,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             locations: formation.locations.iter().copied().collect(),
             internal: formation.internal.iter().copied().collect(),
             valves: formation.valves.clone(),
-            views: formation.valves.iter().map(|(p, _)| *p).chain(kept_views.iter().copied().filter(|p| formation.locations.contains(p))).collect(),
+            views: holders.iter().copied().chain(kept_views.iter().copied().filter(|p| formation.locations.contains(p))).collect(),
             pushed: Vec::new(),
         };
         for p in formed.locations.iter().chain(&formed.internal) {
@@ -596,10 +708,11 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
     for p in &formation.locations {
         set_tile_id(game, *p, Some(id));
     }
-    // `onCreated`: the contents capped to the new size, the matrix's cells and providers.
+    // `onCreated`: the contents capped to the new size, the matrix's cells and providers, the plant's heat.
     match kind {
         Kind::Tank => super::mek_dynamic_tank::created(dimension, id),
         Kind::Matrix => super::mek_matrix::created(game, dimension, id),
+        Kind::Evaporation => super::mek_evaporation::created(game, dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -616,9 +729,12 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
             super::mek_matrix::removed(dimension, id);
             super::mek_matrix::flush(game, dimension);
         }
+        if formed.kind == Kind::Evaporation {
+            super::mek_evaporation::removed(Some(game), dimension, &formed);
+        }
         for p in &formed.views {
             game.native_with_mod_block_entity(*p, |m| {
-                for slot in m.items.iter_mut().take(2) {
+                for slot in m.items.iter_mut().take(formed.kind.slots()) {
                     *slot = None;
                 }
                 m.data.clear();
@@ -629,6 +745,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
     let Some(formed) = take_formed(dimension, id) else { return };
     if formed.kind == Kind::Matrix {
         super::mek_matrix::removed(dimension, id);
+    }
+    if formed.kind == Kind::Evaporation {
+        super::mek_evaporation::removed(None, dimension, &formed);
     }
     PENDING_CLEAR.with(|p| p.borrow_mut().push(Clear { dimension: dimension.to_owned(), kind: formed.kind, id, views: formed.views.iter().copied().collect(), pushed: formed.pushed }));
 }
@@ -833,6 +952,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     for id in ids {
         push_views(game, dimension, id);
     }
+    super::mek_evaporation::flush(game, dimension);
     save_caches(game, dimension);
 }
 
@@ -850,6 +970,7 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
         match kind {
             Kind::Tank => super::mek_dynamic_tank::tick(game, dimension, id),
             Kind::Matrix => super::mek_matrix::tick(game, dimension, id),
+            Kind::Evaporation => super::mek_evaporation::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -891,6 +1012,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
     let data = match kind {
         Kind::Tank => super::mek_dynamic_tank::view(game, dimension, id),
         Kind::Matrix => super::mek_matrix::view(dimension, id),
+        Kind::Evaporation => super::mek_evaporation::view(game, dimension, id),
     };
     for p in views {
         game.native_with_mod_block_entity(p, |m| {
@@ -960,6 +1082,10 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: Pos, canceled: &mut bool) {
     }
     let formed = formed_at(dimension, kind, pos);
     if let Some(id) = formed {
+        // Only the evaporation controller has a screen (`withGui`).
+        if kind == Kind::Evaporation && !kind.holds_inventory(&block) {
+            return;
+        }
         if kind == Kind::Tank && super::mek_dynamic_tank::use_container(game, dimension, id) {
             *canceled = true;
             return;
@@ -1024,6 +1150,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
         let extra = match kind {
             Kind::Tank => super::mek_dynamic_tank::probe(game, dimension, owner),
             Kind::Matrix => super::mek_matrix::probe(dimension, owner),
+            Kind::Evaporation => super::mek_evaporation::probe(game, dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);
@@ -1053,6 +1180,7 @@ pub(super) fn caches_json(game: &mut Game<'_>) -> Value {
                         "fluids": c.fluids.iter().map(|f| json!({ "fluid": (!f.is_empty()).then(|| f.name()), "amount": f.amount().max(0) })).collect::<Vec<_>>(),
                         "chemicals": c.chemicals.iter().map(|s| json!({ "chemical": s.id(), "amount": s.amount().max(0) })).collect::<Vec<_>>(),
                         "items": c.items.iter().map(|s| s.as_ref().map(|s| json!({ "item": &*s.item, "count": s.count }))).collect::<Vec<_>>(),
+                        "heat": c.heat.iter().map(|h| h.map(|h| json!({ "stored": h.stored, "capacity": h.capacity }))).collect::<Vec<_>>(),
                         "edit_mode": c.edit_mode,
                     })
                 })

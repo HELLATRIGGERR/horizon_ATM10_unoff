@@ -209,11 +209,11 @@ fn refresh_book(game: &Game<'_>) {
     // `MekanismRecipeType.SMELTING`: each of vanilla's smelting recipes, one in, its result out.
     let smelting = cooking
         .iter()
-        .filter(|c| c.kind == "minecraft:smelting" && c.result.count > 0 && !c.ingredient.0.is_empty())
+        .filter(|c| c.kind == "minecraft:smelting" && c.result.count > 0 && !c.ingredient.items.is_empty())
         .map(|c| {
             Rc::new(Recipe {
                 id: format!("minecraft:{}", c.id),
-                input: ItemIn { items: c.ingredient.0.clone(), count: 1 },
+                input: ItemIn { items: c.ingredient.items.clone(), count: 1 },
                 extra: None,
                 main: Some(c.result.clone()),
                 secondary: None,

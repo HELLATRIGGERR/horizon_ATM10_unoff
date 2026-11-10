@@ -142,6 +142,23 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   the cell a tick after the cube gives them; broken, what was queued lands in the cell, which keeps it; a port placed
   with `active=true` comes up in input mode (its saved `active_state`); a cell emptied saves no `energy_containers`.
   World test `induction-matrix`.
+- Multiblocks, part 4: the Thermal Evaporation Plant (branch `feat/mekanism-multiblocks-2`, no new hook point:
+  `mekanism_energy::evaporation`, runtime `mek_evaporation`; the framework gained `fetch_cuboid_sides` (the open
+  top, tolerance 8), `validate_with` (a validator's requirements, `IGNORED` corners, a check before
+  `validateFrame`), `Node::Other` (the controller), the controller failures and heat capacitors in `Cache`).
+  Measured on the oracle (local `mekmb2-work/e1.py` on `mekm2-work/oracle`; `fillbiome` takes at most 32 768
+  blocks, so its slabs): forms 12 ticks after it is built at 3 and 18 high, with the top corners gone, glass in a
+  side or on the ring, a valve or the controller on the ring; not at 2 or 19, with two controllers, a controller on
+  an edge, dirt inside, a block in the top's middle or one touching the ring from above. The cache is
+  `{fluid_tanks_stored: 2, items_stored: 4, heat_capacitors_stored: 1, heat_capacitors: [{stored, heat_capacity}]}`;
+  formed anew it holds its capacity times its air (a new cache's capacitor has no heat yet: `storedHeat` -1):
+  540000.0005364418 of 1800 in plains (3 high; 0.8f), 594000.0 in a desert (330 K). Fed by an active creative tank above a ring valve (the brine there a tick later, the first lithium a
+  tick after it): 9 mB of lithium a tick 3 high, 55 18 high, 9 of brine from water, none in plains, the input kept
+  full (768 000, 4 608 000). World test `thermal-evaporation`. Not measured: the Advanced Solar Generators' heat
+  (`solarMultiplier` 0.2 K a tick each, from Mekanism's code). Two fixes on the new main: the machines read an
+  item ingredient's `items` (upstream's `Ingredient` is no longer a tuple, so the bundle didn't build), and a
+  mechanical pipe taken out no longer pulls once more before its removal commits at the tick's end (the
+  `dynamic-tank` suite saw 32 000 mB more leave after the pipe went).
 - Generators 2 (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
 - Generators 2 and the fluid world machines (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
   the Bio-Generator, Wind Generator and Advanced Solar Generator (`mekanism_energy::bio`, `wind`, `solar`'s
@@ -160,7 +177,11 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
   under a block set while the world is held settles a tick or more later, so the tests let it settle before the
   generators look again.
-- Next: chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
+- Next: the Thermoelectric Boiler (`BoilerValidator`: two volumes split by a layer of pressure dispersers, its
+  superheating elements below them, air pockets; `BoilerMultiblockData`: water and heated coolant in, steam and
+  cooled coolant out by the boil rate, its valves' modes); heat into the evaporation plant from other blocks
+  (resistive and fuelwood heaters, the heat generator's down side, thermodynamic conductors: no block-to-block heat
+  is ported yet); chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical

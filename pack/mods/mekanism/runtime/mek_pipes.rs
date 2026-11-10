@@ -353,6 +353,10 @@ fn refresh(game: &mut Game<'_>, dimension: &str, pos: [i32; 3]) {
 fn pull(game: &mut Game<'_>, dimension: &str) {
     let sides: Vec<([i32; 3], usize)> = with_pipes(dimension, |d| d.nets.ids().into_iter().flat_map(|id| d.nets.pulls(id)).collect());
     for (pos, side) in sides {
+        // A pipe taken out since the last commit doesn't tick (its removal is queued until the tick's end).
+        if !game.native_block(pos).ends_with("_mechanical_pipe") {
+            continue;
+        }
         let (room, content) = with_pipes(dimension, |d| (d.nets.available_pull(pos), d.nets.network_of(pos).and_then(|(_, n)| n.content.clone())));
         if room == 0 {
             continue;

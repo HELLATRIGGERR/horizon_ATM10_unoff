@@ -48,6 +48,8 @@ thread_local! {
     /// Each advanced solar generator's checks and its own tick count, the
     /// checks' clock (Java's game time: only the spacing of looks matters).
     static SOLARS: RefCell<HashMap<(String, [i32; 3]), (AdvancedSolar, i64)>> = RefCell::new(HashMap::new());
+    /// Whether each advanced solar generator saw the sun on its last tick (`seesSun`), for the evaporation plant.
+    static SEES_SUN: RefCell<HashMap<(String, [i32; 3]), bool>> = RefCell::new(HashMap::new());
     /// The items of `c:fuels/bio` (200 mB) and `c:fuels/block/bio` (1800), as
     /// the content's tag files list them, for the fuel slot's hoppers.
     static BIO_FUELS: RefCell<Option<HashMap<String, i32>>> = const { RefCell::new(None) };
@@ -448,8 +450,18 @@ fn tick_advanced_solar(
         ..GeneratorView::default()
     }
     .pack();
+    SEES_SUN.with(|s| s.borrow_mut().insert(id.clone(), made.sees_sun));
     SOLARS.with(|s| s.borrow_mut().insert(id, (checks, age + 1)));
     data
+}
+
+/// `IEvaporationSolar.canSeeSun` of the block at `pos`: an Advanced Solar Generator that saw the sun on its last tick
+/// (`seesSun`: more than four of its nine checks).
+pub(super) fn evaporation_solar(game: &Game<'_>, pos: [i32; 3]) -> bool {
+    if game.native_block(pos) != GeneratorKind::AdvancedSolar.id() {
+        return false;
+    }
+    SEES_SUN.with(|s| s.borrow().get(&(game.native_dimension().to_owned(), pos)).copied().unwrap_or(false))
 }
 
 // ---- Bounding blocks --------------------------------------------------------------------------

@@ -273,10 +273,10 @@ pub(super) fn chemical_handler<R>(dimension: &str, pos: Pos, block: &str, face: 
 // ---- The slots ------------------------------------------------------------------------------------------------
 
 /// The fluid side of the merged tank as the slots see it (`INTERNAL`: no rate).
-struct Fluid<'a> {
-    tank: &'a mut FluidStack,
-    capacity: i32,
-    chemical: bool,
+pub(super) struct Fluid<'a> {
+    pub(super) tank: &'a mut FluidStack,
+    pub(super) capacity: i32,
+    pub(super) chemical: bool,
 }
 
 impl Fluid<'_> {
@@ -326,7 +326,7 @@ fn move_item(game: &Game<'_>, input: &mut Option<ItemStack>, output: &mut Option
 
 /// `fillTank(outputSlot)` (`drainItemAndMove`): the input container empties into the tank, what fits; a container
 /// left with fluid stays in the input (`filling`), an empty one goes to the output.
-fn empty_container(game: &Game<'_>, input: &mut Option<ItemStack>, output: &mut Option<ItemStack>, tank: &mut Fluid<'_>, filling: &mut bool) {
+pub(super) fn empty_container(game: &Game<'_>, input: &mut Option<ItemStack>, output: &mut Option<ItemStack>, tank: &mut Fluid<'_>, filling: &mut bool) {
     let Some(stack) = input.clone() else { return };
     let Some(held) = game.native_item_fluid(&one(&stack)) else { return };
     let Some(fluid) = held.fluid.as_deref().and_then(|f| FluidStack::of(f, held.amount)).filter(|f| !f.is_empty()) else { return };
@@ -351,7 +351,7 @@ fn empty_container(game: &Game<'_>, input: &mut Option<ItemStack>, output: &mut 
 
 /// `drainTank(outputSlot)`: the input container fills from the tank; one that takes more stays in the input
 /// (`draining`), a full one goes to the output.
-fn fill_container(game: &Game<'_>, input: &mut Option<ItemStack>, output: &mut Option<ItemStack>, tank: &mut Fluid<'_>, draining: &mut bool) {
+pub(super) fn fill_container(game: &Game<'_>, input: &mut Option<ItemStack>, output: &mut Option<ItemStack>, tank: &mut Fluid<'_>, draining: &mut bool) {
     let Some(stack) = input.clone() else { return };
     if game.native_item_fluid(&one(&stack)).is_none() || tank.tank.is_empty() {
         return;

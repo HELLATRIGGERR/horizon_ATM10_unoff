@@ -1,10 +1,10 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters, its Configurator and its multiblocks,
-and Mekanism Generators' Solar, Heat and Gas-Burning Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical Pipes, Fluid Tanks and Logistical Transporters and its Configurator,
-its Electric Pump and Fluidic Plenisher, and Mekanism Generators' Solar, Heat, Gas-Burning, Bio, Wind and Advanced Solar
-Generators for All the Mods 10, as a native mod of this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
+Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical
+Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
+Matrix and the Thermal Evaporation Plant), its Electric Pump and Fluidic Plenisher, and Mekanism Generators' Solar,
+Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators for All the Mods 10, as a native mod of this fork of Horizon.
+It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
 
@@ -241,6 +241,19 @@ assets when `mekanism-content` is given them.
   to cables, cubes, machines and Forge Energy (hook points API 416) alike, and in its output mode puts out to the block
   it faces, split among the output ports, the transfer at most. Its slots charge an energy cube's item and take one's
   Joules or an item that converts to energy. Its screen is `GuiInductionMatrix`'s, with `GuiMatrixStats` as a page.
+- The Thermal Evaporation Plant (`mekanism_energy::evaporation`, runtime `mek_evaporation`): a 4x4 box of thermal
+  evaporation blocks 3 to 18 high, open at the top (its top corners may go, its top ring takes any of its blocks),
+  with valves, structural glass and one controller in its walls (`invalid_controller_conflict`,
+  `invalid_no_controller`), active while formed. Its input tank holds `volume / 4 * fluidPerTank` mB of a fluid a
+  `mekanism:evaporating` recipe takes (768 000 for 3 high on ATM10), its output tank `outputTankCapacity` (10 000);
+  the valves are its fluid handler on every side (fills go in, drains come out of the output). Its heat
+  (`heatCapacity * height`, kept in the cache) follows the mean air of its eight corners' biomes
+  (`heatDissipation * sqrt(difference)` a tick, snapping within 0.001 K) and rises `solarMultiplier` K a tick for
+  each Advanced Solar Generator on a top corner that sees the sun; it runs its recipe
+  `(min(T, 3000) - 300) * tempMultiplier * height / 18` times a tick (ATM10's 1.85: 9 mB of lithium a tick from
+  brine 3 high in a desert, 55 18 high), one every `ceil(1 / multiplier)` ticks below one. The controller holds its
+  four slots (a container emptying into the input tank, one filling from the output tank, each with its output
+  slot below) and its screen, `GuiThermalEvaporationController`'s.
 
 ## Differences from Mekanism
 
@@ -344,6 +357,11 @@ assets when `mekanism-content` is given them.
   casing reaches nothing, on a valve both slots. The slots' `isDraining` and `isFilling` aren't saved. A bucket used
   on it acts on the tank's own merged tank, a creative player's bucket changing too. The valves don't show their
   transfer (`activeTicks`), and the tank draws no fluid inside.
+- The evaporation plant takes heat only from the air and from Advanced Solar Generators: no other block hands heat
+  to its valves yet (Mekanism's heaters, the heat generator below it, conductors). Its valves don't show their
+  transfer, its recipe errors show as a red line over a gauge or the bar instead of Mekanism's warning tab, the
+  recipe viewer's link on its screen isn't there, its inner screen's lines aren't scaled down to fit (a long
+  production runs past it), and comparators read nothing of it.
 - The matrix's cells take and give in position order (Mekanism: its hash map's), which only decides which cell holds
   the Joules. Its tick runs before the level's blocks (`native_level_tick_pre`), as the oracle's matrix ticked before
   the cube placed after it; one placed before its master casing would land a tick sooner in Mekanism. Only an energy

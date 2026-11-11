@@ -101,6 +101,18 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
 | `onUseItemOn` with `advanced_ae:throughput_monitor_configurator`: `cycleWorkRoutine`; `writeToNBT`'s `routine` | the same before AE2's monitor use; `routine` in the part's record |
 | recipes `stock_export_bus`, `import_export_bus`, `advanced_io_bus`, `throughput_monitor`, `throughput_monitor_configurator` | from the jar (50 recipes now) |
 
+## What works (slice 6)
+
+| Advanced AE | Port |
+|---|---|
+| `advanced_ae:quantum_crafter` (`QuantumCrafterBlock`: `WORKING`, `OrientationStrategies.full()`, the menu on a use), `QuantumCrafterEntity`: `patternInv` (9 of one), `outputInv` (18 of 1,024), `invExposed` (patterns in, outputs out), `forMachine(QUANTUM_CRAFTER, 5)` with `initUpgrades`' 4 speed cards and a redstone card, `MAX_POWER_STORAGE` 8,000 AE on every side, `REQUIRE_CHANNEL` with no idle draw | a machine of its own (`ExtMachine`, 27 slots and five cards) in a window of 54 entries; the block state's `facing`, `spin` and `working`; loot table, pickaxe tag and the recipe `quantumcrafter` from the jar |
+| `makeCraftingRecipeList` and `CraftingJob` (`getRemainingItems`, `analyzePattern`: a pattern whose tool comes back damaged is invalid, `hasDataChange`), AE2's `AECraftingPattern` inputs (the slots condensed in their order, a fluid first with `canSubstituteFluids`, its bucket left out of the remainders) | `game/ae2x/advancedae/crafter.rs`: AE2's decoding and recipe of each pattern, kept by block entity; each slot's job settings in the config (`aae_job_<n>`, for the pattern it was made for: a new pattern starts afresh) |
+| `tickingRequest` (`TickingRequest(1, 20, !hasWork())`): `hasCraftWork` (enabled, valid patterns with a craft and room for the output), `10 x speedFactor` AE (1, 8, 16, 32, 64 by the cards) from the own buffer when it has it all, else the grid; `performCrafts`/`performCraft` (`maximumCraftableAmount` with `listMinInput` kept in the grid and `limitMaxOutput` less what the grid and the outputs hold, `requiredInputTotal`, `isInputConsumed`, `outputAmountPerCraft`; inputs by `poweredExtraction`, the rest back, what the grid refuses to `sendList`) | the same on AE2's tick tracker and the grid's storage (uncharged simulations, charged extraction, uncharged returns) |
+| `pushOutResult`: `sendList` into the grid, then with `ME_EXPORT` the outputs by `poweredInsert`, else `exportToAdjacentBlocks` over `allowedOutputs` turned by the block's facing and spin (a Reaction Chamber skipped) | the same; the sides as the Reaction Chamber's flags |
+| `isEnabled` with a redstone card (`REDSTONE_CONTROLLED`, `getBestNeighborSignal`) | the same over the block's neighbour signal |
+| `QuantumCrafterScreen` with `screens/quantum_crafter.json`: `REDSTONE_CONTROLLED` (with a card), `QUANTUM_CRAFTER_TERMINAL`, `ME_EXPORT` (`AAEIcon`), the `DIRECTIONAL_OUTPUT` sides while `ME_EXPORT` is NO, a radio under each pattern (`enableButtonN`, `toggleEnablePattern`), `invalidPatternAlert`; `isValidForSlot` (AE2's crafting pattern only) | AE2's machine screen over the style: the toggles on the toolbar, the sides on it as the Reaction Chamber's (the mod opens `OutputDirectionMenu`), the radios at the style's places (`guis/checkbox.png`), the alert while a pattern is invalid |
+| `saveAdditional`/`loadTag`: `outputSides`, `invalidPatterns`, `enabledPatterns`, `craftingJobs` (`listMinInput`, `limitMaxOutput`), upgrades, settings, `sendList` | in the machine's config (`sendList` as AE2 generic stacks); `/ae2 advae crafter <x> <y> <z>` shows the jobs and sets `keep`/`limit` |
+
 ## Not yet
 
 - The encoder's Curios slot (the port has no Curios).
@@ -137,7 +149,16 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
   the line is empty until the first reading, about a second), `writeVisualStateToNBT`, the line's colour for a
   painted cable when it is 0 (the port draws the amount's white), and the client side of a use with the configurator
   on a locked monitor.
-- The Quantum Crafter (6), the Quantum Armor (7).
+- The Quantum Crafter's leftovers: `QuantumCrafterConfigPatternScreen` (the cog over each pattern: the kept
+  stock of each input and the output limit; set by `/ae2 advae crafter .. keep|limit` instead), the invalid
+  patterns' red highlight, AE2's item substitutions in a pattern (`canSubstitute`: the crafter takes the encoded items
+  only; fluid substitution works), the Quantum Crafter Terminal and its wireless form (`QUANTUM_CRAFTER_TERMINAL` is
+  kept but nothing reads it), the Memory Card's `exportSettings`/`importSettings` (with the patterns), the in-frame
+  menu (the window of 54 entries opens on the server thread only), `SIGNAL_PULSE` of the redstone mode, a Java
+  world's `craftingJobs` (the port keys them by the pattern). Deliberate differences: an extraction short of a
+  craft goes back to the grid, and an output or remainder that finds no room in the outputs waits in `sendList`
+  (the mod loses both).
+- The Quantum Armor (7).
 
 ## Tests
 
@@ -164,9 +185,12 @@ recipes of the part form and the upgrade) and `advancedae-buses` (the Stock Expo
 the held stack and by command, the chest kept stocked; the Import Export Bus's export and import of the unlisted keys;
 the Advanced IO Bus's eight cards, `REGULATE_STOCK` on its screen with no fuzzy button, the excess and the rest
 imported, the amount exported back; two Throughput Monitors, one rising, one at 0, and the configurator's turn; a
-restart; the drops; the monitor's recipe). The units add the buses' work (`buses.rs`) and the monitor's readings
+restart; the drops; the monitor's recipe) and `advancedae-quantum-crafter` (a pattern shift-clicked into its screen,
+waiting while disabled; enabled, crafts from the grid into the grid keeping 4 logs; the limit of 32; without ME export
+the sides on the toolbar and the planks into a chest at the front; four speed cards and a redstone card, HIGH_SIGNAL;
+a restart; the drops). The units add the crafter's jobs (`crafter.rs`) and the buses' work (`buses.rs`) and the monitor's readings
 (`throughput.rs`):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers advancedae-buses
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers advancedae-buses advancedae-quantum-crafter
 ```

@@ -93,7 +93,12 @@ pub(super) mod icon {
     /// offset by 256 for each sheet ([`sheet`]), and [`texture`] takes it off.
     /// Advanced AE's `AAEIcon` (`advanced_ae:textures/guis/states.png`).
     pub const ADVANCED_AE: i32 = 1;
-    const SHEETS: [&str; 2] = ["guis/states", "advanced_ae/guis/states"];
+    /// AE2's `guis/checkbox.png` (64 x 64): a radio `AECheckbox` of 14 x 14
+    /// (`RADIO_OFF`, `RADIO_ON`), its hovered form one column right.
+    pub const CHECKBOX: i32 = 2;
+    pub const RADIO_OFF: (i32, i32) = sheet(CHECKBOX, (28, 0));
+    pub const RADIO_ON: (i32, i32) = sheet(CHECKBOX, (28, 14));
+    const SHEETS: [&str; 3] = ["guis/states", "advanced_ae/guis/states", "guis/checkbox"];
     /// Icon `(x, y)` of addon sheet `sheet`.
     pub const fn sheet(sheet: i32, (x, y): (i32, i32)) -> (i32, i32) {
         (x + 256 * sheet, y)
@@ -1142,7 +1147,7 @@ impl Game<'_> {
     pub(super) fn ae2_native_screen(&self, block: &str, menu: &str) -> Option<(NativeScreen, Ae2Screen)> {
         let layout = addon_layout(block).or_else(|| layout(MachineKind::from_id(block)?))?;
         // The machine's window: 54 entries when the layout has one past 27.
-        let wide = layout.slots.iter().any(|(entry, _)| *entry >= 27) || layout.priority.is_some_and(|entry| entry >= 27);
+        let wide = layout.slots.iter().any(|(entry, _)| *entry >= 27) || layout.priority.is_some_and(|entry| entry >= 27) || layout.upgrades.end > 27;
         if wide != (menu == "minecraft:generic_9x6") {
             return None;
         }
@@ -1220,8 +1225,9 @@ impl Game<'_> {
 
     /// An `Icon` of `guis/states.png`, or of an addon's sheet ([`icon::sheet`]).
     pub(super) fn ae2_icon(&self, batch: &mut HudBatch, (sx, sy): (i32, i32), (w, h): (i32, i32), x: f32, y: f32) {
+        let size = if sx / 256 == icon::CHECKBOX { (64, 64) } else { (256, 256) };
         let (texture, sx) = icon::texture(sx);
-        let states = Image { texture: texture.into(), texture_size: (256, 256), src: None };
+        let states = Image { texture: texture.into(), texture_size: size, src: None };
         self.ae2_blit(batch, &states, [sx, sy, w, h], x, y);
     }
 
@@ -1243,6 +1249,12 @@ impl Game<'_> {
     /// lower while hovered (`mouse` from the screen's top left).
     pub(super) fn ae2_draw_icon_button(&self, batch: &mut HudBatch, ox: f32, oy: f32, rect: [i32; 4], shown: (i32, i32), mouse: [f32; 2]) {
         let hover = inside(rect, mouse);
+        if shown.0 / 256 == icon::CHECKBOX {
+            // AECheckbox.renderWidget (a radio): no backdrop.
+            let shown = if hover { (shown.0 + 14, shown.1) } else { shown };
+            self.ae2_icon(batch, shown, (14, 14), ox + rect[0] as f32, oy + rect[1] as f32);
+            return;
+        }
         let lift = if hover { 1.0 } else { 0.0 };
         let backdrop = if hover { icon::TOOLBAR_BUTTON_BACKGROUND_HOVER } else { icon::TOOLBAR_BUTTON_BACKGROUND };
         let (x, y) = (ox + rect[0] as f32, oy + rect[1] as f32);

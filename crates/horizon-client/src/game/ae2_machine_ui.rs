@@ -45,6 +45,7 @@ impl MenuShape {
                 };
                 Self { size: 54, slots, page: Some(page.min(slots / PAGE_SLOTS - 1) * PAGE_SLOTS) }
             }
+            MachineKind::Ext(_) => Self { size: super::ae2x::machine_window(m).unwrap_or(27), slots, page: None },
             _ => Self { size: 27, slots, page: None },
         }
     }

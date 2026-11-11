@@ -9,7 +9,8 @@
     "2: the Reaction Chamber: its reaction recipes, power, input and output tanks, speed cards, auto-export by side, screen, buckets and fluid handler",
     "3: the Quantum Computer: its core, structure, unit, storages, accelerator, Data Entangler and Multi-Threader, the multiblock, its jobs at once, its screen; the Shattered Singularity, the quantum processor's chain and the Quantum Alloy as items",
     "4: the Advanced Extended Pattern Provider (36), the part forms of both providers, the Advanced Pattern Provider Upgrade and Capacity Upgrade",
-    "5: the ME Stock Export Bus, ME Import Export Bus and ME Advanced IO Bus (their work, amounts, REGULATE_STOCK, cards, screens), the ME Throughput Monitor and its configurator"
+    "5: the ME Stock Export Bus, ME Import Export Bus and ME Advanced IO Bus (their work, amounts, REGULATE_STOCK, cards, screens), the ME Throughput Monitor and its configurator",
+    "6: the Quantum Crafter: its crafting patterns run on their own from the grid with power, the kept stock and output limit, speed and redstone cards, output to the grid or the sides, its screen"
   ],
   "items": {
     "adv_processing_pattern": {"max_stack_size": 1},
@@ -46,6 +47,11 @@
         "connection_state": ["false", "true"]
       },
       "state_defaults": {"push_direction": "all", "connection_state": "false"}
+    },
+    "quantum_crafter": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"facing": ["north", "east", "south", "west", "up", "down"], "spin": ["0", "1", "2", "3"], "working": ["false", "true"]},
+      "state_defaults": {"facing": "north", "spin": "0", "working": "false"}
     },
     "reaction_chamber": {
       "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block", "no_occlusion": true, "light_dampening": 1},
@@ -112,8 +118,8 @@
   },
   "recipe_types": ["advanced_ae:reaction"],
   "ae2_namespace": {
-    "screens": ["small_adv_pattern_provider.json", "adv_pattern_provider.json", "adv_pattern_encoder.json", "reaction_chamber.json", "stock_export_bus.json", "import_export_bus.json", "advanced_io_bus.json"],
-    "gui_textures": ["adv_pattern_provider.png", "adv_pattern_encoder.png", "reaction_chamber.png"]
+    "screens": ["small_adv_pattern_provider.json", "adv_pattern_provider.json", "adv_pattern_encoder.json", "reaction_chamber.json", "quantum_crafter.json", "stock_export_bus.json", "import_export_bus.json", "advanced_io_bus.json"],
+    "gui_textures": ["adv_pattern_provider.png", "adv_pattern_encoder.png", "reaction_chamber.png", "quantum_crafter.png"]
   },
   "own_gui_textures": [
     "guis/states.png",

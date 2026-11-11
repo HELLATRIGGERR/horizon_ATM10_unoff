@@ -702,8 +702,11 @@ impl Game<'_> {
     }
 
     /// `ReactionChamberMenu.isValidForSlot`: an input takes what some
-    /// recipe uses; the output takes nothing.
+    /// recipe uses; the output takes nothing. The Quantum Crafter's: [`super::crafter::may_place`].
     pub(in crate::game) fn advancedae_may_place(&self, m: &Machine, slot: usize, item: &ItemStack) -> Option<bool> {
+        if super::crafter::is_crafter(m) {
+            return Some(super::crafter::may_place(slot, item));
+        }
         is_chamber(m).then(|| slot < INPUTS && valid_ingredient(self.res.recipes(), self.res.items(), item))
     }
 

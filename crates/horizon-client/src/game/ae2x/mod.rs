@@ -222,6 +222,10 @@ pub(super) fn orientation(block: &str) -> Option<Orientation> {
     if block == horizon_client::ae2x::advancedae::REACTION_CHAMBER {
         return Some(Orientation::Horizontal);
     }
+    #[cfg(feature = "ae2-advancedae")]
+    if block == horizon_client::ae2x::advancedae::QUANTUM_CRAFTER {
+        return Some(Orientation::FacingWithSpin);
+    }
     let _ = block;
     None
 }
@@ -235,10 +239,20 @@ pub(super) fn machine_menu(machine: &Machine) -> bool {
         return true;
     }
     #[cfg(feature = "ae2-advancedae")]
-    if advancedae::chamber::is_chamber(machine) {
+    if advancedae::chamber::is_chamber(machine) || advancedae::crafter::is_crafter(machine) {
         return true;
     }
     false
+}
+/// The entries of an addon machine's window when its slots and cards pass a
+/// chest's 27 (the Quantum Crafter's 54); none for 27.
+pub(super) fn machine_window(machine: &Machine) -> Option<usize> {
+    let _ = machine;
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::crafter::is_crafter(machine) {
+        return Some(54);
+    }
+    None
 }
 /// The most a slot of such a menu holds (`AppEngInternalInventory`'s
 /// per-slot limit, the Extended Inscriber's stack size); none for 64.
@@ -246,6 +260,19 @@ pub(super) fn machine_slot_capacity(machine: &Machine, slot: usize) -> Option<u3
     let _ = (machine, slot);
     #[cfg(feature = "ae2-extendedae")]
     if let Some(found) = extendedae::slot_capacity(machine, slot) {
+        return Some(found);
+    }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae::crafter::slot_capacity(machine.kind, slot) {
+        return Some(found);
+    }
+    None
+}
+/// What automation puts in an addon machine's slot at most; none for 64.
+pub(super) fn slot_insert_limit(kind: horizon_client::ae2_world::MachineKind, index: usize) -> Option<u32> {
+    let _ = (kind, index);
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae::crafter::slot_capacity(kind, index) {
         return Some(found);
     }
     None
@@ -290,7 +317,7 @@ pub(super) fn slot_insert(kind: horizon_client::ae2_world::MachineKind, index: u
         return Some(found);
     }
     #[cfg(feature = "ae2-advancedae")]
-    if let Some(found) = advancedae::chamber::slot_insert(kind, index) {
+    if let Some(found) = advancedae::chamber::slot_insert(kind, index).or_else(|| advancedae::crafter::slot_insert(kind, index)) {
         return Some(found);
     }
     None
@@ -302,7 +329,7 @@ pub(super) fn slot_extract(kind: horizon_client::ae2_world::MachineKind, index: 
         return Some(found);
     }
     #[cfg(feature = "ae2-advancedae")]
-    if let Some(found) = advancedae::chamber::slot_extract(kind, index) {
+    if let Some(found) = advancedae::chamber::slot_extract(kind, index).or_else(|| advancedae::crafter::slot_extract(kind, index)) {
         return Some(found);
     }
     None
@@ -315,7 +342,7 @@ pub(super) fn private_power_face(kind: horizon_client::ae2_world::MachineKind, s
         return true;
     }
     #[cfg(feature = "ae2-advancedae")]
-    if advancedae::chamber::private_power_face(kind) {
+    if advancedae::chamber::private_power_face(kind) || advancedae::crafter::private_power_face(kind) {
         return true;
     }
     false
@@ -339,6 +366,8 @@ pub(super) fn machine_screen_data(machine: &Machine, data: &mut Vec<i16>) {
     let _ = (machine, &data);
     #[cfg(feature = "ae2-advancedae")]
     advancedae::chamber::screen_data(machine, data);
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae::crafter::screen_data(machine, data);
 }
 /// The entries an addon machine's window shows past its slots and cards.
 pub(super) fn machine_menu_items(machine: &Machine, items: &mut [Option<horizon_client::items::ItemStack>]) {
@@ -1031,6 +1060,8 @@ impl Game<'_> {
         #[cfg(feature = "ae2-advancedae")]
         self.tick_advancedae_chambers();
         #[cfg(feature = "ae2-advancedae")]
+        self.tick_advancedae_crafters();
+        #[cfg(feature = "ae2-advancedae")]
         self.tick_advancedae_quantum();
         #[cfg(feature = "ae2-advancedae")]
         self.tick_advancedae_throughput();
@@ -1087,7 +1118,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-advancedae")]
-        if advancedae::chamber::device(machine, device) || advancedae::quantum::device(machine, properties, device) {
+        if advancedae::chamber::device(machine, device) || advancedae::crafter::device(machine, device) || advancedae::quantum::device(machine, properties, device) {
             return true;
         }
         false
@@ -1149,7 +1180,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-advancedae")]
-        if advancedae::chamber::visual_props(machine, props) || self.advancedae_quantum_visual(machine, online, props) {
+        if advancedae::chamber::visual_props(machine, props) || advancedae::crafter::visual_props(machine, props) || self.advancedae_quantum_visual(machine, online, props) {
             return true;
         }
         false

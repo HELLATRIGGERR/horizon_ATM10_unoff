@@ -42,7 +42,7 @@ pub(super) fn ae2_slot_insert(kind: MachineKind, index: usize, stack: &ItemStack
         MachineKind::Drive => Some((cell(stack), 1)),
         // IOPortBlockEntity: inputCellsExt is INSERT_ONLY, outputCellsExt EXTRACT_ONLY.
         MachineKind::IoPort => Some((index < 6 && cell(stack), 1)),
-        MachineKind::Ext(_) => crate::game::ae2x::slot_insert(kind, index).map(|ok| (ok, 64)),
+        MachineKind::Ext(_) => crate::game::ae2x::slot_insert(kind, index).map(|ok| (ok, crate::game::ae2x::slot_insert_limit(kind, index).unwrap_or(64))),
         _ => None,
     }
 }

@@ -4,13 +4,14 @@
 //! `pattern_provider.json` with the title "Advanced Pattern Provider"),
 //! `AdvPatternProviderScreen` over `AdvPatternProviderMenu` (36) with
 //! `screens/adv_pattern_provider.json`, and
-//! `ReactionChamberScreen` over `ReactionChamberMenu` with `screens/reaction_chamber.json`.
+//! `ReactionChamberScreen` over `ReactionChamberMenu` with `screens/reaction_chamber.json`, and
+//! `QuantumCrafterScreen` over `QuantumCrafterMenu` with `screens/quantum_crafter.json`.
 //! Derived from Advanced AE, https://github.com/pedroksl/AdvancedAE commit
 //! `c322dad81e6f2ad94cb1fb861e73a7ba68e5907a`, LGPL-3.0, over AE2's
 //! `PatternProviderScreen` (LGPL-3.0); see `ae2/addons/advancedae/`.
 //! The window entries are `ae2_machine_ui::MenuShape`'s: 18 for nine slots, 45 for 36.
 use super::{Layout, MachineKind, Progress, Stored, Toggle, icon};
-use crate::game::ae2x::advancedae::chamber;
+use crate::game::ae2x::advancedae::{chamber, crafter};
 
 const PATTERN: &str = "ENCODED_PATTERN";
 const BLANK: (i32, i32) = icon::BACKGROUND_BLANK_PATTERN;
@@ -156,6 +157,91 @@ const fn blank_patterns<const N: usize>() -> [(usize, (i32, i32)); N] {
     }
     icons
 }
+/// `QuantumCrafterMenu`: the patterns (`MACHINE_INPUT`), then the outputs (`MACHINE_OUTPUT`).
+const fn crafter_slots() -> [(usize, &'static str); crafter::SLOTS] {
+    let mut slots = [(0, "MACHINE_INPUT"); crafter::SLOTS];
+    let mut entry = 0;
+    while entry < crafter::SLOTS {
+        slots[entry] = (entry, if entry < crafter::PATTERNS { "MACHINE_INPUT" } else { "MACHINE_OUTPUT" });
+        entry += 1;
+    }
+    slots
+}
+const CRAFTER_SLOTS: [(usize, &str); crafter::SLOTS] = crafter_slots();
+const CRAFTER_BLANKS: [(usize, (i32, i32)); crafter::PATTERNS] = blank_patterns();
+/// `AAEIcon.ME_EXPORT_ON`, `ME_EXPORT_OFF`, `SHOW_ON_CRAFTER_TERMINAL`, `HIDE_ON_CRAFTER_TERMINAL`.
+const ME_EXPORT_ON: (i32, i32) = icon::sheet(icon::ADVANCED_AE, (0, 0));
+const ME_EXPORT_OFF: (i32, i32) = icon::sheet(icon::ADVANCED_AE, (16, 0));
+const SHOW_ON_TERMINAL: (i32, i32) = icon::sheet(icon::ADVANCED_AE, (0, 32));
+const HIDE_ON_TERMINAL: (i32, i32) = icon::sheet(icon::ADVANCED_AE, (16, 32));
+/// The crafter's side toggles (`RelativeSide` order), shown while ME_EXPORT is NO.
+const CRAFTER_FRONT: Toggle = Toggle { entry: crafter::SIDE_ENTRIES.start as i32, data: crafter::SIDE_DATA, shown_by: Some(crafter::ME_EXPORT_DATA), ..FRONT };
+/// A pattern's radio (`enableButton1`.. at the style's places, `EnablePatternButton`).
+const ENABLE: Toggle = Toggle {
+    entry: crafter::ENABLE_ENTRIES.start as i32,
+    key: crafter::ENABLED[0],
+    stored: Stored::Flag(false),
+    default: 0,
+    data: crafter::ENABLE_DATA,
+    title: "gui.tooltips.advanced_ae.EnablePatternButton",
+    values: &[("NO", icon::RADIO_OFF, "options.off"), ("YES", icon::RADIO_ON, "options.on")],
+    place: Some((9, 60)),
+    shown_by: None,
+};
+const fn crafter_toggles() -> [Toggle; 18] {
+    let mut toggles = [ENABLE; 18];
+    // ServerSettingToggleButton(REDSTONE_CONTROLLED), with a redstone card; AE2's SIGNAL_PULSE is not in the port.
+    toggles[0] = Toggle {
+        entry: crafter::REDSTONE_ENTRY as i32,
+        key: crafter::REDSTONE,
+        stored: Stored::Text,
+        default: 0,
+        data: 0,
+        title: "gui.tooltips.ae2.RedstoneMode",
+        values: &[
+            ("IGNORE", icon::REDSTONE_IGNORE, "gui.tooltips.ae2.AlwaysActive"),
+            ("LOW_SIGNAL", icon::REDSTONE_LOW, "gui.tooltips.ae2.ActiveWithoutSignal"),
+            ("HIGH_SIGNAL", icon::REDSTONE_HIGH, "gui.tooltips.ae2.ActiveWithSignal"),
+        ],
+        place: None,
+        shown_by: Some(crafter::REDSTONE_CARD_DATA),
+    };
+    toggles[1] = Toggle {
+        entry: crafter::TERMINAL_ENTRY as i32,
+        key: crafter::TERMINAL,
+        stored: Stored::Text,
+        default: 0,
+        data: 1,
+        title: "gui.tooltips.advanced_ae.CrafterTerminalSetting",
+        values: &[("YES", SHOW_ON_TERMINAL, "gui.tooltips.advanced_ae.ShowOnCrafterTerminal"), ("NO", HIDE_ON_TERMINAL, "gui.tooltips.advanced_ae.HideOnCrafterTerminal")],
+        place: None,
+        shown_by: None,
+    };
+    toggles[2] = Toggle {
+        entry: crafter::ME_EXPORT_ENTRY as i32,
+        key: crafter::ME_EXPORT,
+        stored: Stored::Text,
+        default: 0,
+        data: crafter::ME_EXPORT_DATA,
+        title: "gui.tooltips.advanced_ae.MeExport",
+        values: &[("YES", ME_EXPORT_ON, "gui.tooltips.advanced_ae.MeExportOn"), ("NO", ME_EXPORT_OFF, "gui.tooltips.advanced_ae.MeExportOff")],
+        place: None,
+        shown_by: None,
+    };
+    const TITLES: [&str; 6] = ["gui.tooltips.ae2.SideFront", "gui.tooltips.ae2.SideBack", "gui.tooltips.ae2.SideTop", "gui.tooltips.ae2.SideBottom", "gui.tooltips.ae2.SideLeft", "gui.tooltips.ae2.SideRight"];
+    let mut i = 0;
+    while i < 6 {
+        toggles[3 + i] = Toggle { entry: CRAFTER_FRONT.entry + i as i32, key: chamber::SIDES[i].1, data: crafter::SIDE_DATA + i, title: TITLES[i], ..CRAFTER_FRONT };
+        i += 1;
+    }
+    let mut n = 0;
+    while n < crafter::PATTERNS {
+        toggles[9 + n] = Toggle { entry: ENABLE.entry + n as i32, key: crafter::ENABLED[n], data: crafter::ENABLE_DATA + n, place: Some((9 + 18 * n as i32, 60)), ..ENABLE };
+        n += 1;
+    }
+    toggles
+}
+const CRAFTER_TOGGLES: [Toggle; 18] = crafter_toggles();
 const SMALL_SLOTS: [(usize, &str); 18] = provider_slots();
 const LARGE_SLOTS: [(usize, &str); 45] = provider_slots();
 const SMALL_BLANKS: [(usize, (i32, i32)); 9] = blank_patterns();
@@ -232,6 +318,26 @@ const LAYOUTS: &[(&str, Layout)] = &[
         lock_line: None,
         page_line: None,
         panels: &["powerAlert?5"],
+    }),
+    // QuantumCrafterMenu: nine patterns (HORIZONTAL), eighteen outputs (BREAK_AFTER_9COLS), five cards; on the
+    // toolbar REDSTONE_CONTROLLED (with a card), QUANTUM_CRAFTER_TERMINAL and ME_EXPORT, and while ME_EXPORT is NO
+    // the six output sides (the mod's DIRECTIONAL_OUTPUT button opens them in a menu of their own); a radio under
+    // each pattern; the invalid pattern alert. Its window is 54 entries, the cards at 27..32.
+    (horizon_client::ae2x::advancedae::QUANTUM_CRAFTER, Layout {
+        kind: MachineKind::Ext(u16::MAX),
+        style: "quantum_crafter.json",
+        slots: &CRAFTER_SLOTS,
+        icons: &CRAFTER_BLANKS,
+        upgrades: crafter::SLOTS..crafter::SLOTS + 5,
+        toggles: &CRAFTER_TOGGLES,
+        progress: None,
+        priority: None,
+        decorations: &[],
+        grid: None,
+        cogs: &[],
+        lock_line: None,
+        page_line: None,
+        panels: &["invalidPatternAlert?10"],
     }),
 ];
 

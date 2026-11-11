@@ -8,7 +8,7 @@ use horizon_client::{ae2_generic_stack::GenericStack, items::ItemStack};
 use horizon_core::geometry::Direction;
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: /ae2 advae show|encode <slot> | direction <slot> <item|fluid:<id>> <down|up|north|south|west|east|none> | quantum <x> <y> <z> | bus|throughput <x> <y> <z> <face> | stock <x> <y> <z> <face> <filter> <amount>";
+const USAGE: &str = "usage: /ae2 advae show|encode <slot> | direction <slot> <item|fluid:<id>> <down|up|north|south|west|east|none> | quantum <x> <y> <z> | crafter <x> <y> <z> [keep <slot> <input> <amount> | limit <slot> <amount>] | bus|throughput <x> <y> <z> <face> | stock <x> <y> <z> <face> <filter> <amount>";
 
 fn parse_face(word: &str) -> Result<Option<Direction>, String> {
     Ok(Some(match word {
@@ -74,6 +74,10 @@ impl Game<'_> {
                 let output = with_direction(&stack(self, at)?, &key, parse_face(face)?).ok_or("no such input of an Advanced Processing Pattern")?;
                 self.inventory[at] = Some(output);
                 self.ae2_advancedae_command(&["show", &at.to_string()])
+            }
+            ["crafter", x, y, z, rest @ ..] => {
+                let n = |w: &str| w.parse::<i32>().map_err(|_| String::from("bad coordinate"));
+                self.advancedae_crafter_command((n(x)?, n(y)?, n(z)?), rest)
             }
             ["quantum", x, y, z] => {
                 let n = |w: &str| w.parse::<i32>().map_err(|_| String::from("bad coordinate"));

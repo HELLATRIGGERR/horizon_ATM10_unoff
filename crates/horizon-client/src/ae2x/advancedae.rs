@@ -104,11 +104,17 @@ pub const WORKING: &str = "aae_working";
 /// `showWarning`: the last step had too little power for full speed.
 pub const WARNING: &str = "aae_warning";
 
+/// `AAEBlocks.QUANTUM_CRAFTER`.
+pub const QUANTUM_CRAFTER: &str = "advanced_ae:quantum_crafter";
+
 /// `ReactionChamberEntity`: `inputInv` (9) and `outputInv` (1), `UpgradeInventories.forMachine(REACTION_CHAMBER, 4)`,
 /// `setInternalMaxPower(MAX_POWER_STORAGE)`. Its tanks' fluids drop nothing (`AEFluidKey.addDrops`).
 /// The Quantum Computer's blocks (`AdvCraftingBlockEntity`) have no inventory of their own.
+/// `QuantumCrafterEntity`: `patternInv` (9) and `outputInv` (18), `forMachine(QUANTUM_CRAFTER, 5)`,
+/// `setInternalMaxPower(MAX_POWER_STORAGE)` (8,000 AE).
 pub const OWN_MACHINES: &[ExtMachine] = &[
     ExtMachine { id: REACTION_CHAMBER, physical_slots: 10, upgrade_slots: 4, key_drops: None, power_capacity: Some(500_000.0), part: false },
+    ExtMachine { id: QUANTUM_CRAFTER, physical_slots: 27, upgrade_slots: 5, key_drops: None, power_capacity: Some(8_000.0), part: false },
     quantum_machine(QUANTUM_UNIT),
     quantum_machine(QUANTUM_CORE),
     quantum_machine(QUANTUM_STORAGE_128),
@@ -269,8 +275,11 @@ impl QuantumConfig {
 }
 
 /// What the Reaction Chamber does not save (`saveAdditional`): its
-/// `processingTime`, `working` and `showWarning`.
+/// `processingTime`, `working` and `showWarning`; nor the Quantum Crafter its `working`.
 pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
+    if m.kind.ext().is_some_and(|row| row.id == QUANTUM_CRAFTER) {
+        m.config.remove(&WORKING.into());
+    }
     if m.kind.ext().is_some_and(|row| row.id == REACTION_CHAMBER) {
         m.progress = 0.0;
         m.config.remove(&WORKING.into());
@@ -322,6 +331,8 @@ pub fn register(defs: &mut Defs) {
     }
     // AdvancedAE.initUpgrades, for the machines carried so far.
     defs.add_upgrade("ae2:speed_card", REACTION_CHAMBER, 4);
+    defs.add_upgrade("ae2:speed_card", QUANTUM_CRAFTER, 4);
+    defs.add_upgrade("ae2:redstone_card", QUANTUM_CRAFTER, 1);
     for bus in [STOCK_EXPORT_BUS, IMPORT_EXPORT_BUS, ADVANCED_IO_BUS] {
         for (card, max) in [("ae2:speed_card", 4), ("ae2:capacity_card", 5), ("ae2:redstone_card", 1), ("ae2:crafting_card", 1), ("ae2:fuzzy_card", 1)] {
             defs.add_upgrade(card, bus, max);
@@ -366,6 +377,19 @@ mod tests {
         assert_eq!(defs.processing_pattern_component("ae2:processing_pattern"), Some("ae2:encoded_processing_pattern"));
         assert_eq!(defs.processing_pattern_component("ae2:crafting_pattern"), None);
         assert!(defs.processing_pattern_items().any(|id| id == ADV_PROCESSING_PATTERN));
+    }
+
+    #[test]
+    fn the_quantum_crafter_is_a_machine_of_nine_patterns_eighteen_outputs_and_five_cards() {
+        crate::ae2x::install();
+        let mut machine = crate::ae2_world::Machine::for_block(QUANTUM_CRAFTER).unwrap();
+        assert_eq!((machine.slots.len(), machine.upgrades.len()), (27, 5));
+        assert_eq!(machine.kind.ext().and_then(|row| row.power_capacity), Some(8_000.0));
+        let limit = |card| crate::ae2x::defs::get().upgrade_limit(card, QUANTUM_CRAFTER);
+        assert_eq!((limit("ae2:speed_card"), limit("ae2:redstone_card"), limit("ae2:capacity_card")), (4, 1, 0));
+        machine.config.insert(WORKING.into(), horizon_world::nbt::Tag::Byte(1));
+        reset_unsaved(&mut machine);
+        assert!(machine.config.get(&WORKING.into()).is_none());
     }
 
     #[test]

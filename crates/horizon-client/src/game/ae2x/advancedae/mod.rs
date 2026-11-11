@@ -21,10 +21,11 @@
 //! the pattern's tooltip (`MixinEncodedPatternItem`) and its re-encoding in
 //! AE2's encoding terminal (`MixinPatternEncodingTermMenu`). The encoder's
 //! menu is `encoder`, its screen `encoder_screen`; the Reaction Chamber is
-//! `chamber`, the Quantum Computer `quantum`, the buses `buses` and the
+//! `chamber`, the Quantum Crafter `crafter`, the Quantum Computer `quantum`, the buses `buses` and the
 //! Throughput Monitor `throughput`.
 pub(in crate::game) mod buses;
 pub(in crate::game) mod chamber;
+pub(in crate::game) mod crafter;
 pub(in crate::game) mod encoder;
 pub(in crate::game) mod encoder_screen;
 mod lab;
@@ -47,6 +48,8 @@ pub(in crate::game) struct State {
     pub(in crate::game) encoder_scroll: crate::game::ae2_widgets::Scroll,
     /// The Reaction Chambers' searches, by block entity incarnation.
     pub(in crate::game) chambers: std::collections::HashMap<u64, chamber::Ctx>,
+    /// The Quantum Crafters' decoded patterns, by block entity incarnation.
+    pub(in crate::game) crafters: std::collections::HashMap<u64, crafter::Ctx>,
     /// The Throughput Monitors' readings, by part node.
     pub(in crate::game) throughput: std::collections::BTreeMap<ae2_network_core::NodeIdentity, throughput::Monitor>,
 }
@@ -340,7 +343,7 @@ impl crate::game::Game<'_> {
     /// entry [`filtered_import_entry`], window slot `slot`): the setting steps
     /// on; or on a Reaction Chamber's own entries. False for any other press.
     pub(in crate::game) fn advancedae_machine_click(&mut self, pos: (i32, i32, i32), slot: usize, button: i32, input: horizon_client::menu::Input) -> bool {
-        if self.advancedae_chamber_click(pos, slot, button, input) {
+        if self.advancedae_chamber_click(pos, slot, button, input) || self.advancedae_crafter_click(pos, slot, button, input) {
             return true;
         }
         let Some(horizon_client::containers::BlockEntity::Ae2(machine)) = self.world.block_entities.get_mut(&pos) else { return false };

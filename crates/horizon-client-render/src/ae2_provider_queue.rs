@@ -32,12 +32,30 @@ fn item(entry:&Tag)->Result<Entry,String> {
     if prototype.count!=1 {return Err("provider queue item is not a prototype".into());}
     Ok(Entry::Item{prototype,amount})
 }
+/// A key of an addon's type rides the fluid entries as the port's marker
+/// (`horizon_client::ae2_key_types::addon_marker`, `horizon:key/<type>|<id>`);
+/// its record keeps the type's id in `#t` beside the key's id, as a
+/// `GenericStack` does.
+const MARKER:&str="horizon:key/";
 fn fluid(entry:&Tag)->Result<Entry,String> {
     let amount=amount(entry)?;
     let (Some(Tag::String(id)),Some(Tag::ByteArray(components)))=(entry.get("fluid"),entry.get("components")) else{return Err("invalid provider queue fluid".into());};
     let id=id.to_string().map_err(|_|"invalid provider queue fluid id")?;
     if !valid_fluid_id(&id) {return Err("invalid provider queue fluid id".into());}
-    Ok(Entry::Fluid{key:ItemKey{item_id:id,components:components.clone()},amount})
+    let item_id=match entry.get("#t") {
+        None=>id,
+        Some(Tag::String(kind))=>{
+            let kind=kind.to_string().map_err(|_|"invalid provider queue key type")?;
+            if !valid_fluid_id(&kind) {return Err("invalid provider queue key type".into());}
+            format!("{MARKER}{kind}|{id}")
+        }
+        Some(_)=>return Err("invalid provider queue key type".into()),
+    };
+    Ok(Entry::Fluid{key:ItemKey{item_id,components:components.clone()},amount})
+}
+/// The type id and key id of a marker key.
+fn marker(key:&ItemKey)->Option<(&str,&str)> {
+    key.item_id.strip_prefix(MARKER)?.split_once('|').filter(|(kind,id)|valid_fluid_id(kind)&&valid_fluid_id(id))
 }
 fn queue_entry(entry:&Tag)->Result<Entry,String> {
     match (entry.get("item"),entry.get("fluid")) {
@@ -76,7 +94,11 @@ fn write_entry(entry:&Entry)->Result<Tag,String> {
         Entry::Item{..}=>Err("provider queue item is not a prototype".into()),
         Entry::Fluid{key,..} if valid_fluid_id(&key.item_id)=>Ok(Tag::compound([
             ("fluid",Tag::String(key.item_id.as_str().into())),("components",Tag::ByteArray(key.components.clone())),("amount",Tag::Long(amount))])),
-        Entry::Fluid{..}=>Err("invalid provider queue fluid id".into()),
+        Entry::Fluid{key,..}=>{
+            let (kind,id)=marker(key).ok_or("invalid provider queue fluid id")?;
+            Ok(Tag::compound([("#t",Tag::String(kind.into())),
+                ("fluid",Tag::String(id.into())),("components",Tag::ByteArray(key.components.clone())),("amount",Tag::Long(amount))]))
+        }
     }
 }
 /// Prepare every record before touching the stored data, so an error leaves
@@ -127,6 +149,18 @@ mod tests {
         assert_eq!(entries[1].amount(),999_999);assert_eq!(prototype.count,1);
         let physical=physical_items(&entries).unwrap();assert_eq!(physical.len(),1);assert_eq!(physical[0].count,999_999);
         assert!(physical[0].same_item_same_components(&prototype));
+    }
+    #[test]
+    fn an_addon_type_key_keeps_its_type_id_beside_its_own() {
+        let fe=ItemKey{item_id:"horizon:key/appflux:flux|appflux:fe".into(),components:vec![]};
+        let entries=vec![Entry::Fluid{key:fe,amount:65_536}];
+        let mut config=Compound::default();write(&mut config,&entries).unwrap();
+        let Some(Tag::List(saved))=config.get(&QUEUE.into()) else{panic!("no queue")};
+        assert_eq!(saved[0],Tag::compound([("#t",Tag::String("appflux:flux".into())),("fluid",Tag::String("appflux:fe".into())),
+            ("components",Tag::ByteArray(vec![])),("amount",Tag::Long(65_536))]));
+        assert_eq!(read(&config).unwrap(),entries);
+        let bad=[Entry::Fluid{key:ItemKey{item_id:"horizon:key/Bad Type|appflux:fe".into(),components:vec![]},amount:1}];
+        assert!(write(&mut config,&bad).is_err());
     }
     #[test]
     fn legacy_data_migrates_without_losing_opaque_fluid_or_item_custody() {

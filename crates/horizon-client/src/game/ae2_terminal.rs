@@ -131,8 +131,7 @@ fn encoding_item_icon(item:&ItemStack,max:u32)->Option<ItemStack> {
     horizon_client::ae2_generic_stack::wrap(&horizon_client::ae2_generic_stack::GenericStack::item(key, i64::from(item.count))).ok()
 }
 fn encoding_fluid_icon(fluid:&super::ae2_processing::PatternFluid)->Option<ItemStack> {
-    let value=horizon_client::ae2_generic_stack::GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).ok()?);
-    horizon_client::ae2_generic_stack::wrap(&value).ok().or_else(||{
+    fluid.generic().and_then(|value|horizon_client::ae2_generic_stack::wrap(&value)).ok().or_else(||{
         let id=super::ae2_fluids::fluid_bucket(&fluid.key.item_id).unwrap_or("minecraft:bucket");
         let mut item=ItemStack::new(id,1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name(format!("{} mB {}",fluid.amount,fluid.key.item_id)));Some(item)
     })
@@ -154,7 +153,12 @@ fn encoding_selected_fluid(held:Option<&ItemStack>,amount:u64,selected:usize,flu
         .or_else(||fluids.get(selected%fluids.len().max(1)).map(|(key,_)|key.clone()))?;
     Some(super::ae2_processing::PatternFluid{key,amount})
 }
+/// A craftable non-item key as listed: a fluid as `horizon:crafting_fluid/<id>`;
+/// an addon type's key is crafted under its own marker, its listed id.
 fn fluid_marker(key: &ae2_cell_core::ItemKey) -> ae2_cell_core::ItemKey {
+    if horizon_client::ae2_key_types::parse_addon_marker(key).is_some() {
+        return key.clone();
+    }
     ae2_cell_core::ItemKey {
         item_id: format!("horizon:crafting_fluid/{}", key.item_id),
         components: key.components.clone(),
@@ -180,6 +184,11 @@ fn marker_key(key: &ae2_cell_core::ItemKey) -> TypedKey {
 /// A listed id that stands for an item.
 fn is_item_marker(key: &ae2_cell_core::ItemKey) -> bool {
     marker_key(key).key_type == KeyType::ITEMS
+}
+/// The key crafting requests for a listed non-item id: a fluid's, or an addon
+/// type's marker as it is; none for an item.
+fn craft_lane_key(key: &ae2_cell_core::ItemKey) -> Option<ae2_cell_core::ItemKey> {
+    marker_fluid(key).or_else(|| horizon_client::ae2_key_types::parse_addon_marker(key).map(|_| key.clone()))
 }
 fn marker_fluid(key: &ae2_cell_core::ItemKey) -> Option<ae2_cell_core::ItemKey> {
     Some(ae2_cell_core::ItemKey {
@@ -1410,7 +1419,7 @@ impl Game<'_> {
                 if let Ok(entries)=self.ae2_local_terminal_entries(pos) {
                     let page=self.ae2_terminal_page.min(entries.len().saturating_sub(1)/page_size);
                     if let Some((key,count))=entries.get(page*page_size+slot-300) {
-                        let fluid=marker_fluid(key);
+                        let fluid=craft_lane_key(key);
                         let craftable=if let Some(fluid)=fluid.as_ref() {self.ae2_craftable_fluids(pos).contains(fluid)} else {self.ae2_craftable_outputs(pos).contains(key)};
                         // MEStorageScreen: a middle click, or a left click with an empty cursor on an item that
                         // isn't stored (or while only craftables are shown); a left click on a fluid fills a
@@ -5063,7 +5072,7 @@ impl Game<'_> {
                 // instead, and a shift click always moves the stored stack.
                 let left=input==Input::Pickup && button==0 && is_item_marker(key) && empty_cursor && (*count==0 || only_craftable);
                 if craftable.contains(key) && (input==Input::Clone || left) {
-                    let fluid=marker_fluid(key);
+                    let fluid=craft_lane_key(key);
                     let is_fluid=fluid.is_some();
                     let selected=fluid.unwrap_or_else(||key.clone());
                     return self.lan_open_terminal_craft_confirm(host,conn,pos,selected,is_fluid,craft_part,wireless.clone());

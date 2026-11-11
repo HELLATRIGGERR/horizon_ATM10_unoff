@@ -12,13 +12,16 @@ const FLUID_MARKER:&str="horizon:crafting_fluid/";
 pub(super) fn parse_key(wire:&str)->Option<ItemKey> {
     if wire.len()>65_536 {return None;}
     if let Some(rest)=wire.strip_prefix("fluid|") {
-        let (id,hex)=rest.split_once('|')?;
-        if !super::ae2_fluids::valid_fluid_id(id) || hex.len()%2!=0 || !hex.is_ascii() {return None;}
+        // An addon type's key is named by its marker, whose id holds a `|`.
+        let (id,hex)=rest.rsplit_once('|')?;
+        let addon=horizon_client::ae2_key_types::parse_addon_marker(&ItemKey{item_id:id.to_owned(),components:Vec::new()}).is_some();
+        if !(addon || super::ae2_fluids::valid_fluid_id(id)) || hex.len()%2!=0 || !hex.is_ascii() {return None;}
         let bytes=hex.as_bytes();let mut components=Vec::with_capacity(bytes.len()/2);
         for pair in bytes.chunks_exact(2) {
             let digit=|c:u8| match c {b'0'..=b'9'=>Some(c-b'0'),b'a'..=b'f'=>Some(c-b'a'+10),b'A'..=b'F'=>Some(c-b'A'+10),_=>None};
             components.push(digit(pair[0])?*16+digit(pair[1])?);
         }
+        if addon {return Some(ItemKey{item_id:id.to_owned(),components});}
         return Some(ItemKey{item_id:format!("{FLUID_MARKER}{id}"),components});
     }
     let stack=horizon_client::item_data::parse_stack(wire).ok()??;

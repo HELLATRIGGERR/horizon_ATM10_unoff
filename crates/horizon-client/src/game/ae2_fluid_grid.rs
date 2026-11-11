@@ -194,6 +194,15 @@ impl Game<'_> {
         charge_power: bool,
         plan: &mut FormationPlan,
     ) -> Result<u64, String> {
+        // Crafting carries an addon type's key beside the fluids, as its
+        // marker: the grid's storage of that type (`ae2_key_storage`).
+        if let Some(typed) = horizon_client::ae2_key_types::parse_addon_marker(key) {
+            let moved = self.ae2_grid_typed_move_crafting(pos, typed.key_type, &typed.key, amount, insert, simulate, charge_power)?;
+            if require_full && moved != amount {
+                return Err("key grid cannot complete transfer".into());
+            }
+            return Ok(moved);
+        }
         let cells = self.ae2_cell_mounts_encoded(pos)?;
         let mut left = if charge_power {
             let energy = self.ae2_take_power_encoded(pos, amount as f64 / MB_PER_AE, true);

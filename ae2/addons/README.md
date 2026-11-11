@@ -113,7 +113,22 @@ What reaches a key of an addon's type, and what doesn't yet:
   an addon type's keys through its `ImportStrategy` / `ExportStrategy`.
 - **Storage buses**: a bus mounts a block the type's `ExternalStorageStrategy` finds storage in, and the grid's
   storage of the type lists and moves through it by priority, partition, access and Void Card.
+- **Crafting**: a processing pattern's inputs and outputs may be keys of an addon's type, saved in AE2's form
+  (`ae2:encoded_processing_pattern`, the type's id in `#t`); the Pattern Encoding Terminal shows such a key as a
+  ghost of its type (a wrapped stack's own type, a loaded pattern's) and encodes it again. Crafting carries such
+  a key beside the fluids as its marker (`ae2_key_types::addon_marker`, `horizon:key/<type id>|<id>`; a job names
+  it `fluid|<marker>|<components>`):
+  the plan counts the grid's keys of the type (`ae2_grid_crafting_fluids`) and their bytes by the type's amount
+  per byte, the CPU reserves them into its escrow (`ae2_cpu_fluid_escrow`, the type's id in `#t` beside the key's)
+  and pays one AE per `getAmountPerOperation` of a push, and the Pattern Provider sends them through the type's
+  `ExternalStorageStrategy` on its face (`PatternProviderTargetCache`), keeping what the block refuses in its
+  send queue the same way; blocking mode asks the same strategy whether the block holds the key. The grid's
+  moves of the type (`ae2_grid_key_move_encoded`, and the fluid moves crafting makes with a marker) give an
+  insert to the CPUs waiting for the key first (`CraftingService.insertIntoCpus`), so an Import Bus can bring a
+  pattern's output of the type back; the Flux Accessor's free moves do not.
 - **Not yet**: formation planes place items and fluids only (the placement strategy is registered but not
-  read); patterns, the crafting CPU's escrow and the Pattern Provider's queue hold items and fluids only; the terminal's fill and drain gestures use the bucket strategy of fluids, not an addon
-  type's `ContainerStrategy`; the native workbench keeps an addon type's filter in AE2's `GenericStack` form
-  (`stack`).
+  read); a Pattern Provider takes back items and fluids only (Applied Flux's `FEGenericStackInvStorage`, a
+  provider's or an interface's internal inventory as FE storage, is not ported), and the ME Interface's config
+  and stock slots hold items and fluids only; the terminal's fill and drain gestures use the bucket strategy of
+  fluids, not an addon type's `ContainerStrategy` (Applied Flux's `FEContainerItemStrategy` over an item's FE is
+  not ported); the native workbench keeps an addon type's filter in AE2's `GenericStack` form (`stack`).

@@ -199,9 +199,19 @@ pub fn addon_marker(kind: KeyType, key: &ItemKey) -> ItemKey {
 }
 /// The addon type's key an [`addon_marker`] names; none for any other id.
 pub fn parse_addon_marker(key: &ItemKey) -> Option<TypedKey> {
-    let (kind, id) = key.item_id.strip_prefix("horizon:key/")?.split_once('|')?;
+    let (kind, id) = marker_parts(key)?;
     let kind = KeyType::get(kind).filter(|kind| !matches!(*kind, KeyType::ITEMS | KeyType::FLUIDS))?;
     Some(TypedKey::new(kind, ItemKey { item_id: id.to_owned(), components: key.components.clone() }))
+}
+/// The type id and key id of an [`addon_marker`], its type registered or
+/// not: the port's own records save them apart (`#t` and the id), so a key
+/// of a type no longer registered saves back as it was.
+pub fn marker_parts(key: &ItemKey) -> Option<(&str, &str)> {
+    key.item_id.strip_prefix("horizon:key/")?.split_once('|')
+}
+/// The marker of a key saved with its type's id ([`marker_parts`] back).
+pub fn marker_by_id(kind: &str, id: &str, components: Vec<u8>) -> ItemKey {
+    ItemKey { item_id: format!("horizon:key/{kind}|{id}"), components }
 }
 /// `ContainerItemStrategies.getContainedStack`: the first type, in
 /// registration order, whose strategy finds something in `stack`.
@@ -308,6 +318,10 @@ mod tests {
         let marker = addon_marker(kind, &red);
         assert_eq!(parse_addon_marker(&marker), Some(TypedKey::new(kind, red)));
         assert_eq!(parse_addon_marker(&spark_key("plain")), None);
+        assert_eq!(marker_parts(&marker), Some(("keytypes_test:spark", "keytypes_test:red")));
+        assert_eq!(marker_by_id("keytypes_test:spark", "keytypes_test:red", Vec::new()), marker);
+        let gone = marker_by_id("removed:energy", "removed:fe", Vec::new());
+        assert_eq!((marker_parts(&gone), parse_addon_marker(&gone)), (Some(("removed:energy", "removed:fe")), None));
     }
 
     #[test]

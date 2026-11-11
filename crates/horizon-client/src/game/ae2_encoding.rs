@@ -10,7 +10,8 @@ use horizon_world::nbt::Tag;
 pub(super) enum WrappedGhost {Item(ItemStack), Fluid(PatternFluid)}
 pub(super) fn wrapped_ghost(stack:&ItemStack,known:&dyn Fn(&str,ae2_cell_core::KeyType)->bool)->Result<Option<WrappedGhost>,String> {
     let Some(value)=horizon_client::ae2_generic_stack::unwrap_item_stack_checked(stack,known)? else{return Ok(None);};
-    if value.key_type==ae2_cell_core::KeyType::FLUIDS {return Ok(Some(WrappedGhost::Fluid(PatternFluid{key:value.key,amount:value.amount.max(0) as u64})));}
+    // A fluid's or an addon type's key: the pattern's non-item lane.
+    if let Some(fluid)=PatternFluid::from_generic(&value) {return Ok(Some(WrappedGhost::Fluid(fluid)));}
     let mut item=horizon_client::ae2_cell_codec::prototype(&value.key)?;
     item.count=value.amount.clamp(1,i64::from(i32::MAX)) as u32;
     Ok(Some(WrappedGhost::Item(item)))

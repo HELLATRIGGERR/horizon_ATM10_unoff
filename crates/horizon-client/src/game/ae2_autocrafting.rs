@@ -497,6 +497,10 @@ mod tests {
 // Recursive execution uses physical item stacks in `ae2_cpu_escrow`; the CPU
 // planner's counters are only metadata and are never emitted as drops.
 pub(super) use recursive::PendingMachineCraft;
+/// A job name's key type (`recursive::name_kind`), for the crafting screens.
+pub(super) fn job_name_kind(name: &str) -> ae2_cell_core::KeyType {
+    recursive::name_kind(name)
+}
 mod recursive {
     use super::*;
     use ae2_crafting_core::extended::{
@@ -922,8 +926,11 @@ mod recursive {
         } else { items.remove(0) };
         Ok((primary, items))
     }
+    /// The key of a job's non-item name: a fluid, or an addon type's key as
+    /// its marker, whose id holds a `|` of its own (the components' hex never
+    /// does).
     fn parse_fluid(name: &str) -> Option<ae2_cell_core::ItemKey> {
-        let (id, hex) = name.strip_prefix("fluid|")?.split_once('|')?;
+        let (id, hex) = name.strip_prefix("fluid|")?.rsplit_once('|')?;
         if id.is_empty()
             || !hex.bytes().all(|b| b.is_ascii_hexdigit())
             || hex.len() % 2 != 0
@@ -940,6 +947,25 @@ mod recursive {
             components: bytes,
         })
     }
+    /// A non-item key in the material summary: a fluid in mB, an addon type's
+    /// key by its id.
+    fn lane_label(key: &ae2_cell_core::ItemKey) -> String {
+        match horizon_client::ae2_key_types::parse_addon_marker(key) {
+            Some(typed) => typed.key.item_id,
+            None => format!("{} mB", key.item_id),
+        }
+    }
+    /// A job name's key type: an item, a fluid, or the addon type its marker
+    /// names (`AEKey.getType`).
+    pub(super) fn name_kind(name: &str) -> ae2_cell_core::KeyType {
+        match parse_fluid(name) {
+            None => ae2_cell_core::KeyType::ITEMS,
+            Some(key) => horizon_client::ae2_key_types::parse_addon_marker(&key)
+                .map_or(ae2_cell_core::KeyType::FLUIDS, |typed| typed.key_type),
+        }
+    }
+    /// The escrow of the CPU's non-item keys: a fluid as `fluid` and
+    /// `components`, an addon type's key with its type's id in `#t` beside them.
     fn read_fluids(machine: &Machine) -> Result<BTreeMap<ae2_cell_core::ItemKey, u64>, String> {
         let mut out = BTreeMap::new();
         let Some(value) = machine.config.get(&FLUID_ESCROW.into()) else {
@@ -962,9 +988,16 @@ mod recursive {
             if *amount <= 0 {
                 return Err("invalid CPU fluid amount".into());
             }
-            let key = ae2_cell_core::ItemKey {
-                item_id: id,
-                components: components.clone(),
+            let key = match entry.get("#t") {
+                None => ae2_cell_core::ItemKey {
+                    item_id: id,
+                    components: components.clone(),
+                },
+                Some(Tag::String(kind)) => {
+                    let kind = kind.to_string().map_err(|_| "invalid CPU key type")?;
+                    horizon_client::ae2_key_types::marker_by_id(&kind, &id, components.clone())
+                }
+                Some(_) => return Err("invalid CPU key type".into()),
             };
             if out.insert(key, *amount as u64).is_some() {
                 return Err("duplicate CPU fluid key".into());
@@ -983,11 +1016,17 @@ mod recursive {
                 if amount <= 0 {
                     return Err("invalid fluid amount");
                 };
-                Ok(Tag::compound([
-                    ("fluid", Tag::String(k.item_id.as_str().into())),
+                let (kind, id) = match horizon_client::ae2_key_types::marker_parts(k) {
+                    Some((kind, id)) => (Some(kind), id),
+                    None => (None, k.item_id.as_str()),
+                };
+                let mut entry = vec![
+                    ("fluid", Tag::String(id.into())),
                     ("components", Tag::ByteArray(k.components.clone())),
                     ("amount", Tag::Long(amount)),
-                ]))
+                ];
+                entry.extend(kind.map(|kind| ("#t", Tag::String(kind.into()))));
+                Ok(Tag::compound(entry))
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(str::to_owned)?;
@@ -1364,10 +1403,7 @@ mod recursive {
                 .ok_or("network offline")?
                 .component;
             let mut registry = ExtendedRegistry::default();
-            registry.set_resource_classifier(|key| {
-                if parse_fluid(key).is_some() {ae2_crafting_core::extended::KeyType::FLUIDS}
-                else {ae2_crafting_core::extended::KeyType::ITEMS}
-            });
+            registry.set_resource_classifier(name_kind);
             if super::super::ae2_event_live::cpu_formation_enabled() {
                 registry.set_emittable(self.ae2_crafting_emittable_keys(pos)?)
                     .map_err(|e| format!("emittable registration: {e:?}"))?;
@@ -1878,7 +1914,7 @@ mod recursive {
                     .or_default();
                 *entry = entry.checked_add(count).ok_or("inventory overflow")?;
             }
-            for (key, count) in self.ae2_grid_fluids(pos)? {
+            for (key, count) in self.ae2_grid_crafting_fluids(pos)? {
                 available.insert(fluid_name(&key), count);
             }
             available.remove(&target);
@@ -1899,7 +1935,7 @@ mod recursive {
             let keys:BTreeSet<_>=plan.reserved.keys().chain(missing.keys()).collect();
             for name in keys {
                 let label = if let Some(fluid) = parse_fluid(name) {
-                    format!("{} mB", fluid.item_id)
+                    lane_label(&fluid)
                 } else {
                     from_key(name)
                         .map(|s| s.item.to_string())
@@ -1923,7 +1959,7 @@ mod recursive {
             }
             for (name, count) in produced {
                 let label = if let Some(fluid) = parse_fluid(&name) {
-                    format!("{} mB", fluid.item_id)
+                    lane_label(&fluid)
                 } else {
                     from_key(&name)
                         .map(|s| s.item.to_string())
@@ -1946,7 +1982,7 @@ mod recursive {
                 let entry=available.entry(canon(&ae2_lab::prototype(&key)?)).or_default();
                 *entry=entry.checked_add(count).ok_or("inventory overflow")?;
             }
-            for (key,count) in self.ae2_grid_fluids(pos)? {
+            for (key,count) in self.ae2_grid_crafting_fluids(pos)? {
                 available.insert(fluid_name(&key),count);
             }
             available.remove(&target);
@@ -1973,7 +2009,7 @@ mod recursive {
                     .or_default();
                 *entry = entry.checked_add(count).ok_or("inventory overflow")?;
             }
-            for (key, count) in self.ae2_grid_fluids(pos)? {
+            for (key, count) in self.ae2_grid_crafting_fluids(pos)? {
                 available.insert(fluid_name(&key), count);
             }
             available.remove(&target);
@@ -2301,7 +2337,7 @@ mod recursive {
                 let e = available.entry(canon(&s)).or_default();
                 *e = e.checked_add(n).ok_or("inventory overflow")?;
             }
-            for (k, n) in self.ae2_grid_fluids(pos)? {
+            for (k, n) in self.ae2_grid_crafting_fluids(pos)? {
                 available.insert(fluid_name(&k), n);
             }
             // AE2 ignores the target already in the network when crafting.
@@ -2981,6 +3017,11 @@ mod recursive {
             if result.is_err(){restore(self,before);plan.truncate(previous);}result
         }
         fn provider_target_fluid_insert(&mut self,target:GridAddress,face:horizon_core::geometry::Direction,key:&ae2_cell_core::ItemKey,amount:u64,simulate:bool,plan:&mut super::super::ae2_buses::FormationPlan)->u64 {
+            // An addon type's key: `PatternProviderTargetCache` through the
+            // type's `ExternalStorageStrategy` on that face.
+            if let Some(typed)=horizon_client::ae2_key_types::parse_addon_marker(key) {
+                return self.ae2_key_target_insert(target,face,&typed,amount,simulate);
+            }
             if matches!(self.ae2_block_entity(target),Some(BlockEntity::Ae2(machine)) if machine.kind==MachineKind::Condenser) {
                 return self.ae2_condenser_me_fluid_insert_at(target,amount,simulate);
             }
@@ -3100,6 +3141,9 @@ mod recursive {
                     if blocking && !blocked_fluids.is_empty() {
                         let fluids=self.ae2_fluid_p2p_entries(*p,face).or_else(||self.ae2_interface_fluid_entries(*p,face)).unwrap_or_else(||self.ae2_tank_contents_encoded(*p).ok().flatten().into_iter().collect());
                         if fluids.iter().any(|(key,amount)|*amount>0 && blocked_fluids.contains(&fluid_name(key))) {return false;}
+                        // `containsPatternInput` of an addon type: the type's storage on that face.
+                        if blocked_fluids.iter().filter_map(|name|parse_fluid(name)).filter_map(|key|horizon_client::ae2_key_types::parse_addon_marker(&key))
+                            .any(|typed|self.ae2_key_target_holds(*p,face,&typed)) {return false;}
                     }
                     let mut accepts=|faces:Option<&Faces>| {
                         inputs.iter().flatten().all(|input|{let face=input_face(faces,&canon(input),face);self.ae2_item_p2p_insert(*p,face,input,true).unwrap_or_else(||self.ae2_native_item_insert(*p,face,input,input.count,true))>0})
@@ -3815,7 +3859,12 @@ mod recursive {
             read_session(machine, dim).ok()?.job_id
         }
         pub(in crate::game) fn ae2_recursive_status_icon(&self, key:&str) -> Option<ItemStack> {
-            if let Some(fluid)=parse_fluid(key) {return super::super::ae2_fluids::fluid_bucket(&fluid.item_id).map(|id|ItemStack::new(id,1));}
+            if let Some(fluid)=parse_fluid(key) {
+                if let Some(typed)=horizon_client::ae2_key_types::parse_addon_marker(&fluid) {
+                    return Some((horizon_client::ae2_key_types::behaviour(typed.key_type).icon)(&typed.key));
+                }
+                return super::super::ae2_fluids::fluid_bucket(&fluid.item_id).map(|id|ItemStack::new(id,1));
+            }
             from_key(key).ok()
         }
         /// A CPU's storage and co-processors, busy or not.
@@ -4315,7 +4364,7 @@ mod recursive {
                             // per 125 mB of fluid. Simulate only after isBusy.
                             let power = task.inputs.iter().map(|(key, amount)| {
                                 let one = amount / task.runs;
-                                (one as f64) / if parse_fluid(key).is_some() {125.0} else {1.0}
+                                (one as f64) / name_kind(key).amount_per_operation().max(1) as f64
                             }).sum::<f64>();
                             if power > 0.0 && self.ae2_take_power(pos, power, true) < power - 0.01 {
                                 exhausted.insert(task.pattern.clone()); break;
@@ -4777,6 +4826,43 @@ mod recursive {
             let expected=vec![(water.clone(),1000),(iron.clone(),3),(water.clone(),500),(iron.clone(),2)];
             assert_eq!(checked_processing_input_order(&pattern,&Inventory::from([(water.clone(),1500),(iron.clone(),5)])).unwrap(),expected);
             assert!(checked_processing_input_order(&pattern,&Inventory::from([(water,1500),(iron,4)])).is_err());
+        }
+        #[test]
+        fn an_addon_type_key_rides_patterns_job_names_and_escrow() {
+            use horizon_client::ae2_key_types::{self as key_types, KeyBehaviour, KeyCodec};
+            // A key type only this test registers, as an addon would.
+            let def = ae2_cell_core::KeyTypeDef { amount_per_operation: 50, amount_per_byte: 1000, amount_per_unit: 1,
+                ..ae2_cell_core::KeyTypeDef::new("keytypes_cpu_test:spark", "gui.keytypes_cpu_test.sparks") };
+            let behaviour = KeyBehaviour { codec: KeyCodec { decode: key_types::id_components_decode, encode: key_types::id_components_encode },
+                icon: |_| ItemStack::new("minecraft:glowstone_dust", 1), known: None, container: None };
+            let kind = key_types::register(def, behaviour).unwrap();
+            let marker = key_types::addon_marker(kind, &ae2_cell_core::ItemKey { item_id: "keytypes_cpu_test:red".into(), components: vec![] });
+            // 7,000 sparks into a diamond: AE2's form names the type in `#t`, and reads back alone.
+            let mut fluid_inputs = vec![None; 81]; fluid_inputs[2] = Some(ae2_processing::PatternFluid { key: marker.clone(), amount: 7000 });
+            let mut outputs = vec![None; 27]; outputs[0] = Some(ItemStack::new("minecraft:diamond", 1));
+            let mut pattern = ae2_processing::ae2_encode_processing_positioned(&vec![None; 81], &outputs, &fluid_inputs, &vec![None; 27]).unwrap();
+            let Some(Tag::List(inputs)) = pattern.data().unwrap().other("ae2:encoded_processing_pattern").unwrap().get("sparseInputs").cloned() else { panic!("no inputs") };
+            assert_eq!(inputs[2], Tag::compound([("#t", Tag::String("keytypes_cpu_test:spark".into())), ("id", Tag::String("keytypes_cpu_test:red".into())), ("#", Tag::Long(7000))]));
+            pattern.data_mut().set_other("minecraft:custom_data", None);
+            assert_eq!(ae2_processing::ae2_decode_processing_positions(&pattern).unwrap().unwrap().0, fluid_inputs);
+            let (_, fluids_out) = ae2_processing::ae2_decode_processing_fluids(&pattern).unwrap();
+            assert!(fluids_out.is_empty());
+            // Its job name, its type and its bytes (1,000 sparks a byte).
+            let name = fluid_name(&marker);
+            assert_eq!((parse_fluid(&name), name_kind(&name)), (Some(marker.clone()), kind));
+            let water = ae2_cell_core::ItemKey { item_id: "minecraft:water".into(), components: vec![7] };
+            assert_eq!((name_kind(&fluid_name(&water)), name_kind("minecraft:stone")), (ae2_cell_core::KeyType::FLUIDS, ae2_cell_core::KeyType::ITEMS));
+            // The CPU's escrow keeps it with its type's id beside a fluid, and a type no longer
+            // registered saves back as it was.
+            let gone = key_types::marker_by_id("removed:energy", "removed:fe", vec![]);
+            let escrow = BTreeMap::from([(marker.clone(), 7000), (water.clone(), 250), (gone, 9)]);
+            let mut machine = Machine::new(MachineKind::CraftingStorage1k);
+            write_fluids(&mut machine, &escrow).unwrap();
+            let Some(Tag::List(entries)) = machine.config.get(&FLUID_ESCROW.into()).cloned() else { panic!("no escrow") };
+            assert!(entries.contains(&Tag::compound([("fluid", Tag::String("keytypes_cpu_test:red".into())), ("components", Tag::ByteArray(vec![])),
+                ("amount", Tag::Long(7000)), ("#t", Tag::String("keytypes_cpu_test:spark".into()))])));
+            assert_eq!(read_fluids(&machine).unwrap(), escrow);
+            assert_eq!(owned_counts(&[], &escrow).unwrap().get(&name), Some(&7000));
         }
         #[test]
         fn cpu_unloaded_waiting_owner_blocks_matching_key_but_not_unrelated_insertion() {

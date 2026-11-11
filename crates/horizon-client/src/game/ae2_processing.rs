@@ -2145,8 +2145,8 @@ fn source_processing_view(pattern: &ItemStack) -> Option<Result<SourceProcessing
                 if value.amount <= 0 || value.key.item_id == "ae2:missing_content" {
                     return Err("invalid processing ingredient".into());
                 }
-                if value.key_type==ae2_cell_core::KeyType::FLUIDS {
-                    fluids[index] = Some(PatternFluid { key: value.key, amount: value.amount as u64 });
+                if let Some(fluid) = PatternFluid::from_generic(&value) {
+                    fluids[index] = Some(fluid);
                 } else {
                     let mut stack = horizon_client::ae2_cell_codec::prototype(&value.key)?;
                     stack.count = u32::try_from(value.amount).map_err(|_| "processing item amount exceeds host limit")?;
@@ -2168,7 +2168,7 @@ fn source_processing_slots(items: &[Option<ItemStack>], fluids: &[Option<Pattern
     items.iter().zip(fluids).map(|(item, fluid)| match (item, fluid) {
         (None, None) => Ok(None),
         (Some(item), None) if item.count > 0 => Ok(Some(GenericStack::item(horizon_client::ae2_cell_codec::key(item)?, i64::from(item.count),))),
-        (None, Some(fluid)) if fluid.amount > 0 => Ok(Some(GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).map_err(|_| "processing fluid amount exceeds source limit")?,))),
+        (None, Some(fluid)) if fluid.amount > 0 => fluid.generic().map(Some),
         _ => Err("invalid processing slot".into()),
     }).collect()
 }
@@ -2182,8 +2182,7 @@ fn write_source_processing(pattern: &mut ItemStack, items_in: &[Option<ItemStack
 }
 fn has_unrepresentable_fluid(values: &[Option<PatternFluid>]) -> bool {
     values.iter().flatten().any(|fluid| {
-        let generic = horizon_client::ae2_generic_stack::GenericStack::fluid(fluid.key.clone(), i64::try_from(fluid.amount).unwrap_or(i64::MAX),);
-        !fluid.key.components.is_empty() && horizon_client::ae2_generic_stack::encode(&generic).is_err()
+        !fluid.key.components.is_empty() && fluid.generic().and_then(|generic| horizon_client::ae2_generic_stack::encode(&generic)).is_err()
     })
 }
 
@@ -2338,10 +2337,33 @@ mod processing_pattern_tests {
     }
 }
 
+/// A pattern's key that is no item, with its amount: a fluid, or a key of an
+/// addon's type (AE2's `GenericStack` of any `AEKeyType`), which crafting
+/// carries as its marker (`ae2_key_types::addon_marker`) beside the fluids.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PatternFluid {
     pub key: ae2_cell_core::ItemKey,
     pub amount: u64,
+}
+impl PatternFluid {
+    /// The `GenericStack` a pattern saves: the fluid, or the addon type's key.
+    pub(super) fn generic(&self) -> Result<horizon_client::ae2_generic_stack::GenericStack, String> {
+        use horizon_client::ae2_generic_stack::GenericStack;
+        let amount = i64::try_from(self.amount).map_err(|_| "processing amount exceeds source limit")?;
+        Ok(match horizon_client::ae2_key_types::parse_addon_marker(&self.key) {
+            Some(typed) => GenericStack { key: typed.key, key_type: typed.key_type, amount },
+            None => GenericStack::fluid(self.key.clone(), amount),
+        })
+    }
+    /// The non-item lane's key of a `GenericStack`; none for an item.
+    pub(super) fn from_generic(stack: &horizon_client::ae2_generic_stack::GenericStack) -> Option<Self> {
+        let key = match stack.key_type {
+            ae2_cell_core::KeyType::ITEMS => return None,
+            ae2_cell_core::KeyType::FLUIDS => stack.key.clone(),
+            kind => horizon_client::ae2_key_types::addon_marker(kind, &stack.key),
+        };
+        Some(Self { key, amount: stack.amount.max(0) as u64 })
+    }
 }
 /// Adds source-owned mB descriptions to an item processing pattern. This
 /// records recipe data only; no fluid is created or moved by encoding.

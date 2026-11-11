@@ -230,7 +230,7 @@ impl Game<'_> {
             Some(302) if !local.session.confirmation=>{
                 if let Some((mut amount,missing))=craft_amount_text(&local.field.value,local.session.fluid) {
                     if missing {
-                        let inventory=if local.session.fluid {self.ae2_grid_fluids(local.session.pos)} else {self.ae2_grid_inventory(local.session.pos)};
+                        let inventory=if local.session.fluid {self.ae2_grid_crafting_fluids(local.session.pos)} else {self.ae2_grid_inventory(local.session.pos)};
                         let Ok(inventory)=inventory else {self.ae2_local_craft=Some(local);return true;};
                         let available=inventory.iter().find(|(key,_)|key==&local.session.key).map_or(0,|(_,count)|*count);
                         amount=amount.saturating_sub(available.min(i32::MAX as u64));
@@ -427,7 +427,8 @@ impl Game<'_> {
     fn ae2_craft_view(&self,s:&GuestCraftConfirm)->super::ae2_craft_screens::CraftView {
         use super::ae2_craft_screens::{Cpu,CraftView,Row};
         let stack_text=|stack:&ItemStack|horizon_client::item_data::canon_stack(Some(stack));
-        let row=|key:&str,amounts:[u64;3]|Row::new(self.ae2_recursive_status_icon(key).as_ref().map(stack_text).unwrap_or_default(),key.starts_with("fluid|"),amounts);
+        let row=|key:&str,amounts:[u64;3]|Row::new(self.ae2_recursive_status_icon(key).as_ref().map(stack_text).unwrap_or_default(),
+            super::ae2_autocrafting::job_name_kind(key)==ae2_cell_core::KeyType::FLUIDS,amounts);
         let host=match &s.origin {
             CraftOrigin::Cpu{..}=>"ae2:crafting_unit".to_owned(),
             CraftOrigin::Monitor(_)=>"ae2:crafting_monitor".to_owned(),
@@ -640,7 +641,7 @@ impl Game<'_> {
                 if s.craft_missing {
                     // Source's leading '=' requests only what is missing from
                     // the current real network; looking is not a reservation.
-                    let contents = if s.fluid { self.ae2_grid_fluids(s.pos) } else { self.ae2_grid_inventory(s.pos) };
+                    let contents = if s.fluid { self.ae2_grid_crafting_fluids(s.pos) } else { self.ae2_grid_inventory(s.pos) };
                     let Ok(contents) = contents else {
                         host.play.entry(conn).or_default().ae2_craft_confirm=Some(s);
                         self.lan_send_craft_confirm(host,conn);

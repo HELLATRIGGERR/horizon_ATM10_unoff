@@ -75,6 +75,17 @@ part powers another grid's Energy Acceptor from an FE cell, the block answers a 
 fill and empty a portable FE cell, a Charger charges it, sneak-use takes empty cells apart. The FE machine is AE2's
 Energy Acceptor; the AE2 fixture loads no Mekanism.
 
+## FE in crafting
+
+The key-type paths of [ae2/addons/README.md](../README.md) (Key types, **Crafting**) carry FE as any addon type's key:
+a processing pattern's FE (`{"#t":"appflux:flux",type:"FE","#":100000L}` in `ae2:encoded_processing_pattern`, and
+its ghost in the Pattern Encoding Terminal), the crafting CPU's plan and escrow, and the Pattern Provider's
+sends into the block on its face through `FEExternalStorageStrategy` (its `IEnergyStorage`). The world test
+`keytypes-flux-crafting` loads a pattern of 100,000 FE into a diamond in the encoding terminal and encodes it again,
+keeps the CPU's FE through a restart, sends it to another grid's Energy Acceptor and finishes the job with the diamond
+given back. A player cannot yet put FE into an encoding slot by hand: Applied Flux's `FEContainerItemStrategy` (an
+energy item's FE) is not ported.
+
 ## Later slices
 
 - The Induction Card (`ItemInductionCard`; `registerPortableCellUpgrades`, `Upgrades.add` on the Interface and

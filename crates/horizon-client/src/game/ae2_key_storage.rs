@@ -29,6 +29,16 @@ impl Game<'_> {
     pub(super) fn ae2_grid_keys(&self, pos: Pos, kind: KeyType) -> Result<Vec<(ItemKey, u64)>, String> {
         self.ae2_grid_keys_encoded(self.ae2_local_address(pos).ok_or("invalid AE2 anchor")?, kind)
     }
+    /// The keys crafting carries beside items (`ae2_autocrafting`'s non-item
+    /// names): the grid's fluids, then every addon type's keys as their
+    /// markers (`ae2_key_types::addon_marker`).
+    pub(super) fn ae2_grid_crafting_fluids(&self, pos: Pos) -> Result<Vec<(ItemKey, u64)>, String> {
+        let mut out = self.ae2_grid_fluids(pos)?;
+        for kind in KeyType::all().into_iter().filter(|kind| !matches!(*kind, KeyType::ITEMS | KeyType::FLUIDS)) {
+            out.extend(self.ae2_grid_keys(pos, kind)?.into_iter().map(|(key, amount)| (horizon_client::ae2_key_types::addon_marker(kind, &key), amount)));
+        }
+        Ok(out)
+    }
     /// Every key type's stored keys, in registration order.
     pub(super) fn ae2_grid_all_keys(&self, pos: Pos) -> Result<Vec<(TypedKey, u64)>, String> {
         let mut out = Vec::new();
@@ -100,17 +110,46 @@ impl Game<'_> {
                     moved
                 }
             }
-            _ => self.ae2_grid_typed_move(pos, kind, key, amount, insert, simulate),
+            _ => self.ae2_grid_typed_move_crafting(pos, kind, key, amount, insert, simulate, true),
         }
     }
-    /// `NetworkStorage` for an addon's type, its cells and storage buses: by
-    /// priority, highest first to insert and lowest first to extract, the
-    /// preferred storage (a bus's partition or what it gives, a drive's
-    /// cells that hold the key) before the others, buses before cells; one
-    /// AE pays for `getAmountPerOperation` of the key (`StorageHelper`). A
-    /// bus moves at once, the cells when the whole move is done.
-    fn ae2_grid_typed_move(&mut self, pos: GridAddress, kind: KeyType, key: &ItemKey, amount: u64, insert: bool, simulate: bool) -> Result<u64, String> {
-        self.ae2_grid_typed_move_paid(pos, kind, key, amount, insert, simulate, true)
+    /// A crafting move of an addon type's key, which crafting names by its
+    /// marker (`ae2_key_types::addon_marker`): an insert first goes to the
+    /// CPUs waiting for the key (`CraftingService.insertIntoCpus`), the rest
+    /// to the grid's storage of the type; `paid` as [`Self::ae2_grid_typed_move_paid`].
+    /// What the CPUs take pays no AE. A simulation asks the storage alone:
+    /// the CPUs' share would cost a network analysis on every simulated move.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn ae2_grid_typed_move_crafting(&mut self, pos: GridAddress, kind: KeyType, key: &ItemKey, amount: u64, insert: bool, simulate: bool, paid: bool) -> Result<u64, String> {
+        let mut received = Ok(0);
+        if insert && !simulate && amount > 0 {
+            let marker = horizon_client::ae2_key_types::addon_marker(kind, key);
+            received = self.ae2_crafting_receive_fluid_encoded(pos, &marker, amount);
+        }
+        let received = match received {
+            Ok(received) if received <= amount => received,
+            Ok(_) => return Err("crafting accepted more than supplied".into()),
+            // A grid with no network (an unloaded anchor) has no CPUs waiting.
+            Err(_) => 0,
+        };
+        Ok(received + self.ae2_grid_typed_move_paid(pos, kind, key, amount - received, insert, simulate, paid)?)
+    }
+    /// Whether the block at `target` holds some of the key through `face`
+    /// (`PatternProviderTarget.containsPatternInput`, blocking mode).
+    pub(super) fn ae2_key_target_holds(&self, target: GridAddress, face: horizon_core::geometry::Direction, typed: &TypedKey) -> bool {
+        super::ae2_key_strategies::addon(typed.key_type).external_storage
+            .and_then(|strategy| (strategy.entries)(self, target, face))
+            .is_some_and(|entries| entries.iter().any(|(key, amount)| *key == typed.key && *amount > 0))
+    }
+    /// `PatternProviderTargetCache`'s storage of an addon type: `amount` of
+    /// the key into the block at `target` through `face`, through the type's
+    /// `ExternalStorageStrategy`; nothing where it has none.
+    pub(super) fn ae2_key_target_insert(&mut self, target: GridAddress, face: horizon_core::geometry::Direction, typed: &TypedKey, amount: u64, simulate: bool) -> u64 {
+        let Some(strategy) = super::ae2_key_strategies::addon(typed.key_type).external_storage else { return 0 };
+        if (strategy.entries)(self, target, face).is_none() {
+            return 0;
+        }
+        (strategy.change)(self, target, face, &typed.key, amount, true, simulate).unwrap_or(0).min(amount)
     }
     /// `IStorageService.getInventory().insert` / `extract` of a key of an
     /// addon's `kind`: [`Self::ae2_grid_key_move_encoded`]'s move, no AE paid
@@ -122,6 +161,12 @@ impl Game<'_> {
         }
         self.ae2_grid_typed_move_paid(pos, kind, key, amount, insert, simulate, false)
     }
+    /// `NetworkStorage` for an addon's type, its cells and storage buses: by
+    /// priority, highest first to insert and lowest first to extract, the
+    /// preferred storage (a bus's partition or what it gives, a drive's
+    /// cells that hold the key) before the others, buses before cells; one
+    /// AE pays for `getAmountPerOperation` of the key (`StorageHelper`) when
+    /// `paid`. A bus moves at once, the cells when the whole move is done.
     #[allow(clippy::too_many_arguments)]
     fn ae2_grid_typed_move_paid(&mut self, pos: GridAddress, kind: KeyType, key: &ItemKey, amount: u64, insert: bool, simulate: bool, paid: bool) -> Result<u64, String> {
         let cells = self.ae2_cell_mounts_encoded(pos)?;

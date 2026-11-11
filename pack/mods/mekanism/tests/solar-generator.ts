@@ -151,15 +151,16 @@ try {
   fixture.mark('a roof takes its sun away');
 
   // Out of its bottom into a cube: 1000 J saved go out at its max output, beside what it makes, until only each
-  // tick's 132 J is left to send. `data merge` gives the engine a new block entity, and a new one's first tick
-  // ejects before it has read its biome: twice `solarGeneration`, 300 J; then 264.
+  // tick's 132 J is left to send. `data merge` loads the generator in place (`BlockDataAccessor.setData`), so it
+  // keeps the biome it has read and ejects at its max output, 264, from the first tick: 1000 + 6 x 132 J are six
+  // ticks of 264 and one of 208.
   await fixture.hold();
   const below = `${x} ${y - 1} ${z}`;
   await fixture.command(`setblock ${below} mekanism:basic_energy_cube`);
   await fixture.command(`data merge block ${plains} {energy_containers:[{container:0b,stored:1000L}]}`);
   const [toCube, kept] = await rates([below, plains], 10, 0);
   log.into_cube = { toCube, kept };
-  assert.deepEqual(toCube, [300, 264, 264, 264, 264, 264, 172, 132, 132, 132], 'the cube under it: the max output, then 132 J a tick');
+  assert.deepEqual(toCube, [264, 264, 264, 264, 264, 264, 208, 132, 132, 132], 'the cube under it: the max output, then 132 J a tick');
   assert.deepEqual(kept.slice(7), [0, 0, 0], 'it keeps only what it made this tick');
   assert.equal(await energy(plains), 132);
   const fe = await fixture.ae(`power ${plains} down`);

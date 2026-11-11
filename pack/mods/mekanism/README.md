@@ -84,6 +84,32 @@ assets when `mekanism-content` is given them.
 - Both take Joules through their back from cables, cubes and Forge Energy, save as Mekanism does (`progress`,
   `fluid`, `recurring_nodes`, `finished`, `active_nodes`, `used_nodes`, `fluid_tanks`, `component_upgrade`), and
   have a screen like `GuiElectricPump` with their upgrade slots beside it.
+- The Digital Miner (`mekanism_energy::miner`, runtime `mek_miner`): 17 bounding blocks around and above it (3x3x2,
+  placed and taken as the wind generator's), a search of its `(2 radius + 1)` square from `min` to `max` (radius 10
+  and 0 to 60 when placed, at most `maxRadius`, 32 on ATM10) when it starts, its filters (item, tag, mod id with
+  Mekanism's wildcards; enabled or not, each with a replace target that may be required) or inverse mode (what no
+  filter takes, with its own replace target), the replace targets never taken; then a block every `ticksPerMine`
+  ticks (80, `getTicks` with speed upgrades) in Mekanism's own order: its chunks as Java's fastutil
+  `Long2ObjectOpenHashMap` lays them (`miner::ChunkMap` copies its hashing, growth and removal), in each the highest
+  index first (the top layer, then z and x downwards). Its Joules every tick it runs, `ceil(usage * 16^(2 speed/8 -
+  energy/8) [* silkMultiplier] * (1 + (radius - 10) / (maxRadius - 10)) * (1 + (max - min - 60) / 323))` (1000 J,
+  12 000 with silk touch; its store 50 000 J times the energy upgrades'), none on its search's tick. A block is broken
+  as a charged Atomic Disassembler would (silk touch in its mode) with the machines' breaking helper, its drops go
+  into the 27 main slots and what doesn't fit into its overflow (saved, mining stops until it is back in); a replace
+  block comes from the main slots, a stone generator upgrade (stone, cobblestone) or, with auto-pull, the inventory
+  two above it, and is set where the block was; a required one that isn't there stops it (`Missing block`).
+  Auto-eject sends one kind of item every 11 ticks into the block behind its back-top bounding block (a chest, a
+  transporter; not yet confirmed by the world test, see NOTES.md). Start, stop, reset, redstone control (ignored, high, low, pulse: its own signal or a bounding
+  block's), the anchor upgrade's chunk tickets (its chunk and the one it works in). Saved as Mekanism saves it
+  (`radius`, `min`, `max`, `silk_touch`, `inverse`, `replace_target`, `inverse_replace`, `eject`, `pull`, `filters`,
+  `running`, `delay`, `state`, `control_type`); a miner loaded after its search searches again on its first tick and
+  goes on (Mekanism keeps no queue either). Its Joules through its bottom and the outer sides of the bounding blocks
+  left and right of it. A screen like `GuiDigitalMiner` (state, to mine, the start, stop, config and reset buttons,
+  auto-eject, auto-pull and silk touch switches, the missing block, the energy bar and tab, a redstone tab) with a
+  second page for `GuiDigitalMinerConfig` (radius, min and max by steps, inverse mode, the filters: a click enables
+  or disables one, a right click deletes it, and the held item becomes an item filter), its upgrade slots beside it;
+  `/mek miner <pos> ...` sets the rest (filters with their replace targets, the inverse replace target) and presses
+  its buttons, and `/mek probe` answers for tests.
 - The Enrichment Chamber, the Crusher and the Energized Smelter (`TileEntityElectricMachine`) and the Metallurgic
   Infuser, on ATM10's `machine-usage.toml` (50 J a tick), `machine-storage.toml` (20 000 J) and `general.toml`
   (`maxUpgradeMultiplier = 16`): ATM10's final `mekanism:enriching`, `mekanism:crushing` and
@@ -391,6 +417,17 @@ assets when `mekanism-content` is given them.
   fluid tick. Their reset (a sneaking Configurator, `onSneakRightClick`), redstone control and comparators aren't
   ported; their upgrades go in only through the upgrade slot (no upgrade window). Their outline and collision are
   one box, the part every facing shares, and their block has `facing` only (Java's `active` never changes).
+- The Digital Miner breaks a block before it knows its drops (the machines' breaking helper rolls them as it breaks),
+  so a full miner takes one more block into its overflow where Mekanism leaves it standing (`canInsert`); a broken
+  ore drops its experience (Mekanism's drops none); its tag filters match a tag's exact name only (no hook point lists
+  a block's tags, so wildcards in a tag filter match nothing); an item filter takes a block whose id is the item's;
+  the search runs in the tick it starts (Mekanism's thread is done by the next, which this answers in); auto-eject
+  takes the first kind of item in slot order (Mekanism shuffles), its search reads unloaded chunks as air also with
+  the anchor upgrade, and `getDestroySpeed < 0` is a list of vanilla's unbreakable blocks. Hoppers reach its main
+  slots on the miner itself (Mekanism: through its top and back-top bounding blocks), any item goes in, and its
+  energy through bounding blocks comes from cables and cubes, not Forge Energy. Its screen has no text fields, no
+  filter windows (tag and mod id filters and replace targets are set by `/mek miner`), no visuals tab, no
+  QIO/computer support; it opens on its own block, not its bounding blocks, and its config page is the same menu.
 - Machines drop plain too: their energy, upgrades and items in the slots stay behind (Java's item keeps them).
 - A machine's container faces are its block's, not its facing's: hoppers reach its input and energy slots (and the
   infuser's infusion slot) and its output from every face, where Java's item side config says which face reaches

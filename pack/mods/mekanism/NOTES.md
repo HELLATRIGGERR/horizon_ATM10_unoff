@@ -278,6 +278,34 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
   under a block set while the world is held settles a tick or more later, so the tests let it settle before the
   generators look again.
+- The Digital Miner (branch `feat/mekanism-multiblocks-2`, on radiation; no new hook point, upstream's pending
+  `machine_breaking` and `player_equipment` fragments, API 412's chunk tickets): `mekanism_energy::miner` (config,
+  energy formula, `WildcardMatcher`, filters, the search, fastutil's `Long2ObjectOpenHashMap` emulated in
+  `ChunkMap` with its iterator and removals, the mining queue), runtime `mek_miner` (block entity, tick, screen,
+  `/mek miner`), its bounding blocks through `mek_gen2`'s (now by block id and offsets). Measured on a private copy
+  of the radiation oracle (local `mekminer-work/oracle`, RCON 25661, `m1.py`, `m1.json`, `m2.py`): Joules a tick
+  1000, 12 000 silk, 2000 at radius 32, 2910 at radius 20 over -64..319, 1183 over 120 layers, 4000 (2 speed),
+  500 (2 energy, 100 000 J store), 16 000 (8 and 8), 24 000 (4 speed, 8 energy, silk, radius 32), none on the
+  search's tick; at 8 speed a block on tick 2 and every 5; the 70-block order over four chunks (the unit test and
+  the world test hold all 70); silk and tag/item/mod id/inverse filters' drops; a required replace target missing
+  takes nothing, two cobblestone replace three stones (each drop the next replacement); ejection 69 of 70 into the
+  chest by the end. World test `digital-miner` (energy table, nine filter cases at once, the 70-block order with a
+  restart halfway). Open from that test: the ejection into the chest behind it isn't confirmed (the last run read
+  1307 from the chest's `data get` with 70 still in the miner: check `mek_miner::eject` and the test's parse of the
+  reply), and at the forceloaded chunk 3008, 3008 the first block comes on the third tick, not the oracle's second,
+  though the miner starts full (the energy table near the player draws on the second tick as the oracle). The world
+  runs unheld while the test restarts, so the order after it is checked as a subsequence of the oracle's (one run
+  saw all 70 in the oracle's order, two missed a block there). The `configurator` world test failed twice on this
+  branch at its third check ("its items in the world", the empty mode's drops; its first two pass); whether it fails
+  on bab674518 as well wasn't checked. Learned: a setblock miner with `state:3,running:1b` searches on its first tick and runs (as
+  a loaded one); Mekanism's item slots are `items:[{item:{id,count},slot:0b}]`; a creative cube set by `/setblock`
+  feeds only with `component_config:{eject0:1b}` merged; `/setblock` places no bounding blocks, so the oracle's eject
+  needs the back-top `mekanism:bounding_block{main:[I;x,y,z]}` set by hand. Left: the miner's item (its settings and
+  filters in `custom_data`, `MekanismDataComponents.*`), filter windows and text fields, the visuals tab and
+  `RenderDigitalMiner`, comparators through its bounding blocks, the bounding blocks' own item and energy
+  capabilities for hoppers, pipes and Forge Energy, `canInsert` before breaking (a drops roll without breaking),
+  wildcard tag filters (a hook point listing a block's tags), `MekFakePlayer`'s `BreakEvent` for protection mods,
+  the pulling of replace blocks by `TransitRequest` rules.
 - Next: the SPS and the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
   its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside

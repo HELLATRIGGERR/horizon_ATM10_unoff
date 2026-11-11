@@ -66,7 +66,7 @@ fn beside(pos: [i32; 3], by: [i32; 3]) -> [i32; 3] {
 
 // ---- The saved compound ---------------------------------------------------------------------
 
-fn read_upgrades(nbt: &Compound) -> Upgrades {
+pub(super) fn read_upgrades(nbt: &Compound) -> Upgrades {
     let mut upgrades = Upgrades::default();
     if let Some(Tag::Compound(c)) = nbt.get(&key("component_upgrade"))
         && let Some(Tag::List(list)) = c.get(&key("upgrades"))
@@ -81,7 +81,7 @@ fn read_upgrades(nbt: &Compound) -> Upgrades {
     upgrades
 }
 
-fn write_upgrades(nbt: &mut Compound, upgrades: &Upgrades) {
+pub(super) fn write_upgrades(nbt: &mut Compound, upgrades: &Upgrades) {
     let list: Vec<Tag> = Upgrade::ALL
         .iter()
         .filter(|u| upgrades.get(**u) > 0)

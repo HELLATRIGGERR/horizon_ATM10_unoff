@@ -72,6 +72,7 @@ pub mod heat;
 pub mod heater;
 pub mod induction;
 pub mod machine;
+pub mod miner;
 pub mod menu;
 pub mod multiblock;
 pub mod network;

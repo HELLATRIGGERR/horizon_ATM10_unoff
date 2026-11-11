@@ -41,6 +41,8 @@ pub struct EnergyConfig {
     /// The Electric Pump's and the Fluidic Plenisher's (`general.toml`
     /// `[pump]`, their Joules a tick and store).
     pub pump: crate::pump::PumpConfig,
+    /// The Digital Miner's (`general.toml` `[digital_miner]`, its Joules a tick and store).
+    pub miner: crate::miner::MinerConfig,
     /// `general.toml` `[radiation]` and `common.toml` `enableDecayTimers`.
     pub radiation: crate::radiation::RadiationConfig,
 }
@@ -59,6 +61,7 @@ impl Default for EnergyConfig {
             generators: GeneratorsConfig::default(),
             machines: MachinesConfig::default(),
             pump: crate::pump::PumpConfig::default(),
+            miner: crate::miner::MinerConfig::default(),
             radiation: crate::radiation::RadiationConfig::default(),
         }
     }
@@ -362,6 +365,11 @@ impl EnergyConfig {
             read("machine-storage.toml").as_ref(),
         );
         config.pump = crate::pump::PumpConfig::from_tables(
+            read("general.toml").as_ref(),
+            read("machine-usage.toml").as_ref(),
+            read("machine-storage.toml").as_ref(),
+        );
+        config.miner = crate::miner::MinerConfig::from_tables(
             read("general.toml").as_ref(),
             read("machine-usage.toml").as_ref(),
             read("machine-storage.toml").as_ref(),

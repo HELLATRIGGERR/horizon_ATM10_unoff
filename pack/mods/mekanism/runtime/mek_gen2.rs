@@ -55,7 +55,7 @@ thread_local! {
     static BIO_FUELS: RefCell<Option<HashMap<String, i32>>> = const { RefCell::new(None) };
     /// Generators taken out of the world whose bounding blocks go at the end
     /// of the level's tick (`removeBoundingBlocks`), where the game is at hand.
-    static REMOVED: RefCell<Vec<(String, [i32; 3], GeneratorKind)>> = const { RefCell::new(Vec::new()) };
+    static REMOVED: RefCell<Vec<(String, [i32; 3], &'static str, Vec<[i32; 3]>)>> = const { RefCell::new(Vec::new()) };
 }
 
 pub(super) fn is_new(kind: GeneratorKind) -> bool {
@@ -481,66 +481,75 @@ fn replaceable(game: &Game<'_>, pos: [i32; 3]) -> bool {
     game.native_server_block_in_tag(&state, "minecraft:replaceable").unwrap_or(false)
 }
 
-/// `native_use_item_on` with a wind or advanced solar generator's item: `ItemBlockTooltip.placeBlock` refuses the
+/// The block an item places and its bounding blocks' offsets: a wind or advanced solar generator's, the Digital
+/// Miner's.
+fn bounded(item: &str) -> Option<(&'static str, Vec<[i32; 3]>)> {
+    if super::mek_miner::is_miner(item) {
+        return Some((super::mek_miner::MINER, super::mek_miner::bounding()));
+    }
+    GeneratorKind::of_block(item).filter(|k| !k.bounding().is_empty()).map(|k| (k.id(), k.bounding()))
+}
+
+/// `native_use_item_on` with a wind or advanced solar generator's (or a Digital Miner's) item: `ItemBlockTooltip.placeBlock` refuses the
 /// placement (the use is claimed) when a bounding block wouldn't fit where the generator would go.
 pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face: [i32; 3], claimed: &mut bool) {
     if *claimed || stack.count == 0 {
         return;
     }
-    let Some(kind) = GeneratorKind::of_block(&stack.item).filter(|k| !k.bounding().is_empty()) else {
+    let Some((_, offsets)) = bounded(&stack.item) else {
         return;
     };
     let at = if replaceable(game, pos) { pos } else { beside(pos, face) };
     if !replaceable(game, at) {
         return;
     }
-    if kind.bounding().into_iter().any(|offset| !replaceable(game, beside(at, offset))) {
+    if offsets.into_iter().any(|offset| !replaceable(game, beside(at, offset))) {
         *claimed = true;
     }
 }
 
 /// `native_place_block`: `placeBoundingBlocks`, a bounding block at each of the generator's positions.
 pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) -> bool {
-    let Some(kind) = GeneratorKind::of_block(&stack.item).filter(|k| !k.bounding().is_empty()) else {
+    let Some((id, offsets)) = bounded(&stack.item) else {
         return false;
     };
-    if game.native_block(pos) != kind.id() {
+    if game.native_block(pos) != id {
         return true;
     }
     let Some(state) = game.native_default_state(BOUNDING) else {
         return true;
     };
     let dimension = game.native_dimension().to_owned();
-    for offset in kind.bounding() {
+    for offset in offsets {
         game.native_set_block(&dimension, beside(pos, offset), state, flags::UPDATE_ALL);
     }
     true
 }
 
 /// `native_block_entity_unload` of a generator taken out of the world: its bounding blocks go after the tick.
-pub(super) fn removed(dimension: &str, pos: [i32; 3], kind: GeneratorKind) {
-    if !kind.bounding().is_empty() {
-        REMOVED.with(|r| r.borrow_mut().push((dimension.to_owned(), pos, kind)));
+pub(super) fn removed(dimension: &str, pos: [i32; 3], block: &str) {
+    if let Some((id, offsets)) = bounded(block) {
+        REMOVED.with(|r| r.borrow_mut().push((dimension.to_owned(), pos, id, offsets)));
     }
 }
 
 /// `native_level_tick_post`: `removeBoundingBlocks` of the generators that went, unless one stands there again
 /// (a block entity made anew, as `/data merge` does).
 pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
-    let due: Vec<([i32; 3], GeneratorKind)> = REMOVED.with(|r| {
+    let due: Vec<([i32; 3], &'static str, Vec<[i32; 3]>)> = REMOVED.with(|r| {
         let mut r = r.borrow_mut();
-        let (mine, rest): (Vec<_>, Vec<_>) = r.drain(..).partition(|(d, _, _)| d == dimension);
+        let (mine, rest): (Vec<_>, Vec<_>) = r.drain(..).partition(|(d, _, _, _)| d == dimension);
         *r = rest;
-        mine.into_iter().map(|(_, p, k)| (p, k)).collect()
+        mine.into_iter().map(|(_, p, id, o)| (p, id, o)).collect()
     });
     let Some(air) = game.native_default_state("minecraft:air") else {
         return;
     };
-    for (pos, kind) in due {
-        if game.native_block(pos) == kind.id() {
+    for (pos, id, offsets) in due {
+        if game.native_block(pos) == id {
             continue;
         }
-        for offset in kind.bounding() {
+        for offset in offsets {
             let at = beside(pos, offset);
             if game.native_block(at) == BOUNDING {
                 game.native_set_block(dimension, at, air, flags::UPDATE_ALL);

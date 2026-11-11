@@ -173,6 +173,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_gas::clear();
     super::mek_multiblock::clear();
     super::mek_gen2::clear();
+    super::mek_miner::clear();
     super::mek_pump::clear();
     super::mek_heater::clear();
 }
@@ -290,6 +291,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some(super::mek_heater::new_entity());
         return;
     }
+    if super::mek_miner::is_miner(block) {
+        *entity = Some(super::mek_miner::new_entity());
+        return;
+    }
     if let Some(kind) = mek_factories::kind_of(block) {
         *entity = Some(mek_factories::new_entity(kind));
         return;
@@ -327,6 +332,7 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
         || mek_machines::kind_of(block).is_some()
         || super::mek_pump::kind_of(block).is_some()
         || super::mek_heater::is_heater(block)
+        || super::mek_miner::is_miner(block)
         || super::mek_tanks::tier_of(block).is_some()
         || super::mek_transmit::ticks(block)
     {
@@ -355,6 +361,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if super::mek_heater::is_heater(block) {
         *container = Some(super::mek_heater::container());
+        return;
+    }
+    if super::mek_miner::is_miner(block) {
+        *container = Some(super::mek_miner::container());
         return;
     }
     if let Some(kind) = mek_factories::kind_of(block) {
@@ -420,6 +430,8 @@ pub(super) enum Target {
     /// Any other block with Forge Energy on the touching side, as Mekanism
     /// sees it through `ForgeStrictEnergyHandler`.
     Fe { can_receive: bool },
+    /// A Digital Miner's energy port: a bounding block left or right of it (`mek_miner::port_owner`).
+    MinerPort { main: [i32; 3] },
 }
 
 /// What takes energy on `face` of `pos`: a cube whose touching side isn't
@@ -458,6 +470,12 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     }
     if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_heater::takes_energy(m, side)).flatten() {
         return open.then_some(Target::Machine);
+    }
+    if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_miner::takes_energy(m, side)).flatten() {
+        return open.then_some(Target::Machine);
+    }
+    if let Some(main) = super::mek_miner::port_owner(game, at, side) {
+        return Some(Target::MinerPort { main });
     }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
@@ -522,7 +540,10 @@ fn hand_over(
                         Some(rest) => Some(rest),
                         None => match super::mek_pump::offer(m, config, face.opposite(), amount, simulate) {
                             Some(rest) => Some(rest),
-                            None => super::mek_heater::offer(m, face.opposite(), amount, simulate),
+                            None => match super::mek_heater::offer(m, face.opposite(), amount, simulate) {
+                                Some(rest) => Some(rest),
+                                None => super::mek_miner::offer(m, config, amount, simulate),
+                            },
                         },
                     },
                 })
@@ -535,6 +556,13 @@ fn hand_over(
         }
         Target::Cable => with_cables(dimension, |d| d.nets.insert_at(at, Some(face.opposite() as usize), amount, simulate)),
         Target::Port { output } => super::mek_matrix::offer(dimension, at, output, amount, simulate),
+        Target::MinerPort { main } => {
+            let rest = game.native_with_mod_block_entity(main, |m| super::mek_miner::offer(m, config, amount, simulate)).flatten().unwrap_or(amount);
+            if !simulate && rest < amount {
+                add_received(main, amount - rest);
+            }
+            rest
+        }
         Target::Fe { can_receive } => {
             let side = Some(engine_face(face.opposite()));
             let joules = amount.min(i64::MAX as u64) as i64;
@@ -594,6 +622,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     if super::mek_heater::is_heater(&entity.id) {
         super::mek_heater::tick(game, pos, entity);
+        return;
+    }
+    if super::mek_miner::is_miner(&entity.id) {
+        super::mek_miner::tick(game, pos, entity);
         return;
     }
     if let Some(tier) = super::mek_tanks::tier_of(&entity.id) {
@@ -738,7 +770,10 @@ pub(super) fn fe_storage(
         mek_machines::fe_storage(entity, face, &config, info);
         return;
     }
-    if super::mek_pump::fe_storage(entity, face, &config, info) || super::mek_heater::fe_storage(entity, face, &config, info) {
+    if super::mek_pump::fe_storage(entity, face, &config, info)
+        || super::mek_heater::fe_storage(entity, face, &config, info)
+        || super::mek_miner::fe_storage(entity, face, &config, info)
+    {
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
@@ -817,6 +852,7 @@ pub(super) fn fe_transfer(
     }
     if super::mek_pump::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
         || super::mek_heater::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
+        || super::mek_miner::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
     {
         return;
     }
@@ -947,7 +983,8 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     let machine = mek_machines::kind_of(&entity.id).is_some()
         || mek_factories::kind_of(&entity.id).is_some()
         || super::mek_pump::kind_of(&entity.id).is_some()
-        || super::mek_heater::is_heater(&entity.id);
+        || super::mek_heater::is_heater(&entity.id)
+        || super::mek_miner::is_miner(&entity.id);
     let Some(tier) = CableTier::of_block(&entity.id) else {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
         if energy && ANY_CABLES.get() {
@@ -983,8 +1020,14 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
         forget_climate(dimension, pos);
         if removed {
-            super::mek_gen2::removed(dimension, pos, kind);
+            super::mek_gen2::removed(dimension, pos, kind.id());
         }
+    }
+    if super::mek_miner::is_miner(&entity.id) {
+        if removed {
+            super::mek_gen2::removed(dimension, pos, &entity.id);
+        }
+        super::mek_miner::forget(dimension, pos);
     }
     if super::mek_tubes::tier_of(&entity.id).is_some() {
         super::mek_tubes::unloaded(dimension, pos, removed);
@@ -996,7 +1039,8 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     let machine = mek_machines::kind_of(&entity.id).is_some()
         || mek_factories::kind_of(&entity.id).is_some()
         || super::mek_pump::kind_of(&entity.id).is_some()
-        || super::mek_heater::is_heater(&entity.id);
+        || super::mek_heater::is_heater(&entity.id)
+        || super::mek_miner::is_miner(&entity.id);
     if machine && !removed {
         mek_machines::forget(dimension, pos);
         mek_factories::forget(dimension, pos);
@@ -1110,7 +1154,11 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
         return super::mek_matrix::draw_energy(dimension, at, output, amount, simulate);
     }
     let machine = |m: &mut ModBlockEntity| {
-        mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some() || super::mek_pump::kind_of(&m.id).is_some() || super::mek_heater::is_heater(&m.id)
+        mek_machines::kind_of(&m.id).is_some()
+            || mek_factories::kind_of(&m.id).is_some()
+            || super::mek_pump::kind_of(&m.id).is_some()
+            || super::mek_heater::is_heater(&m.id)
+            || super::mek_miner::is_miner(&m.id)
     };
     if game.native_with_mod_block_entity(at, machine) == Some(true) {
         return 0;
@@ -1417,6 +1465,10 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         super::mek_tanks::button(game, pos, entity, id);
         return;
     }
+    if super::mek_miner::is_miner(&entity.id) {
+        super::mek_miner::button(game, pos, entity, id);
+        return;
+    }
     let (Some(tier), Some(button)) = (CubeTier::of_block(&entity.id), Button::from_id(id)) else {
         return;
     };
@@ -1631,6 +1683,7 @@ pub(super) fn joined(game: &mut Game<'_>, dimension: &str, entity: u32, kind: &s
 pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     tick_cables(game, dimension);
     super::mek_gen2::level_ticked(game, dimension);
+    super::mek_miner::level_ticked(game, dimension);
     super::mek_tubes::level_ticked(game, dimension);
     super::mek_transmit::level_ticked(game, dimension);
     super::mek_multiblock::level_ticked(game, dimension);
@@ -1936,6 +1989,10 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
         if !super::mek_evaporation::slot_accepts(slot, stack) {
             *accepts = false;
         }
+        return;
+    }
+    if super::mek_miner::is_miner(block) {
+        super::mek_miner::slot_accepts(slot, stack, accepts);
         return;
     }
     if super::mek_heater::is_heater(block) {
@@ -2324,6 +2381,16 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
         Some("chemicals") => super::mek_chemicals::registry_command(game, words.next()),
         // `/mek multiblock caches`: every multiblock cache of the dimension, as the level keeps them.
         Some("multiblock") => super::mek_multiblock::caches_json(game),
+        // `/mek miner x y z <what> ...`: a digital miner's settings, filters and buttons.
+        Some("miner") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            let rest: Vec<&str> = words.collect();
+            match at {
+                (Some(x), Some(y), Some(z)) => super::mek_miner::command(game, [x, y, z], &rest),
+                _ => serde_json::json!({ "error": "usage: /mek miner <x> <y> <z> <what> ..." }),
+            }
+        }
         // `/mek heater x y z <J/t>`: a resistive heater's energy usage, as its screen's text field sets it.
         Some("heater") => {
             let p = player.position;
@@ -2395,6 +2462,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if super::mek_pump::kind_of(&id).is_some() {
         return super::mek_pump::probe(game, pos, &id, &nbt, &data, &items);
+    }
+    if super::mek_miner::is_miner(&id) {
+        return super::mek_miner::probe(game, pos, &nbt, &data, &items);
     }
     if super::mek_heater::is_heater(&id) {
         return super::mek_heater::probe(game, pos, &nbt, &data, &items);

@@ -1,7 +1,9 @@
 //! Advanced AE 1.6.12-1.21.1's rows in the definitions registry (feature
 //! `ae2-advancedae`). Derived from Advanced AE (`AAEItems`, `AAEBlocks`,
 //! `AAEComponents`, `SmallAdvPatternProviderBlock`,
-//! `SmallAdvPatternProviderEntity`, `AdvPatternProviderLogic`,
+//! `SmallAdvPatternProviderEntity`, `AdvPatternProviderBlock`,
+//! `AdvPatternProviderEntity`, `AdvPatternProviderPart`,
+//! `SmallAdvPatternProviderPart`, `AdvPatternProviderLogic`,
 //! `AdvProcessingPattern`, `EncodedAdvProcessingPattern`),
 //! https://github.com/pedroksl/AdvancedAE commit
 //! `c322dad81e6f2ad94cb1fb861e73a7ba68e5907a` (1.6.12-1.21.1), LGPL-3.0; see
@@ -9,7 +11,8 @@
 //!
 //! The Small Advanced Pattern Provider is AE2's Pattern Provider of nine
 //! patterns ([`MachineVariant`]) whose pushes send each input to the face of
-//! the target its pattern names; the Advanced Processing Pattern is a
+//! the target its pattern names, the (Extended) Advanced Pattern Provider the
+//! same of 36, each also a part on a cable; the Advanced Processing Pattern is a
 //! processing pattern of its own item and component. The Reaction Chamber
 //! (`ReactionChamberBlock`, `ReactionChamberEntity`) is a machine of its own
 //! ([`ExtMachine`]): nine inputs and an output, four speed cards, a buffer of
@@ -29,17 +32,38 @@ pub const ENCODED_ADV_PROCESSING_PATTERN: &str = "advanced_ae:encoded_adv_proces
 /// `AAEItems.ADV_PATTERN_ENCODER`.
 pub const ADV_PATTERN_ENCODER: &str = "advanced_ae:adv_pattern_encoder";
 
-/// `SmallAdvPatternProviderEntity.createLogic`: `AdvPatternProviderLogic(node,
-/// this, 9)`, AE2's nine return slots, no cards.
-pub const MACHINES: &[MachineVariant] = &[MachineVariant {
-    id: SMALL_ADV_PATTERN_PROVIDER,
-    base: "ae2:pattern_provider",
-    block: SMALL_ADV_PATTERN_PROVIDER,
-    kind: MachineKind::PatternProvider,
-    slots: 9,
-    upgrades: 0,
-    part: false,
-}];
+/// `AAEBlocks.ADV_PATTERN_PROVIDER`: "Advanced Extended Pattern Provider".
+pub const ADV_PATTERN_PROVIDER: &str = "advanced_ae:adv_pattern_provider";
+/// `AAEItems.ADV_PATTERN_PROVIDER` and `SMALL_ADV_PATTERN_PROVIDER`: the part forms.
+pub const ADV_PATTERN_PROVIDER_PART: &str = "advanced_ae:adv_pattern_provider_part";
+pub const SMALL_ADV_PATTERN_PROVIDER_PART: &str = "advanced_ae:small_adv_pattern_provider_part";
+/// `AAEItems.ADV_PATTERN_PROVIDER_UPGRADE` (`AdvPatternProviderUpgradeItem`) and
+/// `ADV_PATTERN_PROVIDER_CAPACITY_UPGRADE` (`AdvPatternProviderCapacityUpgradeItem`).
+pub const ADV_PATTERN_PROVIDER_UPGRADE: &str = "advanced_ae:adv_pattern_provider_upgrade";
+pub const ADV_PATTERN_PROVIDER_CAPACITY_UPGRADE: &str = "advanced_ae:adv_pattern_provider_capacity_upgrade";
+
+/// The providers, as AE2's Pattern Provider block and part with AE2's nine
+/// return slots and no cards: `SmallAdvPatternProviderEntity` and
+/// `SmallAdvPatternProviderPart` (`AdvPatternProviderLogic(node, this, 9)`),
+/// `AdvPatternProviderEntity` and `AdvPatternProviderPart` (36). A part's
+/// menu is its block's (`AdvPatternProviderLogicHost.openMenu`, by the size).
+pub const MACHINES: &[MachineVariant] = &[
+    provider(SMALL_ADV_PATTERN_PROVIDER, SMALL_ADV_PATTERN_PROVIDER, 9, false),
+    provider(ADV_PATTERN_PROVIDER, ADV_PATTERN_PROVIDER, 36, false),
+    provider(SMALL_ADV_PATTERN_PROVIDER_PART, SMALL_ADV_PATTERN_PROVIDER, 9, true),
+    provider(ADV_PATTERN_PROVIDER_PART, ADV_PATTERN_PROVIDER, 36, true),
+];
+const fn provider(id: &'static str, block: &'static str, slots: usize, part: bool) -> MachineVariant {
+    MachineVariant {
+        id,
+        base: if part { "ae2:cable_pattern_provider" } else { "ae2:pattern_provider" },
+        block,
+        kind: MachineKind::PatternProvider,
+        slots,
+        upgrades: 0,
+        part,
+    }
+}
 
 /// `AAEBlocks.REACTION_CHAMBER`.
 pub const REACTION_CHAMBER: &str = "advanced_ae:reaction_chamber";
@@ -220,7 +244,7 @@ pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
 /// Whether `id` is an Advanced AE provider, whose pushes are directional
 /// (`AdvPatternProviderLogic.pushPattern`).
 pub fn directional_provider(id: &str) -> bool {
-    id == SMALL_ADV_PATTERN_PROVIDER
+    MACHINES.iter().any(|row| row.id == id)
 }
 
 /// `NullableDirection` as `EncodedAdvProcessingPattern`'s `directionMap`
@@ -277,6 +301,20 @@ mod tests {
         assert_eq!(machine.slots.len(), 9);
         assert_eq!(machine.id(), SMALL_ADV_PATTERN_PROVIDER);
         assert!(directional_provider(SMALL_ADV_PATTERN_PROVIDER) && !directional_provider("ae2:pattern_provider"));
+    }
+
+    #[test]
+    fn the_large_provider_and_the_parts_are_ae2s_of_their_sizes() {
+        crate::ae2x::install();
+        let large = crate::ae2_world::Machine::for_block(ADV_PATTERN_PROVIDER).unwrap();
+        assert_eq!((large.kind, large.slots.len(), large.upgrades.len()), (MachineKind::PatternProvider, 36, 0));
+        for (part, block, slots) in [(SMALL_ADV_PATTERN_PROVIDER_PART, SMALL_ADV_PATTERN_PROVIDER, 9), (ADV_PATTERN_PROVIDER_PART, ADV_PATTERN_PROVIDER, 36)] {
+            let row = crate::ae2_world::variant(part).unwrap();
+            assert!(row.part && row.base == "ae2:cable_pattern_provider" && row.block == block && row.slots == slots);
+            assert!(crate::ae2_world::Machine::for_block(part).is_none(), "a part is no block");
+            assert!(directional_provider(part));
+        }
+        assert!(directional_provider(ADV_PATTERN_PROVIDER) && !directional_provider("extendedae:ex_pattern_provider"));
     }
 
     #[test]

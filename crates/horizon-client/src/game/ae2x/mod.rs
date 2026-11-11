@@ -23,6 +23,8 @@ pub(super) mod appflux;
 pub(super) mod enderdrives;
 #[cfg(feature = "ae2-advancedae")]
 pub(super) mod advancedae;
+#[cfg(any(feature = "ae2-extendedae", feature = "ae2-advancedae"))]
+pub(super) mod kits;
 
 /// The addons' key types' world strategies (`StackWorldBehaviors.register*`),
 /// registered once, before `ae2_key_strategies` is first read.
@@ -391,6 +393,10 @@ pub(super) fn part_model(id: &str) -> Option<&'static str> {
     #[cfg(feature = "ae2-appflux")]
     if id == horizon_client::ae2x::appflux::PART_FLUX_ACCESSOR {
         return Some(horizon_client::ae2x::appflux::PART_MODEL);
+    }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(model) = advancedae::part_model(id) {
+        return Some(model);
     }
     let _ = id;
     None
@@ -1535,7 +1541,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-advancedae")]
-        if self.advancedae_bucket_use(pos) {
+        if self.advancedae_bucket_use(pos) || self.advancedae_kit_use(pos, face) {
             return true;
         }
         false
@@ -1561,6 +1567,15 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-advancedae")]
         if self.advancedae_machine_click(pos, slot, button, input) {
+            return true;
+        }
+        false
+    }
+    /// [`Self::ae2x_machine_click`] on the menu of an addon's part.
+    pub(super) fn ae2x_part_machine_click(&mut self, part: super::ae2_parts::PartAddress, slot: usize, button: i32, input: horizon_client::menu::Input) -> bool {
+        let _ = (part, slot, button, input);
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_part_machine_click(part, slot, button, input) {
             return true;
         }
         false

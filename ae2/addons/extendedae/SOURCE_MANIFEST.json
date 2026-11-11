@@ -30,6 +30,7 @@
     "crates/horizon-client/src/game/ae2x/extendedae/mod.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/screens.rs",
     "crates/horizon-client/src/game/ae2x/extendedae/special.rs",
-    "crates/horizon-client/src/game/ae2x/extendedae/upgrade.rs"
+    "crates/horizon-client/src/game/ae2x/extendedae/upgrade.rs",
+    "crates/horizon-client/src/game/ae2x/kits.rs"
   ]
 }

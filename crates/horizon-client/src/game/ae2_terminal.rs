@@ -7475,6 +7475,7 @@ impl Game<'_> {
     ) {
         let Some(slot) = slot else { return };
         if self.ae2_machine_player_menu_click(slot,button,input) {return;}
+        if self.ae2x_part_machine_click(part,slot,button,input) {return;}
         let Ok(Some(mut machine)) = self.ae2_part_machine(part) else {
             return;
         };

@@ -13,6 +13,10 @@
 //! AE's own is the list of directions beside its sparse inputs, one per input
 //! (`NULLDIR` where the input goes to the face the provider pushes to).
 //!
+//! The large provider and the part forms are the same logic of 36 and 9
+//! patterns; the upgrade items replace AE2's and ExtendedAE's providers in
+//! place through the addons' kits (`kits`).
+//!
 //! Also here: the provider's `FILTERED_IMPORT` (`AdvPatternProviderReturnInventory`),
 //! the pattern's tooltip (`MixinEncodedPatternItem`) and its re-encoding in
 //! AE2's encoding terminal (`MixinPatternEncodingTermMenu`). The encoder's
@@ -45,8 +49,35 @@ pub(in crate::game) struct State {
 /// `AAESettings.FILTERED_IMPORT` in the provider's config, as
 /// `IConfigManager.writeToNBT` names it: `NO` (the default) or `YES`.
 pub(in crate::game) const FILTERED_IMPORT: &str = "filtered_import";
-/// Its toolbar button's menu entry, after AE2's three settings.
-pub(in crate::game) const FILTERED_IMPORT_ENTRY: usize = 21;
+/// Its toolbar button's menu entry, after AE2's three settings: 21 for nine
+/// patterns, 48 for 36.
+pub(in crate::game) fn filtered_import_entry(provider: &Machine) -> usize {
+    crate::game::ae2_machine_ui::MenuShape::of(provider).settings() as usize + 3
+}
+
+/// The base model of a provider part (`AdvPatternProviderPart.MODELS_*`'s
+/// `MODEL_BASE`). `SmallAdvPatternProviderPart` keeps its parent's models, so
+/// both parts draw the large one's.
+pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
+    (id == rows::ADV_PATTERN_PROVIDER_PART || id == rows::SMALL_ADV_PATTERN_PROVIDER_PART).then_some("advanced_ae:part/adv_pattern_provider_part")
+}
+
+/// The upgrade items (`AdvPatternProviderUpgradeItem`,
+/// `AdvPatternProviderCapacityUpgradeItem`): by the exact class, AE2's
+/// provider becomes the small one and ExtendedAE's the large one, the small
+/// one the large one; block and part alike.
+pub(in crate::game) const KITS: &[crate::game::ae2x::kits::Kit] = &[
+    crate::game::ae2x::kits::Kit {
+        item: rows::ADV_PATTERN_PROVIDER_UPGRADE,
+        blocks: &[("ae2:pattern_provider", rows::SMALL_ADV_PATTERN_PROVIDER), ("extendedae:ex_pattern_provider", rows::ADV_PATTERN_PROVIDER)],
+        parts: &[("ae2:cable_pattern_provider", rows::SMALL_ADV_PATTERN_PROVIDER_PART), ("extendedae:ex_pattern_provider_part", rows::ADV_PATTERN_PROVIDER_PART)],
+    },
+    crate::game::ae2x::kits::Kit {
+        item: rows::ADV_PATTERN_PROVIDER_CAPACITY_UPGRADE,
+        blocks: &[(rows::SMALL_ADV_PATTERN_PROVIDER, rows::ADV_PATTERN_PROVIDER)],
+        parts: &[(rows::SMALL_ADV_PATTERN_PROVIDER_PART, rows::ADV_PATTERN_PROVIDER_PART)],
+    },
+];
 
 /// `Direction.from3DDataValue`.
 pub(in crate::game) fn direction(value: u8) -> Option<Direction> {
@@ -271,23 +302,41 @@ pub(in crate::game) fn return_accepts(provider: &Machine, key: &ItemKey, key_typ
     provider.slots.iter().flatten().any(|pattern| pattern_outputs(pattern).iter().any(|(k, t)| k == key && *t == key_type))
 }
 
+/// A left or right press on `provider`'s Filtered Import button: the setting
+/// steps on (back with the right).
+fn filtered_import_press(provider: &mut Machine, slot: usize, button: i32, input: horizon_client::menu::Input) -> bool {
+    slot == 300 + filtered_import_entry(provider)
+        && input == horizon_client::menu::Input::Pickup
+        && (0..=1).contains(&button)
+        && rows::directional_provider(provider.id())
+        && crate::game::ae2_screens::step_setting(provider, slot, button == 1)
+}
+
 impl crate::game::Game<'_> {
     /// A press on the Filtered Import button of a provider's screen (menu
-    /// entry [`FILTERED_IMPORT_ENTRY`], window slot `slot`): the setting steps
+    /// entry [`filtered_import_entry`], window slot `slot`): the setting steps
     /// on; or on a Reaction Chamber's own entries. False for any other press.
     pub(in crate::game) fn advancedae_machine_click(&mut self, pos: (i32, i32, i32), slot: usize, button: i32, input: horizon_client::menu::Input) -> bool {
         if self.advancedae_chamber_click(pos, slot, button, input) {
             return true;
         }
-        if slot != 300 + FILTERED_IMPORT_ENTRY || input != horizon_client::menu::Input::Pickup || !(0..=1).contains(&button) {
-            return false;
-        }
         let Some(horizon_client::containers::BlockEntity::Ae2(machine)) = self.world.block_entities.get_mut(&pos) else { return false };
-        if !rows::directional_provider(machine.id()) || !crate::game::ae2_screens::step_setting(machine, slot, button == 1) {
+        if !filtered_import_press(machine, slot, button, input) {
             return false;
         }
         self.world.modified.insert((pos.0 >> 4, pos.2 >> 4));
         true
+    }
+
+    /// [`Self::advancedae_machine_click`] on a provider part's screen.
+    pub(in crate::game) fn advancedae_part_machine_click(&mut self, part: crate::game::ae2_parts::PartAddress, slot: usize, button: i32, input: horizon_client::menu::Input) -> bool {
+        let Ok(Some(mut machine)) = self.ae2_part_machine(part) else { return false };
+        filtered_import_press(&mut machine, slot, button, input) && self.ae2_store_part_machine(part, &machine).is_ok()
+    }
+
+    /// An upgrade item used on block `pos`, side `face` (sneaking; `useOn`).
+    pub(in crate::game) fn advancedae_kit_use(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
+        self.ae2x_kit_use(KITS, pos, face)
     }
 
     /// The tooltip of an Advanced Processing Pattern, `item_name` naming an
@@ -449,5 +498,59 @@ mod tests {
         assert_eq!(provider_input_directions(&small, &advanced), Some(vec![Some(Direction::Up)]));
         assert_eq!(provider_input_directions(&ae2, &advanced), None, "AE2's provider pushes it as any processing pattern");
         assert_eq!(provider_input_directions(&small, &ae2_pattern(&[item("minecraft:stone", 1)], &[item("minecraft:dirt", 1)])), None);
+        let large = crate::game::ae2_parts::part_machine(rows::ADV_PATTERN_PROVIDER_PART).unwrap();
+        assert_eq!((large.slots.len(), provider_input_directions(&large, &advanced)), (36, Some(vec![Some(Direction::Up)])), "the part pushes as the block");
+    }
+
+    #[test]
+    fn filtered_import_sits_after_the_settings_of_each_size() {
+        horizon_client::ae2x::install();
+        let mut large = Machine::for_block(rows::ADV_PATTERN_PROVIDER).unwrap();
+        let small = Machine::for_block(rows::SMALL_ADV_PATTERN_PROVIDER).unwrap();
+        assert_eq!((filtered_import_entry(&small), filtered_import_entry(&large)), (21, 48));
+        assert!(!filtered_import_press(&mut large, 321, 0, horizon_client::menu::Input::Pickup), "the small one's entry is a return slot here");
+        assert!(filtered_import_press(&mut large, 348, 0, horizon_client::menu::Input::Pickup));
+        assert_eq!(large.config.get(&FILTERED_IMPORT.into()), Some(&Tag::String("YES".into())));
+        let mut ae2 = Machine::for_block("ae2:pattern_provider").unwrap();
+        assert!(!filtered_import_press(&mut ae2, 321, 0, horizon_client::menu::Input::Pickup), "AE2's provider has no such button");
+    }
+
+    #[test]
+    fn the_upgrade_items_turn_each_provider_into_the_next_with_its_patterns() {
+        use crate::game::ae2x::kits::{upgraded, upgraded_part};
+        horizon_client::ae2x::install();
+        let kit = |id: &str| KITS.iter().find(|kit| kit.item == id).unwrap();
+        let upgrade = kit(rows::ADV_PATTERN_PROVIDER_UPGRADE);
+        let capacity = kit(rows::ADV_PATTERN_PROVIDER_CAPACITY_UPGRADE);
+        for (from, to) in upgrade.blocks.iter().chain(capacity.blocks) {
+            assert_eq!(horizon_client::ae2_world::variant(to).map(|row| row.part), Some(false));
+            assert!(Machine::for_block(from).is_some(), "{from}");
+        }
+        for (_, to) in upgrade.parts.iter().chain(capacity.parts) {
+            assert_eq!(horizon_client::ae2_world::variant(to).map(|row| row.part), Some(true));
+        }
+        // AE2's provider: the small one, the pattern in its slot, the settings kept.
+        let mut provider = Machine::for_block("ae2:pattern_provider").unwrap();
+        provider.slots[8] = Some(encode(&[item("minecraft:stone", 1)], &[item("minecraft:dirt", 1)], &|_| Some(Direction::Up)).unwrap());
+        provider.config.insert("priority".into(), Tag::Int(7));
+        provider.config.insert("ae2_blocking".into(), Tag::Byte(1));
+        let small = upgraded(&provider, upgrade.blocks[0].1).unwrap();
+        assert_eq!((small.id(), small.slots.len()), (rows::SMALL_ADV_PATTERN_PROVIDER, 9));
+        assert_eq!((small.slots[8].clone(), small.config.clone()), (provider.slots[8].clone(), provider.config.clone()));
+        // The capacity upgrade: 36 slots, the first nine the small one's.
+        let large = upgraded(&small, capacity.blocks[0].1).unwrap();
+        assert_eq!((large.id(), large.slots.len(), large.slots[8].clone()), (rows::ADV_PATTERN_PROVIDER, 36, provider.slots[8].clone()));
+        assert!(upgraded(&large, rows::SMALL_ADV_PATTERN_PROVIDER).is_none(), "never fewer slots");
+        // A part keeps its record under the new id.
+        let part = Tag::compound([
+            ("id", Tag::String("ae2:cable_pattern_provider".into())),
+            ("face", Tag::String("north".into())),
+            ("stack", horizon_client::save::item_to_nbt(&ItemStack::new("ae2:cable_pattern_provider", 1))),
+            ("machine", Tag::compound([("config", Tag::compound([("priority", Tag::Int(5))]))])),
+        ]);
+        let next = upgraded_part(&part, upgrade.parts[0].1).unwrap();
+        assert_eq!(next.get("id"), Some(&Tag::String(rows::SMALL_ADV_PATTERN_PROVIDER_PART.into())));
+        assert_eq!((next.get("face"), next.get("machine")), (part.get("face"), part.get("machine")));
+        assert_eq!(part_model(rows::SMALL_ADV_PATTERN_PROVIDER_PART), part_model(rows::ADV_PATTERN_PROVIDER_PART));
     }
 }

@@ -74,6 +74,17 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
 | `QuantumComputerScreen`/`QuantumComputerMenu` (`quantum_computer.json` = `crafting_status.json`), opened on a formed, active block: the jobs and the free CPU (`AdvCpuSelectionList`), the selected job, `CPU_SELECTION_MODE` in the toolbar | AE2's crafting status screen over the computer's CPUs, the mode button in place of back |
 | recipes `quantumstructure`, `eaequantumunit`, `eaequantumaccel`, `quantumstorage128`/`256`, `quantumcore`, `eaequantumdataentangler`, `eaequantummultithreader` (the `not extendedae` forms stay for the game to turn off); the items they need: `shattered_singularity`, `quantum_storage_component`, `quantum_processor`, `printed_quantum_processor`, `quantum_processor_press`, `quantum_alloy` | from the jar; the Reaction Chamber's `shatteredsingularity` now (16 of its 19 recipes) |
 
+## What works (slice 4)
+
+| Advanced AE | Port |
+|---|---|
+| `advanced_ae:adv_pattern_provider` ("Advanced Extended Pattern Provider": `AdvPatternProviderBlock`, as the small one's block), `AdvPatternProviderEntity` (`AdvPatternProviderLogic(.., 36)`) | a machine variant of AE2's Pattern Provider of 36 patterns, nine return slots, no cards: the small one's logic (the directional push, Filtered Import) |
+| `AdvPatternProviderPart` (36) and `SmallAdvPatternProviderPart` (9), items `adv_pattern_provider_part` and `small_adv_pattern_provider_part`: `REQUIRE_CHANNEL`, AE2's provider part pushing to the block it faces; `openMenu` by the size; `MODELS_*` over `part/adv_pattern_provider_part` (the small part keeps its parent's models) | part variants of AE2's provider part (`ae2:cable_pattern_provider`), each opening its block's screen; the directional push into the face of the block in front named by the pattern; both draw `part/adv_pattern_provider_part` |
+| `AdvPatternProviderScreen` with `screens/adv_pattern_provider.json` (36 slots `BREAK_AFTER_9COLS`, `guis/adv_pattern_provider.png`) | `screens.rs`: the window of a bigger provider (`MenuShape`): settings at 45, Filtered Import 48, priority 53; the part's Filtered Import press through the addons' part menu hook |
+| `AdvPatternProviderUpgradeItem.useOn` (by the exact class): AE2's `PatternProviderBlockEntity` becomes the small provider, ExtendedAE's `TileExPatternProvider` the large one (`getStateForPlacement`, then the old state's properties), the block entity replaced with its data; on a cable the part under the cursor (`PatternProviderPart` to the small part, `PartExPatternProvider` to the large part: `replacePart`, `readFromNBT`); `shrink(1)` | the addons' kits (`game/ae2x/kits.rs`, out of ExtendedAE's `ItemUpgrade`, which acts the same): used sneaking, the device is replaced in place with its slots, settings and name, the part record under the new id; a creative player keeps the item |
+| `AdvPatternProviderCapacityUpgradeItem.useOn`: `SmallAdvPatternProviderEntity` and `SmallAdvPatternProviderPart` to the large ones | the same kit: the nine patterns keep their slots of 36 |
+| recipes `advpatpro2`, `advpatpropart`, `smalladvpatpro2`, `smalladvpatpropart` (block and part forms), `eaeadvpatpro` (ExtendedAE's provider into the large one), `smallappupgrade`, `largeappupgrade` and `eaelargeappupgrade` (each kept or turned off by its `mod_loaded` condition); the large block's loot table and pickaxe tag | from the jar (45 recipes now) |
+
 ## Not yet
 
 - The encoder's Curios slot (the port has no Curios).
@@ -95,15 +106,21 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
   many jobs at once as the computer has blocks (one on a lone core), where the mod's limit is the bytes alone; a CPU
   picked in the confirmation is its free block, and a job started elsewhere meanwhile moves that block on. A job of a
   computer whose box changes is cancelled (the mod drops the cluster and its jobs with it).
-- The Extended (36) provider, the part forms and the upgrade items (slice 4), the buses and Throughput Monitor (5), the Quantum Crafter (6), the Quantum Armor (7).
+- The providers' leftovers: the upgrade items' tooltips (`AAEText.PatternProviderUpgrade`,
+  `PatternProviderCapacityUpgrade`), the `ae2:pattern_provider` item tag the jar adds the four providers to (the port
+  merges no addon's `data/ae2` tags yet), the Memory Card on the Advanced providers (AE2's copies only AE2's).
+  The upgrades act only while sneaking, as the port's ExtendedAE kits (vanilla's `useOn` comes after the provider's
+  own use, which opens its menu).
+- The buses and Throughput Monitor (slice 5), the Quantum Crafter (6), the Quantum Armor (7).
 
 ## Tests
 
 `horizon-client-lib` (the variant, the registry rows, `NullableDirection` names, the Quantum Computer's parts and config), `horizon-command` (the component's
 codec), `horizon-client` (`game/ae2x/advancedae`: the encoder's edits, the saved direction list, which provider pushes
 directionally, the tooltip, re-encoding, Filtered Import; the chamber's recipes, power steps, tanks and sides; the encoder menu's slots and buttons and the item's
-inventory; the screen's buttons; the provider's layout on the window's entries; the Quantum Computer's formation, sums
-and saved cluster), and the world tests
+inventory; the screen's buttons; the providers' layouts on the windows' entries, Filtered Import's entry by size; the
+upgrade items' kits; the Quantum Computer's formation, sums and saved cluster; the shared kits in ExtendedAE's tests),
+and the world tests
 `advancedae-provider` (the encoder's edits; the provider's screen; raw iron through a furnace's top and coal through
 its side; AE2's provider pushing the same pattern to one face; a restart) and `advancedae-encoder` (the encoder's screen
 used and by its hotkey, its rows and buttons; the tooltip; Filtered Import with a hopper and a shift-click; re-encoding
@@ -113,8 +130,12 @@ grid, 100 steps; the screen, its tanks, flush, a bucket from the cursor, cards a
 water and getting the fluix back; a restart; its drops) and `advancedae-quantum-computer` (no core, structure inside
 or a unit on the shell do not form; a core, an entangler and an accelerator form 256 MB x 6 and 24 co-processors; a
 core alone; two jobs at once from the terminal, each of its bytes; the screen's CPUs and mode; a restart; the outputs
-ending both; a broken computer giving a waiting job's items back):
+ending both; a broken computer giving a waiting job's items back) and `advancedae-providers` (the large block's 36
+slots and settings; the large part's screen and its directional push into a furnace; the upgrade on AE2's provider,
+then the Capacity Upgrade, keeping the pattern and blocking mode; on ExtendedAE's provider when its content is there;
+on AE2's provider part, twice, and Filtered Import on the part; a restart; the drops of the block and the part; the
+recipes of the part form and the upgrade):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers
 ```

@@ -150,8 +150,7 @@ try {
   // Sneak-use an empty cell (AbstractPortableCell.disassembleDrive): MEGA's disassembly recipe, the energy into the Dense Energy Cell.
   await fixture.command('clear @s');
   await fixture.replace('hotbar.0', `${CELL}[ae2:stored_energy=100000.0d]`); await fixture.select(0, CELL);
-  await fixture.raw('key shift down');
-  try { await fixture.raw('use-item'); } finally { await fixture.raw('key shift up'); }
+  await fixture.sneakUseItem();
   const parts = await until(() => fixture.raw('inventory'), s => !s.counts?.[CELL] && s.counts?.['ae2:dense_energy_cell'] === 1, 'the cell taken apart');
   for (const part of ['megacells:cell_component_1m', 'megacells:mega_item_cell_housing', 'ae2:chest']) assert.equal(parts.counts?.[part], 1, part);
   await fixture.select(parts.hotbar.findIndex((s: any) => s?.item === 'ae2:dense_energy_cell'), 'ae2:dense_energy_cell');

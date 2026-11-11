@@ -105,9 +105,8 @@ try {
   assert.equal(await freqOf(connA), f, 'connector A keeps its link');
   assert.equal(await freqOf(connC), 0n, 'connector C got no frequency');
   assert(!(await status(driveC)).powered, 'nothing reaches site C');
-  // Sneak-used in the air, the kit forgets C.
-  await fixture.raw('key shift down');
-  try { await fixture.raw('use-item'); } finally { await fixture.raw('key shift up'); }
+  // Sneak-used, the kit forgets C: connector A in the crosshair passes and the kit's own use runs.
+  await fixture.sneakUseItem();
   await until(selected, text => !text.includes('extendedae:wireless_locator'), 'the kit cleared');
   fixture.mark('the kit will not pair 1,001 blocks apart, and forgets its block when sneak-used');
 

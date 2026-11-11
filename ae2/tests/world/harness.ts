@@ -212,6 +212,18 @@ export class WorldFixture {
     try { await this.raw(`interact ${args}`); } finally { if (sneak) await this.raw('key shift up'); }
   }
   async sneakInteract(args: string): Promise<void> { await this.aimedInteract(args, true); }
+  /** `use-item`, sneaking. The client sneaks as of its last tick's input (`isShiftKeyDown`), so the
+   * sneak goes out with two of its ticks before the use, as `raw` waits for an `interact`; a click in
+   * the frame of the press is not sneaking (a machine in the crosshair takes it). `key shift`, not
+   * `use-item --sneak`: the agent's own hold is no modifier, and the next frame lets go of it. */
+  async sneakUseItem(): Promise<void> {
+    await this.raw('key shift down');
+    try {
+      const ticks = (await this.send('status')).ticks;
+      await until(() => this.send('status'), view => view.ticks >= ticks + 2, 'sneak sent before the use');
+      await this.raw('use-item');
+    } finally { await this.raw('key shift up'); }
+  }
   async hold(held = true): Promise<void> { await this.raw(`server-hold ${held ? 'on' : 'off'}`); }
   async stepServer(ticks = 1): Promise<void> {
     assert(Number.isInteger(ticks) && ticks >= 1 && ticks <= 1000);

@@ -97,7 +97,7 @@ try {
 
   // Disassembly: an empty 1k FE cell gives its housing and core back; one holding FE is kept whole.
   await fixture.command('clear @s');
-  const sneakUse = async () => { await fixture.raw('key shift down'); try { await fixture.raw('use-item'); } finally { await fixture.raw('key shift up'); } };
+  const sneakUse = () => fixture.sneakUseItem();
   await fixture.raw('look 0 -80');
   await fixture.replace('hotbar.0', 'appflux:fe_1k_cell[appflux:fe_energy=5L]'); await fixture.select(0, 'appflux:fe_1k_cell');
   await sneakUse();

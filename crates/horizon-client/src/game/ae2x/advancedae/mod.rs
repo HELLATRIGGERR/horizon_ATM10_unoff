@@ -21,12 +21,15 @@
 //! the pattern's tooltip (`MixinEncodedPatternItem`) and its re-encoding in
 //! AE2's encoding terminal (`MixinPatternEncodingTermMenu`). The encoder's
 //! menu is `encoder`, its screen `encoder_screen`; the Reaction Chamber is
-//! `chamber`, the Quantum Computer `quantum`.
+//! `chamber`, the Quantum Computer `quantum`, the buses `buses` and the
+//! Throughput Monitor `throughput`.
+pub(in crate::game) mod buses;
 pub(in crate::game) mod chamber;
 pub(in crate::game) mod encoder;
 pub(in crate::game) mod encoder_screen;
 mod lab;
 pub(in crate::game) mod quantum;
+pub(in crate::game) mod throughput;
 
 use crate::game::ae2_source_patterns as source;
 use ae2_cell_core::{ItemKey, KeyType};
@@ -44,6 +47,8 @@ pub(in crate::game) struct State {
     pub(in crate::game) encoder_scroll: crate::game::ae2_widgets::Scroll,
     /// The Reaction Chambers' searches, by block entity incarnation.
     pub(in crate::game) chambers: std::collections::HashMap<u64, chamber::Ctx>,
+    /// The Throughput Monitors' readings, by part node.
+    pub(in crate::game) throughput: std::collections::BTreeMap<ae2_network_core::NodeIdentity, throughput::Monitor>,
 }
 
 /// `AAESettings.FILTERED_IMPORT` in the provider's config, as
@@ -59,7 +64,25 @@ pub(in crate::game) fn filtered_import_entry(provider: &Machine) -> usize {
 /// `MODEL_BASE`). `SmallAdvPatternProviderPart` keeps its parent's models, so
 /// both parts draw the large one's.
 pub(in crate::game) fn part_model(id: &str) -> Option<&'static str> {
-    (id == rows::ADV_PATTERN_PROVIDER_PART || id == rows::SMALL_ADV_PATTERN_PROVIDER_PART).then_some("advanced_ae:part/adv_pattern_provider_part")
+    Some(match id {
+        rows::ADV_PATTERN_PROVIDER_PART | rows::SMALL_ADV_PATTERN_PROVIDER_PART => "advanced_ae:part/adv_pattern_provider_part",
+        // The buses' MODEL_BASE.
+        rows::STOCK_EXPORT_BUS => "advanced_ae:part/stock_export_bus_part",
+        rows::IMPORT_EXPORT_BUS => "advanced_ae:part/import_export_bus_part",
+        rows::ADVANCED_IO_BUS => "advanced_ae:part/advanced_io_bus_part",
+        _ => return None,
+    })
+}
+/// The buses' screens (`AAEMenus`): `screens/stock_export_bus.json`,
+/// `import_export_bus.json`, `advanced_io_bus.json`, each AE2's `io_bus.json`
+/// with its own title.
+pub(in crate::game) fn part_style(id: &str) -> Option<(&'static str, &'static str)> {
+    Some(match id {
+        rows::STOCK_EXPORT_BUS => ("advanced_ae", "stock_export_bus.json"),
+        rows::IMPORT_EXPORT_BUS => ("advanced_ae", "import_export_bus.json"),
+        rows::ADVANCED_IO_BUS => ("advanced_ae", "advanced_io_bus.json"),
+        _ => return None,
+    })
 }
 
 /// The upgrade items (`AdvPatternProviderUpgradeItem`,

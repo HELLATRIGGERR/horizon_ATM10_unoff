@@ -357,6 +357,10 @@ pub(super) fn bus_multiplier(id: &str) -> u64 {
     if let n @ 2.. = horizon_client::ae2x::extendedae::bus_operations_multiplier(id) {
         return n;
     }
+    #[cfg(feature = "ae2-advancedae")]
+    if let n @ 2.. = horizon_client::ae2x::advancedae::bus_operations_multiplier(id) {
+        return n;
+    }
     1
 }
 /// The screen style of an addon's part (its namespace, where its files under
@@ -367,7 +371,60 @@ pub(super) fn part_style(id: &str) -> Option<(&'static str, &'static str)> {
     if let Some(found) = extendedae::part_style(id) {
         return Some(found);
     }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae::part_style(id) {
+        return Some(found);
+    }
     None
+}
+/// An addon bus's work (`doBusWork` of Advanced AE's buses), for its part
+/// record `part`: none where it is AE2's ([`ae2_machines_core::BusState::tick`]).
+pub(super) fn bus_tick<H: ae2_machines_core::TransferHost>(
+    part: &horizon_world::nbt::Compound,
+    state: &mut ae2_machines_core::BusState,
+    active: bool,
+    loaded: bool,
+    host: &mut H,
+) -> Option<Result<ae2_machines_core::TickResult, H::Error>> {
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(outcome) = advancedae::buses::tick(part, state, active, loaded, host) {
+        return Some(outcome);
+    }
+    let _ = (part, state, active, loaded, host);
+    None
+}
+/// A key set in filter `slot` of an addon bus whose filters keep amounts
+/// (Advanced AE's stock buses): the amount from `held`.
+pub(super) fn bus_filter_set(part: &mut horizon_world::nbt::Compound, slot: usize, key: Option<&ae2_machines_core::Key>, held: Option<&horizon_client::items::ItemStack>) {
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae::buses::filter_set(part, slot, key, held);
+    let _ = (part, slot, key, held);
+}
+/// A press on the bus menu's `place` that is an addon bus's own setting.
+pub(super) fn bus_setting_press(part: &mut horizon_world::nbt::Compound, place: usize) -> bool {
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::buses::setting_press(part, place) {
+        return true;
+    }
+    let _ = (part, place);
+    false
+}
+/// What an addon bus's screen shows beyond AE2's, from its part record.
+pub(super) fn part_view(part: &horizon_world::nbt::Compound, view: &mut super::ae2_part_screens::PartView) {
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae::buses::part_view(part, view);
+    let _ = (part, view);
+}
+/// An addon bus's toolbar buttons after AE2's: the place each presses, its
+/// icon and tooltip keys.
+pub(super) fn part_tools(view: &super::ae2_part_screens::PartView) -> Vec<(usize, (i32, i32), &'static str, &'static str)> {
+    #[cfg(feature = "ae2-advancedae")]
+    return advancedae::buses::part_tools(view);
+    #[cfg(not(feature = "ae2-advancedae"))]
+    {
+        let _ = view;
+        Vec::new()
+    }
 }
 /// The items an AE2 IO Port of an addon moves a tick, by its speed cards.
 pub(super) fn io_port_budget(machine: &Machine) -> Option<u64> {
@@ -975,6 +1032,8 @@ impl Game<'_> {
         self.tick_advancedae_chambers();
         #[cfg(feature = "ae2-advancedae")]
         self.tick_advancedae_quantum();
+        #[cfg(feature = "ae2-advancedae")]
+        self.tick_advancedae_throughput();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -987,6 +1046,28 @@ impl Game<'_> {
         self.tick_enderdrives();
         #[cfg(feature = "ae2-appflux")]
         self.tick_appflux_induction();
+    }
+
+    /// A use on an addon's monitor part that is its own (Advanced AE's
+    /// Throughput Monitor Configurator): true when it took the use.
+    pub(super) fn ae2x_monitor_use(&mut self, pos: (i32, i32, i32), face: &str) -> bool {
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_configurator_use(pos, face) {
+            return true;
+        }
+        let _ = (pos, face);
+        false
+    }
+    /// The line an addon's monitor part draws under its amount (Advanced
+    /// AE's Throughput Monitor); none for AE2's monitors.
+    pub(super) fn ae2x_monitor_line(&self, network: &ae2_network_core::Network, pos: (i32, i32, i32), face: &str) -> Option<super::ae2_visual_sync::RateVisual> {
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_monitor_line(network, pos, face);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        {
+            let _ = (network, pos, face);
+            None
+        }
     }
 
     /// An addon machine on the grid: its node's kind, idle draw, channel

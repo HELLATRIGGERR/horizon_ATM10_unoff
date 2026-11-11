@@ -80,6 +80,19 @@ pub(super) struct MonitorVisual {
     pub fluid: bool,
     pub amount: u64,
     pub craftable: bool,
+    /// An addon monitor's line under the amount (Advanced AE's Throughput
+    /// Monitor); its item and amount are drawn smaller, higher up.
+    #[serde(default)]
+    pub rate: Option<RateVisual>,
+}
+/// A line of text a monitor draws under its amount: its translation (two
+/// `%s`: `sign`, `value`) and colour, 0xRRGGBB (none: the amount's).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(super) struct RateVisual {
+    pub key: String,
+    pub sign: String,
+    pub value: String,
+    pub color: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Facade {
@@ -263,7 +276,7 @@ impl Game<'_> {
             if let Some(group)=network.nodes.get(&point).and_then(|d|d.multiblock) {
                 let job=jobs.entry(group).or_insert_with(||self.ae2_crafting_monitor_job(pos));
                 if let Some((key,fluid,amount))=job && key.item_id.len()<=512 && key.components.len()<=65536 {
-                    v.crafting_job=Some(MonitorVisual{item:key.item_id.clone(),components:key.components.clone(),fluid:*fluid,amount:*amount,craftable:false});
+                    v.crafting_job=Some(MonitorVisual{item:key.item_id.clone(),components:key.components.clone(),fluid:*fluid,amount:*amount,craftable:false,rate:None});
                 }
             }
             return;
@@ -281,7 +294,8 @@ impl Game<'_> {
             });
             let amount=inventory.iter().find_map(|(k,n)|(k==&key).then_some(*n)).unwrap_or(0);
             let can_craft=craftable.contains(&key);
-            part.monitor=Some(MonitorVisual{item:key.item_id,components:key.components,fluid,amount,craftable:can_craft});
+            let rate=self.ae2x_monitor_line(network,pos,&part.face);
+            part.monitor=Some(MonitorVisual{item:key.item_id,components:key.components,fluid,amount,craftable:can_craft,rate});
         }
     }
     pub(super) fn ae2_apply_dynamic_shape(&mut self, v: &Visual) {

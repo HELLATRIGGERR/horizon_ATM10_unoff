@@ -118,6 +118,13 @@ pub(super) struct PartView {
     /// An import bus's key types, one each of [`selectable_key_types`]:
     /// whether it is on.
     pub(super) key_types: Vec<bool>,
+    /// An addon bus whose filters keep amounts: each filter's, as its slot
+    /// shows it (empty where none).
+    #[serde(default)]
+    pub(super) amounts: Vec<String>,
+    /// An addon bus's own setting (Advanced AE's `REGULATE_STOCK`).
+    #[serde(default)]
+    pub(super) regulate: Option<bool>,
     #[serde(skip)]
     pub(super) stacks: Vec<Option<ItemStack>>,
 }
@@ -239,6 +246,9 @@ fn tools(v: &PartView) -> Vec<Tool> {
             }
         }
         _ => {}
+    }
+    for (place, icon, title, value) in super::ae2x::part_tools(v) {
+        tools.push(Tool { place, icon, title, value });
     }
     tools
 }
@@ -609,6 +619,9 @@ impl Game<'_> {
                 self.ae2_blit_to(batch, &states, [sx, sy, 18, 18], [ox + (x - 1) as f32, oy + (y - 1) as f32, 18.0, 18.0], rgba(255, 255, 255, alpha));
                 if let Some(stack) = v.stacks.get(i).and_then(Option::as_ref) {
                     self.draw_item_model(batch, stack, ox + x as f32, oy + y as f32);
+                    if let Some(amount) = v.amounts.get(i).filter(|a| !a.is_empty()) {
+                        self.ae2_size_label(batch, ox + x as f32, oy + y as f32, amount, false);
+                    }
                 }
                 if open && inside([x - 1, y - 1, 18, 18], mouse) {
                     batch.fill(atlas, ox + x as f32, oy + y as f32, 16.0, 16.0, rgba(255, 255, 255, 128));
@@ -702,7 +715,7 @@ impl Game<'_> {
         let config = (0..CONFIG_PLACES).filter_map(|i| {
             let [x, y, w, h] = self.ae2_part_config_slot(style, i)?;
             let stack = v.stacks.get(i).and_then(Option::as_ref);
-            Some(serde_json::json!({"rect": rect([x, y, w, h]), "item": stack.map(|s| s.item.to_string()), "components": stack.and_then(|s| self.stack_value(s).get("components").cloned()), "open": i < v.enabled}))
+            Some(serde_json::json!({"rect": rect([x, y, w, h]), "item": stack.map(|s| s.item.to_string()), "components": stack.and_then(|s| self.stack_value(s).get("components").cloned()), "open": i < v.enabled, "amount": v.amounts.get(i).filter(|a| !a.is_empty())}))
         });
         let config: Vec<serde_json::Value> = if is_emitter(&v.kind) { Vec::new() } else { config.collect() };
         let numbers: Vec<serde_json::Value> = self.ae2_part_number_buttons(style).into_iter().map(|(i, r)| serde_json::json!({"entry": i, "rect": rect(r)})).collect();

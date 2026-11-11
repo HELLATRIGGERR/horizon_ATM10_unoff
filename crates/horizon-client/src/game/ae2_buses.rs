@@ -675,7 +675,7 @@ pub(super) fn toggle_key_type(types: KeyTypeSet, kind: KeyType) -> KeyTypeSet {
 /// A bus key's type. The bus's keys carry no type of their own: an addon
 /// type's key is its marker (`ae2_key_types::addon_marker`), and a key that
 /// names no item and is a valid fluid id is a fluid's.
-fn bus_key_type(key: &Key) -> KeyType {
+pub(super) fn bus_key_type(key: &Key) -> KeyType {
     let key = ae2_cell_core::ItemKey::from(key);
     if let Some(typed) = horizon_client::ae2_key_types::parse_addon_marker(&key) {
         return typed.key_type;
@@ -1851,6 +1851,7 @@ impl Game<'_> {
                     .transpose()?
                     .as_ref()
                     .map(Key::from);
+                super::ae2x::bus_filter_set(data, slot, state.config[slot].as_ref(), self.inventory[self.selected].as_ref());
             }
             // A key of an addon's type, `<type id>|<key id>` (Applied Flux's
             // `appflux:flux|appflux:fe`), as the terminal marks one.
@@ -2275,7 +2276,8 @@ impl Game<'_> {
                     };
                     let outcome = match own_export.as_mut() {
                         Some(export) => export.run(&mut state, active, loaded, &mut host),
-                        None => state.tick(direction, active, loaded, &mut host),
+                        None => super::ae2x::bus_tick(data, &mut state, active, loaded, &mut host)
+                            .unwrap_or_else(|| state.tick(direction, active, loaded, &mut host)),
                     };
                     craft_requests.extend(host.craft.requests);
                     let modulation = match outcome {

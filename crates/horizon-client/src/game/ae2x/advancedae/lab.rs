@@ -8,7 +8,7 @@ use horizon_client::{ae2_generic_stack::GenericStack, items::ItemStack};
 use horizon_core::geometry::Direction;
 use serde_json::{Value, json};
 
-const USAGE: &str = "usage: /ae2 advae show|encode <slot> | direction <slot> <item|fluid:<id>> <down|up|north|south|west|east|none> | quantum <x> <y> <z>";
+const USAGE: &str = "usage: /ae2 advae show|encode <slot> | direction <slot> <item|fluid:<id>> <down|up|north|south|west|east|none> | quantum <x> <y> <z> | bus|throughput <x> <y> <z> <face> | stock <x> <y> <z> <face> <filter> <amount>";
 
 fn parse_face(word: &str) -> Result<Option<Direction>, String> {
     Ok(Some(match word {
@@ -78,6 +78,16 @@ impl Game<'_> {
             ["quantum", x, y, z] => {
                 let n = |w: &str| w.parse::<i32>().map_err(|_| String::from("bad coordinate"));
                 self.advancedae_quantum_status((n(x)?, n(y)?, n(z)?))
+            }
+            // A stock bus's amounts and REGULATE_STOCK; `stock` sets a filter's amount
+            // (what the mod's SetAmountMenu does).
+            ["bus" | "stock" | "throughput", x, y, z, face, rest @ ..] => {
+                let n = |w: &str| w.parse::<i32>().map_err(|_| String::from("bad coordinate"));
+                let pos = (n(x)?, n(y)?, n(z)?);
+                if words[0] == "throughput" {
+                    return self.advancedae_throughput_status(pos, face);
+                }
+                self.advancedae_bus_command(pos, face, words[0] == "stock", rest)
             }
             _ => Err(USAGE.into()),
         }

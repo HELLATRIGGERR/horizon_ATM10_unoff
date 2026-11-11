@@ -507,6 +507,7 @@ impl Game<'_> {
                 let selected=super::ae2_buses::bus_key_types(data);
                 view.key_types=super::ae2_key_strategies::with_import_strategy().into_iter().take(super::ae2_part_screens::KEY_TYPES_MAX).map(|kind|selected.contains(kind)).collect();
                 if kind=="ae2:storage_bus" {view.connected=self.ae2_part_connected(pos,face);}
+                super::ae2x::part_view(data,&mut view);
             }
         }
         Some(view)
@@ -640,6 +641,7 @@ impl Game<'_> {
                 let amount=selected.as_ref().map(|_|if fluid {1000} else if button==1 {1} else {held.map_or(1,|s|u64::from(s.count))});
                 super::ae2x::bus_config_amount(&mut data,index,amount);
                 state.config[index]=selected;
+                super::ae2x::bus_filter_set(&mut data,index,state.config[index].as_ref(),held);
                 changed = true;
             }
         } else if slot == 41 {
@@ -739,6 +741,8 @@ impl Game<'_> {
             data.insert("craft_only".into(), Tag::Byte(i8::from(!old)));
             changed = true;
 
+        } else if super::ae2x::bus_setting_press(&mut data, slot) {
+            changed = true;
         }
         if changed {
             if let Ok(encoded) = serde_json::to_string(&state) {

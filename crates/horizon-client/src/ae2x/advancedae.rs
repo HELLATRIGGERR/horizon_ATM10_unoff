@@ -4,7 +4,8 @@
 //! `SmallAdvPatternProviderEntity`, `AdvPatternProviderBlock`,
 //! `AdvPatternProviderEntity`, `AdvPatternProviderPart`,
 //! `SmallAdvPatternProviderPart`, `AdvPatternProviderLogic`,
-//! `AdvProcessingPattern`, `EncodedAdvProcessingPattern`),
+//! `AdvProcessingPattern`, `EncodedAdvProcessingPattern`, `StockExportBusPart`,
+//! `ImportExportBusPart`, `AdvancedIOBusPart`, `ThroughputMonitorPart`, `AAEConfig`),
 //! https://github.com/pedroksl/AdvancedAE commit
 //! `c322dad81e6f2ad94cb1fb861e73a7ba68e5907a` (1.6.12-1.21.1), LGPL-3.0; see
 //! `ae2/addons/advancedae/`.
@@ -63,6 +64,34 @@ const fn provider(id: &'static str, block: &'static str, slots: usize, part: boo
         upgrades: 0,
         part,
     }
+}
+
+/// `AAEItems.STOCK_EXPORT_BUS` (`StockExportBusPart`), `IMPORT_EXPORT_BUS`
+/// (`ImportExportBusPart`) and `ADVANCED_IO_BUS` (`AdvancedIOBusPart`): AE2's
+/// Export Bus (`ExportBusPart`) with work of their own (`game/ae2x/advancedae/buses.rs`).
+pub const STOCK_EXPORT_BUS: &str = "advanced_ae:stock_export_bus_part";
+pub const IMPORT_EXPORT_BUS: &str = "advanced_ae:import_export_bus_part";
+pub const ADVANCED_IO_BUS: &str = "advanced_ae:advanced_io_bus_part";
+/// `AAEItems.THROUGHPUT_MONITOR` (`ThroughputMonitorPart`, an `AbstractMonitorPart`
+/// as AE2's Storage Monitor) and the item that turns its routine, `MONITOR_CONFIGURATOR`.
+pub const THROUGHPUT_MONITOR: &str = "advanced_ae:throughput_monitor";
+pub const MONITOR_CONFIGURATOR: &str = "advanced_ae:throughput_monitor_configurator";
+
+/// The buses as AE2's Export Bus of their cards (`getUpgradeSlots`: 6, AE2's
+/// 5, 8), the Throughput Monitor as AE2's Storage Monitor. None is a machine
+/// of its own (`MachineKind::CableBus`).
+pub const PARTS: &[MachineVariant] = &[
+    bus(STOCK_EXPORT_BUS, 6),
+    bus(IMPORT_EXPORT_BUS, 5),
+    bus(ADVANCED_IO_BUS, 8),
+    MachineVariant { id: THROUGHPUT_MONITOR, base: "ae2:storage_monitor", block: THROUGHPUT_MONITOR, kind: MachineKind::CableBus, slots: 0, upgrades: 0, part: true },
+];
+const fn bus(id: &'static str, upgrades: usize) -> MachineVariant {
+    MachineVariant { id, base: "ae2:export_bus", block: id, kind: MachineKind::CableBus, slots: 0, upgrades, part: true }
+}
+/// `AdvancedIOBusPart.getOperationsPerTick`: AE2's times 8; 1 for any other bus.
+pub fn bus_operations_multiplier(id: &str) -> u64 {
+    if id == ADVANCED_IO_BUS { 8 } else { 1 }
 }
 
 /// `AAEBlocks.REACTION_CHAMBER`.
@@ -174,6 +203,9 @@ pub struct QuantumConfig {
     pub multi_threader_multiplication: u32,
     /// `quantumComputerDataEntanglerMultiplication`, 2 to 8.
     pub data_entangler_multiplication: u32,
+    /// `["Miscellaneous"]`'s `throughputMonitorCacheSize`, 40 to 400: the
+    /// Throughput Monitor's readings kept (`ThroughputCache.MAX_SIZE`).
+    pub throughput_cache_size: u32,
 }
 impl Default for QuantumConfig {
     fn default() -> Self {
@@ -184,6 +216,7 @@ impl Default for QuantumConfig {
             max_data_entanglers: 1,
             multi_threader_multiplication: 4,
             data_entangler_multiplication: 4,
+            throughput_cache_size: 80,
         }
     }
 }
@@ -212,6 +245,10 @@ impl QuantumConfig {
         }
         if let Some(n) = int("quantumComputerDataEntanglerMultiplication", 2, 8) {
             config.data_entangler_multiplication = n as u32;
+        }
+        let misc = value.get("Miscellaneous").and_then(|s| s.get("throughputMonitorCacheSize")).and_then(toml::Value::as_integer);
+        if let Some(n) = misc.filter(|n| (40..=400).contains(n)) {
+            config.throughput_cache_size = n as u32;
         }
         Ok(config)
     }
@@ -277,7 +314,7 @@ pub fn nullable_direction_name(direction: Option<u8>) -> &'static str {
 }
 
 pub fn register(defs: &mut Defs) {
-    for variant in MACHINES {
+    for variant in MACHINES.iter().chain(PARTS) {
         defs.add_variant(*variant);
     }
     for machine in OWN_MACHINES {
@@ -285,6 +322,11 @@ pub fn register(defs: &mut Defs) {
     }
     // AdvancedAE.initUpgrades, for the machines carried so far.
     defs.add_upgrade("ae2:speed_card", REACTION_CHAMBER, 4);
+    for bus in [STOCK_EXPORT_BUS, IMPORT_EXPORT_BUS, ADVANCED_IO_BUS] {
+        for (card, max) in [("ae2:speed_card", 4), ("ae2:capacity_card", 5), ("ae2:redstone_card", 1), ("ae2:crafting_card", 1), ("ae2:fuzzy_card", 1)] {
+            defs.add_upgrade(card, bus, max);
+        }
+    }
     // PatternDetailsHelper.encodedPatternItemBuilder(AdvProcessingPattern::new).
     defs.add_processing_pattern(ADV_PROCESSING_PATTERN, ENCODED_ADV_PROCESSING_PATTERN);
 }
@@ -368,6 +410,25 @@ mod tests {
         assert_eq!((config.max_size, config.accelerator_threads, config.multi_threader_multiplication, config.data_entangler_multiplication), (7, 12, 6, 6));
         let wrong = QuantumConfig::parse("[\"quantum computer\"]\nquantumComputerMaxSize = 40\nquantumComputerAcceleratorThreads = \"x\"\n").unwrap();
         assert_eq!(wrong, QuantumConfig::default());
+        assert_eq!(config.throughput_cache_size, 80, "All the Mods 10 leaves the Miscellaneous section out");
+        assert_eq!(QuantumConfig::parse("[Miscellaneous]\nthroughputMonitorCacheSize = 120\n").unwrap().throughput_cache_size, 120);
+        assert_eq!(QuantumConfig::parse("[Miscellaneous]\nthroughputMonitorCacheSize = 20\n").unwrap().throughput_cache_size, 80);
+    }
+
+    #[test]
+    fn the_buses_are_ae2s_export_bus_of_their_cards_and_the_monitor_its_storage_monitor() {
+        crate::ae2x::install();
+        let defs = crate::ae2x::defs::get();
+        for (id, cards) in [(STOCK_EXPORT_BUS, 6), (IMPORT_EXPORT_BUS, 5), (ADVANCED_IO_BUS, 8)] {
+            assert_eq!(crate::ae2_world::base_id(id), "ae2:export_bus");
+            assert_eq!(crate::ae2_world::bus_card_slots(id), cards);
+            assert!(crate::ae2_world::Machine::for_block(id).is_none(), "a part is no block");
+            // AdvancedAE.initUpgrades: no inverter card on any.
+            assert_eq!((defs.upgrade_limit("ae2:speed_card", id), defs.upgrade_limit("ae2:capacity_card", id), defs.upgrade_limit("ae2:crafting_card", id)), (4, 5, 1));
+            assert_eq!(defs.upgrade_limit("ae2:inverter_card", id), 0);
+        }
+        assert_eq!(crate::ae2_world::base_id(THROUGHPUT_MONITOR), "ae2:storage_monitor");
+        assert_eq!((bus_operations_multiplier(ADVANCED_IO_BUS), bus_operations_multiplier(STOCK_EXPORT_BUS)), (8, 1));
     }
 
     #[test]

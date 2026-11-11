@@ -9,6 +9,12 @@ use horizon_assets::item_model::DisplayContext;
 use horizon_client::{block_entity_render::vertex_light, items::ItemStack, mesher::Vertex};
 use std::f32::consts::PI;
 
+/// The AE2 monitor whose models a part draws: AE2's own, or an addon's part
+/// that is one (Advanced AE's Throughput Monitor).
+fn monitor_model(id:&str)->Option<&str> {
+    let name=horizon_client::ae2_world::base_id(id).strip_prefix("ae2:")?;
+    matches!(name,"storage_monitor"|"conversion_monitor").then_some(name)
+}
 /// AE2's four-character slot amount for integral item quantities.
 fn monitor_amount(amount:u64,craftable:bool,fluid:bool)->String {
     if amount==0 && craftable {return "Craft".into();}
@@ -478,7 +484,7 @@ impl Game<'_> {
                         model("ae2:part/display_base",pose,None);
                         model(&format!("ae2:part/{terminal}_{}",if part.online {"on"} else {"off"}),pose,None);
                         model(&format!("ae2:part/display_status_{}",if part.online {"has_channel"} else {"off"}),pose,None);
-                    } else if matches!(name,"storage_monitor"|"conversion_monitor") {
+                    } else if let Some(name)=monitor_model(&part.id) {
                         model("ae2:part/display_base",pose,None);
                         let lock=if part.monitor_locked {"_locked"} else {""};
                         model(&format!("ae2:part/{name}{lock}_{}",if part.powered {"on"} else {"off"}),pose,None);
@@ -542,36 +548,47 @@ impl Game<'_> {
                 for part in &v.parts {
                     let Some(display)=part.monitor.as_ref().filter(|_|part.online) else {continue};
                     let pose=base*glam::Mat4::from_quat(rotate(&part.face));
+                    // renderItem2dWithAmount's height, item scale and spacing: AE2's
+                    // monitor, or ThroughputMonitorPart's, whose line goes below.
+                    let (y,scale,spacing)=if display.rate.is_some() {(0.1f32,0.3f32,-0.15f32)} else {(0.05,0.4,-0.23)};
                     if !display.fluid {
                         let key=ae2_cell_core::ItemKey{item_id:display.item.clone(),components:display.components.clone()};
                         if let Ok(stack)=horizon_client::ae2_cell_codec::prototype(&key) {
                             let item=self.resolve_item(&stack,DisplayContext::Gui,None,0);
-                            let transform=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,0.05,-0.51))
-                                *glam::Mat4::from_scale(glam::Vec3::splat(0.4));
+                            let transform=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,y,-0.51))
+                                *glam::Mat4::from_scale(glam::Vec3::splat(scale));
                             self.submit_item_world(&item,transform,0xF0F0,out);
                         }
                     } else {
                         let (ns,name)=display.item.split_once(':').unwrap_or(("minecraft",display.item.as_str()));
                         let sprite=if ns=="minecraft" {format!("block/{name}_still")} else {format!("{ns}:block/{name}_still")};
                         if let Some(rect)=self.gui.atlas.sprites.get(&sprite) {
-                            let points=[[-0.2,-0.15,-0.511],[0.2,-0.15,-0.511],[0.2,0.25,-0.511],[-0.2,0.25,-0.511]];
+                            let h=scale/2.;
+                            let points=[[-h,y-h,-0.511],[h,y-h,-0.511],[h,y+h,-0.511],[-h,y+h,-0.511]];
                             let uv=[[rect.u0,rect.v1],[rect.u1,rect.v1],[rect.u1,rect.v0],[rect.u0,rect.v0]];
                             let color=if display.item=="minecraft:water" {0xffff763f} else {0xffffffff};
                             for i in 0..4 {out.push(Vertex{glint_uv:[0.0,0.0],pos:pose.transform_point3(glam::Vec3::from_array(points[i])).to_array(),uv:uv[i],color,light:0xF0F0,layer:0,normal:[0;4]});}
                         }
                     }
-                    let text=monitor_amount(display.amount,display.craftable,display.fluid);
                     let atlas=&self.gui.atlas;
-                    let mut batch=horizon_client::hud::HudBatch::new([1,1]);
-                    let width=atlas.font.width(&text);
-                    batch.text(atlas,&text,-width/2.,0.,0xffffffff,false);
-                    let matrix=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,-0.18,-0.52))
-                        *glam::Mat4::from_scale(glam::Vec3::new(1./124.,-1./124.,1./124.));
-                    for quad in batch.vertices.as_chunks::<6>().0 {
-                        for i in [0,1,2,5] {
-                            let v=quad[i];let point=matrix.transform_point3(glam::Vec3::new(v.pos[0],v.pos[1],v.depth));
-                            out.push(Vertex{glint_uv:[0.0,0.0],pos:point.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});
+                    let line=|text:&str,at:f32,color:u32,out:&mut Vec<Vertex>| {
+                        let mut batch=horizon_client::hud::HudBatch::new([1,1]);
+                        let width=atlas.font.width(text);
+                        batch.text(atlas,text,-width/2.,0.,color,false);
+                        let matrix=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,at,-0.52))
+                            *glam::Mat4::from_scale(glam::Vec3::new(1./124.,-1./124.,1./124.));
+                        for quad in batch.vertices.as_chunks::<6>().0 {
+                            for i in [0,1,2,5] {
+                                let v=quad[i];let point=matrix.transform_point3(glam::Vec3::new(v.pos[0],v.pos[1],v.depth));
+                                out.push(Vertex{glint_uv:[0.0,0.0],pos:point.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});
+                            }
                         }
+                    };
+                    line(&monitor_amount(display.amount,display.craftable,display.fluid),y+spacing,0xffffffff,out);
+                    if let Some(rate)=&display.rate {
+                        let text=super::ae2_screens::fill(&self.translate(&rate.key,"%s%s/s"),&[rate.sign.clone(),rate.value.clone()]);
+                        let color=rate.color.map_or(0xffffffff,|c|horizon_client::hud::rgba((c>>16) as u8,(c>>8) as u8,c as u8,255));
+                        line(&text,y-0.23,color,out);
                     }
                 }
                 continue;

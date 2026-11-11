@@ -178,6 +178,7 @@ fn ae2_collect_physical_drops(machine:&horizon_client::ae2_world::Machine,max:&i
                     | "ae2:annihilation_plane"
                     | "ae2:formation_plane"
                     | "ae2:monitor" | "ae2:semi_dark_monitor" | "ae2:dark_monitor"
+                    | "ae2:storage_monitor" | "ae2:conversion_monitor"
                     | "ae2:cable_interface" | "ae2:cable_pattern_provider"
                     | "ae2:pattern_access_terminal" | "ae2:cable_energy_acceptor"
                     | "ae2:quartz_fiber" | "ae2:cable_anchor"

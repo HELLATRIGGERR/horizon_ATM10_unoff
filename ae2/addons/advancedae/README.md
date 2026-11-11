@@ -85,6 +85,22 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
 | `AdvPatternProviderCapacityUpgradeItem.useOn`: `SmallAdvPatternProviderEntity` and `SmallAdvPatternProviderPart` to the large ones | the same kit: the nine patterns keep their slots of 36 |
 | recipes `advpatpro2`, `advpatpropart`, `smalladvpatpro2`, `smalladvpatpropart` (block and part forms), `eaeadvpatpro` (ExtendedAE's provider into the large one), `smallappupgrade`, `largeappupgrade` and `eaelargeappupgrade` (each kept or turned off by its `mod_loaded` condition); the large block's loot table and pickaxe tag | from the jar (45 recipes now) |
 
+## What works (slice 5)
+
+| Advanced AE | Port |
+|---|---|
+| `advanced_ae:stock_export_bus_part` (`StockExportBusPart`, an `ExportBusPart` of 6 cards), `import_export_bus_part` (`ImportExportBusPart`, AE2's 5), `advanced_io_bus_part` (`AdvancedIOBusPart`, 8, `getOperationsPerTick` times 8); `initUpgrades`: speed 4, capacity 5, redstone, crafting and fuzzy cards (no inverter card); `MODELS_*` over each `MODEL_BASE` | part variants of AE2's Export Bus (`ae2:export_bus`), so the cable, the cards, the tick rates, redstone, scheduling, crafting and drops are AE2's; each draws its own base model |
+| `StockExportBusPart.getConfig` (`configStacks(63)`, saved as `extraConfig`): a key and an amount a filter; a stack put in keeps its count (`ConfigMenuInventory`) | the filters are the bus's keys, the amounts beside them in the part's record (`aae_stock`); set from the held stack (a fluid: a bucket), and by `/ae2 advae stock` |
+| `StockExportBusPart.doBusWork`: each filter's key up to its amount less `getCurrentStock` (what the target's item and fluid handlers hold of it), within the operations; the crafting card's request when nothing went (`attemptCrafting`), craft-only, round-robin | `game/ae2x/advancedae/buses.rs`: the same over AE2's bus host (`TransferHost`), by the addons' bus hook (`ae2x::bus_tick`) |
+| `ImportExportBusPart.doBusWork`: AE2's export, then an import through `FilteredImportStackTransferContext`, whose `setInverted` keeps the opposite: what the filter does not list (everything when it is empty) | AE2's `BusState::tick` for the export, then the import of the unlisted keys |
+| `AdvancedIOBusPart.doBusWork`: the stock export; with `REGULATE_STOCK` (on by default) each filter's key over its amount imported (`makeFilter`, fuzzy with the card); with operations left, all of them again for the unlisted keys | the same; `regulate_stock` (`YES`/`NO`) in the part's record |
+| `StockExportBusScreen`, `ImportExportBusScreen`, `AdvancedIOBusScreen` with `screens/stock_export_bus.json`, `import_export_bus.json`, `advanced_io_bus.json` (AE2's `io_bus.json`, their titles): redstone, craft-only and scheduling buttons, no fuzzy mode button; the amounts on the filters; the Advanced IO Bus's `REGULATE_STOCK` (`AAESettingToggleButton`, `REGULATE_ON`/`OFF` of `states.png`) | AE2's part screen over the mod's style (`ae2x::part_style`); the fuzzy button left out, the amounts (`AmountFormat.SLOT`) on the filters, `REGULATE_STOCK` at menu place 48 |
+| `advanced_ae:throughput_monitor` (`ThroughputMonitorPart`, an `AbstractMonitorPart` with AE2's Storage Monitor models): its key and lock as AE2's | a part variant of AE2's Storage Monitor: its use, lock and key are AE2's (`ae2_monitor`, by the base id) |
+| `tickingRequest` (`TickingRequest(20, 100, ..)`, `SLOWER`; `URGENT` with no reading), `ThroughputCache` (`throughputMonitorCacheSize`, 80), `averagePerTick` over `WorkRoutine`'s span, the value per tick, second, minute or ten minutes (`formatAmount(.., SLOT)` above 10, two decimals below); `configureWatchers`, `resetState` | `game/ae2x/advancedae/throughput.rs`: the same on AE2's tick tracker, the readings by part node while the game runs |
+| `renderDynamic`: the item at 0.3 and its amount, then the line (`OverdriveThroughputMonitorValue` .. `SlowerThroughputMonitorValue`, `%s%s/s`), green when it grows, red when it falls | the monitor's visual carries the line (`RateVisual`); the item, the amount and the line drawn at the mod's places |
+| `onUseItemOn` with `advanced_ae:throughput_monitor_configurator`: `cycleWorkRoutine`; `writeToNBT`'s `routine` | the same before AE2's monitor use; `routine` in the part's record |
+| recipes `stock_export_bus`, `import_export_bus`, `advanced_io_bus`, `throughput_monitor`, `throughput_monitor_configurator` | from the jar (50 recipes now) |
+
 ## Not yet
 
 - The encoder's Curios slot (the port has no Curios).
@@ -111,7 +127,17 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
   merges no addon's `data/ae2` tags yet), the Memory Card on the Advanced providers (AE2's copies only AE2's).
   The upgrades act only while sneaking, as the port's ExtendedAE kits (vanilla's `useOn` comes after the provider's
   own use, which opens its menu).
-- The buses and Throughput Monitor (slice 5), the Quantum Crafter (6), the Quantum Armor (7).
+- The buses' leftovers: the middle click that opens AE2's `SetAmountMenu` on a stock bus's filter (and its hint
+  line, `SetAmountButtonHint`; the amount is set by the stack put in or by `/ae2 advae stock`), a filter's amount
+  beyond 64 from the screen, the ME storage capability first in `getCurrentStock` (`StorageReaderImpl`: an interface
+  in front is read as its item and fluid handlers), Applied Mekanistics' chemicals, the stock buses' own `extraConfig`
+  in a Java world (the port saves the amounts in its own record), the Memory Card's copy of the amounts and of
+  `REGULATE_STOCK`, Applied Flux's cards on the buses.
+- The Throughput Monitor's leftovers: `lastHumanReadableValue` is not saved (the mod's `throughput`: after a restart
+  the line is empty until the first reading, about a second), `writeVisualStateToNBT`, the line's colour for a
+  painted cable when it is 0 (the port draws the amount's white), and the client side of a use with the configurator
+  on a locked monitor.
+- The Quantum Crafter (6), the Quantum Armor (7).
 
 ## Tests
 
@@ -134,8 +160,13 @@ ending both; a broken computer giving a waiting job's items back) and `advanceda
 slots and settings; the large part's screen and its directional push into a furnace; the upgrade on AE2's provider,
 then the Capacity Upgrade, keeping the pattern and blocking mode; on ExtendedAE's provider when its content is there;
 on AE2's provider part, twice, and Filtered Import on the part; a restart; the drops of the block and the part; the
-recipes of the part form and the upgrade):
+recipes of the part form and the upgrade) and `advancedae-buses` (the Stock Export Bus's six cards, its amount from
+the held stack and by command, the chest kept stocked; the Import Export Bus's export and import of the unlisted keys;
+the Advanced IO Bus's eight cards, `REGULATE_STOCK` on its screen with no fuzzy button, the excess and the rest
+imported, the amount exported back; two Throughput Monitors, one rising, one at 0, and the configurator's turn; a
+restart; the drops; the monitor's recipe). The units add the buses' work (`buses.rs`) and the monitor's readings
+(`throughput.rs`):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers advancedae-buses
 ```

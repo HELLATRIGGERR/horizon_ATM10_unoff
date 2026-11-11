@@ -32,6 +32,8 @@
     "crates/horizon-client/src/game/ae2x/advancedae/encoder_screen.rs",
     "crates/horizon-client/src/game/ae2x/advancedae/chamber.rs",
     "crates/horizon-client/src/game/ae2x/advancedae/quantum.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/buses.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/throughput.rs",
     "crates/horizon-client/src/game/ae2x/kits.rs"
   ]
 }

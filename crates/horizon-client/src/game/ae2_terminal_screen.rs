@@ -736,7 +736,7 @@ impl Game<'_> {
 
     /// `StackSizeRenderer.renderSizeLabel`: `text` at the slot's bottom
     /// right, scaled down, white over a dark shadow.
-    fn ae2_size_label(&self, batch: &mut HudBatch, x: f32, y: f32, text: &str, large: bool) {
+    pub(super) fn ae2_size_label(&self, batch: &mut HudBatch, x: f32, y: f32, text: &str, large: bool) {
         let atlas = &self.gui.atlas;
         let scale = if large { 0.85 } else { 0.666 };
         let offset = if large { 0.0 } else { -1.0 };

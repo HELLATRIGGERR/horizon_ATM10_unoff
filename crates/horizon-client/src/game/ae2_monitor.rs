@@ -12,7 +12,8 @@ pub(super) struct MonitorState {
     pub locked: bool,
     pub conversion: bool,
 }
-fn monitor_id(id:&str)->bool {matches!(id,"ae2:storage_monitor"|"ae2:conversion_monitor")}
+/// AE2's monitors, and an addon's part that is one (Advanced AE's Throughput Monitor).
+fn monitor_id(id:&str)->bool {matches!(horizon_client::ae2_world::base_id(id),"ae2:storage_monitor"|"ae2:conversion_monitor")}
 fn read_part<'a>(entity:&'a BlockEntity,face:&str)->Option<&'a Tag> {
     let BlockEntity::Ae2(machine)=entity else{return None};
     let Tag::List(parts)=machine.config.get(&"parts".into())? else{return None};
@@ -81,6 +82,8 @@ impl Game<'_> {
     /// Handle an authoritative use on the selected physical monitor face.
     pub(super) fn ae2_try_monitor_use(&mut self,pos:Pos,face:&str)->bool {
         let Some(state)=self.ae2_monitor_state(pos,face) else{return false};
+        // An addon monitor's own item (ThroughputMonitorPart.onUseItemOn).
+        if self.ae2x_monitor_use(pos,face) {return true;}
         let alternate=self.keys.contains(&KeyCode::ShiftLeft);
         let held=self.held().cloned();
         if !self.ae2_part_online(pos,face){return false;}

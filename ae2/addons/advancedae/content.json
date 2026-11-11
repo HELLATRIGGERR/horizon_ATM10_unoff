@@ -1,14 +1,15 @@
 {
   "namespace": "advanced_ae",
   "name": "Advanced AE",
-  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b), the Reaction Chamber with its recipes (slice 2), the Quantum Computer, a crafting CPU of many jobs at once, with the items its recipes need (slice 3), and the (Extended) Advanced Pattern Provider of 36 patterns, both providers' part forms and the upgrade items that turn AE2's and ExtendedAE's providers into Advanced ones in place (slice 4).",
+  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b), the Reaction Chamber with its recipes (slice 2), the Quantum Computer, a crafting CPU of many jobs at once, with the items its recipes need (slice 3), the (Extended) Advanced Pattern Provider of 36 patterns, both providers' part forms and the upgrade items that turn AE2's and ExtendedAE's providers into Advanced ones in place (slice 4), and the buses that keep a stock in what they face, export and import at once or regulate it, and the Throughput Monitor, which shows how fast a key's amount changes (slice 5).",
   "authors": ["pedroksl (Advanced AE)"],
   "slices": [
     "1: the Small Advanced Pattern Provider block (directional push), the Advanced Processing Pattern, the Advanced Pattern Encoder (item)",
     "1b: the Advanced Pattern Encoder's screen and hotkey, the provider's Filtered Import, the pattern's tooltip, re-encoding in AE2's encoding terminal",
     "2: the Reaction Chamber: its reaction recipes, power, input and output tanks, speed cards, auto-export by side, screen, buckets and fluid handler",
     "3: the Quantum Computer: its core, structure, unit, storages, accelerator, Data Entangler and Multi-Threader, the multiblock, its jobs at once, its screen; the Shattered Singularity, the quantum processor's chain and the Quantum Alloy as items",
-    "4: the Advanced Extended Pattern Provider (36), the part forms of both providers, the Advanced Pattern Provider Upgrade and Capacity Upgrade"
+    "4: the Advanced Extended Pattern Provider (36), the part forms of both providers, the Advanced Pattern Provider Upgrade and Capacity Upgrade",
+    "5: the ME Stock Export Bus, ME Import Export Bus and ME Advanced IO Bus (their work, amounts, REGULATE_STOCK, cards, screens), the ME Throughput Monitor and its configurator"
   ],
   "items": {
     "adv_processing_pattern": {"max_stack_size": 1},
@@ -22,7 +23,12 @@
     "small_adv_pattern_provider_part": {},
     "adv_pattern_provider_part": {},
     "adv_pattern_provider_upgrade": {},
-    "adv_pattern_provider_capacity_upgrade": {}
+    "adv_pattern_provider_capacity_upgrade": {},
+    "stock_export_bus_part": {},
+    "import_export_bus_part": {},
+    "advanced_io_bus_part": {},
+    "throughput_monitor": {},
+    "throughput_monitor_configurator": {}
   },
   "blocks": {
     "small_adv_pattern_provider": {
@@ -106,7 +112,7 @@
   },
   "recipe_types": ["advanced_ae:reaction"],
   "ae2_namespace": {
-    "screens": ["small_adv_pattern_provider.json", "adv_pattern_provider.json", "adv_pattern_encoder.json", "reaction_chamber.json"],
+    "screens": ["small_adv_pattern_provider.json", "adv_pattern_provider.json", "adv_pattern_encoder.json", "reaction_chamber.json", "stock_export_bus.json", "import_export_bus.json", "advanced_io_bus.json"],
     "gui_textures": ["adv_pattern_provider.png", "adv_pattern_encoder.png", "reaction_chamber.png"]
   },
   "own_gui_textures": [

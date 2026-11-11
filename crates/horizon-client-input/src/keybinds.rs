@@ -98,6 +98,14 @@ pub const MAPPINGS: &[(&str, &str, &str)] = &[
     // the mod's own category, `key.advanced_ae.category`.
     #[cfg(feature = "ae2-advancedae")]
     ("key.advanced_ae.pattern_encoder_action", "key.keyboard.unknown", "advanced_ae"),
+    // The Quantum Helmet's card toggles (`QUANTUM_MAGNET_UPGRADE`,
+    // `QUANTUM_AUTO_STOCK_UPGRADE`, `QUANTUM_NIGHT_VISION_UPGRADE`).
+    #[cfg(feature = "ae2-advancedae")]
+    ("key.advanced_ae.quantum_magnet_upgrade", "key.keyboard.g", "advanced_ae"),
+    #[cfg(feature = "ae2-advancedae")]
+    ("key.advanced_ae.quantum_auto_stock_upgrade", "key.keyboard.j", "advanced_ae"),
+    #[cfg(feature = "ae2-advancedae")]
+    ("key.advanced_ae.quantum_night_vision_upgrade", "key.keyboard.unknown", "advanced_ae"),
 ];
 /// Horizon's own key mappings: bound in Controls like the vanilla ones, but kept in
 /// `horizon-extras.txt` (`emoteKey`), never in `options.txt`, which stays exactly vanilla's

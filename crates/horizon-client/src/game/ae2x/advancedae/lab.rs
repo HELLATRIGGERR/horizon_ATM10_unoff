@@ -75,6 +75,7 @@ impl Game<'_> {
                 self.inventory[at] = Some(output);
                 self.ae2_advancedae_command(&["show", &at.to_string()])
             }
+            ["armor", rest @ ..] => self.advancedae_armor_command(rest),
             ["crafter", x, y, z, rest @ ..] => {
                 let n = |w: &str| w.parse::<i32>().map_err(|_| String::from("bad coordinate"));
                 self.advancedae_crafter_command((n(x)?, n(y)?, n(z)?), rest)

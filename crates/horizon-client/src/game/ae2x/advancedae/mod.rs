@@ -21,8 +21,9 @@
 //! the pattern's tooltip (`MixinEncodedPatternItem`) and its re-encoding in
 //! AE2's encoding terminal (`MixinPatternEncodingTermMenu`). The encoder's
 //! menu is `encoder`, its screen `encoder_screen`; the Reaction Chamber is
-//! `chamber`, the Quantum Crafter `crafter`, the Quantum Computer `quantum`, the buses `buses` and the
-//! Throughput Monitor `throughput`.
+//! `chamber`, the Quantum Crafter `crafter`, the Quantum Computer `quantum`, the buses `buses`, the
+//! Throughput Monitor `throughput` and the Quantum Armor `armor`.
+pub(in crate::game) mod armor;
 pub(in crate::game) mod buses;
 pub(in crate::game) mod chamber;
 pub(in crate::game) mod crafter;
@@ -52,6 +53,11 @@ pub(in crate::game) struct State {
     pub(in crate::game) crafters: std::collections::HashMap<u64, crafter::Ctx>,
     /// The Throughput Monitors' readings, by part node.
     pub(in crate::game) throughput: std::collections::BTreeMap<ae2_network_core::NodeIdentity, throughput::Monitor>,
+    /// The guests the Quantum Chestplate lets fly, by connection.
+    pub(in crate::game) armor_flight: std::collections::BTreeSet<u32>,
+    /// The guests wearing a Quantum Armor piece at their last tick, whose
+    /// attribute cards are kept up to date.
+    pub(in crate::game) armor_modifiers: std::collections::BTreeSet<u32>,
 }
 
 /// `AAESettings.FILTERED_IMPORT` in the provider's config, as

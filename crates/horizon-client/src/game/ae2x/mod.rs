@@ -161,6 +161,45 @@ pub(super) fn hotkey_mapping(id: &str) -> String {
     }
 }
 
+/// An addon's own `IAEItemPowerStorage` a Charger fills (Advanced AE's
+/// Quantum Armor): its current and most AE, none for any other item.
+pub(super) fn powered_item_energy(stack: &horizon_client::items::ItemStack) -> Option<(f64, f64)> {
+    let _ = stack;
+    #[cfg(feature = "ae2-advancedae")]
+    if stack.count == 1 && let Some(energy) = advancedae::armor::energy(stack) {
+        return Some(energy);
+    }
+    None
+}
+/// Its `getChargeRate`, AE a tick.
+pub(super) fn powered_item_rate(stack: &horizon_client::items::ItemStack) -> Option<f64> {
+    let _ = stack;
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::armor::piece(&stack.item).is_some() {
+        return Some(advancedae::armor::CHARGE_RATE);
+    }
+    None
+}
+/// Its `injectAEPower(.., MODULATE)`: the AE of `offered` it took.
+pub(super) fn powered_item_insert(stack: &mut horizon_client::items::ItemStack, offered: f64) -> Option<f64> {
+    let _ = (&stack, offered);
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::armor::piece(&stack.item).is_some() {
+        return Some(advancedae::armor::inject(stack, offered));
+    }
+    None
+}
+/// Its item bar, when it is not AE2's (`PoweredItem.isBarVisible`): none
+/// for an item not an addon's, `Some(None)` for a hidden bar.
+pub(super) fn powered_item_bar(stack: &horizon_client::items::ItemStack) -> Option<Option<(i32, u32)>> {
+    let _ = stack;
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(bar) = advancedae::armor::bar(stack) {
+        return Some(bar);
+    }
+    None
+}
+
 /// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
 /// Pattern Encoding Terminal, by itself or as the universal terminal's
 /// current one); none for any other item.
@@ -1398,13 +1437,15 @@ impl Game<'_> {
     /// A guest's tick, after its carried items' and before what it touches
     /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2 Import Export
     /// Card's cards on its wireless terminals, AE2WTLib's hotbar counts and
-    /// magnet.
+    /// magnet, Advanced AE's Quantum Armor.
     pub(super) fn lan_ae2x_guest_tick(&mut self, host: &mut super::lan::LanHost, gi: usize) {
         let _ = (&host, gi);
         #[cfg(feature = "ae2-importexportcard")]
         self.lan_iecard_tick(host, gi);
         #[cfg(feature = "ae2-ae2wtlib")]
         self.lan_ae2wtlib_tick(host, gi);
+        #[cfg(feature = "ae2-advancedae")]
+        self.lan_advancedae_armor_tick(host, gi);
     }
 
     /// After a guest's packet: what an addon tells the guest at once (the
@@ -1514,6 +1555,8 @@ impl Game<'_> {
             );
             #[cfg(feature = "ae2-advancedae")]
             hotkeys.push(advancedae::encoder::HOTKEY);
+            #[cfg(feature = "ae2-advancedae")]
+            hotkeys.extend(advancedae::armor::TOGGLE_HOTKEYS.iter().map(|(id, _)| *id));
             hotkeys
         });
         &HOTKEYS
@@ -1528,6 +1571,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-advancedae")]
         if id == advancedae::encoder::HOTKEY && self.lan_advancedae_hotkey(host, conn) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.lan_advancedae_armor_hotkey(host, conn, id) {
             return true;
         }
         false

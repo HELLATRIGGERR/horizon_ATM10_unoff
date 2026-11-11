@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process';
 import { root, help } from './common';
 
 type Declared = { fire_resistant?: boolean; max_stack_size?: number;
+  /** The item's `rarity` (Advanced AE's Quantum Armor: `epic`). */
+  rarity?: string;
   /** Item components beside its template's (ExtendedAE's tape: `minecraft:max_damage`). */
   components?: Record<string, unknown> };
 type Block = Declared & { template?: string; properties?: Record<string, unknown>;
@@ -138,6 +140,7 @@ if (!help(usage)) {
     put(join(out, 'data', ns, 'horizon/item', item + '.json'), {
       template: 'minecraft:iron_ingot',
       ...(spec.max_stack_size ? { max_stack_size: spec.max_stack_size } : {}),
+      ...(spec.rarity ? { rarity: spec.rarity } : {}),
       ...(spec.fire_resistant || spec.components ? { components: { ...(spec.fire_resistant ? fireResistant : {}), ...(spec.components ?? {}) } } : {}),
     });
   }

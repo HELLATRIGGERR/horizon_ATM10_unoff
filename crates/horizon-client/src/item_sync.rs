@@ -1241,7 +1241,7 @@ mod tests {
         let string = |s: &str| Tag::String(s.into());
         let list = || Tag::List(Vec::new());
         let generic = || Tag::compound([("#t", string("ae2:i")), ("id", string("minecraft:stone")), ("#", Tag::Long(1))]);
-        let samples = vec![
+        let mut samples = vec![
             ("ae2:exported_settings_source", string("Example")),
             ("merequester:exported_requests", list()),
             ("megacells:bulk_item", Tag::compound([("#t", string("ae2:i")), ("id", string("minecraft:stone"))])),
@@ -1317,6 +1317,11 @@ mod tests {
             ("ae2:missing_content_aekey_data", Tag::compound([] as [(&str, Tag); 0])),
             ("ae2:missing_content_error", string("missing")),
         ];
+        // Advanced AE's Quantum Armor: a bool, an int or a filter per upgrade.
+        samples.extend(crate::ae2_components::PERSISTENT_IDS.iter().filter(|id| id.starts_with("advanced_ae:") && !id.starts_with("advanced_ae:encoded")).map(|id| {
+            let value = if id.ends_with("_value") { Tag::Int(3) } else if id.ends_with("_filter") { Tag::List(vec![generic()]) } else { Tag::Byte(1) };
+            (*id, value)
+        }));
         let expected: std::collections::BTreeSet<_> = crate::ae2_components::PERSISTENT_IDS.iter().copied().collect();
         assert_eq!(samples.iter().map(|(id, _)| *id).collect::<std::collections::BTreeSet<_>>(), expected);
         assert_eq!(samples.len(), expected.len(), "one sample for each persistent id, none twice");

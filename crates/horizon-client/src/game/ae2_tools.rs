@@ -167,6 +167,9 @@ impl Game<'_> {
         format!("{base} - {label}")
     }
     pub(super) fn ae2_item_energy(&self, stack: &ItemStack) -> Option<(f64, f64)> {
+        if let Some(energy) = super::ae2x::powered_item_energy(stack) {
+            return Some(energy);
+        }
         let energy = if power::profile(stack).is_some() {
             power::energy(stack)
         } else if horizon_client::ae2x::wireless::host(stack) {
@@ -181,6 +184,9 @@ impl Game<'_> {
     }
     /// AEBasePoweredItem always shows its stored-energy bar, including empty.
     pub(super) fn ae2_energy_bar(&self, stack: &ItemStack) -> Option<(i32, u32)> {
+        if let Some(bar) = super::ae2x::powered_item_bar(stack) {
+            return bar;
+        }
         let energy = self.ae2_item_energy(stack)?;
         let width = if energy.1 > 0.0 {
             (energy.0 / energy.1 * 13.0).round().clamp(0.0, 13.0) as i32

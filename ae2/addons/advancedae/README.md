@@ -18,7 +18,8 @@ The bundled ae2wtlib_api (MIT) is not needed by this slice.
 Feature `ae2-advancedae`; content `content/advanced_ae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts advancedae`; `[mods.advanced_ae]` in
 `pack/pack.toml`. ATM10's `config/advanced_ae-common.toml` holds only the Quantum Computer's settings,
-which slice 3 reads; its KubeJS changes no recipe of these slices (it changes the armor's and some cards').
+which slice 3 reads; its KubeJS changes no recipe of slices 1 to 6, and the armor's and the Magnet, Evasion and Strength cards' of
+slice 7, which the port does not follow yet (see Not yet).
 
 ## What works (slice 1)
 
@@ -113,6 +114,21 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
 | `QuantumCrafterScreen` with `screens/quantum_crafter.json`: `REDSTONE_CONTROLLED` (with a card), `QUANTUM_CRAFTER_TERMINAL`, `ME_EXPORT` (`AAEIcon`), the `DIRECTIONAL_OUTPUT` sides while `ME_EXPORT` is NO, a radio under each pattern (`enableButtonN`, `toggleEnablePattern`), `invalidPatternAlert`; `isValidForSlot` (AE2's crafting pattern only) | AE2's machine screen over the style: the toggles on the toolbar, the sides on it as the Reaction Chamber's (the mod opens `OutputDirectionMenu`), the radios at the style's places (`guis/checkbox.png`), the alert while a pattern is invalid |
 | `saveAdditional`/`loadTag`: `outputSides`, `invalidPatterns`, `enabledPatterns`, `craftingJobs` (`listMinInput`, `limitMaxOutput`), upgrades, settings, `sendList` | in the machine's config (`sendList` as AE2 generic stacks); `/ae2 advae crafter <x> <y> <z>` shows the jobs and sets `keep`/`limit` |
 
+## What works (slice 7)
+
+| Advanced AE | Port |
+|---|---|
+| `advanced_ae:quantum_helmet`, `quantum_chestplate`, `quantum_leggings`, `quantum_boots` (`QuantumArmorBase`: `AAEMaterials.QUANTUM_ALLOY`'s 4, 9, 6 and 4 points, toughness 10, knockback resistance 0.25, enchantability 15, repaired with Quantum Alloy, fire resistant, epic, one a stack, no durability) | items of their own with `minecraft:equippable` (no armor model drawn) and those attribute modifiers |
+| `PoweredItem`: AE2's `STORED_ENERGY` and `ENERGY_CAPACITY` over 200 M (helmet, boots), 300 M (chestplate) and 250 M AE (leggings), `getChargeRate` 20,000, the bar while under 99% | `game/ae2x/advancedae/armor.rs`; the chargers' `chargeable_*` know them (`ae2x::powered_item_*`), but AE2's Charger takes a piece and does not charge it yet (open) |
+| the 25 cards (`QuantumUpgradeBaseItem`, `UpgradeType`: cost, application, `getSettings` at ATM10's config, which keeps the defaults), each piece's `registerUpgrades`; `AAEComponents`' `<type>_toggle`, `_value`, `_filter`, `magnet_extra`, `night_vision_activated` | the same components (`horizon-command`'s `ae2_components`, synced like AE2's); `applyUpgrade` (on, at the most, an empty filter), `removeUpgrade`, `toggleUpgrade` |
+| `tickUpgrades` of a piece in its own slot that has a passive or buff card: the passive abilities that acted and each buff draw their cost (`consumeEnergy`: none in creative, AE2's usage multiplier), flight while flying; `isUpgradePowered` (twice the AE, as FE, reaches the cost) | the same on the server's tick of each player (`lan_ae2x_guest_tick`) |
+| `UpgradeCards.regeneration` (1 HP a tick), `magnet` (the items in range 12 the filter allows; `playerTouch`) | the same; the magnet touches the items it reaches |
+| `AAEPlayerEvents.itemAttributes`: Step Assist, HP Buffer, Strength, Attack Speed, Luck, Reach (both ranges); `CREATIVE_FLIGHT` with the Flight Card; `playerTick`'s night vision (210 ticks, hidden, renewed under 210, taken back when off) | transient modifiers of the mod's ids while the card is on and powered; flight through the server's abilities; the effect |
+| `AAELivingEntityEvents.breath`: Water Breathing, its cost every tick | the air supply refills by 4 a tick while the card is on and powered |
+| `AAEHotkeysRegistry`'s `QUANTUM_MAGNET_UPGRADE` (G), `QUANTUM_AUTO_STOCK_UPGRADE` (J), `QUANTUM_NIGHT_VISION_UPGRADE` (unbound) on the worn helmet, the `ON`/`OFF` line or `UpgradeNotInstalledMessage` | the same key mappings (`key.advanced_ae.*`) and action-bar lines |
+| `QuantumArmorConfigScreen` and its card slot (`QuantumArmorMenuHost.tick`), `requestUninstall` | `/ae2 advae armor <slot> install <card>\|remove\|toggle\|value ...` takes the card from the inventory and gives it back |
+| recipes of the cards whose items the port has, `quantum_*_item_reset` | from the jar (76 recipes now) |
+
 ## Not yet
 
 - The encoder's Curios slot (the port has no Curios).
@@ -158,7 +174,18 @@ which slice 3 reads; its KubeJS changes no recipe of these slices (it changes th
   world's `craftingJobs` (the port keys them by the pattern). Deliberate differences: an extraction short of a
   craft goes back to the grid, and an output or remainder that finds no room in the outputs waits in `sendList`
   (the mod loses both).
-- The Quantum Armor (7).
+- The Quantum Armor's leftovers: AE2's Charger charging a piece (it takes it in, `charger_working` stays 0: its tick
+  does not go through `chargeable_*` alone), a world test of the flight grant (`data get .. abilities` derives
+  `mayfly` from the game mode in `save.rs`), `QuantumArmorConfigScreen` and its sub-screens (`QuantumArmorNumInputConfigScreen`,
+  the filter, magnet, style and tint screens; `/ae2 advae armor` stands in), the hotkey `ARMOR_CONFIG` (N) that opens it,
+  the GeckoLib model (`QuantumArmorRenderer`, the tint, Camo hiding it, the HUD and blade bones), the tooltip's card
+  list and hotkey line, the moves the client makes itself (Walk, Sprint and Swim Speed, Jump Height, the flight's
+  speed and up/down keys, No Flight Drift), what needs the grid link (`IGridLinkedItem`: Auto Feed, Auto Stock,
+  ME Recharging, Pick-Craft and the Portable Workbench, with their hotkeys V and C), the damage events (Lava
+  Immunity, Evasion, `incomingDamage`'s absorption into the AE, the boots' fall damage, `damageItem` drawing AE, the
+  hurt sound), the chestplate's mining speed in the air and under water, piglins left neutral, the magnet's pull of
+  items that do not fit and of experience orbs, the armor's recipes (they need `quantum_alloy_plate`, which the port
+  lacks) and ATM10's KubeJS changes to them and to the Magnet, Evasion and Strength cards' recipes.
 
 ## Tests
 
@@ -188,9 +215,12 @@ imported, the amount exported back; two Throughput Monitors, one rising, one at 
 restart; the drops; the monitor's recipe) and `advancedae-quantum-crafter` (a pattern shift-clicked into its screen,
 waiting while disabled; enabled, crafts from the grid into the grid keeping 4 logs; the limit of 32; without ME export
 the sides on the toolbar and the planks into a chest at the front; four speed cards and a redstone card, HIGH_SIGNAL;
-a restart; the drops). The units add the crafter's jobs (`crafter.rs`) and the buses' work (`buses.rs`) and the monitor's readings
+a restart; the drops) and `advancedae-quantum-armor` (the pieces' armor; the cards from the inventory, a wrong piece
+refused; night vision, the HP Buffer and Step Assist, the helmet's 25 AE a tick, the boots' none; the magnet; the hotkeys
+turning the magnet and night vision off; a chestplate run empty; a restart). The units add the armor's
+cards and buffer (`armor.rs`), the crafter's jobs (`crafter.rs`) and the buses' work (`buses.rs`) and the monitor's readings
 (`throughput.rs`):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers advancedae-buses advancedae-quantum-crafter
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer advancedae-providers advancedae-buses advancedae-quantum-crafter advancedae-quantum-armor
 ```

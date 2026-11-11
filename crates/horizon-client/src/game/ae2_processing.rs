@@ -309,6 +309,7 @@ pub(super) fn live_charger_recipe(stack:&ItemStack,items:&Items,recipes:&horizon
 pub(super) fn charger_chargeable(stack:&ItemStack)->bool {
     let mut single=stack.clone();single.count=1;
     horizon_client::ae2x::wireless::host(&single)
+        || super::ae2x::powered_item_energy(&single).is_some()
         || horizon_client::ae2_powered_items::profile(&single).is_some()
         || super::ae2_interactions::portable_energy(&single).is_ok()
         || energy_cell_item(&single).is_some()
@@ -334,21 +335,24 @@ fn energy_cell_charge_rate(stack:&ItemStack)->Result<f64,String> {
 /// An item a Charger fills (`IAEItemPowerStorage`, `Platform.isChargeable`),
 /// as the Charger's tick reads it: its current and most AE.
 pub(super) fn chargeable_energy(stack:&ItemStack)->Result<(f64,f64),String> {
-    if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::energy(stack)}
+    if let Some(energy)=super::ae2x::powered_item_energy(stack) {Ok(energy)}
+    else if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::energy(stack)}
     else if horizon_client::ae2_powered_items::profile(stack).is_some() {horizon_client::ae2_powered_items::energy(stack)}
     else if is_energy_cell_item(stack) {energy_cell_energy(stack)}
     else {super::ae2_interactions::portable_energy(stack)}
 }
 /// Its `getChargeRate`, AE a tick.
 pub(super) fn chargeable_rate(stack:&ItemStack)->Result<f64,String> {
-    if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::charge_rate(stack)}
+    if let Some(rate)=super::ae2x::powered_item_rate(stack) {Ok(rate)}
+    else if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::charge_rate(stack)}
     else if horizon_client::ae2_powered_items::profile(stack).is_some() {horizon_client::ae2_powered_items::charge_rate(stack)}
     else if is_energy_cell_item(stack) {energy_cell_charge_rate(stack)}
     else {super::ae2_interactions::portable_charge_rate(stack)}
 }
 /// Its `injectAEPower(.., MODULATE)`: the AE of `offered` it took.
 pub(super) fn chargeable_insert(stack:&mut ItemStack,offered:f64)->Result<f64,String> {
-    if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::transfer_energy(stack,offered,true,false)}
+    if let Some(taken)=super::ae2x::powered_item_insert(stack,offered) {Ok(taken)}
+    else if horizon_client::ae2x::wireless::host(stack) {super::ae2_wireless::transfer_energy(stack,offered,true,false)}
     else if horizon_client::ae2_powered_items::profile(stack).is_some() {horizon_client::ae2_powered_items::transfer(stack,offered,true,false)}
     else if is_energy_cell_item(stack) {energy_cell_insert(stack,offered)}
     else {super::ae2_interactions::portable_insert_energy(stack,offered,false)}

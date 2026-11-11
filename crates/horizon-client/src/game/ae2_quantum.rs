@@ -587,8 +587,11 @@ impl Game<'_> {
   use horizon_client::command::{Registries,Reader,SuggestionsBuilder,item::{parse_stack,suggest_stack}};
   let mut reg=Registries::default();reg.items.push("ae2:quantum_entangled_singularity".into());
   horizon_client::ae2_components::register(&mut reg);horizon_client::ae2_components::register(&mut reg);
-  assert_eq!(reg.persistent_components.len(),60,"registration is idempotent");
-  assert_eq!(reg.ids("minecraft:data_component_type").len(),60);
+  // Every addon adds its own ids to PERSISTENT_IDS, so the expected set is that list, not a count.
+  let expected:BTreeSet<String>=horizon_client::ae2_components::PERSISTENT_IDS.iter().map(|id|(*id).to_owned()).collect();
+  assert_eq!(reg.persistent_components.len(),expected.len(),"registration is idempotent");
+  assert_eq!(reg.persistent_components.iter().cloned().collect::<BTreeSet<_>>(),expected);
+  assert_eq!(reg.ids("minecraft:data_component_type").len(),expected.len());
   let prefix="ae2:quantum_entangled_singularity[ae2:entangled";
   let mut suggestions=SuggestionsBuilder::new(prefix,0);suggest_stack(&mut suggestions,&reg);
   assert!(suggestions.out.iter().any(|s|s.text=="ae2:entangled_singularity_id="));

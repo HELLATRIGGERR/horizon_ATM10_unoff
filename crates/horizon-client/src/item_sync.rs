@@ -1319,7 +1319,7 @@ mod tests {
         ];
         let expected: std::collections::BTreeSet<_> = crate::ae2_components::PERSISTENT_IDS.iter().copied().collect();
         assert_eq!(samples.iter().map(|(id, _)| *id).collect::<std::collections::BTreeSet<_>>(), expected);
-        assert_eq!(samples.len(), 60);
+        assert_eq!(samples.len(), expected.len(), "one sample for each persistent id, none twice");
         for (id, value) in &samples {
             crate::ae2_components::validate(id, value).unwrap_or_else(|error| panic!("invalid source-shaped sample for {id}: {error}"));
         }

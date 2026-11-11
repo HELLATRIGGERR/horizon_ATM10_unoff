@@ -324,9 +324,32 @@ assets when `mekanism-content` is given them.
   ports open `GuiFissionReactor` (gauges, status, activate and SCRAM, the temperature bar) with
   `GuiFissionReactorStats`'s lines as a page; an adapter opens its own screen of modes. The burn rate is set with
   `/mek fission x y z rate <mB/t>` (also `activate`, `scram`). Its tanks, heat, damage, rate, remainders and flags live
-  in the cache under `mekanism_fissionreactor`.
+  in the cache under `mekanism_fissionreactor`. Waste with no room radiates at the reactor's centre (0.01 Sv/h a mB),
+  and a meltdown its waste and partial waste times `meltdowns.radiationMultiplier` (50), only the radioactive tanks
+  going.
+- Radiation (`mekanism_energy::radiation`, runtime `mek_radiation`; ATM10's `general.toml` `[radiation]`: on, 5
+  chunks, sources and doses times 0.9975 on one tick in 20, harm from a severity of 0.1): each level's sources, a
+  magnitude in Sv/h at a block kept in the level's attachments (`mekanism:radiation_data`), give a block within 80 of
+  them on every axis their magnitude over the squared distance (at least 1) on the 1e-7 baseline; a source decays on
+  one level tick in 20 and goes under 1e-5. A broken Mekanism block holding chemicals (not a creative chemical tank)
+  radiates their radioactivity at its position (nuclear and spent waste 0.01 Sv/h a mB, plutonium 0.02, polonium
+  0.05) and its drop keeps none of them. A player's dose (the attachment `mekanism:radiation`, gone on death) takes on
+  one of their ticks in 20 an hour's share of the level they stand in, less the hazmat suit's shielding (mask 0.25,
+  gown 0.4, pants 0.2, boots 0.15), then decays; in survival or adventure a dose severe enough (its log scale from
+  1e-5 to 100 Sv above a draw from 0.1) hurts as `mekanism:radiation` on one roll in two (`ln(1 + dose)`, at least 1)
+  and adds as much exhaustion. The Geiger Counter used in the air tells the level where the player stands, the
+  Dosimeter their dose (`Radiation Exposure: 11.111 Sv/h`, `Time to Decay: 1h 48m`); `/mek radiation add <Sv/h> [x y
+  z]`, `get [x y z]`, `removeAll`, `heal`, `addEntity <Sv>`, `reduce <Sv>` are Mekanism's (for the player who runs
+  them), `/mek radiation probe [x y z]` the bundle's.
 
 ## Differences from Mekanism
+
+- Radiation: mobs take no dose (only players do), and the dose isn't sent to the client (no HUD readings, no Geiger
+  sounds, no radiation particles). The Dosimeter doesn't read other entities, the MekaSuit's Geiger and Dosimeter
+  units and its shielding aren't there, nor Curios' shielding slots. A pressurized tube network's last tube, a
+  multiblock rejecting chemicals as it forms and the dropper don't radiate; the Radioactive Waste Barrel isn't
+  ported. The sources decay on one level tick in 20 drawn for each level (Mekanism draws once a server tick for all
+  levels) from the bundle's random source, and they are saved in Horizon's attachments, not NeoForge's.
 
 - A network's acceptors are sorted by position; Mekanism goes in its `HashMap`'s order. Only who gets a leftover Joule differs.
 - A new or loaded cable joins at the end of its first tick, so what it takes starts a tick later than Mekanism's own buffer does.
@@ -449,9 +472,7 @@ assets when `mekanism-content` is given them.
   screen's graphs, comparators and the valves' transfer aren't there. A rotor that goes other than by a player
   breaking it (an explosion, `/setblock`) drops no blades. Cables in pull mode don't draw from its valves (they take
   what the valves give).
-- The fission reactor makes no radiation: what Mekanism would radiate (waste with no room, its tanks at a meltdown,
-  entities in its core) is only counted (`/mek probe`'s `waste_overflow`); with radiation on in ATM10 a meltdown still
-  dumps the radioactive tanks. Its meltdown blasts are the game's explosions (`native_explode`), without Mekanism's own
+- The fission reactor doesn't irradiate the living entities in its core. Its meltdown blasts are the game's explosions (`native_explode`), without Mekanism's own
   ray pass that breaks the blocks inside its box; the reactor takes its meltdown and breaks once a blast has taken one
   of its blocks; the draws come from the bundle's random source. A logic adapter's `DISABLED`
   redstone control reads as `HIGH` (Mekanism's turns into `HIGH` once the adapter loads), its power is read as the

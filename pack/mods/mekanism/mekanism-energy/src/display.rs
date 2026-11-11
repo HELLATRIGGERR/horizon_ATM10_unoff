@@ -37,12 +37,17 @@ fn cut(d: f64, places: i32) -> f64 {
 
 /// `getDisplayShort(value, unit)` with the unit's short symbol (`FE`, `J`).
 pub fn short(value: f64, symbol: &str) -> String {
-    short_spaced(value, symbol, true)
+    short_spaced(value, symbol, true, 2)
+}
+
+/// `getDisplayShort(value, unit, places)` with a space before the prefix (the radiation units: `11.111 Sv/h`).
+pub fn short_places(value: f64, symbol: &str, places: i32) -> String {
+    short_spaced(value, symbol, true, places)
 }
 
 /// `getDisplayBase`, short: a space before the prefix for energy, none for
 /// temperatures (`1.88kK`).
-fn short_spaced(value: f64, symbol: &str, space: bool) -> String {
+fn short_spaced(value: f64, symbol: &str, space: bool, places: i32) -> String {
     let gap = if space { " " } else { "" };
     if value == 0.0 {
         return format!("0.0{gap}{symbol}");
@@ -56,7 +61,7 @@ fn short_spaced(value: f64, symbol: &str, space: bool) -> String {
         })
         .unwrap_or(UNITS.len() - 1);
     let (prefix, size) = UNITS[i];
-    let rounded = cut(value / size, 2);
+    let rounded = cut(value / size, places);
     let sign = if negative { "-" } else { "" };
     format!("{sign}{}{gap}{prefix}{symbol}", java_double(rounded))
 }
@@ -64,7 +69,7 @@ fn short_spaced(value: f64, symbol: &str, space: bool) -> String {
 /// `MekanismUtils.getTemperatureDisplay(kelvin, KELVIN, ...)` in ATM10's
 /// unit (`temperatureUnit = "KELVIN"`): `1.88kK`, `300.0K`.
 pub fn temperature(kelvin: f64) -> String {
-    short_spaced(kelvin, "K", false)
+    short_spaced(kelvin, "K", false, 2)
 }
 
 /// `TextUtils.format(int)` in English: thousands with commas (`24,000`).

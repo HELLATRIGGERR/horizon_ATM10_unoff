@@ -77,6 +77,7 @@ pub mod multiblock;
 pub mod network;
 pub mod ore;
 pub mod pump;
+pub mod radiation;
 pub mod rotary;
 pub mod separator;
 pub mod sides;

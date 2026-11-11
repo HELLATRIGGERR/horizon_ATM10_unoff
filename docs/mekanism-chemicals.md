@@ -337,7 +337,11 @@ copies their icons into the GUI atlas (`textures/gui/chemical/<icon ns>/<icon pa
    fluid config's `eject1`). Tests: `mekanism-energy` (`factory::tests`, `config`), the world tests
    `chemical-factories` and `rotary-condensentrator` (its fluid ejection).
 7. **Radiation.** Radioactive chemicals (`validated`): the radiation manager, a dumped or leaking radioactive chemical
-   polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`.
+   polluting the chunk, the Radioactive Waste Barrel, `#mekanism:waste_barrel_decay_blacklist`. Its core is in
+   (`mekanism_energy::radiation`, runtime `mek_radiation`, world test `radiation`): the sources, a broken block's
+   radioactive chemicals, the fission reactor's waste overflow and meltdown, players' doses and hazmat shielding, the
+   Geiger Counter, the Dosimeter and `/mek radiation`; the rest (mobs, the client, tubes, the barrel) is listed in
+   `pack/mods/mekanism/NOTES.md`.
 8. **Applied Mekanistics.** After AE2's key type registry (G6): `MekanismKey`, chemical cells, interfaces, the storage
    bus over `IChemicalHandler` (then a hook point, as fluids' API 422), Mekanistic Routers' and Pipez' chemical
    transfer.

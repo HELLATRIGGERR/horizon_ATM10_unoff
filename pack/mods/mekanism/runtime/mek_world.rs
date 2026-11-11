@@ -968,6 +968,9 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
 /// Unloading, it takes what its save holds with it (`onChunkUnloaded`); broken,
 /// it takes nothing and the rest of the network keeps the energy.
 pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) {
+    if removed {
+        super::mek_radiation::block_removed(dimension, pos, &entity.id, &entity.nbt);
+    }
     if super::mek_transmit::unloaded(dimension, pos, entity, removed) {
         return;
     }
@@ -1575,7 +1578,14 @@ pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
     let (config, _) = energy_config();
     let found = game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
-            return Some((m.id.clone(), super::mek_tanks::drop_data(&m.nbt)?));
+            // The radioactive contents radiate as the tank breaks instead of staying in its drop.
+            let mut nbt = m.nbt.clone();
+            if let Some(tanks) = nbt.remove(&key("chemical_tanks"))
+                && let Some(kept) = super::mek_radiation::drop_tanks(&m.id, &tanks)
+            {
+                nbt.insert(key("chemical_tanks"), kept);
+            }
+            return Some((m.id.clone(), super::mek_tanks::drop_data(&nbt)?));
         }
         if super::mek_matrix::is_cell(&m.id) {
             return Some((m.id.clone(), super::mek_matrix::cell_drop(&m.nbt)?));
@@ -2264,6 +2274,7 @@ pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek install <pos:block_pos> <installer:word>", 2));
     commands.push(NativeCommand::op("mek multiblock <what:word>", 2));
     commands.push(NativeCommand::op("mek heater <pos:block_pos> <usage:word>", 2));
+    commands.push(NativeCommand::op("mek radiation <args:text>", 2));
     super::mek_transmit::commands(commands);
 }
 
@@ -2324,6 +2335,10 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
         }
         // `/mek fission x y z rate <mB/t> | activate | scram`: a fission reactor's burn rate, as its stats page's text
         // field sets it, and its screen's buttons.
+        Some("radiation") => {
+            let rest: Vec<&str> = words.collect();
+            super::mek_radiation::command(game, player, &rest)
+        }
         Some("fission") => {
             let p = player.position;
             let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));

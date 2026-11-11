@@ -232,6 +232,35 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   chemical tank refuses nuclear waste (the default attribute validator), an empty creative tank takes and voids it;
   `burnFuel` sets an empty fuel tank to nothing, so the remainder burns on; what boils is used up even when the heated
   coolant tank is full.
+- Radiation (chemicals slice 7's core, branch `feat/mekanism-multiblocks-2`, no new hook point: it hooks API 31's
+  `native_player_tick` and API 13's `native_use_item`, and calls `native_hurt_entity`, `native_player_equipment`,
+  `native_player_food`/`native_set_player_status`, `native_tell` and the attachments helper for `Holder::Player`;
+  `mekanism_energy::radiation`, runtime `mek_radiation`): the level's sources (`mekanism:radiation_data` in the level's
+  attachments, decayed on one level tick in 20), the level at a block, a broken block's radioactive chemicals (its
+  drop keeps none), the fission reactor's waste overflow and meltdown (only radioactive tanks dumped now: fissile
+  fuel stays), a player's dose (attachment `mekanism:radiation`, lost on death), hazmat shielding, the harm and
+  exhaustion, the Geiger Counter and Dosimeter, Mekanism's `/mek radiation` subcommands and `/mek radiation probe`.
+  Measured on a private copy of the fission oracle (local `mekrad-work/oracle`, RCON 25651, `r1.py`, `r1.json`;
+  armor stands for the player, as RCON has none): a 100 Sv/h source reads 100.0, 100.0, 11.111, 1.0 Sv/h, 15.625
+  mSv/h and 99.999 nSv/h at 0, 1, 3, 10, 80 and 81 blocks; 19 decays in 400 ticks (99.75, 99.5, 99.251 ...); two
+  blocks away a first dose of 0.006927183111041667 Sv, 0.005169468178984376 in a mask (with the source decayed twice),
+  none in the whole suit; 10.0000001 Sv decays to 9.97500009975; a broken basic tank of 1000 mB of nuclear waste
+  leaves 10.0 Sv/h and drops empty, a creative one nothing. World test `radiation` (7 checks: the oracle's levels, a
+  decay count and magnitude, the first doses bare, masked and suited, the Geiger Counter and Dosimeter lines, 100 Sv
+  hurting, the broken tanks, a restart); the `fission` test checks the meltdown's source (500.5 Sv/h at M's centre:
+  1001 mB of waste times 0.01 times 50). Left for the next slices: mobs' doses (`EntityTickEvent.Post` for every living entity: a hook
+  on `native_entity_tick_post` and `Holder::Entity` attachments; the reactor's `radiateEntities` in its hot zone, the
+  Dosimeter used on an entity), the client side (`PacketPlayerRadiationData`/`PacketEnvironmentalRadiationData`, the
+  HUD's MekaSuit Geiger/Dosimeter units, Geiger sounds, `RadiationParticle`s around radioactive tiles and tubes), the
+  MekaSuit's shielding and Curios slots, the pressurized tube network's dispersal of its last tube, the multiblocks'
+  rejected chemicals at formation, the dropper (`PacketDropperUse`), the Radioactive Waste Barrel
+  (`#mekanism:waste_barrel_decay_blacklist`, `wasteBarrelCapacity`/`ProcessTicks`/`DecayAmount`), Anti-matter, the
+  radiation advancements and `MekanismDamageTrigger`, and chunks' sources dropped as Mekanism's `removeRadiationSources`
+  does (unused by Mekanism itself). Learned: Mekanism's command root is `mek` (`/mek radiation get`, as the bundle's
+  own `/mek`); the dose's first step two blocks from a 100 Sv/h source is `(1e-7 + (100/4 + 1e-7)/3600) * 0.9975`
+  exactly; a hazmat mask goes in `ArmorItems[3]`; a basic chemical tank set by `data merge` holds nuclear waste;
+  `mekanism:radiation` isn't `#minecraft:no_knockback`, so each hurt knocks the player a random way (the test puts
+  them back before each tick it measures).
 - Generators 2 and the fluid world machines (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
   the Bio-Generator, Wind Generator and Advanced Solar Generator (`mekanism_energy::bio`, `wind`, `solar`'s
   `AdvancedSolar`; three more `GeneratorKind`s run by `runtime/mek_gen2.rs`, which also places and removes their
@@ -249,14 +278,14 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
   under a block set while the world is held settles a tick or more later, so the tests let it settle before the
   generators look again.
-- Next: the SPS and the Fusion Reactor (its frame: corners left out); the fission reactor's rest (radiation, which
-  chemicals slice 7 brings: the waste with no room, the meltdown's dump, entities in its core; Mekanism's own ray pass
+- Next: the SPS and the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
+  its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside
   them, sounds); the turbine's rest
   (blades drawn and turning, the rotors' `position`, the statistics graphs, comparators, cables pulling from its
   valves, a rotor dropping its blades however it goes); more heat handlers (the fuelwood heater, the heat generator's
   down side and its taking heat, thermodynamic conductors) and the resistive heater's usage field (a text field in
-  the bundle's screens); chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
+  the bundle's screens); chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation's rest, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical

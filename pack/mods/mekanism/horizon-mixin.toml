@@ -6,17 +6,20 @@
 # Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
 # (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler) and
 # its Resistive Heater, Mekanism Generators' Solar, Heat,
-# Gas-Burning, Bio, Wind and Advanced Solar Generators, Industrial Turbine and Fission Reactor, and its Electric Pump and
-# Fluidic Plenisher, as a native mod of this fork
+# Gas-Burning, Bio, Wind and Advanced Solar Generators, Industrial Turbine and Fission Reactor, its Electric Pump and
+# Fluidic Plenisher, and its radiation (sources, players' doses, the Geiger Counter and Dosimeter), as a native mod of
+# this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
-# It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26, 38,
+# It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26, 31, 38,
 # 42, 45, 47, 60, 71, 416-418, 420 and 422) and calls the helpers of API 419 (`native_biome_climate`,
 # `native_dimension_type`), 421 (`native_cooking_recipes`), 422 (`FluidStack`, the fluid handler helpers), 423
 # (`native_data_files`, the content's chemical declarations), 424 (`native_used_stack`,
 # `native_instabuild`: the tier installers), 425 (`native_insert_slots`, `native_pop_resource`: the
-# transporters) and 426 (`native_level_particles`: a multiblock's sparkles), 66 (`native_explode`: a fission
+# transporters) and 426 (`native_level_particles`: a multiblock's sparkles), the player helpers
+# (`native_acting_player`, `native_player_equipment`, `native_player_food`, `native_set_player_status`,
+# `native_hurt_entity`, `native_tell`: radiation's doses and the Geiger Counter), 66 (`native_explode`: a fission
 # reactor's meltdown), 96 (`native_neighbor_signal`: its logic adapters' redstone) and 38
 # (`native_update_signal_neighbors`), the attachments
 # helper (`native_attachments`: the multiblocks' caches in the level's saved data), and upstream's pending
@@ -197,6 +200,12 @@ file = "crates/horizon-client/src/game.rs"
 name = "mek_ui"
 source = "runtime/mek_ui.rs"
 
+[[module]]
+id = "radiation"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_radiation"
+source = "runtime/mek_radiation.rs"
+
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
@@ -352,6 +361,28 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
   { name = "id", ty = "i32", value = "id" },
+]
+
+[[injection]]
+id = "use-item"
+hook = "use_item"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/use_item.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
+  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+]
+
+[[injection]]
+id = "player-tick"
+hook = "player_tick"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
 
 [[injection]]

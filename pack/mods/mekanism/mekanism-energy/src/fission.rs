@@ -761,13 +761,14 @@ pub fn tick(
     out
 }
 
-/// `meltdownHappened` on a formed reactor: its heated coolant goes (and, with radiation on, the radioactive tanks:
-/// the fuel, the waste), it is off, its damage `postMeltdownDamage`, its burn and waste remainders gone and its heat
-/// back at the air's. The radioactivity it would spread: the dumped tanks' times `radiationMultiplier` (out of scope
-/// here: the caller only reports it).
-pub fn meltdown_happened(tanks: &mut Tanks, core: &mut Core, heat: &mut Heat, ambient: f64, radiation: bool, config: &FissionConfig) {
-    if radiation {
+/// `meltdownHappened` on a formed reactor: its heated coolant goes (and, with radiation on, the tanks whose chemical is
+/// radioactive: `dump` for the fuel and the waste), it is off, its damage `postMeltdownDamage`, its burn and waste
+/// remainders gone and its heat back at the air's. What it radiates is `meltdown_radiation`, taken before.
+pub fn meltdown_happened(tanks: &mut Tanks, core: &mut Core, heat: &mut Heat, ambient: f64, dump: [bool; 2], config: &FissionConfig) {
+    if dump[0] {
         tanks.fuel = 0;
+    }
+    if dump[1] {
         tanks.waste = 0;
     }
     tanks.heated = 0;
@@ -776,6 +777,14 @@ pub fn meltdown_happened(tanks: &mut Tanks, core: &mut Core, heat: &mut Heat, am
     core.burn_remaining = 0.0;
     core.partial_waste = 0.0;
     heat.stored = heat.capacity * ambient;
+}
+
+/// The radiation a meltdown spreads at the reactor's centre (`meltdownHappened`, radiation on): the fuel's, the
+/// heated and cooled coolants' radioactivity (a mB times their amounts), and the waste's times its amount and the
+/// partial waste (nuclear waste's when the tank is empty), all times `radiationMultiplier`.
+pub fn meltdown_radiation(fuel: f64, waste_radioactivity: f64, waste: i64, partial_waste: f64, coolants: [f64; 2], config: &FissionConfig) -> f64 {
+    let waste = if waste_radioactivity == 0.0 { 0.0 } else { waste_radioactivity * (waste as f64 + partial_waste) };
+    (fuel + waste + coolants[0] + coolants[1]) * config.meltdown_radiation_multiplier
 }
 
 /// A meltdown's blast roll a tick (`Meltdown.update`): `next_int() % 10 == 0` and then a draw under the heat it held
@@ -1016,5 +1025,16 @@ mod tests {
             "[fission_reactor]\nenergyPerFissionFuel = 250000\n[fission_reactor.meltdowns]\nenabled = false\nchance = 0.5\n".parse().unwrap();
         let c = FissionConfig::from_tables(Some(&generators), None);
         assert_eq!((c.energy_per_fuel, c.meltdowns_enabled, c.meltdown_chance, c.default_burn_rate), (250_000, false, 0.5, 0.1));
+    }
+
+    #[test]
+    fn meltdown_radiates_its_waste_and_keeps_fuel_that_is_not_radioactive() {
+        // 1200 mB of nuclear waste and 0.5 of partial waste, at 0.01 Sv/h a mB, times 50.
+        assert_eq!(meltdown_radiation(0.0, 0.01, 1200, 0.5, [0.0, 0.0], &ATM10), (0.01 * 1200.5) * 50.0);
+        assert_eq!(meltdown_radiation(0.0, 0.0, 1200, 0.5, [0.0, 0.0], &ATM10), 0.0);
+        let mut tanks = Tanks { fuel: 500, waste: 1200, heated: 7, ..Tanks::default() };
+        let (mut core, mut heat) = (Core::new(), Heat { stored: 9.0e6, capacity: 34_000.0 });
+        meltdown_happened(&mut tanks, &mut core, &mut heat, 300.0, [false, true], &ATM10);
+        assert_eq!((tanks.fuel, tanks.waste, tanks.heated, core.damage, heat.stored), (500, 0, 0, 75.0, 34_000.0 * 300.0));
     }
 }

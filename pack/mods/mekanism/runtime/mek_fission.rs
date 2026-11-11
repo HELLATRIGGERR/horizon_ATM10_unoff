@@ -11,7 +11,8 @@
 // (`FissionPortMode`, the block's `mode`), the Configurator's turn of a port's mode, the logic adapters (their mode,
 // redstone control, status and the signal they give out of the reactor), its screens (`GuiFissionReactor`,
 // `GuiFissionReactorStats` as a page, `GuiFissionReactorLogicAdapter`), `/mek fission` and `/mek probe`.
-// Radiation isn't ported: what Mekanism would radiate is only counted (`waste_overflow`, the meltdown's dump).
+// Waste with no room and a meltdown's radioactive tanks radiate at the reactor's centre (`mek_radiation`); the
+// living entities in its core aren't irradiated yet.
 
 use super::{
     Game, mek_chemicals,
@@ -358,6 +359,14 @@ pub(super) fn tick(game: &mut Game<'_>, dimension: &str, id: Uuid) {
             });
         }
     }
+    // Waste with no room in its tank radiates at the reactor's centre.
+    if last.waste_overflow > 0
+        && super::mek_radiation::enabled()
+        && let Some(waste) = registry.get(WASTE)
+        && waste.radioactivity > 0.0
+    {
+        super::mek_radiation::radiate(dimension, center(&formed.cuboid), last.waste_overflow as f64 * waste.radioactivity);
+    }
     if last.meltdown {
         MELTDOWNS.with(|m| {
             m.borrow_mut().push(Meltdown {
@@ -439,6 +448,11 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     MELTDOWNS.with(|m| m.borrow_mut().extend(kept));
 }
 
+/// `VoxelCuboid.getCenter`: the middle block of the reactor's box (Java's division, toward zero).
+fn center(cuboid: &Cuboid) -> [i32; 3] {
+    [0, 1, 2].map(|i| (cuboid.min[i] + cuboid.max[i]) / 2)
+}
+
 /// A wall block of a reactor: a casing, a port, a logic adapter or reactor glass.
 fn is_part(block: &str) -> bool {
     matches!(block, CASING | PORT | ADAPTER | GLASS)
@@ -447,6 +461,7 @@ fn is_part(block: &str) -> bool {
 /// `meltdownHappened` on the reactor `id` while it is formed (the blast hits its blocks).
 fn meltdown_happened(dimension: &str, id: Uuid) {
     let Some(shape) = shape_of(dimension, id) else { return };
+    let Some(cuboid) = mb::with_formed(dimension, id, |f| f.cuboid) else { return };
     let config = settings();
     let ambient = STATES.with(|s| s.borrow().get(&id).map_or(evaporation::AMBIENT, |s| s.ambient));
     let _ = shape;
@@ -455,8 +470,25 @@ fn meltdown_happened(dimension: &str, id: Uuid) {
         let mut heat = fission::Heat { stored: h.stored, capacity: h.capacity };
         let mut core = c.reactor.unwrap_or_else(Core::new);
         let mut tanks = Tanks { fuel: c.chemicals[0].amount(), heated: c.chemicals[1].amount(), waste: c.chemicals[2].amount(), ..Tanks::default() };
-        // Radiation is on in ATM10 (`general.toml` `[radiation] enabled`): the radioactive tanks are dumped.
-        fission::meltdown_happened(&mut tanks, &mut core, &mut heat, ambient, true, &config);
+        // With radiation on (as in ATM10) the radioactive tanks are dumped, radiating at the reactor's centre.
+        let mut dump = [false; 2];
+        if let Some(registry) = mek_chemicals::loaded()
+            && super::mek_radiation::enabled()
+        {
+            let of = |s: &ChemicalStack| super::mek_radiation::stack_radioactivity(&registry, s);
+            let waste_rate = c.chemicals[2].id().or(Some(WASTE)).and_then(|id| registry.get(id)).map_or(0.0, |w| w.radioactivity);
+            dump = [of(&c.chemicals[0]) > 0.0, waste_rate > 0.0];
+            let radiation = fission::meltdown_radiation(
+                of(&c.chemicals[0]),
+                waste_rate,
+                c.chemicals[2].amount(),
+                core.partial_waste,
+                [of(&c.chemicals[3]), of(&c.chemicals[1])],
+                &config,
+            );
+            super::mek_radiation::radiate(dimension, center(&cuboid), radiation);
+        }
+        fission::meltdown_happened(&mut tanks, &mut core, &mut heat, ambient, dump, &config);
         c.chemicals[0] = if tanks.fuel > 0 { c.chemicals[0].copy_with_amount(tanks.fuel) } else { ChemicalStack::EMPTY };
         c.chemicals[1] = ChemicalStack::EMPTY;
         c.chemicals[2] = if tanks.waste > 0 { c.chemicals[2].copy_with_amount(tanks.waste) } else { ChemicalStack::EMPTY };

@@ -19,7 +19,8 @@
  *   129.63 at the 1000th; its temperature
  *   adapter lights its lamp past 1200 K, its damaged adapter past 100 %. With meltdowns off at a chance of 1 it turns
  *   itself off (force disabled, refusing to start); with them on again it melts down: a blast in its box, the cache at
- *   75 % damage. The redstone block taken from W's adapter turns W off.
+ *   75 % damage and its waste radiating at its centre (its amount and the partial waste, times 0.01 Sv/h a mB and
+ *   `meltdowns.radiationMultiplier` 50). The redstone block taken from W's adapter turns W off.
  * - Kept over a restart: R's rate and heat, W's adapter mode. */
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -252,9 +253,19 @@ try {
   const mine = (caches.fissionReactor ?? []).find((c: any) => c.id === id);
   log.meltdown = { blasts, seen, cache: mine };
   assert(blasts > 0, 'a blast came within 100 ticks');
+  // Radiation on (ATM10): the meltdown radiates its waste (and the partial waste) times 50 at the reactor's centre,
+  // Java's middle block of its box; the source may have decayed since (0.9975 on one tick in 20).
+  const [mx, my, mz] = m.split(' ').map(Number);
+  const centre = [mx + mx + 2, my + my + 3, mz + mz + 2].map(v => Math.trunc(v / 2)).join(' ');
+  const radiation = await mek(`mek radiation probe ${centre}`);
+  const spread = (0.01 * ((off.waste?.amount ?? 0) + off.partial_waste)) * 50;
+  const source = radiation.sources.find((s: any) => s.pos.join(' ') === centre);
+  const decays = source ? Math.log(source.radiation / spread) / Math.log(0.9975) : NaN;
+  log.meltdownRadiation = { centre, spread, source, decays };
+  assert(source && spread > 0 && Math.abs(decays - Math.round(decays)) < 1e-6 && decays > -0.5 && decays < 20, `the meltdown leaves ${spread} Sv/h at ${centre}: ${JSON.stringify(radiation.sources)}`);
   assert.deepEqual([mine?.reactor?.damage, mine?.reactor?.active, mine?.heat?.[0]?.stored], [75, false, 10_200_000.01013279], "the cache after the meltdown: 75 % damage, off, at the air's heat");
   meltdowns(true, 0.001);
-  fixture.mark(`meltdowns off: M force disabled and refusing to start; on: it melted down ${blasts} tick(s) later, its cache at 75 % damage`);
+  fixture.mark(`meltdowns off: M force disabled and refusing to start; on: it melted down ${blasts} tick(s) later, its cache at 75 % damage, ${spread} Sv/h at its centre`);
 
   // The screens: R's on a casing, its statistics as a page; W's logic adapter, its high temperature mode pressed.
   await fixture.hold(false);

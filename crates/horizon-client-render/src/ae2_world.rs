@@ -402,6 +402,19 @@ pub const AE2_ENERGY_CELLS: [EnergyCell; 2] = [
         priority: 1_600,
     },
 ];
+static MACHINE_UPGRADE_SLOTS: std::sync::OnceLock<Vec<(&'static str, usize)>> = std::sync::OnceLock::new();
+/// The upgrade inventories an addon gives other mods' machines (Applied
+/// Flux's `MixinInterfaceLogic`: two slots on every ME Interface;
+/// `MixinPatternProviderLogic`: one of its own on a Pattern Provider), by the
+/// machine's id ([`Machine::id`]), installed once at start-up before any world
+/// loads; a second call keeps the first table.
+pub fn install_machine_upgrade_slots(rows: Vec<(&'static str, usize)>) {
+    let _ = MACHINE_UPGRADE_SLOTS.set(rows);
+}
+/// The upgrade slots an addon gives machine `id`; none where no addon does.
+pub fn machine_upgrade_slots(id: &str) -> Option<usize> {
+    MACHINE_UPGRADE_SLOTS.get()?.iter().find(|(machine, _)| *machine == id).map(|(_, slots)| *slots)
+}
 static ENERGY_CELLS: std::sync::OnceLock<Vec<EnergyCell>> = std::sync::OnceLock::new();
 /// The addons' energy cells, installed once at start-up before any world
 /// loads; a second call keeps the first table.
@@ -452,7 +465,7 @@ impl Machine {
             kind,
             variant: None,
             slots: vec![None; kind.physical_slots()],
-            upgrades: vec![None; kind.upgrade_slots()],
+            upgrades: vec![None; machine_upgrade_slots(kind.id()).unwrap_or_else(|| kind.upgrade_slots())],
             energy: 0.0,
             chest_power_capacity: (kind == MachineKind::Chest)
                 .then(|| (500.0 * crate::ae2_common_config::gameplay().usage_multiplier)
@@ -468,7 +481,7 @@ impl Machine {
         let mut machine = Self::new(variant.kind);
         machine.variant = Some(variant);
         machine.slots = vec![None; variant.slots];
-        machine.upgrades = vec![None; variant.upgrades];
+        machine.upgrades = vec![None; machine_upgrade_slots(variant.id).unwrap_or(variant.upgrades)];
         machine
     }
     /// The block entity's block id, or for a part its item's.
@@ -497,7 +510,7 @@ impl Machine {
     }
     /// The size of `upgrades`.
     pub fn upgrade_slots(&self) -> usize {
-        self.variant.map_or_else(|| self.kind.upgrade_slots(), |v| v.upgrades)
+        machine_upgrade_slots(self.id()).unwrap_or_else(|| self.variant.map_or_else(|| self.kind.upgrade_slots(), |v| v.upgrades))
     }
     /// Private AEBasePoweredBlockEntity buffer maximum, fixed at construction.
     pub fn private_power_capacity(&self) -> Option<f64> {

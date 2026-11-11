@@ -86,6 +86,23 @@ pub const FLUX_ACCESSOR: &str = "appflux:flux_accessor";
 pub const PART_FLUX_ACCESSOR: &str = "appflux:part_flux_accessor";
 /// `TileFluxAccessor` / `PartFluxAccessor`: `setIdlePowerUsage(1.0)`, `GridFlags.REQUIRE_CHANNEL`.
 pub const ACCESSOR_IDLE: f64 = 1.0;
+/// `AFSingletons.INDUCTION_CARD` (`ItemInductionCard`, an `UpgradeCardItem`).
+pub const INDUCTION_CARD: &str = "appflux:induction_card";
+/// The machines whose upgrade inventory Applied Flux sets, and its size:
+/// `MixinInterfaceLogic` gives every `InterfaceLogic` two slots
+/// (`UpgradeInventories.forMachine(is, 2)`), `MixinPatternProviderLogic` every
+/// `PatternProviderLogic` one of its own; AE2's blocks and parts (one machine
+/// id each here) and ExtendedAE's, which build on that logic.
+pub const UPGRADED_MACHINES: [(&str, usize); 8] = [
+    ("ae2:interface", 2),
+    ("ae2:pattern_provider", 1),
+    ("extendedae:ex_interface", 2),
+    ("extendedae:ex_interface_part", 2),
+    ("extendedae:oversize_interface", 2),
+    ("extendedae:oversize_interface_part", 2),
+    ("extendedae:ex_pattern_provider", 1),
+    ("extendedae:ex_pattern_provider_part", 1),
+];
 /// `PartFluxAccessor.getBoxes`: in sixteenths, the part on the south face.
 pub const PART_BOXES: [[f64; 6]; 2] = [[2., 2., 14., 14., 14., 16.], [4., 4., 12., 12., 12., 14.]];
 /// `PartFluxAccessor.RL`: its static model.
@@ -383,9 +400,16 @@ pub fn register(defs: &mut Defs) {
             portable_battery(quarter),
         );
         // registerPortableCellUpgrades: a Void Card, two Energy Cards (and an
-        // Induction Card, a later slice's item).
+        // Induction Card, whose charging of the player's items is not ported).
         defs.add_upgrade("ae2:void_card", &id, 1);
         defs.add_upgrade("ae2:energy_card", &id, 2);
+    }
+    // The interfaces' and providers' upgrade inventories; AFRegistryHandler's
+    // and ExtendedAE's AFCommonLoad's Upgrades.add of the Induction Card, one
+    // on each of them.
+    for (id, slots) in UPGRADED_MACHINES {
+        defs.set_machine_upgrade_slots(id, slots);
+        defs.add_upgrade(INDUCTION_CARD, id, 1);
     }
 }
 
@@ -525,6 +549,22 @@ mod tests {
         assert!(part.requires_channel && part.idle_power == 1.0 && part.cells == 0);
         assert!(defs.machines().iter().any(|m| m.id == FLUX_ACCESSOR && !m.part));
         assert!(defs.machines().iter().any(|m| m.id == PART_FLUX_ACCESSOR && m.part));
+    }
+
+    #[test]
+    fn the_induction_card_fits_interfaces_and_providers_with_applied_fluxs_slots() {
+        crate::ae2x::install();
+        let defs = crate::ae2x::defs::get();
+        for (id, slots) in UPGRADED_MACHINES {
+            assert_eq!(defs.upgrade_limit(INDUCTION_CARD, id), 1, "{id}");
+            assert_eq!(crate::ae2_world::machine_upgrade_slots(id), Some(slots), "{id}");
+        }
+        use crate::ae2_world::{Machine, MachineKind};
+        // AE2's blocks and parts are one machine each: two cards on an interface, one on a provider.
+        assert_eq!(Machine::new(MachineKind::Interface).upgrades.len(), 2);
+        assert_eq!(Machine::new(MachineKind::PatternProvider).upgrade_slots(), 1);
+        assert_eq!(defs.upgrade_limit(INDUCTION_CARD, "ae2:drive"), 0);
+        assert_eq!(crate::ae2_world::machine_upgrade_slots("ae2:drive"), None);
     }
 
     #[test]

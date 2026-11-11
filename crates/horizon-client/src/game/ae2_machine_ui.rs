@@ -120,7 +120,7 @@ pub(super) fn paged_interface_items(m: &Machine, shape: MenuShape) -> Vec<Option
         items[PAGE_SLOTS + i] = config.get(at).cloned().flatten()
             .or_else(|| fluid_config.get(at).cloned().flatten().map(|(key, n)| bucket(&key, n)));
     }
-    items[2 * PAGE_SLOTS] = m.upgrades.first().cloned().flatten();
+    place_cards(m, shape, &mut items);
     items
 }
 #[cfg(test)]
@@ -226,7 +226,35 @@ fn max_card(m: &Machine, id: &str) -> usize {
         (IoPort, "ae2:speed_card") => 3,
         (IoPort, "ae2:redstone_card") => 1,
         (Interface, "ae2:crafting_card" | "ae2:fuzzy_card") => 1,
-        _ => 0,
+        // An addon's card on AE2's machine (Applied Flux's Induction Card).
+        _ => horizon_client::ae2x::defs::get().upgrade_limit(id, m.id()),
+    }
+}
+/// The window entries of a machine's upgrade cards, card by card: an
+/// Interface's first after its config slots (its 2n, or 36 on a page) and
+/// the second Applied Flux gives it after the hint line (25, or 42 on a
+/// page); a Pattern Provider's (Applied Flux's own inventory) after its three
+/// settings. Other machines' cards are where their slots end.
+pub(super) fn card_entries(kind: MachineKind, shape: MenuShape, cards: usize) -> Vec<usize> {
+    let entries = match kind {
+        MachineKind::Interface if shape.page.is_some() => vec![2 * PAGE_SLOTS, 42],
+        MachineKind::Interface => vec![2 * shape.slots, 25],
+        MachineKind::PatternProvider => vec![shape.settings() as usize + 3],
+        _ => Vec::new(),
+    };
+    entries.into_iter().take(cards).filter(|entry| *entry < shape.priority()).collect()
+}
+/// The card window entry `window` shows of `m`, by the card's index.
+pub(super) fn card_at(m: &Machine, shape: MenuShape, window: i16) -> Option<usize> {
+    let window = usize::try_from(window).ok()?;
+    card_entries(m.kind, shape, m.upgrades.len()).iter().position(|entry| *entry == window)
+}
+/// Each card of `m` at its entry of the window.
+pub(super) fn place_cards(m: &Machine, shape: MenuShape, items: &mut [Option<ItemStack>]) {
+    for (card, entry) in card_entries(m.kind, shape, m.upgrades.len()).into_iter().enumerate() {
+        if let Some(item) = items.get_mut(entry) {
+            *item = m.upgrades[card].clone();
+        }
     }
 }
 /// May replace this upgrade slot with one actual card. Per-type limits are
@@ -311,6 +339,24 @@ pub(super) fn machine_upgrade_quick_insert(m: &mut Machine, item: &mut ItemStack
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn card_entries_follow_the_window() {
+        let plain = MenuShape { size: 27, slots: 9, page: None };
+        assert_eq!(card_entries(MachineKind::Interface, plain, 1), vec![18]);
+        assert_eq!(card_entries(MachineKind::Interface, plain, 2), vec![18, 25]);
+        assert_eq!(card_entries(MachineKind::Interface, MenuShape { size: 54, slots: 36, page: Some(0) }, 2), vec![36, 42]);
+        assert_eq!(card_entries(MachineKind::PatternProvider, plain, 1), vec![21]);
+        assert_eq!(card_entries(MachineKind::PatternProvider, MenuShape { size: 54, slots: 36, page: None }, 1), vec![48]);
+        assert_eq!(card_entries(MachineKind::PatternProvider, plain, 0), Vec::<usize>::new());
+        assert_eq!(card_entries(MachineKind::Drive, plain, 3), Vec::<usize>::new());
+        let mut provider = Machine::new(MachineKind::PatternProvider);
+        provider.upgrades = vec![Some(ItemStack::new("appflux:induction_card", 1))];
+        assert_eq!((card_at(&provider, plain, 21), card_at(&provider, plain, 20)), (Some(0), None));
+        let mut items = vec![None; 27];
+        place_cards(&provider, plain, &mut items);
+        assert_eq!(items[21].as_ref().map(|s| s.item.as_ref()), Some("appflux:induction_card"));
+    }
+
     #[test]
     fn io_port_cards_obey_limits_and_conserve_cursor() {
         let mut m = Machine::new(MachineKind::IoPort);

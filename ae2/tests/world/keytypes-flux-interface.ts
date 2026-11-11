@@ -3,7 +3,8 @@
  * Applied Flux's `FEContainerItemStrategy`), the interface stocks that FE from the grid and keeps it through a restart
  * (the type's id in `#t`); a shift click on the ME Terminal's FE entry fills a carried energy cell from the grid
  * (`FILL_ENTIRE_ITEM`) and a right click cannot drain it (AE2's `PoweredItemCapabilities` gives no FE back); a Pattern
- * Provider with an Induction Card takes FE pushed by another grid's Flux Accessor into its return slots
+ * Provider with an Induction Card in its upgrade slot (put there through its menu) takes FE pushed by another grid's
+ * Flux Accessor into its return slots
  * (`FEGenericStackInvStorage`) and returns it to its grid, where the crafting CPU waiting for a pattern's FE output
  * finishes its job. Needs content/appflux (ae2/scripts/prepare-addon.ts appflux) and a client built with ae2-appflux. */
 import assert from 'node:assert/strict';
@@ -103,11 +104,22 @@ try {
   await fixture.command(`item replace block ${bdrive} container.0 with appflux:fe_1k_cell[appflux:fe_energy=${PUSHED}L]`);
   await fixture.command('gamemode creative @s'); await fixture.replace('hotbar.0', 'appflux:part_flux_accessor'); await fixture.select(0, 'appflux:part_flux_accessor');
   assert.equal((await fixture.ae(`grid part ${bcable} west`)).attached, true, 'the accessor part faces the provider');
+  // The accessor only gives (EnergyIO OUTPUT): the provider's own Induction Card pushes grid A's FE on its sides
+  // (EnergyTicker), and an accessor that also took FE in would trade it back and forth with the provider.
+  await fixture.command(`data modify block ${bcable} ae2_lab_config.parts[{face:"west"}].machine set value {config:{io:1}}`);
   await until(() => fixture.ae(`grid status ${bdrive}`), s => s.online && fe(s) === PUSHED, 'grid B lists its FE', 30000);
   await Bun.sleep(3000);
   assert.equal(fe(await fixture.ae(`grid status ${bdrive}`)), PUSHED, 'no FE into a provider without an Induction Card');
   assert.equal(fe(await status()), before);
-  await fixture.command(`data merge block ${provider} {ae2_lab_config:{appflux_upgrades:[{Slot:0b,id:"appflux:induction_card",count:1}]}}`);
+  // The card into the provider's upgrade slot (MixinPatternProviderMenu's, after its three settings).
+  await fixture.command('gamemode survival @s'); await fixture.replace('hotbar.3', 'appflux:induction_card'); await fixture.select(8, 'minecraft:stick');
+  await fixture.command(`tp @s ${x + 3.5} ${y} ${z - 1.5}`); await fixture.raw(`interact ${provider} north`);
+  await until(() => fixture.raw('screen'), view => /Pattern Provider/i.test(JSON.stringify(view.title ?? '')), 'provider menu for the card');
+  await fixture.raw('click-slot 3'); await until(() => fixture.raw('inventory'), view => view.carried?.item === 'appflux:induction_card', 'the card on the cursor');
+  await fixture.raw('click-slot 321');
+  await until(() => fixture.raw('screen'), view => slot(view, 321)?.item === 'appflux:induction_card', "the card in the provider's upgrade slot");
+  assert.ok(!(await fixture.raw('inventory')).carried?.item, 'the cursor is empty'); await fixture.raw('close');
+  assert.match(text(await fixture.command(`data get block ${provider} ae2_lab_upgrades`)), /appflux:induction_card/, 'the provider keeps its card');
   await until(status, s => fe(s) === before + PUSHED, 'grid A receives grid B\'s FE through the provider', 60000);
   const other = await fixture.ae(`grid status ${bdrive}`);
   assert.equal(fe(other), 0, 'grid B gave all its FE'); assert.notEqual(other.nodes, (await status()).nodes, 'the grids stay apart');

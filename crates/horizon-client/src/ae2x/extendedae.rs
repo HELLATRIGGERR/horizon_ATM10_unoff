@@ -777,6 +777,8 @@ mod tests {
             ("extendedae:ex_drive", MachineKind::Drive, 20, 0),
         ] {
             let machine = Machine::for_block(id).unwrap();
+            // Applied Flux, when built in, sets the interfaces' and providers' upgrade inventories.
+            let upgrades = crate::ae2_world::machine_upgrade_slots(id).unwrap_or(upgrades);
             assert_eq!((machine.kind, machine.slots.len(), machine.upgrades.len()), (kind, slots, upgrades), "{id}");
             assert_eq!(machine.id(), id);
             assert!(is_machine_block(id));

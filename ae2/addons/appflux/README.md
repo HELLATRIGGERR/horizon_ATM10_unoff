@@ -92,7 +92,7 @@ given back. A right click with a charged energy item on an encoding slot sets it
 |---|---|
 | `GenericSlotCapacities.register(FluxKeyType.TYPE, 1000000L)` | `ae2x::appflux::SLOT_CAPACITY`, registered with the key type (`ae2_key_types::register_slot_capacity`): an ME Interface's config and stock slot (times the Oversize Interface's multiplier) and a Pattern Provider's return slot hold up to 1,000,000 FE |
 | `FEGenericStackInvStorage` on every block with AE2's `GENERIC_INTERNAL_INV` (`AppFlux`'s capability listener): `receiveEnergy` / `extractEnergy` slot by slot, `getEnergyStored` the FE in them, `getMaxEnergyStored` FE's and the free slots times the capacity | `game/ae2x/appflux/generic.rs` (`appflux_generic_fe_storage`, `appflux_generic_fe_move`), asked by the FE dispatcher's AE2 adapters after the accessor: the interface's storage (`ae2_interface_storage_move`, no forwarding to the grid), the provider's return slots (which take FE and give none back); the provider returns it to the grid, a waiting CPU first |
-| `AFUtil.shouldTryCast`: an `IUpgradeableObject` host (the interface; the provider through `MixinPatternProviderLogicHost`) only with an Induction Card | `generic::induction_card`: the card in the interface's upgrades, or in the provider's own upgrade slot (`appflux_upgrades` in its config, `MixinPatternProviderLogic`'s `upgrades`) |
+| `AFUtil.shouldTryCast`: an `IUpgradeableObject` host (the interface; the provider through `MixinPatternProviderLogicHost`) only with an Induction Card | `generic::induction_card`: the card among the machine's upgrades (the interface's two slots, the provider's one; see the Induction Card below) |
 | `FEContainerItemStrategy` over `Capabilities.EnergyStorage.ITEM`: contained FE, `receiveEnergy` and `extractEnergy` on one item, the changed item to the cursor or the inventory | `generic::container_strategy`, registered with the strategies (`ContainerItemStrategy.register`): the item's FE is AE2's `PoweredItemCapabilities` over its AE (portable cells, wireless terminals, tools, energy cells), which takes FE and gives none |
 
 The world test `keytypes-flux-interface` marks FE in an interface's config slot with a charged energy cell, keeps the
@@ -102,19 +102,39 @@ for a pattern's FE output.
 
 Differences, known:
 
-- The Induction Card itself is not ported (its item, the interface's second upgrade slot, the provider's upgrade slot
-  in its menu, `EnergyTicker`): a world gets it into an interface's or a provider's upgrades by its saved data.
 - An item energy of a native mod (`native_item_energy_buffer`) needs the game, which a container strategy (a
   function of the item) does not see: such items are not FE containers yet.
 
+## The Induction Card
+
+| Applied Flux 1.21-2.1.7 | Port |
+|---|---|
+| `ItemInductionCard` (an `UpgradeCardItem`), its tooltip line `item.appflux.induction_card.tooltip`; the recipe `appflux:induction_card` (shapeless: a Flux Accessor and a Basic Card) | a declared item and the jar's recipe (`content.json`); the tooltip line (`Game::ae2x_item_hover_lines`) |
+| `MixinInterfaceLogic`: every `InterfaceLogic`'s upgrade inventory is `UpgradeInventories.forMachine(is, 2)` | `ae2x::appflux::UPGRADED_MACHINES` through `Defs::set_machine_upgrade_slots` into `ae2_world::machine_upgrade_slots`: AE2's ME Interface (block and part) and ExtendedAE's Extended and Oversize Interfaces (blocks and parts) hold two cards; the second card's menu entry is 25 (42 on a paged window), and the screen's upgrades panel shows both (`ae2_machine_ui::card_entries`) |
+| `MixinPatternProviderLogic`, `MixinPatternProviderLogicHost`, `MixinPatternProviderMenu`, `MixinPatternProviderScreen`: an upgrade inventory of one slot of the provider's own (saved as `upgrades`, dropped with it, cleared with it), in the menu and the screen's upgrades panel | the provider's machine upgrades (AE2's block and part, ExtendedAE's Extended Pattern Provider block and part): saved and dropped as any machine's cards; the menu entry after the three settings (21, or 48 in the wide window) |
+| `AFRegistryHandler`: `Upgrades.add(INDUCTION_CARD, ...)` on AE2's interface and provider, blocks and parts; ExtendedAE's `AFCommonLoad` on its interfaces and providers | `Defs::add_upgrade` on those hosts; AE2's own machines ask the registry for an addon's card (`ae2_machine_ui::max_card`) |
+| `EnergyTicker`, woken while the card is installed (`updateSleep`): while the host's node is active, `EnergyHandler.send` on each side of `AFUtil.getSides` (a block's six, a part's own) at the pace of that side's `EnergyTickRecord`, at most `flux_accessor.io_limit`; what the block refuses goes back | `game/ae2x/appflux/induction.rs` `tick_appflux_induction`, after the accessors in the addons' tick, through the accessor's `appflux_send` and `TickRecord` |
+
+Differences, known:
+
+- The saved card is the port's machine record (`ae2_lab_upgrades` of a block, `upgrades` of a part's record), as every
+  machine's cards; Applied Flux writes the provider's into its `upgrades` tag.
+- A side without an FE block is asked again at its record's pace; `EnergyTicker`'s `blocked` sides wait for a
+  capability invalidation.
+- The memory card exports and restores an interface's first card slot only.
+- MEGA Cells' interface and provider keep their own upgrade inventories: no card is registered for them (Applied
+  Flux would give them its slots, which take nothing there).
+- The card on a portable FE cell (`ItemPortableFECell.inventoryTick`: charging the energy items in the player's
+  inventory, `registerPortableCellUpgrades`) is not ported: the portable cells do not take it.
+
+Tests: `horizon-client-lib` (`ae2x::appflux`: the card's hosts and slots), `horizon-client`
+(`game::ae2x::appflux::{generic, induction}`, `ae2_machine_ui`: the card entries), the world test
+`appflux-induction-card` (an interface part without the card gives no FE; with it in its second slot it charges
+another grid's Energy Acceptor from the grid's FE cell, stops when the card comes out, and keeps the card in its first
+slot through a restart), and `keytypes-flux-interface` (the card put into a Pattern Provider through its menu).
+
 ## Later slices
 
-- The Induction Card (`ItemInductionCard`; `registerPortableCellUpgrades`, `Upgrades.add` on the Interface and
-  the Pattern Provider, block and part). On an Interface (`MixinInterfaceLogic`: its upgrade inventory grows to two
-  slots) or a Pattern Provider (`MixinPatternProviderLogic`: an upgrade inventory of its own, with its menu and
-  screen mixins) it wakes an `EnergyTicker`, a grid FE distributor like the accessor's, which pushes the grid's FE
-  into the blocks on the host's sides (`AFUtil.getSides`). On a portable FE cell it charges the energy items in the
-  player's inventory from the cell each tick (`inventoryTick`). The FE storage over the host's generic slots it opens
-  (`FEGenericStackInvStorage`) is there already.
+- The Induction Card on a portable FE cell (`inventoryTick`).
 - The accessor's menu and memory-card settings; the portable FE cell's menu.
 - MI EU, Mekanism's long FE, the accessor charging its grid.

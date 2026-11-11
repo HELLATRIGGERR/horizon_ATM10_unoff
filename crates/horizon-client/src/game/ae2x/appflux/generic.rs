@@ -17,19 +17,15 @@ use horizon_core::geometry::Direction;
 use horizon_world::nbt::Tag;
 
 /// `AFSingletons.INDUCTION_CARD`.
-pub(in crate::game) const INDUCTION_CARD: &str = "appflux:induction_card";
-/// Where the Pattern Provider keeps the upgrade inventory Applied Flux gives
-/// it (`MixinPatternProviderLogic`, one slot, saved as its `upgrades`).
-const PROVIDER_UPGRADES: &str = "appflux_upgrades";
+pub(in crate::game) const INDUCTION_CARD: &str = rows::INDUCTION_CARD;
 
 /// `AFUtil.shouldTryCast`: an interface or a pattern provider (block or part,
 /// each an `IUpgradeableObject` with Applied Flux) gives FE only with an
-/// Induction Card installed: AE2's own upgrades of an interface, the
-/// provider's Applied Flux inventory.
+/// Induction Card installed (`isUpgradedWith`): in the interface's two
+/// upgrade slots, or the provider's one (`MixinPatternProviderLogic`'s
+/// inventory, the machine's upgrades here).
 pub(in crate::game) fn induction_card(machine: &Machine) -> bool {
-    machine.upgrades.iter().flatten().any(|card| card.item.as_ref() == INDUCTION_CARD)
-        || matches!(machine.config.get(&PROVIDER_UPGRADES.into()), Some(Tag::List(cards))
-            if cards.iter().any(|card| card.get("id") == Some(&Tag::String(INDUCTION_CARD.into()))))
+    machine.upgrades.iter().flatten().any(|card| card.item.as_ref() == INDUCTION_CARD && card.count == 1)
 }
 /// The FE key as the fluid lane names it.
 fn fe_marker() -> ItemKey {
@@ -165,16 +161,19 @@ mod tests {
     #[test]
     fn the_induction_card_opens_an_interface_or_a_provider() {
         use horizon_client::ae2_world::MachineKind;
+        horizon_client::ae2x::install();
         let mut interface = Machine::new(MachineKind::Interface);
         assert!(!induction_card(&interface));
         interface.upgrades[0] = Some(ItemStack::new(INDUCTION_CARD, 1));
         assert!(induction_card(&interface));
+        interface.upgrades[0] = Some(ItemStack::new("ae2:fuzzy_card", 1));
+        assert!(!induction_card(&interface));
+        // Applied Flux's second slot of the interface.
+        interface.upgrades[1] = Some(ItemStack::new(INDUCTION_CARD, 1));
+        assert!(induction_card(&interface));
         let mut provider = Machine::new(MachineKind::PatternProvider);
         assert!(!induction_card(&provider));
-        provider.config.insert(
-            PROVIDER_UPGRADES.into(),
-            Tag::List(vec![Tag::compound([("Slot", Tag::Byte(0)), ("id", Tag::String(INDUCTION_CARD.into())), ("count", Tag::Int(1))])]),
-        );
+        provider.upgrades[0] = Some(ItemStack::new(INDUCTION_CARD, 1));
         assert!(induction_card(&provider));
     }
 

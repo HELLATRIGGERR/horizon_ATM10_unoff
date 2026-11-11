@@ -30,10 +30,15 @@ mod interface_memory {
     }
 
     fn validate_upgrade(machine: &Machine) -> Result<(), String> {
-        if machine.kind != MachineKind::Interface || machine.upgrades.len() != 1 {
+        // AE2's one slot, or the two an addon gives it (Applied Flux); the
+        // card exported and restored is the first slot's.
+        if machine.kind != MachineKind::Interface || machine.upgrades.is_empty() {
             return Err("invalid Interface upgrade inventory".into());
         }
-        if machine.upgrades.iter().flatten().any(|s| s.count != 1 || !matches!(s.item.as_ref(), "ae2:crafting_card" | "ae2:fuzzy_card")) {
+        if machine.upgrades[0].iter().any(|s| s.count != 1 || !matches!(s.item.as_ref(), "ae2:crafting_card" | "ae2:fuzzy_card")) {
+            return Err("invalid Interface upgrade".into());
+        }
+        if machine.upgrades.iter().enumerate().skip(1).any(|(slot, s)| s.as_ref().is_some_and(|s| !super::super::ae2_machine_ui::machine_upgrade_allowed(machine, slot, s))) {
             return Err("invalid Interface upgrade".into());
         }
         Ok(())

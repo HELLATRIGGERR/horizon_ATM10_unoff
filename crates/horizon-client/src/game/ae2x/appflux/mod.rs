@@ -13,6 +13,7 @@
 //! so the calls are narrow.
 pub(in crate::game) mod accessor;
 pub(in crate::game) mod generic;
+pub(in crate::game) mod induction;
 
 use super::super::{Game, ae2_global::GridAddress, ae2_key_strategies as strategies};
 use ae2_cell_core::{Action, ItemKey, KeyType};
@@ -23,6 +24,7 @@ use horizon_core::geometry::Direction;
 #[derive(Default)]
 pub(in crate::game) struct State {
     pub(in crate::game) accessors: accessor::State,
+    pub(in crate::game) induction: induction::State,
 }
 
 /// `FECellInventory` in a drive, chest or IO Port.

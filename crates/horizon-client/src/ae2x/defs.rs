@@ -162,6 +162,8 @@ pub struct Defs {
     variants: Vec<MachineVariant>,
     crafting_units: Vec<CraftingUnit>,
     energy_cells: Vec<EnergyCell>,
+    /// Upgrade inventories an addon gives other mods' machines, by id.
+    machine_upgrade_slots: Vec<(&'static str, usize)>,
     energy_cards: HashMap<String, u32>,
     parts: HashMap<String, PartDef>,
     /// The portable cells in the order they were added.
@@ -317,6 +319,13 @@ impl Defs {
     /// The size of an item's upgrade inventory (`IUpgradeableItem.getUpgrades`).
     pub fn set_upgrade_slots(&mut self, host: &str, slots: usize) {
         self.upgrade_slots.insert(host.to_owned(), slots);
+    }
+    /// An upgrade inventory of `slots` an addon gives machine `id`, block or
+    /// part (`Machine::id`), in place of its own (Applied Flux's mixins on
+    /// AE2's interface and pattern provider logic).
+    pub fn set_machine_upgrade_slots(&mut self, id: &'static str, slots: usize) {
+        self.machine_upgrade_slots.retain(|(machine, _)| *machine != id);
+        self.machine_upgrade_slots.push((id, slots));
     }
     /// `Upgrades.add(card, host, max)`: `host` takes up to `max` of `card`.
     pub fn add_upgrade(&mut self, card: &str, host: &str, max: usize) {
@@ -586,6 +595,7 @@ pub fn get() -> &'static Defs {
         crate::ae2_world::install_machine_variants(defs.variants.clone());
         crate::ae2_world::install_crafting_units(defs.crafting_units.clone());
         crate::ae2_world::install_energy_cells(defs.energy_cells.clone());
+        crate::ae2_world::install_machine_upgrade_slots(defs.machine_upgrade_slots.clone());
         defs
     });
     &DEFS

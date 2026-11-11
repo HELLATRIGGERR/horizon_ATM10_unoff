@@ -700,6 +700,24 @@ pub(super) struct Ae2Screen {
     slots: Vec<Option<[f32; 2]>>,
     /// The machine's block, whose guide page the help button opens.
     block: String,
+    /// The menu entries of its upgrade cards: the layout's, or as many as the
+    /// machine has where an addon gives it more ([`upgrade_entries`]).
+    upgrades: Vec<usize>,
+}
+
+/// The entries of the upgrade cards on `block`'s screen: the layout's, unless
+/// an addon gives the machine more cards than it shows (Applied Flux's second
+/// card of an Interface, its card of a Pattern Provider); then where the
+/// menu puts them ([`super::ae2_machine_ui::card_entries`]).
+fn upgrade_entries(layout: &Layout, block: &str) -> Vec<usize> {
+    let own: Vec<usize> = layout.upgrades.clone().collect();
+    let Some(machine) = Machine::for_block(block) else { return own };
+    if machine.upgrades.len() <= own.len() {
+        return own;
+    }
+    let shape = super::ae2_machine_ui::MenuShape::of(&machine);
+    let entries = super::ae2_machine_ui::card_entries(machine.kind, shape, machine.upgrades.len());
+    if entries.len() > own.len() { entries } else { own }
 }
 
 /// A button the screen shows: the help button (no toggle) or a toggle,
@@ -1138,7 +1156,8 @@ impl Game<'_> {
             }
         };
         addon_style_slots(block, &mut style);
-        let mut screen = Ae2Screen { layout, style, slots: Vec::new(), block: block.to_owned() };
+        let upgrades = upgrade_entries(layout, block);
+        let mut screen = Ae2Screen { layout, style, slots: Vec::new(), block: block.to_owned(), upgrades };
         let (w, h) = screen.size();
         let mut slots = vec![None; if wide { 54 } else { 27 }];
         let mut nth = std::collections::HashMap::<&str, usize>::new();
@@ -1152,7 +1171,7 @@ impl Game<'_> {
         // `UpgradesPanel.updateBeforeRender`: one column of slots down the
         // panel, a pixel in from its left edge (up to 8 a column).
         let (px, py) = screen.panel();
-        for (i, entry) in layout.upgrades.clone().enumerate() {
+        for (i, entry) in screen.upgrades.clone().into_iter().enumerate() {
             let (col, row) = (i as i32 / 8, i as i32 % 8);
             slots[entry] = Some([(px + 1 + col * PANEL_SLOT) as f32, (py + PANEL_PADDING + 1 + row * PANEL_SLOT) as f32]);
         }
@@ -1326,7 +1345,7 @@ impl Game<'_> {
         if let (Some(first), Some(last)) = (toolbar.first(), toolbar.last()) {
             self.ae2_draw_toolbar(batch, ox, oy, first.rect, last.rect);
         }
-        let upgrades = layout.upgrades.len() as i32;
+        let upgrades = screen.upgrades.len() as i32;
         if upgrades > 0 {
             self.ae2_draw_upgrades(batch, ox, oy, screen.panel(), self.ae2_workbench_upgrades().map_or(upgrades, |n| n as i32));
         }
@@ -1347,8 +1366,8 @@ impl Game<'_> {
             }
         }
         // Empty slots' icons (`AEBaseScreen.drawSlotIcons`).
-        let shown_upgrades = self.ae2_workbench_upgrades().unwrap_or(layout.upgrades.len());
-        let upgrade_icons = layout.upgrades.clone().take(shown_upgrades).map(|e| (e, icon::BACKGROUND_UPGRADE));
+        let shown_upgrades = self.ae2_workbench_upgrades().unwrap_or(screen.upgrades.len());
+        let upgrade_icons = screen.upgrades.iter().copied().take(shown_upgrades).map(|e| (e, icon::BACKGROUND_UPGRADE));
         for (entry, place) in layout.icons.iter().copied().chain(upgrade_icons) {
             if let Some([x, y]) = screen.slots.get(entry).copied().flatten()
                 && self.container_kind().is_none_or(|e| e.slots().get(entry).is_none_or(Option::is_none))

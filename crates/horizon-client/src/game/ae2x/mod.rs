@@ -748,6 +748,12 @@ impl Game<'_> {
                 return lines;
             }
         }
+        // ItemInductionCard.appendHoverText.
+        #[cfg(feature = "ae2-appflux")]
+        if stack.item.as_ref() == horizon_client::ae2x::appflux::INDUCTION_CARD {
+            let line = translate("item.appflux.induction_card.tooltip").unwrap_or_else(|| "Allow AE devices to accept or send energy".to_owned());
+            return vec![horizon_client::text::Text::literal(line).with_color(horizon_client::text::GRAY)];
+        }
         let _ = (stack, translate, name);
         Vec::new()
     }
@@ -896,11 +902,14 @@ impl Game<'_> {
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
         self.tick_iecard();
-        // EnergyDistributeService.onLevelEndTick: the Flux Accessors push FE.
+        // EnergyDistributeService.onLevelEndTick: the Flux Accessors push FE,
+        // then the interfaces and providers with an Induction Card.
         #[cfg(feature = "ae2-appflux")]
         self.tick_appflux_accessors();
         #[cfg(feature = "ae2-enderdrives")]
         self.tick_enderdrives();
+        #[cfg(feature = "ae2-appflux")]
+        self.tick_appflux_induction();
     }
 
     /// An addon machine on the grid: its node's kind, idle draw, channel

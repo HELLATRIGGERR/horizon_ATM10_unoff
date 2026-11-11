@@ -6808,6 +6808,7 @@ impl Game<'_> {
                 return super::ae2_machine_ui::paged_interface_items(&machine,shape);
             }
             super::ae2x::machine_menu_items(&machine,&mut items);
+            super::ae2_machine_ui::place_cards(&machine,shape,&mut items);
             if machine.kind == horizon_client::ae2_world::MachineKind::Inscriber {
                 let value=|key:&str,default:&str|match machine.config.get(&key.into()) {Some(Tag::String(s))=>s.to_string().unwrap_or_else(|_|default.to_owned()),_=>default.to_owned()};
                 items[24]=Some(navigation(&format!("Auto export: {}; click to change",value("auto_export","NO"))));
@@ -7307,15 +7308,23 @@ impl Game<'_> {
             self.lan_send_ae2_machine(host, conn);
             return true;
         }
-        let is_interface = if let Some(part) = part {
-            self.ae2_part_machine(part)
-                .ok()
-                .flatten()
-                .is_some_and(|m| m.kind == horizon_client::ae2_world::MachineKind::Interface)
+        let clicked = if let Some(part) = part {
+            self.ae2_part_machine(part).ok().flatten()
         } else {
-            matches!(self.world.block_entities.get(&pos),Some(horizon_client::containers::BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::Interface)
+            match self.world.block_entities.get(&pos) {
+                Some(horizon_client::containers::BlockEntity::Ae2(m)) => Some((**m).clone()),
+                _ => None,
+            }
         };
-        let slot = shape.internal(window_slot, is_interface);
+        let is_interface = clicked.as_ref().is_some_and(|m| m.kind == horizon_client::ae2_world::MachineKind::Interface);
+        // A card's entry: the machine's upgrade slot after its physical ones.
+        let card = clicked.as_ref().and_then(|m| super::ae2_machine_ui::card_at(m, shape, window_slot));
+        let slot = match card {
+            Some(card) => Some(300 + shape.slots + card),
+            // An Interface's config entries are ghosts, never its cards.
+            None if is_interface && u8::try_from(window_slot).is_ok_and(|entry| shape.config_entries().contains(&entry)) => None,
+            None => shape.internal(window_slot, is_interface),
+        };
         let raw_input=super::lan_crafting::input(p.input);
         let input=if paged_ghost && raw_input==Input::QuickMove {Input::Pickup}else{raw_input};
         let button = if paged_ghost && matches!(p.button,2|3) {0} else {i32::from(p.button)};

@@ -30,8 +30,8 @@ pub(in crate::game) struct State {
 }
 
 /// AE2's part faces: east, west, up, down, south, north.
-const DIRECTIONS: [Direction; 6] = [Direction::East, Direction::West, Direction::Up, Direction::Down, Direction::South, Direction::North];
-fn face_of(direction: Direction) -> u8 {
+pub(super) const DIRECTIONS: [Direction; 6] = [Direction::East, Direction::West, Direction::Up, Direction::Down, Direction::South, Direction::North];
+pub(super) fn face_of(direction: Direction) -> u8 {
     DIRECTIONS.iter().position(|d| *d == direction).unwrap_or(0) as u8
 }
 fn offset(direction: Direction) -> [i32; 3] {
@@ -156,7 +156,7 @@ impl Game<'_> {
     /// beside `pos` on side `side` would take, at most the accessor's IO limit,
     /// drawn from the grid and given; what it refuses after all goes back.
     /// None when no FE block is there (-1).
-    fn appflux_send(&mut self, address: GridAddress, pos: (i32, i32, i32), side: Direction) -> Option<u64> {
+    pub(super) fn appflux_send(&mut self, address: GridAddress, pos: (i32, i32, i32), side: Direction) -> Option<u64> {
         let [dx, dy, dz] = offset(side);
         let target = [pos.0 + dx, pos.1 + dy, pos.2 + dz];
         let face = Some(opposite(side));

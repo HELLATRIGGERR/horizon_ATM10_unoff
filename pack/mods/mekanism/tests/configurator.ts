@@ -90,9 +90,12 @@ try {
   await until(() => is(machine, 'mekanism:enrichment_chamber[facing=north]'), ok => ok, 'a plain use: clockwise, west to north');
   fixture.mark('rotate: a sneaking use faces the machine away from the side used, a plain one turns it clockwise');
 
-  // Empty: a sneaking use takes the machine's items out.
+  // Empty: a sneaking use takes the machine's items out. They pop out of its east side with the default pickup
+  // delay of 10 ticks, and `interact` waits up to 20 for a menu while the click changed nothing it sees: from two
+  // blocks east the player would have picked them up by its reply, so it uses the machine from four.
   await fixture.command(`data merge block ${machine} {Items:[{Slot:0b,id:"minecraft:iron_ore",count:5}]}`);
   await mode('empty');
+  await fixture.command(`tp @s ${x + 4.5} ${y} ${z + 0.5}`);
   await fixture.sneakInteract(`${machine} east`);
   await until(() => data(machine, 'Items'), line => !line.includes('iron_ore'), 'the machine emptied');
   const dropped = await until(async () => (await fixture.command(`execute if entity @e[type=minecraft:item,x=${x - 2},y=${y - 2},z=${z - 2},dx=6,dy=4,dz=4]`)).chat?.join(' ') ?? '', line => /passed/i.test(line), 'its items in the world');

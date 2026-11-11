@@ -23,6 +23,8 @@ ae2-lab = []
 ae2-ae2wtlib = ["ae2-lab"]
 # ME Requester's wireless terminal key, with AE2WTLib (ae2/addons/merequester).
 ae2-merequester = ["ae2-lab"]
+# Advanced AE's Advanced Pattern Encoder key (ae2/addons/advancedae).
+ae2-advancedae = ["ae2-lab"]
 controllers = ["dep:horizon-dualsense"]
 
 [lints]

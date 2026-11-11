@@ -453,6 +453,7 @@ impl Game<'_> {
         };
         if machine.kind != MachineKind::PatternProvider
             || machine.config.get(&"ae2_provider_injecting".into()) == Some(&Tag::Byte(1))
+            || !crate::game::ae2x::provider_return_accepts_item(&machine, stack)
         {
             return 0;
         }
@@ -593,7 +594,9 @@ impl Game<'_> {
         if machine.config.get(&"ae2_provider_injecting".into()) == Some(&Tag::Byte(1)) {
             return Some(0);
         }
-        if !super::super::ae2_fluids::valid_fluid_id(&key.item_id) {
+        if !super::super::ae2_fluids::valid_fluid_id(&key.item_id)
+            || !crate::game::ae2x::provider_return_accepts(&machine, key, ae2_cell_core::KeyType::FLUIDS)
+        {
             return Some(0);
         }
         let mut occupied = [false; 9];

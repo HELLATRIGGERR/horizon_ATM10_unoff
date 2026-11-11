@@ -123,6 +123,41 @@ pub(super) fn provider_input_directions(
         None
     }
 }
+/// Whether an addon provider's return slots take `key` (Advanced AE's
+/// `FILTERED_IMPORT`: only what the provider's patterns make). True for
+/// AE2's provider.
+pub(super) fn provider_return_accepts(provider: &Machine, key: &ae2_cell_core::ItemKey, key_type: ae2_cell_core::KeyType) -> bool {
+    #[cfg(feature = "ae2-advancedae")]
+    if !advancedae::return_accepts(provider, key, key_type) {
+        return false;
+    }
+    let _ = (provider, key, key_type);
+    true
+}
+/// [`provider_return_accepts`] for an item stack.
+pub(super) fn provider_return_accepts_item(provider: &Machine, stack: &horizon_client::items::ItemStack) -> bool {
+    horizon_client::ae2_cell_codec::key(stack).map_or(true, |key| provider_return_accepts(provider, &key, ae2_cell_core::KeyType::ITEMS))
+}
+/// The processing pattern AE2's encoding terminal made, `encoded`, while
+/// its encoded-pattern slot held `previous`: an addon's own pattern in its
+/// place (Advanced AE's `MixinPatternEncodingTermMenu`), else `encoded`.
+pub(super) fn reencoded_processing(previous: Option<&horizon_client::items::ItemStack>, encoded: horizon_client::items::ItemStack) -> horizon_client::items::ItemStack {
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(pattern) = previous.and_then(|previous| advancedae::reencoded(previous, &encoded)) {
+        return pattern;
+    }
+    let _ = previous;
+    encoded
+}
+/// The key mapping of addon hotkey `id`: AE2's `Hotkeys` name an addon's
+/// `key.ae2.<id>`; an id `<namespace>:<name>` is its addon's own mapping,
+/// `key.<namespace>.<name>` (Advanced AE's).
+pub(super) fn hotkey_mapping(id: &str) -> String {
+    match id.split_once(':') {
+        Some((namespace, name)) => format!("key.{namespace}.{name}"),
+        None => format!("key.ae2.{id}"),
+    }
+}
 
 /// The encoding terminal's machine an item keeps (AE2WTLib's Wireless
 /// Pattern Encoding Terminal, by itself or as the universal terminal's
@@ -477,6 +512,8 @@ pub(super) struct State {
     pub(super) appflux: appflux::State,
     #[cfg(feature = "ae2-enderdrives")]
     pub(super) enderdrives: enderdrives::State,
+    #[cfg(feature = "ae2-advancedae")]
+    pub(super) advancedae: advancedae::State,
 }
 
 /// What an addon's own storage was when AE2's blocks were snapshot
@@ -694,6 +731,11 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-enderdrives")]
         if let Some(lines) = self.enderdrives_hover_lines(stack, translate) {
+            return lines;
+        }
+        // MixinEncodedPatternItem: an Advanced Processing Pattern's own lines.
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(lines) = self.advancedae_tooltip(stack, translate, &|item| name(item).plain()) {
             return lines;
         }
         #[cfg(feature = "ae2-megacells")]
@@ -993,6 +1035,10 @@ impl Game<'_> {
         if self.lan_open_void_cell(host, conn, hand) || self.lan_open_extendedae_tool(host, conn, hand) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.lan_open_advancedae_encoder_hand(host, conn, hand) {
+            return true;
+        }
         // ItemWirelessConnectTool.use, sneaking.
         #[cfg(feature = "ae2-extendedae")]
         if self.as_guest(host, conn, |g| g.with_hand(if hand == 1 { super::Hand::Off } else { super::Hand::Main }, |g| g.extendedae_wireless_tool_clear())).unwrap_or(false) {
@@ -1006,6 +1052,10 @@ impl Game<'_> {
         let _ = (&host, conn, window, id);
         #[cfg(feature = "ae2-extendedae")]
         if self.lan_void_cell_button(host, conn, window, id) || self.lan_matrix_button(host, conn, window, id) || self.lan_extendedae_tool_button(host, conn, window, id) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.lan_advancedae_encoder_button(host, conn, window, id) {
             return true;
         }
         false
@@ -1030,6 +1080,10 @@ impl Game<'_> {
         if self.lan_matrix_click(host, conn, click) || self.lan_extendedae_tool_click(host, conn, click) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.lan_advancedae_encoder_click(host, conn, click) {
+            return true;
+        }
         false
     }
     /// The client closed window `window`: true when it was an addon's.
@@ -1049,6 +1103,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-extendedae")]
         if self.lan_void_cell_closed(host, conn, Some(window)) || self.lan_matrix_closed(host, conn, Some(window)) || self.lan_extendedae_tool_closed(host, conn, Some(window)) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.lan_advancedae_encoder_closed(host, conn, Some(window)) {
             return true;
         }
         false
@@ -1180,6 +1238,8 @@ impl Game<'_> {
                     .filter(|t| t.installed.is_some() && matches!(t.kind, horizon_client::ae2x::defs::TerminalKind::Addon(_)))
                     .map(|t| t.hotkey.as_str()),
             );
+            #[cfg(feature = "ae2-advancedae")]
+            hotkeys.push(advancedae::encoder::HOTKEY);
             hotkeys
         });
         &HOTKEYS
@@ -1190,6 +1250,20 @@ impl Game<'_> {
         let _ = (&host, conn, id);
         #[cfg(feature = "ae2-ae2wtlib")]
         if self.lan_ae2wtlib_hotkey(host, conn, id) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if id == advancedae::encoder::HOTKEY && self.lan_advancedae_hotkey(host, conn) {
+            return true;
+        }
+        false
+    }
+    /// An addon hotkey `input` while its screen is open (Advanced AE's
+    /// `isCloseHotkey`): true when it closed the screen.
+    pub(super) fn ae2x_screen_hotkey(&mut self, input: &str) -> bool {
+        let _ = input;
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_encoder_hotkey(input) {
             return true;
         }
         false
@@ -1256,6 +1330,8 @@ impl Game<'_> {
         self.lan_refresh_matrix_menus(host);
         #[cfg(feature = "ae2-extendedae")]
         self.lan_refresh_extendedae_tools(host);
+        #[cfg(feature = "ae2-advancedae")]
+        self.lan_refresh_advancedae_encoders(host);
     }
 
     /// `/ae2 <addon> ...`: none when no addon has the command.
@@ -1323,6 +1399,10 @@ impl Game<'_> {
         if (300..354).contains(&slot) && self.extendedae_machine_click(pos, slot - 300, button, input) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_machine_click(pos, slot, button, input) {
+            return true;
+        }
         false
     }
 
@@ -1349,6 +1429,11 @@ impl Game<'_> {
         if self.merequester_payload(channel, data) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if channel == advancedae::encoder::ENCODER_WINDOW {
+            self.advancedae_encoder_window_payload(data);
+            return true;
+        }
         #[cfg(feature = "ae2-ae2wtlib")]
         match channel {
             ae2wtlib::restock::RESTOCK_AMOUNTS => {
@@ -1373,6 +1458,10 @@ impl Game<'_> {
         if let Some(size) = self.ae2wtlib_trash_size() {
             return Some(size);
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(size) = self.advancedae_encoder_size() {
+            return Some(size);
+        }
         None
     }
     /// The slots the open addon screen shows.
@@ -1383,6 +1472,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-ae2wtlib")]
         if let Some(slots) = self.ae2wtlib_trash_slots() {
+            return Some(slots);
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(slots) = self.advancedae_encoder_slots() {
             return Some(slots);
         }
         None
@@ -1398,6 +1491,10 @@ impl Game<'_> {
         if let Some(at) = self.ae2wtlib_trash_slot_position(i) {
             return Some(at);
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(at) = self.advancedae_encoder_slot_position(i) {
+            return Some(at);
+        }
         None
     }
     /// Draws the open addon screen's background and widgets: true then.
@@ -1409,6 +1506,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-ae2wtlib")]
         if self.ae2wtlib_draw_trash(batch, ox, oy) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_draw_encoder(batch, ox, oy) {
             return true;
         }
         false
@@ -1425,12 +1526,20 @@ impl Game<'_> {
         if !right && self.ae2wtlib_trash_press(at) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_encoder_press(at, right) {
+            return true;
+        }
         false
     }
     pub(super) fn ae2x_scroll(&mut self, delta: f32) -> bool {
         let _ = delta;
         #[cfg(feature = "ae2-merequester")]
         if self.merequester_scroll(delta) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_encoder_scroll(delta) {
             return true;
         }
         false
@@ -1459,6 +1568,10 @@ impl Game<'_> {
         if self.ae2wtlib_trash_tooltip(batch) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_encoder_tooltip(batch) {
+            return true;
+        }
         false
     }
     /// The open addon screen for the control socket's `screen` reply.
@@ -1469,6 +1582,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-ae2wtlib")]
         if let Some(value) = self.ae2wtlib_trash_agent() {
+            return Some(value);
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(value) = self.advancedae_encoder_agent() {
             return Some(value);
         }
         None

@@ -998,6 +998,7 @@ impl Game<'_> {
                     self.res.recipes().find(&state.inputs[..9],3).and_then(|(recipe,out)|super::ae2_processing::ae2_encode_pattern_source(&state.inputs[..9],&out,recipe,state.substitutes,state.fluid_substitutes).ok())
                 };
                 if let Some(pattern)=pattern {
+                    let pattern=if state.processing {super::ae2x::reencoded_processing(machine.slots[1].as_ref(),pattern)} else {pattern};
                     let eligible=machine.slots[1].as_ref().is_some_and(|item|item.item.as_ref()=="ae2:blank_pattern" || super::ae2_encoding::EncodingState::from_pattern(item).is_some());
                     let empty=machine.slots[1].is_none();let blank=machine.slots[0].as_ref().is_some_and(|item|item.item.as_ref()=="ae2:blank_pattern" && item.count>0);
                     if eligible || empty && blank {
@@ -4848,6 +4849,8 @@ impl Game<'_> {
                 };
                 if let (Some(pattern),Some(part))=(pattern,encoding_part.as_ref()) {
                     if let Ok(mut machine)=self.lan_encoding_machine(host,conn,part) {
+                        // An addon's processing pattern in the encoded slot stays one (Advanced AE's MixinPatternEncodingTermMenu).
+                        let pattern=if processing {super::ae2x::reencoded_processing(machine.slots.get(1).and_then(Option::as_ref),pattern)} else {pattern};
                         let eligible=machine.slots.get(1).and_then(Option::as_ref).is_some_and(|item|
                             item.item.as_ref()=="ae2:blank_pattern" || super::ae2_encoding::EncodingState::from_pattern(item).is_some());
                         let empty=machine.slots.get(1).is_some_and(Option::is_none);
@@ -5495,6 +5498,8 @@ impl Game<'_> {
             }
         } else if input == Input::Swap && ((0..=8).contains(&button) || button==40) {
             let source=if button==40 {self.offhand.clone()}else{self.inventory[button as usize].clone()};
+            // An addon provider's filter (Advanced AE's Filtered Import) holds for the menu's slots too.
+            if source.as_ref().is_some_and(|item|!super::ae2x::provider_return_accepts_item(&machine,item)) {return;}
             let target=match &slots[index] {None=>None,Some(ProviderReturnSlot::Item(item)) if item.count<=self.provider_return_item_limit(item)=>Some(item.clone()),_=>return};
             if source.as_ref().is_some_and(|item|item.count==0 || item.count>self.provider_return_item_limit(item) || item.item.as_ref()=="ae2:wrapped_generic_stack") {return;}
             slots[index]=source.map(ProviderReturnSlot::Item);
@@ -5517,7 +5522,8 @@ impl Game<'_> {
             } else {
                 let current=match slots[index].take() {Some(ProviderReturnSlot::Item(item))=>Some(item),None=>None,_=>unreachable!()};
                 let held=self.carried.take();
-                if current.as_ref().is_some_and(|item|item.count>self.provider_return_item_limit(item)) || held.as_ref().is_some_and(|item|item.item.as_ref()=="ae2:wrapped_generic_stack") {
+                if current.as_ref().is_some_and(|item|item.count>self.provider_return_item_limit(item)) || held.as_ref().is_some_and(|item|item.item.as_ref()=="ae2:wrapped_generic_stack")
+                    || held.as_ref().is_some_and(|item|!super::ae2x::provider_return_accepts_item(&machine,item)) {
                     slots[index]=current.map(ProviderReturnSlot::Item);self.carried=held;return;
                 }
                 let (next,cursor)=match (held,current,button) {
@@ -5543,6 +5549,7 @@ impl Game<'_> {
         let Some(mut source)=self.inventory.get(player_slot).cloned().flatten() else{return;};
         if source.item.as_ref()=="ae2:wrapped_generic_stack" {return;}
         let Some(mut machine)=self.provider_menu_machine(pos,part) else{return;};
+        if !super::ae2x::provider_return_accepts_item(&machine,&source) {return;}
         let Ok(mut slots)=provider_return_slots(&machine) else{return;};
         let before=source.count;
         let max=self.res.items().stack_max(&source);

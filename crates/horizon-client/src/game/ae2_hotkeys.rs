@@ -68,7 +68,7 @@ impl Game<'_> {
     fn ae2_hotkey_input(&mut self, input: &str, down: bool, repeat: bool) {
         if !down || repeat || self.screen != Screen::Playing { return; }
         // The addons' hotkeys, by id: the server finds what answers them.
-        let addons: Vec<&str> = Self::ae2x_hotkeys().iter().copied().filter(|id| self.settings.keys.get(&format!("key.ae2.{id}")) == input).collect();
+        let addons: Vec<&str> = Self::ae2x_hotkeys().iter().copied().filter(|id| self.settings.keys.get(&super::ae2x::hotkey_mapping(id)) == input).collect();
         if self.remote.is_some() {
             for id in addons {
                 self.send(Serverbound::CustomPayload(CustomPayload {channel: CHANNEL.into(), data: id.as_bytes().to_vec()}));
@@ -85,8 +85,14 @@ impl Game<'_> {
             }
         }
     }
-    pub(super) fn ae2_hotkey_key(&mut self, key: KeyCode, down: bool, repeat: bool) {
-        if let Some(name) = horizon_client::keybinds::key_name(key) { self.ae2_hotkey_input(name, down, repeat); }
+    /// True when an open addon screen took the key (Advanced AE's encoder
+    /// closing on its hotkey, `isCloseHotkey`: a key, not a mouse button);
+    /// no other key handling sees it then.
+    pub(super) fn ae2_hotkey_key(&mut self, key: KeyCode, down: bool, repeat: bool) -> bool {
+        let Some(name) = horizon_client::keybinds::key_name(key) else { return false };
+        if down && !repeat && self.screen == Screen::Inventory && self.ae2x_screen_hotkey(name) { return true; }
+        self.ae2_hotkey_input(name, down, repeat);
+        false
     }
     pub(super) fn ae2_hotkey_mouse(&mut self, button: MouseButton, down: bool) {
         self.ae2_hotkey_input(&horizon_client::keybinds::mouse_name(button), down, false);

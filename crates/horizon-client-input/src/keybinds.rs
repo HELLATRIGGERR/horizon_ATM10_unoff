@@ -94,6 +94,10 @@ pub const MAPPINGS: &[(&str, &str, &str)] = &[
     // ME Requester's wireless terminal (with AE2WTLib).
     #[cfg(all(feature = "ae2-ae2wtlib", feature = "ae2-merequester"))]
     ("key.ae2.wireless_requester_terminal", "key.keyboard.unknown", "ae2"),
+    // Advanced AE's Advanced Pattern Encoder (`PATTERN_ENCODER_HOTKEY`), in
+    // the mod's own category, `key.advanced_ae.category`.
+    #[cfg(feature = "ae2-advancedae")]
+    ("key.advanced_ae.pattern_encoder_action", "key.keyboard.unknown", "advanced_ae"),
 ];
 /// Horizon's own key mappings: bound in Controls like the vanilla ones, but kept in
 /// `horizon-extras.txt` (`emoteKey`), never in `options.txt`, which stays exactly vanilla's
@@ -110,8 +114,9 @@ pub fn all_mappings() -> impl Iterator<Item = &'static (&'static str, &'static s
 pub fn is_toggle(name: &str) -> bool {
     matches!(name, "key.sneak" | "key.sprint" | "key.use" | "key.attack")
 }
-/// KeyMapping.Category sort order.
-pub const CATEGORIES: [&str; 8 + (cfg!(feature = "ae2-lab") as usize)] = [
+/// KeyMapping.Category sort order; a mod's own category after vanilla's,
+/// titled `key.<category>.category`.
+pub const CATEGORIES: [&str; 8 + (cfg!(feature = "ae2-lab") as usize) + (cfg!(feature = "ae2-advancedae") as usize)] = [
     "movement",
     "misc",
     "multiplayer",
@@ -122,6 +127,8 @@ pub const CATEGORIES: [&str; 8 + (cfg!(feature = "ae2-lab") as usize)] = [
     "debug",
     #[cfg(feature = "ae2-lab")]
     "ae2",
+    #[cfg(feature = "ae2-advancedae")]
+    "advanced_ae",
 ];
 
 /// InputConstants key names <-> winit physical keys.

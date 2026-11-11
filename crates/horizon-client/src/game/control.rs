@@ -797,12 +797,21 @@ impl Game<'_> {
                     return ok();
                 }
                 self.native_key_event(physical, action != "up", action == "repeat");
+                // An addon screen's close hotkey goes no further, as the window's.
                 #[cfg(feature = "ae2-lab")]
-                self.ae2_hotkey_key(physical, action != "up", action == "repeat");
+                let taken = self.ae2_hotkey_key(physical, action != "up", action == "repeat");
+                #[cfg(not(feature = "ae2-lab"))]
+                let taken = false;
                 if action == "tap" {
                     self.native_key_event(physical, false, false);
                     #[cfg(feature = "ae2-lab")]
                     self.ae2_hotkey_key(physical, false, false);
+                }
+                if taken {
+                    if action == "tap" {
+                        self.physical_keys.remove(&physical);
+                    }
+                    return ok();
                 }
                 // The merchant's focused offer and the recipe book's last
                 // recipe take Enter and Space, as the window's.

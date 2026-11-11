@@ -13194,7 +13194,9 @@ impl Game<'_> {
                     }
                     self.native_key_event(key, event.state == ElementState::Pressed, event.repeat);
                     #[cfg(feature = "ae2-lab")]
-                    self.ae2_hotkey_key(key, event.state == ElementState::Pressed, event.repeat);
+                    if self.ae2_hotkey_key(key, event.state == ElementState::Pressed, event.repeat) {
+                        return Ok(());
+                    }
                     // Screen.keyPressed sees the physical key, repeats included.
                     if event.state == ElementState::Pressed
                         && self.screen == Screen::Inventory

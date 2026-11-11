@@ -10,11 +10,15 @@ use super::{Layout, MachineKind, Stored, Toggle, icon};
 
 const PATTERN: &str = "ENCODED_PATTERN";
 const BLANK: (i32, i32) = icon::BACKGROUND_BLANK_PATTERN;
+/// `AAEIcon.FILTERED_IMPORT_ON`, `FILTERED_IMPORT_OFF` in `guis/states.png`.
+const FILTERED_IMPORT_ON: (i32, i32) = icon::sheet(icon::ADVANCED_AE, (144, 0));
+const FILTERED_IMPORT_OFF: (i32, i32) = icon::sheet(icon::ADVANCED_AE, (160, 0));
 
 const LAYOUTS: &[(&str, Layout)] = &[
     // The nine patterns and nine return slots; blocking mode, the crafting
     // lock and the Pattern Access Terminal toggle in the left toolbar, the
-    // priority tab, as AE2's. `FILTERED_IMPORT`'s button is a later slice's.
+    // priority tab, as AE2's; then `FILTERED_IMPORT`'s button
+    // (`AAESettingToggleButton`, its icons in the mod's own `states.png`).
     (horizon_client::ae2x::advancedae::SMALL_ADV_PATTERN_PROVIDER, Layout {
         kind: MachineKind::PatternProvider,
         style: "small_adv_pattern_provider.json",
@@ -71,6 +75,21 @@ const LAYOUTS: &[(&str, Layout)] = &[
                 place: None,
                 shown_by: None,
             },
+            // The data slots 3 and 4 are the lock line's.
+            Toggle {
+                entry: crate::game::ae2x::advancedae::FILTERED_IMPORT_ENTRY as i32,
+                key: crate::game::ae2x::advancedae::FILTERED_IMPORT,
+                stored: Stored::Text,
+                default: 0,
+                data: 5,
+                title: "gui.tooltips.advanced_ae.FilteredImport",
+                values: &[
+                    ("NO", FILTERED_IMPORT_OFF, "gui.tooltips.advanced_ae.FilteredImportOff"),
+                    ("YES", FILTERED_IMPORT_ON, "gui.tooltips.advanced_ae.FilteredImportOn"),
+                ],
+                place: None,
+                shown_by: None,
+            },
         ],
         progress: None,
         priority: Some(26),
@@ -103,7 +122,9 @@ mod tests {
         assert_eq!(provider, ae2);
         let layout = super::layout(rows::SMALL_ADV_PATTERN_PROVIDER).unwrap();
         let settings = i32::from(provider.settings());
-        assert_eq!(layout.toggles.iter().map(|t| t.entry).collect::<Vec<_>>(), [settings, settings + 1, settings + 2]);
+        assert_eq!(layout.toggles.iter().map(|t| t.entry).collect::<Vec<_>>(), [settings, settings + 1, settings + 2, settings + 3]);
+        assert!(layout.toggles.iter().all(|t| t.entry < layout.priority.unwrap()), "Filtered Import's entry is free");
+        assert_eq!(layout.toggles[3].values[1].1, (256 + 144, 0), "Advanced AE's own icon");
         assert_eq!(layout.priority, Some(provider.priority() as i32));
         let returns = provider.returns();
         assert_eq!(layout.slots.len(), 18);

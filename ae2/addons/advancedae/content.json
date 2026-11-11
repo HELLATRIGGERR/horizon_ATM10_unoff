@@ -1,13 +1,14 @@
 {
   "namespace": "advanced_ae",
   "name": "Advanced AE",
-  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slice 1).",
+  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b).",
   "authors": ["pedroksl (Advanced AE)"],
   "slices": [
-    "1: the Small Advanced Pattern Provider block (directional push), the Advanced Processing Pattern, the Advanced Pattern Encoder (item; its screen is to come)"
+    "1: the Small Advanced Pattern Provider block (directional push), the Advanced Processing Pattern, the Advanced Pattern Encoder (item)",
+    "1b: the Advanced Pattern Encoder's screen and hotkey, the provider's Filtered Import, the pattern's tooltip, re-encoding in AE2's encoding terminal"
   ],
   "items": {
-    "adv_processing_pattern": {},
+    "adv_processing_pattern": {"max_stack_size": 1},
     "adv_pattern_encoder": {"max_stack_size": 1}
   },
   "blocks": {
@@ -21,6 +22,17 @@
     }
   },
   "ae2_namespace": {
-    "screens": ["small_adv_pattern_provider.json"]
-  }
+    "screens": ["small_adv_pattern_provider.json", "adv_pattern_encoder.json"],
+    "gui_textures": ["adv_pattern_encoder.png"]
+  },
+  "own_gui_textures": [
+    "guis/states.png",
+    "guis/any_button.png", "guis/any_button_selected.png",
+    "guis/north_button.png", "guis/north_button_selected.png",
+    "guis/east_button.png", "guis/east_button_selected.png",
+    "guis/south_button.png", "guis/south_button_selected.png",
+    "guis/west_button.png", "guis/west_button_selected.png",
+    "guis/up_button.png", "guis/up_button_selected.png",
+    "guis/down_button.png", "guis/down_button_selected.png"
+  ]
 }

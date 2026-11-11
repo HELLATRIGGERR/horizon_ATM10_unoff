@@ -63,7 +63,7 @@ try {
   let view = await until(() => fixture.raw('screen'), v => v.ae2_screen, 'Advanced Pattern Provider screen', 15000);
   assert.equal(view.ae2_screen.style, 'small_adv_pattern_provider.json');
   assert(view.ae2_screen.priority, 'priority tab');
-  assert.deepEqual(view.ae2_screen.toolbar.map((b: any) => b.entry).filter((e: any) => e !== undefined), [18, 19, 20]);
+  assert.deepEqual(view.ae2_screen.toolbar.map((b: any) => b.entry).filter((e: any) => e !== undefined), [18, 19, 20, 21]);
   const patternSlot = (v: any) => v.slots.find((s: any) => s.slot < 36 && s.item === PATTERN)?.slot;
   await fixture.raw(`click-slot ${patternSlot(view)} shift`);
   view = await until(() => fixture.raw('screen'), v => v.slots.some((s: any) => s.slot >= 300 && s.slot < 309 && s.item === PATTERN), 'the Advanced pattern installed');

@@ -3238,8 +3238,9 @@ impl OptionsUi {
                 for (name, category) in mappings {
                     if category != last_category {
                         last_category = category;
-                        let category_key = if category == "ae2" {
-                            "key.ae2.category".to_owned()
+                        // A mod's own category (AE2's, Advanced AE's): `key.<mod>.category`.
+                        let category_key = if matches!(category, "ae2" | "advanced_ae") {
+                            format!("key.{category}.category")
                         } else {
                             format!("key.category.minecraft.{category}")
                         };

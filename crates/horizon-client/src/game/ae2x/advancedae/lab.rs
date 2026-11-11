@@ -1,6 +1,7 @@
 //! `/ae2 advae ...`: the Advanced Pattern Encoder's edits
 //! (`AdvPatternEncoderMenu`) on a pattern in the acting player's inventory,
-//! for tests and debugging while the encoder's screen is a later slice's.
+//! and the pattern's tooltip, for tests and debugging; players use the
+//! encoder's screen (`encoder`, `encoder_screen`).
 use super::{direction_map, encoder_output, with_direction};
 use crate::game::{Game, ae2_lab};
 use horizon_client::{ae2_generic_stack::GenericStack, items::ItemStack};
@@ -47,7 +48,15 @@ impl Game<'_> {
                     .iter()
                     .map(|(key, face)| json!({"id": key.key.item_id, "fluid": key.key_type == ae2_cell_core::KeyType::FLUIDS, "direction": face_name(*face)}))
                     .collect();
-                Ok(json!({"item": pattern.item.as_ref(), "inputs": inputs}))
+                // The tooltip's lines (`MixinEncodedPatternItem`), without their formatting.
+                let names = &self.pack.names;
+                let tooltip: Vec<String> = self
+                    .advancedae_tooltip(&pattern, &|key| names.display_get(key), &|item| names.display_item(&item.item))
+                    .unwrap_or_default()
+                    .iter()
+                    .map(horizon_client::text::Text::plain)
+                    .collect();
+                Ok(json!({"item": pattern.item.as_ref(), "inputs": inputs, "tooltip": tooltip}))
             }
             ["encode", at] => {
                 let at = slot(at)?;

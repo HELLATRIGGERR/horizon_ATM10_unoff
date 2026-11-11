@@ -88,6 +88,21 @@ pub(super) mod icon {
     pub const TAB_BUTTON_BACKGROUND: (i32, i32) = (160, 192);
     /// 18 x 18.
     pub const SLOT_BACKGROUND: (i32, i32) = (192, 192);
+
+    /// An addon's own icon sheet, 256 x 256 as AE2's: its icons' x is
+    /// offset by 256 for each sheet ([`sheet`]), and [`texture`] takes it off.
+    /// Advanced AE's `AAEIcon` (`advanced_ae:textures/guis/states.png`).
+    pub const ADVANCED_AE: i32 = 1;
+    const SHEETS: [&str; 2] = ["guis/states", "advanced_ae/guis/states"];
+    /// Icon `(x, y)` of addon sheet `sheet`.
+    pub const fn sheet(sheet: i32, (x, y): (i32, i32)) -> (i32, i32) {
+        (x + 256 * sheet, y)
+    }
+    /// The GUI texture an icon's x is in, and its x there.
+    pub fn texture(x: i32) -> (&'static str, i32) {
+        let at = usize::try_from(x / 256).unwrap_or(0);
+        (SHEETS.get(at).copied().unwrap_or(SHEETS[0]), x.rem_euclid(256))
+    }
 }
 
 /// How a toggle's value sits in the machine's config.
@@ -1181,9 +1196,10 @@ impl Game<'_> {
         batch.rect_uv(x, y, w, h, r, color);
     }
 
-    /// An `Icon` of `guis/states.png`.
+    /// An `Icon` of `guis/states.png`, or of an addon's sheet ([`icon::sheet`]).
     pub(super) fn ae2_icon(&self, batch: &mut HudBatch, (sx, sy): (i32, i32), (w, h): (i32, i32), x: f32, y: f32) {
-        let states = Image { texture: "guis/states".into(), texture_size: (256, 256), src: None };
+        let (texture, sx) = icon::texture(sx);
+        let states = Image { texture: texture.into(), texture_size: (256, 256), src: None };
         self.ae2_blit(batch, &states, [sx, sy, w, h], x, y);
     }
 

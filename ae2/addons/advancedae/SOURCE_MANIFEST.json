@@ -19,7 +19,7 @@
     "sha256": "a01d9718667ac13899013e91c5b0b7708b9b9db1da9b8e380772dde54bbe8f41"
   },
   "bundled": {
-    "ae2addonlib 1.0.3": "not used: its mods.toml says LGPL-3.0, its repository GPL-3.0; the port reads only the saved form of NullableDirection, and nothing of its code is derived",
+    "ae2addonlib 1.0.3": "not used: its mods.toml says LGPL-3.0, its repository GPL-3.0; the port reads only the saved form of NullableDirection, and nothing of its code is derived (the encoder's hotkey follows Advanced AE's AAEHotkeysRegistry and AE2's InventoryHotkeyAction; the encoder keeps its slots in minecraft:custom_data, not in AE2AddonLib's component)",
     "ae2wtlib_api 19.2.5": "MIT; not needed by slice 1"
   },
   "requires": ["ae2 19.2.18"],
@@ -27,6 +27,8 @@
     "crates/horizon-client/src/ae2x/advancedae.rs",
     "crates/horizon-client/src/game/ae2x/advancedae/mod.rs",
     "crates/horizon-client/src/game/ae2x/advancedae/screens.rs",
-    "crates/horizon-client/src/game/ae2x/advancedae/lab.rs"
+    "crates/horizon-client/src/game/ae2x/advancedae/lab.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/encoder.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/encoder_screen.rs"
   ]
 }

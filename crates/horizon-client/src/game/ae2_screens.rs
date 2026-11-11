@@ -942,6 +942,8 @@ fn addon_layout(block: &str) -> Option<&'static Layout> {
 fn addon_style_slots(block: &str, style: &mut ScreenStyle) {
     #[cfg(feature = "ae2-extendedae")]
     extendedae_screens::style_slots(block, style);
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae_screens::style_slots(block, style);
     let _ = (block, style);
 }
 
@@ -1031,6 +1033,7 @@ impl Game<'_> {
                     data.extend(wide(current));
                     data.extend(wide(max));
                 }
+                super::ae2x::machine_screen_data(m, &mut data);
             }
             // PatternProviderMenu: the settings, then whether crafting is
             // locked now and why (`craftingLockedReason`): 1 until a pulse,
@@ -1332,8 +1335,13 @@ impl Game<'_> {
             let [sx, sy] = background.src.map_or([0, 0], |[x, y, _, _]| [x, y]);
             self.ae2_blit(batch, background, [sx, sy, w, h], ox, oy);
         }
-        for name in layout.panels {
-            if let (Some(image), Some(widget)) = (style.images.get(*name), style.widgets.get(*name)) {
+        for entry in layout.panels {
+            // `name?n`: an `AlertWidget`, drawn only while data slot `n` is not 0.
+            let (name, shown) = entry.split_once('?').map_or((*entry, true), |(name, n)| (name, n.parse().is_ok_and(|n| value(data, n) != 0)));
+            if !shown {
+                continue;
+            }
+            if let (Some(image), Some(widget)) = (style.images.get(name), style.widgets.get(name)) {
                 let (w, h) = screen.size();
                 let (x, y) = widget.position.resolve(w, h);
                 let src = image.src.unwrap_or([0, 0, image.size().0, image.size().1]);

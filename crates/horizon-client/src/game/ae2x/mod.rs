@@ -206,6 +206,8 @@ pub(super) trait HandlerCell {
 pub(super) enum Orientation {
     Facing,
     FacingWithSpin,
+    /// `OrientationStrategies.horizontalFacing()`: `facing` toward the player, never up or down.
+    Horizontal,
 }
 /// An addon block's orientation strategy; none for blocks that do not turn
 /// (or are AE2's, or a variant of AE2's, which `ae2_placement` knows).
@@ -213,6 +215,10 @@ pub(super) fn orientation(block: &str) -> Option<Orientation> {
     #[cfg(feature = "ae2-extendedae")]
     if let Some(found) = extendedae::orientation(block) {
         return Some(found);
+    }
+    #[cfg(feature = "ae2-advancedae")]
+    if block == horizon_client::ae2x::advancedae::REACTION_CHAMBER {
+        return Some(Orientation::Horizontal);
     }
     let _ = block;
     None
@@ -224,6 +230,10 @@ pub(super) fn machine_menu(machine: &Machine) -> bool {
     let _ = machine;
     #[cfg(feature = "ae2-extendedae")]
     if extendedae::machine_menu(machine) {
+        return true;
+    }
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::chamber::is_chamber(machine) {
         return true;
     }
     false
@@ -277,12 +287,20 @@ pub(super) fn slot_insert(kind: horizon_client::ae2_world::MachineKind, index: u
     if let Some(found) = extendedae::slot_insert(kind, index) {
         return Some(found);
     }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae::chamber::slot_insert(kind, index) {
+        return Some(found);
+    }
     None
 }
 pub(super) fn slot_extract(kind: horizon_client::ae2_world::MachineKind, index: usize) -> Option<bool> {
     let _ = (kind, index);
     #[cfg(feature = "ae2-extendedae")]
     if let Some(found) = extendedae::slot_extract(kind, index) {
+        return Some(found);
+    }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae::chamber::slot_extract(kind, index) {
         return Some(found);
     }
     None
@@ -294,6 +312,10 @@ pub(super) fn private_power_face(kind: horizon_client::ae2_world::MachineKind, s
     if extendedae::private_power_face(kind, state, face) {
         return true;
     }
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::chamber::private_power_face(kind) {
+        return true;
+    }
     false
 }
 /// An addon machine screen's progress bar: its value and most.
@@ -303,7 +325,18 @@ pub(super) fn machine_progress(machine: &Machine) -> Option<(f64, f64)> {
     if let Some(found) = extendedae::progress(machine) {
         return Some(found);
     }
+    #[cfg(feature = "ae2-advancedae")]
+    if let Some(found) = advancedae::chamber::progress(machine) {
+        return Some(found);
+    }
     None
+}
+/// Data slots an addon machine's screen reads past its progress bar and
+/// toggles (the Reaction Chamber's power alert).
+pub(super) fn machine_screen_data(machine: &Machine, data: &mut Vec<i16>) {
+    let _ = (machine, &data);
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae::chamber::screen_data(machine, data);
 }
 /// The entries an addon machine's window shows past its slots and cards.
 pub(super) fn machine_menu_items(machine: &Machine, items: &mut [Option<horizon_client::items::ItemStack>]) {
@@ -312,6 +345,8 @@ pub(super) fn machine_menu_items(machine: &Machine, items: &mut [Option<horizon_
     megacells::cell_dock::menu_items(machine, items);
     #[cfg(feature = "ae2-extendedae")]
     extendedae::menu_items(machine, items);
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae::chamber::menu_items(machine, items);
 }
 /// The factor on an addon bus's operations (`getOperationsPerTick`): 1 for AE2's.
 pub(super) fn bus_multiplier(id: &str) -> u64 {
@@ -628,6 +663,10 @@ impl Game<'_> {
         if let Some(found) = self.extendedae_may_place(machine, slot, item) {
             return Some(found);
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(found) = self.advancedae_may_place(machine, slot, item) {
+            return Some(found);
+        }
         None
     }
     /// An addon machine's own item handler (`getExposedInventoryForSide`),
@@ -656,6 +695,34 @@ impl Game<'_> {
         let _ = (address, face, limit, filter, simulate);
         #[cfg(feature = "ae2-extendedae")]
         if let Some(found) = self.extendedae_item_extract(address, face, limit, filter, simulate) {
+            return Some(found);
+        }
+        None
+    }
+    /// An addon machine's fluid handler (AE2's adapter over its
+    /// `GENERIC_INTERNAL_INV`), as the Sky Stone Tank's is met: `fill` of
+    /// `amount` mB of `key` (what it takes), `drain` (what it gives), and what
+    /// comes out (`contents`). None for a block no addon handles.
+    pub(super) fn ae2x_tank_fill(&mut self, address: super::ae2_global::GridAddress, key: &ae2_cell_core::ItemKey, amount: u64, simulate: bool) -> Option<u64> {
+        let _ = (address, key, amount, simulate);
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(found) = self.advancedae_tank_fill(address, key, amount, simulate) {
+            return Some(found);
+        }
+        None
+    }
+    pub(super) fn ae2x_tank_drain(&mut self, address: super::ae2_global::GridAddress, key: &ae2_cell_core::ItemKey, amount: u64, simulate: bool) -> Option<u64> {
+        let _ = (address, key, amount, simulate);
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(found) = self.advancedae_tank_drain(address, key, amount, simulate) {
+            return Some(found);
+        }
+        None
+    }
+    pub(super) fn ae2x_tank_contents(&self, address: super::ae2_global::GridAddress) -> Option<Option<(ae2_cell_core::ItemKey, u64)>> {
+        let _ = address;
+        #[cfg(feature = "ae2-advancedae")]
+        if let Some(found) = self.advancedae_tank_contents(address) {
             return Some(found);
         }
         None
@@ -898,6 +965,8 @@ impl Game<'_> {
         self.tick_extendedae_wireless();
         #[cfg(feature = "ae2-extendedae")]
         self.tick_extendedae_vacuum();
+        #[cfg(feature = "ae2-advancedae")]
+        self.tick_advancedae_chambers();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -926,6 +995,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-appflux")]
         if appflux::accessor::device(machine, device) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if advancedae::chamber::device(machine, device) {
             return true;
         }
         false
@@ -984,6 +1057,10 @@ impl Game<'_> {
         }
         #[cfg(feature = "ae2-extendedae")]
         if extendedae::visual_props(machine, props) {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if advancedae::chamber::visual_props(machine, props) {
             return true;
         }
         false
@@ -1394,6 +1471,10 @@ impl Game<'_> {
             || self.extendedae_seed_use(pos)
             || self.extendedae_package_on(pos, face)
         {
+            return true;
+        }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.advancedae_bucket_use(pos) {
             return true;
         }
         false

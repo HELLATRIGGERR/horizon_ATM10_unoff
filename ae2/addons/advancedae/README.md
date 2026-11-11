@@ -45,6 +45,19 @@ a later slice's; its KubeJS changes no recipe of this slice.
 | `MixinEncodedPatternItem`: an Advanced pattern's tooltip, AE2's lines (`Produces:`, `with:`, `and`) with each input's direction letter, `(U)` | `tooltip` in `game/ae2x/advancedae`, the item's hover lines; `/ae2 advae show` gives it too |
 | `MixinPatternEncodingTermMenu`: encoding a processing pattern while the encoded slot holds an Advanced one keeps it Advanced, each input key it had keeping its direction | `reencoded`, in AE2's Pattern Encoding Terminal and AE2WTLib's wireless one |
 
+## What works (slice 2)
+
+| Advanced AE | Port |
+|---|---|
+| `advanced_ae:reaction_chamber` (`ReactionChamberBlock`: `metalProps().noOcclusion()`, `WORKING`, `horizontalFacing()`), `ReactionChamberEntity`: nine inputs and an output (`AppEngInternalInventory`, 64 a slot), `UpgradeInventories.forMachine(.., 4)` with four speed cards, `setInternalMaxPower(500000)`, a node of no channel and no idle draw on every side, `COVERED` | a machine of its own (`ExtMachine`, `ae2x/advancedae.rs`), placed facing the player; its buffer takes Forge Energy on every side; `working` from its config; the loot table and pickaxe tag from the jar |
+| `ReactionChamberRecipe` (`advanced_ae:reaction`): `output` a `GenericStack` (an item or a fluid), `input_items`, `input_fluid`, `input_energy`; `ReactionChamberRecipes.findRecipe` (the inputs summed per item and components, each ingredient met by one of them, the input tank's fluid), `isValidIngredient` | `game/ae2x/advancedae/chamber.rs`: the type's recipes from the content (15 of 19: those of items the port has), the search, an input slot of the menu taking only a recipe's ingredient |
+| `tickingRequest` (`TickingRequest(1, 20, ..)`): `cachedTask` until a change leaves no recipe (`dirty`); `speedFactor` 2, 3, 5, 10, 50 by cards over 200 steps; each step `floor(input_energy / ceil(200 / speed))` AE from the own buffer, else from the one of it and the grid that gives more; with too little, part steps and `showWarning`; the output in, then each input taken from the slots in order and the tank (`consume`); `processingTime`, `working`, `showWarning` and the task not saved | the same with AE2's tick tracker; the search and `dirty` in the game's state by block entity |
+| `fluidInv` (`CustomGenericInv`, 16,000 mB each): slot 1 the input (in only), slot 0 the output (out only); `GENERIC_INTERNAL_INV`, so AE2's fluid handler: `fill` into the input, `drain` from the output | the tanks in the config (`tank_in`, `tank_out`); the fluid handler through the Sky Stone Tank's calls (`ae2x_tank_fill`, `ae2x_tank_drain`, `ae2x_tank_contents`): a pattern provider's push, an export bus, a P2P tunnel, an import bus |
+| `ReactionChamberBlock.useItemOn` with a bucket: an empty one takes a whole bucket of the output, a full one empties into the input when all of it fits; else the menu | `advancedae_bucket_use` before AE2's item uses |
+| `pushOutResult`: with `AUTO_EXPORT` on, per side of `allowedOutputs` (`RelativeSide`, turned by the facing) up to 64 of the output item and the whole output tank into what is there (`createExternalStorageStrategies`); the first side that took any ends it | the same through the port's item and fluid insertions (an export bus's) |
+| `ReactionChamberScreen` with `screens/reaction_chamber.json`: the progress bar, the `AUTO_EXPORT` toggle, the `DIRECTIONAL_OUTPUT` button (shown with it on) opening AE2AddonLib's `OutputDirectionMenu`, the two flush buttons (`clearFluid`, `clearFluidOut`), the power alert (`AlertWidget`) and the two `FluidTankSlot`s; `ReactionChamberMenu` | `screens.rs`: the same style; six toolbar toggles for the six sides (shown with `AUTO_EXPORT` on, AE2's side names, the mod's `VALID_INPUT`/`INVALID_INPUT` icons) in place of AE2AddonLib's menu, the flush buttons with the mod's `CLEAR` icon, the alert while data slot 5 says so; each tank an entry at its place showing the fluid's bucket named with its amount, where a bucket on the cursor empties into the input or fills from the output |
+| `saveAdditional`: the tank, `outputs`, the cards, `AUTO_EXPORT` | the machine's config: `tank_in`, `tank_out`, `output_front` .. `output_right`, `auto_export`; the port's own save form, so a Java world's chamber keeps only its slots |
+
 ## Not yet
 
 - The encoder's Curios slot (the port has no Curios).
@@ -53,20 +66,27 @@ a later slice's; its KubeJS changes no recipe of this slice.
   processing one, leaves the old output in the mod (and taking it takes the new input); the port empties the output.
 - A target with an ME storage capability (`AdvPatternProviderTargetCache.find`: an interface) takes every input
   whatever its face; the port asks the face.
-- The Extended (36) provider, the part forms and the upgrade items (slice 4), the Reaction Chamber (2), the
-  Quantum Computer (3), the buses and Throughput Monitor (5), the Quantum Crafter (6), the Quantum Armor (7).
+- The Reaction Chamber's leftovers: `ReactionChamberTESR` (the fluid and items drawn inside the glass), the tooltips
+  of the tanks and the power alert, the half-size flush buttons, the Memory Card's `EXPORTED_ALLOWED_SIDES`, the
+  recharge from Applied Flux's FE cells (`AppliedFluxPlugin.rechargeEnergyStorage`), a storage bus on it (it sees the
+  output tank only), the wrench's turn, JEI/EMI/REI, and the recipes of items the port lacks yet (`quantum_alloy`,
+  `quantum_alloy_plate`, `quantum_infusion`, `shatteredsingularity`: the Quantum Computer's slice).
+- The Extended (36) provider, the part forms and the upgrade items (slice 4), the Quantum Computer (3), the buses and Throughput Monitor (5), the Quantum Crafter (6), the Quantum Armor (7).
 
 ## Tests
 
 `horizon-client-lib` (the variant, the registry row, `NullableDirection` names), `horizon-command` (the component's
 codec), `horizon-client` (`game/ae2x/advancedae`: the encoder's edits, the saved direction list, which provider pushes
-directionally, the tooltip, re-encoding, Filtered Import; the encoder menu's slots and buttons and the item's
+directionally, the tooltip, re-encoding, Filtered Import; the chamber's recipes, power steps, tanks and sides; the encoder menu's slots and buttons and the item's
 inventory; the screen's buttons; the provider's layout on the window's entries), and the world tests
 `advancedae-provider` (the encoder's edits; the provider's screen; raw iron through a furnace's top and coal through
 its side; AE2's provider pushing the same pattern to one face; a restart) and `advancedae-encoder` (the encoder's screen
 used and by its hotkey, its rows and buttons; the tooltip; Filtered Import with a hopper and a shift-click; re-encoding
-in AE2's terminal; a restart):
+in AE2's terminal; a restart) and `advancedae-reaction-chamber` (power on every side; fluix for 200,000 AE of the
+grid, 100 steps; the screen, its tanks, flush, a bucket from the cursor, cards and only recipe inputs; the sides with
+`AUTO_EXPORT` and a chest at the front; four cards; buckets on the block; an AE2 Pattern Provider pushing items and
+water and getting the fluix back; a restart; its drops):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber
 ```

@@ -30,6 +30,16 @@ pub fn install() {
     let _ = defs::get();
 }
 
+/// What an addon machine does not save, cleared as a save loads (each
+/// addon's `reset_unsaved` on its own machines).
+pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
+    #[cfg(feature = "ae2-extendedae")]
+    extendedae::reset_unsaved(m);
+    #[cfg(feature = "ae2-advancedae")]
+    advancedae::reset_unsaved(m);
+    let _ = m;
+}
+
 /// A cell that holds one key without end and takes it in to void it
 /// (ExtendedAE's `ItemInfinityCell`): to the port's storage code a creative
 /// cell of that key, of its own idle drain and drive model.

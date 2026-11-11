@@ -1,11 +1,12 @@
 {
   "namespace": "advanced_ae",
   "name": "Advanced AE",
-  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b).",
+  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b), and the Reaction Chamber with its recipes (slice 2).",
   "authors": ["pedroksl (Advanced AE)"],
   "slices": [
     "1: the Small Advanced Pattern Provider block (directional push), the Advanced Processing Pattern, the Advanced Pattern Encoder (item)",
-    "1b: the Advanced Pattern Encoder's screen and hotkey, the provider's Filtered Import, the pattern's tooltip, re-encoding in AE2's encoding terminal"
+    "1b: the Advanced Pattern Encoder's screen and hotkey, the provider's Filtered Import, the pattern's tooltip, re-encoding in AE2's encoding terminal",
+    "2: the Reaction Chamber: its reaction recipes, power, input and output tanks, speed cards, auto-export by side, screen, buckets and fluid handler"
   ],
   "items": {
     "adv_processing_pattern": {"max_stack_size": 1},
@@ -19,11 +20,17 @@
         "connection_state": ["false", "true"]
       },
       "state_defaults": {"push_direction": "all", "connection_state": "false"}
+    },
+    "reaction_chamber": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block", "no_occlusion": true, "light_dampening": 1},
+      "state_properties": {"facing": ["north", "south", "west", "east"], "working": ["false", "true"]},
+      "state_defaults": {"facing": "north", "working": "false"}
     }
   },
+  "recipe_types": ["advanced_ae:reaction"],
   "ae2_namespace": {
-    "screens": ["small_adv_pattern_provider.json", "adv_pattern_encoder.json"],
-    "gui_textures": ["adv_pattern_encoder.png"]
+    "screens": ["small_adv_pattern_provider.json", "adv_pattern_encoder.json", "reaction_chamber.json"],
+    "gui_textures": ["adv_pattern_encoder.png", "reaction_chamber.png"]
   },
   "own_gui_textures": [
     "guis/states.png",

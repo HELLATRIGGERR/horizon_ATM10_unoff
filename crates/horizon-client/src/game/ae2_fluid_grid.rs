@@ -555,6 +555,9 @@ impl Game<'_> {
         &self,
         address: super::ae2_global::GridAddress,
     ) -> Result<Option<(ItemKey, u64)>, String> {
+        if let Some(found) = self.ae2x_tank_contents(address) {
+            return Ok(found);
+        }
         let Some(BlockEntity::Ae2(machine)) = self.ae2_block_entity(address) else {
             return Err("tank missing".into());
         };
@@ -587,6 +590,9 @@ impl Game<'_> {
         amount: u64,
         simulate: bool,
     ) -> Result<u64, String> {
+        if let Some(moved) = self.ae2x_tank_fill(pos, key, amount, simulate) {
+            return Ok(moved);
+        }
         let current = self.ae2_tank_contents_encoded(pos)?;
         if current.as_ref().is_some_and(|(stored, _)| stored != key) {
             return Ok(0);
@@ -623,6 +629,9 @@ impl Game<'_> {
         amount: u64,
         simulate: bool,
     ) -> Result<u64, String> {
+        if let Some(moved) = self.ae2x_tank_drain(pos, key, amount, simulate) {
+            return Ok(moved);
+        }
         let Some((stored, old)) = self.ae2_tank_contents_encoded(pos)? else {
             return Ok(0);
         };

@@ -23,7 +23,7 @@ pub(super) fn placement(
         };
         return Some((facing, None));
     }
-    if matches!(name, "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest") {
+    if matches!(name, "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest") || addon == Some(super::ae2x::Orientation::Horizontal) {
         // `horizontal` is already opposite the player's looking direction,
         // as required by HorizontalFacingStrategy.getStateForPlacement.
         return Some((horizontal,None));

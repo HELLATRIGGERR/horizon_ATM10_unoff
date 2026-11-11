@@ -29,6 +29,7 @@
     "crates/horizon-client/src/game/ae2x/advancedae/screens.rs",
     "crates/horizon-client/src/game/ae2x/advancedae/lab.rs",
     "crates/horizon-client/src/game/ae2x/advancedae/encoder.rs",
-    "crates/horizon-client/src/game/ae2x/advancedae/encoder_screen.rs"
+    "crates/horizon-client/src/game/ae2x/advancedae/encoder_screen.rs",
+    "crates/horizon-client/src/game/ae2x/advancedae/chamber.rs"
   ]
 }

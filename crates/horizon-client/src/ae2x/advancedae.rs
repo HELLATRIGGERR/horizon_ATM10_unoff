@@ -10,10 +10,13 @@
 //! The Small Advanced Pattern Provider is AE2's Pattern Provider of nine
 //! patterns ([`MachineVariant`]) whose pushes send each input to the face of
 //! the target its pattern names; the Advanced Processing Pattern is a
-//! processing pattern of its own item and component. The game's side is in
+//! processing pattern of its own item and component. The Reaction Chamber
+//! (`ReactionChamberBlock`, `ReactionChamberEntity`) is a machine of its own
+//! ([`ExtMachine`]): nine inputs and an output, four speed cards, a buffer of
+//! 500,000 AE, its two tanks in its config. The game's side is in
 //! `game/ae2x/advancedae/`.
 use super::defs::Defs;
-use crate::ae2_world::{MachineKind, MachineVariant};
+use crate::ae2_world::{ExtMachine, MachineKind, MachineVariant};
 
 pub const NAMESPACE: &str = "advanced_ae";
 /// `AAEBlocks.SMALL_ADV_PATTERN_PROVIDER`: "Advanced Pattern Provider".
@@ -37,6 +40,31 @@ pub const MACHINES: &[MachineVariant] = &[MachineVariant {
     upgrades: 0,
     part: false,
 }];
+
+/// `AAEBlocks.REACTION_CHAMBER`.
+pub const REACTION_CHAMBER: &str = "advanced_ae:reaction_chamber";
+/// `ReactionChamberRecipe.TYPE_ID`.
+pub const REACTION: &str = "advanced_ae:reaction";
+/// The block state's `working` (`ReactionChamberBlock.WORKING`, `setWorking`),
+/// in the machine's config.
+pub const WORKING: &str = "aae_working";
+/// `showWarning`: the last step had too little power for full speed.
+pub const WARNING: &str = "aae_warning";
+
+/// `ReactionChamberEntity`: `inputInv` (9) and `outputInv` (1), `UpgradeInventories.forMachine(REACTION_CHAMBER, 4)`,
+/// `setInternalMaxPower(MAX_POWER_STORAGE)`. Its tanks' fluids drop nothing (`AEFluidKey.addDrops`).
+pub const OWN_MACHINES: &[ExtMachine] =
+    &[ExtMachine { id: REACTION_CHAMBER, physical_slots: 10, upgrade_slots: 4, key_drops: None, power_capacity: Some(500_000.0), part: false }];
+
+/// What the Reaction Chamber does not save (`saveAdditional`): its
+/// `processingTime`, `working` and `showWarning`.
+pub fn reset_unsaved(m: &mut crate::ae2_world::Machine) {
+    if m.kind.ext().is_some_and(|row| row.id == REACTION_CHAMBER) {
+        m.progress = 0.0;
+        m.config.remove(&WORKING.into());
+        m.config.remove(&WARNING.into());
+    }
+}
 
 /// Whether `id` is an Advanced AE provider, whose pushes are directional
 /// (`AdvPatternProviderLogic.pushPattern`).
@@ -77,6 +105,11 @@ pub fn register(defs: &mut Defs) {
     for variant in MACHINES {
         defs.add_variant(*variant);
     }
+    for machine in OWN_MACHINES {
+        defs.add_machine(*machine);
+    }
+    // AdvancedAE.initUpgrades, for the machines carried so far.
+    defs.add_upgrade("ae2:speed_card", REACTION_CHAMBER, 4);
     // PatternDetailsHelper.encodedPatternItemBuilder(AdvProcessingPattern::new).
     defs.add_processing_pattern(ADV_PROCESSING_PATTERN, ENCODED_ADV_PROCESSING_PATTERN);
 }
@@ -102,6 +135,23 @@ mod tests {
         assert_eq!(defs.processing_pattern_component("ae2:processing_pattern"), Some("ae2:encoded_processing_pattern"));
         assert_eq!(defs.processing_pattern_component("ae2:crafting_pattern"), None);
         assert!(defs.processing_pattern_items().any(|id| id == ADV_PROCESSING_PATTERN));
+    }
+
+    #[test]
+    fn the_reaction_chamber_is_a_machine_of_nine_inputs_an_output_and_four_speed_cards() {
+        crate::ae2x::install();
+        let mut machine = crate::ae2_world::Machine::for_block(REACTION_CHAMBER).unwrap();
+        assert_eq!(machine.kind.ext().map(|row| row.id), Some(REACTION_CHAMBER));
+        assert_eq!((machine.slots.len(), machine.upgrades.len()), (10, 4));
+        assert_eq!(machine.kind.ext().and_then(|row| row.power_capacity), Some(500_000.0));
+        assert_eq!(crate::ae2x::defs::get().upgrade_limit("ae2:speed_card", REACTION_CHAMBER), 4);
+        machine.progress = 120.0;
+        machine.config.insert(WORKING.into(), horizon_world::nbt::Tag::Byte(1));
+        machine.config.insert("auto_export".into(), horizon_world::nbt::Tag::String("YES".into()));
+        crate::ae2x::reset_unsaved(&mut machine);
+        assert_eq!(machine.progress, 0.0, "processingTime is not saved");
+        assert!(machine.config.get(&WORKING.into()).is_none());
+        assert!(machine.config.get(&"auto_export".into()).is_some(), "the settings are");
     }
 
     #[test]

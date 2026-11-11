@@ -16,7 +16,9 @@
 //! Also here: the provider's `FILTERED_IMPORT` (`AdvPatternProviderReturnInventory`),
 //! the pattern's tooltip (`MixinEncodedPatternItem`) and its re-encoding in
 //! AE2's encoding terminal (`MixinPatternEncodingTermMenu`). The encoder's
-//! menu is `encoder`, its screen `encoder_screen`.
+//! menu is `encoder`, its screen `encoder_screen`; the Reaction Chamber is
+//! `chamber`.
+pub(in crate::game) mod chamber;
 pub(in crate::game) mod encoder;
 pub(in crate::game) mod encoder_screen;
 mod lab;
@@ -35,6 +37,8 @@ pub(in crate::game) struct State {
     /// The window this client draws as the encoder, and its list's scroll.
     pub(in crate::game) encoder_window: Option<i32>,
     pub(in crate::game) encoder_scroll: crate::game::ae2_widgets::Scroll,
+    /// The Reaction Chambers' searches, by block entity incarnation.
+    pub(in crate::game) chambers: std::collections::HashMap<u64, chamber::Ctx>,
 }
 
 /// `AAESettings.FILTERED_IMPORT` in the provider's config, as
@@ -269,8 +273,11 @@ pub(in crate::game) fn return_accepts(provider: &Machine, key: &ItemKey, key_typ
 impl crate::game::Game<'_> {
     /// A press on the Filtered Import button of a provider's screen (menu
     /// entry [`FILTERED_IMPORT_ENTRY`], window slot `slot`): the setting steps
-    /// on. False for any other press.
+    /// on; or on a Reaction Chamber's own entries. False for any other press.
     pub(in crate::game) fn advancedae_machine_click(&mut self, pos: (i32, i32, i32), slot: usize, button: i32, input: horizon_client::menu::Input) -> bool {
+        if self.advancedae_chamber_click(pos, slot, button, input) {
+            return true;
+        }
         if slot != 300 + FILTERED_IMPORT_ENTRY || input != horizon_client::menu::Input::Pickup || !(0..=1).contains(&button) {
             return false;
         }

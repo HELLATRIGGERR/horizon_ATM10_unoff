@@ -1,16 +1,23 @@
 {
   "namespace": "advanced_ae",
   "name": "Advanced AE",
-  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b), and the Reaction Chamber with its recipes (slice 2).",
+  "description": "Advanced AE 1.6.12-1.21.1 for the AE2 port: the Small Advanced Pattern Provider, which sends each input of an Advanced Processing Pattern to the face of its target the pattern names, the Advanced Processing Pattern and the Advanced Pattern Encoder (slices 1 and 1b), the Reaction Chamber with its recipes (slice 2), and the Quantum Computer, a crafting CPU of many jobs at once, with the items its recipes need (slice 3).",
   "authors": ["pedroksl (Advanced AE)"],
   "slices": [
     "1: the Small Advanced Pattern Provider block (directional push), the Advanced Processing Pattern, the Advanced Pattern Encoder (item)",
     "1b: the Advanced Pattern Encoder's screen and hotkey, the provider's Filtered Import, the pattern's tooltip, re-encoding in AE2's encoding terminal",
-    "2: the Reaction Chamber: its reaction recipes, power, input and output tanks, speed cards, auto-export by side, screen, buckets and fluid handler"
+    "2: the Reaction Chamber: its reaction recipes, power, input and output tanks, speed cards, auto-export by side, screen, buckets and fluid handler",
+    "3: the Quantum Computer: its core, structure, unit, storages, accelerator, Data Entangler and Multi-Threader, the multiblock, its jobs at once, its screen; the Shattered Singularity, the quantum processor's chain and the Quantum Alloy as items"
   ],
   "items": {
     "adv_processing_pattern": {"max_stack_size": 1},
-    "adv_pattern_encoder": {"max_stack_size": 1}
+    "adv_pattern_encoder": {"max_stack_size": 1},
+    "shattered_singularity": {},
+    "quantum_alloy": {},
+    "quantum_processor_press": {},
+    "printed_quantum_processor": {},
+    "quantum_processor": {},
+    "quantum_storage_component": {}
   },
   "blocks": {
     "small_adv_pattern_provider": {
@@ -25,6 +32,63 @@
       "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block", "no_occlusion": true, "light_dampening": 1},
       "state_properties": {"facing": ["north", "south", "west", "east"], "working": ["false", "true"]},
       "state_defaults": {"facing": "north", "working": "false"}
+    },
+    "quantum_core": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block", "no_occlusion": true},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/quantum_core"
+    },
+    "quantum_unit": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/crafting/quantum_unit"
+    },
+    "quantum_storage_128": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/crafting/quantum_storage_128"
+    },
+    "quantum_storage_256": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/crafting/quantum_storage_256"
+    },
+    "data_entangler": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/crafting/data_entangler"
+    },
+    "quantum_accelerator": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/crafting/quantum_accelerator"
+    },
+    "quantum_multi_threader": {
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:iron_block"},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:block/crafting/quantum_multi_threader"
+    },
+    "quantum_structure": {
+      "template": "minecraft:glass",
+      "properties": {"hardness": 2.2, "explosion_resistance": 11, "requires_tool": false, "sounds": "minecraft:glass", "no_occlusion": true, "redstone_conductor": false, "suffocating": false},
+      "state_properties": {"formed": ["false", "true"], "powered": ["false", "true"], "multiblocked": ["false", "true"],
+        "light_level": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"]},
+      "state_defaults": {"formed": "false", "powered": "false", "multiblocked": "false", "light_level": "0"},
+      "model": "advanced_ae:item/quantum_structure"
     }
   },
   "recipe_types": ["advanced_ae:reaction"],

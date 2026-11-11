@@ -967,6 +967,8 @@ impl Game<'_> {
         self.tick_extendedae_vacuum();
         #[cfg(feature = "ae2-advancedae")]
         self.tick_advancedae_chambers();
+        #[cfg(feature = "ae2-advancedae")]
+        self.tick_advancedae_quantum();
         #[cfg(feature = "ae2-aeinfinitybooster")]
         self.tick_aeinfinitybooster();
         #[cfg(feature = "ae2-importexportcard")]
@@ -998,7 +1000,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-advancedae")]
-        if advancedae::chamber::device(machine, device) {
+        if advancedae::chamber::device(machine, device) || advancedae::quantum::device(machine, properties, device) {
             return true;
         }
         false
@@ -1060,7 +1062,7 @@ impl Game<'_> {
             return true;
         }
         #[cfg(feature = "ae2-advancedae")]
-        if advancedae::chamber::visual_props(machine, props) {
+        if advancedae::chamber::visual_props(machine, props) || self.advancedae_quantum_visual(machine, online, props) {
             return true;
         }
         false
@@ -1077,7 +1079,66 @@ impl Game<'_> {
         if self.lan_open_merequester(host, conn, pos, face) {
             return true;
         }
+        #[cfg(feature = "ae2-advancedae")]
+        if self.lan_open_advancedae_quantum(host, conn, pos) {
+            return true;
+        }
         false
+    }
+
+    /// The addons' crafting CPUs on the grid of `anchor` for a job of
+    /// `required` bytes, before AE2's (Advanced AE's Quantum Computer:
+    /// `MixinCraftingService.onSubmitJob`): each CPU's place, storage and
+    /// co-processors.
+    pub(super) fn ae2x_cpu_candidates(&self, anchor: (i32, i32, i32), required: u64) -> Vec<(super::ae2_global::GridAddress, u64, u32)> {
+        let _ = (anchor, required);
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_cpu_candidates(anchor, required);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        Vec::new()
+    }
+    /// An addon CPU's storage and co-processors (a job's own bytes on the
+    /// Quantum Computer); none for AE2's.
+    pub(super) fn ae2x_cpu_capacity(&self, cpu: super::ae2_global::GridAddress) -> Option<(u64, u32)> {
+        let _ = cpu;
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_cpu_capacity(cpu);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        None
+    }
+    /// The addon CPUs holding a job on the grid of `anchor`, which take what
+    /// enters it after AE2's (`insertIntoCpus`).
+    pub(super) fn ae2x_cpu_job_owners(&self, anchor: super::ae2_global::GridAddress) -> Vec<super::ae2_global::GridAddress> {
+        let _ = anchor;
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_cpu_job_owners(anchor);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        Vec::new()
+    }
+    /// The blocks whose jobs the removal of an addon CPU block at `pos`
+    /// cancels; none for any other block.
+    pub(super) fn ae2x_cpu_break_members(&self, pos: (i32, i32, i32)) -> Option<Vec<(i32, i32, i32)>> {
+        let _ = pos;
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_cpu_break_members(pos);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        None
+    }
+    /// Where an addon CPU keeps its selection mode, when not on itself.
+    pub(super) fn ae2x_cpu_settings(&self, cpu: super::ae2_global::GridAddress) -> Option<super::ae2_global::GridAddress> {
+        let _ = cpu;
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_cpu_settings(cpu);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        None
+    }
+    /// The CPUs an addon's own crafting status screen at `pos` lists.
+    pub(super) fn ae2x_cluster_cpus(&self, pos: (i32, i32, i32)) -> Option<Vec<super::ae2_global::GridAddress>> {
+        let _ = pos;
+        #[cfg(feature = "ae2-advancedae")]
+        return self.advancedae_cluster_cpus(pos);
+        #[cfg(not(feature = "ae2-advancedae"))]
+        None
     }
 
     /// The menu of an addon's wireless terminal (`TerminalKind::Addon`, by

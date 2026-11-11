@@ -127,6 +127,10 @@ pub(super) struct CraftView {
     pub(super) rows: Vec<Row>,
     /// A CPU's own screen rather than a terminal's status.
     pub(super) direct: bool,
+    /// An addon's CPU of many jobs (Advanced AE's `QuantumComputerScreen`):
+    /// the status screen's CPU list with the selection mode in place of back.
+    #[serde(default)]
+    pub(super) cluster: bool,
     pub(super) suspended: bool,
     pub(super) mode: String,
     pub(super) cpus: Vec<Cpu>,
@@ -225,7 +229,7 @@ impl Game<'_> {
             _ => {
                 add(Button::Suspend, "suspend", (50, 20));
                 add(Button::CancelJob, "cancel", (50, 20));
-                if self.ae2_craft_direct() {
+                if self.ae2_craft_direct() || self.ae2_craft_ui.view.as_ref().is_some_and(|v| v.cluster) {
                     buttons.push((Button::Mode, toolbar_button(style, 1)));
                 } else {
                     add_back(style, &mut buttons);

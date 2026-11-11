@@ -17,11 +17,12 @@
 //! the pattern's tooltip (`MixinEncodedPatternItem`) and its re-encoding in
 //! AE2's encoding terminal (`MixinPatternEncodingTermMenu`). The encoder's
 //! menu is `encoder`, its screen `encoder_screen`; the Reaction Chamber is
-//! `chamber`.
+//! `chamber`, the Quantum Computer `quantum`.
 pub(in crate::game) mod chamber;
 pub(in crate::game) mod encoder;
 pub(in crate::game) mod encoder_screen;
 mod lab;
+pub(in crate::game) mod quantum;
 
 use crate::game::ae2_source_patterns as source;
 use ae2_cell_core::{ItemKey, KeyType};

@@ -18,7 +18,7 @@ The bundled ae2wtlib_api (MIT) is not needed by this slice.
 Feature `ae2-advancedae`; content `content/advanced_ae` from
 `ATM10_DIR=... bun run ae2/scripts/prepare-addon.ts advancedae`; `[mods.advanced_ae]` in
 `pack/pack.toml`. ATM10's `config/advanced_ae-common.toml` holds only the Quantum Computer's settings,
-a later slice's; its KubeJS changes no recipe of this slice.
+which slice 3 reads; its KubeJS changes no recipe of these slices (it changes the armor's and some cards').
 
 ## What works (slice 1)
 
@@ -58,6 +58,22 @@ a later slice's; its KubeJS changes no recipe of this slice.
 | `ReactionChamberScreen` with `screens/reaction_chamber.json`: the progress bar, the `AUTO_EXPORT` toggle, the `DIRECTIONAL_OUTPUT` button (shown with it on) opening AE2AddonLib's `OutputDirectionMenu`, the two flush buttons (`clearFluid`, `clearFluidOut`), the power alert (`AlertWidget`) and the two `FluidTankSlot`s; `ReactionChamberMenu` | `screens.rs`: the same style; six toolbar toggles for the six sides (shown with `AUTO_EXPORT` on, AE2's side names, the mod's `VALID_INPUT`/`INVALID_INPUT` icons) in place of AE2AddonLib's menu, the flush buttons with the mod's `CLEAR` icon, the alert while data slot 5 says so; each tank an entry at its place showing the fluid's bucket named with its amount, where a bucket on the cursor empties into the input or fills from the output |
 | `saveAdditional`: the tank, `outputs`, the cards, `AUTO_EXPORT` | the machine's config: `tank_in`, `tank_out`, `output_front` .. `output_right`, `auto_export`; the port's own save form, so a Java world's chamber keeps only its slots |
 
+## What works (slice 3)
+
+| Advanced AE | Port |
+|---|---|
+| `AAECraftingUnitType`: `quantum_unit`, `quantum_core` (256 MB, the accelerator's threads), `quantum_storage_128`/`_256`, `data_entangler` (`STORAGE_MULTIPLIER`), `quantum_accelerator`, `quantum_multi_threader`, `quantum_structure` (`glassProps`); `AAEAbstractCraftingUnitBlock`'s `formed`, `powered`, `multiblocked`, `light_level` | machines of their own (`ExtMachine`, `ae2x/advancedae.rs`: `QuantumPart`); the block states the mod's; loot tables and pickaxe tag from the jar |
+| `AAEConfig`'s `quantum computer` section (`quantumComputerMaxSize`, `...AcceleratorThreads`, `...MaxMultiThreaders`, `...maxDataEntanglers`, the two multiplications) | `QuantumConfig` from the game's `config/advanced_ae-common.toml`, the mod's defaults and ranges (All the Mods 10: 12 threads, factors of 6) |
+| `AdvCraftingCPUCalculator`: `checkMultiblockScale`, `verifyInternalStructure` (structure on the box's sides only, one core inside, the entanglers and multi-threaders inside up to their limits, the rest inside, some storage; a core alone forms) | `game/ae2x/advancedae/quantum.rs`: `verify` on each group of joined blocks that fills its box (the matrix's reading of `MBCalculator`), each tick; the cluster in each block's config (`aae_quantum`) |
+| `AdvCraftingCPUCluster.addBlockEntity`: storage, its multiplier, threads, their multiplier; `getCoProcessors`, `recalculateRemainingStorage` | the same sums; the bytes left are the total less the jobs' |
+| `AdvCraftingBlockEntity`'s node: `MULTIBLOCK`, `REQUIRE_CHANNEL`, `getGridConnectableSides` (formed: the core up and down, the rest every side; unformed none); `updateSubType` | one node group, one channel; the block states each grid tick |
+| `AdvCraftingCPUCluster.submitJob`: a new `AdvCraftingCPU` of `plan.bytes()` while the bytes left hold it, many at once, each AE2's crafting logic (`AdvCraftingCPULogic`); `getActiveCPUs`, `getRemainingCapacityCPU`, `cancelJob` | each job is AE2's job session on one block of the computer (the core first), of the plan's bytes and the computer's co-processors; the free block is a CPU of the bytes left |
+| `MixinCraftingService`: the computers' CPUs in `getCpus`, ticked with AE2's, fed by `insertIntoCpus` after AE2's; `onSubmitJob`: a suitable computer (online, room enough, the selection mode; the preferred, then the most co-processors and least storage) before AE2's CPUs | the addons' CPU hooks (`ae2x_cpu_candidates`, `_capacity`, `_job_owners`) in AE2's CPU list, job start, job tick and receipt |
+| `breakCluster` on `onRemove`: the jobs cancelled, their items out | AE2's `breakCluster` (`ae2_break_crafting_members`): the jobs cancelled, their items back to the grid, the rest dropped; also when the box changes or comes apart |
+| `writeToNBT`/`readFromNBT`: the jobs (`cpuList`) and `CPU_SELECTION_MODE` on the core | each job saved in its block's config as AE2's; the mode in the core's config |
+| `QuantumComputerScreen`/`QuantumComputerMenu` (`quantum_computer.json` = `crafting_status.json`), opened on a formed, active block: the jobs and the free CPU (`AdvCpuSelectionList`), the selected job, `CPU_SELECTION_MODE` in the toolbar | AE2's crafting status screen over the computer's CPUs, the mode button in place of back |
+| recipes `quantumstructure`, `eaequantumunit`, `eaequantumaccel`, `quantumstorage128`/`256`, `quantumcore`, `eaequantumdataentangler`, `eaequantummultithreader` (the `not extendedae` forms stay for the game to turn off); the items they need: `shattered_singularity`, `quantum_storage_component`, `quantum_processor`, `printed_quantum_processor`, `quantum_processor_press`, `quantum_alloy` | from the jar; the Reaction Chamber's `shatteredsingularity` now (16 of its 19 recipes) |
+
 ## Not yet
 
 - The encoder's Curios slot (the port has no Curios).
@@ -70,23 +86,35 @@ a later slice's; its KubeJS changes no recipe of this slice.
   of the tanks and the power alert, the half-size flush buttons, the Memory Card's `EXPORTED_ALLOWED_SIDES`, the
   recharge from Applied Flux's FE cells (`AppliedFluxPlugin.rechargeEnergyStorage`), a storage bus on it (it sees the
   output tank only), the wrench's turn, JEI/EMI/REI, and the recipes of items the port lacks yet (`quantum_alloy`,
-  `quantum_alloy_plate`, `quantum_infusion`, `shatteredsingularity`: the Quantum Computer's slice).
-- The Extended (36) provider, the part forms and the upgrade items (slice 4), the Quantum Computer (3), the buses and Throughput Monitor (5), the Quantum Crafter (6), the Quantum Armor (7).
+  `quantum_alloy_plate`, `quantum_infusion`: the fluid `quantum_infusion_source` and its block and bucket, which the
+  port cannot register yet, so the Quantum Alloy has no source in survival).
+- The Quantum Computer's leftovers: the formed models (`QuantumComputer*BakedModel`: the blocks keep their plain
+  models, the structure the item's translucent cube), the light of a formed core and structure (`LIGHT_LEVEL` is set,
+  but the port's block light does not follow a state, so they give none), the name from a renamed block, the level emitter's `isRequesting` and the
+  Crafting Monitor (none in the mod) for its jobs, `quantum_infused_dust` and the alloy's block forms. The port runs as
+  many jobs at once as the computer has blocks (one on a lone core), where the mod's limit is the bytes alone; a CPU
+  picked in the confirmation is its free block, and a job started elsewhere meanwhile moves that block on. A job of a
+  computer whose box changes is cancelled (the mod drops the cluster and its jobs with it).
+- The Extended (36) provider, the part forms and the upgrade items (slice 4), the buses and Throughput Monitor (5), the Quantum Crafter (6), the Quantum Armor (7).
 
 ## Tests
 
-`horizon-client-lib` (the variant, the registry row, `NullableDirection` names), `horizon-command` (the component's
+`horizon-client-lib` (the variant, the registry rows, `NullableDirection` names, the Quantum Computer's parts and config), `horizon-command` (the component's
 codec), `horizon-client` (`game/ae2x/advancedae`: the encoder's edits, the saved direction list, which provider pushes
 directionally, the tooltip, re-encoding, Filtered Import; the chamber's recipes, power steps, tanks and sides; the encoder menu's slots and buttons and the item's
-inventory; the screen's buttons; the provider's layout on the window's entries), and the world tests
+inventory; the screen's buttons; the provider's layout on the window's entries; the Quantum Computer's formation, sums
+and saved cluster), and the world tests
 `advancedae-provider` (the encoder's edits; the provider's screen; raw iron through a furnace's top and coal through
 its side; AE2's provider pushing the same pattern to one face; a restart) and `advancedae-encoder` (the encoder's screen
 used and by its hotkey, its rows and buttons; the tooltip; Filtered Import with a hopper and a shift-click; re-encoding
 in AE2's terminal; a restart) and `advancedae-reaction-chamber` (power on every side; fluix for 200,000 AE of the
 grid, 100 steps; the screen, its tanks, flush, a bucket from the cursor, cards and only recipe inputs; the sides with
 `AUTO_EXPORT` and a chest at the front; four cards; buckets on the block; an AE2 Pattern Provider pushing items and
-water and getting the fluix back; a restart; its drops):
+water and getting the fluix back; a restart; its drops) and `advancedae-quantum-computer` (no core, structure inside
+or a unit on the shell do not form; a core, an entangler and an accelerator form 256 MB x 6 and 24 co-processors; a
+core alone; two jobs at once from the terminal, each of its bytes; the screen's CPUs and mode; a restart; the outputs
+ending both; a broken computer giving a waiting job's items back):
 
 ```sh
-AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber
+AE2_TEST_STARTUP_MS=600000 bun run ae2/scripts/test-world.ts advancedae-provider advancedae-encoder advancedae-reaction-chamber advancedae-quantum-computer
 ```

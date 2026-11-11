@@ -300,6 +300,8 @@ impl Game<'_> {
         for cluster in self.ae2_published_cpus()?.into_iter().filter(|cluster|cluster.service==service) {
             if let Some((owner,_))=self.ae2_cpu_waiting_owner_for_key(&cluster.members,Some(key))? {owners.push(owner);}
         }
+        // The addons' CPUs after AE2's (Advanced AE's Quantum Computer).
+        owners.extend(self.ae2x_cpu_job_owners(address));
         Ok(owners)
     }
     pub(super) fn ae2_observed_cpu_candidates(&self, pos:(i32,i32,i32), required:u64) -> Result<Vec<(GridAddress,u64,u32)>,String> {

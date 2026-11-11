@@ -1302,6 +1302,7 @@ mod recursive {
             self.ae2_local_address(*members.first()?)
         }
         pub(in crate::game) fn ae2_cpu_selection_mode(&self, cpu:GridAddress)->Option<&'static str> {
+            let cpu=self.ae2x_cpu_settings(cpu).unwrap_or(cpu);
             let BlockEntity::Ae2(machine)=self.ae2_block_entity(cpu)? else{return None;};
             match machine.config.get(&"ae2_cpu_selection_mode".into()) {
                 None=>Some("ANY"),
@@ -1311,6 +1312,7 @@ mod recursive {
         }
         pub(in crate::game) fn ae2_cpu_cycle_selection_mode(&mut self,cpu:GridAddress)->Result<&'static str,String> {
             let next=match self.ae2_cpu_selection_mode(cpu).ok_or("invalid CPU selection mode")? {"ANY"=>"PLAYER_ONLY","PLAYER_ONLY"=>"MACHINE_ONLY",_=>"ANY"};
+            let cpu=self.ae2x_cpu_settings(cpu).unwrap_or(cpu);
             let Some(BlockEntity::Ae2(machine))=self.ae2_block_entity_mut(cpu) else{return Err("CPU disappeared".into());};
             machine.config.insert("ae2_cpu_selection_mode".into(),Tag::String(next.into()));self.ae2_mark_modified(cpu);Ok(next)
         }
@@ -1829,8 +1831,10 @@ mod recursive {
             pos: Pos,
             required: u64,
         ) -> Result<Vec<(GridAddress, u64, u32)>, String> {
+            let mut addons=self.ae2x_cpu_candidates(pos,required);
             if super::super::ae2_event_live::cpu_formation_enabled() {
-                return self.ae2_observed_cpu_candidates(pos,required);
+                addons.extend(self.ae2_observed_cpu_candidates(pos,required)?);
+                return Ok(addons);
             }
             let network = self.ae2_network();
             let analysis = network.analyze().map_err(str::to_owned)?;
@@ -1877,7 +1881,8 @@ mod recursive {
                 };
                 result.insert(root, (root, capacity, coprocessors));
             }
-            Ok(result.into_values().collect())
+            addons.extend(result.into_values());
+            Ok(addons)
         }
         /// Calculate a confirmation preview from the current physical network.
         /// This never reserves, extracts, or otherwise mutates its inputs.
@@ -2385,7 +2390,17 @@ mod recursive {
                 (!preferred,*root)
             });
             let mut selected = None;
-            if super::super::ae2_event_live::cpu_formation_enabled() {
+            // An addon's CPU first (Advanced AE's Quantum Computer, whose job
+            // holds the plan's own bytes: `AdvCraftingCPU(cluster, id, plan.bytes())`),
+            // the preferred for the source before the rest.
+            let mut addons=self.ae2x_cpu_candidates(pos,plan.estimated_bytes);
+            addons.sort_by_key(|(root,_,_)|selection_policy(self.ae2_cpu_selection_mode(*root),machine_request)!=Some(true));
+            for (root,_,coprocessors) in addons {
+                if requested_cpu.is_some_and(|wanted|wanted!=root) {continue;}
+                if requested_cpu.is_none() && selection_policy(self.ae2_cpu_selection_mode(root),machine_request).is_none() {continue;}
+                selected=Some((root,plan.estimated_bytes,coprocessors));break;
+            }
+            if selected.is_none() && super::super::ae2_event_live::cpu_formation_enabled() {
                 let mut candidates=self.ae2_observed_cpu_candidates(pos,plan.estimated_bytes)?;
                 candidates.sort_by_key(|(root,_,_)| {
                     let preferred=selection_policy(self.ae2_cpu_selection_mode(*root),machine_request)==Some(true);
@@ -2396,7 +2411,7 @@ mod recursive {
                     if requested_cpu.is_none() && selection_policy(self.ae2_cpu_selection_mode(root),machine_request).is_none() {continue;}
                     selected=Some((root,capacity,coprocessors));break;
                 }
-            } else { for root in roots {
+            } else if selected.is_none() { for root in roots {
                 if requested_cpu.is_some_and(|wanted| wanted != root) {
                     continue;
                 }
@@ -3543,6 +3558,7 @@ mod recursive {
         }
         /// Active jobs first, then the other formed CPUs in the same grid.
         pub(in crate::game) fn ae2_terminal_status_cpus(&self,pos:Pos)->Vec<GridAddress> {
+            if let Some(cpus)=self.ae2x_cluster_cpus(pos) {return cpus;}
             let mut result:Vec<_>=self.ae2_recursive_jobs(pos).into_iter().map(|job|job.0).collect();
             if let Ok(idle)=self.ae2_craft_cpu_candidates(pos,0) {
                 for (cpu,_,_) in idle {if !result.contains(&cpu) {result.push(cpu);}}
@@ -3599,6 +3615,9 @@ mod recursive {
         /// physical CPU owner still exist. The saved legacy job is never
         /// silently moved or discarded if its custody cannot be reconciled.
         pub(in crate::game) fn ae2_prepare_cpu_removal(&mut self, pos: Pos) -> Result<(),String> {
+            if let Some(members)=self.ae2x_cpu_break_members(pos) {
+                return if members.is_empty() {Ok(())} else {self.ae2_break_crafting_members(pos,members)};
+            }
             if !super::super::ae2_event_live::cpu_formation_enabled() {return Ok(());}
             let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos) else{return Ok(());};
             if !kind(machine.kind) {return Ok(());}
@@ -3649,7 +3668,7 @@ mod recursive {
             }
             Ok(())
         }
-        fn ae2_break_crafting_members(&mut self, pos: Pos, members: Vec<Pos>) -> Result<(), String> {
+        pub(in crate::game) fn ae2_break_crafting_members(&mut self, pos: Pos, members: Vec<Pos>) -> Result<(), String> {
             let mut jobs = Vec::new();
             for p in members {
                 let Some(BlockEntity::Ae2(machine)) = self.world.block_entities.get(&p) else {
@@ -3869,10 +3888,23 @@ mod recursive {
         }
         /// A CPU's storage and co-processors, busy or not.
         pub(in crate::game) fn ae2_cpu_capacity(&self, cpu:GridAddress) -> (u64,u32) {
+            if let Some(capacity)=self.ae2x_cpu_capacity(cpu) {return capacity;}
             if super::super::ae2_event_live::cpu_formation_enabled()
                 && let Ok(capacity)=self.ae2_observed_cpu_capacity(cpu) {return capacity;}
             let cluster=self.ae2_address_parts(cpu).and_then(|(dim,local)|cluster_checked(self.ae2_world_for(dim)?,local,false,true).ok());
             cluster.map_or((0,0),|(_,capacity,coprocessors)|(capacity,coprocessors))
+        }
+        /// The bytes a CPU's job holds (`ICraftingCPU.getAvailableStorage` of a
+        /// job of its own), none without a job.
+        pub(in crate::game) fn ae2_cpu_job_capacity(&self, pos:GridAddress) -> Option<u64> {
+            let dim = self.ae2_address_parts(pos)?.0;
+            let BlockEntity::Ae2(machine) = self.ae2_block_entity(pos)? else { return None; };
+            if !machine.config.contains_key(&JOB.into()) {return None;}
+            read_session(machine, dim).ok().map(|session|session.cpu.capacity_bytes)
+        }
+        /// Whether a block holds a CPU job, recursive or legacy.
+        pub(in crate::game) fn ae2_cpu_has_job(machine:&Machine) -> bool {
+            machine.config.contains_key(&JOB.into()) || machine.config.contains_key(&"ae2_cpu_job".into())
         }
         /// What the CPU crafts (`CraftingJobStatus`).
         pub(in crate::game) fn ae2_cpu_job(&self, pos:GridAddress) -> Option<CpuJob> {
@@ -4268,7 +4300,8 @@ mod recursive {
                 return Ok(());
             }
             // A broken or reduced CPU keeps its physical escrow until restored.
-            let (capacity,coprocessors)=if super::super::ae2_event_live::cpu_formation_enabled() {
+            let (capacity,coprocessors)=if let Some(capacity)=self.ae2x_cpu_capacity(cpu_address) {capacity}
+            else if super::super::ae2_event_live::cpu_formation_enabled() {
                 let Ok(capacity)=self.ae2_observed_cpu_capacity(cpu_address) else {return Ok(());};capacity
             } else {
                 let Ok((_,capacity,coprocessors))=cluster(self,pos,true) else{return Ok(());};(capacity,coprocessors)

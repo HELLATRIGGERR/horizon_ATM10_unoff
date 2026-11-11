@@ -48,6 +48,10 @@ fn status_revision_matches(history:&std::collections::VecDeque<(i32,super::ae2_g
 enum CraftOrigin {
     Monitor(String),
     Cpu { clicked:(i32,i32,i32), clicked_incarnation:u64, core_incarnation:u64 },
+    /// An addon's crafting CPU of many jobs (Advanced AE's Quantum Computer,
+    /// `QuantumComputerMenu`): its jobs and its free block as a CPU list, the
+    /// selection mode of them all.
+    Cluster { clicked_incarnation:u64 },
     Terminal {part:Option<super::ae2_parts::PartAddress>,wireless:Option<super::ae2_wireless::WirelessContext>},
 }
 
@@ -342,6 +346,22 @@ impl Game<'_> {
         if let Some(session)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.as_mut()) {session.window=window;session.state=0;session.status_mode=true;session.status_cpu=Some(cpu);session.status_job=identity;}
         self.lan_send_craft_confirm(host,conn);true
     }
+    /// An addon's crafting CPU of many jobs at `pos` (Advanced AE's Quantum
+    /// Computer): its status screen, the first job's CPU selected
+    /// (`QuantumComputerMenu.broadcastChanges`), else its free block.
+    pub(super) fn lan_open_quantum_craft_status(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32))->bool {
+        let Some(cpus)=self.ae2x_cluster_cpus(pos) else{return false;};
+        let Some(clicked_incarnation)=self.world.block_entities.incarnation(&pos) else{return false;};
+        let Some(guest)=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g)) else{return false;};
+        if guest.spectator() || !guest.within_block_range([pos.0,pos.1,pos.2],0.0) {return false;}
+        let cpu=cpus.first().copied();
+        let key=ItemKey{item_id:"minecraft:air".into(),components:vec![]};
+        if !self.lan_open_craft_confirm(host,conn,pos,key,false,CraftOrigin::Cluster{clicked_incarnation}) {return false;}
+        let Some(window)=host.hub.open_window(conn,"minecraft:generic_9x3",horizon_protocol::text::literal("AE2 Crafting Status")) else{return true;};
+        let identity=cpu.and_then(|cpu|self.ae2_recursive_job_identity(cpu));
+        if let Some(session)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.as_mut()) {session.window=window;session.state=0;session.status_mode=true;session.status_cpu=cpu;session.status_job=identity;}
+        self.lan_send_craft_confirm(host,conn);true
+    }
     pub(super) fn lan_open_terminal_craft_status(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),cpu:Option<super::ae2_global::GridAddress>,part:Option<super::ae2_parts::PartAddress>,wireless:Option<super::ae2_wireless::WirelessContext>,owner:Option<(super::ae2_parts::PartAddress,(u64,[i32;4]))>)->bool {
         let job_id=cpu.and_then(|address|self.ae2_recursive_job_identity(address));
         if cpu.is_some_and(|address|job_id.is_none() && self.ae2_recursive_jobs(pos).iter().any(|job|job.0==address)) {
@@ -371,7 +391,7 @@ impl Game<'_> {
         true
     }
     fn ae2_craft_confirm_items(&self,s:&GuestCraftConfirm)->(Vec<Option<ItemStack>>,usize) {
-        let (key,fluid,confirmation,cpu,requested_page,status_mode,status_cpu,status_direct,report)=(s.key.clone(),s.fluid,s.confirmation,s.cpu,s.report_page,s.status_mode,s.status_cpu,matches!(s.origin,CraftOrigin::Cpu{..}),s.report.clone());
+        let (key,fluid,confirmation,cpu,requested_page,status_mode,status_cpu,status_direct,report)=(s.key.clone(),s.fluid,s.confirmation,s.cpu,s.report_page,s.status_mode,s.status_cpu,matches!(s.origin,CraftOrigin::Cpu{..}|CraftOrigin::Cluster{..}),s.report.clone());
         let mut items=vec![None;27];
         let mut page=0;
         items[0]=if fluid {super::ae2_fluids::fluid_bucket(&key.item_id).map(|id|ItemStack::new(id,1))}
@@ -431,6 +451,7 @@ impl Game<'_> {
             super::ae2_autocrafting::job_name_kind(key)==ae2_cell_core::KeyType::FLUIDS,amounts);
         let host=match &s.origin {
             CraftOrigin::Cpu{..}=>"ae2:crafting_unit".to_owned(),
+            CraftOrigin::Cluster{..}=>self.res.facts().get(self.world.block(s.pos.0,s.pos.1,s.pos.2)).name.to_string(),
             CraftOrigin::Monitor(_)=>"ae2:crafting_monitor".to_owned(),
             CraftOrigin::Terminal{wireless:Some(_),..}=>"ae2:wireless_terminal".to_owned(),
             CraftOrigin::Terminal{part:Some(part),..}=>match self.ae2_part_machine(*part).ok().flatten().map(|m|m.kind) {
@@ -443,6 +464,7 @@ impl Game<'_> {
         let mut view=CraftView{host,..CraftView::default()};
         if s.status_mode {
             view.direct=matches!(s.origin,CraftOrigin::Cpu{..});
+            view.cluster=matches!(s.origin,CraftOrigin::Cluster{..});
             let cpus=if view.direct {s.status_cpu.into_iter().collect()} else {self.ae2_status_cpu_list(s.pos)};
             let idle=self.ae2_craft_cpu_candidates(s.pos,0).unwrap_or_default();
             view.cpus=cpus.iter().map(|&cpu|{
@@ -575,6 +597,9 @@ impl Game<'_> {
                     && core.is_some_and(|p|self.world.block_entities.incarnation(&p)==Some(*core_incarnation))
                     && self.ae2_cpu_cluster_owner(*clicked)==Some(cpu)
             },
+            CraftOrigin::Cluster{clicked_incarnation}=>guest.is_some_and(|g|g.within_block_range([s.pos.0,s.pos.1,s.pos.2],0.0))
+                && self.world.block_entities.incarnation(&s.pos)==Some(*clicked_incarnation)
+                && self.ae2x_cluster_cpus(s.pos).is_some(),
             CraftOrigin::Monitor(face)=>guest.is_some_and(|g|g.within_block_range([s.pos.0,s.pos.1,s.pos.2],0.0))
                 && self.ae2_monitor_craft_target(s.pos,face).as_ref()==Some(&s.key),
             CraftOrigin::Terminal{part,wireless}=>{
@@ -591,6 +616,7 @@ impl Game<'_> {
         }
         if s.status_mode {
             let direct=matches!(s.origin,CraftOrigin::Cpu{..});
+            let cluster=matches!(s.origin,CraftOrigin::Cluster{..});
             if s.status_owner.is_some_and(|(part,identity)|self.ae2_terminal_part_identity(part)!=Some(identity)) {
                 host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:s.window}));return true;
             }
@@ -598,7 +624,7 @@ impl Game<'_> {
             if super::lan_crafting::input(p.input)!=horizon_client::menu::Input::Pickup || (p.button!=0 && select.is_none()) {
                 host.play.entry(conn).or_default().ae2_craft_confirm=Some(s);self.lan_send_craft_confirm(host,conn);return true;
             }
-            if p.slot==20 && !direct {
+            if p.slot==20 && !direct && !cluster {
                 let origin=s.origin;
                 let opened=match origin {
                     CraftOrigin::Terminal{wireless:Some(ctx),..}=>self.lan_open_ae2_wireless_terminal(host,conn,s.pos,ctx),
@@ -624,7 +650,7 @@ impl Game<'_> {
                 host.play.entry(conn).or_default().ae2_craft_confirm=Some(s);self.lan_send_craft_confirm(host,conn);return true;
             }
             match p.slot {
-                0 if direct=>{let _=self.ae2_cpu_cycle_selection_mode(cpu);},
+                0 if direct || cluster=>{let _=self.ae2_cpu_cycle_selection_mode(cpu);},
                 2=>{let _=self.ae2_recursive_toggle_suspended(cpu);},
                 3=>{let _=self.ae2_recursive_cancel(cpu);},
                 4 if !direct=>{let cpus=self.ae2_terminal_status_cpus(s.pos);if let Some(i)=cpus.iter().position(|p|*p==cpu) {let next=select.and_then(|row|self.ae2_status_cpu_list(s.pos).get(row).copied()).unwrap_or(cpus[(i+1)%cpus.len()]);s.status_cpu=Some(next);s.status_job=self.ae2_recursive_job_identity(next);s.report_page=0;}},
@@ -751,7 +777,7 @@ impl Game<'_> {
                     continue;
                 }
             }
-            if s.status_mode && matches!(s.origin,CraftOrigin::Terminal{..}) {
+            if s.status_mode && matches!(s.origin,CraftOrigin::Terminal{..}|CraftOrigin::Cluster{..}) {
                 let cpus=self.ae2_terminal_status_cpus(s.pos);
                 if s.status_cpu.is_none_or(|cpu|!cpus.contains(&cpu)) {s.status_cpu=cpus.first().copied();s.report_page=0;}
             }

@@ -149,7 +149,7 @@ pub struct Capacities {
 }
 
 /// `FormationProtocol.explore` counting: the positions `ok` takes that touch `start` (the start first), until 5832.
-fn explore_count(start: Pos, mut ok: impl FnMut(Pos) -> bool) -> i32 {
+pub(crate) fn explore_count(start: Pos, mut ok: impl FnMut(Pos) -> bool) -> i32 {
     if !ok(start) {
         return 0;
     }

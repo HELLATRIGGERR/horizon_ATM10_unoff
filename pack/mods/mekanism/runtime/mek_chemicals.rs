@@ -175,6 +175,9 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
     if block == super::mek_boiler::VALVE {
         return super::mek_boiler::chemical_handler(game, dimension, pos, super::mek_boiler::VALVE, face, &registry, use_it);
     }
+    if block == super::mek_turbine::VALVE {
+        return super::mek_turbine::chemical_handler(dimension, pos, super::mek_turbine::VALVE, face, &registry, use_it);
+    }
     game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
             super::mek_tanks::chemical_handler(m, face, &registry, use_it)

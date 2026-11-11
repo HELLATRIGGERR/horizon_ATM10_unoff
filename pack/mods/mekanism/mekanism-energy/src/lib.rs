@@ -41,8 +41,10 @@
 //! Multiblocks form as Mekanism's do (`multiblock`: the structure, its
 //! cuboid, the check of its blocks, the cache by its id): the Dynamic Tank
 //! (`dynamic_tank`), the Induction Matrix (`induction`), the Thermal
-//! Evaporation Plant (`evaporation`) and the Thermoelectric Boiler
-//! (`boiler`), which the Resistive Heater (`heater`) heats.
+//! Evaporation Plant (`evaporation`), the Thermoelectric Boiler
+//! (`boiler`), which the Resistive Heater (`heater`) heats, and Mekanism
+//! Generators' Industrial Turbine (`turbine`), which turns its steam into
+//! Joules.
 //! The Electric Pump and the Fluidic Plenisher (`pump`) take the world's
 //! fluid blocks into a tank and put them back.
 //! Nothing here knows the game: the native mod's helpers bring the world.
@@ -82,6 +84,7 @@ pub mod split;
 pub mod tier;
 pub mod transmitter;
 pub mod transporter;
+pub mod turbine;
 pub mod wind;
 
 /// Java's `(long) d` for the energy maths: NaN is 0, the rest saturates.

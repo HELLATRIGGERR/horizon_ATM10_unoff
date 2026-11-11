@@ -179,6 +179,29 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   the boil's and the coolant's own at the end of its tick; `hotMap` is read as the tick begins, so the elements light
   a tick after it passes 373.14 K; `ITileHeatHandler.simulateAdjacent` takes the heater's temperature over the air's,
   not over the sink's; an unformed casing is no heat handler, so a heater beside it keeps its heat.
+- Multiblocks, part 6: the Industrial Turbine (branch `feat/mekanism-multiblocks-2`, no new hook point:
+  `mekanism_energy::turbine`, runtime `mek_turbine`; the framework gained `Kind::Turbine` (vents its `OTHER` block, a
+  cache of steam, vent water and Joules saved with `dumping` and no `edit_mode`), the turbine's failures and the
+  shape a formation works out (`Formed.turbine`); the turbine blocks' declarations take the beacon template like the
+  boiler's). Measured on a private copy of the oracle with Mekanism Generators 10.7.19 added (local
+  `mekturb-work/oracle`, RCON 25631, ATM10's `generators.toml`; `t1.py`, `t2.py`): forms 12 ticks after it is built;
+  5x5x5 with one rotor, a vent at the complex's height or in the top, glass and valves in the sides, three
+  condensers, and 5x9x5 with five rotors form; no blade, an even length, the complex off the middle, no coil, no
+  vent, a vent below the layer or on an edge, a condenser below it, a gap in the rotors, a rotor off the middle, a
+  missing or an extra disperser, a coil apart from the others, six rotors 5 wide and dirt inside don't. The cache is
+  `{chemical_tanks_stored: 1, fluid_tanks_stored: 1, energy_containers_stored: 1, dumping}` (no `edit_mode`).
+  Creative steam into a 5x5x5 of two blades: 43 478 mB a tick, 31 055 J into an ultimate cube against a valve,
+  43 478 mB of water (32 000 into a basic fluid tank against the vent, the vent tank full at 128 000 on the fifth
+  tick); a 7x7x7 of four blades, two coils, condensers and vents 124 223 J and 86 956 mB; ten blades on one coil
+  124 223 J; a basic tank's 1000 mB a tick 1994 mB and 4 J on the second tick, 7213 and 561 on the eighth (the flow
+  is `min(stored, rate) * stored / capacity`); a boiler's steam valve into a turbine valve 31 055 J a tick from the
+  boiler's third tick until its cooled tank stopped it. The dump modes come only from the screen (a client packet),
+  so `t2.py` wrote them into the saved cache with the server stopped: dumping from 160 000 mB 114 192 and 81 499
+  after two ticks, dumping excess from 800 000 741 392 and 687 078, idle 116 522 and 84 859; a dumping turbine fed
+  1000 mB a tick keeps the last 1000 (twice the last input goes). World test `turbine` (its own copy of the configs:
+  `generators.toml` too). Learned: the multiblock's tick runs before a tank placed after it, so steam pushed in lands
+  for the next tick and counts as that tick's `lastSteamInput`; a turbine filled in one tick and dumping loses all of
+  it on the next.
 - Generators 2 and the fluid world machines (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
   the Bio-Generator, Wind Generator and Advanced Solar Generator (`mekanism_energy::bio`, `wind`, `solar`'s
   `AdvancedSolar`; three more `GeneratorKind`s run by `runtime/mek_gen2.rs`, which also places and removes their
@@ -196,8 +219,9 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
   under a block set while the world is held settles a tick or more later, so the tests let it settle before the
   generators look again.
-- Next: the Industrial Turbine (steam from the boiler into energy: rotors, coils, vents and condensers checked after
-  the walls, `postcheck`), the SPS and the reactors; more heat handlers (the fuelwood heater, the heat generator's
+- Next: the SPS and the reactors (the Fission Reactor's ports and the Fusion Reactor's frame); the turbine's rest
+  (blades drawn and turning, the rotors' `position`, the statistics graphs, comparators, cables pulling from its
+  valves, a rotor dropping its blades however it goes); more heat handlers (the fuelwood heater, the heat generator's
   down side and its taking heat, thermodynamic conductors) and the resistive heater's usage field (a text field in
   the bundle's screens); chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the

@@ -103,6 +103,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(super::mek_boiler::screen());
         return;
     }
+    if super::mek_turbine::is_turbine_block(block) {
+        *screen = Some(super::mek_turbine::screen());
+        return;
+    }
     if super::mek_heater::is_heater(block) {
         *screen = Some(super::mek_heater::screen());
         return;
@@ -264,6 +268,10 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
         super::mek_boiler::click(at, button);
         return;
     }
+    if super::mek_turbine::is_turbine_block(block) {
+        super::mek_turbine::click(at, button);
+        return;
+    }
     if super::mek_tanks::tier_of(block).is_some() {
         super::mek_tanks::click(data, at, right, button);
         return;
@@ -331,6 +339,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
     }
     if super::mek_boiler::is_boiler_block(block) {
         super::mek_boiler::tooltip(data, at, lines);
+        return;
+    }
+    if super::mek_turbine::is_turbine_block(block) {
+        super::mek_turbine::tooltip(data, at, lines);
         return;
     }
     if super::mek_heater::is_heater(block) {
@@ -522,6 +534,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if super::mek_boiler::is_boiler_block(block) {
         super::mek_boiler::draw(game, data, batch, origin);
+        return;
+    }
+    if super::mek_turbine::is_turbine_block(block) {
+        super::mek_turbine::draw(game, data, batch, origin);
         return;
     }
     if super::mek_heater::is_heater(block) {

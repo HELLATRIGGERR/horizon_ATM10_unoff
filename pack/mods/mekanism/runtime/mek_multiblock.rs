@@ -1,8 +1,8 @@
 // Mekanism's multiblocks in the game (support module `crate::game::mek_multiblock`
 // of the `mekanism` native bundle): the framework the Dynamic Tank
 // (`mek_dynamic_tank`), the Induction Matrix (`mek_matrix`), the Thermal
-// Evaporation Plant (`mek_evaporation`) and the Thermoelectric Boiler
-// (`mek_boiler`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
+// Evaporation Plant (`mek_evaporation`), the Thermoelectric Boiler
+// (`mek_boiler`) and the Industrial Turbine (`mek_turbine`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -33,6 +33,7 @@ use mekanism_energy::{
     evaporation::{self, Heat},
     multiblock::{self, Cuboid, Failure, Inner, Node, Pos, Uuid},
     sides::Direction,
+    turbine,
 };
 use serde_json::{Value, json};
 use std::{
@@ -41,19 +42,21 @@ use std::{
     hash::{BuildHasher, Hasher},
 };
 
-/// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`, `boilerManager`).
+/// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`, `boilerManager`,
+/// `MekanismGenerators.turbineManager`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Kind {
     Tank,
     Matrix,
     Evaporation,
     Boiler,
+    Turbine,
 }
 
 pub(super) const GLASS: &str = "mekanism:structural_glass";
 
 impl Kind {
-    pub(super) const ALL: [Self; 4] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler];
+    pub(super) const ALL: [Self; 5] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine];
 
     /// `MultiblockManager.getName`.
     pub(super) fn name(self) -> &'static str {
@@ -62,6 +65,7 @@ impl Kind {
             Self::Matrix => "inductionMatrix",
             Self::Evaporation => "evaporation",
             Self::Boiler => "thermoelectricBoiler",
+            Self::Turbine => "industrialTurbine",
         }
     }
 
@@ -71,6 +75,7 @@ impl Kind {
             Self::Matrix => "mekanism:induction_casing",
             Self::Evaporation => "mekanism:thermal_evaporation_block",
             Self::Boiler => super::mek_boiler::CASING,
+            Self::Turbine => super::mek_turbine::CASING,
         }
     }
 
@@ -80,12 +85,18 @@ impl Kind {
             Self::Matrix => "mekanism:induction_port",
             Self::Evaporation => "mekanism:thermal_evaporation_valve",
             Self::Boiler => super::mek_boiler::VALVE,
+            Self::Turbine => super::mek_turbine::VALVE,
         }
     }
 
-    /// Its block that is neither casing nor valve (`CasingType.OTHER`): the evaporation plant's controller.
+    /// Its block that is neither casing nor valve (`CasingType.OTHER`): the evaporation plant's controller, the
+    /// turbine's vents.
     fn other(self) -> Option<&'static str> {
-        (self == Self::Evaporation).then_some(super::mek_evaporation::CONTROLLER)
+        match self {
+            Self::Evaporation => Some(super::mek_evaporation::CONTROLLER),
+            Self::Turbine => Some(super::mek_turbine::VENT),
+            _ => None,
+        }
     }
 
     /// The casing, valve or controller of a multiblock (`TileEntityMultiblock`): its manager and whether it is the
@@ -103,11 +114,11 @@ impl Kind {
     }
 
     /// The blocks whose item handler reaches the multiblock's slots (Mekanism's `Attributes.INVENTORY`): the dynamic
-    /// valve and the induction port, the evaporation controller; the boiler has no slots.
+    /// valve and the induction port, the evaporation controller; the boiler and the turbine have no slots.
     fn holds_inventory(self, block: &str) -> bool {
         match self {
             Self::Evaporation => self.other() == Some(block),
-            Self::Boiler => false,
+            Self::Boiler | Self::Turbine => false,
             _ => block == self.valve(),
         }
     }
@@ -135,6 +146,7 @@ impl Kind {
             Self::Matrix => "inductionmatrix",
             Self::Evaporation => "evaporation",
             Self::Boiler => "thermoelectricboiler",
+            Self::Turbine => "industrialturbine",
         }
     }
 
@@ -144,6 +156,7 @@ impl Kind {
             Self::Matrix => &MATRIX_DATA,
             Self::Evaporation => &EVAPORATION_DATA,
             Self::Boiler => &BOILER_DATA,
+            Self::Turbine => &TURBINE_DATA,
         }
     }
 
@@ -156,6 +169,8 @@ impl Kind {
             Self::Evaporation => [0, 4, 2, 0, 1],
             // Steam, heated coolant and cooled coolant; water; its heat.
             Self::Boiler => [3, 0, 1, 0, 1],
+            // Steam; the vent tank's water; its Joules.
+            Self::Turbine => [1, 0, 1, 1, 0],
         }
     }
 
@@ -202,6 +217,14 @@ static BOILER_DATA: AttachmentType<Compound> = AttachmentType {
     copy_on_death: false,
     sync: false,
 };
+static TURBINE_DATA: AttachmentType<Compound> = AttachmentType {
+    namespace: "mekanism",
+    name: "industrialturbine",
+    default: Compound::new,
+    codec: Some(AttachmentCodec { encode: identity, decode: identity }),
+    copy_on_death: false,
+    sync: false,
+};
 
 pub(super) fn is_air(block: &str) -> bool {
     matches!(block, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
@@ -234,6 +257,8 @@ pub(super) struct Cache {
     /// capacitor reads 300 K of a capacity of 1 (`CacheSubstance.HEAT.defaultPrefab`).
     pub(super) heat: Vec<Option<Heat>>,
     pub(super) edit_mode: i32,
+    /// The turbine's dump mode (`TurbineCache.dumpMode`, saved as `dumping`).
+    pub(super) dumping: i32,
 }
 
 impl Cache {
@@ -246,6 +271,7 @@ impl Cache {
             energy: vec![0; e],
             heat: vec![None; h],
             edit_mode: 0,
+            dumping: 0,
         }
     }
 
@@ -286,10 +312,12 @@ impl Cache {
             *mine = Some(mine.unwrap_or(unsaved).merge(theirs.unwrap_or(unsaved)));
         }
         self.edit_mode = other.edit_mode;
+        self.dumping = other.dumping;
     }
 
-    /// `MultiblockCache.save` with its `inventory_id`, as `MultiblockCacheDataHandler` lists it.
-    fn save(&self, id: Uuid) -> Compound {
+    /// `MultiblockCache.save` with its `inventory_id`, as `MultiblockCacheDataHandler` lists it; a turbine's keeps its
+    /// `dumping` (and no `edit_mode`).
+    fn save(&self, id: Uuid, kind: Kind) -> Compound {
         let mut c = Compound::new();
         c.insert(key("inventory_id"), Tag::IntArray(id.0.to_vec()));
         let mut list = |name: &str, index: &str, entries: Vec<(usize, Tag)>, count: usize| {
@@ -342,7 +370,11 @@ impl Cache {
                 .collect();
             c.insert(key("heat_capacitors"), Tag::List(list));
         }
-        c.insert(key("edit_mode"), Tag::Int(self.edit_mode));
+        if kind == Kind::Turbine {
+            c.insert(key("dumping"), Tag::Int(self.dumping));
+        } else {
+            c.insert(key("edit_mode"), Tag::Int(self.edit_mode));
+        }
         c
     }
 
@@ -370,6 +402,7 @@ impl Cache {
             energy: vec![0; count("energy_containers")],
             heat: vec![None; count("heat_capacitors")],
             edit_mode: mek_world::number(c.get(&key("edit_mode"))).unwrap_or(0) as i32,
+            dumping: mek_world::number(c.get(&key("dumping"))).unwrap_or(0) as i32,
         };
         if let Some(Tag::List(list)) = c.get(&key("heat_capacitors")) {
             for e in list {
@@ -421,6 +454,8 @@ pub(super) struct Formed {
     pub(super) valves: Vec<(Pos, Direction)>,
     /// A boiler's volumes, elements and disperser layer (`BoilerValidator.postcheck`).
     pub(super) boiler: Option<boiler::Shape>,
+    /// A turbine's rotors, coils, condensers, vents and lower volume (`TurbineValidator.postcheck`).
+    pub(super) turbine: Option<turbine::Shape>,
     /// Blocks whose container shows the multiblock's slots: its valves (hoppers reach them) and the blocks whose
     /// screen a player opened.
     views: BTreeSet<Pos>,
@@ -502,6 +537,7 @@ pub(super) fn clear() {
     super::mek_matrix::clear();
     super::mek_evaporation::clear();
     super::mek_boiler::clear();
+    super::mek_turbine::clear();
 }
 
 // ---- Block entities --------------------------------------------------------------------------
@@ -528,8 +564,8 @@ pub(super) fn container(block: &str) -> Option<ModContainer> {
     }
     let (all, inputs, outputs) = match kind {
         Kind::Evaporation => (vec![0, 1, 2, 3], vec![0, 2], vec![1, 3]),
-        // The boiler's casings and valves open its screen, which has no slots.
-        Kind::Boiler => (Vec::new(), Vec::new(), Vec::new()),
+        // The boiler's and the turbine's casings and valves open their screen, which has no slots.
+        Kind::Boiler | Kind::Turbine => (Vec::new(), Vec::new(), Vec::new()),
         _ => (vec![0, 1], vec![0, 1], vec![0, 1]),
     };
     Some(ModContainer {
@@ -652,6 +688,38 @@ fn failure_text(game: &mut Game<'_>, failure: Failure) -> Option<String> {
         Failure::ExtraDisperser => Some("Couldn't form, found invalid Pressure Dispersers.".into()),
         Failure::InvalidSuperheating => Some("Couldn't form, invalid Superheating Element arrangement.".into()),
         Failure::AirPockets => Some("Couldn't form, found disconnected interior air pockets.".into()),
+        Failure::EvenLength => Some("Couldn't form, width and length of structure must be odd.".into()),
+        Failure::BadComplex(p) => Some(format!(
+            "Couldn't form, found improperly placed Rotational Complex at ({}, {}, {}). Complex must be centered above Turbine Rotors.",
+            p[0], p[1], p[2]
+        )),
+        Failure::BadRotor(p) => Some(format!(
+            "Couldn't form, found invalid Turbine Rotor at ({}, {}, {}). Turbine Rotors must be centered below Rotational Complex.",
+            p[0], p[1], p[2]
+        )),
+        Failure::BadRotors => Some("Couldn't form, invalid Turbine Rotor arrangement.".into()),
+        Failure::MissingComplex => Some("Couldn't form, no Rotational Complex present.".into()),
+        Failure::TooNarrow => Some("Couldn't form, structure is too narrow to support turbine size.".into()),
+        Failure::MissingCoils => Some("Couldn't form, no Electromagnetic Coils present.".into()),
+        Failure::MissingDispersers => Some("Couldn't form, no Pressure Dispersers present.".into()),
+        Failure::MalformedDispersers => Some(
+            "Couldn't form, Pressure Disperser arrangement is malformed. Dispersers must create complete horizontal layer surrounding Rotational Complex."
+                .into(),
+        ),
+        Failure::CondenserBelowComplex(p) => Some(format!(
+            "Couldn't form, found improperly placed Saturating Condenser at ({}, {}, {}). Saturating Condensers must be above Pressure Disperser layer.",
+            p[0], p[1], p[2]
+        )),
+        Failure::RotorsNotContiguous => Some("Couldn't form, rotors are invalid (non-contiguous).".into()),
+        Failure::NoBlades => Some("Couldn't form, no blades are present on the Turbine Rotor.".into()),
+        Failure::MalformedCoils => Some(
+            "Couldn't form, Electromagnetic Coil arrangement is malformed. Coils must be connected to Rotational Complex and adjacently connected.".into(),
+        ),
+        // Mekanism's text names no position.
+        Failure::VentBelowComplex(_) => Some(
+            "Couldn't form, found a Turbine Vent below Pressure Disperser layer. Vents must be at or above vertical position of disperser layer.".into(),
+        ),
+        Failure::MissingVents => Some("Couldn't form, no Turbine Vents present.".into()),
     }
 }
 
@@ -667,10 +735,15 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
     }
     let explored: Vec<Pos> = nodes.keys().copied().collect();
     let mut shape = None;
+    let mut turbine_shape = None;
     let result = match kind {
         Kind::Evaporation => evaporation::form(&nodes, |p| inner_at(game, kind, p)),
         Kind::Boiler => super::mek_boiler::form(game, &nodes).map(|(f, s)| {
             shape = Some(s);
+            f
+        }),
+        Kind::Turbine => super::mek_turbine::form(game, &nodes).map(|(f, s)| {
+            turbine_shape = Some(s);
             f
         }),
         _ => multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p)),
@@ -734,6 +807,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             internal: formation.internal.iter().copied().collect(),
             valves: formation.valves.clone(),
             boiler: shape,
+            turbine: turbine_shape,
             views: holders.iter().copied().chain(kept_views.iter().copied().filter(|p| formation.locations.contains(p))).collect(),
             pushed: Vec::new(),
         };
@@ -752,6 +826,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         Kind::Matrix => super::mek_matrix::created(game, dimension, id),
         Kind::Evaporation => super::mek_evaporation::created(game, dimension, id),
         Kind::Boiler => super::mek_boiler::created(game, dimension, id),
+        Kind::Turbine => super::mek_turbine::created(dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -774,6 +849,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
         if formed.kind == Kind::Boiler {
             super::mek_boiler::removed(Some(game), dimension, &formed);
         }
+        if formed.kind == Kind::Turbine {
+            super::mek_turbine::removed(&formed);
+        }
         HEAT.with(|h| h.borrow_mut().remove(&id));
         for p in &formed.views {
             game.native_with_mod_block_entity(*p, |m| {
@@ -794,6 +872,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
     }
     if formed.kind == Kind::Boiler {
         super::mek_boiler::removed(None, dimension, &formed);
+    }
+    if formed.kind == Kind::Turbine {
+        super::mek_turbine::removed(&formed);
     }
     HEAT.with(|h| h.borrow_mut().remove(&id));
     PENDING_CLEAR.with(|p| p.borrow_mut().push(Clear { dimension: dimension.to_owned(), kind: formed.kind, id, views: formed.views.iter().copied().collect(), pushed: formed.pushed }));
@@ -890,7 +971,7 @@ fn save_caches(game: &mut Game<'_>, dimension: &str) {
         std::mem::take(&mut d.dirty)
             .into_iter()
             .map(|kind| {
-                let list: Vec<Tag> = d.caches.get(&kind).map_or(Vec::new(), |c| c.iter().map(|(id, cache)| Tag::Compound(cache.save(*id))).collect());
+                let list: Vec<Tag> = d.caches.get(&kind).map_or(Vec::new(), |c| c.iter().map(|(id, cache)| Tag::Compound(cache.save(*id, kind))).collect());
                 let mut data = Compound::new();
                 data.insert(key("cache"), Tag::List(list));
                 (kind, data)
@@ -1020,6 +1101,7 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
             Kind::Matrix => super::mek_matrix::tick(game, dimension, id),
             Kind::Evaporation => super::mek_evaporation::tick(game, dimension, id),
             Kind::Boiler => super::mek_boiler::tick(game, dimension, id),
+            Kind::Turbine => super::mek_turbine::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -1063,6 +1145,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
         Kind::Matrix => super::mek_matrix::view(dimension, id),
         Kind::Evaporation => super::mek_evaporation::view(game, dimension, id),
         Kind::Boiler => super::mek_boiler::view(game, dimension, id),
+        Kind::Turbine => super::mek_turbine::view(dimension, id),
     };
     for p in views {
         game.native_with_mod_block_entity(p, |m| {
@@ -1227,6 +1310,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
             Kind::Matrix => super::mek_matrix::probe(dimension, owner),
             Kind::Evaporation => super::mek_evaporation::probe(game, dimension, owner),
             Kind::Boiler => super::mek_boiler::probe(game, dimension, owner),
+            Kind::Turbine => super::mek_turbine::probe(dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);

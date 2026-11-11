@@ -1,8 +1,9 @@
 // A player uses an item on a block: a tier installer turns a machine into a factory, a factory into the next tier;
 // a configurator configures, empties, turns or takes up a Mekanism block; a wind or advanced solar generator isn't
-// placed where its bounding blocks don't fit.
+// placed where its bounding blocks don't fit; a turbine blade goes onto a turbine rotor, or comes off it.
 fn mek_use_item_on(game: &mut crate::game::Game<'_>, stack: &horizon_client::items::ItemStack, pos: [i32; 3], face: [i32; 3], claimed: &mut bool) {
     crate::game::mek_factories::use_installer(game, stack, pos, claimed);
     crate::game::mek_configurator::use_on(game, stack, pos, face, claimed);
     crate::game::mek_gen2::use_on(game, stack, pos, face, claimed);
+    crate::game::mek_turbine::use_on(game, stack, pos, claimed);
 }

@@ -4,7 +4,8 @@ Mekanism's energy blocks, its processing machines and factories, its chemicals, 
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
-Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators for All the Mods 10, as a native mod of this fork of Horizon.
+Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators and its Industrial Turbine for All the Mods 10, as a native
+mod of this fork of Horizon.
 It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
 them; `NOTES.md` says where the work stands.
@@ -281,6 +282,27 @@ assets when `mekanism-content` is given them.
   evaporation plant's valves, other resistive heaters) and loses some to the air (`(T - air) / 10015 * 100` a side).
   Its energy slot takes an energy cube's item or what converts to Joules; its screen is `GuiResistiveHeater`'s;
   `/mek heater <x> <y> <z> <J/t>` sets its usage (Mekanism's screen has a text field for it).
+- The Industrial Turbine (`mekanism_energy::turbine`, runtime `mek_turbine`): turbine casings with turbine valves,
+  turbine vents and structural glass in the sides, 5x3x5 to 17x18x17, odd in length and width; inside, a column of
+  turbine rotors from the bottom wall up to the rotational complex in the middle of a full layer of pressure
+  dispersers, electromagnetic coils touching each other and the block above the complex, saturating condensers
+  anywhere above the dispersers, vents at their height or above, at least one blade, and no more rotors than its
+  width carries (`TurbineValidator`: `Couldn't form, structure is too narrow to support turbine size.` and its other
+  reasons). ATM10's `generators.toml` `[turbine]` gives 6400 mB of steam a block of the lower volume (the rotors'
+  height times its length and width), 16 000 000 J a block of the whole and 128 000 mB of water a condenser. A tick,
+  steam flows at most 1280 mB a disperser a block of the lower volume and 43 478.262 a vent, times how full the tank
+  is, as far as the energy room takes it, and makes `maxEnergyPerSteam / 28` J a mB for each blade its coils carry (8
+  a coil): a 5x5x5 of two blades and a vent turns 43 478 mB into 31 055 J a tick. Its condensers turn the flow back
+  into water, which its vents give to the blocks they face (`FluidUtils.emit`) and to whoever drains them; its valves
+  take steam from other blocks (a chemical handler, counted as its input) and give its Joules to the blocks they face
+  each tick (`CableUtils.emit`: cubes, cables, machines, Forge Energy) and through Forge Energy to whoever draws. Its
+  dump modes (the screen's button: idle, dumping excess, dumping) let `max(stored / 50, last input * 2)` mB of steam
+  go a tick, the excess one only what lies above `dumpExcessKeepRatio` (85 %) of its tank. A turbine blade used on a
+  rotor goes onto the lowest rotor of its column with room (two a rotor), a sneaking empty hand takes the highest
+  off, and a broken rotor drops its blades. Its casings, valves and vents open its screen, `GuiIndustrialTurbine`'s
+  (the steam gauge, the input rate bar, the power bar, the dump mode button, the energy tab), with
+  `GuiTurbineStats`'s lines as a page; its steam, water, Joules and dump mode live in the cache under
+  `mekanism_industrialturbine`.
 
 ## Differences from Mekanism
 
@@ -399,6 +421,12 @@ assets when `mekanism-content` is given them.
   there, and its gauges are the contents' colour. Heat handed to it by a heater lands at its next tick, before the
   heater's next: in Mekanism a casing ticking after the heater in the same tick takes it then (the oracle's casings,
   placed first, ticked before it, as here). A valve's fluid handler knows its mode as the boiler's last tick read it.
+- The turbine's rotors draw no blades and nothing turns (Mekanism's `RenderTurbineRotor` and the rotation it sends);
+  the rotors keep their blades but not their place in the column (`position`, which only the renderer reads). Its
+  statistics page lays its lines out inside the panel above the inventory (Mekanism's has no inventory); its
+  screen's graphs, comparators and the valves' transfer aren't there. A rotor that goes other than by a player
+  breaking it (an explosion, `/setblock`) drops no blades. Cables in pull mode don't draw from its valves (they take
+  what the valves give).
 - The resistive heater's energy usage is set with `/mek heater` (no text field in the bundle's screens yet); its
   item keeps neither its usage nor its energy (Mekanism's keeps both), it makes no sound, it hands heat to no heat
   handler but those above (no heat generator, fuelwood heater or conductor), and redstone control and the muffling

@@ -270,7 +270,11 @@ fn write_config(nbt: &mut Compound, cube: &CubeState) {
 /// `native_block_entity`: a cube's entity, with the item's default config.
 /// A creative cube saves no energy, so it counts as full.
 pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
-    if entity.is_some() || super::mek_transmit::new_entity(block, entity) || super::mek_multiblock::new_entity(block, entity) {
+    if entity.is_some()
+        || super::mek_transmit::new_entity(block, entity)
+        || super::mek_multiblock::new_entity(block, entity)
+        || super::mek_turbine::new_entity(block, entity)
+    {
         return;
     }
     if GeneratorKind::of_block(block).is_some() {
@@ -428,6 +432,10 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     }
     if let Some(output) = super::mek_matrix::port_at(game, at) {
         return Some(Target::Port { output });
+    }
+    // A turbine valve gives its Joules out itself and takes none (`INTERNAL` only), but a cable connects to it.
+    if super::mek_turbine::is_valve(&game.native_block(at)) {
+        return Some(Target::Generator);
     }
     let generator = game
         .native_with_mod_block_entity(at, |m| {
@@ -718,7 +726,7 @@ pub(super) fn fe_storage(
         return;
     }
     let (config, _) = energy_config();
-    if super::mek_matrix::fe_storage(dimension, pos, entity, &config, info) {
+    if super::mek_matrix::fe_storage(dimension, pos, entity, &config, info) || super::mek_turbine::fe_storage(dimension, pos, entity, &config, info) {
         return;
     }
     if mek_factories::kind_of(&entity.id).is_some() {
@@ -793,7 +801,9 @@ pub(super) fn fe_transfer(
         return;
     }
     let (config, _) = energy_config();
-    if super::mek_matrix::fe_transfer(dimension, pos, face, entity, &config, max, simulate, extract, moved) {
+    if super::mek_matrix::fe_transfer(dimension, pos, face, entity, &config, max, simulate, extract, moved)
+        || super::mek_turbine::fe_transfer(dimension, pos, face, entity, &config, max, simulate, extract, moved)
+    {
         return;
     }
     if mek_factories::kind_of(&entity.id).is_some() {
@@ -918,7 +928,7 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
         return;
     }
     if super::mek_multiblock::loaded(dimension, pos, &entity.id) {
-        if entity.id == super::mek_matrix::PORT && ANY_CABLES.get() {
+        if (entity.id == super::mek_matrix::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
@@ -961,7 +971,7 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
         return;
     }
     if super::mek_multiblock::unloaded(dimension, pos, &entity.id, removed) {
-        if entity.id == super::mek_matrix::PORT && ANY_CABLES.get() {
+        if (entity.id == super::mek_matrix::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
@@ -1383,6 +1393,10 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         super::mek_dynamic_tank::button(game, pos, id);
         return;
     }
+    if super::mek_turbine::is_turbine_block(&entity.id) {
+        super::mek_turbine::button(game, pos, id);
+        return;
+    }
     if mek_factories::kind_of(&entity.id).is_some() {
         mek_factories::button(game, pos, entity, id);
         return;
@@ -1552,6 +1566,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 /// takes the cube's energy and config (Mekanism's `copy_components` loot).
 pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
     super::mek_multiblock::breaking(game, pos);
+    super::mek_turbine::breaking(game, pos);
     let (config, _) = energy_config();
     let found = game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
@@ -1604,6 +1619,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     super::mek_tubes::level_ticked(game, dimension);
     super::mek_transmit::level_ticked(game, dimension);
     super::mek_multiblock::level_ticked(game, dimension);
+    super::mek_turbine::level_ticked();
     let due = LOOKED_AT.get().is_none_or(|at| at.elapsed() >= Duration::from_secs(1));
     if due {
         LOOKED_AT.set(Some(Instant::now()));
@@ -1716,6 +1732,7 @@ pub(super) fn fluid_tanks(
         || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_evaporation::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_boiler::fluid_tanks(_dimension, _pos, &entity.id, tanks)
+        || super::mek_turbine::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || super::mek_gen2::fluid_tanks(entity, face, tanks)
@@ -1749,6 +1766,7 @@ pub(super) fn fluid_fill(
         || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_evaporation::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_boiler::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
+        || super::mek_turbine::fluid_fill(_dimension, _pos, &entity.id, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
@@ -1795,6 +1813,7 @@ pub(super) fn fluid_drain(
         || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_evaporation::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_boiler::fluid_drain(_dimension, _pos, &entity.id, drained)
+        || super::mek_turbine::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
         || super::mek_gen2::fluid_drain(entity, face, drained)

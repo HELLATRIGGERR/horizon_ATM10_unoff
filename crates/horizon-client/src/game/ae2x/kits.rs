@@ -39,11 +39,15 @@ pub(in crate::game) fn upgraded(old: &Machine, to: &str) -> Option<Machine> {
         None => Machine::for_block(to).filter(|m| m.kind.ext().is_some() && old.kind.ext().is_some())?,
     };
     let same_kind = next.kind == old.kind || next.kind.ext().is_some();
-    if !same_kind || next.slots.len() < old.slots.len() || next.upgrades.len() != old.upgrades.len() {
+    if !same_kind || next.slots.len() < old.slots.len() {
         return None;
     }
     next.slots[..old.slots.len()].clone_from_slice(&old.slots);
-    next.upgrades.clone_from_slice(&old.upgrades);
+    // `AppEngInternalInventory.readFromNBT`: the new device reads the cards
+    // its own upgrade inventory has slots for. Applied Flux's slot on AE2's
+    // provider has none on Advanced AE's, whose logic has no upgrade inventory.
+    let cards = next.upgrades.len().min(old.upgrades.len());
+    next.upgrades[..cards].clone_from_slice(&old.upgrades[..cards]);
     next.energy = old.energy;
     next.config = old.config.clone();
     Some(next)

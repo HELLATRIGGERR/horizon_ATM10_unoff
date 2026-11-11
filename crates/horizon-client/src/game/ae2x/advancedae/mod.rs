@@ -560,6 +560,14 @@ mod tests {
         let small = upgraded(&provider, upgrade.blocks[0].1).unwrap();
         assert_eq!((small.id(), small.slots.len()), (rows::SMALL_ADV_PATTERN_PROVIDER, 9));
         assert_eq!((small.slots[8].clone(), small.config.clone()), (provider.slots[8].clone(), provider.config.clone()));
+        // Applied Flux's card slot on AE2's provider: the small one has no upgrade inventory to read it into.
+        #[cfg(feature = "ae2-appflux")]
+        {
+            let mut carded = provider.clone();
+            carded.upgrades[0] = Some(ItemStack::new(horizon_client::ae2x::appflux::INDUCTION_CARD, 1));
+            let small = upgraded(&carded, upgrade.blocks[0].1).unwrap();
+            assert_eq!((small.id(), small.upgrades.len(), small.slots[8].clone()), (rows::SMALL_ADV_PATTERN_PROVIDER, 0, provider.slots[8].clone()));
+        }
         // The capacity upgrade: 36 slots, the first nine the small one's.
         let large = upgraded(&small, capacity.blocks[0].1).unwrap();
         assert_eq!((large.id(), large.slots.len(), large.slots[8].clone()), (rows::ADV_PATTERN_PROVIDER, 36, provider.slots[8].clone()));

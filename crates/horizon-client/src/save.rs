@@ -5775,6 +5775,8 @@ mod tests {
         use super::*;
         use horizon_world::worldgen::structure::extension::SavedStartSource;
         let root = std::env::temp_dir().join(format!("horizon-saved-start-source-{}",std::process::id()));
+        // Windows reuses process ids: an earlier run's records must not be read as this run's.
+        let _ = std::fs::remove_dir_all(&root);
         let first = SaveDir::new(root.join("first"), LevelShape::OVERWORLD);
         let second = SaveDir::new(root.join("second"), LevelShape::OVERWORLD);
         let chunk = ChunkPos::new(0,0);
@@ -5792,10 +5794,14 @@ mod tests {
         assert_eq!(first.read_starts(ChunkPos::new(1,0)).unwrap(),None);
         first.write_records("region",vec![((2,0),Some(NamedTag{name:"".into(),tag:Tag::compound([("Status",Tag::String("minecraft:full".into()))])}))],true).unwrap();
         assert!(first.read_starts(ChunkPos::new(2,0)).is_err());
+        drop((first, second, reopened));
+        let _ = std::fs::remove_dir_all(&root);
     }
     #[test]
     fn checked_entity_reads_preserve_malformed_records_and_see_pending_writes() {
         let root = std::env::temp_dir().join(format!("horizon-checked-entity-read-{}",std::process::id()));
+        // Windows reuses process ids: an earlier run's records must not be read as this run's.
+        let _ = std::fs::remove_dir_all(&root);
         let save = SaveDir::new(root.clone(), LevelShape::OVERWORLD);
         assert!(save.load_entities_checked(0,0).unwrap().is_empty());
         let bad = NamedTag{name:"".into(),tag:Tag::compound([("Entities",Tag::Int(8))])};
@@ -5811,6 +5817,8 @@ mod tests {
         save.write_records("entities",vec![((0,0),Some(NamedTag{name:"".into(),tag:Tag::compound([("Entities",Tag::List(vec![entity.clone()]))])}))],false).unwrap();
         assert_eq!(save.load_entities_checked(0,0).unwrap(),vec![entity]);
         save.flush().unwrap();
+        drop(save);
+        let _ = std::fs::remove_dir_all(&root);
     }
     use crate::mobs::spawner::SpawnDataExt;
 

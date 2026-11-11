@@ -126,9 +126,21 @@ What reaches a key of an addon's type, and what doesn't yet:
   moves of the type (`ae2_grid_key_move_encoded`, and the fluid moves crafting makes with a marker) give an
   insert to the CPUs waiting for the key first (`CraftingService.insertIntoCpus`), so an Import Bus can bring a
   pattern's output of the type back; the Flux Accessor's free moves do not.
+- **Generic slots**: the ME Interface's config and stock slots and the Pattern Provider's return slots hold a key
+  of an addon's type beside the fluids, as its marker, saved with the type's id in `#t`
+  (`ae2_key_types::lane_entry_key`, `lane_entry_fields`); a slot holds at most the type's `GenericSlotCapacities`
+  (`ae2_key_types::register_slot_capacity`, `slot_capacity`; Applied Flux: 1,000,000 FE), times ExtendedAE's
+  Oversize Interface multiplier for the type. The interface stocks such a key from the grid and returns what no
+  config asks for, the provider returns it to the grid (a waiting crafting CPU first), and the windows show it with
+  its type's icon. A tank sees the interface's fluids alone.
+- **Items that hold a type**: `ae2_key_types::register_container_strategy` adds a type's `ContainerStrategy` after
+  the type (`ContainerItemStrategy.register`), `contained_lane` names what an item holds as the fluid lane does. A
+  right click with such an item on a config or pattern slot sets its key and amount (`EMPTY_ITEM` of a filter); on
+  the ME and wireless terminals a left click on an entry of the type fills the carried item from the grid
+  (`FILL_ITEM`, shift `FILL_ENTIRE_ITEM`) and a right click with such an item empties it into the grid
+  (`EMPTY_ITEM`, `EMPTY_ENTIRE_ITEM`), one unit of the type a click, the grid's moves powered.
 - **Not yet**: formation planes place items and fluids only (the placement strategy is registered but not
-  read); a Pattern Provider takes back items and fluids only (Applied Flux's `FEGenericStackInvStorage`, a
-  provider's or an interface's internal inventory as FE storage, is not ported), and the ME Interface's config
-  and stock slots hold items and fluids only; the terminal's fill and drain gestures use the bucket strategy of
-  fluids, not an addon type's `ContainerStrategy` (Applied Flux's `FEContainerItemStrategy` over an item's FE is
-  not ported); the native workbench keeps an addon type's filter in AE2's `GenericStack` form (`stack`).
+  read); the ME Chest's own terminal fills and empties buckets only, and the grid terminal's fluid gestures are
+  still the pending `terminal-fluid-gestures`; the native workbench keeps an addon type's filter in AE2's
+  `GenericStack` form (`stack`); a container strategy is a function of the item alone, so an item whose energy a
+  native mod keeps (`native_item_energy_buffer`) is not an FE container yet.

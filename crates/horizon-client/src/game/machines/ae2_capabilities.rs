@@ -284,6 +284,15 @@ impl Game<'_> {
             .filter(|m| m.kind == MachineKind::PatternProvider)
             .map(|_| address)
     }
+    /// The Pattern Provider whose return inventory (AE2's `GENERIC_INTERNAL_INV`
+    /// of the provider) that side reaches: the part on `face`, or the block.
+    pub(in crate::game) fn ae2_provider_return_machine_at(&self, host: GridAddress, face: Direction) -> Option<horizon_client::ae2_world::Machine> {
+        let owner = match self.ae2_provider_part_at(host, face) {
+            Some(part) => ProviderBufferOwner::Part(part),
+            None => ProviderBufferOwner::Block(host),
+        };
+        self.ae2_provider_buffer_snapshot(owner)
+    }
     /// The cell part on face `face` of the cable bus `host` (MEGA's Cell Dock,
     /// whose `Capabilities.ItemHandler.BLOCK` is its cell inventory's
     /// `toItemHandler()`); none for any other part or block.
@@ -486,15 +495,9 @@ impl Game<'_> {
             None => {}
             Some(Tag::List(entries)) => {
                 for entry in entries {
-                    let (
-                        Some(Tag::Byte(slot)),
-                        Some(Tag::String(_)),
-                        Some(Tag::ByteArray(_)),
-                        Some(Tag::Long(amount)),
-                    ) = (
+                    let (Some(Tag::Byte(slot)), Some(key), Some(Tag::Long(amount))) = (
                         entry.get("Slot"),
-                        entry.get("fluid"),
-                        entry.get("components"),
+                        horizon_client::ae2_key_types::lane_entry_key(entry, "fluid"),
                         entry.get("amount"),
                     )
                     else {
@@ -503,7 +506,7 @@ impl Game<'_> {
                     let index = *slot as usize;
                     if index >= 9
                         || *amount <= 0
-                        || *amount > 4000
+                        || *amount as u64 > horizon_client::ae2_key_types::lane_capacity(&key)
                         || fluid_slots[index]
                         || slots[index].is_some()
                     {
@@ -594,11 +597,20 @@ impl Game<'_> {
         if machine.config.get(&"ae2_provider_injecting".into()) == Some(&Tag::Byte(1)) {
             return Some(0);
         }
-        if !super::super::ae2_fluids::valid_fluid_id(&key.item_id)
-            || !crate::game::ae2x::provider_return_accepts(&machine, key, ae2_cell_core::KeyType::FLUIDS)
-        {
+        // A fluid, or an addon type's key (Applied Flux's FEGenericStackInvStorage
+        // over this inventory), each slot up to its type's GenericSlotCapacities.
+        let valid = |key: &ae2_cell_core::ItemKey| {
+            horizon_client::ae2_key_types::marker_parts(key).is_some() || super::super::ae2_fluids::valid_fluid_id(&key.item_id)
+        };
+        // Advanced AE's Filtered Import: the pattern outputs name a type's own key, not its marker.
+        let (accepted_key, accepted_type) = match horizon_client::ae2_key_types::parse_addon_marker(key) {
+            Some(typed) => (typed.key, typed.key_type),
+            None => (key.clone(), ae2_cell_core::KeyType::FLUIDS),
+        };
+        if !valid(key) || !crate::game::ae2x::provider_return_accepts(&machine, &accepted_key, accepted_type) {
             return Some(0);
         }
+        let capacity = horizon_client::ae2_key_types::lane_capacity(key);
         let mut occupied = [false; 9];
         match machine.config.get(&"ae2_provider_return_items".into()) {
             None => {}
@@ -622,40 +634,25 @@ impl Game<'_> {
             None => {}
             Some(Tag::List(fluids)) => {
                 for entry in fluids {
-                    let (
-                        Some(Tag::Byte(slot)),
-                        Some(Tag::String(id)),
-                        Some(Tag::ByteArray(components)),
-                        Some(Tag::Long(n)),
-                    ) = (
+                    let (Some(Tag::Byte(slot)), Some(stored), Some(Tag::Long(n))) = (
                         entry.get("Slot"),
-                        entry.get("fluid"),
-                        entry.get("components"),
+                        horizon_client::ae2_key_types::lane_entry_key(entry, "fluid"),
                         entry.get("amount"),
                     )
                     else {
                         return Some(0);
                     };
                     let i = *slot as usize;
-                    let Ok(id) = id.to_string() else {
-                        return Some(0);
-                    };
                     if i >= 9
                         || occupied[i]
                         || *n <= 0
-                        || *n > 4000
-                        || !super::super::ae2_fluids::valid_fluid_id(&id)
+                        || *n as u64 > horizon_client::ae2_key_types::lane_capacity(&stored)
+                        || !valid(&stored)
                     {
                         return Some(0);
                     }
                     occupied[i] = true;
-                    slots[i] = Some((
-                        ae2_cell_core::ItemKey {
-                            item_id: id,
-                            components: components.clone(),
-                        },
-                        *n as u64,
-                    ));
+                    slots[i] = Some((stored, *n as u64));
                 }
             }
             _ => return Some(0),
@@ -664,7 +661,7 @@ impl Game<'_> {
         for slot in &mut slots {
             if let Some((stored, n)) = slot {
                 if stored == key {
-                    let moved = left.min(4000 - *n);
+                    let moved = left.min(capacity.saturating_sub(*n));
                     *n += moved;
                     left -= moved;
                 }
@@ -675,7 +672,7 @@ impl Game<'_> {
                 break;
             }
             if !occupied[i] {
-                let n = left.min(4000);
+                let n = left.min(capacity);
                 *slot = Some((key.clone(), n));
                 left -= n;
             }
@@ -689,12 +686,10 @@ impl Game<'_> {
             .enumerate()
             .filter_map(|(i, v)| {
                 v.map(|(key, n)| {
-                    Tag::compound([
-                        ("Slot", Tag::Byte(i as i8)),
-                        ("fluid", Tag::String(key.item_id.as_str().into())),
-                        ("components", Tag::ByteArray(key.components)),
-                        ("amount", Tag::Long(n as i64)),
-                    ])
+                    let mut fields = vec![("Slot", Tag::Byte(i as i8))];
+                    fields.extend(horizon_client::ae2_key_types::lane_entry_fields(&key, "fluid"));
+                    fields.push(("amount", Tag::Long(n as i64)));
+                    Tag::compound(fields)
                 })
             })
             .collect();

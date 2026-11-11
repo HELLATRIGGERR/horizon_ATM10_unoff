@@ -137,14 +137,20 @@ fn encoding_fluid_icon(fluid:&super::ae2_processing::PatternFluid)->Option<ItemS
     })
 }
 /// AEBaseScreen's right-click EMPTY_ITEM action sets the fluid represented by
-/// a supported physical bucket without consuming the carried container.
+/// a supported physical bucket without consuming the carried container; an
+/// item holding an addon type's key (`ContainerItemStrategies.getEmptyingAction`:
+/// Applied Flux's FE in an energy item) sets that key and amount.
 fn encoding_emptying_action(held:Option<&ItemStack>,button:i32)->Option<super::ae2_processing::PatternFluid> {
     // The filter action is a simulation and never mutates the carrier, so
     // custom names or unrelated item components do not change a vanilla
     // water/lava bucket's contained fluid key.
     let held=held.filter(|_|button==1)?;
-    let id=super::ae2_fluids::bucket_fluid(&held.item)?;
-    Some(super::ae2_processing::PatternFluid{key:super::ae2_fluids::fluid_key(id),amount:1000})
+    if let Some(id)=super::ae2_fluids::bucket_fluid(&held.item) {
+        return Some(super::ae2_processing::PatternFluid{key:super::ae2_fluids::fluid_key(id),amount:1000});
+    }
+    let (key,amount)=horizon_client::ae2_key_types::contained_lane(held)
+        .filter(|(key,amount)|*amount>0 && horizon_client::ae2_key_types::marker_parts(key).is_some())?;
+    Some(super::ae2_processing::PatternFluid{key,amount})
 }
 fn encoding_selected_fluid(held:Option<&ItemStack>,amount:u64,selected:usize,fluids:&[(ae2_cell_core::ItemKey,u64)])->Option<super::ae2_processing::PatternFluid> {
     if amount==0 {return None;}
@@ -1351,6 +1357,68 @@ impl Game<'_> {
             .set_other("minecraft:lore", Some(Tag::List(lore)));
         Some(stack)
     }
+    /// `MEStorageScreen`'s container gestures for an addon type with a
+    /// container strategy (Applied Flux's FE): a left click on its entry fills
+    /// the carried item from the grid (`FILL_ITEM`, with shift
+    /// `FILL_ENTIRE_ITEM`), a right click with an item holding such a key
+    /// empties it into the grid (`EMPTY_ITEM`, `EMPTY_ENTIRE_ITEM`), whatever
+    /// the entry. One unit of the type a click, or with shift up to 256 steps
+    /// of as much as moves (`AEBaseMenu.handleFillingHeldItem`,
+    /// `handleEmptyHeldItem`); the grid's moves are powered. Each step changes
+    /// one item: it stays on the cursor when it was the last, else goes to the
+    /// inventory (`ItemContext.addOverflow`). Fluids keep their own gestures.
+    /// True when the click was such a gesture.
+    fn ae2_terminal_container_gesture(&mut self, pos: (i32, i32, i32), entry: Option<TypedKey>, button: i32, all: bool) -> Result<bool, String> {
+        use horizon_client::ae2_key_types as key_types;
+        let addon = |kind: KeyType| !matches!(kind, KeyType::ITEMS | KeyType::FLUIDS);
+        let (typed, filling) = match button {
+            0 => match entry.filter(|typed| addon(typed.key_type) && key_types::has_container_strategy(typed.key_type)) {
+                Some(typed) => (typed, true),
+                None => return Ok(false),
+            },
+            1 => match self.carried.as_ref().and_then(key_types::contained_stack).filter(|(typed, _)| addon(typed.key_type)) {
+                Some((typed, _)) => (typed, false),
+                None => return Ok(false),
+            },
+            _ => return Ok(false),
+        };
+        let Some(strategy) = key_types::behaviour(typed.key_type).container else { return Ok(false) };
+        let (kind, key) = (typed.key_type, typed.key);
+        let amount = if all { u64::MAX } else { kind.amount_per_unit().max(1) };
+        for _ in 0..if all { 256 } else { 1 } {
+            let Some(carried) = self.carried.clone() else { break };
+            let changed = if filling {
+                let can_pull = self.ae2_grid_key_move(pos, kind, &key, amount, false, true)?;
+                let Some((allowed, _)) = (can_pull > 0).then(|| (strategy.fill)(&carried, &key, can_pull)).flatten() else { break };
+                let extracted = self.ae2_grid_key_move(pos, kind, &key, allowed, false, false)?;
+                let Some((inserted, filled)) = (extracted > 0).then(|| (strategy.fill)(&carried, &key, extracted)).flatten() else {
+                    self.ae2_grid_key_move(pos, kind, &key, extracted, true, false)?;
+                    break;
+                };
+                if inserted < extracted {
+                    self.ae2_grid_key_move(pos, kind, &key, extracted - inserted, true, false)?;
+                }
+                filled
+            } else {
+                let Some((can_extract, _)) = (strategy.drain)(&carried, &key, amount) else { break };
+                let allowed = self.ae2_grid_key_move(pos, kind, &key, can_extract, true, true)?;
+                let Some((extracted, drained)) = (allowed > 0).then(|| (strategy.drain)(&carried, &key, allowed)).flatten() else { break };
+                if extracted != allowed || self.ae2_grid_key_move(pos, kind, &key, extracted, true, false)? != extracted {
+                    break;
+                }
+                drained
+            };
+            if carried.count > 1 {
+                self.carried = Some(ItemStack { count: carried.count - 1, ..carried });
+                if let Some(left) = self.give(changed) {
+                    self.player_drop(left);
+                }
+            } else {
+                self.carried = Some(changed);
+            }
+        }
+        Ok(true)
+    }
     /// `MEStorageMenu`'s `ROLL_DOWN` (one carried item into the network,
     /// whatever is under the cursor) and `ROLL_UP` (one of the entry under
     /// the cursor onto the carried stack).
@@ -1562,6 +1630,11 @@ impl Game<'_> {
                     }
                 }
                 if selected.is_some_and(|(key, _)| !is_item_marker(key)) {
+                    return Ok(());
+                }
+            } else if matches!(input, Input::Pickup | Input::QuickMove) {
+                let entry = entries.get(self.ae2_terminal_page * page_size + index).map(|(key, _)| marker_key(key));
+                if self.ae2_terminal_container_gesture(pos, entry, button, input == Input::QuickMove)? {
                     return Ok(());
                 }
             }
@@ -5193,11 +5266,11 @@ fn provider_return_slots(machine:&horizon_client::ae2_world::Machine) -> Result<
             let index = *slot as usize;
             if index >= 9 || slots[index].is_some() { return Err(()); }
             let value = if fluid {
-                let (Some(Tag::String(id)),Some(Tag::ByteArray(components)),Some(Tag::Long(amount))) =
-                    (entry.get("fluid"),entry.get("components"),entry.get("amount")) else { return Err(()); };
-                let id=id.to_string().map_err(|_|())?;
-                if *amount <= 0 || *amount > 4000 || !super::ae2_fluids::valid_fluid_id(&id) { return Err(()); }
-                ProviderReturnSlot::Fluid(ae2_cell_core::ItemKey {item_id:id,components:components.clone()}, *amount as u64)
+                // A fluid, or an addon type's key with its type in `#t`.
+                let (Some(key),Some(Tag::Long(amount))) =
+                    (horizon_client::ae2_key_types::lane_entry_key(entry,"fluid"),entry.get("amount")) else { return Err(()); };
+                if !provider_return_lane_valid(&key,*amount) { return Err(()); }
+                ProviderReturnSlot::Fluid(key, *amount as u64)
             } else {
                 if !matches!(entry.get("count"),Some(Tag::Int(n)) if *n>0) { return Err(()); }
                 ProviderReturnSlot::Item(horizon_client::save::item_from_nbt(entry).ok_or(())?)
@@ -5207,18 +5280,26 @@ fn provider_return_slots(machine:&horizon_client::ae2_world::Machine) -> Result<
     }
     Ok(slots)
 }
+/// A return slot of the fluid lane: a known fluid's id, or an addon type's
+/// key, at most its type's GenericSlotCapacities.
+fn provider_return_lane_valid(key:&ae2_cell_core::ItemKey,amount:i64) -> bool {
+    amount > 0 && amount as u64 <= horizon_client::ae2_key_types::lane_capacity(key)
+        && (horizon_client::ae2_key_types::marker_parts(key).is_some() || super::ae2_fluids::valid_fluid_id(&key.item_id))
+}
 fn provider_return_store(machine:&mut horizon_client::ae2_world::Machine, slots:&[Option<ProviderReturnSlot>]) -> Result<(),()> {
     if machine.kind != horizon_client::ae2_world::MachineKind::PatternProvider || slots.len()!=9 { return Err(()); }
     if slots.iter().flatten().any(|slot|match slot {
         ProviderReturnSlot::Item(item)=>item.count==0,
-        ProviderReturnSlot::Fluid(key,amount)=>*amount==0 || *amount>4000 || !super::ae2_fluids::valid_fluid_id(&key.item_id),
+        ProviderReturnSlot::Fluid(key,amount)=>!provider_return_lane_valid(key,i64::try_from(*amount).unwrap_or(-1)),
     }) { return Err(()); }
     let items:Vec<_> = slots.iter().map(|s|match s {Some(ProviderReturnSlot::Item(item))=>Some(item.clone()),_=>None}).collect();
     let fluids = slots.iter().enumerate().filter_map(|(i,slot)| match slot {
-        Some(ProviderReturnSlot::Fluid(key,amount)) => Some(Tag::compound([
-            ("Slot",Tag::Byte(i as i8)), ("fluid",Tag::String(key.item_id.as_str().into())),
-            ("components",Tag::ByteArray(key.components.clone())), ("amount",Tag::Long(*amount as i64)),
-        ])), _ => None,
+        Some(ProviderReturnSlot::Fluid(key,amount)) => {
+            let mut fields=vec![("Slot",Tag::Byte(i as i8))];
+            fields.extend(horizon_client::ae2_key_types::lane_entry_fields(key,"fluid"));
+            fields.push(("amount",Tag::Long(*amount as i64)));
+            Some(Tag::compound(fields))
+        }, _ => None,
     }).collect();
     machine.config.insert("ae2_provider_return_items".into(),horizon_client::save::encode_items(&items));
     machine.config.insert("ae2_provider_return_fluids".into(),Tag::List(fluids));
@@ -5227,6 +5308,9 @@ fn provider_return_store(machine:&mut horizon_client::ae2_world::Machine, slots:
 fn provider_return_icon(slot:&ProviderReturnSlot) -> ItemStack {
     match slot {
         ProviderReturnSlot::Item(item) => item.clone(),
+        // An addon type's key: AE2's wrapped stack of its type.
+        ProviderReturnSlot::Fluid(key,amount) if horizon_client::ae2_key_types::marker_parts(key).is_some() =>
+            encoding_fluid_icon(&super::ae2_processing::PatternFluid{key:key.clone(),amount:*amount}).unwrap_or_else(||ItemStack::new("ae2:wrapped_generic_stack",1)),
         ProviderReturnSlot::Fluid(key,amount) => {
             let mut icon = ItemStack::new("ae2:wrapped_generic_stack",1);
             let data=icon.data_mut();
@@ -6062,7 +6146,8 @@ impl Game<'_> {
             },
             (None,Some((key,amount)))=>{
                 let display=encoding_fluid_icon(&super::ae2_processing::PatternFluid{key:key.clone(),amount})?;
-                Some((StockKey::Fluid(key),amount,super::ae2_interface::interface_fluid_capacity(machine) as i64,1000,display))
+                let (capacity,step)=(super::ae2_interface::interface_key_capacity(machine,&key) as i64,if horizon_client::ae2_key_types::marker_parts(&key).is_some() {1} else {1000});
+                Some((StockKey::Fluid(key),amount,capacity,step,display))
             },
             _=>None,
         }
@@ -6205,11 +6290,7 @@ impl Game<'_> {
                     if slots[i].is_some() {
                         return None;
                     }
-                    let id =
-                        super::ae2_fluids::fluid_bucket(&key.item_id).unwrap_or("minecraft:bucket");
-                    let mut icon = ItemStack::new(id, 1);
-                    icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(format!("{}: {} mB", key.item_id, n)));
-                    slots[i] = Some(icon);
+                    slots[i] = Some(super::ae2_interface::interface_lane_icon(&key, n));
                 }
             }
         }
@@ -6493,7 +6574,10 @@ impl Game<'_> {
             let max_for=|item:&ItemStack|super::ae2_interface::interface_item_max(&machine,self.ae2_config_item_max(item));
             let displayed_max=item.as_ref().map_or(64,&max_for);
             let item_capacity=held.as_ref().and_then(|(value,_)|if let super::ae2_encoding::WrappedGhost::Item(item)=value {Some(max_for(item))}else{None}).or_else(||item.as_ref().map(&max_for)).unwrap_or(64);
-            let fluid_capacity=super::ae2_interface::interface_fluid_capacity(&machine);
+            // The slot's capacity for the key in play (an addon type's from its GenericSlotCapacities).
+            let lane_key=held.as_ref().and_then(|(value,_)|if let super::ae2_encoding::WrappedGhost::Fluid(fluid)=value {Some(fluid.key.clone())}else{None})
+                .or_else(||fluid.as_ref().map(|fluid|fluid.key.clone()));
+            let fluid_capacity=lane_key.map_or_else(||super::ae2_interface::interface_fluid_capacity(&machine),|key|super::ae2_interface::interface_key_capacity(&machine,&key));
             super::ae2_encoding::click_ghost(&mut item,&mut fluid,held,button==1,displayed_max,item_capacity,fluid_capacity);
             if let Some(fluid)=fluid {super::ae2_interface::set_interface_fluid_config_amount(&mut machine,index,Some((&fluid.key,fluid.amount)))}
             else {super::ae2_interface::set_interface_config(&mut machine,index,item.as_ref())}
@@ -6759,12 +6843,7 @@ impl Game<'_> {
                     if let Ok(values) = values {
                         for (index, entry) in values.into_iter().enumerate() {
                             if let Some((key, n)) = entry {
-                                let id = super::ae2_fluids::fluid_bucket(&key.item_id)
-                                    .unwrap_or("minecraft:bucket");
-                                let mut icon = ItemStack::new(id, 1);
-                                icon.data_mut().custom_name =
-                                    Some(horizon_client::item_data::text_name(format!("{}: {} mB", key.item_id, n)));
-                                items[offset + index] = Some(icon);
+                                items[offset + index] = Some(super::ae2_interface::interface_lane_icon(&key, n));
                             }
                         }
                     }

@@ -236,6 +236,37 @@ pub(super) const INTERFACE_FLUID_CAPACITY: u64 = 4000;
 pub(super) fn interface_fluid_capacity(machine: &Machine) -> u64 {
     super::ae2x::interface_capacity(machine, ae2_cell_core::KeyType::FLUIDS, INTERFACE_FLUID_CAPACITY)
 }
+/// A slot's capacity for a key of the fluid lane: a fluid's, or an addon
+/// type's from `GenericSlotCapacities` (Applied Flux: 1,000,000 FE), times
+/// the same addon multiplier.
+pub(super) fn interface_key_capacity(machine: &Machine, key: &ItemKey) -> u64 {
+    let Some((kind, _)) = horizon_client::ae2_key_types::marker_parts(key) else {
+        return interface_fluid_capacity(machine);
+    };
+    match ae2_cell_core::KeyType::get(kind) {
+        Some(kind) => super::ae2x::interface_capacity(machine, kind, horizon_client::ae2_key_types::slot_capacity(kind)),
+        None => i64::MAX as u64,
+    }
+}
+/// What an interface's window shows for a lane key it keeps: a fluid as its
+/// bucket with the mB, an addon type's key as its type's icon with the amount
+/// in its units.
+pub(super) fn interface_lane_icon(key: &ItemKey, amount: u64) -> ItemStack {
+    if let Some(typed) = horizon_client::ae2_key_types::parse_addon_marker(key) {
+        let mut icon = (horizon_client::ae2_key_types::behaviour(typed.key_type).icon)(&typed.key);
+        icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(format!("{}: {}", typed.key.item_id,
+            typed.key_type.format_amount(amount, ae2_cell_core::AmountFormat::Full))));
+        return icon;
+    }
+    let mut icon = ItemStack::new(super::ae2_fluids::fluid_bucket(&key.item_id).unwrap_or("minecraft:bucket"), 1);
+    icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(format!("{}: {} mB", key.item_id, amount)));
+    icon
+}
+/// Whether the lane holds `key` as a fluid: an addon type's marker is no
+/// fluid to a tank or a bucket.
+fn is_fluid_key(key: &ItemKey) -> bool {
+    horizon_client::ae2_key_types::marker_parts(key).is_none()
+}
 /// The most of an item of `stack_max` an interface slot holds: the stack
 /// size, or an addon's (`OversizeConfigInv.getMaxAmount`).
 pub(super) fn interface_item_max(machine: &Machine, stack_max: u32) -> u32 {
@@ -269,37 +300,23 @@ fn fluid_slots(machine: &Machine, name: &str) -> Result<Vec<Option<(ItemKey, u64
         return Err("invalid interface fluids".into());
     };
     for entry in entries {
-        let (
-            Some(Tag::Byte(slot)),
-            Some(Tag::String(id)),
-            Some(Tag::ByteArray(components)),
-            Some(Tag::Long(amount)),
-        ) = (
-            entry.get("Slot"),
-            entry.get("fluid"),
-            entry.get("components"),
-            entry.get("amount"),
-        )
+        // A fluid as `fluid` and `components`; an addon type's key with its
+        // type's id in `#t` beside them, as the CPU's escrow saves it.
+        let (Some(Tag::Byte(slot)), Some(key), Some(Tag::Long(amount))) =
+            (entry.get("Slot"), horizon_client::ae2_key_types::lane_entry_key(entry, "fluid"), entry.get("amount"))
         else {
             return Err("invalid interface fluid".into());
         };
         let i = *slot as usize;
-        let id = id.to_string().map_err(|_| "invalid fluid id")?;
         if i >= slots.len()
             || slots[i].is_some()
             || *amount <= 0
-            || *amount > interface_fluid_capacity(machine) as i64
-            || !super::ae2_fluids::valid_fluid_id(&id)
+            || *amount as u64 > interface_key_capacity(machine, &key)
+            || (is_fluid_key(&key) && !super::ae2_fluids::valid_fluid_id(&key.item_id))
         {
             return Err("invalid interface fluid slot".into());
         }
-        slots[i] = Some((
-            ItemKey {
-                item_id: id,
-                components: components.clone(),
-            },
-            *amount as u64,
-        ));
+        slots[i] = Some((key, *amount as u64));
     }
     Ok(slots)
 }
@@ -309,12 +326,10 @@ fn store_fluids(machine: &mut Machine, name: &str, slots: &[Option<(ItemKey, u64
         .enumerate()
         .filter_map(|(i, s)| {
             s.as_ref().map(|(k, n)| {
-                Tag::compound([
-                    ("Slot", Tag::Byte(i as i8)),
-                    ("fluid", Tag::String(k.item_id.as_str().into())),
-                    ("components", Tag::ByteArray(k.components.clone())),
-                    ("amount", Tag::Long(*n as i64)),
-                ])
+                let mut fields = vec![("Slot", Tag::Byte(i as i8))];
+                fields.extend(horizon_client::ae2_key_types::lane_entry_fields(k, "fluid"));
+                fields.push(("amount", Tag::Long(*n as i64)));
+                Tag::compound(fields)
             })
         })
         .collect();
@@ -346,8 +361,7 @@ pub(super) fn set_interface_fluid_config_amount(
     if value.is_some_and(|(_,amount)|amount==0) {return Err("invalid interface fluid amount".into());}
     let mut fluid = interface_fluid_config(machine)?;
     let mut item = interface_config(machine)?;
-    let capacity = interface_fluid_capacity(machine);
-    fluid[index] = value.map(|(key,amount)| (key.clone(), amount.min(capacity)));
+    fluid[index] = value.map(|(key,amount)| (key.clone(), amount.min(interface_key_capacity(machine, key))));
     if value.is_some() {
         item[index] = None;
     }
@@ -596,7 +610,7 @@ impl Game<'_> {
             return Ok(0);
         }
         let old = stock[slot].as_ref().map_or(0, |(_, n)| *n);
-        let moved = amount.min(interface_fluid_capacity(&machine).saturating_sub(old));
+        let moved = amount.min(interface_key_capacity(&machine, key).saturating_sub(old));
         if moved > 0 && !simulate {
             stock[slot] = Some((key.clone(), old + moved));
             store_fluids(&mut machine, FLUID_STOCK, &stock);
@@ -1388,6 +1402,64 @@ impl Game<'_> {
     }
 }
 impl Game<'_> {
+    /// The interface whose storage (`InterfaceLogic.getStorage()`, AE2's
+    /// `GENERIC_INTERNAL_INV` of the block and of the part on `face`) that
+    /// side reaches.
+    pub(super) fn ae2_interface_machine_at(&self, host: GridAddress, face: horizon_core::geometry::Direction) -> Option<Machine> {
+        self.interface_get(self.interface_owner_at(host, face)?)
+    }
+    /// `GenericInternalInventory.insert` / `extract` on that storage, slot by
+    /// slot, for a key of the fluid lane: a slot takes it when its config is
+    /// empty or the key (`isAllowedInStorageSlot`) and it holds nothing or the
+    /// key, up to the key's capacity. Unlike the interface's item and fluid
+    /// handlers, an unconfigured interface does not hand it to the grid; its
+    /// tick returns what no config asks for. None where no interface is.
+    pub(super) fn ae2_interface_storage_move(
+        &mut self, host: GridAddress, face: horizon_core::geometry::Direction, key: &ItemKey,
+        amount: u64, insert: bool, simulate: bool,
+    ) -> Option<u64> {
+        let owner = self.interface_owner_at(host, face)?;
+        let mut machine = self.interface_get(owner)?;
+        let items = interface_config(&machine).ok()?;
+        let config = interface_fluid_config(&machine).ok()?;
+        let mut stock = interface_fluid_stock(&machine).ok()?;
+        let capacity = interface_key_capacity(&machine, key);
+        let mut left = amount;
+        for i in 0..items.len().min(machine.slots.len()) {
+            if left == 0 {
+                break;
+            }
+            match &mut stock[i] {
+                Some((stored, n)) if stored == key => {
+                    let moved = if insert {
+                        if items[i].is_some() || !allows_fluid_slot(&machine, config[i].as_ref(), key) { 0 } else { left.min(capacity.saturating_sub(*n)) }
+                    } else {
+                        left.min(*n)
+                    };
+                    if insert { *n += moved } else { *n -= moved }
+                    left -= moved;
+                    if *n == 0 {
+                        stock[i] = None;
+                    }
+                }
+                None if insert && machine.slots[i].is_none() && items[i].is_none() && allows_fluid_slot(&machine, config[i].as_ref(), key) => {
+                    let moved = left.min(capacity);
+                    stock[i] = (moved > 0).then(|| (key.clone(), moved));
+                    left -= moved;
+                }
+                _ => {}
+            }
+        }
+        let moved = amount - left;
+        if moved > 0 && !simulate {
+            store_fluids(&mut machine, FLUID_STOCK, &stock);
+            wake_interface(&mut machine);
+            if self.interface_store(owner, &machine).is_err() {
+                return Some(0);
+            }
+        }
+        Some(moved)
+    }
     pub(super) fn ae2_interface_fluid_entries(
         &self,
         host: GridAddress,
@@ -1403,6 +1475,7 @@ impl Game<'_> {
                     .ok()?
                     .into_iter()
                     .flatten()
+                    .filter(|(key, _)| is_fluid_key(key))
                     .collect(),
             );
         }
@@ -1448,7 +1521,7 @@ impl Game<'_> {
         let items = interface_config(&machine).ok()?;
         let config = interface_fluid_config(&machine).ok()?;
         let mut stock = interface_fluid_stock(&machine).ok()?;
-        let capacity = interface_fluid_capacity(&machine);
+        let capacity = interface_key_capacity(&machine, key);
         let _guard = ForwardGuard::enter(owner)?;
         if items.iter().all(Option::is_none) && config.iter().all(Option::is_none) {
             return Some(

@@ -253,10 +253,14 @@ pub fn fe_key() -> ItemKey {
     fe_key_of(FE)
 }
 
+/// FE a generic slot holds (an ME Interface's, a Pattern Provider's return slot).
+pub const SLOT_CAPACITY: u64 = 1_000_000;
 /// `AEKeyTypes.register(FluxKeyType.TYPE)`, once: its amounts (FE a byte
 /// from the config), its codec, and the item that draws it in a slot
 /// (`FluxKeyRenderHandler`'s `appflux:energy/fe` sprite, the content's
-/// `appflux:fe` icon item).
+/// `appflux:fe` icon item); `GenericSlotCapacities.register(FluxKeyType.TYPE,
+/// 1000000L)` beside it. The container strategy over an item's energy is the
+/// game's (`FEContainerItemStrategy`).
 pub fn key_type() -> KeyType {
     static KIND: OnceLock<KeyType> = OnceLock::new();
     *KIND.get_or_init(|| {
@@ -271,7 +275,9 @@ pub fn key_type() -> KeyType {
             known: Some(|id| id == FE || id == GTEU),
             container: None,
         };
-        ae2_key_types::register(def, behaviour).expect("Applied Flux's key type registers")
+        let kind = ae2_key_types::register(def, behaviour).expect("Applied Flux's key type registers");
+        ae2_key_types::register_slot_capacity(kind, SLOT_CAPACITY);
+        kind
     })
 }
 

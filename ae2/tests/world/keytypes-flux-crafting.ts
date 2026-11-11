@@ -4,9 +4,9 @@
  * Pattern Provider part takes the new one, the ME Terminal requests the diamond, the crafting CPU reserves the FE from
  * an FE cell into its escrow (kept through a restart, the type's id in `#t`), the provider sends the FE through the
  * type's storage strategy into another grid's Energy Acceptor once there is one, and the diamond given back finishes
- * the job. A wrapped stack cannot be carried (AE2's `WrappedGenericStack`) and FE has no container item strategy yet,
- * so a loaded pattern is how the terminal gets an FE ghost. Needs content/appflux (ae2/scripts/prepare-addon.ts
- * appflux) and a client built with ae2-appflux. */
+ * the job. A wrapped stack cannot be carried (AE2's `WrappedGenericStack`); a loaded pattern (or a charged energy
+ * item's right click, keytypes-flux-interface) gives the terminal an FE ghost. Needs content/appflux
+ * (ae2/scripts/prepare-addon.ts appflux) and a client built with ae2-appflux. */
 import assert from 'node:assert/strict';
 import { WorldFixture, until, type Mode } from './harness';
 

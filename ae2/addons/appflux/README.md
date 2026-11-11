@@ -83,8 +83,29 @@ its ghost in the Pattern Encoding Terminal), the crafting CPU's plan and escrow,
 sends into the block on its face through `FEExternalStorageStrategy` (its `IEnergyStorage`). The world test
 `keytypes-flux-crafting` loads a pattern of 100,000 FE into a diamond in the encoding terminal and encodes it again,
 keeps the CPU's FE through a restart, sends it to another grid's Energy Acceptor and finishes the job with the diamond
-given back. A player cannot yet put FE into an encoding slot by hand: Applied Flux's `FEContainerItemStrategy` (an
-energy item's FE) is not ported.
+given back. A right click with a charged energy item on an encoding slot sets its FE there (`EMPTY_ITEM` through
+`FEContainerItemStrategy`).
+
+## FE in generic slots and items
+
+| Applied Flux 1.21-2.1.7 | Port |
+|---|---|
+| `GenericSlotCapacities.register(FluxKeyType.TYPE, 1000000L)` | `ae2x::appflux::SLOT_CAPACITY`, registered with the key type (`ae2_key_types::register_slot_capacity`): an ME Interface's config and stock slot (times the Oversize Interface's multiplier) and a Pattern Provider's return slot hold up to 1,000,000 FE |
+| `FEGenericStackInvStorage` on every block with AE2's `GENERIC_INTERNAL_INV` (`AppFlux`'s capability listener): `receiveEnergy` / `extractEnergy` slot by slot, `getEnergyStored` the FE in them, `getMaxEnergyStored` FE's and the free slots times the capacity | `game/ae2x/appflux/generic.rs` (`appflux_generic_fe_storage`, `appflux_generic_fe_move`), asked by the FE dispatcher's AE2 adapters after the accessor: the interface's storage (`ae2_interface_storage_move`, no forwarding to the grid), the provider's return slots (which take FE and give none back); the provider returns it to the grid, a waiting CPU first |
+| `AFUtil.shouldTryCast`: an `IUpgradeableObject` host (the interface; the provider through `MixinPatternProviderLogicHost`) only with an Induction Card | `generic::induction_card`: the card in the interface's upgrades, or in the provider's own upgrade slot (`appflux_upgrades` in its config, `MixinPatternProviderLogic`'s `upgrades`) |
+| `FEContainerItemStrategy` over `Capabilities.EnergyStorage.ITEM`: contained FE, `receiveEnergy` and `extractEnergy` on one item, the changed item to the cursor or the inventory | `generic::container_strategy`, registered with the strategies (`ContainerItemStrategy.register`): the item's FE is AE2's `PoweredItemCapabilities` over its AE (portable cells, wireless terminals, tools, energy cells), which takes FE and gives none |
+
+The world test `keytypes-flux-interface` marks FE in an interface's config slot with a charged energy cell, keeps the
+stock through a restart, fills an energy cell from the ME Terminal (a right click drains nothing from it), and has a
+Pattern Provider with an Induction Card take FE pushed by another grid's Flux Accessor and give it to the CPU waiting
+for a pattern's FE output.
+
+Differences, known:
+
+- The Induction Card itself is not ported (its item, the interface's second upgrade slot, the provider's upgrade slot
+  in its menu, `EnergyTicker`): a world gets it into an interface's or a provider's upgrades by its saved data.
+- An item energy of a native mod (`native_item_energy_buffer`) needs the game, which a container strategy (a
+  function of the item) does not see: such items are not FE containers yet.
 
 ## Later slices
 
@@ -93,10 +114,7 @@ energy item's FE) is not ported.
   slots) or a Pattern Provider (`MixinPatternProviderLogic`: an upgrade inventory of its own, with its menu and
   screen mixins) it wakes an `EnergyTicker`, a grid FE distributor like the accessor's, which pushes the grid's FE
   into the blocks on the host's sides (`AFUtil.getSides`). On a portable FE cell it charges the energy items in the
-  player's inventory from the cell each tick (`inventoryTick`). Apart from the card, every block with AE2's
-  `GENERIC_INTERNAL_INV` gets an `IEnergyStorage` over the FE in its generic slots (`FEGenericStackInvStorage`,
-  `GenericSlotCapacities` 1,000,000 FE a slot), which needs those slots to hold a key of an addon type.
-- Filling and draining energy items in the terminal (`FEContainerItemStrategy`): the terminal's gestures use the
-  bucket strategy of fluids only; marking FE in a config slot with an energy item.
+  player's inventory from the cell each tick (`inventoryTick`). The FE storage over the host's generic slots it opens
+  (`FEGenericStackInvStorage`) is there already.
 - The accessor's menu and memory-card settings; the portable FE cell's menu.
 - MI EU, Mekanism's long FE, the accessor charging its grid.

@@ -930,6 +930,11 @@ impl Game<'_> {
         if let Some(storage) = self.appflux_accessor_fe_storage(address, face) {
             return Some(storage);
         }
+        // FEGenericStackInvStorage on an interface's or a provider's generic slots.
+        #[cfg(feature = "ae2-appflux")]
+        if let Some(storage) = self.appflux_generic_fe_storage(address, face) {
+            return Some(storage);
+        }
         let _ = (address, face);
         None
     }
@@ -938,6 +943,10 @@ impl Game<'_> {
     pub(super) fn ae2x_fe_move(&mut self, address: super::ae2_global::GridAddress, face: horizon_core::geometry::Direction, amount: u32, simulate: bool, extract: bool) -> Option<u32> {
         #[cfg(feature = "ae2-appflux")]
         if let Some(moved) = self.appflux_accessor_fe_move(address, face, amount, simulate, extract) {
+            return Some(moved);
+        }
+        #[cfg(feature = "ae2-appflux")]
+        if let Some(moved) = self.appflux_generic_fe_move(address, face, amount, simulate, extract) {
             return Some(moved);
         }
         let _ = (address, face, amount, simulate, extract);

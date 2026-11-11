@@ -228,6 +228,90 @@ pub fn contained_stack(stack: &ItemStack) -> Option<(TypedKey, u64)> {
 pub fn has_container_strategy(kind: KeyType) -> bool {
     behaviour(kind).container.is_some()
 }
+/// `ContainerItemStrategies.register` for an addon's type registered before:
+/// how items hold its keys. AE2 keeps these apart from the type's
+/// registration, so an addon may add them later (Applied Flux's
+/// `FEContainerItemStrategy` reads the game's item energy). The first one
+/// stays.
+pub fn register_container_strategy(kind: KeyType, strategy: ContainerStrategy) {
+    if matches!(kind, KeyType::ITEMS | KeyType::FLUIDS) {
+        return;
+    }
+    let mut added = ADDED.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(Some(behaviour)) = added.get_mut(usize::from(kind.raw_id() - 2))
+        && behaviour.container.is_none()
+    {
+        behaviour.container = Some(strategy);
+    }
+}
+/// `ContainerItemStrategies.getContainedStack` as the fluid lane names a key
+/// (a fluid's own key, an addon type's [`addon_marker`]); none for items.
+pub fn contained_lane(stack: &ItemStack) -> Option<(ItemKey, u64)> {
+    let (typed, amount) = contained_stack(stack)?;
+    match typed.key_type {
+        KeyType::ITEMS => None,
+        KeyType::FLUIDS => Some((typed.key, amount)),
+        other => Some((addon_marker(other, &typed.key), amount)),
+    }
+}
+
+/// `GenericSlotCapacities`: the most of a type's key one generic slot holds
+/// (an ME Interface's, a Pattern Provider's return slot), registered by an
+/// addon for its type (Applied Flux: 1,000,000 FE). AE2 registers its items
+/// (99) and fluids (four buckets); a type nobody registers has no limit
+/// (`GenericStackInv.getCapacity`: `Long.MAX_VALUE`).
+static SLOT_CAPACITIES: RwLock<Vec<(KeyType, u64)>> = RwLock::new(Vec::new());
+pub fn register_slot_capacity(kind: KeyType, capacity: u64) {
+    let mut capacities = SLOT_CAPACITIES.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    capacities.retain(|(registered, _)| *registered != kind);
+    capacities.push((kind, capacity));
+}
+pub fn slot_capacity(kind: KeyType) -> u64 {
+    match kind {
+        KeyType::ITEMS => 99,
+        KeyType::FLUIDS => 4000,
+        other => SLOT_CAPACITIES
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .find(|(registered, _)| *registered == other)
+            .map_or(i64::MAX as u64, |(_, capacity)| *capacity),
+    }
+}
+/// The slot capacity of a key as the fluid lane names it: a fluid's, or the
+/// type's of an addon marker (none for a type no longer registered, whose
+/// stack is kept as it was).
+pub fn lane_capacity(key: &ItemKey) -> u64 {
+    match marker_parts(key) {
+        None => slot_capacity(KeyType::FLUIDS),
+        Some((kind, _)) => KeyType::get(kind).map_or(i64::MAX as u64, slot_capacity),
+    }
+}
+/// The port's saved generic slot of the fluid lane: the key's id under
+/// `field` and its `components`; an addon type's key keeps its own id there
+/// with the type's id in `#t`, as a `GenericStack` names it. None when the
+/// entry has no such key.
+pub fn lane_entry_key(entry: &Tag, field: &str) -> Option<ItemKey> {
+    let (Some(Tag::String(id)), Some(Tag::ByteArray(components))) = (entry.get(field), entry.get("components")) else {
+        return None;
+    };
+    let id = id.to_string().ok()?;
+    match entry.get("#t") {
+        None => Some(ItemKey { item_id: id, components: components.clone() }),
+        Some(Tag::String(kind)) => Some(marker_by_id(&kind.to_string().ok()?, &id, components.clone())),
+        Some(_) => None,
+    }
+}
+/// [`lane_entry_key`] back: the fields that save `key`.
+pub fn lane_entry_fields(key: &ItemKey, field: &'static str) -> Vec<(&'static str, Tag)> {
+    let (kind, id) = match marker_parts(key) {
+        Some((kind, id)) => (Some(kind), id),
+        None => (None, key.item_id.as_str()),
+    };
+    let mut fields = vec![(field, Tag::String(id.into())), ("components", Tag::ByteArray(key.components.clone()))];
+    fields.extend(kind.map(|kind| ("#t", Tag::String(kind.into()))));
+    fields
+}
 /// Whether the game knows `id` as a key of `kind`: the item registry's
 /// answer for items (the caller's `items`), the type's own for an addon's,
 /// and always for fluids (an unregistered fluid stays stored as it is).
@@ -374,5 +458,36 @@ mod tests {
         assert_eq!(fluid_icon(&water).item.as_ref(), "minecraft:water_bucket");
         assert!(known_id(KeyType::FLUIDS, "removed:goo", |_| false));
         assert!(!known_id(KeyType::ITEMS, "removed:ore", |_| false));
+    }
+
+    #[test]
+    fn an_addon_types_slots_and_containers_are_its_own() {
+        let kind = spark();
+        let marker = addon_marker(kind, &spark_key("red"));
+        // GenericSlotCapacities: AE2's two, none for a type nobody registers, then the addon's.
+        assert_eq!((slot_capacity(KeyType::ITEMS), slot_capacity(KeyType::FLUIDS)), (99, 4000));
+        let water = ItemKey { item_id: "minecraft:water".into(), components: Vec::new() };
+        assert_eq!(lane_capacity(&water), 4000);
+        assert_eq!(lane_capacity(&marker_by_id("removed:type", "removed:key", Vec::new())), i64::MAX as u64);
+        register_slot_capacity(kind, 25_000);
+        assert_eq!(lane_capacity(&marker), 25_000);
+        // A lane slot saves an addon key's own id with its type in `#t`, a fluid as before.
+        for key in [marker.clone(), water] {
+            let mut fields = vec![("Slot", Tag::Byte(3))];
+            fields.extend(lane_entry_fields(&key, "fluid"));
+            let entry = Tag::compound(fields);
+            assert_eq!(entry.get("#t").is_some(), key == marker);
+            assert_eq!(lane_entry_key(&entry, "fluid"), Some(key));
+        }
+        // ContainerItemStrategies.register after the type: the first strategy stays.
+        fn holds(stack: &ItemStack) -> Option<(ItemKey, u64)> {
+            (stack.item.as_ref() == "minecraft:glowstone").then(|| (ItemKey { item_id: "keytypes_test:red".into(), components: Vec::new() }, 400))
+        }
+        register_container_strategy(kind, ContainerStrategy { contained: holds, fill: |_, _, _| None, drain: |_, _, _| None });
+        register_container_strategy(kind, ContainerStrategy { contained: |_| None, fill: |_, _, _| None, drain: |_, _, _| None });
+        assert!(has_container_strategy(kind));
+        assert_eq!(contained_lane(&ItemStack::new("minecraft:glowstone", 1)), Some((marker, 400)));
+        assert_eq!(contained_lane(&ItemStack::new("minecraft:water_bucket", 1)).map(|(key, n)| (key.item_id, n)), Some(("minecraft:water".into(), 1000)));
+        assert_eq!(contained_lane(&ItemStack::new("minecraft:stone", 1)), None);
     }
 }

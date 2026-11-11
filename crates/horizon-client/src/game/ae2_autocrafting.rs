@@ -3954,11 +3954,12 @@ mod recursive {
                     return Err("invalid provider return fluid slot".into());
                 };
                 let i = *slot as usize;
+                // A fluid, or an addon type's key with its type in `#t`, up to the
+                // type's GenericSlotCapacities.
+                let key = horizon_client::ae2_key_types::lane_entry_key(entry, "fluid");
                 if i >= 9
                     || occupied[i]
-                    || !matches!(entry.get("amount"),Some(Tag::Long(n)) if *n>0 && *n<=4000)
-                    || !matches!(entry.get("fluid"), Some(Tag::String(_)))
-                    || !matches!(entry.get("components"), Some(Tag::ByteArray(_)))
+                    || !matches!((entry.get("amount"),&key),(Some(Tag::Long(n)),Some(key)) if *n>0 && *n as u64<=horizon_client::ae2_key_types::lane_capacity(key))
                 {
                     return Err("invalid provider fluid entry".into());
                 }
@@ -3968,13 +3969,8 @@ mod recursive {
             let Some(entry) = entries.first() else {
                 return Ok(());
             };
-            let (
-                Some(Tag::String(fluid)),
-                Some(Tag::ByteArray(components)),
-                Some(Tag::Long(amount)),
-            ) = (
-                entry.get("fluid"),
-                entry.get("components"),
+            let (Some(key), Some(Tag::Long(amount))) = (
+                horizon_client::ae2_key_types::lane_entry_key(entry, "fluid"),
                 entry.get("amount"),
             )
             else {
@@ -3983,10 +3979,6 @@ mod recursive {
             if *amount <= 0 {
                 return Err("invalid provider fluid amount".into());
             }
-            let key = ae2_cell_core::ItemKey {
-                item_id: fluid.to_string().map_err(|_| "invalid fluid identifier")?,
-                components: components.clone(),
-            };
             let amount = *amount as u64;
             let before = snapshot(self);
             let result = (|| -> Result<(), String> {

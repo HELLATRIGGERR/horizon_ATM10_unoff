@@ -12,6 +12,7 @@
 //! own machines'. Applied Flux speaks `int` FE there (`AFUtil.clampLong`),
 //! so the calls are narrow.
 pub(in crate::game) mod accessor;
+pub(in crate::game) mod generic;
 
 use super::super::{Game, ae2_global::GridAddress, ae2_key_strategies as strategies};
 use ae2_cell_core::{Action, ItemKey, KeyType};
@@ -150,8 +151,10 @@ fn import(game: &mut Game<'_>, cable: GridAddress, target: GridAddress, face: Di
 
 /// `AFRegistryHandler`: the external storage and export strategies, and the
 /// import strategy only with `misc.enable` (`AFConfig.allowImport`, off in
-/// All the Mods 10).
+/// All the Mods 10); `ContainerItemStrategy.register` of the FE items'
+/// strategy (`FEContainerItemStrategy`).
 pub(in crate::game) fn register_strategies() {
+    horizon_client::ae2_key_types::register_container_strategy(rows::key_type(), generic::container_strategy());
     let import = rows::Config::get().import_bus.then_some(strategies::ImportStrategy { offered: import_offered, transfer: import });
     strategies::register(
         rows::key_type(),
@@ -204,5 +207,6 @@ mod tests {
         assert!(strategies::with_export_strategy().contains(&kind));
         assert_eq!(clamp(u64::MAX), i64::from(i32::MAX));
         assert!(fe(&rows::fe_key()) && !fe(&ItemKey { item_id: rows::GTEU.into(), components: Vec::new() }));
+        assert!(horizon_client::ae2_key_types::has_container_strategy(kind));
     }
 }

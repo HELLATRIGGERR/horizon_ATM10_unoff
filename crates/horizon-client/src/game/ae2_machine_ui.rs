@@ -105,15 +105,11 @@ impl MenuShape {
     }
 }
 /// What a paged Interface's window shows: the page's storage and config slots
-/// (fluids as their buckets), and the card.
+/// (fluids as their buckets, an addon type's keys as its icon), and the card.
 pub(super) fn paged_interface_items(m: &Machine, shape: MenuShape) -> Vec<Option<ItemStack>> {
     let mut items = vec![None; shape.size];
     let Some(first) = shape.page else { return items };
-    let bucket = |key: &ae2_cell_core::ItemKey, amount: u64| {
-        let mut icon = ItemStack::new(super::ae2_fluids::fluid_bucket(&key.item_id).unwrap_or("minecraft:bucket"), 1);
-        icon.data_mut().custom_name = Some(horizon_client::item_data::text_name(format!("{}: {} mB", key.item_id, amount)));
-        icon
-    };
+    let bucket = super::ae2_interface::interface_lane_icon;
     let stock = super::ae2_interface::interface_fluid_stock(m).unwrap_or_default();
     let config = super::ae2_interface::interface_config(m).unwrap_or_default();
     let fluid_config = super::ae2_interface::interface_fluid_config(m).unwrap_or_default();

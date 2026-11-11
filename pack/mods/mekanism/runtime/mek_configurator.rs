@@ -138,6 +138,14 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
                 }
                 return;
             }
+            // `TileEntityFissionReactorPort.onSneakRightClick`: the next mode.
+            if id == super::mek_fission::PORT {
+                if sneaking {
+                    *claimed = true;
+                    super::mek_fission::turn_port(game, pos);
+                }
+                return;
+            }
             if super::mek_multiblock::is_part(&id) {
                 return;
             }

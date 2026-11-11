@@ -4,7 +4,7 @@ Mekanism's energy blocks, its processing machines and factories, its chemicals, 
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
-Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators and its Industrial Turbine for All the Mods 10, as a native
+Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators, its Industrial Turbine and its Fission Reactor for All the Mods 10, as a native
 mod of this fork of Horizon.
 It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
@@ -303,6 +303,28 @@ assets when `mekanism-content` is given them.
   (the steam gauge, the input rate bar, the power bar, the dump mode button, the energy tab), with
   `GuiTurbineStats`'s lines as a page; its steam, water, Joules and dump mode live in the cache under
   `mekanism_industrialturbine`.
+- The Fission Reactor (`mekanism_energy::fission`, runtime `mek_fission`): fission reactor casings with reactor ports,
+  logic adapters and reactor glass in the sides (structural glass doesn't take a "reactor" manager; reactor glass
+  takes every multiblock), 3x3x3 to 18x18x18; inside, columns of fission fuel assemblies, each under one control rod
+  assembly (`FissionReactorValidator`: `Couldn't form, missing control rod for fuel assembly at (x, z).` and its
+  other reasons). ATM10's `generators.toml` `[fission_reactor]` gives 8000 mB of fissile fuel (and of nuclear waste)
+  an assembly, 100 000 mB of coolant and 1 000 000 of heated coolant a block, 1000 of heat capacity a wall block and
+  250 000 heat a mB of fuel. Active, it burns up to its rate limit (0.1 mB/t until set; at most one an assembly) of
+  the fuel there is, each whole mB burnt becoming a mB of waste; above 373.15 K its heat times its boil efficiency
+  (the assemblies' mean surface area over 4) boils water at half of it into steam, 50 heat a mB, or sodium at its
+  conductivity into superheated sodium, 5 heat a mB; the air takes `(T - ambient) / 20010` of its heat a tick. Above
+  1200 K it takes `min(T, 1800) / 12000` damage a tick and below it repairs `(1200 - T) / 120000`; past 100 % and
+  1200 K it melts down at `chance` times its damage a tick (meltdowns on, as in ATM10): for 100 ticks, one tick in ten
+  may blast a random block of its box (radius 8, fire) while the heat it held times 1/512 000 is drawn, and the
+  reactor is left at 75 % damage, off and at the air's heat, its steam, fuel and waste gone; with meltdowns off it turns
+  itself off until it is under 100 % and 1200 K. Its ports take fuel, sodium and water in their input mode and give
+  waste or heated coolant to the blocks they face in their output modes (the Configurator's sneaking use turns
+  them); its logic adapters, in activation mode, turn it on and off by redstone (their redstone control: high, low,
+  pulse), or give 15 out of the reactor at 1200 K, at 90 % waste, at 100 % damage or with no fuel. Its casings and
+  ports open `GuiFissionReactor` (gauges, status, activate and SCRAM, the temperature bar) with
+  `GuiFissionReactorStats`'s lines as a page; an adapter opens its own screen of modes. The burn rate is set with
+  `/mek fission x y z rate <mB/t>` (also `activate`, `scram`). Its tanks, heat, damage, rate, remainders and flags live
+  in the cache under `mekanism_fissionreactor`.
 
 ## Differences from Mekanism
 
@@ -427,6 +449,15 @@ assets when `mekanism-content` is given them.
   screen's graphs, comparators and the valves' transfer aren't there. A rotor that goes other than by a player
   breaking it (an explosion, `/setblock`) drops no blades. Cables in pull mode don't draw from its valves (they take
   what the valves give).
+- The fission reactor makes no radiation: what Mekanism would radiate (waste with no room, its tanks at a meltdown,
+  entities in its core) is only counted (`/mek probe`'s `waste_overflow`); with radiation on in ATM10 a meltdown still
+  dumps the radioactive tanks. Its meltdown blasts are the game's explosions (`native_explode`), without Mekanism's own
+  ray pass that breaks the blocks inside its box; the reactor takes its meltdown and breaks once a blast has taken one
+  of its blocks; the draws come from the bundle's random source. A logic adapter's `DISABLED`
+  redstone control reads as `HIGH` (Mekanism's turns into `HIGH` once the adapter loads), its power is read as the
+  reactor ticks, and its signal is weak only. The burn rate has no text field (`/mek fission ... rate`); the screen's
+  heat graph, the recipe viewer link, the sound, comparators, the ports' heat transfer to blocks beside them and
+  their transfer animation aren't there; fuel and control rod assemblies are plain blocks.
 - The resistive heater's energy usage is set with `/mek heater` (no text field in the bundle's screens yet); its
   item keeps neither its usage nor its energy (Mekanism's keeps both), it makes no sound, it hands heat to no heat
   handler but those above (no heat generator, fuelwood heater or conductor), and redstone control and the muffling

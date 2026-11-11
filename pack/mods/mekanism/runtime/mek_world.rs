@@ -272,6 +272,7 @@ fn write_config(nbt: &mut Compound, cube: &CubeState) {
 pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     if entity.is_some()
         || super::mek_transmit::new_entity(block, entity)
+        || super::mek_fission::new_entity(block, entity)
         || super::mek_multiblock::new_entity(block, entity)
         || super::mek_turbine::new_entity(block, entity)
     {
@@ -1397,6 +1398,10 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         super::mek_turbine::button(game, pos, id);
         return;
     }
+    if super::mek_fission::is_reactor_block(&entity.id) || super::mek_fission::is_adapter(&entity.id) {
+        super::mek_fission::button(game, pos, entity, id);
+        return;
+    }
     if mek_factories::kind_of(&entity.id).is_some() {
         mek_factories::button(game, pos, entity, id);
         return;
@@ -1733,6 +1738,7 @@ pub(super) fn fluid_tanks(
         || super::mek_evaporation::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_boiler::fluid_tanks(_dimension, _pos, &entity.id, tanks)
         || super::mek_turbine::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
+        || super::mek_fission::fluid_tanks(_dimension, _pos, &entity.id, tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || super::mek_gen2::fluid_tanks(entity, face, tanks)
@@ -1767,6 +1773,7 @@ pub(super) fn fluid_fill(
         || super::mek_evaporation::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_boiler::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_turbine::fluid_fill(_dimension, _pos, &entity.id, filled)
+        || super::mek_fission::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
@@ -1814,6 +1821,7 @@ pub(super) fn fluid_drain(
         || super::mek_evaporation::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_boiler::fluid_drain(_dimension, _pos, &entity.id, drained)
         || super::mek_turbine::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
+        || super::mek_fission::fluid_drain(_dimension, _pos, &entity.id, drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
         || super::mek_gen2::fluid_drain(entity, face, drained)
@@ -2312,6 +2320,17 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             match (at, words.next().and_then(|w| w.parse::<u64>().ok())) {
                 ((Some(x), Some(y), Some(z)), Some(usage)) => super::mek_heater::set_usage(game, [x, y, z], usage),
                 _ => serde_json::json!({ "error": "usage: /mek heater <x> <y> <z> <joules a tick>" }),
+            }
+        }
+        // `/mek fission x y z rate <mB/t> | activate | scram`: a fission reactor's burn rate, as its stats page's text
+        // field sets it, and its screen's buttons.
+        Some("fission") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            let rest: Vec<&str> = words.collect();
+            match at {
+                (Some(x), Some(y), Some(z)) => super::mek_fission::command(game, [x, y, z], &rest),
+                _ => serde_json::json!({ "error": "usage: /mek fission <x> <y> <z> rate <mB/t> | activate | scram" }),
             }
         }
         // `/mek install x y z <tier installer>`: a tier installer used on the block, as a sneaking player would.

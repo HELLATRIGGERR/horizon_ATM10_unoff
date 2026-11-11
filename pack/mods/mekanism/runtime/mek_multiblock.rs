@@ -2,7 +2,7 @@
 // of the `mekanism` native bundle): the framework the Dynamic Tank
 // (`mek_dynamic_tank`), the Induction Matrix (`mek_matrix`), the Thermal
 // Evaporation Plant (`mek_evaporation`), the Thermoelectric Boiler
-// (`mek_boiler`) and the Industrial Turbine (`mek_turbine`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
+// (`mek_boiler`), the Industrial Turbine (`mek_turbine`) and the Fission Reactor (`mek_fission`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -32,6 +32,7 @@ use mekanism_energy::{
     chemical::{ChemicalRegistry, ChemicalStack},
     evaporation::{self, Heat},
     multiblock::{self, Cuboid, Failure, Inner, Node, Pos, Uuid},
+    fission,
     sides::Direction,
     turbine,
 };
@@ -43,7 +44,7 @@ use std::{
 };
 
 /// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`, `boilerManager`,
-/// `MekanismGenerators.turbineManager`).
+/// `MekanismGenerators.turbineManager`, `fissionReactorManager`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Kind {
     Tank,
@@ -51,12 +52,13 @@ pub(super) enum Kind {
     Evaporation,
     Boiler,
     Turbine,
+    Fission,
 }
 
 pub(super) const GLASS: &str = "mekanism:structural_glass";
 
 impl Kind {
-    pub(super) const ALL: [Self; 5] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine];
+    pub(super) const ALL: [Self; 6] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine, Self::Fission];
 
     /// `MultiblockManager.getName`.
     pub(super) fn name(self) -> &'static str {
@@ -66,6 +68,7 @@ impl Kind {
             Self::Evaporation => "evaporation",
             Self::Boiler => "thermoelectricBoiler",
             Self::Turbine => "industrialTurbine",
+            Self::Fission => "fissionReactor",
         }
     }
 
@@ -76,6 +79,7 @@ impl Kind {
             Self::Evaporation => "mekanism:thermal_evaporation_block",
             Self::Boiler => super::mek_boiler::CASING,
             Self::Turbine => super::mek_turbine::CASING,
+            Self::Fission => super::mek_fission::CASING,
         }
     }
 
@@ -86,15 +90,17 @@ impl Kind {
             Self::Evaporation => "mekanism:thermal_evaporation_valve",
             Self::Boiler => super::mek_boiler::VALVE,
             Self::Turbine => super::mek_turbine::VALVE,
+            Self::Fission => super::mek_fission::PORT,
         }
     }
 
     /// Its block that is neither casing nor valve (`CasingType.OTHER`): the evaporation plant's controller, the
-    /// turbine's vents.
+    /// turbine's vents, the fission reactor's logic adapters.
     fn other(self) -> Option<&'static str> {
         match self {
             Self::Evaporation => Some(super::mek_evaporation::CONTROLLER),
             Self::Turbine => Some(super::mek_turbine::VENT),
+            Self::Fission => Some(super::mek_fission::ADAPTER),
             _ => None,
         }
     }
@@ -114,17 +120,18 @@ impl Kind {
     }
 
     /// The blocks whose item handler reaches the multiblock's slots (Mekanism's `Attributes.INVENTORY`): the dynamic
-    /// valve and the induction port, the evaporation controller; the boiler and the turbine have no slots.
+    /// valve and the induction port, the evaporation controller; the boiler, the turbine and the reactor have no slots.
     fn holds_inventory(self, block: &str) -> bool {
         match self {
             Self::Evaporation => self.other() == Some(block),
-            Self::Boiler | Self::Turbine => false,
+            Self::Boiler | Self::Turbine | Self::Fission => false,
             _ => block == self.valve(),
         }
     }
 
     /// What `block` is to a structure of this manager (`getCasingType`, `isFrameCompatible`): structural glass
-    /// interfaces with every manager whose name has no "reactor".
+    /// interfaces with every manager whose name has no "reactor", reactor glass with every one
+    /// (`TileEntityReactorGlass.canInterface`).
     fn node(self, block: &str) -> Option<Node> {
         if block == self.casing() {
             Some(Node::Frame)
@@ -132,7 +139,7 @@ impl Kind {
             Some(Node::Valve)
         } else if self.other() == Some(block) {
             Some(Node::Other)
-        } else if block == GLASS && !self.name().to_ascii_lowercase().contains("reactor") {
+        } else if (block == GLASS && !self.name().to_ascii_lowercase().contains("reactor")) || block == super::mek_fission::GLASS {
             Some(Node::Structural)
         } else {
             None
@@ -147,6 +154,7 @@ impl Kind {
             Self::Evaporation => "evaporation",
             Self::Boiler => "thermoelectricboiler",
             Self::Turbine => "industrialturbine",
+            Self::Fission => "fissionreactor",
         }
     }
 
@@ -157,6 +165,7 @@ impl Kind {
             Self::Evaporation => &EVAPORATION_DATA,
             Self::Boiler => &BOILER_DATA,
             Self::Turbine => &TURBINE_DATA,
+            Self::Fission => &FISSION_DATA,
         }
     }
 
@@ -171,6 +180,8 @@ impl Kind {
             Self::Boiler => [3, 0, 1, 0, 1],
             // Steam; the vent tank's water; its Joules.
             Self::Turbine => [1, 0, 1, 1, 0],
+            // Fissile fuel, heated coolant, nuclear waste and a chemical coolant; water; its heat.
+            Self::Fission => [4, 0, 1, 0, 1],
         }
     }
 
@@ -225,6 +236,14 @@ static TURBINE_DATA: AttachmentType<Compound> = AttachmentType {
     copy_on_death: false,
     sync: false,
 };
+static FISSION_DATA: AttachmentType<Compound> = AttachmentType {
+    namespace: "mekanism",
+    name: "fissionreactor",
+    default: Compound::new,
+    codec: Some(AttachmentCodec { encode: identity, decode: identity }),
+    copy_on_death: false,
+    sync: false,
+};
 
 pub(super) fn is_air(block: &str) -> bool {
     matches!(block, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
@@ -242,7 +261,7 @@ pub(super) fn is_matrix_inner(block: &str) -> bool {
 
 /// A block of the framework's: a casing, valve or port of some manager, or structural glass.
 pub(super) fn is_part(block: &str) -> bool {
-    block == GLASS || Kind::of_block(block).is_some()
+    block == GLASS || block == super::mek_fission::GLASS || Kind::of_block(block).is_some()
 }
 
 /// A multiblock's cache (`MultiblockCache`): its containers, as Mekanism saves them, and the rest of its own
@@ -259,6 +278,9 @@ pub(super) struct Cache {
     pub(super) edit_mode: i32,
     /// The turbine's dump mode (`TurbineCache.dumpMode`, saved as `dumping`).
     pub(super) dumping: i32,
+    /// The fission reactor's own (`FissionReactorCache`: `reactor_damage`, `injection_rate`, `burn_time`,
+    /// `partial_waste`, `disabled`, `active`).
+    pub(super) reactor: Option<fission::Core>,
 }
 
 impl Cache {
@@ -272,6 +294,7 @@ impl Cache {
             heat: vec![None; h],
             edit_mode: 0,
             dumping: 0,
+            reactor: (kind == Kind::Fission).then(fission::Core::new),
         }
     }
 
@@ -313,6 +336,11 @@ impl Cache {
         }
         self.edit_mode = other.edit_mode;
         self.dumping = other.dumping;
+        match (self.reactor.as_mut(), other.reactor) {
+            (Some(mine), Some(theirs)) => mine.merge(&theirs),
+            (None, theirs) => self.reactor = theirs,
+            _ => {}
+        }
     }
 
     /// `MultiblockCache.save` with its `inventory_id`, as `MultiblockCacheDataHandler` lists it; a turbine's keeps its
@@ -372,6 +400,15 @@ impl Cache {
         }
         if kind == Kind::Turbine {
             c.insert(key("dumping"), Tag::Int(self.dumping));
+        } else if kind == Kind::Fission {
+            let core = self.reactor.unwrap_or_else(fission::Core::new);
+            c.insert(key("reactor_damage"), Tag::Double(core.damage.to_bits()));
+            // `getRateLimit`: a cache that never had one saves the default.
+            c.insert(key("injection_rate"), Tag::Double(core.rate(&super::mek_fission::settings()).to_bits()));
+            c.insert(key("burn_time"), Tag::Double(core.burn_remaining.to_bits()));
+            c.insert(key("partial_waste"), Tag::Double(core.partial_waste.to_bits()));
+            c.insert(key("disabled"), Tag::Byte(i8::from(core.force_disabled)));
+            c.insert(key("active"), Tag::Byte(i8::from(core.active)));
         } else {
             c.insert(key("edit_mode"), Tag::Int(self.edit_mode));
         }
@@ -403,7 +440,23 @@ impl Cache {
             heat: vec![None; count("heat_capacitors")],
             edit_mode: mek_world::number(c.get(&key("edit_mode"))).unwrap_or(0) as i32,
             dumping: mek_world::number(c.get(&key("dumping"))).unwrap_or(0) as i32,
+            reactor: None,
         };
+        let double = |name: &str| match c.get(&key(name)) {
+            Some(Tag::Double(v)) => Some(f64::from_bits(*v)),
+            Some(Tag::Float(v)) => Some(f64::from(f32::from_bits(*v))),
+            other => mek_world::number(other).map(|n| n as f64),
+        };
+        if c.get(&key("reactor_damage")).is_some() || c.get(&key("injection_rate")).is_some() {
+            cache.reactor = Some(fission::Core {
+                damage: double("reactor_damage").unwrap_or(0.0),
+                rate_limit: double("injection_rate").unwrap_or(-1.0),
+                burn_remaining: double("burn_time").unwrap_or(0.0),
+                partial_waste: double("partial_waste").unwrap_or(0.0),
+                force_disabled: mek_world::number(c.get(&key("disabled"))).unwrap_or(0) != 0,
+                active: mek_world::number(c.get(&key("active"))).unwrap_or(0) != 0,
+            });
+        }
         if let Some(Tag::List(list)) = c.get(&key("heat_capacitors")) {
             for e in list {
                 let Tag::Compound(e) = e else { continue };
@@ -456,6 +509,8 @@ pub(super) struct Formed {
     pub(super) boiler: Option<boiler::Shape>,
     /// A turbine's rotors, coils, condensers, vents and lower volume (`TurbineValidator.postcheck`).
     pub(super) turbine: Option<turbine::Shape>,
+    /// A fission reactor's fuel assemblies and their surface area (`FissionReactorValidator.postcheck`).
+    pub(super) fission: Option<fission::Shape>,
     /// Blocks whose container shows the multiblock's slots: its valves (hoppers reach them) and the blocks whose
     /// screen a player opened.
     views: BTreeSet<Pos>,
@@ -538,6 +593,7 @@ pub(super) fn clear() {
     super::mek_evaporation::clear();
     super::mek_boiler::clear();
     super::mek_turbine::clear();
+    super::mek_fission::clear();
 }
 
 // ---- Block entities --------------------------------------------------------------------------
@@ -564,8 +620,8 @@ pub(super) fn container(block: &str) -> Option<ModContainer> {
     }
     let (all, inputs, outputs) = match kind {
         Kind::Evaporation => (vec![0, 1, 2, 3], vec![0, 2], vec![1, 3]),
-        // The boiler's and the turbine's casings and valves open their screen, which has no slots.
-        Kind::Boiler | Kind::Turbine => (Vec::new(), Vec::new(), Vec::new()),
+        // The boiler's, the turbine's and the reactor's casings and valves open their screen, which has no slots.
+        Kind::Boiler | Kind::Turbine | Kind::Fission => (Vec::new(), Vec::new(), Vec::new()),
         _ => (vec![0, 1], vec![0, 1], vec![0, 1]),
     };
     Some(ModContainer {
@@ -720,6 +776,12 @@ fn failure_text(game: &mut Game<'_>, failure: Failure) -> Option<String> {
             "Couldn't form, found a Turbine Vent below Pressure Disperser layer. Vents must be at or above vertical position of disperser layer.".into(),
         ),
         Failure::MissingVents => Some("Couldn't form, no Turbine Vents present.".into()),
+        Failure::MissingFuelAssembly => Some("Couldn't form, no fuel assembly structures present.".into()),
+        Failure::MissingControlRod([x, z]) => Some(format!("Couldn't form, missing control rod for fuel assembly at ({x}, {z}).")),
+        Failure::BadFuelAssembly(p) => Some(format!("Couldn't form, missing fuel assembly for control rod at ({}, {}, {}).", p[0], p[1], p[2])),
+        Failure::MalformedFuelAssembly(p) => Some(format!("Couldn't form, invalid Fission Fuel Assembly placement at ({}, {}, {}).", p[0], p[1], p[2])),
+        Failure::BadControlRod(p) => Some(format!("Couldn't form, improper placement for Control Rod Assembly at ({}, {}, {}).", p[0], p[1], p[2])),
+        Failure::ExtraControlRod(p) => Some(format!("Couldn't form, found extra Control Rod Assembly at ({}, {}, {}).", p[0], p[1], p[2])),
     }
 }
 
@@ -736,6 +798,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
     let explored: Vec<Pos> = nodes.keys().copied().collect();
     let mut shape = None;
     let mut turbine_shape = None;
+    let mut fission_shape = None;
     let result = match kind {
         Kind::Evaporation => evaporation::form(&nodes, |p| inner_at(game, kind, p)),
         Kind::Boiler => super::mek_boiler::form(game, &nodes).map(|(f, s)| {
@@ -744,6 +807,10 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         }),
         Kind::Turbine => super::mek_turbine::form(game, &nodes).map(|(f, s)| {
             turbine_shape = Some(s);
+            f
+        }),
+        Kind::Fission => super::mek_fission::form(game, &nodes).map(|(f, s)| {
+            fission_shape = Some(s);
             f
         }),
         _ => multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p)),
@@ -808,6 +875,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             valves: formation.valves.clone(),
             boiler: shape,
             turbine: turbine_shape,
+            fission: fission_shape,
             views: holders.iter().copied().chain(kept_views.iter().copied().filter(|p| formation.locations.contains(p))).collect(),
             pushed: Vec::new(),
         };
@@ -827,6 +895,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         Kind::Evaporation => super::mek_evaporation::created(game, dimension, id),
         Kind::Boiler => super::mek_boiler::created(game, dimension, id),
         Kind::Turbine => super::mek_turbine::created(dimension, id),
+        Kind::Fission => super::mek_fission::created(game, dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -852,6 +921,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
         if formed.kind == Kind::Turbine {
             super::mek_turbine::removed(&formed);
         }
+        if formed.kind == Kind::Fission {
+            super::mek_fission::removed(dimension, &formed);
+        }
         HEAT.with(|h| h.borrow_mut().remove(&id));
         for p in &formed.views {
             game.native_with_mod_block_entity(*p, |m| {
@@ -875,6 +947,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
     }
     if formed.kind == Kind::Turbine {
         super::mek_turbine::removed(&formed);
+    }
+    if formed.kind == Kind::Fission {
+        super::mek_fission::removed(dimension, &formed);
     }
     HEAT.with(|h| h.borrow_mut().remove(&id));
     PENDING_CLEAR.with(|p| p.borrow_mut().push(Clear { dimension: dimension.to_owned(), kind: formed.kind, id, views: formed.views.iter().copied().collect(), pushed: formed.pushed }));
@@ -1082,6 +1157,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     }
     super::mek_evaporation::flush(game, dimension);
     super::mek_boiler::flush(game, dimension);
+    super::mek_fission::level_ticked(game, dimension);
     save_caches(game, dimension);
 }
 
@@ -1102,6 +1178,7 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
             Kind::Evaporation => super::mek_evaporation::tick(game, dimension, id),
             Kind::Boiler => super::mek_boiler::tick(game, dimension, id),
             Kind::Turbine => super::mek_turbine::tick(game, dimension, id),
+            Kind::Fission => super::mek_fission::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -1146,8 +1223,11 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
         Kind::Evaporation => super::mek_evaporation::view(game, dimension, id),
         Kind::Boiler => super::mek_boiler::view(game, dimension, id),
         Kind::Turbine => super::mek_turbine::view(dimension, id),
+        Kind::Fission => super::mek_fission::view(game, dimension, id),
     };
     for p in views {
+        // A logic adapter's screen shows its own mode and status too.
+        let data = if kind == Kind::Fission { super::mek_fission::view_at(game, dimension, p, &data) } else { data.clone() };
         game.native_with_mod_block_entity(p, |m| {
             if m.items.len() < items.len() {
                 m.items.resize(5.max(items.len()), None);
@@ -1158,7 +1238,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
                 }
             }
             if m.data != data {
-                m.data = data.clone();
+                m.data = data;
             }
         });
     }
@@ -1271,6 +1351,14 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: Pos, canceled: &mut bool) {
     }
 }
 
+/// A formed multiblock breaks now (`TileEntityMultiblock.setRemoved` as a blast takes one of its blocks), before its
+/// block entities go at the end of the tick.
+pub(super) fn break_now(game: &mut Game<'_>, dimension: &str, id: Uuid) {
+    if with_formed(dimension, id, |_| ()).is_some() {
+        unform(dimension, id, Some(game));
+    }
+}
+
 /// `native_destroy_block`: the slots a block mirrors aren't its own, so nothing drops them.
 pub(super) fn breaking(game: &mut Game<'_>, pos: Pos) {
     let id = game.native_block(pos);
@@ -1311,6 +1399,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
             Kind::Evaporation => super::mek_evaporation::probe(game, dimension, owner),
             Kind::Boiler => super::mek_boiler::probe(game, dimension, owner),
             Kind::Turbine => super::mek_turbine::probe(dimension, owner),
+            Kind::Fission => super::mek_fission::probe(game, dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);
@@ -1342,6 +1431,7 @@ pub(super) fn caches_json(game: &mut Game<'_>) -> Value {
                         "items": c.items.iter().map(|s| s.as_ref().map(|s| json!({ "item": &*s.item, "count": s.count }))).collect::<Vec<_>>(),
                         "heat": c.heat.iter().map(|h| h.map(|h| json!({ "stored": h.stored, "capacity": h.capacity }))).collect::<Vec<_>>(),
                         "edit_mode": c.edit_mode,
+                        "reactor": c.reactor.map(|r| json!({ "damage": r.damage, "rate_limit": r.rate_limit, "active": r.active, "force_disabled": r.force_disabled })),
                     })
                 })
                 .collect();

@@ -202,6 +202,36 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   `generators.toml` too). Learned: the multiblock's tick runs before a tank placed after it, so steam pushed in lands
   for the next tick and counts as that tick's `lastSteamInput`; a turbine filled in one tick and dumping loses all of
   it on the next.
+- Multiblocks, part 7: the Fission Reactor (branch `feat/mekanism-multiblocks-2`, no new hook point: it hooks API
+  38's `native_block_signal` and `native_is_signal_source` for the logic adapters and calls `native_neighbor_signal`
+  (96) and `native_explode` (66); `mekanism_energy::fission`, runtime `mek_fission`; the framework gained
+  `Kind::Fission` (its logic adapters are the `OTHER` block, a cache saved with `reactor_damage`, `injection_rate`,
+  `burn_time`, `partial_waste`, `disabled`, `active` and no `edit_mode`), the reactor's failures, `Formed.fission`, a
+  view per position (an adapter's screen adds its mode, status and redstone control), and reactor glass, which every
+  manager takes). Measured on a private copy of the turbine's oracle (local `mekfiss-work/oracle`, RCON 25641;
+  `f1.py` formation, `f2.py` water, sodium, dry and the adapters, `f3.py` burn rates, damage and a meltdown with
+  `injection_rate` written into the saved cache while the server was stopped): forms 12 ticks after it is built;
+  3x4x3 with a fuel assembly under a control rod, air above the rod or below the fuel, reactor glass, ports and
+  adapters (two too) in the sides, 5x5x5 of two touching columns of two form; no assembly, fuel or a rod alone, a gap
+  under the rod or in the fuel, two rods, a rod under the fuel, an adapter or a port on an edge, structural glass and
+  dirt inside don't; a dynamic tank takes reactor glass. The cache is `{fluid_tanks_stored: 1, chemical_tanks_stored:
+  4, heat_capacitors_stored: 1, heat_capacitors, reactor_damage, injection_rate: 0.1, burn_time, partial_waste,
+  active, disabled}`; a 3x4x3 holds 34 000 of heat capacity (10 200 000.01013279 in plains). Started by an adapter
+  in activation mode and a redstone block (stopped when the block went): 0.1 mB/t gives 25 000 heat a tick, the first
+  waste on the eleventh tick (0.1 ten times is 0.9999999999999999), water boiling from the 101st (67 mB, 24 012 by
+  the 150th, 374.6146 K held), sodium holding it at 373.8817 K (4975 mB of superheated sodium a tick); 4 mB/t in a
+  5x5x5 of four assemblies (surface 16): 19 991 mB of steam a tick at 393.549 K; nine assemblies in a layer (surface
+  30, efficiency 0.833): 44 987 at 428.237 K; dry at 1 mB/t: 3.034 % damage at tick 150, 99.631 at 800, 129.631 at
+  1000, the temperature adapter's lamp lit past 1200 K, the damaged one's past 100 %, a meltdown between ticks 1200
+  and 1600 that took out the reactor and its neighbour 10 blocks away. World test `fission` (its own config copy:
+  the meltdown chance 0 while it measures, as M passes 100 % at its 803rd tick and a roll would take it, then rewritten
+  for the force disable and the meltdown). A meltdown blast that takes a block of the reactor breaks it at once
+  (`mek_multiblock::break_now`): the bundle's block entities go at the end of the tick, and a reactor ticking once
+  more would repair its 75 % a little. Learned: the logic adapter's saved `control_type` is 0
+  (`DISABLED`) until it loads, when `supportedOrNextType` makes it `HIGH` (a `data merge` loads it too); a basic
+  chemical tank refuses nuclear waste (the default attribute validator), an empty creative tank takes and voids it;
+  `burnFuel` sets an empty fuel tank to nothing, so the remainder burns on; what boils is used up even when the heated
+  coolant tank is full.
 - Generators 2 and the fluid world machines (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
   the Bio-Generator, Wind Generator and Advanced Solar Generator (`mekanism_energy::bio`, `wind`, `solar`'s
   `AdvancedSolar`; three more `GeneratorKind`s run by `runtime/mek_gen2.rs`, which also places and removes their
@@ -219,7 +249,10 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
   under a block set while the world is held settles a tick or more later, so the tests let it settle before the
   generators look again.
-- Next: the SPS and the reactors (the Fission Reactor's ports and the Fusion Reactor's frame); the turbine's rest
+- Next: the SPS and the Fusion Reactor (its frame: corners left out); the fission reactor's rest (radiation, which
+  chemicals slice 7 brings: the waste with no room, the meltdown's dump, entities in its core; Mekanism's own ray pass
+  of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside
+  them, sounds); the turbine's rest
   (blades drawn and turning, the rotors' `position`, the statistics graphs, comparators, cables pulling from its
   valves, a rotor dropping its blades however it goes); more heat handlers (the fuelwood heater, the heat generator's
   down side and its taking heat, thermodynamic conductors) and the resistive heater's usage field (a text field in

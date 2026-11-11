@@ -44,7 +44,8 @@
 //! Evaporation Plant (`evaporation`), the Thermoelectric Boiler
 //! (`boiler`), which the Resistive Heater (`heater`) heats, and Mekanism
 //! Generators' Industrial Turbine (`turbine`), which turns its steam into
-//! Joules.
+//! Joules, and its Fission Reactor (`fission`), which burns fissile fuel
+//! into heat that boils its coolant.
 //! The Electric Pump and the Fluidic Plenisher (`pump`) take the world's
 //! fluid blocks into a tank and put them back.
 //! Nothing here knows the game: the native mod's helpers bring the world.
@@ -63,6 +64,7 @@ pub mod dynamic_tank;
 pub mod evaporation;
 pub mod factory;
 pub mod fe;
+pub mod fission;
 pub mod fluid_tank;
 pub mod gas;
 pub mod generator;

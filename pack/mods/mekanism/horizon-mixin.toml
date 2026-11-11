@@ -6,17 +6,19 @@
 # Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
 # (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler) and
 # its Resistive Heater, Mekanism Generators' Solar, Heat,
-# Gas-Burning, Bio, Wind and Advanced Solar Generators and Industrial Turbine, and its Electric Pump and
+# Gas-Burning, Bio, Wind and Advanced Solar Generators, Industrial Turbine and Fission Reactor, and its Electric Pump and
 # Fluidic Plenisher, as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
 # are ported from its source in the crate `mekanism-energy`.
 #
-# It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26,
+# It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26, 38,
 # 42, 45, 47, 60, 71, 416-418, 420 and 422) and calls the helpers of API 419 (`native_biome_climate`,
 # `native_dimension_type`), 421 (`native_cooking_recipes`), 422 (`FluidStack`, the fluid handler helpers), 423
 # (`native_data_files`, the content's chemical declarations), 424 (`native_used_stack`,
 # `native_instabuild`: the tier installers), 425 (`native_insert_slots`, `native_pop_resource`: the
-# transporters) and 426 (`native_level_particles`: a multiblock's sparkles), the attachments
+# transporters) and 426 (`native_level_particles`: a multiblock's sparkles), 66 (`native_explode`: a fission
+# reactor's meltdown), 96 (`native_neighbor_signal`: its logic adapters' redstone) and 38
+# (`native_update_signal_neighbors`), the attachments
 # helper (`native_attachments`: the multiblocks' caches in the level's saved data), and upstream's pending
 # `native_default_state` and `native_sneaking` (fragments default_state and host_bridge: the tier installers and
 # the Configurator), so it builds on any Horizon with hooks API 426 or later: it pins no
@@ -140,6 +142,12 @@ id = "turbine"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_turbine"
 source = "runtime/mek_turbine.rs"
+
+[[module]]
+id = "fission"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_fission"
+source = "runtime/mek_fission.rs"
 
 [[module]]
 id = "transmit"
@@ -397,6 +405,34 @@ bindings = [
   { name = "kind", ty = "&str", value = "kind" },
   { name = "pos", ty = "[f64; 3]", value = "pos" },
   { name = "loaded_from_disk", ty = "bool", value = "loaded_from_disk" },
+]
+
+[[injection]]
+id = "block-signal"
+hook = "block_signal"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_signal.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "&*self" },
+  { name = "dimension", ty = "horizon_world::level::Dimension", value = "dimension" },
+  { name = "pos", ty = "horizon_core::position::BlockPos", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "face", ty = "horizon_core::geometry::Direction", value = "face" },
+  { name = "direct", ty = "bool", value = "direct" },
+  { name = "signal", ty = "&mut i32", value = "&mut *signal" },
+]
+
+[[injection]]
+id = "is-signal-source"
+hook = "is_signal_source"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/is_signal_source.rs"
+bindings = [
+  { name = "level", ty = "&crate::game::GameLevel<'_>", value = "&*self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "source", ty = "&mut bool", value = "&mut *source" },
 ]
 
 [[injection]]

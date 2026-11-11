@@ -7,6 +7,8 @@ const fixture = new WorldFixture('wireless-key-types', 'server-thread');
 const slot = (view: any, index: number) => view.slots?.find((entry: any) => entry.slot === index);
 const shown = (view: any, item: string) => (view.slots ?? []).some((entry: any) => entry.slot >= 300 && entry.slot < 345 && entry.item === item);
 const label = (view: any, index: number) => String(slot(view, index)?.components ?? '');
+// KeyTypeSelectionScreen's places: a box per registered key type (an addon's too, Applied Flux's FE), then the back tab.
+const back = (view: any) => (view.slots ?? []).find((entry: any) => entry.slot >= 300 && /Back to storage/.test(String(entry.components ?? '')))?.slot;
 try {
   const start = await fixture.start();
   const [px, py, pz] = start.player.position;
@@ -29,10 +31,12 @@ try {
   await until(() => fixture.raw('screen'), view => shown(view, 'minecraft:oak_log') && !shown(view, 'minecraft:water_bucket'), 'source item-only selection');
   await fixture.raw('click-slot 352');
   const selection = await until(() => fixture.raw('screen'), view => /Items: enabled/.test(label(view,300)) && /Fluids: disabled/.test(label(view,301)), 'key-type selection screen');
+  let types: string[] = [];
   {
     // KeyTypeSelectionScreen covers the placeholder places: the last selected type stays on.
     const boxes = await until(() => fixture.raw('screen'), view => view.ae2_terminal?.sub === 'KeyTypes', 'the key-type screen covers the terminal');
     const check = (name: string) => boxes.ae2_terminal.checks.find((c: any) => c.check === name);
+    types = boxes.ae2_terminal.checks.map((c: any) => c.check);
     assert.deepEqual([check('Items').selected, check('Items').active, check('Fluids').selected, check('Fluids').active], [true, false, false, true]);
     if (process.env.AE2_TERM_SHOTS) { await fixture.raw(`screenshot ${join(process.env.AE2_TERM_SHOTS, 'key-types.png')}`); await Bun.sleep(700); }
     const [fx, fy, fw, fh] = check('Fluids').rect;
@@ -48,7 +52,8 @@ try {
   await until(() => fixture.raw('screen'), view => /Items: disabled/.test(label(view,300)), 'items disabled');
   await fixture.raw('click-slot 301');
   await until(() => fixture.raw('screen'), view => /Fluids: enabled/.test(label(view,301)), 'last selected type cannot be disabled');
-  await fixture.raw('click-slot 302');
+  const tab = back(await fixture.raw('screen')); assert(tab !== undefined, 'the key-type screen has its back tab');
+  await fixture.raw(`click-slot ${tab}`);
   await until(() => fixture.raw('screen'), view => shown(view, 'minecraft:water_bucket') && !shown(view, 'minecraft:oak_log'), 'fluid-only selection filters live results');
   await fixture.raw('close');
   assert.match(JSON.stringify((await fixture.command('data get entity @s SelectedItem')).chat?.[0]), /ae2:enabled_key_types.*ae2:f/);
@@ -56,6 +61,11 @@ try {
   await until(() => fixture.ae(`grid status ${access}`), state => state.online && state.powered, 'reloaded wireless access point', 30000);
   await fixture.select(0, 'ae2:wireless_terminal'); await fixture.raw('use-item');
   await until(() => fixture.raw('screen'), view => shown(view, 'minecraft:water_bucket') && !shown(view, 'minecraft:oak_log'), 'fluid selection survives reload');
+  // KeyTypeSelectionButton.getNextSelection: one type goes to the next registered one alone, the last to every type.
+  for (const next of types.slice(types.indexOf('Fluids') + 1)) {
+    await fixture.raw('click-slot 352 shift');
+    await until(() => fixture.raw('screen'), view => view.screen === 'container' && !shown(view, 'minecraft:water_bucket') && !shown(view, 'minecraft:oak_log'), `shift-click selects ${next} alone`);
+  }
   await fixture.raw('click-slot 352 shift');
   await until(() => fixture.raw('screen'), view => shown(view, 'minecraft:water_bucket') && shown(view, 'minecraft:oak_log'), 'shift-click cycles back to all types');
   await fixture.raw('close');

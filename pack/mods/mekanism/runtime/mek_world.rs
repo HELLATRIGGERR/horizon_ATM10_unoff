@@ -174,6 +174,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_multiblock::clear();
     super::mek_gen2::clear();
     super::mek_pump::clear();
+    super::mek_heater::clear();
 }
 
 // ---- The saved compound, in Mekanism's names ----------------------------
@@ -280,6 +281,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some(super::mek_pump::new_entity(kind));
         return;
     }
+    if super::mek_heater::is_heater(block) {
+        *entity = Some(super::mek_heater::new_entity());
+        return;
+    }
     if let Some(kind) = mek_factories::kind_of(block) {
         *entity = Some(mek_factories::new_entity(kind));
         return;
@@ -316,6 +321,7 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
         || GeneratorKind::of_block(block).is_some()
         || mek_machines::kind_of(block).is_some()
         || super::mek_pump::kind_of(block).is_some()
+        || super::mek_heater::is_heater(block)
         || super::mek_tanks::tier_of(block).is_some()
         || super::mek_transmit::ticks(block)
     {
@@ -340,6 +346,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if super::mek_pump::kind_of(block).is_some() {
         *container = Some(super::mek_pump::container());
+        return;
+    }
+    if super::mek_heater::is_heater(block) {
+        *container = Some(super::mek_heater::container());
         return;
     }
     if let Some(kind) = mek_factories::kind_of(block) {
@@ -437,6 +447,9 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_pump::takes_energy(m, side)).flatten() {
         return open.then_some(Target::Machine);
     }
+    if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_heater::takes_energy(m, side)).flatten() {
+        return open.then_some(Target::Machine);
+    }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
             let tier = CubeTier::of_block(&m.id)?;
@@ -498,7 +511,10 @@ fn hand_over(
                     Some(rest) => Some(rest),
                     None => match mek_machines::offer(m, config, face.opposite(), amount, simulate) {
                         Some(rest) => Some(rest),
-                        None => super::mek_pump::offer(m, config, face.opposite(), amount, simulate),
+                        None => match super::mek_pump::offer(m, config, face.opposite(), amount, simulate) {
+                            Some(rest) => Some(rest),
+                            None => super::mek_heater::offer(m, face.opposite(), amount, simulate),
+                        },
                     },
                 })
                 .flatten()
@@ -565,6 +581,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     if let Some(kind) = super::mek_pump::kind_of(&entity.id) {
         super::mek_pump::tick(game, pos, entity, kind);
+        return;
+    }
+    if super::mek_heater::is_heater(&entity.id) {
+        super::mek_heater::tick(game, pos, entity);
         return;
     }
     if let Some(tier) = super::mek_tanks::tier_of(&entity.id) {
@@ -709,7 +729,7 @@ pub(super) fn fe_storage(
         mek_machines::fe_storage(entity, face, &config, info);
         return;
     }
-    if super::mek_pump::fe_storage(entity, face, &config, info) {
+    if super::mek_pump::fe_storage(entity, face, &config, info) || super::mek_heater::fe_storage(entity, face, &config, info) {
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
@@ -784,7 +804,9 @@ pub(super) fn fe_transfer(
         mek_machines::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
         return;
     }
-    if super::mek_pump::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved) {
+    if super::mek_pump::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
+        || super::mek_heater::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
+    {
         return;
     }
     if let Some(kind) = GeneratorKind::of_block(&entity.id) {
@@ -911,7 +933,10 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if has_chemicals(&entity.id) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some() || super::mek_pump::kind_of(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id).is_some()
+        || mek_factories::kind_of(&entity.id).is_some()
+        || super::mek_pump::kind_of(&entity.id).is_some()
+        || super::mek_heater::is_heater(&entity.id);
     let Some(tier) = CableTier::of_block(&entity.id) else {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
         if energy && ANY_CABLES.get() {
@@ -954,11 +979,17 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
     if has_chemicals(&entity.id) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some() || mek_factories::kind_of(&entity.id).is_some() || super::mek_pump::kind_of(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id).is_some()
+        || mek_factories::kind_of(&entity.id).is_some()
+        || super::mek_pump::kind_of(&entity.id).is_some()
+        || super::mek_heater::is_heater(&entity.id);
     if machine && !removed {
         mek_machines::forget(dimension, pos);
         mek_factories::forget(dimension, pos);
         super::mek_pump::forget(dimension, pos);
+    }
+    if super::mek_heater::is_heater(&entity.id) {
+        super::mek_heater::forget(dimension, pos);
     }
     if CableTier::of_block(&entity.id).is_none() {
         let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
@@ -1064,7 +1095,9 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
     if let Some(output) = super::mek_matrix::port_at(game, at) {
         return super::mek_matrix::draw_energy(dimension, at, output, amount, simulate);
     }
-    let machine = |m: &mut ModBlockEntity| mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some() || super::mek_pump::kind_of(&m.id).is_some();
+    let machine = |m: &mut ModBlockEntity| {
+        mek_machines::kind_of(&m.id).is_some() || mek_factories::kind_of(&m.id).is_some() || super::mek_pump::kind_of(&m.id).is_some() || super::mek_heater::is_heater(&m.id)
+    };
     if game.native_with_mod_block_entity(at, machine) == Some(true) {
         return 0;
     }
@@ -1682,6 +1715,7 @@ pub(super) fn fluid_tanks(
     if tanks.is_some()
         || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
         || super::mek_evaporation::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
+        || super::mek_boiler::fluid_tanks(_dimension, _pos, &entity.id, tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || super::mek_gen2::fluid_tanks(entity, face, tanks)
@@ -1714,6 +1748,7 @@ pub(super) fn fluid_fill(
     if filled.is_some()
         || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_evaporation::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
+        || super::mek_boiler::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
@@ -1759,6 +1794,7 @@ pub(super) fn fluid_drain(
     if drained.is_some()
         || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
         || super::mek_evaporation::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
+        || super::mek_boiler::fluid_drain(_dimension, _pos, &entity.id, drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
         || super::mek_gen2::fluid_drain(entity, face, drained)
@@ -1863,6 +1899,10 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
         if !super::mek_evaporation::slot_accepts(slot, stack) {
             *accepts = false;
         }
+        return;
+    }
+    if super::mek_heater::is_heater(block) {
+        super::mek_heater::slot_accepts(slot, stack, accepts);
         return;
     }
     if GeneratorKind::of_block(block) == Some(GeneratorKind::Heat) && slot == 0 && !fuel {
@@ -2196,6 +2236,7 @@ pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek chemicals <id:word>", 2));
     commands.push(NativeCommand::op("mek install <pos:block_pos> <installer:word>", 2));
     commands.push(NativeCommand::op("mek multiblock <what:word>", 2));
+    commands.push(NativeCommand::op("mek heater <pos:block_pos> <usage:word>", 2));
     super::mek_transmit::commands(commands);
 }
 
@@ -2245,6 +2286,15 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
         Some("chemicals") => super::mek_chemicals::registry_command(game, words.next()),
         // `/mek multiblock caches`: every multiblock cache of the dimension, as the level keeps them.
         Some("multiblock") => super::mek_multiblock::caches_json(game),
+        // `/mek heater x y z <J/t>`: a resistive heater's energy usage, as its screen's text field sets it.
+        Some("heater") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            match (at, words.next().and_then(|w| w.parse::<u64>().ok())) {
+                ((Some(x), Some(y), Some(z)), Some(usage)) => super::mek_heater::set_usage(game, [x, y, z], usage),
+                _ => serde_json::json!({ "error": "usage: /mek heater <x> <y> <z> <joules a tick>" }),
+            }
+        }
         // `/mek install x y z <tier installer>`: a tier installer used on the block, as a sneaking player would.
         Some("install") => {
             let p = player.position;
@@ -2292,6 +2342,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if super::mek_pump::kind_of(&id).is_some() {
         return super::mek_pump::probe(game, pos, &id, &nbt, &data, &items);
+    }
+    if super::mek_heater::is_heater(&id) {
+        return super::mek_heater::probe(game, pos, &nbt, &data, &items);
     }
     if super::mek_tanks::tier_of(&id).is_some() {
         return super::mek_tanks::probe(game, pos, &id, &nbt, &items);

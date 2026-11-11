@@ -403,7 +403,9 @@ pub enum Inner {
 
 /// Why a structure didn't form: no message (`FormationResult.FAIL`), a bad
 /// block in the walls (`MULTIBLOCK_INVALID_FRAME`), or inside (`MULTIBLOCK_INVALID_INNER`), a second controller
-/// (`MULTIBLOCK_INVALID_CONTROLLER_CONFLICT`, never ignored) or none (`MULTIBLOCK_INVALID_NO_CONTROLLER`).
+/// (`MULTIBLOCK_INVALID_CONTROLLER_CONFLICT`, never ignored) or none (`MULTIBLOCK_INVALID_NO_CONTROLLER`), and the
+/// boiler's `postcheck` (`BOILER_INVALID_NO_DISPERSER`, `_MISSING_DISPERSER`, `_EXTRA_DISPERSER`, `_SUPERHEATING`,
+/// `_AIR_POCKETS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Fail,
@@ -411,6 +413,11 @@ pub enum Failure {
     InvalidInner(Pos),
     ControllerConflict(Pos),
     NoController,
+    NoDisperser,
+    MissingDisperser(Pos),
+    ExtraDisperser,
+    InvalidSuperheating,
+    AirPockets,
 }
 
 /// A formed multiblock's shape: its cuboid, the positions of its walls (`locations`), the blocks inside that aren't

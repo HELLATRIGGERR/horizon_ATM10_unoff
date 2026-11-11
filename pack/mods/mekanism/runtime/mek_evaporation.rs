@@ -6,7 +6,8 @@
 // tanks, slots and heat live in the cache by its id there (`fluid_tanks`,
 // `items`, `heat_capacitors`). This module is the glue: its settings from
 // `general.toml` `[thermal_evaporation]`, the air of its corners' biomes, the
-// Advanced Solar Generators on its top corners (`mek_gen2`), its tick
+// Advanced Solar Generators on its top corners (`mek_gen2`), the heat a
+// resistive heater beside a valve hands it (`mek_heater`), its tick
 // (`EvaporationMultiblockData.tick`: the heat, the slots, the
 // `mekanism:evaporating` recipe), the valves' fluid handler (hook points API
 // 422: the input tank takes a recipe's fluid, the output tank gives), the
@@ -231,7 +232,8 @@ pub(super) fn tick(game: &mut Game<'_>, dimension: &str, id: Uuid) {
     // The heat.
     let solars = evaporation::solar_spots(&formed.cuboid).iter().filter(|p| super::mek_gen2::evaporation_solar(game, **p)).count() as u32;
     let mut heat = cache.heat[0].unwrap_or_else(|| Heat::created(None, height, state.ambient, &config));
-    state.loss = evaporation::heat_tick(&mut heat, state.ambient, solars, 0.0, &config);
+    // What heat handlers beside its valves (a resistive heater) handed it since its last tick lands with the air's.
+    state.loss = evaporation::heat_tick(&mut heat, state.ambient, solars, mb::take_heat(id), &config);
     state.solars = solars;
     cache.heat[0] = Some(heat);
     state.multiplier = evaporation::temp_multiplier(heat.temperature(), height, &config);

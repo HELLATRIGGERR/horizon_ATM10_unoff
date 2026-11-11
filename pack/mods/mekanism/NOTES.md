@@ -159,7 +159,26 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   item ingredient's `items` (upstream's `Ingredient` is no longer a tuple, so the bundle didn't build), and a
   mechanical pipe taken out no longer pulls once more before its removal commits at the tick's end (the
   `dynamic-tank` suite saw 32 000 mB more leave after the pipe went).
-- Generators 2 (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
+- Multiblocks, part 5: the Thermoelectric Boiler and the Resistive Heater (branch `feat/mekanism-multiblocks-2`, no new
+  hook point: `mekanism_energy::boiler` and `heater`, runtime `mek_boiler` and `mek_heater`; the framework gained the
+  boiler's failures, the shape a formation works out (`Formed.boiler`) and the heat handed to a multiblock's capacitor
+  (`heat_sink`, `hand_heat`, `take_heat`), which the evaporation plant now takes as well). Measured on the oracle
+  (local `mekboil-work/b1.py` to `b3.py` on `mekm2-work/oracle`, plains): forms 12 ticks after it is built; a 3x5x3
+  holds 2100 of heat capacity (50 a wall block), 544 000 mB of water (17 blocks: the bottom wall's 9 and the 8 walls
+  beside the element), 18 blocks of steam; no disperser, no element, a hole in the disperser layer, a disperser below
+  it, an element above it, elements apart, a valve on an edge and dirt inside don't form. A heater of 10 000 J/t
+  against its wall: 300.476 K three ticks after it came, 374.390 at forty, then 19 126 mB of steam from tick 40 to
+  200 out of an output valve (about 120 mB a tick), the heater at 658.71 K. Superheated sodium from a basic tank:
+  399 mB cooled on the second tick (`round(0.4 * 1000 * (1 - 300 / 100000))`). One element under a creative tank:
+  320 000 mB of steam a tick, its cooled tank full (25 600 000) on the fourth. A heater against a thermal
+  evaporation valve (`b3.py`): the plant's heat 541 000 on the third tick, 616 604.83 on the twentieth. World test
+  `boiler`. Learned:
+  `renderLocation` is a block above the cuboid's corner, so the water volume's explore takes in the bottom wall that
+  the air count leaves out (a pocket of air fails only once it outnumbers the bottom wall), and the steam volume runs
+  from the disperser layer up through the top wall; heat a heater hands a boiler lands at the boiler's next update,
+  the boil's and the coolant's own at the end of its tick; `hotMap` is read as the tick begins, so the elements light
+  a tick after it passes 373.14 K; `ITileHeatHandler.simulateAdjacent` takes the heater's temperature over the air's,
+  not over the sink's; an unformed casing is no heat handler, so a heater beside it keeps its heat.
 - Generators 2 and the fluid world machines (branch `feat/mekanism-generators-2`, on chemicals 6, no new hook point):
   the Bio-Generator, Wind Generator and Advanced Solar Generator (`mekanism_energy::bio`, `wind`, `solar`'s
   `AdvancedSolar`; three more `GeneratorKind`s run by `runtime/mek_gen2.rs`, which also places and removes their
@@ -177,11 +196,10 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   so the oracle's generator-to-cube runs need the cube's `component_config` merged (w1b); this engine's sky light
   under a block set while the world is held settles a tick or more later, so the tests let it settle before the
   generators look again.
-- Next: the Thermoelectric Boiler (`BoilerValidator`: two volumes split by a layer of pressure dispersers, its
-  superheating elements below them, air pockets; `BoilerMultiblockData`: water and heated coolant in, steam and
-  cooled coolant out by the boil rate, its valves' modes); heat into the evaporation plant from other blocks
-  (resistive and fuelwood heaters, the heat generator's down side, thermodynamic conductors: no block-to-block heat
-  is ported yet); chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
+- Next: the Industrial Turbine (steam from the boiler into energy: rotors, coils, vents and condensers checked after
+  the walls, `postcheck`), the SPS and the reactors; more heat handlers (the fuelwood heater, the heat generator's
+  down side and its taking heat, thermodynamic conductors) and the resistive heater's usage field (a text field in
+  the bundle's screens); chemicals slices 7-9 (`docs/mekanism-chemicals.md`: radiation, Applied Mekanistics after AE2's key type
   registry, the rest of the pack's chemicals); S10 (the
   NeoForge oracle, to confirm the generators' numbers tick by tick),
   the transmitters' rest (Thermodynamic Conductors, the Diversion and Restrictive Transporters, the Logistical

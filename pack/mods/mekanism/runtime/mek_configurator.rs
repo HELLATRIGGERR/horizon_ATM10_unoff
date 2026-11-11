@@ -122,11 +122,19 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
                 }
                 return;
             }
-            // `IConfigurable`: induction ports, transmitters and fluid tanks.
+            // `IConfigurable`: induction ports, boiler valves, transmitters and fluid tanks.
             if id == super::mek_matrix::PORT {
                 if sneaking {
                     *claimed = true;
                     super::mek_matrix::toggle(game, pos);
+                }
+                return;
+            }
+            // `TileEntityBoilerValve.onSneakRightClick`: the next mode.
+            if id == super::mek_boiler::VALVE {
+                if sneaking {
+                    *claimed = true;
+                    super::mek_boiler::turn_valve(game, pos);
                 }
                 return;
             }

@@ -168,8 +168,12 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
         return super::mek_tubes::with_handler(dimension, pos, face, use_it);
     }
     let registry = registry(game);
-    if game.native_block(pos) == super::mek_dynamic_tank::VALVE {
+    let block = game.native_block(pos);
+    if block == super::mek_dynamic_tank::VALVE {
         return super::mek_dynamic_tank::chemical_handler(dimension, pos, super::mek_dynamic_tank::VALVE, face, &registry, use_it);
+    }
+    if block == super::mek_boiler::VALVE {
+        return super::mek_boiler::chemical_handler(game, dimension, pos, super::mek_boiler::VALVE, face, &registry, use_it);
     }
     game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
@@ -190,22 +194,28 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
 /// side) that take some of it when offered all; what they took, for the
 /// caller to take out of its tank.
 pub(super) fn emit(game: &mut Game<'_>, pos: [i32; 3], faces: &[Direction], offered: &ChemicalStack) -> i64 {
-    if offered.is_empty() || faces.is_empty() {
+    let targets: Vec<([i32; 3], Direction)> = faces.iter().map(|&f| (super::mek_world::beside(pos, f), f.opposite())).collect();
+    emit_to(game, &targets, offered)
+}
+
+/// `ChemicalUtil.emit` over targets of several blocks (a multiblock's output valves): each the position of a
+/// chemical handler and the side it is touched through.
+pub(super) fn emit_to(game: &mut Game<'_>, targets: &[([i32; 3], Direction)], offered: &ChemicalStack) -> i64 {
+    if offered.is_empty() || targets.is_empty() {
         return 0;
     }
-    let beside = |f: Direction| super::mek_world::beside(pos, f);
-    let targets: Vec<Direction> = faces
+    let takers: Vec<([i32; 3], Direction)> = targets
         .iter()
         .copied()
-        .filter(|&f| with_handler(game, beside(f), Some(f.opposite()), |h| h.insert(offered, true).amount() < offered.amount()) == Some(true))
+        .filter(|&(at, side)| with_handler(game, at, Some(side), |h| h.insert(offered, true).amount() < offered.amount()) == Some(true))
         .collect();
-    if targets.is_empty() {
+    if takers.is_empty() {
         return 0;
     }
-    let sent = mekanism_energy::split::send_to_acceptors(targets.len(), offered.amount().max(0) as u64, |t, amount, simulate| {
-        let face = targets[t];
+    let sent = mekanism_energy::split::send_to_acceptors(takers.len(), offered.amount().max(0) as u64, |t, amount, simulate| {
+        let (at, side) = takers[t];
         let stack = offered.copy_with_amount(amount.min(i64::MAX as u64) as i64);
-        with_handler(game, beside(face), Some(face.opposite()), |h| h.insert(&stack, simulate).amount().max(0) as u64).unwrap_or(amount)
+        with_handler(game, at, Some(side), |h| h.insert(&stack, simulate).amount().max(0) as u64).unwrap_or(amount)
     });
     sent.min(i64::MAX as u64) as i64
 }

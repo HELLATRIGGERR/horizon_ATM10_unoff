@@ -40,13 +40,15 @@
 //! Configurator's modes (`configurator`) set sides, colours and facings.
 //! Multiblocks form as Mekanism's do (`multiblock`: the structure, its
 //! cuboid, the check of its blocks, the cache by its id): the Dynamic Tank
-//! (`dynamic_tank`), the Induction Matrix (`induction`) and the Thermal
-//! Evaporation Plant (`evaporation`).
+//! (`dynamic_tank`), the Induction Matrix (`induction`), the Thermal
+//! Evaporation Plant (`evaporation`) and the Thermoelectric Boiler
+//! (`boiler`), which the Resistive Heater (`heater`) heats.
 //! The Electric Pump and the Fluidic Plenisher (`pump`) take the world's
 //! fluid blocks into a tank and put them back.
 //! Nothing here knows the game: the native mod's helpers bring the world.
 pub mod advanced;
 pub mod bio;
+pub mod boiler;
 pub mod chemical;
 pub mod chemical_machine;
 pub mod chemical_tank;
@@ -63,6 +65,7 @@ pub mod fluid_tank;
 pub mod gas;
 pub mod generator;
 pub mod heat;
+pub mod heater;
 pub mod induction;
 pub mod machine;
 pub mod menu;

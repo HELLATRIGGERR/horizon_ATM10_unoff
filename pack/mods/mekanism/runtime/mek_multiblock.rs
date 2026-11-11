@@ -1,8 +1,8 @@
 // Mekanism's multiblocks in the game (support module `crate::game::mek_multiblock`
 // of the `mekanism` native bundle): the framework the Dynamic Tank
-// (`mek_dynamic_tank`), the Induction Matrix (`mek_matrix`) and the Thermal
-// Evaporation Plant (`mek_evaporation`) stand on, and the later cuboid
-// multiblocks will. The rules are `mekanism_energy::multiblock`
+// (`mek_dynamic_tank`), the Induction Matrix (`mek_matrix`), the Thermal
+// Evaporation Plant (`mek_evaporation`) and the Thermoelectric Boiler
+// (`mek_boiler`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -16,7 +16,8 @@
 // two slots mirrored into the blocks whose screen a player opened (and the
 // valves, which hoppers reach), the formation's red sparkles, the
 // Configurator's plain use on an unformed one (the reason it doesn't form),
-// and `/mek probe`. No borrow of this state is held across a call into the
+// the heat that heat handlers beside them hand their capacitors (the boiler's
+// casings and valves, the evaporation plant's valves), and `/mek probe`. No borrow of this state is held across a call into the
 // game.
 
 use super::{Game, mek_world};
@@ -27,6 +28,7 @@ use horizon_world::{
     nbt::{Compound, JavaString, Tag},
 };
 use mekanism_energy::{
+    boiler,
     chemical::{ChemicalRegistry, ChemicalStack},
     evaporation::{self, Heat},
     multiblock::{self, Cuboid, Failure, Inner, Node, Pos, Uuid},
@@ -39,18 +41,19 @@ use std::{
     hash::{BuildHasher, Hasher},
 };
 
-/// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`).
+/// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`, `boilerManager`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Kind {
     Tank,
     Matrix,
     Evaporation,
+    Boiler,
 }
 
 pub(super) const GLASS: &str = "mekanism:structural_glass";
 
 impl Kind {
-    pub(super) const ALL: [Self; 3] = [Self::Tank, Self::Matrix, Self::Evaporation];
+    pub(super) const ALL: [Self; 4] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler];
 
     /// `MultiblockManager.getName`.
     pub(super) fn name(self) -> &'static str {
@@ -58,6 +61,7 @@ impl Kind {
             Self::Tank => "dynamicTank",
             Self::Matrix => "inductionMatrix",
             Self::Evaporation => "evaporation",
+            Self::Boiler => "thermoelectricBoiler",
         }
     }
 
@@ -66,6 +70,7 @@ impl Kind {
             Self::Tank => "mekanism:dynamic_tank",
             Self::Matrix => "mekanism:induction_casing",
             Self::Evaporation => "mekanism:thermal_evaporation_block",
+            Self::Boiler => super::mek_boiler::CASING,
         }
     }
 
@@ -74,6 +79,7 @@ impl Kind {
             Self::Tank => "mekanism:dynamic_valve",
             Self::Matrix => "mekanism:induction_port",
             Self::Evaporation => "mekanism:thermal_evaporation_valve",
+            Self::Boiler => super::mek_boiler::VALVE,
         }
     }
 
@@ -97,10 +103,11 @@ impl Kind {
     }
 
     /// The blocks whose item handler reaches the multiblock's slots (Mekanism's `Attributes.INVENTORY`): the dynamic
-    /// valve and the induction port, the evaporation controller.
+    /// valve and the induction port, the evaporation controller; the boiler has no slots.
     fn holds_inventory(self, block: &str) -> bool {
         match self {
             Self::Evaporation => self.other() == Some(block),
+            Self::Boiler => false,
             _ => block == self.valve(),
         }
     }
@@ -127,6 +134,7 @@ impl Kind {
             Self::Tank => "dynamictank",
             Self::Matrix => "inductionmatrix",
             Self::Evaporation => "evaporation",
+            Self::Boiler => "thermoelectricboiler",
         }
     }
 
@@ -135,6 +143,7 @@ impl Kind {
             Self::Tank => &TANK_DATA,
             Self::Matrix => &MATRIX_DATA,
             Self::Evaporation => &EVAPORATION_DATA,
+            Self::Boiler => &BOILER_DATA,
         }
     }
 
@@ -145,6 +154,8 @@ impl Kind {
             Self::Tank => [1, 2, 1, 0, 0],
             Self::Matrix => [0, 2, 0, 1, 0],
             Self::Evaporation => [0, 4, 2, 0, 1],
+            // Steam, heated coolant and cooled coolant; water; its heat.
+            Self::Boiler => [3, 0, 1, 0, 1],
         }
     }
 
@@ -178,6 +189,14 @@ static MATRIX_DATA: AttachmentType<Compound> = AttachmentType {
 static EVAPORATION_DATA: AttachmentType<Compound> = AttachmentType {
     namespace: "mekanism",
     name: "evaporation",
+    default: Compound::new,
+    codec: Some(AttachmentCodec { encode: identity, decode: identity }),
+    copy_on_death: false,
+    sync: false,
+};
+static BOILER_DATA: AttachmentType<Compound> = AttachmentType {
+    namespace: "mekanism",
+    name: "thermoelectricboiler",
     default: Compound::new,
     codec: Some(AttachmentCodec { encode: identity, decode: identity }),
     copy_on_death: false,
@@ -400,6 +419,8 @@ pub(super) struct Formed {
     pub(super) locations: BTreeSet<Pos>,
     pub(super) internal: BTreeSet<Pos>,
     pub(super) valves: Vec<(Pos, Direction)>,
+    /// A boiler's volumes, elements and disperser layer (`BoilerValidator.postcheck`).
+    pub(super) boiler: Option<boiler::Shape>,
     /// Blocks whose container shows the multiblock's slots: its valves (hoppers reach them) and the blocks whose
     /// screen a player opened.
     views: BTreeSet<Pos>,
@@ -438,6 +459,8 @@ thread_local! {
     static SET: RefCell<Vec<Pos>> = const { RefCell::new(Vec::new()) };
     static ANY: Cell<bool> = const { Cell::new(false) };
     static IDS: Cell<u64> = const { Cell::new(0) };
+    /// Heat handed to a formed multiblock's capacitor since its last tick (`heatToHandle`), by its id.
+    static HEAT: RefCell<HashMap<Uuid, f64>> = RefCell::new(HashMap::new());
 }
 
 fn with_dim<R>(dimension: &str, change: impl FnOnce(&mut Dim) -> R) -> R {
@@ -475,8 +498,10 @@ pub(super) fn clear() {
     DIMS.with(|d| d.borrow_mut().clear());
     SET.with(|s| s.borrow_mut().clear());
     ANY.set(false);
+    HEAT.with(|h| h.borrow_mut().clear());
     super::mek_matrix::clear();
     super::mek_evaporation::clear();
+    super::mek_boiler::clear();
 }
 
 // ---- Block entities --------------------------------------------------------------------------
@@ -503,6 +528,8 @@ pub(super) fn container(block: &str) -> Option<ModContainer> {
     }
     let (all, inputs, outputs) = match kind {
         Kind::Evaporation => (vec![0, 1, 2, 3], vec![0, 2], vec![1, 3]),
+        // The boiler's casings and valves open its screen, which has no slots.
+        Kind::Boiler => (Vec::new(), Vec::new(), Vec::new()),
         _ => (vec![0, 1], vec![0, 1], vec![0, 1]),
     };
     Some(ModContainer {
@@ -620,6 +647,11 @@ fn failure_text(game: &mut Game<'_>, failure: Failure) -> Option<String> {
         }
         Failure::ControllerConflict(p) => Some(format!("Controller conflict: found extra controller at ({}, {}, {}).", p[0], p[1], p[2])),
         Failure::NoController => Some("Couldn't form, no controller found.".into()),
+        Failure::NoDisperser => Some("Couldn't form, no Pressure Disperser layer found.".into()),
+        Failure::MissingDisperser(p) => Some(format!("Couldn't form, expected but didn't find Pressure Disperser at ({}, {}, {}).", p[0], p[1], p[2])),
+        Failure::ExtraDisperser => Some("Couldn't form, found invalid Pressure Dispersers.".into()),
+        Failure::InvalidSuperheating => Some("Couldn't form, invalid Superheating Element arrangement.".into()),
+        Failure::AirPockets => Some("Couldn't form, found disconnected interior air pockets.".into()),
     }
 }
 
@@ -634,8 +666,13 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         return None;
     }
     let explored: Vec<Pos> = nodes.keys().copied().collect();
+    let mut shape = None;
     let result = match kind {
         Kind::Evaporation => evaporation::form(&nodes, |p| inner_at(game, kind, p)),
+        Kind::Boiler => super::mek_boiler::form(game, &nodes).map(|(f, s)| {
+            shape = Some(s);
+            f
+        }),
         _ => multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p)),
     };
     let touched: BTreeSet<Uuid> = with_dim(dimension, |d| nodes.keys().filter_map(|p| d.at.get(&(kind, *p)).copied()).collect());
@@ -696,6 +733,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             locations: formation.locations.iter().copied().collect(),
             internal: formation.internal.iter().copied().collect(),
             valves: formation.valves.clone(),
+            boiler: shape,
             views: holders.iter().copied().chain(kept_views.iter().copied().filter(|p| formation.locations.contains(p))).collect(),
             pushed: Vec::new(),
         };
@@ -713,6 +751,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         Kind::Tank => super::mek_dynamic_tank::created(dimension, id),
         Kind::Matrix => super::mek_matrix::created(game, dimension, id),
         Kind::Evaporation => super::mek_evaporation::created(game, dimension, id),
+        Kind::Boiler => super::mek_boiler::created(game, dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -732,6 +771,10 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
         if formed.kind == Kind::Evaporation {
             super::mek_evaporation::removed(Some(game), dimension, &formed);
         }
+        if formed.kind == Kind::Boiler {
+            super::mek_boiler::removed(Some(game), dimension, &formed);
+        }
+        HEAT.with(|h| h.borrow_mut().remove(&id));
         for p in &formed.views {
             game.native_with_mod_block_entity(*p, |m| {
                 for slot in m.items.iter_mut().take(formed.kind.slots()) {
@@ -749,6 +792,10 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
     if formed.kind == Kind::Evaporation {
         super::mek_evaporation::removed(None, dimension, &formed);
     }
+    if formed.kind == Kind::Boiler {
+        super::mek_boiler::removed(None, dimension, &formed);
+    }
+    HEAT.with(|h| h.borrow_mut().remove(&id));
     PENDING_CLEAR.with(|p| p.borrow_mut().push(Clear { dimension: dimension.to_owned(), kind: formed.kind, id, views: formed.views.iter().copied().collect(), pushed: formed.pushed }));
 }
 
@@ -953,6 +1000,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
         push_views(game, dimension, id);
     }
     super::mek_evaporation::flush(game, dimension);
+    super::mek_boiler::flush(game, dimension);
     save_caches(game, dimension);
 }
 
@@ -971,6 +1019,7 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
             Kind::Tank => super::mek_dynamic_tank::tick(game, dimension, id),
             Kind::Matrix => super::mek_matrix::tick(game, dimension, id),
             Kind::Evaporation => super::mek_evaporation::tick(game, dimension, id),
+            Kind::Boiler => super::mek_boiler::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -1013,6 +1062,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
         Kind::Tank => super::mek_dynamic_tank::view(game, dimension, id),
         Kind::Matrix => super::mek_matrix::view(dimension, id),
         Kind::Evaporation => super::mek_evaporation::view(game, dimension, id),
+        Kind::Boiler => super::mek_boiler::view(game, dimension, id),
     };
     for p in views {
         game.native_with_mod_block_entity(p, |m| {
@@ -1058,6 +1108,31 @@ pub(super) fn with_cache<R>(dimension: &str, kind: Kind, id: Uuid, change: impl 
         }
         Some(out)
     })
+}
+
+// ---- Heat from the blocks beside them ---------------------------------------------------------------------
+
+/// The formed multiblock whose capacitor the block at `pos` is a heat handler of (`TileEntityBoilerCasing`'s and
+/// `TileEntityThermalEvaporationValve`'s `getInitialHeatCapacitors`: the multiblock's, none until it forms), with
+/// its total inverse conduction (both `VariableHeatCapacitor`s say 1).
+pub(super) fn heat_sink(dimension: &str, pos: Pos, block: &str) -> Option<(Uuid, f64)> {
+    let kind = match block {
+        super::mek_boiler::CASING | super::mek_boiler::VALVE => Kind::Boiler,
+        super::mek_evaporation::VALVE => Kind::Evaporation,
+        _ => return None,
+    };
+    let id = formed_at(dimension, kind, pos)?;
+    Some((id, boiler::INVERSE_CONDUCTION))
+}
+
+/// `IHeatHandler.handleHeat` of a multiblock's capacitor: it lands at the multiblock's next update.
+pub(super) fn hand_heat(id: Uuid, heat: f64) {
+    HEAT.with(|h| *h.borrow_mut().entry(id).or_insert(0.0) += heat);
+}
+
+/// What was handed to a multiblock's capacitor since its last tick.
+pub(super) fn take_heat(id: Uuid) -> f64 {
+    HEAT.with(|h| h.borrow_mut().remove(&id)).unwrap_or(0.0)
 }
 
 // ---- Players ----------------------------------------------------------------------------------------------
@@ -1151,6 +1226,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
             Kind::Tank => super::mek_dynamic_tank::probe(game, dimension, owner),
             Kind::Matrix => super::mek_matrix::probe(dimension, owner),
             Kind::Evaporation => super::mek_evaporation::probe(game, dimension, owner),
+            Kind::Boiler => super::mek_boiler::probe(game, dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);

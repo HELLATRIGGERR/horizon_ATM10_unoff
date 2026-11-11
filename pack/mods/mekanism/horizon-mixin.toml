@@ -4,7 +4,8 @@
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
 # Washer and Chemical Crystallizer, the Rotary Condensentrator), its Mechanical
 # Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
-# (the Dynamic Tank, the Induction Matrix and the Thermal Evaporation Plant), Mekanism Generators' Solar, Heat,
+# (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler) and
+# its Resistive Heater, Mekanism Generators' Solar, Heat,
 # Gas-Burning, Bio, Wind and Advanced Solar Generators, and its Electric Pump and
 # Fluidic Plenisher, as a native mod of this fork
 # (horizon-mixins bundle). Mekanism is MIT, Copyright (c) 2017-2025 Aidan C. Brady; the rules
@@ -121,6 +122,18 @@ id = "evaporation"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_evaporation"
 source = "runtime/mek_evaporation.rs"
+
+[[module]]
+id = "boiler"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_boiler"
+source = "runtime/mek_boiler.rs"
+
+[[module]]
+id = "heater"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_heater"
+source = "runtime/mek_heater.rs"
 
 [[module]]
 id = "transmit"

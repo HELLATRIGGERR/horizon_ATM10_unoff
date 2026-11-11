@@ -2,7 +2,8 @@
 
 Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
-Matrix and the Thermal Evaporation Plant), its Electric Pump and Fluidic Plenisher, and Mekanism Generators' Solar,
+Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler), its Resistive Heater, its Electric Pump and
+Fluidic Plenisher, and Mekanism Generators' Solar,
 Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators for All the Mods 10, as a native mod of this fork of Horizon.
 It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`), a crate of
 pure rules (`mekanism-energy`) and a content tool (`mekanism-content`). `pack/scripts/mekanism.ts` builds and tests
@@ -253,7 +254,33 @@ assets when `mekanism-content` is given them.
   `(min(T, 3000) - 300) * tempMultiplier * height / 18` times a tick (ATM10's 1.85: 9 mB of lithium a tick from
   brine 3 high in a desert, 55 18 high), one every `ceil(1 / multiplier)` ticks below one. The controller holds its
   four slots (a container emptying into the input tank, one filling from the output tank, each with its output
-  slot below) and its screen, `GuiThermalEvaporationController`'s.
+  slot below) and its screen, `GuiThermalEvaporationController`'s. A resistive heater against one of its valves
+  heats it (the valves are its heat handler).
+- The Thermoelectric Boiler (`mekanism_energy::boiler`, runtime `mek_boiler`): boiler casings with boiler valves and
+  structural glass in the sides, 3x3x3 to 18x18x18; inside, one full layer of pressure dispersers at the height of
+  the first one met (x, then y, then z), no other disperser, superheating elements below it all touching, and air
+  (`BoilerValidator`: `Couldn't form, no Pressure Disperser layer found.` and its other reasons). Its water volume is
+  what the air and walls below the dispersers hold, the bottom wall in; its steam volume the layers from the
+  dispersers' up through the top wall; ATM10's `general.toml` `[boiler]` gives 32 000 mB of water and 512 000 of
+  heated coolant a block of the one, 320 000 of steam and 512 000 of cooled coolant a block of the other (a 3x5x3:
+  544 000 mB of water, 5 760 000 of steam). Its heat capacity is 50 a wall block; it loses `(T - air) / 110001` a
+  tick to the mean air of its corners, takes what heat handlers beside its casings and valves hand it (the resistive
+  heater) and what its heated coolant gives cooling into its cooled tank (superheated sodium:
+  `round(0.4 * stored * (1 - T / 100000))` mB a tick, 5 heat a mB), and above 373.15 K boils
+  `floor(0.2 * min((T - 373.15) * capacity * 0.7, 1.6E7 * elements) / 10)` mB of water a tick, 50 heat each, into
+  steam. Its valves have three modes (the block's `mode`, turned by the Configurator's sneaking use with
+  `Valve mode changed to: ...` on the action bar): input takes water (a fluid handler, `#minecraft:water`) and heated
+  coolant (a chemical handler) from other blocks, output steam and output coolant give their tank to the block they
+  face each tick (`ChemicalUtil.emit`, split among the valves of that mode) and to whoever draws. Its superheating
+  elements light while it is hot. Its casings and valves open its screen, `GuiThermoelectricBoiler`'s (four gauges,
+  the boil rate bars, the heat tab), with `GuiBoilerStats`'s lines as a page.
+- The Resistive Heater (`mekanism_energy::heater`, runtime `mek_heater`): it takes Joules from cables, cubes and
+  Forge Energy through its left and right into a store of 400 ticks of its energy usage (100 J/t when placed), turns
+  its usage of them a tick into heat (`general.toml` `[heater]` `resistiveEfficiency`, 0.6), and hands heat to the
+  heat handlers beside it (`(T - air) / (theirs + 5) * 100` a side: a formed boiler's casings and valves, a formed
+  evaporation plant's valves, other resistive heaters) and loses some to the air (`(T - air) / 10015 * 100` a side).
+  Its energy slot takes an energy cube's item or what converts to Joules; its screen is `GuiResistiveHeater`'s;
+  `/mek heater <x> <y> <z> <J/t>` sets its usage (Mekanism's screen has a text field for it).
 
 ## Differences from Mekanism
 
@@ -357,8 +384,8 @@ assets when `mekanism-content` is given them.
   casing reaches nothing, on a valve both slots. The slots' `isDraining` and `isFilling` aren't saved. A bucket used
   on it acts on the tank's own merged tank, a creative player's bucket changing too. The valves don't show their
   transfer (`activeTicks`), and the tank draws no fluid inside.
-- The evaporation plant takes heat only from the air and from Advanced Solar Generators: no other block hands heat
-  to its valves yet (Mekanism's heaters, the heat generator below it, conductors). Its valves don't show their
+- The evaporation plant takes heat from the air, Advanced Solar Generators and resistive heaters; the fuelwood
+  heater, the heat generator below it and conductors aren't ported. Its valves don't show their
   transfer, its recipe errors show as a red line over a gauge or the bar instead of Mekanism's warning tab, the
   recipe viewer's link on its screen isn't there, its inner screen's lines aren't scaled down to fit (a long
   production runs past it), and comparators read nothing of it.
@@ -366,6 +393,16 @@ assets when `mekanism-content` is given them.
   the Joules. Its tick runs before the level's blocks (`native_level_tick_pre`), as the oracle's matrix ticked before
   the cube placed after it; one placed before its master casing would land a tick sooner in Mekanism. Only an energy
   cube's item charges or discharges in its slots.
+- The boiler's elements light and go dark at once (Mekanism's `setActive` waits `blockDeactivationDelay` before
+  going dark), and the dispersers and elements are plain blocks without block entities. The valves don't show their
+  transfer, comparators read nothing of them, its screen's graphs (`GuiBoilerStats`) and recipe viewer link aren't
+  there, and its gauges are the contents' colour. Heat handed to it by a heater lands at its next tick, before the
+  heater's next: in Mekanism a casing ticking after the heater in the same tick takes it then (the oracle's casings,
+  placed first, ticked before it, as here). A valve's fluid handler knows its mode as the boiler's last tick read it.
+- The resistive heater's energy usage is set with `/mek heater` (no text field in the bundle's screens yet); its
+  item keeps neither its usage nor its energy (Mekanism's keeps both), it makes no sound, it hands heat to no heat
+  handler but those above (no heat generator, fuelwood heater or conductor), and redstone control and the muffling
+  upgrade aren't ported.
 - The Configurator's mode is set with `/mek configurator`: Mekanism's mode key and sneak-scroll aren't ported. Its
   messages go to the chat, not the action bar. A transmitter's arms aren't hit (its outline is its core), so a
   sneaking use configures the side used, and on a transporter a connected side bumps the colour, as a use on

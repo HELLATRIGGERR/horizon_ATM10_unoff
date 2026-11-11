@@ -165,7 +165,12 @@ impl Heat {
     /// coming in at the plant's air (`setHeatCapacity(..., true)`). A new cache's capacitor holds no heat yet
     /// (`storedHeat` -1), so the plant's starts at its air the first time it is read: `capacity * ambient`.
     pub fn created(cached: Option<Heat>, height: i32, ambient: f64, config: &EvaporationConfig) -> Heat {
-        let capacity = config.heat_capacity * f64::from(height);
+        Self::resized(cached, config.heat_capacity * f64::from(height), ambient)
+    }
+
+    /// `setHeatCapacity(capacity, true)` on the capacitor a cache brought (none: a new one, `storedHeat` -1, which
+    /// starts at `capacity * ambient`): the difference in capacity comes in at the air's temperature.
+    pub fn resized(cached: Option<Heat>, capacity: f64, ambient: f64) -> Heat {
         match cached {
             Some(old) => Heat { stored: old.stored + (capacity - old.capacity) * ambient, capacity },
             None => Heat { stored: capacity * ambient, capacity },

@@ -160,6 +160,8 @@ static ADDED: RwLock<Vec<Option<KeyBehaviour>>> = RwLock::new(Vec::new());
 /// its codec, icon and container strategy. Registering the same definition
 /// again returns its type and keeps the first behaviour.
 pub fn register(def: KeyTypeDef, behaviour: KeyBehaviour) -> Result<KeyType, ae2_cell_core::keys::RegisterError> {
+    // The commands' key type codec (horizon-command's `ae2_components`) asks this registry from now on.
+    crate::ae2_components::install_key_types(|id| KeyType::get(id).is_some());
     let kind = ae2_cell_core::keys::register(def)?;
     let index = usize::from(kind.raw_id() - 2);
     let mut added = ADDED.write().unwrap_or_else(|poisoned| poisoned.into_inner());

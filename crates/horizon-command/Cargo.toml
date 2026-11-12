@@ -7,7 +7,6 @@ rust-version.workspace = true
 description = "Commands (Brigadier): the vanilla command tree, argument types, selectors, parsing, suggestions and the network form of the tree"
 
 [dependencies]
-ae2-cell-core = { path = "../ae2-cell-core", optional = true }
 horizon-client-core = { path = "../horizon-client-core" }
 horizon-core = { path = "../horizon-core" }
 horizon-protocol = { path = "../horizon-protocol" }
@@ -15,7 +14,7 @@ horizon-world = { path = "../horizon-world" }
 
 [features]
 # AE2's item components in commands (`ae2_components`).
-ae2-lab = ["horizon-client-core/ae2-lab", "dep:ae2-cell-core"]
+ae2-lab = ["horizon-client-core/ae2-lab"]
 
 [lints]
 workspace = true

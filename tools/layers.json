@@ -45,6 +45,13 @@
     "horizon-shader-api": "platform",
     "horizon-shaders": "platform",
     "horizon-theme": "platform",
+    "ae2-cell-core": "platform",
+    "ae2-crafting-core": "platform",
+    "ae2-links-core": "platform",
+    "ae2-machines-core": "platform",
+    "ae2-megacells-core": "platform",
+    "ae2-merequester-core": "platform",
+    "ae2-network-core": "platform",
 
     "horizon-addresses": "horizon",
     "horizon-bench": "horizon",
@@ -120,6 +127,22 @@
     "horizon-launcher -> horizon-world",
     "horizon-server -> horizon-core",
     "horizon-server -> horizon-server-files",
-    "horizon-server -> horizon-world"
+    "horizon-server -> horizon-world",
+    "horizon-client -> ae2-cell-core",
+    "horizon-client -> ae2-crafting-core",
+    "horizon-client -> ae2-links-core",
+    "horizon-client -> ae2-machines-core",
+    "horizon-client -> ae2-megacells-core",
+    "horizon-client -> ae2-merequester-core",
+    "horizon-client -> ae2-network-core",
+    "horizon-client-lib -> ae2-cell-core",
+    "horizon-client-lib -> ae2-machines-core",
+    "horizon-client-lib -> ae2-megacells-core",
+    "horizon-client-lib -> ae2-merequester-core",
+    "horizon-client-lib -> ae2-network-core",
+    "horizon-client-render -> ae2-cell-core",
+    "horizon-client-render -> ae2-links-core",
+    "horizon-client-render -> ae2-machines-core",
+    "horizon-client-render -> ae2-network-core"
   ]
 }

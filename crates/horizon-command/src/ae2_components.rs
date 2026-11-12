@@ -372,10 +372,22 @@ const COLORS: &[&str] = &[
     "green",
     "fluix",
 ];
+/// The key type registry (`AEKeyTypes.get`) is ae2-cell-core's, a platform crate this portable one
+/// doesn't depend on: horizon-client-lib installs its lookup before it registers the first type
+/// beyond the two built in (`ae2_key_types::register`), so until then those two are all there is.
+static KEY_TYPES: std::sync::OnceLock<fn(&str) -> bool> = std::sync::OnceLock::new();
+/// Installs the key type lookup; the first install holds.
+pub fn install_key_types(registered: fn(&str) -> bool) {
+    let _ = KEY_TYPES.set(registered);
+}
 /// `AEKeyType.CODEC`: the id of a registered key type (`ae2:keytypes`).
 fn key_type(t: Tag) -> Result<Tag, String> {
     let s = string(&t)?;
-    if ae2_cell_core::KeyType::get(&s).is_some() {
+    let registered = match KEY_TYPES.get() {
+        Some(registered) => registered(&s),
+        None => matches!(s.as_str(), "ae2:i" | "ae2:f"),
+    };
+    if registered {
         Ok(t)
     } else {
         Err(format!("Unknown registry key in ResourceKey[minecraft:root / ae2:keytypes]: {s}"))

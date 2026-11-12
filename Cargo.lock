@@ -1691,7 +1691,6 @@ dependencies = [
 name = "horizon-command"
 version = "0.1.0"
 dependencies = [
- "ae2-cell-core",
  "horizon-client-core",
  "horizon-core",
  "horizon-protocol",

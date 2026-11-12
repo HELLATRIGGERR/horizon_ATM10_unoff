@@ -125,8 +125,9 @@ ae2-merequester = ["ae2-lab", "horizon-client-lib/ae2-merequester", "dep:ae2-mer
 ae2-extendedae = ["ae2-lab", "horizon-client-lib/ae2-extendedae"]
 # AE2WTLib 19.5.1 (ae2/addons/ae2wtlib).
 ae2-ae2wtlib = ["ae2-lab", "horizon-client-lib/ae2-ae2wtlib"]
-# AEInfinityBooster 2.1.0 (ae2/addons/aeinfinitybooster).
-ae2-aeinfinitybooster = ["ae2-lab", "horizon-client-lib/ae2-aeinfinitybooster"]
+# AEInfinityBooster 2.1.0 (ae2/addons/aeinfinitybooster) is the crate horizon-ae2x-aeinfinitybooster above this
+# one, which horizon-atm10's feature of the same name builds in; this one keeps the pack's features valid here.
+ae2-aeinfinitybooster = ["ae2-lab"]
 # AE2 Import Export Card 1.21.1-1.9.1 (ae2/addons/ae2importexportcard).
 ae2-importexportcard = ["ae2-lab", "horizon-client-lib/ae2-importexportcard"]
 # Applied Flux 1.21-2.1.7 (ae2/addons/appflux).

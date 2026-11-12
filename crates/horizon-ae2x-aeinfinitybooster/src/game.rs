@@ -1,10 +1,11 @@
-//! AEInfinityBooster 2.1.0 in the game (feature `ae2-aeinfinitybooster`):
-//! an access point holding a card keeps its chunk loaded. Derived from
-//! AEInfinityBooster by Hexeption (`MixinWirelessBlockEntity`,
-//! `MixinWirelessBlockEntityRemove`), https://github.com/Hexeption/AEInfinityBooster
-//! tag `v2.1.0`, LGPL-3.0; see `ae2/addons/aeinfinitybooster/`. The card's
-//! signal and the slot are the registry's rows (`horizon_client::ae2x::aeinfinitybooster`).
-use super::super::Game;
+//! AEInfinityBooster 2.1.0 in the game: an access point holding a card keeps
+//! its chunk loaded. Derived from AEInfinityBooster by Hexeption
+//! (`MixinWirelessBlockEntity`, `MixinWirelessBlockEntityRemove`),
+//! https://github.com/Hexeption/AEInfinityBooster tag `v2.1.0`, LGPL-3.0; see
+//! `ae2/addons/aeinfinitybooster/`. The card's signal and the slot are the
+//! registry's rows (`defs.rs`). It reaches the game only as its host
+//! (`horizon_client::game::ae2_ext`).
+use horizon_client::game::ae2_ext::{Ae2Addon, Ae2Host};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity};
 use std::collections::BTreeMap;
 
@@ -15,8 +16,9 @@ struct AccessPoint {
     forced: bool,
 }
 
+/// The addon in one game, with what it keeps while the game runs.
 #[derive(Default)]
-pub(in crate::game) struct State {
+pub(crate) struct State {
     /// The access points seen, by dimension and position.
     seen: BTreeMap<(String, (i32, i32, i32)), AccessPoint>,
     next: u64,
@@ -50,22 +52,31 @@ fn next(point: Option<AccessPoint>, card: bool, enabled: bool, newly_forced: imp
     }
 }
 
-impl Game<'_> {
+/// A game's addon, for `horizon_ae2::add_addon`.
+pub(crate) fn make() -> Box<dyn Ae2Addon> {
+    Box::new(State::default())
+}
+
+impl Ae2Addon for State {
+    fn id(&self) -> &'static str {
+        crate::defs::NAMESPACE
+    }
+
     /// Once a second: the access points' chunks, as the card's mixins keep them.
-    pub(in crate::game) fn tick_aeinfinitybooster(&mut self) {
-        if self.remote.is_some() {
+    fn tick(&mut self, host: &mut dyn Ae2Host) {
+        if host.is_remote() {
             return;
         }
-        let now = self.world.game_time.max(0) as u64;
-        if now < self.ae2x.aeinfinitybooster.next {
+        let now = host.world().game_time.max(0) as u64;
+        if now < self.next {
             return;
         }
-        self.ae2x.aeinfinitybooster.next = now + 20;
-        let enabled = horizon_client::ae2x::aeinfinitybooster::Config::get().chunk_loading;
+        self.next = now + 20;
+        let enabled = crate::defs::Config::get().chunk_loading;
         let defs = horizon_client::ae2x::defs::get();
-        let dim = self.dim.id().to_owned();
-        let present: BTreeMap<(i32, i32, i32), bool> = self
-            .world
+        let dim = host.dimension().to_owned();
+        let present: BTreeMap<(i32, i32, i32), bool> = host
+            .world()
             .block_entities
             .iter()
             .filter_map(|(&pos, entity)| match entity {
@@ -76,20 +87,20 @@ impl Game<'_> {
                 _ => None,
             })
             .collect();
-        let state = std::mem::take(&mut self.ae2x.aeinfinitybooster.seen);
+        let state = std::mem::take(&mut self.seen);
         let mut seen = BTreeMap::new();
         for (key, point) in state {
             if key.0 != dim || present.contains_key(&key.1) {
                 seen.insert(key, point);
             } else if point.forced {
                 // setRemoved: its own chunk, released.
-                self.streaming.forced.remove(&(key.1.0 >> 4, key.1.2 >> 4));
+                host.streaming().forced.remove(&(key.1.0 >> 4, key.1.2 >> 4));
             }
         }
         for (pos, card) in present {
             let chunk = (pos.0 >> 4, pos.2 >> 4);
             let key = (dim.clone(), pos);
-            let streaming = &mut self.streaming;
+            let streaming = host.streaming();
             let point = next(seen.get(&key).copied(), card, enabled, |force| {
                 if force {
                     let changed = streaming.forced.insert(chunk);
@@ -101,7 +112,7 @@ impl Game<'_> {
             });
             seen.insert(key, point);
         }
-        self.ae2x.aeinfinitybooster.seen = seen;
+        self.seen = seen;
     }
 }
 

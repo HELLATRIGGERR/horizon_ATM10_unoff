@@ -10,7 +10,13 @@
 //! reaches.
 use crate::ae2_world::{AE2_CRAFTING_UNITS, AE2_ENERGY_CELLS, CraftingUnit, EnergyCell, ExtMachine, MachineVariant};
 use ae2_cell_core::{CellConfig, KeyType, Tier};
-use std::{collections::HashMap, sync::LazyLock};
+use std::{
+    collections::HashMap,
+    sync::{
+        LazyLock, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 
 /// A storage cell (`IBasicCellItem`).
 #[derive(Clone, Debug, PartialEq)]
@@ -551,9 +557,34 @@ pub fn add_storage_cell_cards(defs: &mut Defs, cell: &CellDef) {
     }
 }
 
+/// The rows of the addons built above the game (`horizon-ae2x-<id>` crates), by addon id.
+static ADDON_ROWS: Mutex<Vec<(&'static str, fn(&mut Defs))>> = Mutex::new(Vec::new());
+/// Whether [`get`] built the registry: rows installed after that would be left out.
+static BUILT: AtomicBool = AtomicBool::new(false);
+
+/// Installs the rows of an addon built above the game, for [`get`] to add in the addon's place
+/// in its order. The program calls it before the registry is first built; a second install for the
+/// same addon is ignored.
+pub fn install_addon_rows(addon: &'static str, rows: fn(&mut Defs)) {
+    assert!(!BUILT.load(Ordering::SeqCst), "AE2 addon {addon}: rows installed after the registry was built");
+    let mut installed = ADDON_ROWS.lock().unwrap_or_else(PoisonError::into_inner);
+    if !installed.iter().any(|(id, _)| *id == addon) {
+        installed.push((addon, rows));
+    }
+}
+
+/// The installed rows of `addon`, if any.
+fn add_addon_rows(addon: &str, defs: &mut Defs) {
+    let rows = ADDON_ROWS.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|(id, _)| *id == addon).map(|&(_, rows)| rows);
+    if let Some(rows) = rows {
+        rows(defs);
+    }
+}
+
 /// The registry: AE2's rows, then those of every addon built in.
 pub fn get() -> &'static Defs {
     static DEFS: LazyLock<Defs> = LazyLock::new(|| {
+        BUILT.store(true, Ordering::SeqCst);
         #[allow(unused_mut)]
         let mut defs = Defs::ae2();
         #[cfg(feature = "ae2-megacells")]
@@ -575,8 +606,8 @@ pub fn get() -> &'static Defs {
         super::ae2wtlib::add_upgrades(&mut defs);
         #[cfg(all(feature = "ae2-megacells", feature = "ae2-ae2wtlib"))]
         super::megacells::register_ae2wt(&mut defs);
-        #[cfg(feature = "ae2-aeinfinitybooster")]
-        super::aeinfinitybooster::register(&mut defs);
+        // AEInfinityBooster's cards (horizon-ae2x-aeinfinitybooster).
+        add_addon_rows("aeinfinitybooster", &mut defs);
         // AE2 Import Export Card's cards, on the terminals above.
         #[cfg(feature = "ae2-importexportcard")]
         super::importexportcard::register(&mut defs);

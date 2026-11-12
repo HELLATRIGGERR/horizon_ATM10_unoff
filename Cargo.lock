@@ -1434,6 +1434,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-ae2x-aeinfinitybooster"
+version = "0.1.0"
+dependencies = [
+ "horizon-ae2",
+ "horizon-client",
+ "log",
+ "toml",
+]
+
+[[package]]
 name = "horizon-anticheat"
 version = "0.1.0"
 dependencies = [
@@ -1457,6 +1467,7 @@ name = "horizon-atm10"
 version = "0.1.0"
 dependencies = [
  "horizon-ae2",
+ "horizon-ae2x-aeinfinitybooster",
  "horizon-client",
  "horizon-mods",
  "horizon-threads",

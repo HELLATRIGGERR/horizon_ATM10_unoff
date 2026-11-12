@@ -2901,6 +2901,9 @@ struct Game<'a> {
     /// What the AE2 addons keep while the game runs (`ae2x`).
     #[cfg(feature = "ae2-lab")]
     ae2x: ae2x::State,
+    /// The AE2 crates above horizon-client, with their state (`ae2_ext`).
+    #[cfg(feature = "ae2-lab")]
+    ae2_ext: ae2_ext::Slot,
     #[cfg(feature = "ae2-lab")]
     ae2_portable_slot: Option<usize>,
     #[cfg(feature = "ae2-lab")]
@@ -13856,6 +13859,8 @@ impl<'a> Game<'a> {
             ae2_pending_machine_crafts: Vec::new(),
             #[cfg(feature = "ae2-lab")]
             ae2x: Default::default(),
+            #[cfg(feature = "ae2-lab")]
+            ae2_ext: Default::default(),
             #[cfg(feature = "ae2-lab")]
             ae2_portable_slot: None,
             #[cfg(feature = "ae2-lab")]

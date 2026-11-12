@@ -16,6 +16,9 @@ static MOD_API_LEVEL: [u8; 27] = horizon_mods::api_level::MARK;
 
 fn main() {
     std::hint::black_box(&MOD_API_LEVEL);
+    // The addon crates, then AE2, whose extension every game makes from what they added.
+    #[cfg(feature = "ae2-aeinfinitybooster")]
+    horizon_ae2x_aeinfinitybooster::install();
     #[cfg(feature = "ae2-lab")]
     horizon_ae2::install();
     horizon_client::entry::main();

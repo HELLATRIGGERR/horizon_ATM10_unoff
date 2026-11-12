@@ -1,7 +1,9 @@
 //! The game behaviour of AE2 addons, one module per addon behind its
 //! `ae2-<id>` feature. Their rows in the definitions registry are in the
 //! library's `ae2x`. The functions here are the one place the rest of the
-//! game calls into the addons; each asks the addons built in.
+//! game calls into the addons; each asks the addons built in. An addon that moved to
+//! a crate above the game (`horizon-ae2x-<id>`) is called through AE2's extension
+//! (`ae2_ext`) in the same place.
 use super::Game;
 use horizon_client::ae2_world::Machine;
 
@@ -13,8 +15,6 @@ pub(super) mod merequester;
 pub(super) mod extendedae;
 #[cfg(feature = "ae2-ae2wtlib")]
 pub(super) mod ae2wtlib;
-#[cfg(feature = "ae2-aeinfinitybooster")]
-pub(super) mod aeinfinitybooster;
 #[cfg(feature = "ae2-importexportcard")]
 pub(super) mod importexportcard;
 #[cfg(feature = "ae2-appflux")]
@@ -680,8 +680,6 @@ pub(super) struct State {
     pub(super) merequester: merequester::State,
     #[cfg(feature = "ae2-extendedae")]
     pub(super) extendedae: extendedae::State,
-    #[cfg(feature = "ae2-aeinfinitybooster")]
-    pub(super) aeinfinitybooster: aeinfinitybooster::State,
     #[cfg(feature = "ae2-ae2wtlib")]
     pub(super) ae2wtlib: ae2wtlib::State,
     #[cfg(feature = "ae2-importexportcard")]
@@ -1116,8 +1114,8 @@ impl Game<'_> {
         self.tick_advancedae_quantum();
         #[cfg(feature = "ae2-advancedae")]
         self.tick_advancedae_throughput();
-        #[cfg(feature = "ae2-aeinfinitybooster")]
-        self.tick_aeinfinitybooster();
+        // AEInfinityBooster, a crate above the game (horizon-ae2x-aeinfinitybooster).
+        self.ae2_addon_tick("aeinfinitybooster");
         #[cfg(feature = "ae2-importexportcard")]
         self.tick_iecard();
         // EnergyDistributeService.onLevelEndTick: the Flux Accessors push FE,

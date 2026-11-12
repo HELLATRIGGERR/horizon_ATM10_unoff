@@ -12,8 +12,6 @@ pub mod merequester;
 pub mod extendedae;
 #[cfg(feature = "ae2-ae2wtlib")]
 pub mod ae2wtlib;
-#[cfg(feature = "ae2-aeinfinitybooster")]
-pub mod aeinfinitybooster;
 #[cfg(feature = "ae2-importexportcard")]
 pub mod importexportcard;
 #[cfg(feature = "ae2-appflux")]

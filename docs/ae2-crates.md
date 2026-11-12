@@ -271,3 +271,40 @@ The move is only worth it if builds get much faster and the game behaves exactly
 - **Small, revertible commits.** One addon or one subsystem per commit, so a bad step reverts alone.
 - **No parallel AE2 work during the move.** New AE2 slices wait until the move is done, so nothing has to be
   moved twice. The Mekanism bundle lives in `pack/mods` and goes on meanwhile.
+
+## 6. Progress
+
+### Step 0 (groundwork)
+
+- **0a, layers.** The seven `ae2-*-core` crates are `platform` in `tools/layers.json`. The 16 edges from
+  `horizon-client`, `-lib` and `-render` to them are fork-only `allowed` entries, in one block at the end of the
+  list. `horizon-command` is portable, so an `allowed` entry cannot excuse its `ae2-cell-core` dependency. That
+  dependency is gone: the key type codec of `ae2_components` asks a lookup that `horizon-client-lib`'s
+  `ae2_key_types::register` installs before it registers the first type beyond the two built in. Until then
+  those two are all the registry holds, so the answers are the same. `ae2_components.rs` stays in
+  `horizon-command` until step 5: `horizon-items`' `item_data` and the command parser call it.
+- **0b, `horizon-atm10`.** The fork's game: horizon-client's `main.rs` with `horizon_ae2::install()` (and each
+  moved addon's `install()`) before `entry::main()`. Its program is named `horizon-client` (D3), and its own
+  `build.rs` gives it the icon, the optional Segment Heap manifest and the 16 MB main-thread stack, as
+  horizon-client's does for its program. It passes on all of horizon-client's features. `build.ts` builds
+  `-p horizon-atm10`; `test.ts --client` also tests the crates above horizon-client on the game's features.
+  `AE2_TEST_BINARY`, `play.ts`, `play-atm10.ts` and the world harness keep `target/fast/horizon-client.exe`.
+  `pack/scripts/{mekanism,powah,fluxnetworks}.ts` still build `-p horizon-client --features ae2-lab`: the same
+  game while no AE2 core code has moved; they must switch to `horizon-atm10` before step 3.
+- **0c, `horizon-ae2`.** Holds the extension it installs, and the list of addon behaviours (`add_addon`).
+- **0d, the extension point.** `game/ae2_ext.rs`: `Ae2Host`, `Ae2Ext`, `Ae2Addon`, the factory and the `Slot` in
+  `Game` (`ae2_ext`, beside `ae2x`). `game/ae2_host.rs`: `Ae2Host for Game` and `Game::ae2_addon_tick`, which
+  takes the extension out of `Game` for the call and puts it back.
+
+### Step 1, the pilot: AEInfinityBooster
+
+`horizon-ae2x-aeinfinitybooster` holds both halves: the rows (`defs.rs`, from `ae2x/aeinfinitybooster.rs`) and
+the game behaviour (`game.rs`, from `game/ae2x/aeinfinitybooster/`). Two extension points carry it:
+
+- the lib's definitions registry: `ae2x::defs::install_addon_rows(id, rows)`, which `defs::get()` runs in the
+  addon's old place in its order (`add_addon_rows`); installing after the registry was built panics;
+- the game's: `tick_ae2x` calls `self.ae2_addon_tick("aeinfinitybooster")` where it called
+  `tick_aeinfinitybooster()`. The host gives it `is_remote`, `dimension`, `world` and `streaming`.
+
+`horizon-client`'s feature `ae2-aeinfinitybooster` gates nothing any more; it stays so that the pack's feature
+list is still valid for `-p horizon-client` (test.ts, the full check's scripts).

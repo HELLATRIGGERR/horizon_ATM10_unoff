@@ -19,5 +19,9 @@ if (!help('Usage: bun run ae2/scripts/test.ts [--client]\nRuns the five native c
     for (const target of ['--lib', '--bin']) {
       await run(['cargo', 'test', '--locked', '--manifest-path', manifest, '--profile', profile, '-p', 'horizon-client', '--no-default-features', '--features', packFeatures(), target, ...(target === '--bin' ? ['horizon-client'] : []), 'ae2'], engine, env);
     }
+    // The crates above horizon-client (docs/ae2-crates.md), on the game's features, so they share its build.
+    const above = ['horizon-atm10', 'horizon-ae2', 'horizon-ae2x-aeinfinitybooster'].flatMap(crate => ['-p', crate]);
+    const features = packFeatures().split(',').map(feature => `horizon-atm10/${feature}`).join(',');
+    await run(['cargo', 'test', '--locked', '--manifest-path', manifest, '--profile', 'fast', ...above, '--no-default-features', '--features', features], engine, env);
   }
 }

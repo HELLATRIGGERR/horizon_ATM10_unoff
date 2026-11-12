@@ -1,12 +1,12 @@
 //! AEInfinityBooster 2.1.0's rows in the definitions registry and its
-//! settings (feature `ae2-aeinfinitybooster`). Derived from AEInfinityBooster
+//! settings. Derived from AEInfinityBooster
 //! by Hexeption (`ModItems`, `AEInfinityBoosterConfig`,
 //! `AccessPointCardFilter`, `MixinWirelessTerminalMenuHost`,
 //! `MixinWirelessMenu`, `MixinWirelessBlockEntity`),
 //! https://github.com/Hexeption/AEInfinityBooster tag `v2.1.0`, LGPL-3.0;
 //! see `ae2/addons/aeinfinitybooster/`. The game's side (the access point's
-//! chunk) is in `game/ae2x/aeinfinitybooster/`.
-use super::defs::{AccessPointCard, Defs};
+//! chunk) is in `game.rs`.
+use horizon_client::ae2x::defs::{AccessPointCard, Defs};
 use std::sync::OnceLock;
 
 pub const NAMESPACE: &str = "aeinfinitybooster";
@@ -56,7 +56,7 @@ impl Config {
     pub fn get() -> Self {
         static CONFIG: OnceLock<Config> = OnceLock::new();
         *CONFIG.get_or_init(|| {
-            let path = crate::logging::game_home().join("config/aeinfinitybooster-common.toml");
+            let path = horizon_client::logging::game_home().join("config/aeinfinitybooster-common.toml");
             match std::fs::read_to_string(&path) {
                 Ok(text) => Self::parse(&text).unwrap_or_else(|error| {
                     log::warn!("invalid AEInfinityBooster config {}: {error}", path.display());
@@ -106,7 +106,8 @@ mod tests {
 
     #[test]
     fn the_card_is_a_booster_slot_item_with_a_fixed_signal() {
-        let defs = crate::ae2x::defs::get();
+        crate::install_rows();
+        let defs = horizon_client::ae2x::defs::get();
         assert!(defs.access_point_accepts(INFINITY_CARD) && defs.access_point_accepts("ae2:wireless_booster"));
         assert!(!defs.access_point_accepts("ae2:energy_card"));
         let card = defs.access_point_card(INFINITY_CARD).unwrap();

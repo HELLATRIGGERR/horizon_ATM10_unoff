@@ -46,6 +46,7 @@ members = [
     "crates/horizon-mod-deps",
     # The fork's AE2 crates above horizon-client, and the game assembled from them (docs/ae2-crates.md).
     "crates/horizon-ae2",
+    "crates/horizon-ae2x-aeinfinitybooster",
     "crates/horizon-atm10",
     "xtask",
 ]

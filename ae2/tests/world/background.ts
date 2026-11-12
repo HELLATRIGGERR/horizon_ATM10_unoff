@@ -1,8 +1,19 @@
-/** A host-wide rendering lease. No child process inherits the lease descriptor. */
+/** A host-wide rendering lease of AE2_RENDER_SLOTS slots (default 1: one hidden game at a time, as the lease was made
+ * for a shared laptop). Slot 0 is the lease file older harnesses take, so they still exclude a default run; slot N > 0
+ * is `.N` beside it. No child process inherits a lease descriptor. */
 import { dlopen, ptr } from 'bun:ffi';
-import { closeSync, ftruncateSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, ftruncateSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+/** How many hidden games may render at once on this host: AE2_RENDER_SLOTS, 1 when unset. */
+export function renderSlots(): number {
+  const slots = Number(process.env.AE2_RENDER_SLOTS ?? 1);
+  if (!Number.isInteger(slots) || slots < 1 || slots > 64) throw new Error(`AE2_RENDER_SLOTS must be a whole number from 1 to 64, not ${process.env.AE2_RENDER_SLOTS}`);
+  return slots;
+}
+const slotPath = (owner: string | number, slot: number) => join(tmpdir(), `ae2-horizon-render-${owner}${slot ? `.${slot}` : ''}.lock`);
+const holderLine = () => JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n';
 
 export async function acquireRenderLease(): Promise<() => void> {
   if (process.platform === 'win32') return acquireWindowsLease();
@@ -11,37 +22,47 @@ export async function acquireRenderLease(): Promise<() => void> {
     flock: { args: ['i32', 'i32'], returns: 'i32' },
     fcntl: { args: ['i32', 'i32', 'i32'], returns: 'i32' },
   });
-  const fd = openSync(join(tmpdir(), `ae2-horizon-render-${process.getuid?.() ?? 'user'}.lock`), 'a+', 0o600);
-  if (libc.symbols.fcntl(fd, 2, 1) !== 0) { closeSync(fd); libc.close(); throw new Error('Cannot make the render lease close on exec.'); }
+  const slots = renderSlots();
   try {
-    while (libc.symbols.flock(fd, 6) !== 0) await Bun.sleep(250);
-    ftruncateSync(fd, 0);
-    writeSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n');
-  } catch (error) { closeSync(fd); libc.close(); throw error; }
-  let released = false;
-  return () => { if (!released) { released = true; closeSync(fd); libc.close(); } };
+    for (;;) {
+      for (let slot = 0; slot < slots; slot++) {
+        const fd = openSync(slotPath(process.getuid?.() ?? 'user', slot), 'a+', 0o600);
+        if (libc.symbols.fcntl(fd, 2, 1) !== 0) { closeSync(fd); throw new Error('Cannot make the render lease close on exec.'); }
+        if (libc.symbols.flock(fd, 6) !== 0) { closeSync(fd); continue; }
+        try { ftruncateSync(fd, 0); writeSync(fd, holderLine()); } catch (error) { closeSync(fd); throw error; }
+        let released = false;
+        return () => { if (!released) { released = true; closeSync(fd); libc.close(); } };
+      }
+      await Bun.sleep(250);
+    }
+  } catch (error) { libc.close(); throw error; }
 }
 
-// Windows has no flock: the lease is a file created exclusively, taken over
+// Windows has no flock: a slot is a file created exclusively, taken over
 // only when the process that holds it is gone.
 async function acquireWindowsLease(): Promise<() => void> {
-  const path = join(tmpdir(), `ae2-horizon-render-${process.env.USERNAME ?? 'user'}.lock`);
+  const slots = renderSlots();
   for (;;) {
-    try {
-      const fd = openSync(path, 'wx', 0o600);
-      writeSync(fd, JSON.stringify({ pid: process.pid, acquired_at: new Date().toISOString() }) + '\n');
-      closeSync(fd);
-      let released = false;
-      return () => { if (!released) { released = true; rmSync(path, { force: true }); } };
-    } catch (error: any) {
-      if (error?.code !== 'EEXIST') throw error;
-      let holder = 0;
-      try { holder = JSON.parse(readFileSync(path, 'utf8')).pid; } catch {}
-      let alive = false;
-      if (holder) try { process.kill(holder, 0); alive = true; } catch {}
-      if (!alive) rmSync(path, { force: true });
-      else await Bun.sleep(250);
+    for (let slot = 0; slot < slots; slot++) {
+      const path = slotPath(process.env.USERNAME ?? 'user', slot);
+      try {
+        const fd = openSync(path, 'wx', 0o600);
+        writeSync(fd, holderLine());
+        closeSync(fd);
+        let released = false;
+        return () => { if (!released) { released = true; rmSync(path, { force: true }); } };
+      } catch (error: any) {
+        if (error?.code !== 'EEXIST') throw error;
+        let text = '', holder = 0;
+        try { text = readFileSync(path, 'utf8'); holder = JSON.parse(text).pid; } catch {}
+        // A file with no holder yet is one being written, unless it has been empty for a while.
+        let alive = !holder && (() => { try { return Date.now() - statSync(path).mtimeMs < 5000; } catch { return false; } })();
+        if (holder) try { process.kill(holder, 0); alive = true; } catch {}
+        // Taken over only if it still names the same gone holder: another waiter may have taken it over just now.
+        if (!alive) { let again = ''; try { again = readFileSync(path, 'utf8'); } catch {} if (again === text) rmSync(path, { force: true }); slot--; }
+      }
     }
+    await Bun.sleep(250);
   }
 }
 

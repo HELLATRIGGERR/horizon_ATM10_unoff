@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { root, help, addonContent } from './common';
+import { runSuites, takeJobs } from './suites';
 const suites = [
   'formation-quantum-dimensions', 'machine-screens', 'part-screens',
   'fluid-cell-missing-content', 'source-overfilled-cell', 'io-port-mixed-cell',
@@ -99,8 +100,8 @@ Object.assign(addonSuites, { 'ae2-crossdim': 'ae2wtlib' });
 // single player (23f8bd4fe). The nearest suites on the server thread, not compared assertion by assertion: part-screens,
 // fake-slot-drag-machines, machine-screens, machine-menu-identity, interface-stock-editor.
 const pending = new Set(['inframe-bus-menu', 'inframe-machine-menus', 'chest-fluid-gestures', 'crafting-idle-break', 'crafting-idle-inventory', 'formation-armor-stand', 'formation-quantum-dimensions', 'inframe-wireless-session', 'portable-fluid-gestures', 'portable-fluid-overflow', 'portable-menu-status', 'quantum-forced-ready', 'terminal-fluid-gestures', 'wireless-menu-lifecycle', 'wireless-menu-status', 'wireless-power-multiplier']);
-if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--content DIRECTORY] [--in-frame] [SUITE ...]\nRuns only hidden, isolated fixtures, sequentially under a host rendering lease.\nSuites: ' + suites.join(', '))) {
-  const args = process.argv.slice(2), selected: string[] = [], env = { ...process.env };
+if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--content DIRECTORY] [--in-frame] [--jobs N] [SUITE ...]\nRuns only hidden, isolated fixtures under a host rendering lease: one after another, or N at once with --jobs N\n(the lease then has at least N slots; AE2_RENDER_SLOTS sets them for every runner on the host).\nSuites: ' + suites.join(', '))) {
+  const args = process.argv.slice(2), jobs = takeJobs(args), selected: string[] = [], env = { ...process.env };
   let inFrame = false;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -126,10 +127,8 @@ if (!help('Usage: bun run ae2/scripts/test-world.ts [--build METADATA.json] [--c
     console.log(`SKIP ${suite}: ${addon} is off in pack/pack.toml or has no content (ae2/scripts/prepare-addon.ts ${addon})`);
     return false;
   };
-  for (const suite of selected.length ? selected : suites.filter(suite => !pending.has(suite) && ready(suite))) {
-    const child = Bun.spawn([process.execPath, 'run', join(root, 'ae2/tests/world', suite + '.ts'), ...(inFrame ? ['--in-frame'] : [])], { cwd: root, env, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
-    const code = await child.exited;
-    if (code !== 0) failed.push(suite);
-  }
+  const chosen = selected.length ? selected : suites.filter(suite => !pending.has(suite) && ready(suite));
+  const command = (suite: string) => [process.execPath, 'run', join(root, 'ae2/tests/world', suite + '.ts'), ...(inFrame ? ['--in-frame'] : [])];
+  failed.push(...await runSuites(chosen.map(suite => ({ name: suite, command: command(suite) })), { jobs, cwd: root, env }));
   if (failed.length) { console.error('Failed hidden-world suites:', failed.join(', ')); process.exitCode = 1; }
 }

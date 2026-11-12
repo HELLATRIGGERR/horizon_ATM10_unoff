@@ -2,9 +2,9 @@
 import assert from 'node:assert/strict';
 import { connect } from 'node:net';
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { root, engine, addonContent } from '../../scripts/common';
 import { acquireRenderLease, awakeNowMs, awakeTimeout } from './background';
 
@@ -40,6 +40,44 @@ function windowArgs(): string[] {
   return ['--width', String(Math.round(960 / scale)), '--height', String(Math.round(540 / scale))];
 }
 
+const worldTests = join(root, '.local/world-tests');
+/** Writes `text` to `path` whole: a parallel fixture never reads half of it. */
+function writeWhole(path: string, text: string): void {
+  const tmp = `${path}.${process.pid}`; writeFileSync(tmp, text); renameSync(tmp, path);
+}
+/** The client's SHA-256, kept in `.local/world-tests/binary-sha256.json` by path, size and modification time:
+ * reading and hashing the ~120 MB binary on every start cost ~0.1 s, and as much again under load. */
+function binarySha256(binary: string): string {
+  const { size, mtimeMs } = statSync(binary), key = `${binary}|${size}|${mtimeMs}`, file = join(worldTests, 'binary-sha256.json');
+  let known: Record<string, string> = {};
+  try { known = JSON.parse(readFileSync(file, 'utf8')); } catch {}
+  if (/^[a-f0-9]{64}$/.test(known[key] ?? '')) return known[key];
+  const sha = createHash('sha256').update(readFileSync(binary)).digest('hex');
+  try { writeWhole(file, JSON.stringify(Object.fromEntries([...Object.entries(known).slice(-7), [key, sha]]), null, 1) + '\n'); } catch {}
+  return sha;
+}
+
+/** `from` copied to `to`, the files of the game's content roots (`mod-content/<16 hex>/`) as hard links. The game
+ * never writes a file of a root in place: it builds a root again in a folder it empties first, and keeps a root's
+ * last use beside it (`<root>.used`, not copied). A root's links to the base's folders (junctions on Windows,
+ * symlinks elsewhere) are made again to the same targets. Everything else in the cache is small and copied. */
+function linkCache(from: string, to: string, at = ''): void {
+  mkdirSync(join(to, at), { recursive: true });
+  for (const entry of readdirSync(join(from, at), { withFileTypes: true })) {
+    const path = join(at, entry.name);
+    if (entry.isSymbolicLink()) { symlinkSync(readlinkSync(join(from, path)), join(to, path), process.platform === 'win32' ? 'junction' : undefined); continue; }
+    if (entry.isDirectory()) { linkCache(from, to, path); continue; }
+    if (entry.name.endsWith('.used') || !entry.isFile()) continue;
+    const inRoot = /^mod-content[\\/][0-9a-f]{16}[\\/]/.test(path);
+    if (inRoot) try { linkSync(join(from, path), join(to, path)); continue; } catch {}
+    copyFileSync(join(from, path), join(to, path));
+  }
+}
+/** Whether `path` is in the temporary folder, where a suite makes the content of one run. */
+const inTemp = (path: string) => { const rel = relative(tmpdir(), path); return !!rel && !rel.startsWith('..') && !isAbsolute(rel); };
+/** The content roots a `.horizon-cache` holds, by their folder names. */
+const contentRoots = (cache: string) => { try { return readdirSync(join(cache, 'mod-content')).filter(name => /^[0-9a-f]{16}$/.test(name) && existsSync(join(cache, 'mod-content', name, 'horizon-mod-content.stamp'))); } catch { return []; } };
+
 export class WorldFixture {
   readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast', process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
   readonly resources = resolve(process.env.AE2_RESOURCES ?? join(root, '.local/resources/26.3'));
@@ -55,6 +93,8 @@ export class WorldFixture {
   private logs: Promise<void>[] = [];
   private release?: () => void;
   private phase = 0;
+  /** The shared warm `.horizon-cache` of this binary, resources and mods (`warmCache`), when there is one to have. */
+  private warm?: string;
   readonly checks: string[] = [];
 
   constructor(readonly label: string, readonly mode: Mode = 'server-thread', options: { content?: string; addons?: string[]; devMods?: string[] } = {}) {
@@ -138,12 +178,52 @@ export class WorldFixture {
     assert.deepEqual(status.window, { offscreen: true, visible: false, focused: false, fullscreen: false, system_pointer_captured: false }, 'hidden test window isolation');
   }
 
+  /** A fresh run's first start opens with a warm `.horizon-cache`: that of an earlier fixture with the same binary,
+   * resources and mods (`.local/world-tests/.warm-cache/<key>`). Building the content root and resolving the tables
+   * again took ~3 s of each suite's ~4 s start. The game checks a root's stamp and a snapshot's fingerprint itself
+   * and builds again what does not match, as on any restart in one run. Mods made for one run (in the temporary
+   * folder) have none, and AE2_TEST_WARM_CACHE=0 turns it off. Returns the key of the cache it used. */
+  private seedCache(binarySha: string): string | undefined {
+    const mods = [this.content, ...this.addons, ...this.extraMods];
+    if (process.env.AE2_TEST_WARM_CACHE === '0' || mods.some(inTemp)) return;
+    const key = createHash('sha256').update(JSON.stringify([binarySha, this.resources, mods])).digest('hex').slice(0, 16);
+    this.warm = join(worldTests, '.warm-cache', key);
+    const cache = join(this.game, '.horizon-cache');
+    if (existsSync(cache) || !contentRoots(this.warm).length) return;
+    try { linkCache(this.warm, cache); return key; }
+    catch { rmSync(cache, { recursive: true, force: true }); }
+  }
+  /** After a game of this fixture stopped: its `.horizon-cache` becomes the warm one when there is none, or when
+   * this game built a root the warm one lacks (the mods changed). Best effort; a fixture never fails on it. */
+  private publishCache(): void {
+    const warm = this.warm, cache = join(this.game, '.horizon-cache');
+    if (!warm) return;
+    this.warm = undefined;
+    const built = contentRoots(cache), have = contentRoots(warm);
+    if (!built.length || built.every(name => have.includes(name))) return;
+    const tmp = `${warm}.${process.pid}`, old = `${warm}.old-${process.pid}`;
+    try {
+      linkCache(cache, tmp);
+      if (existsSync(warm)) renameSync(warm, old);
+      renameSync(tmp, warm);
+    } catch {}
+    for (const path of [tmp, old]) rmSync(path, { recursive: true, force: true });
+    // Caches of other builds unused for a day go.
+    try {
+      for (const name of readdirSync(join(worldTests, '.warm-cache'))) {
+        const path = join(worldTests, '.warm-cache', name);
+        if (path !== warm && Date.now() - statSync(path).mtimeMs > 24 * 3600e3) rmSync(path, { recursive: true, force: true });
+      }
+    } catch {}
+  }
+
   async start(): Promise<any> {
     for (const path of [this.binary, this.resources, this.content, ...this.addons, ...this.extraMods]) assert(existsSync(path), `Missing fixture prerequisite: ${path}`);
     this.release ??= await acquireRenderLease(); this.phase++;
-    const binarySha = createHash('sha256').update(readFileSync(this.binary)).digest('hex');
+    const binarySha = binarySha256(this.binary);
+    const warmCache = this.phase === 1 ? this.seedCache(binarySha) : undefined;
     if (process.env.AE2_TEST_BINARY_SHA256) assert.equal(binarySha, process.env.AE2_TEST_BINARY_SHA256, 'fixture binary matches the selected build snapshot');
-    writeFileSync(join(this.run, `runtime-${this.phase}.json`), JSON.stringify({ phase: this.phase, mode: this.mode, binary_sha256: binarySha, fixture_source_sha256: createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'), harness_source_sha256: createHash('sha256').update(readFileSync(import.meta.path)).digest('hex'), background: true, max_fps: 30 }, null, 2) + '\n');
+    writeFileSync(join(this.run, `runtime-${this.phase}.json`), JSON.stringify({ phase: this.phase, mode: this.mode, binary_sha256: binarySha, fixture_source_sha256: createHash('sha256').update(readFileSync(process.argv[1])).digest('hex'), harness_source_sha256: createHash('sha256').update(readFileSync(import.meta.path)).digest('hex'), background: true, max_fps: 30, warm_cache: warmCache ?? null }, null, 2) + '\n');
     const env = { ...process.env, HORIZON_HOME: this.game, HORIZON_LAUNCHER_HOME: join(this.run, 'launcher'), XDG_DATA_HOME: join(this.run, 'data'), XDG_CONFIG_HOME: join(this.run, 'config'), HORIZON_LAUNCHER_NO_SELF_UPDATE: '1', HORIZON_NO_AUDIO: '1', HORIZON_TELEMETRY_URL: 'off', HORIZON_SERVER_THREAD: this.mode === 'server-thread' ? '1' : '0' };
     this.child = Bun.spawn([this.binary, '--resources', this.resources, ...this.devMods(), '--world', 'AE2 Fixture', '--seed', '1234', '--creative', '--name', 'AE2Fixture', '--render-distance', '4', ...windowArgs(), '--control-socket', this.socket, '--background', '--no-pause', this.mode === 'server-thread' ? '--server-thread' : '--in-frame'], { cwd: this.game, env, stdout: 'pipe', stderr: 'pipe' });
     const log = join(this.run, `game-${this.phase}.log`);
@@ -257,6 +337,7 @@ export class WorldFixture {
       try { await child.exited; } finally { cancel(); }
     }
     await Promise.all(this.logs); this.child = undefined;
+    this.publishCache();
   }
   async restart(): Promise<any> { await this.raw('save'); await this.stop(); return this.start(); }
   async close(): Promise<void> { await this.stop(); this.release?.(); this.release = undefined; }

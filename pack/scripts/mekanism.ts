@@ -1,7 +1,8 @@
 // Builds and tests the pack's Mekanism port in a checkout of this fork: the content mods `mekanism` and
 // `mekanismgenerators` from the ATM10 carries (mekanism-content), the game staged with the native bundle
 // pack/mods/mekanism (horizon-mixins apply), its build, the crates' unit tests and the world tests.
-// Usage: bun run pack/scripts/mekanism.ts <step>... (steps: content, units, stage, build, world; all: every one)
+// Usage: bun run pack/scripts/mekanism.ts [--jobs N] <step>... (steps: content, units, stage, build, world; all: every one)
+// --jobs N runs N world suites at once (ae2/scripts/suites.ts); one by default, stopping at the first failure.
 //
 // Paths default to this machine's layout beside the checkout (`<base>` = the checkout's parent folder) and can be
 // set in the environment:
@@ -27,6 +28,7 @@
 // Building native code is the player's own decision; the launcher's `native-build` is the player's route.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { runSuites, takeJobs } from '../../ae2/scripts/suites';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -133,13 +135,17 @@ const steps: Record<string, () => Promise<void>> = {
     // MEK_TESTS picks some (`energy-cube-screen`); all of pack/mods/mekanism/tests by default.
     const names = process.env.MEK_TESTS?.split(',').filter(Boolean)
       ?? readdirSync(join(bundle, 'tests')).filter(f => f.endsWith('.ts')).map(f => f.slice(0, -3)).sort();
-    for (const name of names) await run(['bun', 'run', join(bundle, 'tests', `${name}.ts`)], root, harness);
+    if (worldJobs === 1) for (const name of names) await run(['bun', 'run', join(bundle, 'tests', `${name}.ts`)], root, harness);
+    else {
+      const failed = await runSuites(names.map(name => ({ name, command: ['bun', 'run', join(bundle, 'tests', `${name}.ts`)] })), { jobs: worldJobs, cwd: root, env: harness });
+      if (failed.length) throw new Error(`Failed Mekanism world suites: ${failed.join(', ')}`);
+    }
   },
 };
 
-const args = process.argv.slice(2);
+const args = process.argv.slice(2), worldJobs = takeJobs(args);
 if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
-  console.log('Usage: bun run pack/scripts/mekanism.ts <step>...\nSteps, in order: ' + Object.keys(steps).join(', ') + '; all runs every one.');
+  console.log('Usage: bun run pack/scripts/mekanism.ts [--jobs N] <step>...\nSteps, in order: ' + Object.keys(steps).join(', ') + '; all runs every one.');
   process.exit(0);
 }
 for (const step of args.includes('all') ? Object.keys(steps) : args) {

@@ -83,7 +83,7 @@ bun run ae2/scripts/test.ts
 bun run ae2/scripts/test.ts --client
 ```
 
-Native world regressions use hidden windows, isolated profiles and virtual input. They serialize rendering under a shared lease, cap each client at 30 FPS, and assert that its window is invisible, unfocused and does not capture the system pointer:
+Native world regressions use hidden windows, isolated profiles and virtual input. They render under a shared host lease, one game at a time unless `--jobs N` runs N suites at once (the lease then has N slots; `AE2_RENDER_SLOTS` sets them host-wide), cap each client at 30 FPS, and assert that its window is invisible, unfocused and does not capture the system pointer:
 
 ```sh
 bun run ae2/scripts/test-world.ts provider-session crafting-alternatives

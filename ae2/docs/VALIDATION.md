@@ -37,7 +37,7 @@ Some failed runs exposed implementation defects; others exposed stale client obs
 
 ## Screen isolation
 
-Every automated native client uses `--background`, an isolated game/profile directory, virtual input and a 30 FPS cap. A cross-process lease serializes rendering, including LAN peers. The harness asserts invisible, unfocused, windowed operation and no system-pointer capture before issuing test actions. Framebuffer captures do not read the real desktop.
+Every automated native client uses `--background`, an isolated game/profile directory, virtual input and a 30 FPS cap. A cross-process lease serializes rendering, including LAN peers; `--jobs N` (or `AE2_RENDER_SLOTS=N`) lets N fixtures render at once. The harness asserts invisible, unfocused, windowed operation and no system-pointer capture before issuing test actions. Framebuffer captures do not read the real desktop.
 
 Run `bun run scripts/test.ts --client` for the host gate and `bun run scripts/test-world.ts SUITE ...` for selected worlds. The world runner supports `--build METADATA.json` to pin binary SHA-256, `--content DIRECTORY`, and `--in-frame` for supported alternate-runtime cases. Local metadata, logs, transcripts and disposable saves stay under ignored `.local/`.
 

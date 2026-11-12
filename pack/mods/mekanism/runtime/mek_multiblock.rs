@@ -2,7 +2,7 @@
 // of the `mekanism` native bundle): the framework the Dynamic Tank
 // (`mek_dynamic_tank`), the Induction Matrix (`mek_matrix`), the Thermal
 // Evaporation Plant (`mek_evaporation`), the Thermoelectric Boiler
-// (`mek_boiler`), the Industrial Turbine (`mek_turbine`) and the Fission Reactor (`mek_fission`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
+// (`mek_boiler`), the Industrial Turbine (`mek_turbine`), the Fission Reactor (`mek_fission`) and the Supercritical Phase Shifter (`mek_sps`) stand on, and the later cuboid multiblocks will. The rules are `mekanism_energy::multiblock`
 // (MIT, from Mekanism 10.7.19, Copyright (c) 2017-2025 Aidan C. Brady); this
 // module is the glue: which blocks are casings, valves, ports and glass of
 // which multiblock (`MultiblockManager`, `TankValidator`, `MatrixValidator`),
@@ -34,6 +34,7 @@ use mekanism_energy::{
     multiblock::{self, Cuboid, Failure, Inner, Node, Pos, Uuid},
     fission,
     sides::Direction,
+    sps,
     turbine,
 };
 use serde_json::{Value, json};
@@ -44,7 +45,7 @@ use std::{
 };
 
 /// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`, `boilerManager`,
-/// `MekanismGenerators.turbineManager`, `fissionReactorManager`).
+/// `spsManager`, `MekanismGenerators.turbineManager`, `fissionReactorManager`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Kind {
     Tank,
@@ -53,12 +54,13 @@ pub(super) enum Kind {
     Boiler,
     Turbine,
     Fission,
+    Sps,
 }
 
 pub(super) const GLASS: &str = "mekanism:structural_glass";
 
 impl Kind {
-    pub(super) const ALL: [Self; 6] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine, Self::Fission];
+    pub(super) const ALL: [Self; 7] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine, Self::Fission, Self::Sps];
 
     /// `MultiblockManager.getName`.
     pub(super) fn name(self) -> &'static str {
@@ -69,6 +71,7 @@ impl Kind {
             Self::Boiler => "thermoelectricBoiler",
             Self::Turbine => "industrialTurbine",
             Self::Fission => "fissionReactor",
+            Self::Sps => "sps",
         }
     }
 
@@ -80,6 +83,7 @@ impl Kind {
             Self::Boiler => super::mek_boiler::CASING,
             Self::Turbine => super::mek_turbine::CASING,
             Self::Fission => super::mek_fission::CASING,
+            Self::Sps => super::mek_sps::CASING,
         }
     }
 
@@ -91,6 +95,7 @@ impl Kind {
             Self::Boiler => super::mek_boiler::VALVE,
             Self::Turbine => super::mek_turbine::VALVE,
             Self::Fission => super::mek_fission::PORT,
+            Self::Sps => super::mek_sps::PORT,
         }
     }
 
@@ -124,7 +129,7 @@ impl Kind {
     fn holds_inventory(self, block: &str) -> bool {
         match self {
             Self::Evaporation => self.other() == Some(block),
-            Self::Boiler | Self::Turbine | Self::Fission => false,
+            Self::Boiler | Self::Turbine | Self::Fission | Self::Sps => false,
             _ => block == self.valve(),
         }
     }
@@ -155,6 +160,7 @@ impl Kind {
             Self::Boiler => "thermoelectricboiler",
             Self::Turbine => "industrialturbine",
             Self::Fission => "fissionreactor",
+            Self::Sps => "sps",
         }
     }
 
@@ -166,6 +172,7 @@ impl Kind {
             Self::Boiler => &BOILER_DATA,
             Self::Turbine => &TURBINE_DATA,
             Self::Fission => &FISSION_DATA,
+            Self::Sps => &SPS_DATA,
         }
     }
 
@@ -182,6 +189,8 @@ impl Kind {
             Self::Turbine => [1, 0, 1, 1, 0],
             // Fissile fuel, heated coolant, nuclear waste and a chemical coolant; water; its heat.
             Self::Fission => [4, 0, 1, 0, 1],
+            // Polonium and antimatter.
+            Self::Sps => [2, 0, 0, 0, 0],
         }
     }
 
@@ -236,6 +245,14 @@ static TURBINE_DATA: AttachmentType<Compound> = AttachmentType {
     copy_on_death: false,
     sync: false,
 };
+static SPS_DATA: AttachmentType<Compound> = AttachmentType {
+    namespace: "mekanism",
+    name: "sps",
+    default: Compound::new,
+    codec: Some(AttachmentCodec { encode: identity, decode: identity }),
+    copy_on_death: false,
+    sync: false,
+};
 static FISSION_DATA: AttachmentType<Compound> = AttachmentType {
     namespace: "mekanism",
     name: "fissionreactor",
@@ -281,6 +298,8 @@ pub(super) struct Cache {
     /// The fission reactor's own (`FissionReactorCache`: `reactor_damage`, `injection_rate`, `burn_time`,
     /// `partial_waste`, `disabled`, `active`).
     pub(super) reactor: Option<fission::Core>,
+    /// The SPS's own (`SPSCache`: `progress`, `processed`, `could_operate`, `energy_usage`, `last_processed`).
+    pub(super) sps: Option<sps::Core>,
 }
 
 impl Cache {
@@ -295,6 +314,7 @@ impl Cache {
             edit_mode: 0,
             dumping: 0,
             reactor: (kind == Kind::Fission).then(fission::Core::new),
+            sps: (kind == Kind::Sps).then(sps::Core::default),
         }
     }
 
@@ -339,6 +359,11 @@ impl Cache {
         match (self.reactor.as_mut(), other.reactor) {
             (Some(mine), Some(theirs)) => mine.merge(&theirs),
             (None, theirs) => self.reactor = theirs,
+            _ => {}
+        }
+        match (self.sps.as_mut(), other.sps) {
+            (Some(mine), Some(theirs)) => mine.merge(&theirs),
+            (None, theirs) => self.sps = theirs,
             _ => {}
         }
     }
@@ -409,6 +434,13 @@ impl Cache {
             c.insert(key("partial_waste"), Tag::Double(core.partial_waste.to_bits()));
             c.insert(key("disabled"), Tag::Byte(i8::from(core.force_disabled)));
             c.insert(key("active"), Tag::Byte(i8::from(core.active)));
+        } else if kind == Kind::Sps {
+            let core = self.sps.unwrap_or_default();
+            c.insert(key("progress"), Tag::Double(core.progress.to_bits()));
+            c.insert(key("processed"), Tag::Int(core.input_processed));
+            c.insert(key("could_operate"), Tag::Byte(i8::from(core.could_operate)));
+            c.insert(key("energy_usage"), Tag::Long(core.received_energy.min(i64::MAX as u64) as i64));
+            c.insert(key("last_processed"), Tag::Double(core.last_processed.to_bits()));
         } else {
             c.insert(key("edit_mode"), Tag::Int(self.edit_mode));
         }
@@ -441,6 +473,7 @@ impl Cache {
             edit_mode: mek_world::number(c.get(&key("edit_mode"))).unwrap_or(0) as i32,
             dumping: mek_world::number(c.get(&key("dumping"))).unwrap_or(0) as i32,
             reactor: None,
+            sps: None,
         };
         let double = |name: &str| match c.get(&key(name)) {
             Some(Tag::Double(v)) => Some(f64::from_bits(*v)),
@@ -455,6 +488,16 @@ impl Cache {
                 partial_waste: double("partial_waste").unwrap_or(0.0),
                 force_disabled: mek_world::number(c.get(&key("disabled"))).unwrap_or(0) != 0,
                 active: mek_world::number(c.get(&key("active"))).unwrap_or(0) != 0,
+            });
+        }
+        if c.get(&key("processed")).is_some() || c.get(&key("could_operate")).is_some() {
+            cache.sps = Some(sps::Core {
+                progress: double("progress").unwrap_or(0.0),
+                input_processed: mek_world::number(c.get(&key("processed"))).unwrap_or(0) as i32,
+                could_operate: mek_world::number(c.get(&key("could_operate"))).unwrap_or(0) != 0,
+                received_energy: mek_world::number(c.get(&key("energy_usage"))).unwrap_or(0).max(0) as u64,
+                last_received: 0,
+                last_processed: double("last_processed").unwrap_or(0.0),
             });
         }
         if let Some(Tag::List(list)) = c.get(&key("heat_capacitors")) {
@@ -621,7 +664,7 @@ pub(super) fn container(block: &str) -> Option<ModContainer> {
     let (all, inputs, outputs) = match kind {
         Kind::Evaporation => (vec![0, 1, 2, 3], vec![0, 2], vec![1, 3]),
         // The boiler's, the turbine's and the reactor's casings and valves open their screen, which has no slots.
-        Kind::Boiler | Kind::Turbine | Kind::Fission => (Vec::new(), Vec::new(), Vec::new()),
+        Kind::Boiler | Kind::Turbine | Kind::Fission | Kind::Sps => (Vec::new(), Vec::new(), Vec::new()),
         _ => (vec![0, 1], vec![0, 1], vec![0, 1]),
     };
     Some(ModContainer {
@@ -782,6 +825,7 @@ fn failure_text(game: &mut Game<'_>, failure: Failure) -> Option<String> {
         Failure::MalformedFuelAssembly(p) => Some(format!("Couldn't form, invalid Fission Fuel Assembly placement at ({}, {}, {}).", p[0], p[1], p[2])),
         Failure::BadControlRod(p) => Some(format!("Couldn't form, improper placement for Control Rod Assembly at ({}, {}, {}).", p[0], p[1], p[2])),
         Failure::ExtraControlRod(p) => Some(format!("Couldn't form, found extra Control Rod Assembly at ({}, {}, {}).", p[0], p[1], p[2])),
+        Failure::DisconnectedCoil => Some("Couldn't form, found a coil without a connection to an SPS Port.".into()),
     }
 }
 
@@ -813,6 +857,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             fission_shape = Some(s);
             f
         }),
+        Kind::Sps => super::mek_sps::form(game, &nodes),
         _ => multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p)),
     };
     let touched: BTreeSet<Uuid> = with_dim(dimension, |d| nodes.keys().filter_map(|p| d.at.get(&(kind, *p)).copied()).collect());
@@ -896,6 +941,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         Kind::Boiler => super::mek_boiler::created(game, dimension, id),
         Kind::Turbine => super::mek_turbine::created(dimension, id),
         Kind::Fission => super::mek_fission::created(game, dimension, id),
+        Kind::Sps => super::mek_sps::created(dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -1179,6 +1225,7 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
             Kind::Boiler => super::mek_boiler::tick(game, dimension, id),
             Kind::Turbine => super::mek_turbine::tick(game, dimension, id),
             Kind::Fission => super::mek_fission::tick(game, dimension, id),
+            Kind::Sps => super::mek_sps::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -1224,6 +1271,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
         Kind::Boiler => super::mek_boiler::view(game, dimension, id),
         Kind::Turbine => super::mek_turbine::view(dimension, id),
         Kind::Fission => super::mek_fission::view(game, dimension, id),
+        Kind::Sps => super::mek_sps::view(dimension, id),
     };
     for p in views {
         // A logic adapter's screen shows its own mode and status too.
@@ -1400,6 +1448,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
             Kind::Boiler => super::mek_boiler::probe(game, dimension, owner),
             Kind::Turbine => super::mek_turbine::probe(dimension, owner),
             Kind::Fission => super::mek_fission::probe(game, dimension, owner),
+            Kind::Sps => super::mek_sps::probe(game, dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);
@@ -1432,6 +1481,7 @@ pub(super) fn caches_json(game: &mut Game<'_>) -> Value {
                         "heat": c.heat.iter().map(|h| h.map(|h| json!({ "stored": h.stored, "capacity": h.capacity }))).collect::<Vec<_>>(),
                         "edit_mode": c.edit_mode,
                         "reactor": c.reactor.map(|r| json!({ "damage": r.damage, "rate_limit": r.rate_limit, "active": r.active, "force_disabled": r.force_disabled })),
+                        "sps": c.sps.map(|k| json!({ "progress": k.progress, "processed": k.input_processed, "could_operate": k.could_operate, "energy_usage": k.received_energy, "last_processed": k.last_processed })),
                     })
                 })
                 .collect();

@@ -4,7 +4,7 @@
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
 # Washer and Chemical Crystallizer, the Rotary Condensentrator), its Mechanical
 # Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
-# (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler) and
+# (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the SPS) and
 # its Resistive Heater, Mekanism Generators' Solar, Heat,
 # Gas-Burning, Bio, Wind and Advanced Solar Generators, Industrial Turbine and Fission Reactor, its Electric Pump and
 # Fluidic Plenisher, its Digital Miner, and its radiation (sources, players' doses, the Geiger Counter and Dosimeter), as a native mod of
@@ -153,6 +153,12 @@ id = "fission"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_fission"
 source = "runtime/mek_fission.rs"
+
+[[module]]
+id = "sps"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_sps"
+source = "runtime/mek_sps.rs"
 
 [[module]]
 id = "transmit"

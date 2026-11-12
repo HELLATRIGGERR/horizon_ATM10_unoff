@@ -115,6 +115,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(super::mek_fission::adapter_screen());
         return;
     }
+    if super::mek_sps::is_sps_block(block) {
+        *screen = Some(super::mek_sps::screen());
+        return;
+    }
     if super::mek_heater::is_heater(block) {
         *screen = Some(super::mek_heater::screen());
         return;
@@ -369,6 +373,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         super::mek_fission::tooltip(block, data, at, lines);
         return;
     }
+    if super::mek_sps::is_sps_block(block) {
+        super::mek_sps::tooltip(data, at, lines);
+        return;
+    }
     if super::mek_miner::is_miner(block) {
         super::mek_miner::tooltip(data, at, lines);
         return;
@@ -570,6 +578,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if super::mek_fission::is_reactor_block(block) || super::mek_fission::is_adapter(block) {
         super::mek_fission::draw(game, block, data, batch, origin);
+        return;
+    }
+    if super::mek_sps::is_sps_block(block) {
+        super::mek_sps::draw(game, data, batch, origin);
         return;
     }
     if super::mek_miner::is_miner(block) {

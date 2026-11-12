@@ -406,7 +406,7 @@ pub enum Inner {
 /// (`MULTIBLOCK_INVALID_CONTROLLER_CONFLICT`, never ignored) or none (`MULTIBLOCK_INVALID_NO_CONTROLLER`), and the
 /// boiler's `postcheck` (`BOILER_INVALID_NO_DISPERSER`, `_MISSING_DISPERSER`, `_EXTRA_DISPERSER`, `_SUPERHEATING`,
 /// `_AIR_POCKETS`), the turbine's (`TURBINE_INVALID_*`; its missing disperser reads as the boiler's) and the fission
-/// reactor's (`FISSION_INVALID_*`; a column's missing control rod names its x and z).
+/// reactor's (`FISSION_INVALID_*`; a column's missing control rod names its x and z) and the SPS's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Fail,
@@ -440,6 +440,8 @@ pub enum Failure {
     MalformedFuelAssembly(Pos),
     BadControlRod(Pos),
     ExtraControlRod(Pos),
+    /// `SPS_INVALID_DISCONNECTED_COIL`: a supercharged coil with no port right outside it.
+    DisconnectedCoil,
 }
 
 /// A formed multiblock's shape: its cuboid, the positions of its walls (`locations`), the blocks inside that aren't

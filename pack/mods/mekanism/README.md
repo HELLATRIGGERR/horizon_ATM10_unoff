@@ -2,7 +2,7 @@
 
 Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
-Matrix, the Thermal Evaporation Plant and the Thermoelectric Boiler), its Resistive Heater, its Electric Pump and
+Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the Supercritical Phase Shifter), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
 Heat, Gas-Burning, Bio, Wind and Advanced Solar Generators, its Industrial Turbine and its Fission Reactor for All the Mods 10, as a native
 mod of this fork of Horizon.
@@ -353,6 +353,18 @@ assets when `mekanism-content` is given them.
   in the cache under `mekanism_fissionreactor`. Waste with no room radiates at the reactor's centre (0.01 Sv/h a mB),
   and a meltdown its waste and partial waste times `meltdowns.radiationMultiplier` (50), only the radioactive tanks
   going.
+- The Supercritical Phase Shifter (`mekanism_energy::sps`, runtime `mek_sps`): a 7x7x7 of SPS casings whose faces
+  leave their corners out (`SPSValidator`'s `ALLOWED_GRID`: each face's ring of casings, its middle casings, SPS
+  ports, structural or reactor glass; the left out positions take anything), inside only air and supercharged coils,
+  each right behind a port (`Couldn't form, found a coil without a connection to an SPS Port.`). ATM10's
+  `general.toml` `[sps]` gives an input tank of 2000 mB of polonium, an output tank of 1000 mB of antimatter and
+  100 000 J an mB of polonium (1000 mB of polonium an mB of antimatter: 10^8 J). A port stores 1 000 000 000 J
+  (`machine-storage.toml` `spsPort`) from cubes, cables, machines and Forge Energy; one with a coil behind it hands
+  all of it to the SPS each tick while the SPS can work (polonium in, room for antimatter), for its next tick, and
+  what the SPS can't use that tick is lost. Ports take polonium and give antimatter in either mode; in output mode
+  (`active_state`, the Configurator's sneaking use) they put the antimatter out to what they face. Its casings and
+  ports open `GuiSPS` (the two gauges, status, energy input, process rate, the progress bar). Its tanks and progress
+  live in the cache under `mekanism_sps`.
 - Radiation (`mekanism_energy::radiation`, runtime `mek_radiation`; ATM10's `general.toml` `[radiation]`: on, 5
   chunks, sources and doses times 0.9975 on one tick in 20, harm from a severity of 0.1): each level's sources, a
   magnitude in Sv/h at a block kept in the level's attachments (`mekanism:radiation_data`), give a block within 80 of
@@ -519,6 +531,10 @@ assets when `mekanism-content` is given them.
   reactor ticks, and its signal is weak only. The burn rate has no text field (`/mek fission ... rate`); the screen's
   heat graph, the recipe viewer link, the sound, comparators, the ports' heat transfer to blocks beside them and
   their transfer animation aren't there; fuel and control rod assemblies are plain blocks.
+- The SPS's coils have no lasers and it has no orbit effects (`RenderSPS`) or sound; it doesn't hurt the entities
+  inside it (`kill`: `lastReceivedEnergy / 1000` a hit, one tick in twenty, and the lightning of its experiments) nor
+  give its advancements; comparators don't read its ports. Its saved cache is written as it is when the level saves,
+  where Mekanism's syncs only at the end of a tick it changed (`markDirty`).
 - The resistive heater's energy usage is set with `/mek heater` (no text field in the bundle's screens yet); its
   item keeps neither its usage nor its energy (Mekanism's keeps both), it makes no sound, it hands heat to no heat
   handler but those above (no heat generator, fuelwood heater or conductor), and redstone control and the muffling

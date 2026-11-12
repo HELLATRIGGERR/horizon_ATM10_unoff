@@ -130,6 +130,14 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
                 }
                 return;
             }
+            // `TileEntitySPSPort.onSneakRightClick`: input and output swap.
+            if id == super::mek_sps::PORT {
+                if sneaking {
+                    *claimed = true;
+                    super::mek_sps::toggle(game, pos);
+                }
+                return;
+            }
             // `TileEntityBoilerValve.onSneakRightClick`: the next mode.
             if id == super::mek_boiler::VALVE {
                 if sneaking {

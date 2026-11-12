@@ -45,7 +45,8 @@
 //! (`boiler`), which the Resistive Heater (`heater`) heats, and Mekanism
 //! Generators' Industrial Turbine (`turbine`), which turns its steam into
 //! Joules, and its Fission Reactor (`fission`), which burns fissile fuel
-//! into heat that boils its coolant.
+//! into heat that boils its coolant. The Supercritical Phase Shifter
+//! (`sps`) turns polonium into antimatter on its coils' Joules.
 //! The Electric Pump and the Fluidic Plenisher (`pump`) take the world's
 //! fluid blocks into a tank and put them back.
 //! Nothing here knows the game: the native mod's helpers bring the world.
@@ -85,6 +86,7 @@ pub mod sides;
 pub mod sky;
 pub mod solar;
 pub mod split;
+pub mod sps;
 pub mod tier;
 pub mod transmitter;
 pub mod transporter;

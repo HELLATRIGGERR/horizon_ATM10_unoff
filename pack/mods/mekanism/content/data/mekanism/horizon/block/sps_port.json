@@ -1,0 +1,31 @@
+{
+  "template": "minecraft:beacon",
+  "properties": {
+    "hardness": 5.0,
+    "explosion_resistance": 9.0,
+    "requires_tool": true,
+    "sounds": "minecraft:iron_block",
+    "push_reaction": "IMMOVEABLE",
+    "map_color": 22,
+    "light": 0,
+    "no_occlusion": false,
+    "can_occlude": true,
+    "skylight_down": false,
+    "light_dampening": 15,
+    "solid": true,
+    "redstone_conductor": true,
+    "suffocating": true
+  },
+  "state_properties": {
+    "active": {
+      "type": "boolean"
+    }
+  },
+  "default_state": {
+    "active": "false"
+  },
+  "components": {
+    "!minecraft:cooking_fuel": {},
+    "minecraft:rarity": "epic"
+  }
+}

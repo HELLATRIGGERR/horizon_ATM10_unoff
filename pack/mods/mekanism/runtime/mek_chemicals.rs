@@ -181,6 +181,9 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
     if block == super::mek_fission::PORT {
         return super::mek_fission::chemical_handler(game, dimension, pos, super::mek_fission::PORT, face, &registry, use_it);
     }
+    if block == super::mek_sps::PORT {
+        return super::mek_sps::chemical_handler(dimension, pos, &block, face, use_it);
+    }
     game.native_with_mod_block_entity(pos, |m| {
         if super::mek_tanks::tier_of(&m.id).is_some() {
             super::mek_tanks::chemical_handler(m, face, &registry, use_it)

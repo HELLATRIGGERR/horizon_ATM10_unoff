@@ -474,6 +474,9 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_miner::takes_energy(m, side)).flatten() {
         return open.then_some(Target::Machine);
     }
+    if let Some(open) = game.native_with_mod_block_entity(at, |m| super::mek_sps::takes_energy(m)).flatten() {
+        return open.then_some(Target::Machine);
+    }
     if let Some(main) = super::mek_miner::port_owner(game, at, side) {
         return Some(Target::MinerPort { main });
     }
@@ -542,7 +545,7 @@ fn hand_over(
                             Some(rest) => Some(rest),
                             None => match super::mek_heater::offer(m, face.opposite(), amount, simulate) {
                                 Some(rest) => Some(rest),
-                                None => super::mek_miner::offer(m, config, amount, simulate),
+                                None => super::mek_miner::offer(m, config, amount, simulate).or_else(|| super::mek_sps::offer(m, amount, simulate)),
                             },
                         },
                     },
@@ -773,6 +776,7 @@ pub(super) fn fe_storage(
     if super::mek_pump::fe_storage(entity, face, &config, info)
         || super::mek_heater::fe_storage(entity, face, &config, info)
         || super::mek_miner::fe_storage(entity, face, &config, info)
+        || super::mek_sps::fe_storage(entity, &config, info)
     {
         return;
     }
@@ -853,6 +857,7 @@ pub(super) fn fe_transfer(
     if super::mek_pump::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
         || super::mek_heater::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
         || super::mek_miner::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
+        || super::mek_sps::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved)
     {
         return;
     }
@@ -965,7 +970,7 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
         return;
     }
     if super::mek_multiblock::loaded(dimension, pos, &entity.id) {
-        if (entity.id == super::mek_matrix::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
+        if (entity.id == super::mek_matrix::PORT || entity.id == super::mek_sps::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
@@ -1012,7 +1017,7 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
         return;
     }
     if super::mek_multiblock::unloaded(dimension, pos, &entity.id, removed) {
-        if (entity.id == super::mek_matrix::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
+        if (entity.id == super::mek_matrix::PORT || entity.id == super::mek_sps::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
@@ -2481,6 +2486,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if let Some(mut answer) = super::mek_multiblock::probe(game, pos, &id) {
         if let Some(port) = super::mek_matrix::port_probe(game, pos) {
+            answer["port"] = port;
+        }
+        if let Some(port) = super::mek_sps::port_probe(game, pos) {
             answer["port"] = port;
         }
         return answer;

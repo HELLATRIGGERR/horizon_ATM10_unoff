@@ -321,7 +321,31 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   targets); comparators read the main slots' fill (`redstoneLevelFromContents`) at the back-top, left and right
   bounding blocks and need the bundle on `has_analog_output`/`analog_output` (API 64) for `mekanism:bounding_block`
   with the miner's slots, and `native_update_output_neighbors` on its contents' changes.
-- Next: the SPS and the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
+- Multiblocks, part 8: the Supercritical Phase Shifter (branch `feat/mekanism-multiblocks-2`, on Digital Miner 2, no new
+  hook point: `mekanism_energy::sps`, runtime `mek_sps`; the framework gained `Kind::Sps` (manager `sps`, saved data
+  `mekanism_sps`, a cache of polonium and antimatter with `progress`, `processed`, `could_operate`, `energy_usage`,
+  `last_processed` and no `edit_mode`), `Failure::DisconnectedCoil`, and the SPS port as an energy acceptor beside the
+  machines in `mek_world` (cubes, cables, Forge Energy) and a chemical handler in `mek_chemicals`). Measured on a
+  private copy of the miner's oracle (local `meksps-work/oracle`, RCON 25671, `s1.py`, `spslab.py`; the cache read
+  from `world/data/mekanism_sps.dat` after `save-all flush`): plain, the corners filled, no ports, glass (structural or
+  reactor) in a side, stone or a port in a left out corner, two coils form; a coil with no port or beside one, glass,
+  a port or a hole in the ring, a port on an edge, a hole in a side, dirt inside or in an inner corner and a 3x3x3
+  don't. C1 (an ultimate cube, 256 000 J/t): the port holds 256 000 after the first tick, processing from the third
+  (2.56 mB a tick: processed 2, 5, 7 ... progress 0.56, 0.1200000000000001 ...), 998 and 0.4000000000000208 after
+  the 392nd, the first antimatter on the 393rd; C2 (a creative cube): the whole 2000 mB a tick from the third, 2 mB of
+  antimatter a tick out of an output port into a basic tank (196 by the 100th), the port refilled to 10^9 each tick;
+  C3 (no output port): full on the 502nd, then stopped with the port's Joules kept. The order: the master casing
+  ticks first, the ports after it (they hand over the Joules a cube put in on the tick before), so the bundle runs
+  the multiblock's tick and then the ports' hand-over in `native_level_tick_pre`. World test `sps`. Learned: the
+  saved cache is synced at the end of a tick only when the multiblock is dirty, so a stopped SPS's file keeps the
+  last values it changed (C3's `could_operate` 1 after it stopped); the port's mode message names the mode it had
+  (`InputOutput.of(oldMode)`). The Antiprotonic Nucleosynthesizer isn't here: it is a
+  `TileEntityProgressMachine<NucleosynthesizingRecipe>` (an item and antimatter into an item over the recipe's
+  `duration` ticks, 400 without one; a `perTickUsage` recipe uses its antimatter every tick, `used_so_far` saved, the
+  others take it at once; 100 000 J a tick from a 10^9 J store; `operationsPerTick` above one with enough speed
+  upgrades), a recipe type and a screen the bundle's `mek_machines` doesn't have yet; the next slice can put it on
+  `advanced::process` with its own recipe reader and `MachineKind`, measured on this oracle.
+- Next: the Antiprotonic Nucleosynthesizer, the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
   its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside
   them, sounds); the turbine's rest

@@ -1,8 +1,8 @@
 //! Advanced AE's Quantum Armor (`QuantumArmorBase`, `PoweredItem`,
 //! `IUpgradeableItem`, `QuantumHelmet`, `QuantumChestplate`,
 //! `QuantumLeggings`, `QuantumBoots`, `UpgradeType`, `UpgradeCards`,
-//! `AAEPlayerEvents`, `AAELivingEntityEvents.breath`, the quantum armor section
-//! of `AAEConfig` at its defaults, which ATM10 keeps). Derived from Advanced
+//! `AAEPlayerEvents`, `AAELivingEntityEvents`, the quantum armor section of
+//! `AAEConfig` at its defaults, which ATM10 keeps). Derived from Advanced
 //! AE, https://github.com/pedroksl/AdvancedAE commit
 //! `c322dad81e6f2ad94cb1fb861e73a7ba68e5907a`, LGPL-3.0; see
 //! `ae2/addons/advancedae/`.
@@ -14,7 +14,9 @@
 //! server runs what the mod runs on the server each tick of a worn piece: the
 //! passive cards and the buffs' draw (`tickUpgrades`), night vision and the
 //! attribute cards (`ItemAttributeModifierEvent`), flight (`CREATIVE_FLIGHT`)
-//! and water breathing. What the client moves itself (the speed, jump and
+//! and water breathing; and the damage events of a hit on the wearer (Lava
+//! Immunity, Evasion, the absorption into the AE, the boots' fall), through
+//! `health::HURT_SERVER`. What the client moves itself (the speed, jump and
 //! flight-speed cards) and what needs the grid link is listed in the README.
 use super::super::super::{Game, lan::LanHost};
 use horizon_client::{
@@ -22,8 +24,10 @@ use horizon_client::{
     items::ItemStack,
     text::{GREEN, RED, Text},
 };
+use horizon_core::random::RandomSource;
 use horizon_protocol::packets::play::{Clientbound, SystemChat};
 use horizon_world::nbt::Tag;
+use std::{cell::RefCell, collections::HashMap};
 
 const STORED: &str = "ae2:stored_energy";
 const CAPACITY: &str = "ae2:energy_capacity";
@@ -35,6 +39,16 @@ pub(in crate::game) const CHARGE_RATE: f64 = 20_000.0;
 const NIGHT_VISION_ACTIVATED: &str = "advanced_ae:night_vision_activated";
 /// `AAEConfig.getRenegerationPerTick` (10, used as 0.1 of it).
 const REGENERATION: f32 = 1.0;
+/// `AAEConfig.getEvasionChance`, in percent.
+const EVASION_CHANCE: f64 = 30.0;
+/// `AAEConfig.getPercentageDamageAbsorption`: the most of a hit the worn
+/// pieces take into their AE, in percent.
+const DAMAGE_ABSORPTION: i32 = 30;
+/// `incomingDamage`: the AE a point of damage absorbed costs.
+const AE_PER_DAMAGE: f32 = 1000.0;
+/// More players than a server holds at once: past it, the worn sets are noted
+/// afresh (an entity id is not reused, so a left player's set is only stale).
+const MAX_WORN: usize = 4096;
 
 /// `UpgradeType.ApplicationType`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,7 +232,10 @@ pub(in crate::game) fn extract(stack: &mut ItemStack, amount: f64) -> f64 {
 /// `isUpgradePowered`: the item's FE (AE2's `PoweredItemCapabilities`, two
 /// FE an AE, as an int) reaches the card's cost.
 pub(in crate::game) fn powered(stack: &ItemStack, upgrade: &Upgrade) -> bool {
-    energy(stack).is_some_and(|(current, _)| (current * 2.0) as i64 >= i64::from(upgrade.cost))
+    energy(stack).is_some_and(|(current, _)| fe_reaches(current, upgrade.cost))
+}
+fn fe_reaches(ae: f64, cost: u32) -> bool {
+    (ae * 2.0) as i64 >= i64::from(cost)
 }
 /// `isUpgradeEnabledAndPowered`.
 pub(in crate::game) fn active(stack: &ItemStack, upgrade: &str) -> bool {
@@ -227,9 +244,144 @@ pub(in crate::game) fn active(stack: &ItemStack, upgrade: &str) -> bool {
 /// `consumeEnergy`: the cost at `PowerMultiplier.CONFIG`, nothing in creative.
 fn consume(stack: &mut ItemStack, cost: u32, creative: bool) {
     if !creative {
-        let usage = horizon_client::ae2_common_config::gameplay().usage_multiplier;
-        extract(stack, f64::from(cost) * usage);
+        extract(stack, cost_ae(cost));
     }
+}
+fn cost_ae(cost: u32) -> f64 {
+    f64::from(cost) * horizon_client::ae2_common_config::gameplay().usage_multiplier
+}
+
+/// A worn set as a hit on its wearer sees it (`health::HURT_SERVER` names the
+/// player by entity id alone, in the middle of the hit): each slot's Quantum
+/// piece's AE, head first, the damage cards that are on, and what the hits
+/// took since the armor's last tick, which then takes it from the pieces.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Worn {
+    creative: bool,
+    stored: [Option<f64>; 4],
+    /// The chestplate's Lava Immunity and the boots' Evasion are on (their
+    /// power is read from `stored` at the hit).
+    lava_immunity: bool,
+    evasion: bool,
+    /// The AE the hits took from each slot.
+    drawn: [f64; 4],
+    /// Lava Immunity put the fire out (`setRemainingFireTicks(0)`).
+    extinguish: bool,
+}
+
+impl Worn {
+    fn of(armor: &[Option<ItemStack>; 4], creative: bool) -> Self {
+        let worn = |slot: usize| armor[slot].as_ref().filter(|s| piece(&s.item).is_some_and(|p| p.slot == slot));
+        Self {
+            creative,
+            stored: std::array::from_fn(|slot| worn(slot).and_then(energy).map(|(current, _)| current)),
+            lava_immunity: worn(1).is_some_and(|s| enabled(s, "lava_immunity")),
+            evasion: worn(3).is_some_and(|s| enabled(s, "evasion")),
+            ..Self::default()
+        }
+    }
+    /// `extractAEPower(.., MODULATE)` of slot `slot`'s piece: the AE it gave.
+    fn extract(&mut self, slot: usize, amount: f64) -> f64 {
+        let Some(current) = self.stored[slot] else { return 0.0 };
+        let given = amount.max(0.0).min(current);
+        let left = current - given;
+        self.stored[slot] = Some(if left >= MIN_POWER { left } else { 0.0 });
+        self.drawn[slot] += given;
+        given
+    }
+    /// `isUpgradePowered` of slot `slot`'s piece for a card.
+    fn powered(&self, slot: usize, upgrade: &str) -> bool {
+        self::upgrade(upgrade).is_some_and(|u| self.stored[slot].is_some_and(|ae| fe_reaches(ae, u.cost)))
+    }
+    /// `consumeEnergy` of a card.
+    fn consume(&mut self, slot: usize, upgrade: &str) {
+        if let Some(u) = self::upgrade(upgrade)
+            && !self.creative
+        {
+            self.extract(slot, cost_ae(u.cost));
+        }
+    }
+}
+
+thread_local! {
+    /// The worn sets by the wearer's entity id, on the thread that ticks the world.
+    static WORN: RefCell<HashMap<i32, Worn>> = RefCell::new(HashMap::new());
+}
+
+/// Notes what player `entity` wears after the armor's tick: none forgets it.
+fn note_worn(entity: i32, worn: Option<Worn>) {
+    WORN.with(|sets| {
+        let mut sets = sets.borrow_mut();
+        match worn {
+            Some(worn) => {
+                if sets.len() >= MAX_WORN && !sets.contains_key(&entity) {
+                    sets.clear();
+                }
+                sets.insert(entity, worn);
+            }
+            None => {
+                sets.remove(&entity);
+            }
+        }
+    });
+}
+
+/// What the hits on player `entity` took from each slot since the last call,
+/// and whether Lava Immunity put the fire out.
+fn take_hits(entity: i32) -> ([f64; 4], bool) {
+    WORN.with(|sets| {
+        sets.borrow_mut()
+            .get_mut(&entity)
+            .map_or(([0.0; 4], false), |w| (std::mem::take(&mut w.drawn), std::mem::take(&mut w.extinguish)))
+    })
+}
+
+/// A hit of `damage_type` on player `entity` by `amount`, where
+/// `LivingEntity.hurtServer` asks its incoming-damage hooks: whether the worn
+/// Quantum Armor called it off. The mod's events in their order:
+/// `LivingFallDamage` (boots with any AE take the fall's distance to 0, so a
+/// fall hurts nothing), `invulnerability` (Lava Immunity against lava and
+/// fire, then Evasion's chance against any hit, each at its card's cost) and
+/// `incomingDamage` (each worn piece takes up to a quarter of 30% of the hit
+/// into its AE, 1,000 AE a point; what is left under 1 is no hit).
+pub(in crate::game) fn player_hurt(entity: i32, damage_type: &str, amount: &mut f32) -> bool {
+    WORN.with(|sets| {
+        let mut sets = sets.borrow_mut();
+        let Some(worn) = sets.get_mut(&entity) else { return false };
+        let kind = damage_type.strip_prefix("minecraft:").unwrap_or(damage_type);
+        // `extractAEPower(stack, 10, SIMULATE) > 0`: no AE is drawn.
+        if kind == "fall" && worn.stored[3].is_some_and(|ae| ae > 0.0) {
+            return true;
+        }
+        let mut invulnerable = false;
+        if matches!(kind, "lava" | "in_fire" | "on_fire") && worn.lava_immunity && worn.powered(1, "lava_immunity") {
+            worn.extinguish = true;
+            invulnerable = true;
+            worn.consume(1, "lava_immunity");
+        }
+        // `new Random().nextDouble(100)`: a random of its own each hit.
+        if worn.evasion && worn.powered(3, "evasion") && horizon_client::random_source::create().next_double() * 100.0 < EVASION_CHANCE {
+            invulnerable = true;
+            worn.consume(3, "evasion");
+        }
+        if invulnerable {
+            return true;
+        }
+        if *amount <= 0.0 {
+            return false;
+        }
+        let per_piece = *amount * DAMAGE_ABSORPTION as f32 / 100.0 / 4.0;
+        let mut absorbed = 0.0f32;
+        for slot in 0..4 {
+            if worn.stored[slot].is_some() {
+                absorbed += worn.extract(slot, f64::from(per_piece * AE_PER_DAMAGE)) as f32 / AE_PER_DAMAGE;
+            }
+        }
+        if absorbed > 0.0 {
+            *amount = (*amount - absorbed).max(0.0);
+        }
+        *amount < 1.0
+    })
 }
 
 /// `applyUpgrade`: a card the piece takes and lacks goes in, on, at its
@@ -299,13 +451,16 @@ impl Game<'_> {
     /// and the magnet's pickup.
     pub(in crate::game) fn lan_advancedae_armor_tick(&mut self, host: &mut LanHost, gi: usize) {
         let Some(g) = host.hub.guests.get(gi) else { return };
-        let conn = g.conn;
+        let (conn, entity) = (g.conn, g.entity_id);
         let worn = g.armor.iter().flatten().any(|s| piece(&s.item).is_some());
         let granted = self.ae2x.advancedae.armor_flight.contains(&conn);
+        if !worn {
+            note_worn(entity, None);
+        }
         if !worn && !granted && !self.ae2x.advancedae.armor_modifiers.contains(&conn) {
             return;
         }
-        let outcome = self.as_guest(host, conn, |game| game.advancedae_armor_turn()).flatten();
+        let outcome = self.as_guest(host, conn, |game| game.advancedae_armor_turn(entity)).flatten();
         let Some(outcome) = outcome else { return };
         if worn {
             self.ae2x.advancedae.armor_modifiers.insert(conn);
@@ -326,11 +481,13 @@ impl Game<'_> {
         }
     }
 
-    /// The acting player's turn with the armor; none without a body.
-    fn advancedae_armor_turn(&mut self) -> Option<Outcome> {
+    /// The acting player's turn with the armor, `entity` theirs; none without
+    /// a body.
+    fn advancedae_armor_turn(&mut self, entity: i32) -> Option<Outcome> {
         let creative = self.creative;
         let spectator = self.spectator();
         let flying = self.player.as_ref()?.flying;
+        self.advancedae_armor_hits(entity);
         let mut out = Outcome::default();
         for piece in PIECES {
             let Some(mut stack) = self.armor[piece.slot].clone().filter(|s| s.item.as_ref() == piece.item) else { continue };
@@ -371,7 +528,24 @@ impl Game<'_> {
             }
         }
         self.advancedae_armor_attributes();
+        note_worn(entity, Some(Worn::of(&self.armor, creative)));
         Some(out)
+    }
+
+    /// What the hits on the acting player (`entity`) took since the last
+    /// time, from their pieces, and the fire Lava Immunity put out.
+    fn advancedae_armor_hits(&mut self, entity: i32) {
+        let (drawn, extinguish) = take_hits(entity);
+        for (slot, ae) in drawn.into_iter().enumerate() {
+            if ae > 0.0
+                && let Some(stack) = self.armor[slot].as_mut().filter(|s| piece(&s.item).is_some())
+            {
+                extract(stack, ae);
+            }
+        }
+        if extinguish && let Some(p) = self.player.as_mut() {
+            p.set_remaining_fire_ticks(0);
+        }
     }
 
     /// A passive card's `Ability`: whether it acted (and so draws its cost).
@@ -507,6 +681,11 @@ impl Game<'_> {
     pub(in crate::game) fn advancedae_armor_command(&mut self, words: &[&str]) -> Result<serde_json::Value, String> {
         let [slot, rest @ ..] = words else { return Err("armor <slot> [install|remove|toggle|value ...]".into()) };
         let slot: usize = slot.parse().ok().filter(|s| *s < 4).ok_or("bad armor slot")?;
+        // The hits since the last tick first, so the AE shown is the pieces' now.
+        let entity = self.lan_acting_entity.map(|e| e as i32);
+        if let Some(entity) = entity {
+            self.advancedae_armor_hits(entity);
+        }
         let mut stack = self.armor[slot].clone().filter(|s| piece(&s.item).is_some()).ok_or("no Quantum Armor in that slot")?;
         let named = |name: &str| upgrade(name).ok_or_else(|| format!("no upgrade {name}"));
         match rest {
@@ -553,6 +732,9 @@ impl Game<'_> {
             .collect();
         let item = stack.item.to_string();
         self.armor[slot] = Some(stack);
+        if let Some(entity) = entity {
+            note_worn(entity, Some(Worn::of(&self.armor, self.creative)));
+        }
         Ok(serde_json::json!({"item": item, "stored": stored, "capacity": capacity, "upgrades": upgrades}))
     }
 }
@@ -621,5 +803,71 @@ mod tests {
         assert!(powered(&chest, flight) && active(&chest, "flight"));
         toggle(&mut chest, "flight");
         assert!(!active(&chest, "flight"));
+    }
+
+    fn wear(entity: i32, armor: [Option<ItemStack>; 4], creative: bool) {
+        note_worn(entity, Some(Worn::of(&armor, creative)));
+    }
+
+    #[test]
+    fn a_hit_goes_30_percent_into_the_pieces_ae_and_a_fall_into_charged_boots() {
+        let e = 1_000_001;
+        wear(e, [Some(charged(PIECES[0].item, 1e6)), Some(charged(PIECES[1].item, 1e6)), None, Some(charged(PIECES[3].item, 1e6))], false);
+        let mut hit = 4.0;
+        assert!(!player_hurt(e, "minecraft:generic", &mut hit));
+        assert!((hit - 3.1).abs() < 1e-5, "three pieces took 0.3 each: {hit}");
+        assert_eq!(take_hits(e), ([300.0, 300.0, 0.0, 300.0], false));
+        let mut small = 1.2;
+        assert!(player_hurt(e, "minecraft:generic", &mut small), "0.93 left is no hit");
+        assert_eq!(take_hits(e).0, [90.0, 90.0, 0.0, 90.0]);
+        let mut fall = 7.0;
+        assert!(player_hurt(e, "minecraft:fall", &mut fall), "charged boots: no fall damage");
+        assert_eq!(take_hits(e).0, [0.0; 4], "the fall draws nothing");
+        let mut other = 4.0;
+        assert!(!player_hurt(e + 1, "minecraft:generic", &mut other));
+        assert_eq!(other, 4.0, "a player wearing nothing noted");
+        // Empty boots: the fall hurts, and the others absorb it.
+        wear(e, [Some(charged(PIECES[0].item, 1e6)), None, None, Some(charged(PIECES[3].item, 0.0))], false);
+        let mut fall = 8.0;
+        assert!(!player_hurt(e, "minecraft:fall", &mut fall));
+        assert_eq!(take_hits(e).0, [600.0, 0.0, 0.0, 0.0]);
+        note_worn(e, None);
+        assert_eq!(take_hits(e), ([0.0; 4], false));
+    }
+
+    #[test]
+    fn lava_immunity_and_evasion_call_the_hit_off_at_their_cost() {
+        let e = 1_000_002;
+        let mut chest = charged(PIECES[1].item, 1000.0);
+        apply(&mut chest, upgrade("lava_immunity").unwrap());
+        wear(e, [None, Some(chest.clone()), None, None], false);
+        for kind in ["minecraft:lava", "minecraft:in_fire", "minecraft:on_fire"] {
+            let mut lava = 4.0;
+            assert!(player_hurt(e, kind, &mut lava), "{kind}");
+            assert_eq!(take_hits(e), ([0.0, 10.0, 0.0, 0.0], true), "{kind}: the card's cost, the fire out");
+        }
+        let mut hit = 4.0;
+        assert!(!player_hurt(e, "minecraft:generic", &mut hit), "not a fire");
+        assert_eq!(take_hits(e), ([0.0, 300.0, 0.0, 0.0], false));
+        wear(e, [None, Some(chest.clone()), None, None], true);
+        let mut lava = 4.0;
+        assert!(player_hurt(e, "minecraft:lava", &mut lava));
+        assert_eq!(take_hits(e).0, [0.0; 4], "nothing drawn in creative");
+        toggle(&mut chest, "lava_immunity");
+        wear(e, [None, Some(chest), None, None], false);
+        let mut lava = 4.0;
+        assert!(!player_hurt(e, "minecraft:lava", &mut lava), "the card off");
+        let mut boots = charged(PIECES[3].item, 1e9);
+        apply(&mut boots, upgrade("evasion").unwrap());
+        wear(e, [None, None, None, Some(boots)], false);
+        let evaded = (0..1000)
+            .filter(|_| {
+                let mut hit = 2.0;
+                player_hurt(e, "minecraft:generic", &mut hit)
+            })
+            .count();
+        assert!((200..400).contains(&evaded), "30% of 1000: {evaded}");
+        assert_eq!(take_hits(e).0[3], evaded as f64 * 10.0 + (1000 - evaded) as f64 * 150.0, "an evaded hit costs 10, a taken one gives 150");
+        note_worn(e, None);
     }
 }

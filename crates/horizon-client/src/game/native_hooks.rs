@@ -10266,6 +10266,10 @@ pub(super) fn block_contact(
 /// `native_living_incoming_damage` for the damage code (`health::HURT_SERVER`): whether
 /// it canceled the hit. Its one caller.
 pub(super) fn hurt_server(hurting: Hurting<'_>, amount: &mut f32) -> bool {
+    // The game's own worn items first, as the addons' events they port.
+    if super::native_damage::worn_items_hurt(&hurting, amount) {
+        return true;
+    }
     // Who the hit names, for v3: only while a native mod listens.
     let parties = if mod_api::mods().is_empty() {
         None

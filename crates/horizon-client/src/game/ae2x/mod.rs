@@ -189,6 +189,18 @@ pub(super) fn powered_item_insert(stack: &mut horizon_client::items::ItemStack, 
     }
     None
 }
+/// A hit on player `entity` where `LivingEntity.hurtServer` asks its
+/// incoming-damage hooks: what an addon's worn items do to it (Advanced AE's
+/// Quantum Armor: Lava Immunity, Evasion, the absorption into the AE, the
+/// boots' fall). True calls the hit off.
+pub(super) fn player_hurt(entity: i32, damage_type: &str, amount: &mut f32) -> bool {
+    let _ = (entity, damage_type, &amount);
+    #[cfg(feature = "ae2-advancedae")]
+    if advancedae::armor::player_hurt(entity, damage_type, amount) {
+        return true;
+    }
+    false
+}
 /// Its item bar, when it is not AE2's (`PoweredItem.isBarVisible`): none
 /// for an item not an addon's, `Some(None)` for a hidden bar.
 pub(super) fn powered_item_bar(stack: &horizon_client::items::ItemStack) -> Option<Option<(i32, u32)>> {

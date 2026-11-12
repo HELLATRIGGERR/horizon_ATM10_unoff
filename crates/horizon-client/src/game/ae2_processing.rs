@@ -812,27 +812,9 @@ impl Game<'_> {
                         modulation=Modulation::Faster;
                         let mut working=false;
                         if let Some(stack) = m.slots.get_mut(0).and_then(Option::as_mut) {
-                            let wireless = horizon_client::ae2x::wireless::host(stack);
-                            let powered_tool = horizon_client::ae2_powered_items::profile(stack).is_some();
-                            let energy_cell = is_energy_cell_item(stack);
-                            let energy = if wireless {
-                                super::ae2_wireless::energy(stack)
-                            } else if powered_tool {
-                                horizon_client::ae2_powered_items::energy(stack)
-                            } else if energy_cell {
-                                energy_cell_energy(stack)
-                            } else {
-                                super::ae2_interactions::portable_energy(stack)
-                            };
-                            let rate = if wireless {
-                                super::ae2_wireless::charge_rate(stack)
-                            } else if powered_tool {
-                                horizon_client::ae2_powered_items::charge_rate(stack)
-                            } else if energy_cell {
-                                energy_cell_charge_rate(stack)
-                            } else {
-                                super::ae2_interactions::portable_charge_rate(stack)
-                            };
+                            // `IAEItemPowerStorage` of AE2's items and the addons'.
+                            let energy = chargeable_energy(stack);
+                            let rate = chargeable_rate(stack);
                             if let (Ok((current, max)), Ok(rate)) = (energy, rate) {
                                 let wanted = (rate * elapsed as f64 * horizon_client::ae2_common_config::processing().charger_rate).min((max - current).max(0.0));
                                 if wanted > 0.0 {
@@ -841,19 +823,7 @@ impl Game<'_> {
                                     let local = local_buffer.extract(wanted * usage, false) / usage;
                                     let grid = self.ae2_take_power_raw(pos, wanted - local, false);
                                     let offered = local + grid;
-                                    let charge = if wireless {
-                                        super::ae2_wireless::transfer_energy(
-                                            stack, offered, true, false,
-                                        )
-                                    } else if powered_tool {
-                                        horizon_client::ae2_powered_items::transfer(stack, offered, true, false)
-                                    } else if energy_cell {
-                                        energy_cell_insert(stack, offered)
-                                    } else {
-                                        super::ae2_interactions::portable_insert_energy(
-                                            stack, offered, false,
-                                        )
-                                    };
+                                    let charge = chargeable_insert(stack, offered);
                                     match charge {
                                         Ok(accepted) if accepted >= 0.0 && accepted <= offered => {
                                             if accepted>0.0 {working=true;}

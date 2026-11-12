@@ -566,6 +566,8 @@ impl Game<'_> {
                 "on_ground": p.ground.on_ground,
                 "flying": p.flying,
                 "fall_flying": p.fall_flying,
+                // Abilities.mayfly: on a server's client, as its abilities packet says.
+                "may_fly": p.may_fly,
                 "sneaking": self.keys.held(Action::Sneak),
                 "sprinting": p.sprinting,
                 "fov_modifier": self.view.fov_modifier,

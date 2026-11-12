@@ -11,13 +11,14 @@
     "4: the Advanced Extended Pattern Provider (36), the part forms of both providers, the Advanced Pattern Provider Upgrade and Capacity Upgrade",
     "5: the ME Stock Export Bus, ME Import Export Bus and ME Advanced IO Bus (their work, amounts, REGULATE_STOCK, cards, screens), the ME Throughput Monitor and its configurator",
     "6: the Quantum Crafter: its crafting patterns run on their own from the grid with power, the kept stock and output limit, speed and redstone cards, output to the grid or the sides, its screen",
-    "7: the Quantum Armor: its four pieces with their AE buffers (a Charger fills them), the upgrade cards installed and toggled, the abilities the server gives with their costs (night vision, regeneration, the attribute cards, flight, the magnet), the hotkeys"
+    "7: the Quantum Armor: its four pieces with their AE buffers (a Charger fills them), the upgrade cards installed and toggled, the abilities the server gives with their costs (night vision, regeneration, the attribute cards, flight, the magnet), the hotkeys; 7b: the damage cards and events (Lava Immunity, Evasion, the absorption into the AE, the boots' fall), the Quantum Alloy Plate and the armor's recipes"
   ],
   "items": {
     "adv_processing_pattern": {"max_stack_size": 1},
     "adv_pattern_encoder": {"max_stack_size": 1},
     "shattered_singularity": {},
     "quantum_alloy": {},
+    "quantum_alloy_plate": {},
     "quantum_processor_press": {},
     "printed_quantum_processor": {},
     "quantum_processor": {},

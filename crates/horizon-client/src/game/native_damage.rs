@@ -83,3 +83,15 @@ pub(super) fn parties(hurting: &Hurting<'_>) -> Parties {
         direct: known(direct),
     }
 }
+
+/// A hit on a player as the game's own items see it, before the native mods hear of it (NeoForge
+/// fires the addons' `EntityInvulnerabilityCheckEvent` and `LivingIncomingDamageEvent` there):
+/// an AE2 addon's worn armor may change the amount or call the hit off (true).
+pub(super) fn worn_items_hurt(hurting: &Hurting<'_>, amount: &mut f32) -> bool {
+    let _ = (hurting, &amount);
+    #[cfg(feature = "ae2-lab")]
+    if let Hurting::Player(entity, source) = hurting {
+        return super::ae2x::player_hurt(*entity, source.damage_type, amount);
+    }
+    false
+}

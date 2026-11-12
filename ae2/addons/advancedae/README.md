@@ -119,7 +119,7 @@ slice 7, which the port does not follow yet (see Not yet).
 | Advanced AE | Port |
 |---|---|
 | `advanced_ae:quantum_helmet`, `quantum_chestplate`, `quantum_leggings`, `quantum_boots` (`QuantumArmorBase`: `AAEMaterials.QUANTUM_ALLOY`'s 4, 9, 6 and 4 points, toughness 10, knockback resistance 0.25, enchantability 15, repaired with Quantum Alloy, fire resistant, epic, one a stack, no durability) | items of their own with `minecraft:equippable` (no armor model drawn) and those attribute modifiers |
-| `PoweredItem`: AE2's `STORED_ENERGY` and `ENERGY_CAPACITY` over 200 M (helmet, boots), 300 M (chestplate) and 250 M AE (leggings), `getChargeRate` 20,000, the bar while under 99% | `game/ae2x/advancedae/armor.rs`; the chargers' `chargeable_*` know them (`ae2x::powered_item_*`), but AE2's Charger takes a piece and does not charge it yet (open) |
+| `PoweredItem`: AE2's `STORED_ENERGY` and `ENERGY_CAPACITY` over 200 M (helmet, boots), 300 M (chestplate) and 250 M AE (leggings), `getChargeRate` 20,000, the bar while under 99% | `game/ae2x/advancedae/armor.rs`; the chargers' `chargeable_*` know them (`ae2x::powered_item_*`), and AE2's Charger's tick reads every item through them (7b) |
 | the 25 cards (`QuantumUpgradeBaseItem`, `UpgradeType`: cost, application, `getSettings` at ATM10's config, which keeps the defaults), each piece's `registerUpgrades`; `AAEComponents`' `<type>_toggle`, `_value`, `_filter`, `magnet_extra`, `night_vision_activated` | the same components (`horizon-command`'s `ae2_components`, synced like AE2's); `applyUpgrade` (on, at the most, an empty filter), `removeUpgrade`, `toggleUpgrade` |
 | `tickUpgrades` of a piece in its own slot that has a passive or buff card: the passive abilities that acted and each buff draw their cost (`consumeEnergy`: none in creative, AE2's usage multiplier), flight while flying; `isUpgradePowered` (twice the AE, as FE, reaches the cost) | the same on the server's tick of each player (`lan_ae2x_guest_tick`) |
 | `UpgradeCards.regeneration` (1 HP a tick), `magnet` (the items in range 12 the filter allows; `playerTouch`) | the same; the magnet touches the items it reaches |
@@ -128,6 +128,16 @@ slice 7, which the port does not follow yet (see Not yet).
 | `AAEHotkeysRegistry`'s `QUANTUM_MAGNET_UPGRADE` (G), `QUANTUM_AUTO_STOCK_UPGRADE` (J), `QUANTUM_NIGHT_VISION_UPGRADE` (unbound) on the worn helmet, the `ON`/`OFF` line or `UpgradeNotInstalledMessage` | the same key mappings (`key.advanced_ae.*`) and action-bar lines |
 | `QuantumArmorConfigScreen` and its card slot (`QuantumArmorMenuHost.tick`), `requestUninstall` | `/ae2 advae armor <slot> install <card>\|remove\|toggle\|value ...` takes the card from the inventory and gives it back |
 | recipes of the cards whose items the port has, `quantum_*_item_reset` | from the jar (76 recipes now) |
+
+## What works (slice 7b)
+
+| Advanced AE | Port |
+|---|---|
+| `AAELivingEntityEvents.invulnerability` (`EntityInvulnerabilityCheckEvent`): the chestplate's Lava Immunity, on and powered, against `LAVA`, `IN_FIRE` and `ON_FIRE` (`setRemainingFireTicks(0)`, its cost); then the boots' Evasion, on and powered, against any hit with `new Random().nextDouble(100) < getEvasionChance()` (30), its cost | `armor::player_hurt` from `health::HURT_SERVER` (`native_damage::worn_items_hurt`, before the native mods' hooks), which comes after vanilla's own guards; the fire goes out at the armor's tick that follows |
+| `incomingDamage` (`LivingIncomingDamageEvent`): each worn piece gives `amount × getPercentageDamageAbsorption() / 100 / 4` (30%) at 1,000 AE a point (`extractAEPower`, no cost multiplier, in creative too), the amount less what they gave; under 1 the hit is cancelled | the same; the hook names the player by entity id alone, so the armor's tick keeps each wearer's set (AE, damage cards, mode) by entity id and takes what the hits drew from the pieces at its next turn (`/ae2 advae armor` at once) |
+| `LivingFallDamage` (`LivingFallEvent`): boots with any AE (`extractAEPower(10, SIMULATE) > 0`) take the distance to 0, drawing nothing | the fall's hit is called off at the same hook |
+| `CREATIVE_FLIGHT` from the Flight Card | the client's `mayfly` and a double jump's flight, read by the world test (the agent state's `may_fly`) |
+| `quantum_alloy_plate` (`MaterialItem`), tag `c:plates/quantum_alloy`; recipes `quantum_helmet`, `quantum_chest`, `quantum_leggings`, `quantum_boots`, `evasion_card`, `flight_card`, `quantum_base_card` | the item and the recipes from the jar (83 recipes now); the plate's own recipe (`advanced_ae:reaction` with `quantum_infusion_source`) waits for the fluid |
 
 ## Not yet
 
@@ -174,18 +184,20 @@ slice 7, which the port does not follow yet (see Not yet).
   world's `craftingJobs` (the port keys them by the pattern). Deliberate differences: an extraction short of a
   craft goes back to the grid, and an output or remainder that finds no room in the outputs waits in `sendList`
   (the mod loses both).
-- The Quantum Armor's leftovers: AE2's Charger charging a piece (it takes it in, `charger_working` stays 0: its tick
-  does not go through `chargeable_*` alone), a world test of the flight grant (`data get .. abilities` derives
-  `mayfly` from the game mode in `save.rs`), `QuantumArmorConfigScreen` and its sub-screens (`QuantumArmorNumInputConfigScreen`,
+- The Quantum Armor's leftovers: `QuantumArmorConfigScreen` and its sub-screens (`QuantumArmorNumInputConfigScreen`,
   the filter, magnet, style and tint screens; `/ae2 advae armor` stands in), the hotkey `ARMOR_CONFIG` (N) that opens it,
   the GeckoLib model (`QuantumArmorRenderer`, the tint, Camo hiding it, the HUD and blade bones), the tooltip's card
   list and hotkey line, the moves the client makes itself (Walk, Sprint and Swim Speed, Jump Height, the flight's
   speed and up/down keys, No Flight Drift), what needs the grid link (`IGridLinkedItem`: Auto Feed, Auto Stock,
-  ME Recharging, Pick-Craft and the Portable Workbench, with their hotkeys V and C), the damage events (Lava
-  Immunity, Evasion, `incomingDamage`'s absorption into the AE, the boots' fall damage, `damageItem` drawing AE, the
-  hurt sound), the chestplate's mining speed in the air and under water, piglins left neutral, the magnet's pull of
-  items that do not fit and of experience orbs, the armor's recipes (they need `quantum_alloy_plate`, which the port
-  lacks) and ATM10's KubeJS changes to them and to the Magnet, Evasion and Strength cards' recipes.
+  ME Recharging, Pick-Craft and the Portable Workbench, with their hotkeys V and C), the chestplate's mining speed in
+  the air and under water, piglins left neutral, the magnet's pull of items that do not fit and of experience orbs,
+  the plate's recipe (the fluid `quantum_infusion_source`), the Step Assist Card's recipe (`quantum_alloy_stairs`)
+  and ATM10's KubeJS changes to the armor's and to the Magnet, Evasion and Strength cards' recipes. The damage
+  events' differences: `incomingDamage` cancels every hit on any player left under 1, armor or not, where the port
+  asks only for a wearer of a Quantum piece; the fall is called off at the hit, so its landing sounds still play (the
+  mod's distance 0 plays none); Lava Immunity is not asked under Fire Resistance (vanilla's guard comes first here);
+  the AE a hit drew leaves the pieces at the armor's next tick. `damageItem` (AE for durability) never runs: the
+  pieces have no durability, in the mod too.
 
 ## Tests
 
@@ -217,8 +229,9 @@ waiting while disabled; enabled, crafts from the grid into the grid keeping 4 lo
 the sides on the toolbar and the planks into a chest at the front; four speed cards and a redstone card, HIGH_SIGNAL;
 a restart; the drops) and `advancedae-quantum-armor` (the pieces' armor; the cards from the inventory, a wrong piece
 refused; night vision, the HP Buffer and Step Assist, the helmet's 25 AE a tick, the boots' none; the magnet; the hotkeys
-turning the magnet and night vision off; a chestplate run empty; a restart). The units add the armor's
-cards and buffer (`armor.rs`), the crafter's jobs (`crafter.rs`) and the buses' work (`buses.rs`) and the monitor's readings
+turning the magnet and night vision off; flight by a double jump and its cost; a chestplate run empty; a restart; the
+Charger; a hit's absorption and one under 1; Lava Immunity by /damage and in lava; Evasion over 40 hits; charged and
+empty boots in a fall; the helmet's recipe). The units add the armor's cards, buffer and damage events (`armor.rs`), the crafter's jobs (`crafter.rs`) and the buses' work (`buses.rs`) and the monitor's readings
 (`throughput.rs`):
 
 ```sh

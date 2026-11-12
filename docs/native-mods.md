@@ -4427,6 +4427,9 @@ These are what Create's drill, saw, harvester and deployer need.
   It shows the break particles and plays the sound, and the block entity's contents go into the drops as a player's
   break puts them. An ore gives experience as with no tool, and the block's fluid takes its place. Mods' loot changes
   (`native_loot_drops`) apply. With `collect`, the drops are returned instead of popped.
+- `native_machine_block_drops(pos, tool)` (`Host::block_drops`) is `Block.getDrops(state, level, pos, blockEntity, null,
+  tool)`: the drops `native_machine_destroy_block` gives for the same tool, rolled with nothing broken, popped or
+  awarded, for a machine that checks they fit before it breaks the block (Mekanism's Digital Miner).
 - `native_set_break_progress(breaker, pos, progress)` is `ServerLevel.destroyBlockProgress`: a crack, stage 0 to 9, for
   the players within 64 blocks. Pass a negative id of your own, the same each time; any other stage removes the crack.
 - `native_use_as_player(stack, eye, yaw, pitch, target, sneaking)` is NeoForge's `FakePlayer`. It uses `stack` on a

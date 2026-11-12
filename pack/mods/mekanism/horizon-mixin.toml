@@ -25,7 +25,7 @@
 # (`native_update_signal_neighbors`), the attachments
 # helper (`native_attachments`: the multiblocks' caches in the level's saved data), and upstream's pending
 # `native_default_state`, `native_sneaking`, `native_block_name_in_tag`, `native_player_equipment` and
-# `native_machine_destroy_block` (fragments default_state, host_bridge, player_equipment and machine_breaking: the
+# `native_machine_destroy_block`, `native_machine_block_drops` (fragments default_state, host_bridge, player_equipment and machine_breaking: the
 # tier installers, the Configurator and the Digital Miner), so it builds on any Horizon with hooks API 426 or later: it pins no
 # revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,

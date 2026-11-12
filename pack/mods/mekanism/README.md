@@ -417,9 +417,10 @@ assets when `mekanism-content` is given them.
   fluid tick. Their reset (a sneaking Configurator, `onSneakRightClick`), redstone control and comparators aren't
   ported; their upgrades go in only through the upgrade slot (no upgrade window). Their outline and collision are
   one box, the part every facing shares, and their block has `facing` only (Java's `active` never changes).
-- The Digital Miner breaks a block before it knows its drops (the machines' breaking helper rolls them as it breaks),
-  so a full miner takes one more block into its overflow where Mekanism leaves it standing (`canInsert`); a broken
-  ore drops its experience (Mekanism's drops none); its tag filters match a tag's exact name only (no hook point lists
+- The Digital Miner rolls a block's drops first and leaves the block standing when they don't all fit (`canInsert`,
+  through the machines' `native_machine_block_drops`), then breaks it with the breaking helper, which rolls the loot a
+  second time (kept from the first roll, as Mekanism's) and pops an ore's experience (Mekanism's `removeBlock` gives
+  none); its tag filters match a tag's exact name only (no hook point lists
   a block's tags, so wildcards in a tag filter match nothing); an item filter takes a block whose id is the item's;
   the search runs in the tick it starts (Mekanism's thread is done by the next, which this answers in); auto-eject
   takes the first kind of item in slot order (Mekanism shuffles), its search reads unloaded chunks as air also with
@@ -428,6 +429,8 @@ assets when `mekanism-content` is given them.
   energy through bounding blocks comes from cables and cubes, not Forge Energy. Its screen has no text fields, no
   filter windows (tag and mod id filters and replace targets are set by `/mek miner`), no visuals tab, no
   QIO/computer support; it opens on its own block, not its bounding blocks, and its config page is the same menu.
+  Its item keeps its radius, range, eject, pull, silk touch, inverse, inverse replace target and filters, its energy,
+  upgrades and redstone control (in `custom_data.mekanism`, as the cubes'); its items in the slots drop.
 - Machines drop plain too: their energy, upgrades and items in the slots stay behind (Java's item keeps them).
 - A machine's container faces are its block's, not its facing's: hoppers reach its input and energy slots (and the
   infuser's infusion slot) and its output from every face, where Java's item side config says which face reaches

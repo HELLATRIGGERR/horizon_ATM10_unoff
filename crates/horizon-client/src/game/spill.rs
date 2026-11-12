@@ -826,6 +826,63 @@ impl GameLevel<'_> {
             self.award_orbs(centre, xp);
         }
     }
+    /// `Block.getDrops(state, level, pos, blockEntity, null, tool)`: the loot
+    /// `drop_resources_now` rolls for a machine's `tool`, with what the block
+    /// entity copies into it, with nothing broken, popped or awarded
+    /// (`native_machine_block_drops`).
+    pub(super) fn roll_machine_drops(
+        &mut self,
+        pos: BlockPos,
+        state: BlockStateId,
+        tool: Option<&ItemStack>,
+    ) -> Vec<ItemStack> {
+        let key = (pos.x, pos.y, pos.z);
+        let at = [pos.x, pos.y, pos.z];
+        if let Some(entity) = self.world.block_entities.get(&key) {
+            let entity = entity.clone();
+            let name = self.world.block_names.get(&key).cloned();
+            let block = self.facts.get(state).name.clone();
+            self.pending.record(at, &entity, &block, name);
+        } else if let Some(tag) = saved_entity(self.world, at) {
+            self.pending.record_saved(at, &tag);
+        }
+        let dynamic = self.pending.dynamic(at);
+        let drops = match self.items.block_loot_sequence(self.registry, state) {
+            Some(sequence) => {
+                let random = self.rand_sequences.get(&sequence, self.seed);
+                self.items.block_drops_exploded(
+                    self.registry,
+                    state,
+                    tool,
+                    &dynamic,
+                    random,
+                    None,
+                    None,
+                    false,
+                )
+            }
+            None => self.items.block_drops_exploded(
+                self.registry,
+                state,
+                tool,
+                &dynamic,
+                &mut self.world.random,
+                None,
+                None,
+                false,
+            ),
+        };
+        let mut out = Vec::new();
+        for mut stack in drops {
+            if &*stack.item == "minecraft:air" || stack.count == 0 {
+                continue;
+            }
+            self.pending.attach(at, &mut stack);
+            out.push(stack);
+        }
+        self.pending.clear(at);
+        out
+    }
     /// `ExperienceOrb.award`: orbs of the largest sizes, each drawing the id
     /// `tryMergeToExisting` compares from the level random.
     pub(super) fn award_orbs(&mut self, at: [f64; 3], mut amount: u32) {

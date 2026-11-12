@@ -290,9 +290,7 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   the world test hold all 70); silk and tag/item/mod id/inverse filters' drops; a required replace target missing
   takes nothing, two cobblestone replace three stones (each drop the next replacement); ejection 69 of 70 into the
   chest by the end. World test `digital-miner` (energy table, nine filter cases at once, the 70-block order with a
-  restart halfway). Open from that test: the ejection into the chest behind it isn't confirmed (the last run read
-  1307 from the chest's `data get` with 70 still in the miner: check `mek_miner::eject` and the test's parse of the
-  reply), and at the forceloaded chunk 3008, 3008 the first block comes on the third tick, not the oracle's second,
+  restart halfway). Open from that test: at the forceloaded chunk 3008, 3008 the first block comes on the third tick, not the oracle's second,
   though the miner starts full (the energy table near the player draws on the second tick as the oracle). The world
   runs unheld while the test restarts, so the order after it is checked as a subsequence of the oracle's (one run
   saw all 70 in the oracle's order, two missed a block there). The `configurator` world test failed twice on this
@@ -306,6 +304,23 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   capabilities for hoppers, pipes and Forge Energy, `canInsert` before breaking (a drops roll without breaking),
   wildcard tag filters (a hook point listing a block's tags), `MekFakePlayer`'s `BreakEvent` for protection mods,
   the pulling of replace blocks by `TransitRequest` rules.
+- The Digital Miner, slice 2 (same branch): the ejection put its items into the chest but kept them too
+  (`native_insert_item` answers none when all of it fit, which `eject` read as nothing sent: the chest filled while
+  the miner kept its 70); now the world test holds all 70 in the chest and none in the miner. `canInsert` before
+  breaking: the machine-breaking fragment's new `native_machine_block_drops` (`Block.getDrops` with nothing broken,
+  `GameLevel::roll_machine_drops`) rolls the drops, a block whose drops don't all fit into a copy of the main slots
+  stays, and the break's own second roll is dropped (the first roll's go in, as Mekanism's). Its item keeps its
+  settings (`mek_miner::drop_data`/`placed` through `mek_world`'s cube drop path: the keys of
+  `collectImplicitComponents` that differ from a new miner's, with energy, upgrades and redstone control). World test
+  `digital-miner`: full slots leave the stones, room for two takes two of three, the item placed and broken again.
+  Left from the bounding blocks (Mekanism's `isOffsetCapabilityDisabled`, `notItemPort`/`notEnergyPort`,
+  `getBoundingComparatorSignal`, read from its 10.7.19 class): the bounding blocks here have no block entity, so
+  hoppers, pipes and Forge Energy can't reach the miner through them (the engine's containers and FE are per block
+  entity: a container that forwards to another block's would be an engine change); the item port is the top-centre
+  bounding block's up face (insert, replace targets only) and the back-top one's back face (extract, all but replace
+  targets); comparators read the main slots' fill (`redstoneLevelFromContents`) at the back-top, left and right
+  bounding blocks and need the bundle on `has_analog_output`/`analog_output` (API 64) for `mekanism:bounding_block`
+  with the miner's slots, and `native_update_output_neighbors` on its contents' changes.
 - Next: the SPS and the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
   its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside

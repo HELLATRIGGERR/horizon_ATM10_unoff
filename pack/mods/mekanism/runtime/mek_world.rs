@@ -1584,6 +1584,7 @@ fn drop_data(nbt: &Compound, tier: CubeTier, capacity: u64) -> Option<Compound> 
 /// (`AttributeStateFacing`), takes its item's energy and config, and shows
 /// its faces.
 pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
+    super::mek_miner::placed(game, stack, pos);
     if super::mek_tanks::placed(game, stack, pos) || super::mek_gen2::placed(game, stack, pos) {
         return;
     }
@@ -1641,6 +1642,9 @@ pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
         }
         if super::mek_matrix::is_cell(&m.id) {
             return Some((m.id.clone(), super::mek_matrix::cell_drop(&m.nbt)?));
+        }
+        if super::mek_miner::is_miner(&m.id) {
+            return Some((m.id.clone(), super::mek_miner::drop_data(&m.nbt)?));
         }
         let tier = CubeTier::of_block(&m.id)?;
         Some((m.id.clone(), drop_data(&m.nbt, tier, config.cube(tier).0)?))

@@ -4,10 +4,10 @@
 // `silk_touch`, `inverse`, `replace_target`, `inverse_replace`, `eject`, `pull`, `filters`, `running`, `delay`,
 // `state`, `control_type`, `overflow`, `energy_containers`, `component_upgrade`), its tick (the upgrade component,
 // the energy slot, its search when it starts and when it is loaded again, the mining with the machines' breaking
-// helper, the replace block, the overflow, the ejection behind its back, its redstone control, the anchor upgrade's
+// helpers (the drops rolled and fitted first), the replace block, the overflow, the ejection behind its back, its redstone control, the anchor upgrade's
 // chunk tickets), its Joules from cables, cubes and Forge Energy through its bottom and the left and right of its
-// bounding blocks, its screen (`GuiDigitalMiner` and, on a second page, `GuiDigitalMinerConfig`), `/mek miner` and
-// `/mek probe`.
+// bounding blocks, its screen (`GuiDigitalMiner` and, on a second page, `GuiDigitalMinerConfig`), its item's settings
+// (`custom_data.mekanism`), `/mek miner` and `/mek probe`.
 
 use super::{
     Game, mek_machines,
@@ -381,14 +381,24 @@ impl MinerWorld for View<'_, '_> {
 // ---- The tick -------------------------------------------------------------------------------
 
 /// `InventoryUtils.insertItem` into the main slots: stacks of the same item first, then empty slots. What is left.
-fn insert(game: &Game<'_>, entity: &mut ModBlockEntity, mut stack: ItemStack, execute: bool) -> ItemStack {
+fn insert(game: &Game<'_>, entity: &mut ModBlockEntity, stack: ItemStack, execute: bool) -> ItemStack {
+    insert_into(game, &mut entity.items, stack, execute)
+}
+
+/// `canInsert`: whether all of `drops` fit into the main slots together (`simulateInsert` over a copy of them).
+fn fits(game: &Game<'_>, entity: &ModBlockEntity, drops: &[ItemStack]) -> bool {
+    let mut copy: Vec<Option<ItemStack>> = entity.items.iter().take(miner::MAIN_SLOTS).cloned().collect();
+    drops.iter().all(|d| insert_into(game, &mut copy, d.clone(), true).count == 0)
+}
+
+fn insert_into(game: &Game<'_>, items: &mut [Option<ItemStack>], mut stack: ItemStack, execute: bool) -> ItemStack {
     let max = game.native_max_stack_size(&stack.item).unwrap_or(64).clamp(1, 64);
     for pass in 0..2 {
         for slot in 0..miner::MAIN_SLOTS {
             if stack.count == 0 {
                 return stack;
             }
-            let held = entity.items.get(slot).cloned().flatten();
+            let held = items.get(slot).cloned().flatten();
             let room = match &held {
                 Some(h) if pass == 0 && mek_machines::same_kind(h, &stack) => max.saturating_sub(h.count),
                 None if pass == 1 => max,
@@ -398,7 +408,7 @@ fn insert(game: &Game<'_>, entity: &mut ModBlockEntity, mut stack: ItemStack, ex
             if moved == 0 {
                 continue;
             }
-            if execute && let Some(cell) = entity.items.get_mut(slot) {
+            if execute && let Some(cell) = items.get_mut(slot) {
                 *cell = Some(match held {
                     Some(h) => ItemStack { count: h.count + moved, ..h },
                     None => ItemStack { count: moved, ..stack.clone() },
@@ -438,14 +448,24 @@ enum Mine {
     Nothing,
 }
 
-/// `tryMineBlock`: the next block the queue gives, broken with the miner's tool (silk touch with its mode), its replace
-/// block set where it stood, the drops into the main slots and what doesn't fit into the overflow.
+/// `tryMineBlock`: the next block the queue gives, its drops rolled for the miner's tool (silk touch with its mode)
+/// and, when they all fit into the main slots, the block broken, its replace block set where it stood and the drops
+/// put in (what doesn't fit after all into the overflow). A block whose drops don't fit stays for the next try.
 fn mine(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, s: &Settings, live: &mut Live, upgrades: &Upgrades, overflow: &mut Vec<ItemStack>) -> Mine {
     let found = {
         let mut view = View { game: &*game };
         live.queue.next(s, pos, &mut view)
     };
     let Some(found) = found else { return Mine::Nothing };
+    let mut tool = ItemStack::new(TOOL, 1);
+    if s.silk_touch {
+        tool.enchant("minecraft:silk_touch", 1);
+    }
+    // `getDrops` then `canInsert`: the drops are rolled first, and a block whose drops don't all fit stays.
+    let Some(drops) = game.native_machine_block_drops(found.pos, Some(&tool)) else { return Mine::Nothing };
+    if !fits(game, entity, &drops) {
+        return Mine::Nothing;
+    }
     let (target, required) = s.replace_for(found.filter);
     let target = target.map(str::to_owned);
     let replaced = target.as_deref().is_some_and(|t| take_replace(game, pos, entity, t, upgrades, s.pull));
@@ -456,11 +476,10 @@ fn mine(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, s: &Set
     {
         return Mine::Missing(t.clone());
     }
-    let mut tool = ItemStack::new(TOOL, 1);
-    if s.silk_touch {
-        tool.enchant("minecraft:silk_touch", 1);
+    // The block goes (`setReplace`); its drops are the ones rolled above.
+    if game.native_machine_destroy_block(found.pos, Some(&tool), true).is_none() {
+        return Mine::Nothing;
     }
-    let Some(drops) = game.native_machine_destroy_block(found.pos, Some(&tool), true) else { return Mine::Nothing };
     if replaced
         && let Some(state) = target.as_deref().and_then(|t| game.native_default_state(t))
     {
@@ -681,12 +700,12 @@ fn eject(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, face: 
         }
     }
     for kind in kinds {
-        let total = kind.count;
+        // A transporter answers what it didn't take; `native_insert_item` answers none when all of it went in.
         let rest = match super::mek_transporters::insert_from(game, at, from, kind.clone()) {
-            Some(rest) => Some(rest),
-            None => game.native_insert_item(at, mek_world::engine_face(face), kind.clone()),
+            Some(rest) => rest.count,
+            None => game.native_insert_item(at, mek_world::engine_face(face), kind.clone()).map_or(0, |r| r.count),
         };
-        let sent = total - rest.map_or(total, |r| r.count);
+        let sent = kind.count.saturating_sub(rest);
         if sent == 0 {
             continue;
         }
@@ -705,6 +724,60 @@ fn eject(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, face: 
         }
         return;
     }
+}
+
+// ---- Its item ---------------------------------------------------------------------------------
+
+/// The settings its item keeps (`collectImplicitComponents`: radius, range, eject, pull, silk touch, inverse, the
+/// inverse replace target and whether it is required, the filters).
+const KEPT: [&str; 10] = ["radius", "min", "max", "eject", "pull", "silk_touch", "inverse", "replace_target", "inverse_replace", "filters"];
+
+/// What a broken miner's item keeps (`custom_data.mekanism`): the settings that aren't a new miner's, its energy and
+/// upgrades when it has any, its redstone control when it isn't the default; none for an untouched miner, so its drop
+/// stacks with new ones.
+pub(super) fn drop_data(nbt: &Compound) -> Option<Compound> {
+    let fresh = new_entity().1;
+    let mut data = Compound::new();
+    for name in KEPT {
+        if let Some(tag) = nbt.get(&key(name))
+            && fresh.get(&key(name)) != Some(tag)
+        {
+            data.insert(key(name), tag.clone());
+        }
+    }
+    if mek_world::saved_energy(nbt).is_some_and(|j| j > 0)
+        && let Some(tag) = nbt.get(&key("energy_containers"))
+    {
+        data.insert(key("energy_containers"), tag.clone());
+    }
+    if super::mek_pump::read_upgrades(nbt) != Upgrades::default()
+        && let Some(tag) = nbt.get(&key("component_upgrade"))
+    {
+        data.insert(key("component_upgrade"), tag.clone());
+    }
+    if control(nbt) != 0
+        && let Some(tag) = nbt.get(&key("control_type"))
+    {
+        data.insert(key("control_type"), tag.clone());
+    }
+    (!data.is_empty()).then_some(data)
+}
+
+/// `native_place_block` with a miner's item: the new miner takes what the item kept (`applyImplicitComponents`).
+pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
+    if !is_miner(&stack.item) {
+        return;
+    }
+    let Some(saved) = mek_world::item_data(stack) else {
+        return;
+    };
+    game.native_with_mod_block_entity(pos, |m| {
+        if is_miner(&m.id) {
+            for (name, tag) in saved.iter() {
+                m.nbt.insert(name.clone(), tag.clone());
+            }
+        }
+    });
 }
 
 // ---- Energy from outside --------------------------------------------------------------------
@@ -1334,6 +1407,7 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], nbt: &Compound, data: &[i32]
         "used": v.as_ref().map_or(0, |v| v.used),
         "radius": s.radius, "min": s.min_y, "max": s.max_y,
         "silk_touch": s.silk_touch, "inverse": s.inverse, "eject": s.eject, "pull": s.pull,
+        "replace_target": s.inverse_replace_target, "inverse_replace": s.inverse_requires_replacement,
         "running": s.running, "delay": s.delay, "state": s.state.name(), "state_id": s.state.ordinal(),
         "to_mine": to_mine, "chunks": chunks, "last_mined": last, "missing": missing, "held_chunks": held,
         "control_type": control(nbt),

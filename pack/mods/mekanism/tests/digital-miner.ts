@@ -10,21 +10,26 @@
  *   none on the first tick (its search), from the second on.
  * - Its order over a 5x5x3 area at x, z 3006..3010 (four chunks) with a stone filter at eight speed and eight energy
  *   upgrades: a block on the second tick and every five after, chunk (187, 188) first, then (188, 188), (188, 187)
- *   and (187, 187) (fastutil's hash order), in each the top layer first, z and x downwards; air and dirt left (the
- *   oracle's cobblestone went into a chest behind its back-top bounding block every 11 ticks: not checked here yet).
- *   Here a restart halfway through: it searches again and goes on in the same order.
+ *   and (187, 187) (fastutil's hash order), in each the top layer first, z and x downwards; air and dirt left; the
+ *   cobblestone goes into a chest behind its back-top bounding block every 11 ticks (the oracle's 69 of 70 were there
+ *   a few ticks after its last block; here, 30 ticks after, all 70). Here a restart halfway through: it searches
+ *   again and goes on in the same order.
  * - A 3x3 layer of stone, iron ore, dirt, planks and cobblestone: an iron ores tag filter takes the two ores (raw
  *   iron, with silk touch the ores), a stone filter the three stones (cobblestone, with silk touch stone), a mod id
  *   filter `mine*` all nine, an inverse dirt filter all but the dirt; a required cobblestone replace target with
  *   none in the miner takes nothing and misses it, with two cobblestone in its slots replaces the three stones (each
  *   stone's drop the next one's replacement); an inverse planks replace target, not required, leaves the planks.
+ *   With its slots full a block whose drops don't fit stays (`canInsert` before it breaks); with room for two
+ *   cobblestone, two of the three stones go and the third stays.
+ * - Its item keeps its settings (radius, range, silk touch, inverse, the replace target, the filters): a miner placed
+ *   from an item holding them has them, and its drop, broken in survival, holds them again.
  *
  * Needs the staged native build (`AE2_TEST_BINARY`) and the content mods `mekanism` and `mekanismgenerators`
  * (`MEK_CONTENT_DIR`, `MEKGEN_CONTENT_DIR`); `pack/scripts/mekanism.ts world` sets them. */
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { WorldFixture } from '../../../../ae2/tests/world/harness';
+import { WorldFixture, until } from '../../../../ae2/tests/world/harness';
 import { root } from '../../../../ae2/scripts/common';
 
 const content = resolve(process.env.MEK_CONTENT_DIR ?? join(root, '../.build/content/mekanism'));
@@ -111,6 +116,7 @@ try {
   // fed by a creative cube under it (silk touch takes 192 000 J a tick).
   const L = ['minecraft:stone', 'minecraft:iron_ore', 'minecraft:dirt', 'minecraft:oak_planks', 'minecraft:stone',
     'minecraft:iron_ore', 'minecraft:cobblestone', 'minecraft:stone', 'minecraft:dirt'];
+  const dirtStacks = (n: number) => Array.from({ length: n }, (_, i) => `{Slot:${i}b,id:"minecraft:dirt",count:64}`).join(',');
   const COBBLE_REPLACE = '{type:"miner_itemstack_filter",target_stack:{id:"minecraft:stone"},replace_target:"minecraft:cobblestone",requires_replacement:1b}';
   const S: [string, string][] = [
     ['tag', 'filters:[{type:"miner_tag_filter",tag:"minecraft:iron_ores"}]'],
@@ -122,6 +128,8 @@ try {
     ['replace_missing', `filters:[${COBBLE_REPLACE}]`],
     ['replace_two', `Items:[{Slot:0b,id:"minecraft:cobblestone",count:2}],filters:[${COBBLE_REPLACE}]`],
     ['inverse_replace', 'inverse:1b,replace_target:"minecraft:oak_planks",inverse_replace:0b,filters:[{type:"miner_itemstack_filter",target_stack:{id:"minecraft:dirt"}}]'],
+    ['full', `Items:[${dirtStacks(27)}],filters:[${STONE}]`],
+    ['room_two', `Items:[${dirtStacks(26)},{Slot:26b,id:"minecraft:cobblestone",count:62}],filters:[${STONE}]`],
   ];
   const cell = (k: number, i: number) => at(4 * k - 1 + (i % 3), 1, -1 + Math.floor(i / 3));
   const minerAt = (k: number) => at(4 * k, 6, 0);
@@ -162,8 +170,13 @@ try {
   assert.deepEqual(replaced, [['s', 's', 'c'], ['s', 'c', 'c'], ['c', 'c', 'c']], 'the stones replaced at ticks 2, 7 and 12, highest index first');
   assert.equal(count(probes.replace_two, 'minecraft:cobblestone'), 2, 'each drop the next replacement');
   assert.deepEqual(after.inverse_replace, [A, A, 'dirt', 'oak_planks', A, A, A, A, 'dirt'], 'the inverse replace target stays');
+  assert.deepEqual(after.full, L.map(b => b.slice(10)), 'full slots: the stones stay');
+  assert.equal(probes.full.to_mine, 3, 'full slots: still three to mine');
+  assert.deepEqual(after.room_two, ['stone', 'iron_ore', 'dirt', 'oak_planks', A, 'iron_ore', 'cobblestone', A, 'dirt'], 'room for two: the third stone stays');
+  assert.equal(count(probes.room_two, 'minecraft:cobblestone'), 64);
+  assert.equal(probes.room_two.overflow.length, 0, 'nothing in the overflow');
   for (let k = 0; k < S.length; k++) await fixture.command(`setblock ${minerAt(k)} minecraft:air`);
-  fixture.mark('filters (tag, item, mod id, inverse), silk touch drops and the replace block as the oracle');
+  fixture.mark("filters (tag, item, mod id, inverse), silk touch drops and the replace block as the oracle; drops that don't fit leave the block");
 
   // O: the oracle's order at x, z 3006..3010, fed by a creative cube under it, ejecting into a chest; a restart halfway.
   // It starts full, as the oracle's was after its first tick (its cube ticked before it there).
@@ -227,8 +240,35 @@ try {
   assert.equal(halfway.to_mine, 35, 'halfway, 35 to mine');
   assert.equal(done.to_mine, 0);
   for (const p of dirt) assert(await isBlock(p.join(' '), 'minecraft:dirt'), 'the dirt stays');
-  // The ejection into the chest isn't checked yet (NOTES.md): the oracle's 69 of 70 were there at the end.
-  fixture.mark(`the oracle's order over four chunks, a block every 5 ticks, kept over a restart (chest read ${inChest}, miner ${count(done, 'minecraft:cobblestone')})`);
+  assert.equal(count(done, 'minecraft:cobblestone'), 0, 'none left in the miner');
+  assert.equal(inChest, 70, `all 70 cobblestone in the chest behind it: ${(reply.chat ?? []).join(' ')}`);
+  fixture.mark("the oracle's order over four chunks, a block every 5 ticks, kept over a restart; all 70 ejected into the chest");
+
+  // I: its item keeps its settings. Placed from an item holding them, the miner has them; broken, its drop has them.
+  await fixture.hold(false);
+  const floor = at(20, 9, 5), placedAt = at(20, 10, 5);
+  await fixture.command(`fill ${at(17, 9, 2)} ${at(23, 9, 9)} minecraft:stone`);
+  await fixture.command(`fill ${at(17, 10, 2)} ${at(23, 13, 9)} minecraft:air`);
+  const kept = `{radius:7,min:-20,max:40,silk_touch:1b,inverse:1b,replace_target:"minecraft:cobblestone",inverse_replace:1b,filters:[${STONE}]}`;
+  await fixture.replace('hotbar.0', `${MINER}[minecraft:custom_data={mekanism:${kept}}]`);
+  await fixture.select(0, MINER);
+  await fixture.command(`tp @s ${x + 20.5} ${y + 10} ${z + 8.5} 180 40`);
+  await fixture.raw(`interact ${floor} up`);
+  const placed = await until(async () => ((await isBlock(placedAt, MINER)) ? probe(placedAt) : null), v => !!v, 'the miner is placed');
+  log.item = { placed };
+  assert.deepEqual([placed.radius, placed.min, placed.max, placed.silk_touch, placed.inverse, placed.replace_target, placed.inverse_replace, placed.filters.length],
+    [7, -20, 40, true, true, 'minecraft:cobblestone', true, 1], "the placed miner has its item's settings");
+  await fixture.command('gamemode survival');
+  await fixture.replace('hotbar.1', 'minecraft:diamond_pickaxe');
+  await fixture.select(1, 'minecraft:diamond_pickaxe');
+  await fixture.raw(`break ${placedAt}`);
+  const dropped = async () => (await fixture.command(`execute positioned ${placedAt} run data get entity @e[type=minecraft:item,limit=1,sort=nearest,distance=..3] Item`)).chat?.join(' ') ?? '';
+  const drop = await until(dropped, v => v.includes(MINER), 'the miner drops');
+  log.item = { placed, drop };
+  for (const part of [/radius: ?7/, /min: ?-20/, /max: ?40/, /silk_touch: ?1b/, /inverse: ?1b/, /replace_target: ?"minecraft:cobblestone"/, /inverse_replace: ?1b/, /miner_itemstack_filter/])
+    assert(part.test(drop), `${part} in the drop: ${drop}`);
+  await fixture.command('gamemode creative');
+  fixture.mark('its item keeps its settings: placed from it, and broken again');
 
   fixture.report('passed');
   console.log(JSON.stringify(log));

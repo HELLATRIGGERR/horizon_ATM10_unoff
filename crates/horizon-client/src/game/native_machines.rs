@@ -66,6 +66,32 @@ impl Game<'_> {
         Some(Vec::new())
     }
 
+    /// The drops `native_machine_destroy_block(pos, tool, true)` gives,
+    /// rolled without breaking anything: `Block.getDrops(state, level, pos,
+    /// blockEntity, null, tool)`, as a machine that must see where they go
+    /// before it breaks the block (Mekanism's Digital Miner) rolls them. The
+    /// block entity's contents go into them and the mods' say on drops
+    /// (`native_loot_drops`) applies; nothing pops and no experience comes.
+    /// None for air, an unloaded block and off a server.
+    /// API @API:machine_breaking@.
+    pub(super) fn native_machine_block_drops(
+        &mut self,
+        pos: [i32; 3],
+        tool: Option<&ItemStack>,
+    ) -> Option<Vec<ItemStack>> {
+        if !self.native_authoritative() || !self.world.loaded(pos[0], pos[2]) {
+            return None;
+        }
+        let state = self.world.block(pos[0], pos[1], pos[2]);
+        if self.res.behaviours().is_air(state) {
+            return None;
+        }
+        let at = BlockPos::new(pos[0], pos[1], pos[2]);
+        let mut drops = self.with_level(|_, level, _| level.roll_machine_drops(at, state, tool));
+        self.native_block_drops(pos, state, None, tool, None, &mut drops);
+        Some(drops)
+    }
+
     /// `ServerLevel.destroyBlockProgress`: shows breaker `breaker`'s crack on
     /// the block at `pos` at stage `progress` (0 to 9) to the players within 64
     /// blocks, as a zombie breaking a door shows its; any other stage takes the

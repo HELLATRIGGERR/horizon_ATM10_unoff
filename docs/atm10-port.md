@@ -46,6 +46,12 @@ bun run ae2/scripts/play.ts --world "AE2 Test" --creative
 
 Use `CARGO_INCREMENTAL=0` and `CARGO_PROFILE_FAST_DEBUG=0` to keep targets small.
 
+`build.ts` builds the fork's game package, `horizon-atm10`: horizon-client's program with the AE2 crates above
+horizon-client installed first ([ae2-crates.md](ae2-crates.md)). Its executable keeps the name, so it is still
+`target/fast/horizon-client.exe`. Build the game with `-p horizon-atm10`: `-p horizon-client` builds upstream's
+program, without the crates above it, and a build of both at once (`--workspace`) writes two executables of that
+name.
+
 ## Testing
 
 ```sh

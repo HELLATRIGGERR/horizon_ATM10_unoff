@@ -44,6 +44,9 @@ members = [
     "crates/horizon-shader-api",
     "crates/horizon-release-sign",
     "crates/horizon-mod-deps",
+    # The fork's AE2 crates above horizon-client, and the game assembled from them (docs/ae2-crates.md).
+    "crates/horizon-ae2",
+    "crates/horizon-atm10",
     "xtask",
 ]
 resolver = "2"

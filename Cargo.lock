@@ -1427,6 +1427,13 @@ name = "horizon-addresses"
 version = "0.1.0"
 
 [[package]]
+name = "horizon-ae2"
+version = "0.1.0"
+dependencies = [
+ "horizon-client",
+]
+
+[[package]]
 name = "horizon-anticheat"
 version = "0.1.0"
 dependencies = [
@@ -1443,6 +1450,17 @@ dependencies = [
  "png",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "horizon-atm10"
+version = "0.1.0"
+dependencies = [
+ "horizon-ae2",
+ "horizon-client",
+ "horizon-mods",
+ "horizon-threads",
+ "winresource",
 ]
 
 [[package]]

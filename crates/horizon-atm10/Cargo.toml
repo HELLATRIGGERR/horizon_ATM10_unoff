@@ -1,0 +1,56 @@
+[package]
+name = "horizon-atm10"
+version = "0.1.0"
+edition.workspace = true
+license = "MIT AND LGPL-3.0-or-later"
+rust-version.workspace = true
+description = "The fork's All the Mods 10 game: horizon-client with the AE2 crates above it (docs/ae2-crates.md)"
+autobins = false
+autoexamples = false
+autotests = false
+
+# The game players run, assembled above horizon-client (docs/layers.md): horizon-client's program
+# with the AE2 crates installed first. Its executable keeps horizon-client's name, so the scripts,
+# the world suites and the launcher find it where they did (docs/ae2-crates.md, D3).
+[[bin]]
+name = "horizon-client"
+path = "src/main.rs"
+
+[dependencies]
+horizon-client = { path = "../horizon-client", default-features = false }
+horizon-ae2 = { path = "../horizon-ae2", optional = true }
+# The mod API level mark and the allocator, as horizon-client's own program has them.
+horizon-mods = { path = "../horizon-mods", default-features = false }
+horizon-threads = { path = "../horizon-threads" }
+
+[build-dependencies]
+# The build script runs on the host, but embeds resources based on the target OS.
+winresource = "0.1"
+
+# horizon-client's features, passed on; the AE2 ones also build the crates above it in.
+[features]
+default = ["audio", "controllers", "horizon-extras"]
+ae2-lab = ["horizon-client/ae2-lab", "dep:horizon-ae2"]
+ae2-megacells = ["ae2-lab", "horizon-client/ae2-megacells"]
+ae2-merequester = ["ae2-lab", "horizon-client/ae2-merequester"]
+ae2-extendedae = ["ae2-lab", "horizon-client/ae2-extendedae"]
+ae2-ae2wtlib = ["ae2-lab", "horizon-client/ae2-ae2wtlib"]
+ae2-aeinfinitybooster = ["ae2-lab", "horizon-client/ae2-aeinfinitybooster"]
+ae2-importexportcard = ["ae2-lab", "horizon-client/ae2-importexportcard"]
+ae2-appflux = ["ae2-lab", "horizon-client/ae2-appflux"]
+ae2-enderdrives = ["ae2-lab", "horizon-client/ae2-enderdrives"]
+ae2-advancedae = ["ae2-lab", "horizon-client/ae2-advancedae"]
+audio = ["horizon-client/audio"]
+controllers = ["horizon-client/controllers"]
+horizon-extras = ["horizon-client/horizon-extras"]
+discord = ["horizon-client/discord"]
+friends = ["horizon-client/friends"]
+heartbeat = ["horizon-client/heartbeat"]
+rng-trace = ["horizon-client/rng-trace"]
+system-allocator = ["horizon-client/system-allocator"]
+alloc-census = ["horizon-client/alloc-census", "horizon-threads/alloc-census"]
+windows-mimalloc = ["horizon-client/windows-mimalloc"]
+windows-segment-heap = ["horizon-client/windows-segment-heap"]
+
+[lints]
+workspace = true

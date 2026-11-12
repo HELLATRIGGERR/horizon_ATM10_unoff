@@ -52,6 +52,8 @@
     "ae2-megacells-core": "platform",
     "ae2-merequester-core": "platform",
     "ae2-network-core": "platform",
+    "horizon-ae2": "platform",
+    "horizon-atm10": "platform",
 
     "horizon-addresses": "horizon",
     "horizon-bench": "horizon",

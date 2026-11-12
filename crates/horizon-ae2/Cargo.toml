@@ -1,0 +1,15 @@
+[package]
+name = "horizon-ae2"
+version = "0.1.0"
+edition.workspace = true
+license = "LGPL-3.0-or-later"
+rust-version.workspace = true
+description = "The AE2 port's game above horizon-client, plugged into its extension point (docs/ae2-crates.md)"
+
+[dependencies]
+# The extension point (`game::ae2_ext`) is AE2's, so it is there only with `ae2-lab`. No default
+# features: the program above (horizon-atm10) picks horizon-client's.
+horizon-client = { path = "../horizon-client", default-features = false, features = ["ae2-lab"] }
+
+[lints]
+workspace = true

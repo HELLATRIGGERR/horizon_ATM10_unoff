@@ -107,6 +107,12 @@ mod ae2_interface;
 mod ae2_environment;
 #[cfg(feature = "ae2-lab")]
 mod ae2x;
+// The extension point of the fork's AE2 crates above horizon-client, and `Game` as their host
+// (docs/ae2-crates.md).
+#[cfg(feature = "ae2-lab")]
+pub mod ae2_ext;
+#[cfg(feature = "ae2-lab")]
+mod ae2_host;
 #[cfg(feature = "ae2-lab")]
 mod ae2_fluids;
 #[cfg(feature = "ae2-lab")]

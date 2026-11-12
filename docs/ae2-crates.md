@@ -308,3 +308,26 @@ the game behaviour (`game.rs`, from `game/ae2x/aeinfinitybooster/`). Two extensi
 
 `horizon-client`'s feature `ae2-aeinfinitybooster` gates nothing any more; it stays so that the pack's feature
 list is still valid for `-p horizon-client` (test.ts, the full check's scripts).
+
+### The pilot's measurement (section 5's guardrail)
+
+`build_times.py run --profiles fast --only incremental --jobs 6 --repeats 2`, `middle` edit, on a quiet machine
+(2026-11-12 17:44-18:53, after the full check; CPU 0.3-5.1% busy before each build; the only other "build
+program" the tool saw is an idle `GCC.exe` vendor process, 5 s of CPU since boot). Base: daaaed44e in
+`split-work/bt-msvc`, `-p horizon-client` (`cargo-ae2.cmd`), so these are D5's quiet baseline. Pilot: c671b4024
+in `split-work/bt-pilot`, `-p horizon-atm10` (`cargo-atm10.cmd`). Reports: `split-work/reports/*-base-*`,
+`*-pilot-*`.
+
+| Edit (`fast`, -j 6) | Base daaaed44e | Pilot c671b4024 |
+|---|---|---|
+| Nothing changed | 0.4 s (1.6 s right after the warm-up build) | 0.4 s |
+| AEInfinityBooster (base: inside `horizon-client`; pilot: `horizon-ae2x-aeinfinitybooster/src/game.rs:60`) | 166.1 s (the AE2 row) | **2.5 s** (2.52, 2.47): the crate 0.2 s, `horizon-atm10` 1.9 s |
+| AE2 in `horizon-client`, `game/ae2x/mod.rs` (717 / 715) | **166.1 s** (164.9, 167.3) | 169.0 s (169.8, 168.2): `horizon-client` 165.9 s, then the crates above it |
+| `game.rs` (3733 / 3742) | **169.9 s** (170.1, 169.7) | 169.9 s (170.3, 169.5) |
+| `ae2-crafting-core/src/lib.rs:24` | **160.7 s** (161.1, 160.4) | - |
+
+- On a quiet machine an edit in `horizon-client` costs ~166-170 s, not the 264-298 s of section 3 (loaded).
+- **The guardrail passes**: an edit in the moved addon drops from 166 s to 2.5 s (under 30 s). Go on with step 1.
+- Edits that stay in `horizon-client` cost what they did: `game.rs` the same, `ae2x/mod.rs` +2.9 s (1.7%, about
+  the spread of the repeats), for `horizon-ae2`, the addon crate and the program now built after it. Watch this
+  row as addons move: their crates build side by side, so it should stay a few seconds.

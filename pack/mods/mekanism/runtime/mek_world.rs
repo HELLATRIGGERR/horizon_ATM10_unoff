@@ -1634,7 +1634,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     super::mek_tubes::level_ticked(game, dimension);
     super::mek_transmit::level_ticked(game, dimension);
     super::mek_multiblock::level_ticked(game, dimension);
-    super::mek_turbine::level_ticked();
+    super::mek_turbine::level_ticked(dimension);
     let due = LOOKED_AT.get().is_none_or(|at| at.elapsed() >= Duration::from_secs(1));
     if due {
         LOOKED_AT.set(Some(Instant::now()));

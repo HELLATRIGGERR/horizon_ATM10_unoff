@@ -69,9 +69,20 @@ thread_local! {
     static STATES: RefCell<HashMap<Uuid, State>> = RefCell::new(HashMap::new());
     /// The screen's page on the client: 0 the turbine, 1 its statistics (`GuiTurbineStats`).
     static PAGE: Cell<u8> = const { Cell::new(0) };
-    /// The player and rotor of a blade use this tick: Mekanism's use consumes the click, so the off hand gets no
-    /// turn; this client, not knowing, sends one, which takes nothing.
-    static USED: Cell<Option<(u128, Pos)>> = const { Cell::new(None) };
+    /// The rotor each player's last blade use acted on: Mekanism's use consumes the click, so the off hand gets no
+    /// turn; this client, not knowing, sends one, which takes nothing. That turn is a packet of its own, sent after
+    /// the main hand's: a busy client or server lets it miss the drain of the tick the main hand's came in, so the
+    /// guard waits for it through the next two ticks.
+    static USED: RefCell<HashMap<u128, Used>> = RefCell::new(HashMap::new());
+}
+
+/// A blade use that took a click, against the other hand's turn of that click (`USED`).
+struct Used {
+    pos: Pos,
+    /// The level it was in: the ends of its ticks age the guard.
+    dimension: &'static str,
+    /// How many of them it has seen; it goes at the third.
+    ended: u8,
 }
 
 /// `generators.toml` `[turbine]` and `general.toml`, read again within a second of a change.
@@ -530,7 +541,7 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: Pos, claimed: 
         return;
     }
     let player = game.native_acting_id();
-    if USED.get() == Some((player, pos)) {
+    if other_hand(player, pos) {
         *claimed = true;
         return;
     }
@@ -538,7 +549,7 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: Pos, claimed: 
     if !game.native_sneaking() {
         if add_blade(game, pos, true) {
             *claimed = true;
-            USED.set(Some((player, pos)));
+            took_click(game, player, pos);
             if !creative {
                 let hand = game.native_used_stack();
                 if let Some(held) = hand.as_mut() {
@@ -553,7 +564,7 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: Pos, claimed: 
     }
     if stack.count < 64 && remove_blade(game, pos) {
         *claimed = true;
-        USED.set(Some((player, pos)));
+        took_click(game, player, pos);
         if !creative && let Some(held) = game.native_used_stack().as_mut() {
             held.count += 1;
         }
@@ -569,22 +580,50 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: Pos, canceled: &mut bool) {
         return;
     }
     let player = game.native_acting_id();
-    if USED.get() == Some((player, pos)) {
+    if other_hand(player, pos) {
         *canceled = true;
         return;
     }
     if remove_blade(game, pos) {
         *canceled = true;
-        USED.set(Some((player, pos)));
+        took_click(game, player, pos);
         if !game.native_instabuild() {
             *game.native_used_stack() = Some(ItemStack::new(BLADE, 1));
         }
     }
 }
 
-/// `native_level_tick_post`: a new tick, new clicks.
-pub(super) fn level_ticked() {
-    USED.set(None);
+/// A blade use of `player` on the rotor at `pos` took the click: the other hand's turn of it takes nothing.
+fn took_click(game: &Game<'_>, player: u128, pos: Pos) {
+    let dimension = game.native_dimension();
+    USED.with(|u| u.borrow_mut().insert(player, Used { pos, dimension, ended: 0 }));
+}
+
+/// Whether this turn of `player` on the rotor at `pos` is the other hand's turn of a click a blade use took, in the
+/// same tick or one of the next two: it uses the guard up and takes nothing.
+fn other_hand(player: u128, pos: Pos) -> bool {
+    USED.with(|u| {
+        let mut u = u.borrow_mut();
+        let ours = u.get(&player).is_some_and(|used| used.pos == pos);
+        if ours {
+            u.remove(&player);
+        }
+        ours
+    })
+}
+
+/// `native_level_tick_post` of `dimension`: a blade use's guard lasts until the end of the second tick after its own,
+/// for an off hand's packet that came too late for that tick's drain; a held use key clicks again only
+/// rightClickDelay's 4 ticks later.
+pub(super) fn level_ticked(dimension: &str) {
+    USED.with(|u| {
+        u.borrow_mut().retain(|_, used| {
+            if used.dimension == dimension {
+                used.ended += 1;
+            }
+            used.ended < 3
+        });
+    });
 }
 
 /// `TileEntityTurbineRotor.blockRemoved`: a rotor a player breaks drops its blades.

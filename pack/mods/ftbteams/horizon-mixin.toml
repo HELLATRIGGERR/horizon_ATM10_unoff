@@ -1,0 +1,119 @@
+# FTB Teams as a native mod of this fork (horizon-mixins bundle).
+# FTB Teams 2101.1.11 is All Rights Reserved (FTB): its behaviour is reimplemented
+# in the crate `ftbteams-core` from what the mod does; no file of it is copied.
+# See README.md.
+#
+# It hooks Horizon's named hook points only; it pins no revision. FTB Chunks
+# (pack/mods/ftbchunks) reads the teams through `crate::game::ftbteams_world`.
+[mod]
+id = "ftbteams"
+version = "0.1.0"
+priority = 100
+
+[[crate]]
+id = "core"
+path = "ftbteams-core"
+
+[[module]]
+id = "world"
+file = "crates/horizon-client/src/game.rs"
+name = "ftbteams_world"
+source = "runtime/ftbteams_world.rs"
+
+[[injection]]
+id = "lifecycle"
+hook = "world_lifecycle"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/world_lifecycle.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+]
+
+[[injection]]
+id = "world-saved"
+hook = "world_saved"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/world_saved.rs"
+bindings = []
+
+[[injection]]
+id = "logged-in"
+hook = "player_logged_in"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_logged_in.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+  { name = "name", ty = "&str", value = "name" },
+]
+
+[[injection]]
+id = "logged-out"
+hook = "player_logged_out"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_logged_out.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+]
+
+[[injection]]
+id = "register-commands"
+hook = "register_commands"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/register_commands.rs"
+bindings = [
+  { name = "commands", ty = "&mut Vec<crate::game::native_server::NativeCommand>", value = "&mut *commands" },
+]
+
+[[injection]]
+id = "perform-command"
+hook = "perform_command"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/perform_command.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "&crate::game::native_server::NativeServerPlayer", value = "player" },
+  { name = "command", ty = "&str", value = "command" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+
+[[injection]]
+id = "net-from-server"
+hook = "net_from_server"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_server.rs"
+bindings = [
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "client-commands"
+hook = "commands"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/commands.rs"
+bindings = [
+  { name = "commands", ty = "&mut Vec<&'static str>", value = "&mut *commands" },
+]
+
+[[injection]]
+id = "client-command"
+hook = "command"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/command.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "command", ty = "&str", value = "command" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]

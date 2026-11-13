@@ -1,0 +1,10 @@
+[package]
+name = "ftbteams-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "FTB Teams 2101.1.11 behaviour (teams, ranks, invites, allies, properties, commands, saved files, client sync), reimplemented for the pack's port"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -12,6 +12,7 @@ use super::{
 };
 use ftbteams_core::{
     Config, Manager, Out,
+    manager::Event,
     commands::{self, Ctx, Sender},
     ftblib::uuid_string,
     msg::Msg,
@@ -33,6 +34,14 @@ struct Server {
 thread_local! {
     static SERVER: RefCell<Option<Server>> = const { RefCell::new(None) };
     static CLIENT: RefCell<ClientManager> = RefCell::new(ClientManager::default());
+    /// FTB Teams' events (`TeamEvent`) for FTB Chunks, which takes them each server tick; kept short when nobody does.
+    static EVENTS: RefCell<Vec<Event>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The team events since the last call (FTB Chunks' `transferClaims`, limits and tickets follow them).
+#[allow(dead_code, reason = "FTB Chunks' bundle takes them; FTB Teams alone has no reader")]
+pub(super) fn take_events() -> Vec<Event> {
+    EVENTS.with(|e| std::mem::take(&mut *e.borrow_mut()))
 }
 
 /// The server's teams, for the other FTB bundles (FTB Chunks): None where no world is open on this thread.
@@ -123,8 +132,18 @@ fn flush(game: &mut Game<'_>) {
         return;
     };
     for o in out {
-        if let Out::Tell(player, msg) = o {
-            game.native_tell(player, text(&msg));
+        match o {
+            Out::Tell(player, msg) => {
+                game.native_tell(player, text(&msg));
+            }
+            Out::Event(e) => EVENTS.with(|q| {
+                let mut q = q.borrow_mut();
+                if q.len() >= 4096 {
+                    q.remove(0);
+                }
+                q.push(e);
+            }),
+            _ => {}
         }
     }
     for (player, channel, data) in parts {

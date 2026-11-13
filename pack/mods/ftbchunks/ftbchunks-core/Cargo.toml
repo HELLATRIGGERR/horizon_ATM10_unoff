@@ -1,0 +1,10 @@
+[package]
+name = "ftbchunks-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "FTB Chunks 2101.1.22 behaviour (claims, force-loading, limits, protection policy, commands), reimplemented for the pack's port"
+
+# No dependencies: a bundle crate may not name another bundle's crate by path (docs/native-mods.md, "The mod's
+# crate"), so the teams come in as `TeamView`s the runtime module builds from FTB Teams' manager.
+[dependencies]

@@ -1,5 +1,83 @@
 # FTB Chunks, FTB Teams and JourneyMap on this fork
 
+> **Handoff (2026-11-13, branch `feat/ftb-chunks`, worktree `atm10-wt/megacells`): slices 1 and 2 are done, slice 3 is next.**
+>
+> **Done.**
+> - *Slice 1, FTB Teams* (`pack/mods/ftbteams`, commit `FTB Teams, slice 1: teams, invites and allies`): teams, parties,
+>   invites, allies, server teams, team chat, the files, the client's copy over `ftbteams:sync`. World test
+>   `ftbteams/teams`.
+> - *Slice 2, FTB Chunks server* (`pack/mods/ftbchunks`, commit `FTB Chunks, slice 2: claims, protection and
+>   force-loading`): crate `ftbchunks-core` (no dependencies: a bundle crate may not path-depend on another bundle's, so
+>   the teams come in as `TeamView`s through trait `Teams`; config, team properties, limits, claims, force-load
+>   bookkeeping, protection policy, wanted tickets, `/ftbchunks` in `commands.rs`; 8 unit tests), runtime
+>   `runtime/ftbchunks_world.rs` (FTB Teams' manager as `Teams`, `<world>/ftbchunks/<team>.snbt` and
+>   `ftbchunks-world.snbt`, the protection hooks, tickets through `native_force_chunk_in` owned by
+>   `ftbchunks:<team>`, `/ftbchunks_probe` behind `FTBTEAMS_DEV=1`), 16 hooks in `horizon-mixin.toml`. FTB Teams'
+>   runtime queues its events (`ftbteams_world::take_events`), which FTB Chunks drains each server tick (tickets are
+>   re-checked at once after an event or a command, else every 100 ticks).
+>   World test `ftbchunks/claims` (`pack/mods/ftbchunks/tests/claims.ts`, about 4 minutes) passes: a non-ally's break
+>   and place are refused in a claim and a member's go through; 500 claims and 25 force-loads, the 501st and 26th
+>   refused; a furnace keeps smelting in a force-loaded chunk with the member online 400 blocks away; the claims,
+>   force-loads and tickets come back after a restart; the tickets are let go when nobody of the team is on (FTB
+>   Chunks' defaults: no member has `ftbchunks.chunk_load_offline`, `force_load_mode DEFAULT`; the port keeps that and
+>   the test checks it); the admin bypass; `unclaim_all`.
+>
+> **Next: slice 3, the FTB Chunks client** (map screen with drag claim selection, the minimap, waypoints), in this order:
+> 1. *The server half the client needs* (none of it is written; channels are `ftbchunks:<id>`, as FTB Teams' are, over
+>    `native_net_send_to_player` (30 000 bytes a message, 32 a tick) and the `net_from_client` / `net_from_server`
+>    hooks; `ftbteams_world::from_server` and `hooks/net_from_server.rs` are the pattern, the wire is JSON as there).
+>    The payload list is in `ftb-work/notes/ftbchunks-spec.md` section 8 (local, from the jar). Needed first:
+>    `login_data` (the world's team-manager id: the client's map folder), `send_general_data` (claimed, loaded and
+>    the two maxima, on login and after each change), `send_many_chunks` / `send_chunk` (a chunk: x, z, claimed,
+>    seconds since the claim, force-load flag and time, expiry; broadcast, or to allies only when the team hides its
+>    claims), the C2S `request_chunk_change` (op CLAIM, UNCLAIM, LOAD, UNLOAD; the chunk set in the player's own
+>    dimension; admin flag; optional team id taken only for an operator or a member) answered by
+>    `chunk_change_response` (changed, total, problems by id), then `update_force_load_expiry`,
+>    `teleport_from_map` (operators), `player_death`, `add_waypoint`, `open_claim_gui` and the 2-second action-bar
+>    notice on entering a claim. `Chunks::{claim, unclaim, load, unload}` in the crate are the operations; the message
+>    handler loops them over the set and counts `Problem`s (`Problem::id`) for the response. Add a unit test per
+>    message to the crate and a client probe, as slice 1's `ftbteams_probe` does.
+> 2. *The map tile API* (gap 1 below), then the client's region cache (512x512 regions kept under
+>    `local/ftbchunks/data/<manager id>/<dimension>/`).
+> 3. *The screens*: the large map (M: pan, zoom, centre on the player, the context menu), the claim screen over it
+>    (left drag claims, right drag unclaims, Shift forces and releases a force-load; one `request_chunk_change` on
+>    mouse release; freehand, rectangle and circle selection; the 3x3 test in the plan's slice 3), claim overlays in
+>    team colours, then the minimap (off on ATM10 by default: JourneyMap is present), then waypoints (`/ftbchunks
+>    waypoint add`, the map's menu, death waypoints, `waypoints.json` per dimension). Hooks exist: `mod_screen_open`,
+>    `screen_draw`, `screen_click`, `screen_mouse_dragged_pre`, `screen_mouse_scrolled_pre`, `mod_key` (M, J, N, B),
+>    `hud` / `gui_layer_post`, `map_decorations`.
+> 4. The world test for the slice: drag a 3x3 area on the claim screen with real mouse events, then read the server's
+>    claims with `/ftbchunks_probe`, a screenshot; a death leaves a waypoint.
+>
+> **Still open from slice 2** (detail in `pack/mods/ftbchunks/NOTES.md`): PvP modes, mob griefing, fire and fluid across
+> borders, `/ftbteams party settings ftbchunks:*` (FTB Teams' `Prop` is a closed enum: it needs an open property
+> registry in `ftbteams-core`), idle and force-load expiry, farmland trampling, the finer item rules.
+>
+> **API gaps** (add the smallest way through `tools/native-hook-fragments/`, docs/atm10-port.md "Porting rules", only
+> when a slice needs it):
+> 1. Map tiles for mods: a client `native_map_tile(dimension, chunk)` over the minimap extra's scan cache, and a dynamic
+>    RGBA texture upload that a screen can draw (`mod_image` is for files). Slice 3 needs both.
+> 2. A cancellable mob-griefing check (endermen) and `native_living_incoming_damage` with the `Game` (PvP in claims).
+> 3. Spawning near force-loaded chunks (`anyPlayerCloseEnoughForSpawning`).
+> 4. Entity type tags on the server (the interact and attack whitelists; `corpse:corpse` is built in).
+> 5. Fake players (`native_is_player_fake` exists; machines that break blocks without a player never reach
+>    `destroy_block`).
+>
+> **How to run.** `atm10-work/ftb-work/ftb.sh [units] [stage] [build] [world]` (this PC's paths for `bun run
+> pack/scripts/ftbchunks.ts <step>`; `wait-slot.sh 3`, `-j 4`; export `AE2_PROFILE=iter`). `stage` applies only the
+> FTB bundles and `build` compiles the client; do not edit sources while either runs (`E_STALE_SOURCE`). World tests:
+> `FTB_LIST=ftbchunks/claims ftb.sh world` (or `ftbteams/teams`; the default is every bundle's); logs in
+> `ftb-work/logs/world-<name>.log`, a failed run's folder in `ftb-work/logs/fail-<name>/`. Unit tests alone: `cargo test
+> --offline --manifest-path pack/mods/<bundle>/<crate>/Cargo.toml --target-dir ftb-work/target-tools`, then delete the
+> crate's `Cargo.lock`. The second player in a test is FTB Teams' dev fake player (`/ftbteams_add_fake_player Bob`,
+> `FTBTEAMS_DEV=1`). Extracted jars: `ftb-work/jars/`; notes from them: `ftb-work/notes/`.
+>
+> **Licence rule for every slice.** The FTB mods are All Rights Reserved and this repository is public: no line of
+> their language files, no chat or command text, no GUI label, no method body is committed. A message is
+> `Text::translate_with_fallback(key, fallback, args)` with the mod's own key, so the game shows the mod's line from
+> the lang file the player's jar brings, and the fallback is our own plain wording. Keys, command syntax and behaviour
+> stay the mod's. Tests assert the fallback, or a regex for a vanilla key.
+
 The plan for ATM10's map and chunk-claiming mods: FTB Teams 2101.1.11, FTB Chunks 2101.1.22, FTB Library 2101.1.39
 and JourneyMap 1.21.1-6.0.9. Behaviour is ported from the jars (read with `javap`); no file of theirs is committed.
 The detailed notes taken from the jars (command trees, messages, file keys, packets) are local, in the handoff
@@ -113,13 +191,14 @@ and the claim screen read (claim colours, ally checks).
    `pack/mods/ftbteams/tests/teams.ts`: one player and a dev-only fake player (`/ftbteams_add_fake_player`, as in
    Java's dev environment, behind `FTBTEAMS_DEV=1`), every command's answer, the files after a restart, the client's
    copy through a client probe. The crate's unit tests cover the multi-player rules.
-2. **FTB Chunks server**: claims and force-loading per team (`<world>/ftbchunks/<team>.snbt`), limits,
+2. **FTB Chunks server** (done): claims and force-loading per team (`<world>/ftbchunks/<team>.snbt`), limits,
    `/ftbchunks claim|unclaim|load|unload|unclaim_all|unload_all|info|admin ...`, protection through the hooks above,
-   the team properties FTB Chunks adds (`ftbchunks:allow_explosions`, `allow_mob_griefing`, block edit/interact and
-   entity modes, claim and location visibility), force-load tickets, idle expiry, the action-bar notices, the
-   `request_chunk_change` message and `send_many_chunks` sync. *World test*: claim by command and by the message,
-   a fake non-ally is refused breaking, placing, using a chest and blowing TNT while a member is not; a force-loaded
-   chunk keeps a hopper moving with the player 300 blocks away; limits refuse the 501st claim; all after a restart.
+   force-load tickets. *World test* `pack/mods/ftbchunks/tests/claims.ts`: claim by command, a fake non-ally is refused
+   breaking and placing while a member is not; limits refuse the 501st claim and the 26th force-load; a force-loaded
+   furnace keeps smelting with the member 400 blocks away; the claims and tickets after a restart; the tickets go
+   when nobody of the team is on; the admin bypass. Left for slice 3 with the client: `request_chunk_change`,
+   `send_many_chunks` and the action-bar notice; left in `pack/mods/ftbchunks/NOTES.md`: PvP, mob griefing, fire and
+   fluid borders, `ftbchunks:*` team properties, expiry.
 3. **FTB Chunks client**: the map tile helper (gap 1), region cache, the large map (M) with pan and zoom, the claim
    screen with drag selection sending one request, claim overlays in team colours, waypoints (`/ftbchunks waypoint
    add`, the map's menu), death waypoints, the minimap (off on ATM10 by default). *World test*: drag a 3x3 area on the
@@ -129,4 +208,5 @@ and the claim screen read (claim colours, ally checks).
 
 ## Handoff
 
-Slice 1 is in `pack/mods/ftbteams`; `pack/mods/ftbteams/NOTES.md` says what is done and what is next.
+The handoff for the next slice is the block at the top of this file. Slice 1 is in `pack/mods/ftbteams`
+(`NOTES.md` there), slice 2 in `pack/mods/ftbchunks` (`NOTES.md` there).

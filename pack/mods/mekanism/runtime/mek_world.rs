@@ -2432,6 +2432,11 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
         Some("chemicals") => super::mek_chemicals::registry_command(game, words.next()),
         // `/mek multiblock caches`: every multiblock cache of the dimension, as the level keeps them.
         Some("multiblock") => super::mek_multiblock::caches_json(game),
+        // `/mek recipes [category] [item]`: the recipe viewer categories (`native_recipe_categories`) as a viewer collects them.
+        Some("recipes") => {
+            let category = words.next();
+            super::mek_recipe_viewer::command(game, category, words.next())
+        }
         // `/mek miner x y z <what> ...`: a digital miner's settings, filters and buttons.
         Some("miner") => {
             let p = player.position;

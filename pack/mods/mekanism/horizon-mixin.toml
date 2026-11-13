@@ -228,6 +228,12 @@ name = "mek_miner"
 source = "runtime/mek_miner.rs"
 
 [[module]]
+id = "recipe-viewer"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_recipe_viewer"
+source = "runtime/mek_recipe_viewer.rs"
+
+[[module]]
 id = "ui"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_ui"
@@ -363,6 +369,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/screen_click.rs"
 bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "block", ty = "&str", value = "block" },
   { name = "data", ty = "&[i32]", value = "data" },
   { name = "at", ty = "[f32; 2]", value = "at" },
@@ -731,4 +738,15 @@ bindings = [
   { name = "pos", ty = "[i32; 3]", value = "pos" },
   { name = "face", ty = "[i32; 3]", value = "face" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "recipe-categories"
+hook = "recipe_categories"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/recipe_categories.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "categories", ty = "&mut Vec<horizon_client::mod_api::NativeRecipeCategory>", value = "&mut *categories" },
 ]

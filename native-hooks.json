@@ -801,6 +801,18 @@
     {
       "name": "data_files",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_data_files"
+    },
+    {
+      "name": "collect_recipe_categories",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_collect_recipe_categories"
+    },
+    {
+      "name": "recipe_categories_changed",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_categories_changed"
+    },
+    {
+      "name": "recipe_categories_version",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_categories_version"
     }
   ],
   "hooks": [
@@ -5423,6 +5435,17 @@
       "mod_api": {
         "contract": "replace",
         "out": "drained"
+      }
+    },
+    {
+      "name": "recipe_categories",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_categories",
+      "neoforge": "none (JEI's IRecipeCategory and IRecipeRegistration, registered through the viewer's own API)",
+      "side": "client",
+      "mod_api": {
+        "contract": "collect",
+        "out": "categories"
       }
     }
   ]

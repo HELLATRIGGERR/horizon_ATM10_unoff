@@ -1181,6 +1181,20 @@ fn upgrade_effect(upgrade: Upgrade, installed: u32, settings: &EnergyConfig) -> 
     Some(if shown.fract() == 0.0 { format!("Effect: {shown:.1}x") } else { format!("Effect: {shown}x") })
 }
 
+/// A machine's progress arrow on its main page is its recipe viewer link (`GuiProgress.jeiCategories`): a click asks
+/// the viewer (`native_show_recipes`) for the machine block's uses, which are its categories, and presses nothing.
+pub(super) fn recipe_link(game: &Game<'_>, block: &str, at: [f32; 2], button: &Option<i32>) -> bool {
+    let Some(kind) = MachineKind::of_block(block) else {
+        return false;
+    };
+    if button.is_some() || PAGE.with(Cell::get) != 0 || !kind.progresses() || kind.nucleosynthesizes() || !inside(machine_progress(kind), at) {
+        return false;
+    }
+    let stack = horizon_client::mod_api::NativeStack { item: block.to_owned(), count: 1, components: String::new() };
+    game.native_show_recipes(stack, horizon_client::mod_api::NativeRecipeLookup::Uses);
+    true
+}
+
 fn machine_click(kind: MachineKind, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
     let view = MachineView::unpack(data).unwrap_or_default();
     let page = PAGE.with(Cell::get);

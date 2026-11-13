@@ -416,6 +416,28 @@ assets when `mekanism-content` is given them.
   z]`, `get [x y z]`, `removeAll`, `heal`, `addEntity <Sv>`, `reduce <Sv>` are Mekanism's (for the player who runs
   them), `/mek radiation probe [x y z]` the bundle's.
 
+- Recipe viewer categories (runtime `mek_recipe_viewer`, the `recipe_categories` hook, API 427 stamped by the fork), as
+  Mekanism's JEI plugin registers them for the machines this port has: crushing, enriching, the Energized Smelter
+  (the world's smelting recipes), combining, sawing (the secondary output at its chance), compressing, purifying,
+  injecting, metallurgic infusing, crystallizing, nucleosynthesizing, oxidizing, chemical infusing, separating,
+  dissolution, washing, condensentrating and decondensentrating (`mekanism:rotary`), evaporating, energy conversion
+  and chemical conversion, read from the world's tables as the machines read them, with the machine and its four
+  factories as catalysts; and the made-up ones of the boiler, the SPS (`inputPerAntimatter`) and Mekanism
+  Generators' fission reactor. A viewer's slots hold items, so a fluid shows as its bucket with the amount in a note,
+  and a chemical, which has no item, only as a note (`In: Hydrogen 1 mB`); energy is a note in Joules. A processing
+  machine's progress arrow is its recipe viewer link: a click asks the viewer (`native_show_recipes`) for the
+  machine's uses, its categories. `/mek recipes [category] [item]` lists the categories a viewer collects, or one
+  category's recipes making or taking `item`. Not there: the categories of machines this port lacks (the
+  Pressurized Reaction Chamber, the Isotopic Centrifuge, the Solar Neutron Activator, the pigment machines, the
+  Nutritional Liquifier), the factories' and the multiblocks' screen links, and recipe transfer (the "+" into a
+  machine's slots: the hook points have no transfer a mod can take). Two more gaps of the viewer's API: a stack
+  holds an item, so no chemical can be an ingredient (hence the notes), and a category can only be asked for by a
+  stack, not by its id (hence the arrow link asks for the machine's uses). The world test `recipe-viewer` checks
+  the 21 machine categories' and the three made-up ones' recipe counts against the content files, their catalysts
+  and factories, and 29 known recipes found by their output (hydrogen chloride, water's hydrogen and oxygen,
+  sawdust at its chance, redstone's 10,000 J); the viewer itself, Horizon's Recipes mod, is not in this build, so
+  the arrow link has no world test.
+
 ## Differences from Mekanism
 
 - Radiation: mobs take no dose (only players do), and the dose isn't sent to the client (no HUD readings, no Geiger

@@ -6,6 +6,8 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 427 adds mods' own recipe categories for recipe viewers, outputs with chances (`native_recipe_categories`, `native_collect_recipe_categories`).
+//!
 //! API 426 adds particles a server hook sends outside a block's tick (`native_level_particles`,
 //! `ServerLevel.sendParticles` from the level in place, as `native_send_particles` sends them from a block's
 //! tick): the red sparkles of a Mekanism multiblock forming at the end of a level's tick.
@@ -1137,7 +1139,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 426;
+pub(crate) const NATIVE_HOOKS_API: u32 = 427;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -3296,7 +3298,7 @@ impl Game<'_> {
     /// fishing spot, a sieve, a machine). Asked again whenever a viewer wants
     /// them; call `native_recipe_categories_changed` when yours change (the
     /// server's data came), so viewers ask again. Client-side. API
-    /// @API:recipe_categories@.
+    /// 427.
     pub(super) fn native_recipe_categories(&mut self, categories: &mut Vec<NativeRecipeCategory>) {
         mod_api::dispatch_recipe_categories(self, mod_api::mods(), categories);
     }
@@ -12313,7 +12315,7 @@ impl Game<'_> {
     }
     /// Every mod's own recipe categories, as `native_recipe_categories`
     /// collects them: for a recipe viewer. Client-side. API
-    /// @API:recipe_categories@.
+    /// 427.
     pub(super) fn native_collect_recipe_categories(&mut self) -> Vec<NativeRecipeCategory> {
         let mut categories = Vec::new();
         self.native_recipe_categories(&mut categories);
@@ -12321,7 +12323,7 @@ impl Game<'_> {
     }
     /// A mod's recipe categories changed: recipe viewers see
     /// `native_recipe_categories_version` move and collect them again.
-    /// Client-side. API @API:recipe_categories@.
+    /// Client-side. API 427.
     pub(super) fn native_recipe_categories_changed(&self) {
         self.recipe_tables
             .categories_version
@@ -12329,7 +12331,7 @@ impl Game<'_> {
     }
     /// A number that changes each time a mod says its recipe categories
     /// changed (`native_recipe_categories_changed`). Client-side. API
-    /// @API:recipe_categories@.
+    /// 427.
     pub(super) fn native_recipe_categories_version(&self) -> u64 {
         self.recipe_tables
             .categories_version

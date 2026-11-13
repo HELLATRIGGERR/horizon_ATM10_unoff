@@ -1849,6 +1849,8 @@ API 425 adds `native_insert_slots(dimension, pos, face, stack)`, the slots of a 
 
 API 426 adds `native_level_particles(options, at, spread, speed, count)`, `ServerLevel.sendParticles` from a server hook outside a block's tick, in the level in place: a packet to each player whose block is within 32 blocks of `at`, and this window's own copy when its player is that near, as `native_send_particles` sends them from inside a block's tick. Mekanism's bundle (`pack/mods/mekanism`) sends a multiblock's red sparkles with it when the multiblock forms at the end of a level's tick. Bundles need "hooks": 426.
 
+API 427 adds `native_recipe_categories(categories)` (client) collects the mods' own recipe categories for a recipe viewer: push a `NativeRecipeCategory` (id, title, subtitle, icon, catalysts, and recipes of inputs to outputs, each output with its chance, count range and notes) for a fishing spot, a sieve or a machine. A viewer gets them all with `native_collect_recipe_categories()` and asks again when `native_recipe_categories_version()` moves, which a mod makes happen with `native_recipe_categories_changed()` (its server's data came). Bundles need "hooks": 427.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's

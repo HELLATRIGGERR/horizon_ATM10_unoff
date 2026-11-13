@@ -1754,6 +1754,9 @@ impl Game<'_> {
                     p.velocity = Vec3::new(0.0, 0.0, 0.0);
                     p.fall_distance = 0.0;
                     p.ground.on_ground = false;
+                    // ServerPlayer.teleportTo always calls connection.teleport: a server's
+                    // player gets the position packet even where it already stands.
+                    p.teleported = true;
                 }
                 self.previous_position = v;
                 if let Some([yaw, pitch]) = rotation {

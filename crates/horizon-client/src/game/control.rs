@@ -1548,8 +1548,15 @@ impl Game<'_> {
 
     pub(super) fn control_status(&self) -> Value {
         let player = self.player.as_ref().map(|p| {
+            // The last teleport from the server this client applied (a server's client only).
+            let teleport = self
+                .remote
+                .as_ref()
+                .and_then(|r| r.accepted_teleport)
+                .map(|(id, at)| json!({ "id": id, "position": at }));
             json!({
                 "position": [p.position.x, p.position.y, p.position.z],
+                "teleport": teleport,
                 "velocity": [p.velocity.x, p.velocity.y, p.velocity.z],
                 "on_ground": p.ground.on_ground,
                 "health": p.health.health(),

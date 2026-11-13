@@ -279,6 +279,12 @@ mod client_tests {
             relatives: 0,
         }))
         .unwrap();
+        // The control status names the teleport the client applied: a world fixture's `tp`
+        // waits for it, not for where the player happens to stand.
+        assert_eq!(
+            game.control_status()["player"]["teleport"],
+            serde_json::json!({ "id": 1, "position": [0.5, 65.0, 0.5] })
+        );
         let me = game.native_entity(7).expect("the own player");
         assert_eq!(
             game.native_entity_kind(me).as_deref(),

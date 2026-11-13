@@ -240,10 +240,27 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 
 ## What to do next
 
-1. A flake to find first: an `interact` with a block's menu right after a `tp` sometimes never opens it (about 1 run in 6
-   of `crafting-large-job-persistence`, `provider-condenser-fluid`, `terminal-craft-gestures`; the screen stays
-   `playing`). In the failed transcripts the player drifts after the `tp`, faster each tick. Check that a teleport
-   resets the motion as Java's does, and what the server's `may_reach_block` sees.
+1. The flake after a `tp` (13 November): the world harness, not the engine. A teleport with a look
+   (`tp @s X Y Z YAW PITCH`) didn't match the harness's pattern, so the `look-at` or `interact` after it ran while the
+   client still stood where it was (`appflux-induction-card`: 13.1 blocks away; the Digital Miner: 27.5; radiation's
+   spot). The others were waited for by where the player stands: one teleported into the air before its floor is built
+   falls more than the 2 blocks allowed before the next poll on a loaded machine (`assembler-menu-filter`), and a
+   teleport to where the player stands passed at once, and the engine sent none for it (Java's
+   `ServerPlayer.teleportTo` always does; `teleport_to` now marks it). The control `status` now names the last teleport the client
+   applied (`player.teleport`: id, position) and the harness waits for a newer one at the target. The motion was
+   already Java's: absolute `/tp` coordinates carry no `DELTA` relatives, and both sides zero it. Reproduced without
+   load by making the client read the server's packets every 250 ms (a test-build hook, never committed). Six suites
+   (`appflux-induction-card`, `crafting-large-job-persistence`, `fake-slot-drag-machines`, `terminal-craft-gestures`,
+   `provider-condenser-fluid`, `assembler-menu-filter`) twice: the old harness failed 4 of 12, the harness reading the
+   teleport id alone 7 of 12 (6 of them waiting for the id a `tp` to the same spot never sent), and with the `/tp`
+   change 1 of 12 (`fake-slot-drag-machines`' workbench drag filled one filter of two; no `tp` near it). Without the
+   hook the same six passed, as did `megacells-energy` and 19 of 22 more AE2 suites at `--jobs 4` (the 3 below);
+   Mekanism `radiation` (4 runs) and `digital-miner` (3) pass. Left: `portable-fluid-gestures`, `terminal-fluid-gestures` and
+   `wireless-menu-lifecycle` fail every run (9 of 9) here, with the main binary and the old harness too, so not this
+   change; the "menu never opens with the client at its spot" of `crafting-large-job-persistence` and
+   `fake-slot-drag-machines` (the server got every use within reach, no teleport pending) did not come back in the 12
+   runs after the change, so its cause is not found; and radiation's server position moving 0.987 blocks after its
+   last `tp` did not come back in 4 runs.
 2. Memory of the full pack: done so far are lazy baked models (e76d5862c) and the data file written after the world
    opens (2b056e630); a first start now opens with about 1 GB free on 16 GB. Left: recipes held as JSON trees (656 MB),
    lazy GUI/entity textures (640 MB of GPU memory), the 319 placed features that can't run. Frame rate against Java

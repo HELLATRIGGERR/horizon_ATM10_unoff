@@ -586,6 +586,9 @@ pub(super) struct Remote {
     /// `BlockStatePredictionHandler.lastTeleportSequence`: the sequence of the last
     /// teleport, so a prediction made before it keeps its block but not its snap.
     last_teleport_sequence: i32,
+    /// The last ClientboundPlayerPositionPacket this client applied and accepted: its id and
+    /// where it put the player (the control status reports it).
+    pub(super) accepted_teleport: Option<(i32, [f64; 3])>,
     position_sender: horizon_client::player_sync::PositionSender,
     last_input: u8,
     was_sprinting: bool,
@@ -1241,6 +1244,7 @@ impl Game<'_> {
             simulation_distance: self.settings.simulation_distance,
             sequence: 0,
             last_teleport_sequence: -1,
+            accepted_teleport: None,
             position_sender: Default::default(),
             last_input: 0,
             was_sprinting: false,
@@ -1595,6 +1599,7 @@ impl Game<'_> {
             simulation_distance: self.settings.simulation_distance,
             sequence: 0,
             last_teleport_sequence: -1,
+            accepted_teleport: None,
             position_sender: Default::default(),
             last_input: 0,
             was_sprinting: false,
@@ -6901,6 +6906,9 @@ impl Game<'_> {
         }
         if let Some(id) = self.remote.as_mut().and_then(|r| r.ghast_dismount.take()) {
             self.place_ghast_under(id, position);
+        }
+        if let Some(r) = self.remote.as_mut() {
+            r.accepted_teleport = Some((p.teleport, [position.x, position.y, position.z]));
         }
         // handleMovePlayer does not change LocalPlayer.sendPosition's baseline:
         // the next tick must still report the corrected state.

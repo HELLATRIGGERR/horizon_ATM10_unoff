@@ -244,6 +244,12 @@ export class WorldFixture {
   async command(command: string): Promise<any> {
     const setup = /^(?:execute in \S+ run )?(?:fill|setblock|item replace block|data (?:merge|modify|remove) block)\b/.test(command);
     const unloaded = (reply: any) => !!reply.chat?.some((line: string) => line.includes('That position is not loaded'));
+    // A teleport that turns the player too (`tp @s X Y Z YAW PITCH`) is waited for the same way.
+    const teleport = command.match(/^(?:execute in (\S+) run )?tp @s (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)(?: -?[\d.]+ -?[\d.]+)?$/);
+    // A server's client has the teleport when it applies its ClientboundPlayerPositionPacket (and accepts it):
+    // the one after the last it applied before the command. Where the player stands after that is the client's
+    // own physics (a player teleported into the air falls), and a teleport to where it stands moves nothing.
+    const before = teleport && this.mode === 'server-thread' ? (await this.raw('status')).player?.teleport?.id ?? null : undefined;
     let reply = await this.raw('command ' + command);
     // A world that has just opened may still be loading the chunks a setup writes to. Such a write changed
     // nothing, so it is sent again until they are loaded.
@@ -255,10 +261,11 @@ export class WorldFixture {
     if (setup) {
       assert(!unloaded(reply), `Unloaded setup write: ${command}: ${JSON.stringify(reply.chat)}`);
     }
-    const teleport = command.match(/^(?:execute in (\S+) run )?tp @s (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)$/);
     if (teleport) {
       const dimension = teleport[1], [x, y, z] = teleport.slice(2).map(Number);
-      await until(() => this.raw('status'), status => status.player?.health > 0 && status.server?.loaded !== false && (!dimension || status.dimension === dimension) && Math.abs(status.player.position[0] - x) < 0.2 && Math.abs(status.player.position[1] - y) < 2 && Math.abs(status.player.position[2] - z) < 0.2, 'authoritative teleport reaches the client');
+      const near = (at: number[]) => Math.abs(at[0] - x) < 0.2 && Math.abs(at[1] - y) < 2 && Math.abs(at[2] - z) < 0.2;
+      await until(() => this.raw('status'), status => status.player?.health > 0 && status.server?.loaded !== false && (!dimension || status.dimension === dimension)
+        && (before === undefined ? near(status.player.position) : !!status.player.teleport && status.player.teleport.id !== before && near(status.player.teleport.position)), 'authoritative teleport reaches the client');
     }
     return reply;
   }

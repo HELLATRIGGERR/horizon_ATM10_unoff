@@ -158,11 +158,11 @@ pub struct GeneratorView {
     pub environment_loss: f64,
 }
 
-fn push_bits(out: &mut Vec<i32>, value: u64, pieces: usize) {
+pub(crate) fn push_bits(out: &mut Vec<i32>, value: u64, pieces: usize) {
     out.extend((0..pieces).map(|i| ((value >> (16 * i)) & 0xFFFF) as i32));
 }
 
-fn read_bits(data: &[i32], at: usize, pieces: usize) -> u64 {
+pub(crate) fn read_bits(data: &[i32], at: usize, pieces: usize) -> u64 {
     (0..pieces).fold(0u64, |v, i| v | (u64::from(data[at + i] as u16) << (16 * i)))
 }
 

@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories, its chemicals, their tanks and tubes, its Mechanical
+Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer), its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the Supercritical Phase Shifter), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
@@ -137,6 +137,16 @@ assets when `mekanism-content` is given them.
   filled from chemical items and conversions in their chemical slot) into an item in 200 ticks, the chemical taken
   every tick: the compressor's 200 mB an operation spread over its ticks, the chambers' drawn at random
   (`randomizedConsumption`), more with speed upgrades and less with chemical upgrades.
+- The Antiprotonic Nucleosynthesizer (`mekanism_energy::nucleo`, runtime `mek_machines` and its screen `mek_nucleo`):
+  an item and antimatter (a 10 000 mB tank filled from chemical items in its chemical slot, the first) into an item
+  over the recipe's `duration`, 100 000 J a run from a store of 1 000 000 000 J (`machine-usage.toml`,
+  `machine-storage.toml` `antiprotonicNucleosynthesizer`). It takes only muffling upgrades: its Joules set its pace,
+  `sqrt(stored / 100 000)` runs of the recipe a tick (100 on a full store), an operation finished in one run leaving
+  the next ones to the next item. A recipe is found only with all of its item and antimatter in; ATM10's take the
+  antimatter with the item, a `per_tick_usage` recipe its amount every run (`used_so_far` saved). A saved progress
+  past the 400 ticks a new machine requires starts over when its recipe is cached, as Mekanism's does. Antimatter goes
+  in on every side and comes out on none; its screen (`GuiAntiprotonicNucleosynthesizer`) shows the antimatter and
+  energy gauges, the process rate (the Joules the last tick took over a run's) and the progress along its bottom.
 - The ore chain: the Chemical Dissolution Chamber (an ore and sulfuric acid drawn at random every tick into 1000 mB
   of a dirty slurry in 100 ticks of 400 J), the Chemical Washer (`2^speed` operations a tick of water and a dirty
   slurry into the clean one, its water from fluid handlers and buckets) and the Chemical Crystallizer (200 mB of a
@@ -531,6 +541,8 @@ assets when `mekanism-content` is given them.
   reactor ticks, and its signal is weak only. The burn rate has no text field (`/mek fission ... rate`); the screen's
   heat graph, the recipe viewer link, the sound, comparators, the ports' heat transfer to blocks beside them and
   their transfer animation aren't there; fuel and control rod assemblies are plain blocks.
+- The Antiprotonic Nucleosynthesizer's screen has no lightning between its slots (`BoltRenderer`), and the machine no
+  sound; its rate bar is drawn in flat colours. Its custom shape is a full block.
 - The SPS's coils have no lasers and it has no orbit effects (`RenderSPS`) or sound; it doesn't hurt the entities
   inside it (`kill`: `lastReceivedEnergy / 1000` a hit, one tick in twenty, and the lightning of its experiments) nor
   give its advancements; comparators don't read its ports. Its saved cache is written as it is when the level saves,

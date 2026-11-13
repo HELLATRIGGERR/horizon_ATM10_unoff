@@ -339,13 +339,39 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   the multiblock's tick and then the ports' hand-over in `native_level_tick_pre`. World test `sps`. Learned: the
   saved cache is synced at the end of a tick only when the multiblock is dirty, so a stopped SPS's file keeps the
   last values it changed (C3's `could_operate` 1 after it stopped); the port's mode message names the mode it had
-  (`InputOutput.of(oldMode)`). The Antiprotonic Nucleosynthesizer isn't here: it is a
-  `TileEntityProgressMachine<NucleosynthesizingRecipe>` (an item and antimatter into an item over the recipe's
-  `duration` ticks, 400 without one; a `perTickUsage` recipe uses its antimatter every tick, `used_so_far` saved, the
-  others take it at once; 100 000 J a tick from a 10^9 J store; `operationsPerTick` above one with enough speed
-  upgrades), a recipe type and a screen the bundle's `mek_machines` doesn't have yet; the next slice can put it on
-  `advanced::process` with its own recipe reader and `MachineKind`, measured on this oracle.
-- Next: the Antiprotonic Nucleosynthesizer, the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
+  (`InputOutput.of(oldMode)`). The Antiprotonic Nucleosynthesizer was left for the next slice.
+- The Antiprotonic Nucleosynthesizer (branch `feat/mekanism-nucleo`, on main `983816399`, no new hook point:
+  `MachineKind::AntiprotonicNucleosynthesizer` in `mek_machines`, `mekanism_energy::nucleo`, its screen in runtime
+  `mek_nucleo`; `mekanism:nucleosynthesizing` read beside the advanced machines' recipes with its `duration`).
+  Read from Mekanism 10.7.19's classes (`TileEntityAntiprotonicNucleosynthesizer`, `TileEntityProgressMachine`,
+  `NucleosynthesizerRecipeCacheLookupMonitor`, `CachedRecipe`, `MekanismBlockTypes`, `MekanismBlocks`,
+  `MekanismContainerTypes`) and measured on a private copy of the SPS oracle (local `meknucleo-work/oracle`, RCON
+  25681, `lab/n1.py` and `lab/n2.py`, a world datapack `nlab` with a `per_tick_usage` recipe: stone into dirt, 2 mB,
+  50 ticks). What the old note had wrong: it takes no speed upgrades (`AttributeUpgradeSupport.MUFFLING_ONLY`), and
+  `operationsPerTick` stays one; its energy sets its pace instead: the monitor runs the cached recipe once and then
+  `(int) sqrt(stored / perTick) - 1` more times in the tick, from the Joules before the first run (100 runs on a full
+  10^9 J store at 100 000 J a run; `machine-storage.toml`'s "Also defines max process rate"). Measured: coal into a
+  diamond (1000 ticks, 4 mB) from a full store, progress 100, 199, 298 ... 975, then 25 runs finish the diamond and 70
+  go on with the next coal in the same tick (893 000 000 J and 6 mB after the 11th); 10^6 J run 3, 2, 2, 1, 1, 1
+  times; 150 000 J once. `ticksRequired` is 400 on a new block entity and becomes the recipe's `duration` in
+  `onCachedRecipeChanged`, after the cache took the saved progress back (`loadSavedOperatingTicks` against the old
+  ticks): a saved 500 starts over (then 1), 300 goes on (301). The lookup wants all of the item and antimatter
+  (`ItemStackChemicalToItemStackRecipe.test`): 3 mB of a 4 mB recipe finds none and a saved progress stays (the
+  bundle's other machines match the chemical by type only, so a saved progress with a short tank and nothing cached
+  would start over there where Mekanism's stays; not looked into); cut to 3 mB under a cached recipe, the progress starts over. A full output: 63 iron and a saved
+  150 finish one in 50 runs, the other 50 find no room (5 000 000 J). The per-tick recipe takes its amount a run
+  (`constantUse` of `ticksRequired` over `ticksRequired`: two dirt and 200 mB on the first tick, 49 ticks and 98 mB of
+  the next on the second; a saved 30 ticks with 10 used takes 4 mB next; 5 mB run twice and wait with the progress).
+  The last run's `setActive` stands (a tick that ends on runs with no input shows inactive). Its side configuration
+  is the chambers' `ADVANCED_MACHINE_INPUT_ONLY`, its tank `inputModern` (in by recipe, out only to the machine), its
+  slots chemical, input, output, energy; the block has `active` (`ACTIVE_LIGHT`) and a custom shape. The screen
+  (`imageWidth + 20`, `imageHeight + 27`, the inventory at `offset(10, 27)`): the SMALL_MED gauges, the inner
+  screen's "Process Rate" (`clientEnergyUsed / perTick` in percent), the rate bar, the energy tab's "Using" from the
+  last tick. World test `nucleosynthesizer` (a content mod of its own gives the per-tick recipe); unit tests `nucleo`
+  and `machine`. Left: the screen's lightning (`BoltRenderer`), the machine's sound, its custom shape, comparators
+  (`Attributes.COMPARATOR`), redstone control, `pausedForErrors` (a recipe paused on an error until its contents change:
+  checking again every run comes to the same here), a `perTick` of 0 (Mekanism would run without end; here once).
+- Next: the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
   its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside
   them, sounds); the turbine's rest

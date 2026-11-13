@@ -145,7 +145,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
     }
     if let Some(kind) = MachineKind::of_block(block) {
         PAGE.with(|p| p.set(0));
-        *screen = Some(machine_screen(kind));
+        *screen = Some(if kind.nucleosynthesizes() { super::mek_nucleo::screen() } else { machine_screen(kind) });
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -305,7 +305,11 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
         return;
     }
     if let Some(kind) = MachineKind::of_block(block) {
-        machine_click(kind, data, at, right, button);
+        if kind.nucleosynthesizes() {
+            super::mek_nucleo::click(data, at, right, button);
+        } else {
+            machine_click(kind, data, at, right, button);
+        }
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -408,7 +412,11 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         return;
     }
     if let Some(kind) = MachineKind::of_block(block) {
-        lines.extend(machine_tip(kind, data, &settings(), at));
+        if kind.nucleosynthesizes() {
+            super::mek_nucleo::tooltip(data, at, lines);
+        } else {
+            lines.extend(machine_tip(kind, data, &settings(), at));
+        }
         return;
     }
     if CubeTier::of_block(block).is_none() {
@@ -609,6 +617,12 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
         let mut pen = Pen { game, batch, origin, cursor };
         draw_generator(&mut pen, kind, &generator_view(data), &settings(), data);
+        return;
+    }
+    if let Some(kind) = MachineKind::of_block(block)
+        && kind.nucleosynthesizes()
+    {
+        super::mek_nucleo::draw(game, data, batch, origin);
         return;
     }
     if let Some(kind) = MachineKind::of_block(block) {

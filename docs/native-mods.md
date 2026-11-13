@@ -1861,6 +1861,8 @@ API 428 adds `native_map_tile(chunk)`: a loaded chunk's 16x16 map picture in the
 
 API 429 adds `native_show_recipes(stack, lookup)` (client, `host.show_recipes`) asks whatever recipe viewer is installed to show `stack`'s recipes (`NativeRecipeLookup::Recipes`), its uses (`Uses`), or to act on a key that went down over it in a screen the mod draws (`Key("key.keyboard.a")`), so a quest book's items open the viewer as its own list's do. The viewer hears it at the start of the next frame as `native_recipe_lookup(stack, lookup, handled)` and sets `handled`; with no viewer, nothing happens. Bundles need "hooks": 429.
 
+API 431 adds `native_panel_area(mod_id)` (client) gives the area mod `mod_id`'s item panel takes on the open screen, `[x, y, width, height]` in GUI pixels, or None while it isn't showing (no container screen, another mod's panel, nothing to show, no room). A window the mod draws over the screen from `native_screen_render_post` (JEI's recipe window) keeps clear of it and lets the clicks on it through from `native_screen_mouse_button_pressed_pre`. Bundles need "hooks": 431.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's

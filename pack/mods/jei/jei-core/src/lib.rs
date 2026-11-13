@@ -4,6 +4,7 @@
 //! (`runtime/jei_world.rs`) feeds the game's items in and shows what [`List::filter`] keeps.
 
 pub mod recipes;
+pub mod window;
 #[cfg(test)]
 mod tests;
 

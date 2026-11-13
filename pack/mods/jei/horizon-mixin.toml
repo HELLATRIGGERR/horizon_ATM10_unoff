@@ -1,5 +1,6 @@
 # JEI (Just Enough Items) 19.70.0.464 as a native mod of this fork (horizon-mixins bundle): the ingredient list
-# beside container screens and its search (slice 1), the recipe screen with R, U and Backspace (slice 2). JEI is
+# beside container screens and its search (slice 1), the recipe screen with R, U and Backspace (slice 2), drawn as
+# JEI's own centred window over the screen (slice 2b). JEI is
 # MIT (mezz); its behaviour is reimplemented in the crate `jei-core` from what the mod does; no file of it is
 # copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the rest comes from
 # the player's jar at run time. See README.md.
@@ -24,6 +25,12 @@ id = "recipes"
 file = "crates/horizon-client/src/game.rs"
 name = "jei_recipes"
 source = "runtime/jei_recipes.rs"
+
+[[module]]
+id = "window"
+file = "crates/horizon-client/src/game.rs"
+name = "jei_window"
+source = "runtime/jei_window.rs"
 
 [[injection]]
 id = "mods"
@@ -128,4 +135,51 @@ bindings = [
   { name = "stack", ty = "&crate::game::native_hooks::NativeStack", value = "stack" },
   { name = "lookup", ty = "&crate::game::native_hooks::NativeRecipeLookup", value = "lookup" },
   { name = "handled", ty = "&mut bool", value = "&mut *handled" },
+]
+
+[[injection]]
+id = "screen-render"
+hook = "screen_render_post"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_render_post.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+]
+
+[[injection]]
+id = "mouse-pressed"
+hook = "screen_mouse_button_pressed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_button_pressed_pre.rs"
+bindings = [
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "mouse-released"
+hook = "screen_mouse_button_released_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_button_released_pre.rs"
+bindings = [
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "mouse-scrolled"
+hook = "screen_mouse_scrolled_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_scrolled_pre.rs"
+bindings = [
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "scroll", ty = "[f64; 2]", value = "scroll" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]

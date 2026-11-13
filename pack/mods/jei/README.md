@@ -15,8 +15,10 @@ JEI's order (vanilla's crafting, stonecutting, smelting, smoking, blasting, camp
 categories: Mekanism, AE2, ExtendedAE, Advanced AE), the category's catalysts in a column beside its recipes, the
 page arrows with the page count, chance outputs after the result with their odds and the recipe's notes under it.
 Backspace (and Escape, and the Back button) goes back through the history; U on a machine shows its own category
-first. Other mods' screens reach it through `recipe_lookup` (Mekanism's progress arrows). JEI draws its recipe screen
-as a window centred over the container; this port shows it in the panel at the right edge.
+first. Other mods' screens reach it through `recipe_lookup` (Mekanism's progress arrows). The recipe screen is JEI's own
+window (slice 2b): centred over the screen beside the item list, the tabs along its top, the catalysts on its left,
+the category title and the "x/y" page row with their arrows, as many recipes as fit by height; Escape closes it
+(the inventory stays open), the wheel and Page Up/Down turn its pages.
 
 JEI is MIT (mezz, https://github.com/mezz/JustEnoughItems). Its behaviour is reimplemented here from what the mod
 does; no file of it is in the repository. The panel's buttons and search box use JEI's artwork the engine carries

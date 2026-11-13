@@ -2,7 +2,7 @@
 // container screens as JEI's ingredient list. The list's order and search are the bundle's crate `jei_core`; this
 // module is the glue: the game's items in, the kept ones out to the panel (`native_panel_items`, drawn in the viewer
 // style with JEI's artwork), Ctrl+O, cheat mode (`native_give`), the Options > Mods page and the tests' probe. The
-// recipe screen (R, U, Backspace) is `jei_recipes`.
+// recipe screen (R, U, Backspace) is `jei_recipes`, its window `jei_window`.
 use super::Game;
 use super::native_hooks::{NativeMod, NativePanelEvent, NativeStack};
 use horizon_client::mod_api::NativePanelStyle;
@@ -135,8 +135,8 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
     }
 }
 
-/// `screen_key_pressed_pre`: Ctrl and JEI's overlay key on any screen; Backspace with the recipes open (not while
-/// the search box takes the keys).
+/// `screen_key_pressed_pre`: Ctrl and JEI's overlay key on any screen; Backspace with the recipes open, and the
+/// recipe window's keys (Escape, Page Up/Down, R/U over its stacks); not while the search box takes the keys.
 pub(super) fn key_pressed(game: &Game<'_>, key: &str, repeat: bool, modifiers: u32, canceled: &mut bool) {
     if *canceled || repeat || !game.native_on(ID) || state().is_none() {
         return;
@@ -148,6 +148,11 @@ pub(super) fn key_pressed(game: &Game<'_>, key: &str, repeat: bool, modifiers: u
     } else if modifiers & CONTROL == 0 && key == bound(3) && !game.mod_browser_typing() && super::jei_recipes::is_open() {
         super::jei_recipes::ask_back();
         *canceled = true;
+    } else if !game.mod_browser_typing() && super::jei_window::is_open() {
+        let mode = super::jei_recipes::key_mode(game, key);
+        if super::jei_window::key(key, mode, game.native_cursor()) {
+            *canceled = true;
+        }
     }
 }
 

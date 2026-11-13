@@ -821,6 +821,10 @@
     {
       "name": "map_tile",
       "target": "horizon_client::game::native_client_services::Game<'_>::native_map_tile"
+    },
+    {
+      "name": "panel_area",
+      "target": "horizon_client::game::native_panel::Game<'_>::native_panel_area"
     }
   ],
   "hooks": [

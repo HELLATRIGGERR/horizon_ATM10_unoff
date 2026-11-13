@@ -235,8 +235,8 @@ pub struct Page {
 /// Tabs and recipes a page holds at most (the panel's limits).
 pub const TABS: usize = 16;
 pub const RECIPES: usize = 256;
-/// A note's line at most, in characters, so it stays inside the panel.
-const LINE: usize = 26;
+/// The note JEI keeps for advanced tooltips (F3+H): a recipe's id, which the window doesn't draw.
+const RECIPE_ID: &str = "Recipe: ";
 
 /// The recipe screen: the open state and the history behind it.
 #[derive(Default)]
@@ -310,7 +310,8 @@ impl Viewer {
         Some(Page { title: cat.title.clone(), tabs, tab: s.tab, catalysts: cat.catalysts.clone(), views })
     }
     /// The focused ingredient alone in the slots that take it (JEI locks a focused slot's cycle), the chances and
-    /// counts of the outputs as lines under the recipe.
+    /// counts of the outputs as lines under the recipe; a recipe's id is left out (JEI shows it only with advanced
+    /// tooltips).
     fn view(&self, r: &Recipe, focus: &Focus) -> View {
         let lock = |stacks: Vec<Stack>| {
             let hit: Vec<Stack> = stacks.iter().filter(|s| s.item == focus.item).cloned().collect();
@@ -338,8 +339,9 @@ impl Viewer {
             }
             lines.extend(o.notes.iter().cloned());
         }
-        lines.extend(r.notes.iter().cloned());
-        let note = lines.iter().flat_map(|l| wrap(l, LINE)).collect::<Vec<_>>().join("\n");
+        lines.extend(r.notes.iter().filter(|l| !l.starts_with(RECIPE_ID)).cloned());
+        // The window wraps the lines to its width.
+        let note = lines.join("\n");
         View {
             shape: r.shape,
             width: r.width,

@@ -231,6 +231,18 @@ impl Game<'_> {
     pub(super) fn native_panel_catalysts(&mut self, mod_id: &str, catalysts: Vec<NativeStack>) {
         self.panel.show_catalysts(mod_id, catalysts);
     }
+    /// The area mod `mod_id`'s panel takes on the open screen, `[x, y,
+    /// width, height]` in GUI pixels, for a window the mod draws over the
+    /// screen (JEI's recipe window) to keep clear of and to let its clicks
+    /// through. None while its panel isn't showing: no container screen,
+    /// another mod's panel, nothing to show, or no room. API 431.
+    pub(super) fn native_panel_area(&self, mod_id: &str) -> Option<[f32; 4]> {
+        let ours = self.panel.of.as_ref().is_some_and(|(o, _)| o.native_id() == mod_id);
+        if !ours || !matches!(self.screen, Screen::Inventory | Screen::Creative) || self.title.is_some() {
+            return None;
+        }
+        self.browser_layout(&self.browser_batch()?).map(|l| l.area)
+    }
     fn browser_batch(&self) -> Option<HudBatch> {
         let r = self.renderer.as_ref()?;
         Some(HudBatch::new([r.config.width, r.config.height]))

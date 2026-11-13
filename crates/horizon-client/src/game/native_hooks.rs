@@ -7,6 +7,8 @@
 //! WebAssembly mod of the same id kept them.
 //!
 //! API 428 adds `native_map_tile`: a loaded chunk's 16x16 picture from the minimap extra's scanner, for a mod's map.
+//! API 431 adds the area a mod's item panel takes on the open screen (`native_panel_area`), for a window the mod draws over the screen.
+//!
 //! API 429 adds a mod asking the recipe viewer to show a stack's recipes or uses, or to act on a key over it (`native_show_recipes`, heard as `native_recipe_lookup`).
 //!
 //! API 427 adds mods' own recipe categories for recipe viewers, outputs with chances (`native_recipe_categories`, `native_collect_recipe_categories`).
@@ -1142,7 +1144,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 429;
+pub(crate) const NATIVE_HOOKS_API: u32 = 431;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an

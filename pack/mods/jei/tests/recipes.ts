@@ -1,14 +1,17 @@
-/** JEI's recipe screen (bundle `jei`, slice 2) in a world: R over an item of the list shows its recipes with a tab per
- * category (crafting and smelting for the iron ingot), a tab click switches category with its catalysts beside the
- * recipes, a right click on an ingredient shows its uses, Backspace walks the history back to the list; U on AE2's
- * Inscriber shows its own category first with the machine as the catalyst, and a click on the catalyst its recipes.
+/** JEI's recipe screen (bundle `jei`, slices 2 and 2b) in a world, drawn as JEI's own window centred over the screen
+ * beside the item list: R over an item of the list shows its recipes with a tab per category (crafting and smelting
+ * for the iron ingot), a tab click switches category with its catalysts beside the recipes, a right click on an
+ * ingredient shows its uses, Backspace walks the history back to the list, Escape closes the window and leaves the
+ * inventory open; U on AE2's Inscriber shows its own category first with the machine as the catalyst, and a click on
+ * the catalyst its recipes; U on the Charger shows its recipes with their notes.
  * What the client holds comes from the bundle's probe (`/jeiclient`, `JEI_DEV=1`); screenshots in the run folder. */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { WorldFixture, until } from '../../../../ae2/tests/world/harness';
 
 const fixture = new WorldFixture('jei-recipes', 'server-thread');
-type Recipes = { focus: string; mode: string; category: string; title: string; tabs: string[]; catalysts: string[]; recipes: number; history: number; categories: number };
+type Window = { page: number; pages: number; area: number[]; list: number[] | null };
+type Recipes = { focus: string; mode: string; category: string; title: string; tabs: string[]; catalysts: string[]; recipes: number; history: number; categories: number; window: Window | null };
 type Probe = { loaded: boolean; query: string; recipes: Recipes | null };
 type Button = { label: string; x: number; y: number; w: number; h: number };
 
@@ -40,6 +43,15 @@ const page = (what: string, ok: (r: Recipes) => boolean) =>
   until(() => jei(), p => !!p.recipes && ok(p.recipes), what, 10000).then(p => p.recipes!);
 const closed = (what: string) => until(() => jei(), p => p.recipes === null, what, 10000);
 const key = (name: string) => fixture.raw(`key ${name} tap`);
+/** The window drawn: centred (JEI's 198 px at least) and clear of the item list. */
+async function drawn(what: string): Promise<Window> {
+  const p = await until(() => jei(), p => !!p.recipes?.window && p.recipes.window.pages > 0, `${what} is drawn`, 10000);
+  const w = p.recipes!.window!;
+  const [x, , width] = w.area;
+  assert(width >= 198, `JEI's width: ${JSON.stringify(w)}`);
+  if (w.list) assert(x + width <= w.list[0], `the window keeps clear of the list: ${JSON.stringify(w)}`);
+  return w;
+}
 
 try {
   await fixture.start();
@@ -55,11 +67,15 @@ try {
   await key('u');
   const uses = await page('U shows the uses of the iron ingot', r => r.focus === 'minecraft:iron_ingot' && r.mode === 'uses');
   assert(uses.recipes > 2, `the uses need more than one page: ${JSON.stringify(uses)}`);
+  const w = await drawn('the uses');
+  assert(w.pages > 1 && w.page === 0, `pages: ${JSON.stringify(w)}`);
   await Bun.sleep(300);
   await shot('u-iron-ingot.png');
   await fixture.raw('click-button Next Page');
+  await until(() => jei(), p => p.recipes?.window?.page === 1, 'Next Page turns the page', 10000);
   await Bun.sleep(300);
   await shot('u-iron-ingot-page-2.png');
+  fixture.mark(`U on the iron ingot: ${uses.recipes} crafting uses on ${w.pages} pages`);
   await key('backspace');
   await closed('Backspace closes the uses');
 
@@ -105,6 +121,20 @@ try {
   await key('backspace');
   await closed('and Backspace closes them');
 
+  // Escape closes the window (JEI's onClose: back to the screen under it), the inventory stays: R works again.
+  await hover(ingot);
+  await key('r');
+  await page('R again', r => r.focus === 'minecraft:iron_ingot');
+  await drawn('the recipes');
+  await key('escape');
+  await closed('Escape closes the window');
+  await hover(ingot);
+  await key('u');
+  await page('the inventory stayed open under it', r => r.mode === 'uses');
+  await key('escape');
+  await closed('and Escape closes it again');
+  fixture.mark('Escape closes the window and leaves the inventory');
+
   // U over AE2's Inscriber: its own category first, the machine as the catalyst.
   await search('inscriber');
   const inscriber = await button(l => l === 'Inscriber', 'the Inscriber in the list');
@@ -126,6 +156,21 @@ try {
   await key('backspace');
   await closed('and to the list');
   fixture.mark('a catalyst click shows its recipes; Backspace returns');
+
+  // Another machine's category with notes: U on AE2's Charger, its energy note under each recipe, the recipe's id
+  // (an advanced-tooltip line in JEI) left out.
+  await search('charger');
+  const charger = await button(l => l === 'Charger', 'the Charger in the list');
+  await hover(charger);
+  await key('u');
+  r = await page("U shows the Charger's uses", r => r.focus === 'ae2:charger' && r.mode === 'uses');
+  assert.equal(r.category, 'ae2:charger', `the category it makes first: ${r.tabs}`);
+  await drawn('the charger recipes');
+  await Bun.sleep(300);
+  await shot('u-charger.png');
+  fixture.mark(`U on the Charger: ${r.tabs.join(' ')}; ${r.recipes} charger recipes`);
+  await key('escape');
+  await closed('Escape closes it');
   fixture.report('passed');
 } catch (error) {
   fixture.report('failed', error); throw error;

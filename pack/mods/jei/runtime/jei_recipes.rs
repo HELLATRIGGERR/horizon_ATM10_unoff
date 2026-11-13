@@ -1,15 +1,15 @@
 // JEI's recipe screen in the game (support module `crate::game::jei_recipes` of the `jei` native bundle): the game's
 // recipe tables (`native_recipes`) and the mods' own categories (`native_collect_recipe_categories`) into
-// `jei_core::recipes`, the open page out to the panel (`native_panel_recipes`, `native_panel_catalysts`), and R, U,
-// Backspace and clicks in. JEI draws its recipe screen as a window centred over the container; this port shows the
-// same tabs, catalysts, recipes and pages in the engine's panel at the right edge, where the item list is.
+// `jei_core::recipes`, the open page out to JEI's recipe window (`jei_window`, centred over the screen beside the
+// item list), and R, U, Backspace and the window's clicks in.
 use super::Game;
 use super::jei_world::{ID, KEYS};
+use super::jei_window::{self, Action};
 use super::native_hooks::{
-    NativePanelEvent, NativeRecipe, NativeRecipeCategory, NativeRecipeKind, NativeRecipeLayout, NativeRecipeLookup,
-    NativeRecipeStack, NativeRecipeView, NativeRecipes, NativeStack,
+    NativePanelEvent, NativeRecipe, NativeRecipeCategory, NativeRecipeKind, NativeRecipeLookup, NativeRecipeStack,
+    NativeRecipes, NativeStack,
 };
-use jei_core::recipes::{Book, Category, Focus, Mode, Output, Recipe, Shape, Stack, Viewer, View, cooking_note};
+use jei_core::recipes::{Book, Category, Focus, Mode, Output, Recipe, Shape, Stack, Viewer, cooking_note};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -57,9 +57,6 @@ fn state() -> std::sync::MutexGuard<'static, Option<State>> {
 
 fn stack(s: NativeStack) -> Stack {
     Stack { item: s.item, count: s.count.max(1), components: s.components }
-}
-fn native(s: Stack) -> NativeStack {
-    NativeStack { item: s.item, count: s.count, components: s.components }
 }
 fn slot(t: &NativeRecipes, list: &[NativeRecipeStack]) -> Vec<Stack> {
     list.iter()
@@ -133,6 +130,7 @@ fn ready<'a>(game: &mut Game<'_>, guard: &'a mut Option<State>) -> Option<&'a mu
     let fresh = guard.as_ref().is_some_and(|s| Arc::ptr_eq(&s.tables, &tables) && s.version == version);
     if !fresh {
         let book = book(&tables, game.native_collect_recipe_categories());
+        jei_window::set_names(Arc::new(book.names.clone()));
         match guard.as_mut() {
             Some(s) => {
                 s.viewer.set_book(book);
@@ -145,39 +143,9 @@ fn ready<'a>(game: &mut Game<'_>, guard: &'a mut Option<State>) -> Option<&'a mu
     guard.as_mut()
 }
 
-fn layout(shape: Shape) -> NativeRecipeLayout {
-    match shape {
-        Shape::Grid => NativeRecipeLayout::Grid,
-        Shape::Cooking => NativeRecipeLayout::Cooking,
-        Shape::Single => NativeRecipeLayout::Single,
-        Shape::Smithing => NativeRecipeLayout::Smithing,
-        Shape::Brewing => NativeRecipeLayout::Brewing,
-    }
-}
-fn recipe_view(v: View) -> NativeRecipeView {
-    NativeRecipeView {
-        layout: layout(v.shape),
-        width: v.width,
-        height: v.height,
-        slots: v.slots.into_iter().map(|s| s.into_iter().map(native).collect()).collect(),
-        results: v.results.into_iter().map(native).collect(),
-        note: v.note,
-        // "+" (recipe transfer) is slice 4.
-        action: None,
-    }
-}
-
-/// The open page to the panel, or the item list again when the screen closed.
-fn show(game: &mut Game<'_>, viewer: &Viewer) {
-    match viewer.page() {
-        Some(p) => {
-            let tabs = p.tabs.into_iter().map(native).collect();
-            let views = p.views.into_iter().map(recipe_view).collect();
-            game.native_panel_recipes(ID, &p.title, tabs, p.tab as u32, views);
-            game.native_panel_catalysts(ID, p.catalysts.into_iter().map(native).collect());
-        }
-        None => game.native_panel_recipes(ID, "", Vec::new(), 0, Vec::new()),
-    }
+/// The open page to the window, or the window closed.
+fn show(viewer: &Viewer) {
+    jei_window::set(viewer.page());
 }
 
 /// R or U on `item`: its recipes or uses, the open page going onto the history. Nothing happens when it has none.
@@ -187,12 +155,12 @@ pub(super) fn open(game: &mut Game<'_>, item: &str, mode: Mode) -> bool {
     if !s.viewer.open(Focus { item: item.to_owned(), mode }) {
         return false;
     }
-    show(game, &s.viewer);
+    show(&s.viewer);
     true
 }
 
 /// What a key does over `stack`: R its recipes, U its uses (as the player bound them).
-fn key_mode(game: &Game<'_>, key: &str) -> Option<Mode> {
+pub(super) fn key_mode(game: &Game<'_>, key: &str) -> Option<Mode> {
     let bound = |k: usize| game.native_mod_key(ID, KEYS[k][0], KEYS[k][2]);
     if key == bound(1) {
         Some(Mode::Recipes)
@@ -206,6 +174,8 @@ fn key_mode(game: &Game<'_>, key: &str) -> Option<Mode> {
 /// The panel's events that belong to the recipe screen; true when it took the event.
 pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) -> bool {
     let (item, mode) = match event {
+        // A key over the window is the window's (`jei_window::key`), not the slot of the screen under it.
+        NativePanelEvent::Key { .. } if jei_window::covers(game.native_cursor()) => return true,
         NativePanelEvent::Key { key, stack } => match key_mode(game, key) {
             Some(mode) => (stack.item.clone(), mode),
             None => return false,
@@ -217,7 +187,7 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) -> bool {
         NativePanelEvent::Tab(tab) => {
             if let Some(s) = state().as_mut() {
                 s.viewer.tab(*tab as usize);
-                show(game, &s.viewer);
+                show(&s.viewer);
             }
             return true;
         }
@@ -253,7 +223,7 @@ pub(super) fn lookup(game: &mut Game<'_>, stack: &NativeStack, lookup: &NativeRe
 fn back(game: &mut Game<'_>) {
     if let Some(s) = state().as_mut() {
         s.viewer.back();
-        show(game, &s.viewer);
+        show(&s.viewer);
     }
 }
 
@@ -265,15 +235,51 @@ pub(super) fn ask_back() {
     BACK.store(true, Ordering::Relaxed);
 }
 
-/// Each frame: a Backspace asked for; outside a world the screen and its book go.
+/// Closes the window and drops the history (JEI's `onClose`).
+fn close() {
+    if let Some(s) = state().as_mut() {
+        s.viewer.close();
+        show(&s.viewer);
+    }
+}
+
+/// Each frame: a Backspace and what the window's clicks, wheel and keys asked for; the window goes with the screen
+/// under it, and outside a world the window and its book go.
 pub(super) fn frame(game: &mut Game<'_>, in_world: bool) {
     if !in_world {
         *state() = None;
+        jei_window::set(None);
+        jei_window::take_actions();
         BACK.store(false, Ordering::Relaxed);
         return;
     }
     if BACK.swap(false, Ordering::Relaxed) {
         back(game);
+    }
+    for action in jei_window::take_actions() {
+        match action {
+            Action::Open(item, mode) => {
+                open(game, &item, mode);
+            }
+            Action::Tab(tab) => select(|_, _| tab),
+            Action::Category(by) => select(|tab, n| (tab as i32 + by).rem_euclid(n as i32) as usize),
+            Action::Page(by) => jei_window::turn(by),
+            Action::Close => close(),
+        }
+    }
+    if jei_window::stale() {
+        close();
+    }
+}
+
+/// Another tab: `to(tab, tabs)` picks it.
+fn select(to: impl Fn(usize, usize) -> usize) {
+    if let Some(s) = state().as_mut()
+        && let Some(cur) = s.viewer.current()
+    {
+        let n = cur.found.len().min(jei_core::recipes::TABS);
+        s.viewer.tab(to(cur.tab, n.max(1)));
+        show(&s.viewer);
     }
 }
 
@@ -295,5 +301,6 @@ pub(super) fn probe() -> serde_json::Value {
         "recipes": found.recipes.len(),
         "history": s.viewer.history(),
         "categories": book.categories.len(),
+        "window": jei_window::probe(),
     })
 }

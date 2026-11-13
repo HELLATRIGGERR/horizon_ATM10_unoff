@@ -128,7 +128,7 @@ mod recipe_screen {
                     vec![Output::always(s("mekanism:dust_iron"))],
                     vec![Output { stack: s("mekanism:dust_tin"), chance: 0.25, min: 1, max: 2, notes: vec![] }],
                 ],
-                vec!["Energy: 50 J/t".into()],
+                vec!["Energy: 50 J/t".into(), "Recipe: mekanism:crushing/iron_ingot_to_dust".into()],
             )],
         };
         let names = [("mekanism:dust_tin", "Tin Dust")].map(|(a, b)| (a.to_string(), b.to_string()));
@@ -201,5 +201,70 @@ mod recipe_screen {
         assert_eq!(v.page().unwrap().views[0].slots[0], vec![s("minecraft:raw_iron")]);
         assert_eq!(percent(0.005), "0.5");
         assert_eq!(wrap("a bb ccc dddd", 6), ["a bb", "ccc", "dddd"]);
+    }
+}
+
+mod window {
+    use crate::recipes::Shape;
+    use crate::window::*;
+
+    #[test]
+    fn the_window_is_centred_with_jeis_sizes_and_keeps_clear_of_the_list() {
+        // 960x540 at GUI scale 2, the item list from x 348 (creative): JEI's 198 px window, centred.
+        let s = Sizes { screen: [480.0, 270.0], panel_left: Some(348.0), tabs: 3, tab: 1, catalysts: 2, widest: 116.0 };
+        let w = window(&s);
+        assert_eq!(w.area, [141.0, 39.0, 198.0, 212.0]);
+        assert_eq!(w.tabs.len(), 3);
+        assert_eq!(w.tabs[0], [143.0, 18.0, 24.0, 24.0], "the tabs overlap the window's top by 3 px");
+        assert_eq!(w.catalyst_area, Some([119.0, 39.0, 28.0, 46.0]), "the catalysts' tab overlaps the left edge by 6 px");
+        assert_eq!(w.catalysts[1], [124.0, 62.0, 18.0, 18.0]);
+        assert_eq!(w.category_arrows[0], [147.0, 45.0, 13.0, 13.0]);
+        assert_eq!(w.page_arrows[1], [320.0, 60.0, 13.0, 13.0]);
+        assert_eq!(w.recipes[1], 77.0);
+        // The survival inventory's list starts at 330: the window moves left of it.
+        let w = window(&Sizes { panel_left: Some(330.0), ..s });
+        assert_eq!(w.area[0] + w.area[2], 328.0);
+        // A recipe wider than the window widens it.
+        assert_eq!(window(&Sizes { widest: 220.0, panel_left: None, ..s }).area[2], 232.0);
+    }
+
+    #[test]
+    fn tabs_page_and_catalysts_wrap_into_columns() {
+        let s = Sizes { screen: [480.0, 270.0], panel_left: None, tabs: 12, tab: 9, catalysts: 14, widest: 0.0 };
+        let w = window(&s);
+        // Eight 24 px tabs fit in 198 px; the selected ninth is on the second page of them.
+        assert_eq!((w.first_tab, w.tabs.len()), (8, 4));
+        // 11 rows fit in the 212 px tall window: 14 catalysts take two columns, the first beside the window.
+        let area = w.catalyst_area.unwrap();
+        assert_eq!(area[2], 2.0 * SLOT + 10.0);
+        assert!(w.catalysts[0][0] > w.catalysts[13][0]);
+        assert!(area[0] >= 0.0 && w.area[0] - area[0] == area[2] - 6.0);
+    }
+
+    #[test]
+    fn recipes_lay_out_as_jeis_vanilla_categories() {
+        // Crafting: the 3x3 grid, the arrow, the result beside it.
+        let p = places(Shape::Grid, 3, 3, 9);
+        assert_eq!(p.slots.len(), 10);
+        assert_eq!((p.slots[4], p.slots[9]), ([18.0, 18.0], [90.0, 18.0]));
+        assert_eq!(p.size, [108.0, 54.0]);
+        // Smelting: the input over the flame, 82 px wide.
+        let p = places(Shape::Cooking, 1, 1, 1);
+        assert_eq!((p.slots[0], p.slots[1], p.flame), ([0.0, 0.0], [54.0, 18.0], Some([1.0, 20.0])));
+        assert_eq!(p.size, [82.0, 54.0]);
+        // A machine with one input and six outputs: the extra five after the result, four to a row.
+        let p = places(Shape::Single, 1, 1, 6);
+        assert_eq!(p.slots.len(), 7);
+        assert_eq!(p.slots[6], [54.0, 0.0], "the result last");
+        assert_eq!((p.slots[1], p.slots[4], p.slots[5]), ([76.0, 0.0], [130.0, 0.0], [76.0, 18.0]));
+        assert_eq!(p.size, [148.0, 36.0]);
+    }
+
+    #[test]
+    fn pages_hold_the_recipes_that_fit_and_spread_them() {
+        assert_eq!(pages(&[54.0; 5], 135.0), [0, 2, 4]);
+        assert_eq!(pages(&[200.0, 20.0], 135.0), [0, 1], "a tall recipe has a page of its own");
+        assert_eq!(spread(&[54.0, 54.0], 100.0, 135.0), [106.0, 173.0]);
+        assert!(inside([10.0, 10.0], [0.0, 0.0, 18.0, 18.0]) && !inside([18.0, 0.0], [0.0, 0.0, 18.0, 18.0]));
     }
 }

@@ -162,6 +162,12 @@ name = "mek_sps"
 source = "runtime/mek_sps.rs"
 
 [[module]]
+id = "fusion"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_fusion"
+source = "runtime/mek_fusion.rs"
+
+[[module]]
 id = "nucleo"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_nucleo"

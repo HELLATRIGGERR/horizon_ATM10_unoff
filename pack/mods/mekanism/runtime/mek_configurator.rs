@@ -130,6 +130,14 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
                 }
                 return;
             }
+            // `TileEntityFusionReactorPort.onSneakRightClick`: input and output swap.
+            if id == super::mek_fusion::PORT {
+                if sneaking {
+                    *claimed = true;
+                    super::mek_fusion::toggle(game, pos);
+                }
+                return;
+            }
             // `TileEntitySPSPort.onSneakRightClick`: input and output swap.
             if id == super::mek_sps::PORT {
                 if sneaking {

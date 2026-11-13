@@ -202,7 +202,7 @@ fn emit_water(game: &mut Game<'_>, dimension: &str, vents: &[(Pos, Direction)], 
 }
 
 /// `CableUtils.emit` of the valves' targets: every Joule split among the blocks they face that take energy. What went.
-fn emit_energy(game: &mut Game<'_>, dimension: &str, valves: &[(Pos, Direction)], energy: u64) -> u64 {
+pub(super) fn emit_energy(game: &mut Game<'_>, dimension: &str, valves: &[(Pos, Direction)], energy: u64) -> u64 {
     let (config, _) = mek_world::energy_config();
     let mut targets = Vec::new();
     for &(pos, side) in valves {

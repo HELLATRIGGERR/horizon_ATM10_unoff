@@ -159,7 +159,20 @@ assets when `mekanism-content` is given them.
   its store, thresholds and delay and cycles the redstone output with a button; `/mek laser <x> <y> <z> min|max
   <J> | delay <ticks> | output <0-2> | control <0-3>` sets what Mekanism's text fields and redstone tab set. The
   tractor beam fires all it holds and keeps what it breaks in its 27 slots (hoppers take from them), the rest popping
-  two blocks in front of it.
+  two blocks in front of it. A laser on a formed fusion reactor's Laser Focus Matrix heats its plasma.
+- The Fusion Reactor (`mekanism_energy::fusion`, runtime `mek_fusion`): a 5x5x5 of fusion reactor frames whose faces
+  leave their corners and most of their edges out, the controller at the top's centre, ports, logic adapters, laser
+  focus matrices and reactor glass in the faces' middles, air inside. Laser Joules into a focus matrix heat its plasma
+  (a tenth of them a kelvin while it isn't burning); at 10^8 K a full Hohlraum (10 mB of D-T fuel, put in the
+  controller by a hopper) ignites it. Burning, it injects up to its injection rate (2 by default; `/mek fusion <x> <y>
+  <z> rate <n>` sets it, even, up to 98) of D-T fuel a tick from equal deuterium and tritium (500 mB each under ATM10)
+  and burns what its plasma's heat above 10^8 K allows, 10^7 J of plasma heat a mB. The plasma heats the case, the case
+  boils water into steam (room only once the rate was changed: rate times 10^6 mB of water, 10^8 of steam), loses heat
+  to the air through its ports and gives Joules through its thermocouples (0.04 of its heat to the air); ports in
+  output mode (the Configurator's sneaking use) send its Joules and steam to what they face, ports take deuterium,
+  tritium, D-T fuel and water. Its logic adapters give 15 out of the reactor in ready, capacity or depleted mode
+  (`/mek fusion <x> <y> <z> logic <mode> [cooled]`). The Hohlraum holds its D-T fuel in the item's custom data. Its
+  screens, the plasma's drawing and sound, the ports' Forge Energy and its comparators are left.
 - The ore chain: the Chemical Dissolution Chamber (an ore and sulfuric acid drawn at random every tick into 1000 mB
   of a dirty slurry in 100 ticks of 400 J), the Chemical Washer (`2^speed` operations a tick of water and a dirty
   slurry into the clean one, its water from fluid handlers and buckets) and the Chemical Crystallizer (200 mB of a

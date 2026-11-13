@@ -181,6 +181,9 @@ pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<D
     if block == super::mek_fission::PORT {
         return super::mek_fission::chemical_handler(game, dimension, pos, super::mek_fission::PORT, face, &registry, use_it);
     }
+    if block == super::mek_fusion::PORT {
+        return super::mek_fusion::chemical_handler(dimension, pos, &block, face, use_it);
+    }
     if block == super::mek_sps::PORT {
         return super::mek_sps::chemical_handler(dimension, pos, &block, face, use_it);
     }

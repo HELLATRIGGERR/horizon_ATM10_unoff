@@ -197,11 +197,16 @@ impl Beam for World<'_, '_> {
     }
 
     fn receptor(&mut self, pos: [i32; 3]) -> bool {
-        kind_of(&self.game.native_block(pos)).is_some_and(LaserKind::receives) && self.game.native_with_mod_block_entity(pos, |_| ()).is_some()
+        let block = self.game.native_block(pos);
+        // A laser focus matrix (`TileEntityLaserFocusMatrix`) is a receptor too.
+        (kind_of(&block).is_some_and(LaserKind::receives) || block == super::mek_fusion::FOCUS) && self.game.native_with_mod_block_entity(pos, |_| ()).is_some()
     }
 
     /// `receiveLaserEnergy`: `insert(EXECUTE, INTERNAL)` into its store; what doesn't fit is lost.
     fn give(&mut self, pos: [i32; 3], joules: u64) {
+        if super::mek_fusion::laser(self.game, pos, joules) {
+            return;
+        }
         let config = self.config;
         self.game.native_with_mod_block_entity(pos, |m| {
             let Some(kind) = kind_of(&m.id) else { return };

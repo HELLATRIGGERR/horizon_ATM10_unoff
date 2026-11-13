@@ -70,6 +70,7 @@ pub mod evaporation;
 pub mod factory;
 pub mod fe;
 pub mod fission;
+pub mod fusion;
 pub mod fluid_tank;
 pub mod gas;
 pub mod generator;

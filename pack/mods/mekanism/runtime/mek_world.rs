@@ -457,7 +457,7 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
         return Some(Target::Port { output });
     }
     // A turbine valve gives its Joules out itself and takes none (`INTERNAL` only), but a cable connects to it.
-    if super::mek_turbine::is_valve(&game.native_block(at)) {
+    if super::mek_turbine::is_valve(&game.native_block(at)) || game.native_block(at) == super::mek_fusion::PORT {
         return Some(Target::Generator);
     }
     let generator = game
@@ -1877,6 +1877,7 @@ pub(super) fn fluid_fill(
         || super::mek_boiler::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
         || super::mek_turbine::fluid_fill(_dimension, _pos, &entity.id, filled)
         || super::mek_fission::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
+        || super::mek_fusion::fluid_fill(_dimension, _pos, face.is_some(), &entity.id, resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
@@ -2031,6 +2032,12 @@ pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bo
     }
     if super::mek_evaporation::is_controller(block) {
         if !super::mek_evaporation::slot_accepts(slot, stack) {
+            *accepts = false;
+        }
+        return;
+    }
+    if block == super::mek_fusion::CONTROLLER {
+        if !super::mek_fusion::slot_accepts(stack) {
             *accepts = false;
         }
         return;
@@ -2459,6 +2466,16 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
         Some("radiation") => {
             let rest: Vec<&str> = words.collect();
             super::mek_radiation::command(game, player, &rest)
+        }
+        // `/mek fusion x y z rate <n> | logic <mode> [cooled]`: a fusion reactor's injection rate, a logic adapter's mode.
+        Some("fusion") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            let rest: Vec<&str> = words.collect();
+            match at {
+                (Some(x), Some(y), Some(z)) => super::mek_fusion::command(game, [x, y, z], &rest),
+                _ => serde_json::json!({ "error": "usage: /mek fusion <x> <y> <z> rate <n> | logic <mode> [cooled]" }),
+            }
         }
         Some("fission") => {
             let p = player.position;

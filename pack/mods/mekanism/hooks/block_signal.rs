@@ -16,5 +16,6 @@ fn mek_block_signal(
     };
     let block = level.native_state_block(state);
     crate::game::mek_fission::block_signal(name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
+    crate::game::mek_fusion::block_signal(name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
     crate::game::mek_lasers::block_signal(name, block, [pos.x, pos.y, pos.z], direct, signal);
 }

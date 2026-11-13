@@ -33,6 +33,7 @@ use mekanism_energy::{
     evaporation::{self, Heat},
     multiblock::{self, Cuboid, Failure, Inner, Node, Pos, Uuid},
     fission,
+    fusion,
     sides::Direction,
     sps,
     turbine,
@@ -45,7 +46,7 @@ use std::{
 };
 
 /// A multiblock manager (`Mekanism.tankManager`, `matrixManager`, `evaporationManager`, `boilerManager`,
-/// `spsManager`, `MekanismGenerators.turbineManager`, `fissionReactorManager`).
+/// `spsManager`, `MekanismGenerators.turbineManager`, `fissionReactorManager`, `fusionReactorManager`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(super) enum Kind {
     Tank,
@@ -55,12 +56,13 @@ pub(super) enum Kind {
     Turbine,
     Fission,
     Sps,
+    Fusion,
 }
 
 pub(super) const GLASS: &str = "mekanism:structural_glass";
 
 impl Kind {
-    pub(super) const ALL: [Self; 7] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine, Self::Fission, Self::Sps];
+    pub(super) const ALL: [Self; 8] = [Self::Tank, Self::Matrix, Self::Evaporation, Self::Boiler, Self::Turbine, Self::Fission, Self::Sps, Self::Fusion];
 
     /// `MultiblockManager.getName`.
     pub(super) fn name(self) -> &'static str {
@@ -72,6 +74,7 @@ impl Kind {
             Self::Turbine => "industrialTurbine",
             Self::Fission => "fissionReactor",
             Self::Sps => "sps",
+            Self::Fusion => "fusionReactor",
         }
     }
 
@@ -84,6 +87,7 @@ impl Kind {
             Self::Turbine => super::mek_turbine::CASING,
             Self::Fission => super::mek_fission::CASING,
             Self::Sps => super::mek_sps::CASING,
+            Self::Fusion => super::mek_fusion::FRAME,
         }
     }
 
@@ -96,17 +100,20 @@ impl Kind {
             Self::Turbine => super::mek_turbine::VALVE,
             Self::Fission => super::mek_fission::PORT,
             Self::Sps => super::mek_sps::PORT,
+            Self::Fusion => super::mek_fusion::PORT,
         }
     }
 
-    /// Its block that is neither casing nor valve (`CasingType.OTHER`): the evaporation plant's controller, the
-    /// turbine's vents, the fission reactor's logic adapters.
-    fn other(self) -> Option<&'static str> {
+    /// Its blocks that are neither casing nor valve (`CasingType.OTHER`): the evaporation plant's controller, the
+    /// turbine's vents, the fission reactor's logic adapters, the fusion reactor's controller, logic adapters and laser
+    /// focus matrices.
+    fn others(self) -> &'static [&'static str] {
         match self {
-            Self::Evaporation => Some(super::mek_evaporation::CONTROLLER),
-            Self::Turbine => Some(super::mek_turbine::VENT),
-            Self::Fission => Some(super::mek_fission::ADAPTER),
-            _ => None,
+            Self::Evaporation => &[super::mek_evaporation::CONTROLLER],
+            Self::Turbine => &[super::mek_turbine::VENT],
+            Self::Fission => &[super::mek_fission::ADAPTER],
+            Self::Fusion => &super::mek_fusion::OTHERS,
+            _ => &[],
         }
     }
 
@@ -114,7 +121,7 @@ impl Kind {
     /// valve.
     pub(super) fn of_block(block: &str) -> Option<(Self, bool)> {
         Self::ALL.into_iter().find_map(|k| {
-            if block == k.casing() || k.other() == Some(block) {
+            if block == k.casing() || k.others().contains(&block) {
                 Some((k, false))
             } else if block == k.valve() {
                 Some((k, true))
@@ -128,7 +135,8 @@ impl Kind {
     /// valve and the induction port, the evaporation controller; the boiler, the turbine and the reactor have no slots.
     fn holds_inventory(self, block: &str) -> bool {
         match self {
-            Self::Evaporation => self.other() == Some(block),
+            Self::Evaporation => self.others().contains(&block),
+            Self::Fusion => block == super::mek_fusion::CONTROLLER,
             Self::Boiler | Self::Turbine | Self::Fission | Self::Sps => false,
             _ => block == self.valve(),
         }
@@ -142,7 +150,7 @@ impl Kind {
             Some(Node::Frame)
         } else if block == self.valve() {
             Some(Node::Valve)
-        } else if self.other() == Some(block) {
+        } else if self.others().contains(&block) {
             Some(Node::Other)
         } else if (block == GLASS && !self.name().to_ascii_lowercase().contains("reactor")) || block == super::mek_fission::GLASS {
             Some(Node::Structural)
@@ -161,6 +169,7 @@ impl Kind {
             Self::Turbine => "industrialturbine",
             Self::Fission => "fissionreactor",
             Self::Sps => "sps",
+            Self::Fusion => "fusionreactor",
         }
     }
 
@@ -173,6 +182,7 @@ impl Kind {
             Self::Turbine => &TURBINE_DATA,
             Self::Fission => &FISSION_DATA,
             Self::Sps => &SPS_DATA,
+            Self::Fusion => &FUSION_DATA,
         }
     }
 
@@ -191,6 +201,8 @@ impl Kind {
             Self::Fission => [4, 0, 1, 0, 1],
             // Polonium and antimatter.
             Self::Sps => [2, 0, 0, 0, 0],
+            // Deuterium, tritium, D-T fuel and steam; the Hohlraum; water; its Joules; its case's heat.
+            Self::Fusion => [4, 1, 1, 1, 1],
         }
     }
 
@@ -253,6 +265,14 @@ static SPS_DATA: AttachmentType<Compound> = AttachmentType {
     copy_on_death: false,
     sync: false,
 };
+static FUSION_DATA: AttachmentType<Compound> = AttachmentType {
+    namespace: "mekanism",
+    name: "fusionreactor",
+    default: Compound::new,
+    codec: Some(AttachmentCodec { encode: identity, decode: identity }),
+    copy_on_death: false,
+    sync: false,
+};
 static FISSION_DATA: AttachmentType<Compound> = AttachmentType {
     namespace: "mekanism",
     name: "fissionreactor",
@@ -300,6 +320,9 @@ pub(super) struct Cache {
     pub(super) reactor: Option<fission::Core>,
     /// The SPS's own (`SPSCache`: `progress`, `processed`, `could_operate`, `energy_usage`, `last_processed`).
     pub(super) sps: Option<sps::Core>,
+    /// The fusion reactor's own (`FusionReactorCache`: `plasma_temp`, `injection_rate`, `burning`), with what its
+    /// formed multiblock keeps beside them.
+    pub(super) fusion: Option<fusion::Core>,
 }
 
 impl Cache {
@@ -315,6 +338,7 @@ impl Cache {
             dumping: 0,
             reactor: (kind == Kind::Fission).then(fission::Core::new),
             sps: (kind == Kind::Sps).then(sps::Core::default),
+            fusion: None,
         }
     }
 
@@ -364,6 +388,16 @@ impl Cache {
         match (self.sps.as_mut(), other.sps) {
             (Some(mine), Some(theirs)) => mine.merge(&theirs),
             (None, theirs) => self.sps = theirs,
+            _ => {}
+        }
+        // `FusionReactorCache.merge`: the hotter plasma, the higher rate, burning if either was.
+        match (self.fusion.as_mut(), other.fusion) {
+            (Some(mine), Some(theirs)) => {
+                mine.plasma = mine.plasma.max(theirs.plasma);
+                mine.rate = mine.rate.max(theirs.rate);
+                mine.burning |= theirs.burning;
+            }
+            (None, theirs) => self.fusion = theirs,
             _ => {}
         }
     }
@@ -434,6 +468,11 @@ impl Cache {
             c.insert(key("partial_waste"), Tag::Double(core.partial_waste.to_bits()));
             c.insert(key("disabled"), Tag::Byte(i8::from(core.force_disabled)));
             c.insert(key("active"), Tag::Byte(i8::from(core.active)));
+        } else if kind == Kind::Fusion {
+            let core = self.fusion.unwrap_or(fusion::Core { rate: -1, ..fusion::Core::new(evaporation::AMBIENT) });
+            c.insert(key("plasma_temp"), Tag::Double(core.plasma.to_bits()));
+            c.insert(key("injection_rate"), Tag::Int(if core.rate == -1 { fusion::DEFAULT_INJECTION } else { core.rate }));
+            c.insert(key("burning"), Tag::Byte(i8::from(core.burning)));
         } else if kind == Kind::Sps {
             let core = self.sps.unwrap_or_default();
             c.insert(key("progress"), Tag::Double(core.progress.to_bits()));
@@ -474,13 +513,23 @@ impl Cache {
             dumping: mek_world::number(c.get(&key("dumping"))).unwrap_or(0) as i32,
             reactor: None,
             sps: None,
+            fusion: None,
         };
         let double = |name: &str| match c.get(&key(name)) {
             Some(Tag::Double(v)) => Some(f64::from_bits(*v)),
             Some(Tag::Float(v)) => Some(f64::from(f32::from_bits(*v))),
             other => mek_world::number(other).map(|n| n as f64),
         };
-        if c.get(&key("reactor_damage")).is_some() || c.get(&key("injection_rate")).is_some() {
+        let fusion_cache = c.get(&key("plasma_temp")).is_some() || c.get(&key("burning")).is_some();
+        if fusion_cache {
+            cache.fusion = Some(fusion::Core {
+                plasma: double("plasma_temp").unwrap_or(0.0),
+                rate: mek_world::number(c.get(&key("injection_rate"))).unwrap_or(0) as i32,
+                burning: mek_world::number(c.get(&key("burning"))).unwrap_or(0) != 0,
+                ..fusion::Core::new(evaporation::AMBIENT)
+            });
+        }
+        if !fusion_cache && (c.get(&key("reactor_damage")).is_some() || c.get(&key("injection_rate")).is_some()) {
             cache.reactor = Some(fission::Core {
                 damage: double("reactor_damage").unwrap_or(0.0),
                 rate_limit: double("injection_rate").unwrap_or(-1.0),
@@ -637,6 +686,7 @@ pub(super) fn clear() {
     super::mek_boiler::clear();
     super::mek_turbine::clear();
     super::mek_fission::clear();
+    super::mek_fusion::clear();
 }
 
 // ---- Block entities --------------------------------------------------------------------------
@@ -665,6 +715,8 @@ pub(super) fn container(block: &str) -> Option<ModContainer> {
         Kind::Evaporation => (vec![0, 1, 2, 3], vec![0, 2], vec![1, 3]),
         // The boiler's, the turbine's and the reactor's casings and valves open their screen, which has no slots.
         Kind::Boiler | Kind::Turbine | Kind::Fission | Kind::Sps => (Vec::new(), Vec::new(), Vec::new()),
+        // The controller's Hohlraum slot (`ReactorInventorySlot`).
+        Kind::Fusion => (vec![0], vec![0], vec![0]),
         _ => (vec![0, 1], vec![0, 1], vec![0, 1]),
     };
     Some(ModContainer {
@@ -858,6 +910,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
             f
         }),
         Kind::Sps => super::mek_sps::form(game, &nodes),
+        Kind::Fusion => super::mek_fusion::form(game, &nodes),
         _ => multiblock::form(&nodes, multiblock::MIN_BOUNDS, multiblock::MAX_BOUNDS, |p| inner_at(game, kind, p)),
     };
     let touched: BTreeSet<Uuid> = with_dim(dimension, |d| nodes.keys().filter_map(|p| d.at.get(&(kind, *p)).copied()).collect());
@@ -942,6 +995,7 @@ fn run(game: &mut Game<'_>, dimension: &str, kind: Kind, seed: Pos) -> Option<(V
         Kind::Turbine => super::mek_turbine::created(dimension, id),
         Kind::Fission => super::mek_fission::created(game, dimension, id),
         Kind::Sps => super::mek_sps::created(dimension, id),
+        Kind::Fusion => super::mek_fusion::created(game, dimension, id),
     }
     sparkle(game, &formation.cuboid);
     Some((explored, Ok(id)))
@@ -966,6 +1020,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
         }
         if formed.kind == Kind::Turbine {
             super::mek_turbine::removed(&formed);
+        }
+        if formed.kind == Kind::Fusion {
+            super::mek_fusion::removed(dimension, &formed);
         }
         if formed.kind == Kind::Fission {
             super::mek_fission::removed(dimension, &formed);
@@ -993,6 +1050,9 @@ fn unform(dimension: &str, id: Uuid, game: Option<&mut Game<'_>>) {
     }
     if formed.kind == Kind::Turbine {
         super::mek_turbine::removed(&formed);
+    }
+    if formed.kind == Kind::Fusion {
+        super::mek_fusion::removed(dimension, &formed);
     }
     if formed.kind == Kind::Fission {
         super::mek_fission::removed(dimension, &formed);
@@ -1199,6 +1259,9 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
     }
     let ids: Vec<Uuid> = with_dim(dimension, |d| d.formed.keys().copied().collect());
     for id in ids {
+        // A hopper put into or took from a slot after this tick's start: the cache takes it before the push would
+        // write its own over it.
+        pull_views(game, dimension, id);
         push_views(game, dimension, id);
     }
     super::mek_evaporation::flush(game, dimension);
@@ -1226,6 +1289,7 @@ pub(super) fn level_tick_pre(game: &mut Game<'_>, dimension: &str) {
             Kind::Turbine => super::mek_turbine::tick(game, dimension, id),
             Kind::Fission => super::mek_fission::tick(game, dimension, id),
             Kind::Sps => super::mek_sps::tick(game, dimension, id),
+            Kind::Fusion => super::mek_fusion::tick(game, dimension, id),
         }
         push_views(game, dimension, id);
     }
@@ -1272,6 +1336,7 @@ fn push_views(game: &mut Game<'_>, dimension: &str, id: Uuid) {
         Kind::Turbine => super::mek_turbine::view(dimension, id),
         Kind::Fission => super::mek_fission::view(game, dimension, id),
         Kind::Sps => super::mek_sps::view(dimension, id),
+        Kind::Fusion => super::mek_fusion::view(dimension, id),
     };
     for p in views {
         // A logic adapter's screen shows its own mode and status too.
@@ -1449,6 +1514,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: Pos, id: &str) -> Option<Value> {
             Kind::Turbine => super::mek_turbine::probe(dimension, owner),
             Kind::Fission => super::mek_fission::probe(game, dimension, owner),
             Kind::Sps => super::mek_sps::probe(game, dimension, owner),
+            Kind::Fusion => super::mek_fusion::probe(game, dimension, owner),
         };
         if let (Some(v), Value::Object(extra)) = (v.as_object_mut(), extra) {
             v.extend(extra);

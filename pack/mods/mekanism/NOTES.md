@@ -400,7 +400,34 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   `BlockEvent.BreakEvent` and TNT's ignition, the amplifier's text fields (`/mek laser`) and its redstone control
   button, pulling its Joules with cables, comparators, the item's kept settings, and the order of block entity ticks
   when a receptor ticks before the laser that feeds it.
-- Next: the Fusion Reactor (its frame: corners left out; the lasers ignite it); the fission reactor's rest (the entities in
+- The Fusion Reactor (`mekanism_energy::fusion`, `Kind::Fusion` in `mek_multiblock`, runtime `mek_fusion`). Done: the
+  rules (the validator's `ALLOWED_GRID` and the controller check, `FusionConfig`, the core and its tick, the stats
+  formulas, the logic adapter modes; 4 unit tests, the tick matching the oracle to the last digit for 4 ticks),
+  `Kind::Fusion` in the framework (`others()` replaces `other()`: the reactor has three OTHER blocks; caches with
+  `plasma_temp`/`burning` load as fusion, not fission), form, created, tick, the focus matrix as a laser receptor in
+  `mek_lasers`, the ports' chemical and water handlers and their mode by the Configurator, energy and steam out of
+  output ports through `mek_turbine::emit_energy`, the logic adapters' signal, `/mek fusion <pos> rate <n> | logic
+  <mode> [cooled]`, probe, the controller's Hohlraum slot (a hopper fills it; only a Hohlraum is accepted; the item
+  holds its D-T fuel in `custom_data.mekanism.chemical_tanks` like every chemical item here, not in a
+  `mekanism:chemicals` component), the mixin module. World test `fusion` (formation with four refusals, the ignition
+  run against the oracle's rows, the lamp, the rate's room, a restart) and unit tests `fusion`. The framework's
+  post-tick `push_views` now pulls first: a hopper's change between the block entity phase and the push was
+  overwritten by the cache, which would have bitten every multiblock slot.
+  Left: the ports' Forge Energy (`fe_storage`/`fe_transfer` in `mek_world`), the cables' look at a loaded port
+  (`entity_loaded`), the controller's screen and tabs, entities hurt inside (`kill`), heat to adjacent blocks,
+  per-side ambient of the ports' air, the plasma's drawing and sound, comparators. Lab: `atm10-work/mekfusion-work`
+  (`mek.sh`; oracle on RCON 25701: `bash oracle/server.sh` in the background, `python oracle/rcon.py stop`; `lab/f.py`
+  helpers, `lab/e1.py` the ignition run, `e1.json` its rows).
+  Mekanism's behaviour, from 10.7.19's classes: the controller must sit at the top's centre (`validateFrame`: no
+  controller / controller conflict); laser Joules heat the plasma by E/100 burning, E/100*10 not; at 10^8 K a full
+  Hohlraum (10 mB of D-T fuel, through a hopper into the controller) ignites it; `injectFuel` takes min(room,
+  2*min(D,T), rate) made even; `burnFuel` the last plasma heat above 10^8 K clamped to the fuel; plasma to case 0.2 of
+  their difference (the plasma at a hundredth), case to water at `waterHeatingRatio`, each port's six sides to the air
+  (`simulateEnvironment`: 1/(10000 + 100000 + 1/conductivity)), the thermocouples `conductivity * (case - air)` with
+  `thermocoupleEfficiency` of it as Joules; `maxWater` and `maxSteam` are only set when the rate changes, so a reactor
+  at the default 2 holds no water; the last plasma and case temperatures start at the air on every formation, so a
+  reactor reloaded burning goes out unless a Hohlraum is in.
+- Next: the Fusion Reactor's rest (see its paragraph above); the fission reactor's rest (the entities in
   its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside
   them, sounds); the turbine's rest

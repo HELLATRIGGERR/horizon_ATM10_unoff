@@ -415,3 +415,6 @@ which installs an addon `"kits"` into AE2's extension. The two addons, still ins
 v2's addon-to-addon kind, `Game::ae2_addon_kit_use` = `call_addon("kits", "use", (KITS, pos, face))`, in the
 place they called `ae2x_kit_use`; once they sit above, they call `horizon_ae2x_kits::kit_use` directly. The
 crate is built in with either addon's feature of horizon-atm10.
+
+An edit of `horizon-ae2x-kits/src/game.rs` builds in 2.8 s (`fast`, `-j 6`, the program included; `tools/build_times.py`,
+`split-work/measure-kits.sh`).

@@ -216,6 +216,15 @@ impl Game<'_> {
         ext.addon(id)?.command(self, words)
     }
 
+    /// `useOn` of the held item when it is one of `kits`, at block `pos`, side `face`: the kits
+    /// crate's (horizon-ae2x-kits), called as `"kits"`'s `"use"`. True when it replaced a device;
+    /// false when the kits are not built in.
+    #[cfg(any(feature = "ae2-extendedae", feature = "ae2-advancedae"))]
+    pub(super) fn ae2_addon_kit_use(&mut self, kits: &'static [horizon_client::ae2x::kits::Kit], pos: [i32; 3], face: [i32; 3]) -> bool {
+        let args: (&'static [horizon_client::ae2x::kits::Kit], [i32; 3], [i32; 3]) = (kits, pos, face);
+        Ae2Host::call_addon(self, "kits", "use", &args).and_then(|done| done.downcast::<bool>().ok()).is_some_and(|done| *done)
+    }
+
     /// A LAN guest's custom payload on the addon `id`'s channel, which acts on the stack in the
     /// guest's selected slot (`Ae2Addon::lan_main_hand_payload`); the guest's inventory is sent
     /// again when it changed it. False when the addon is not built in.

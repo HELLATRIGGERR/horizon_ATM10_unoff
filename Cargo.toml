@@ -48,6 +48,7 @@ members = [
     "crates/horizon-ae2",
     "crates/horizon-ae2x-aeinfinitybooster",
     "crates/horizon-ae2x-enderdrives",
+    "crates/horizon-ae2x-kits",
     "crates/horizon-atm10",
     "xtask",
 ]

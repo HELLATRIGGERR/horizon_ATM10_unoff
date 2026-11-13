@@ -6,7 +6,7 @@
 //!
 //! A kit used on AE2's own device replaces it with the extended one, where it
 //! stands and with all it holds (the addons' `kits`).
-use super::super::kits::Kit;
+use horizon_client::ae2x::kits::Kit;
 use crate::game::Game;
 
 pub(in crate::game) const KITS: &[Kit] = &[
@@ -40,13 +40,13 @@ impl Game<'_> {
     /// `ItemUpgrade.useOn` for the held item at block `pos`, side `face`.
     /// True when it replaced a device.
     pub(in crate::game) fn extendedae_kit_use(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
-        self.ae2x_kit_use(KITS, pos, face)
+        self.ae2_addon_kit_use(KITS, pos, face)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::kits::{upgraded, upgraded_part};
+    use horizon_client::ae2x::kits::{upgraded, upgraded_part};
     use super::*;
     use horizon_client::{ae2_world::{Machine, variant}, items::ItemStack};
     use horizon_world::nbt::Tag;

@@ -1458,6 +1458,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "horizon-ae2x-kits"
+version = "0.1.0"
+dependencies = [
+ "horizon-ae2",
+ "horizon-client",
+ "horizon-world",
+]
+
+[[package]]
 name = "horizon-anticheat"
 version = "0.1.0"
 dependencies = [
@@ -1483,6 +1492,7 @@ dependencies = [
  "horizon-ae2",
  "horizon-ae2x-aeinfinitybooster",
  "horizon-ae2x-enderdrives",
+ "horizon-ae2x-kits",
  "horizon-client",
  "horizon-mods",
  "horizon-threads",

@@ -404,3 +404,14 @@ What v2 leaves to the moves: the game-typed static questions (`orientation`, `pa
 `bus_tick` with a `dyn TransferHost`, the machine screens' `layout`/`style_slots`) need their types made public in
 their fork-only modules first, as `GridAddress` was; and each hook gets its `Game::ae2_addon_<hook>` wrapper when
 its first caller moves (an unused one would be a warning).
+
+### Step 1, the kits (`horizon-ae2x-kits`)
+
+ExtendedAE's and Advanced AE's upgrade kits are shared by the two addons, so they move first. The kit rows' type
+and what a kit makes of a device (`Kit`, `upgraded`, `upgraded_part`: pure, lib types only) went to the lib's
+`ae2x::kits`, where the two addons' tests still reach them; the use of a kit on a device (`kit_use`: sneaking,
+the held kit, the block or part swapped with what it held, the provider's patterns announced) went to the crate,
+which installs an addon `"kits"` into AE2's extension. The two addons, still inside horizon-client, call it with
+v2's addon-to-addon kind, `Game::ae2_addon_kit_use` = `call_addon("kits", "use", (KITS, pos, face))`, in the
+place they called `ae2x_kit_use`; once they sit above, they call `horizon_ae2x_kits::kit_use` directly. The
+crate is built in with either addon's feature of horizon-atm10.

@@ -21,8 +21,6 @@ pub(super) mod importexportcard;
 pub(super) mod appflux;
 #[cfg(feature = "ae2-advancedae")]
 pub(super) mod advancedae;
-#[cfg(any(feature = "ae2-extendedae", feature = "ae2-advancedae"))]
-pub(super) mod kits;
 
 /// The addons' key types' world strategies (`StackWorldBehaviors.register*`),
 /// registered once, before `ae2_key_strategies` is first read.

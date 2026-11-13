@@ -21,6 +21,7 @@ horizon-client = { path = "../horizon-client", default-features = false }
 horizon-ae2 = { path = "../horizon-ae2", optional = true }
 horizon-ae2x-aeinfinitybooster = { path = "../horizon-ae2x-aeinfinitybooster", optional = true }
 horizon-ae2x-enderdrives = { path = "../horizon-ae2x-enderdrives", optional = true }
+horizon-ae2x-kits = { path = "../horizon-ae2x-kits", optional = true }
 # The mod API level mark and the allocator, as horizon-client's own program has them.
 horizon-mods = { path = "../horizon-mods", default-features = false }
 horizon-threads = { path = "../horizon-threads" }
@@ -35,13 +36,13 @@ default = ["audio", "controllers", "horizon-extras"]
 ae2-lab = ["horizon-client/ae2-lab", "dep:horizon-ae2"]
 ae2-megacells = ["ae2-lab", "horizon-client/ae2-megacells"]
 ae2-merequester = ["ae2-lab", "horizon-client/ae2-merequester"]
-ae2-extendedae = ["ae2-lab", "horizon-client/ae2-extendedae"]
+ae2-extendedae = ["ae2-lab", "horizon-client/ae2-extendedae", "dep:horizon-ae2x-kits"]
 ae2-ae2wtlib = ["ae2-lab", "horizon-client/ae2-ae2wtlib"]
 ae2-aeinfinitybooster = ["ae2-lab", "horizon-client/ae2-aeinfinitybooster", "dep:horizon-ae2x-aeinfinitybooster"]
 ae2-importexportcard = ["ae2-lab", "horizon-client/ae2-importexportcard"]
 ae2-appflux = ["ae2-lab", "horizon-client/ae2-appflux"]
 ae2-enderdrives = ["ae2-lab", "horizon-client/ae2-enderdrives", "dep:horizon-ae2x-enderdrives"]
-ae2-advancedae = ["ae2-lab", "horizon-client/ae2-advancedae"]
+ae2-advancedae = ["ae2-lab", "horizon-client/ae2-advancedae", "dep:horizon-ae2x-kits"]
 audio = ["horizon-client/audio"]
 controllers = ["horizon-client/controllers"]
 horizon-extras = ["horizon-client/horizon-extras"]

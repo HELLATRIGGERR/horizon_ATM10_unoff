@@ -4,6 +4,7 @@
 //! `game/ae2x/<id>/`.
 pub mod defs;
 pub mod rules;
+pub mod kits;
 pub mod wireless;
 #[cfg(feature = "ae2-megacells")]
 pub mod megacells;

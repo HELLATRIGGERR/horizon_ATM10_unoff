@@ -21,6 +21,8 @@ fn main() {
     horizon_ae2x_aeinfinitybooster::install();
     #[cfg(feature = "ae2-enderdrives")]
     horizon_ae2x_enderdrives::install();
+    #[cfg(any(feature = "ae2-extendedae", feature = "ae2-advancedae"))]
+    horizon_ae2x_kits::install();
     #[cfg(feature = "ae2-lab")]
     horizon_ae2::install();
     horizon_client::entry::main();

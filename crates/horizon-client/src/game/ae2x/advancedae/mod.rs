@@ -98,13 +98,13 @@ pub(in crate::game) fn part_style(id: &str) -> Option<(&'static str, &'static st
 /// `AdvPatternProviderCapacityUpgradeItem`): by the exact class, AE2's
 /// provider becomes the small one and ExtendedAE's the large one, the small
 /// one the large one; block and part alike.
-pub(in crate::game) const KITS: &[crate::game::ae2x::kits::Kit] = &[
-    crate::game::ae2x::kits::Kit {
+pub(in crate::game) const KITS: &[horizon_client::ae2x::kits::Kit] = &[
+    horizon_client::ae2x::kits::Kit {
         item: rows::ADV_PATTERN_PROVIDER_UPGRADE,
         blocks: &[("ae2:pattern_provider", rows::SMALL_ADV_PATTERN_PROVIDER), ("extendedae:ex_pattern_provider", rows::ADV_PATTERN_PROVIDER)],
         parts: &[("ae2:cable_pattern_provider", rows::SMALL_ADV_PATTERN_PROVIDER_PART), ("extendedae:ex_pattern_provider_part", rows::ADV_PATTERN_PROVIDER_PART)],
     },
-    crate::game::ae2x::kits::Kit {
+    horizon_client::ae2x::kits::Kit {
         item: rows::ADV_PATTERN_PROVIDER_CAPACITY_UPGRADE,
         blocks: &[(rows::SMALL_ADV_PATTERN_PROVIDER, rows::ADV_PATTERN_PROVIDER)],
         parts: &[(rows::SMALL_ADV_PATTERN_PROVIDER_PART, rows::ADV_PATTERN_PROVIDER_PART)],
@@ -368,7 +368,7 @@ impl crate::game::Game<'_> {
 
     /// An upgrade item used on block `pos`, side `face` (sneaking; `useOn`).
     pub(in crate::game) fn advancedae_kit_use(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
-        self.ae2x_kit_use(KITS, pos, face)
+        self.ae2_addon_kit_use(KITS, pos, face)
     }
 
     /// The tooltip of an Advanced Processing Pattern, `item_name` naming an
@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn the_upgrade_items_turn_each_provider_into_the_next_with_its_patterns() {
-        use crate::game::ae2x::kits::{upgraded, upgraded_part};
+        use horizon_client::ae2x::kits::{upgraded, upgraded_part};
         horizon_client::ae2x::install();
         let kit = |id: &str| KITS.iter().find(|kit| kit.item == id).unwrap();
         let upgrade = kit(rows::ADV_PATTERN_PROVIDER_UPGRADE);

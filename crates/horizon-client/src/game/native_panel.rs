@@ -106,7 +106,8 @@ impl Panel {
     }
     /// `native_panel_recipes`.
     pub(super) fn show_recipes(&mut self, mod_id: &str, page: Option<RecipePage>) {
-        let filtering = mod_id == "recipes" && !self.sent.is_empty();
+        let filtering =
+            (mod_id == "recipes" || self.viewer_styled.contains(mod_id)) && !self.sent.is_empty();
         if let Some(shown) = self.native_of(mod_id, page.is_some()) {
             let returning_to_search = filtering && shown.recipes.is_some() && page.is_none();
             shown.recipes = page;
@@ -220,7 +221,8 @@ impl Game<'_> {
             return None;
         };
         let of = (shown.owner.clone(), shown.version);
-        if self.screen == Screen::Creative && of.0.native_id() != "recipes" {
+        // A recipe viewer's panel (the viewer style) shows beside the creative inventory too.
+        if self.screen == Screen::Creative && !self.panel.viewer_style(&of.0) {
             return None;
         }
         if self.panel.of.as_ref() != Some(&of) {
@@ -255,11 +257,12 @@ impl Game<'_> {
     /// the search box at its foot. None when the screen has no room for it.
     fn browser_layout(&self, batch: &HudBatch) -> Option<Layout> {
         let image = self.container_image(batch);
+        // A recipe viewer's panel (the viewer style) takes the screen's right edge, full height.
         let recipes = self
             .panel
             .of
             .as_ref()
-            .is_some_and(|(owner, _)| owner.native_id() == "recipes");
+            .is_some_and(|(owner, _)| self.panel.viewer_style(owner));
         let left = if self.screen == Screen::Creative {
             Self::creative_origin(batch).0 + 198.0 + MARGIN
         } else {
@@ -503,9 +506,11 @@ impl Game<'_> {
             .then_some("horizon/jei/search_background_v2");
         let search = self.browser_search(&layout);
         // The hint shows in an empty box without focus, as the recipe book's.
-        search.suggestion = (search.value.is_empty() && !search.focused).then_some(hint);
+        search.suggestion = (search.value.is_empty() && !search.focused).then_some(hint.clone());
         let mut search = search.clone();
         search.draw_with_skin(batch, &self.gui.atlas, None, skin);
+        // The box as a widget under its hint, so the control socket's `click-button` reaches it.
+        horizon_client::widgets::record(&hint, layout.search, true);
         self.panel.search = Some(search);
         if let Some(rect @ [x, y, width, height]) = layout.settings {
             let hovered = inside(cursor, rect);
@@ -563,7 +568,7 @@ impl Game<'_> {
                     .mods
                     .installed
                     .iter()
-                    .position(|entry| entry.id == "recipes" && entry.native.is_some())
+                    .position(|entry| entry.id == owner.native_id() && entry.native.is_some())
                 {
                     self.mod_browser_closed();
                     self.panel.recipes_settings_return = Some(self.screen);
@@ -573,6 +578,7 @@ impl Game<'_> {
             return true;
         }
         let shift = self.has_shift_down();
+        let viewer = self.panel.viewer_style(&owner);
         let atlas = &self.gui.atlas;
         let search = self.panel.search.get_or_insert_with(|| {
             let mut edit = EditBox::new(0.0, 0.0, 0.0, 0.0);
@@ -582,6 +588,13 @@ impl Game<'_> {
         [search.x, search.y, search.width, search.height] = layout.search;
         if inside(cursor, layout.search) {
             search.focused = true;
+            // A right click empties a viewer's search box, as JEI's does.
+            if right && viewer {
+                search.set_value("");
+                search.reset_blink();
+                self.browser_searched();
+                return true;
+            }
             search.click(atlas, cursor.0, shift, false);
             search.reset_blink();
             return true;
@@ -689,7 +702,7 @@ impl Game<'_> {
         let Some(owner) = self.browser_sync() else {
             return false;
         };
-        if owner.native_id() != "recipes" || self.panel.recipes.is_none() {
+        if !self.panel.viewer_style(&owner) || self.panel.recipes.is_none() {
             return false;
         }
         self.mod_browser_closed();
@@ -698,7 +711,7 @@ impl Game<'_> {
     }
     pub(super) fn close_transferred_recipe(&mut self) {
         if let Some(owner) = self.browser_sync()
-            && owner.native_id() == "recipes"
+            && self.panel.viewer_style(&owner)
             && self.panel.recipes.is_some()
         {
             self.mod_browser_closed();

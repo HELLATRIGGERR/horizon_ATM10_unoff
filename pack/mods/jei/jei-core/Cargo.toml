@@ -1,0 +1,9 @@
+[package]
+name = "jei-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "JEI 19.70.0.464's ingredient list and search (Just Enough Items, MIT), reimplemented for the pack's port"
+
+# No dependencies: the runtime module turns the game's items into `Item`s.
+[dependencies]

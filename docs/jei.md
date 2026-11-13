@@ -1,5 +1,35 @@
 # JEI (Just Enough Items) port plan
 
+> **Handoff (2026-11-13): slice 1 is done, slice 2 (the recipe screen) is next.**
+> **Slice 1 as it stands** (`JEI, slice 1: the ingredient list and its search`): `pack/mods/jei` (crate `jei-core`: JEI's
+> order and search, 5 unit tests; `runtime/jei_world.rs`: the list follows the world in `frame`, search in `panel_event`,
+> Ctrl+O through `screen_key_pressed_pre` + a flag the next frame flips, cheat mode through `native_give`, the Options >
+> Mods page, the `/jeiclient` probe under `JEI_DEV=1`; 8 hooks in `horizon-mixin.toml`), `pack/scripts/jei.ts`, and the
+> engine change in `crates/horizon-client/src/game/native_panel.rs`: the right-edge layout, the creative screen, Back, the
+> config button and the right-click-empties-the-box rule follow `NativePanelStyle::Viewer`, not the id `recipes`; the box
+> is a widget `Search...`. World test `jei/item-list` passes (11 checks, 25-35 s): 2021 items, Minecraft first, 27 pages
+> of 7 x 11, 7 searches, Ctrl+O, a cheat-mode give; its screenshots show the list on the right edge like JEI's (nav
+> bar `n/27` on top, search box and wrench at the foot), items drawn, the box emptying and the overlay vanishing on Ctrl+O.
+> **Test traps** (they cost runs): the `key` control does not reach the panel's box (only `type TEXT` and `type \b`, one
+> backspace, do); `click-button Search...` puts the caret at the click, mid-text, so empty the box with
+> `click-at X Y right` (rect from `screen` buttons) and then `type`; a passing run's folder is deleted, so `jei.sh` copies
+> the PNGs to `jei-work/logs/shots-<name>/` first.
+> **Slice 2, the recipe screen: what to do.** R over a slot or a list item shows its recipes, U its uses (`panel_event`
+> Key for the list; `screen_key_pressed_pre` + the slot under the pointer for container screens; `recipe_lookup` for what
+> other mods' screens ask), as `native_panel_recipes(mod, title, tabs, tab, views)` (`native_panel_recipes.rs`:
+> `RecipePage`, at most 256 recipes and 16 tabs, `NativeRecipeView` with layout, slots, results, note, action). One tab
+> per category with its catalysts as the icon; vanilla's types from `native_recipes()` (tables of the open world) and the
+> mods' from `native_collect_recipe_categories()` (Mekanism 21 + boiler/SPS/fission, AE2 7, ExtendedAE 3, Advanced AE
+> 1), collected again when `native_recipe_categories_version()` moves; page arrows; Backspace history (the engine's
+> Backspace and Back already follow the Viewer style: `close_transferred_recipe`, `show_recipes`'s `filtering`). Add the
+> `recipe_lookup` hook (`hooks/recipe_lookup.rs`, a line in `horizon-mixin.toml`) and a test `tests/recipes.ts` (R on a
+> list item, tabs, Backspace back to the list). Read Horizon's own viewer for the engine calls, not to copy:
+> `D:/VSCODE_PROJECTS/DEV_1/atm10-work/ref/horizon-mods/native/recipes` (MIT, read-only). JEI draws a centred window over
+> the container, the engine's panel draws pages beside it: keep the panel and say so in the commit.
+> Build/test: `bash D:/VSCODE_PROJECTS/DEV_1/atm10-work/jei-work/jei.sh [units stage build world]` (`JEI_LIST=jei/item-list`
+> picks tests; own stage and target under `jei-work`, `AE2_PROFILE=iter`, through `wait-slot.sh 3`); never edit sources
+> while `stage` runs (`E_STALE_SOURCE`). Left after slice 2: slices 3-5 below.
+
 ATM10 ships JEI 19.70.0.464 (`jei-1.21.1-neoforge-19.70.0.464.jar`, MIT). This port is JEI itself, its look and
 behaviour, as a native bundle `pack/mods/jei` (bundle id `jei`); it is not Horizon's own Recipes viewer. Behaviour is
 read from the player's jar (targeted `javap`, file listings), written anew in the crate `jei-core`; no JEI file is in
@@ -23,7 +53,7 @@ jar at run time through the carry (generated content), never committed.
 
 ## Slices
 
-1. **The ingredient list and its search** (this session). Items in JEI's order (mod name, Minecraft first, then the
+1. **The ingredient list and its search** (done). Items in JEI's order (mod name, Minecraft first, then the
    registry's order within a mod); JEI's whole search syntax and modes; paging; Ctrl+O; cheat mode (give through
    `native_give`, creative only) as a setting; the Options > Mods page with JEI's keys and the cheat/search-mode
    switches; `/jeiclient` probe (dev only) for tests. Hooks: `frame`, `panel_event`, `screen_key_pressed_pre`, `mods`,
@@ -50,8 +80,9 @@ jar at run time through the carry (generated content), never committed.
   Options > Mods page. The search box is recorded as a widget (`click-button` reaches it).
 - No mouse wheel over the panel, no way for a mod to set the panel's page (PgUp/PgDn, JEI's scroll) or focus its
   search (Ctrl+F); no wider grid than 9 columns (JEI's `maxColumns`).
-- No tooltip text per item (`$` searches the name and the mod name only), no creative tabs' contents (`%`, and
-  JEI's subtypes: potions, enchanted books, filled tanks) and no item colours (`^` needs the texture's colours).
+- No tooltip lines per item: `$` (and plain words, tooltip search being on) has nothing past the name and mod name,
+  which JEI leaves out of it anyway; no creative tabs' contents (`%`, and JEI's subtypes: potions, enchanted books,
+  filled tanks) and no item colours (`^` needs the texture's colours). The crate takes them once the game gives them.
 - No mod display names: `@` and the sort use a table of ATM10's mods in the crate, with the namespace for the rest.
 - Fluids and chemicals are not ingredients the panel can list (JEI lists fluids after items).
 - JEI's own textures for slices 2-3 (recipe background, bookmarks, tabs) need the carry to bring `assets/jei/textures`

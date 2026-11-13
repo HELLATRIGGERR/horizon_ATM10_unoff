@@ -8,7 +8,7 @@
 //! returns after one check.
 use super::{
     Game, Screen,
-    native_hooks::{NativePanelEvent as BrowserEvent, NativeStack as BrowserStack},
+    native_hooks::{NativePanelEvent as BrowserEvent, NativeStack, NativeStack as BrowserStack},
     native_panel_recipes::RecipePage,
 };
 use horizon_client::{
@@ -114,6 +114,25 @@ impl Panel {
             self.native_changed(returning_to_search);
         }
     }
+    /// `native_panel_catalysts`: on the recipe page mod `mod_id` shows.
+    pub(super) fn show_catalysts(&mut self, mod_id: &str, mut catalysts: Vec<BrowserStack>) {
+        catalysts.truncate(super::native_panel_recipes::CATALYSTS);
+        let own = self
+            .native
+            .as_ref()
+            .is_some_and(|s| s.owner.native_id() == mod_id);
+        let page = self
+            .native
+            .as_mut()
+            .filter(|_| own)
+            .and_then(|s| s.recipes.as_mut());
+        if let Some(page) = page
+            && page.catalysts != catalysts
+        {
+            page.catalysts = catalysts;
+            self.native_changed(false);
+        }
+    }
     /// Mod `mod_id`'s panel, made when it shows something on another's;
     /// none when it clears a panel that isn't its own.
     fn native_of(&mut self, mod_id: &str, showing: bool) -> Option<&mut Shown> {
@@ -203,6 +222,14 @@ impl Game<'_> {
     /// the session, whether or not its panel is showing. API @API:panel_style@.
     pub(super) fn native_panel_style(&mut self, mod_id: &str, style: NativePanelStyle) {
         self.panel.set_style(mod_id, style);
+    }
+    /// The items that make the recipes mod `mod_id`'s panel shows now
+    /// (`native_panel_recipes`), as a column of slots left of them (JEI's
+    /// catalysts; at most 16): a click on one comes back as `Catalyst`, a
+    /// key over one as `Key`. A new recipe page has none until the mod sets
+    /// them again. API @API:panel_catalysts@.
+    pub(super) fn native_panel_catalysts(&mut self, mod_id: &str, catalysts: Vec<NativeStack>) {
+        self.panel.show_catalysts(mod_id, catalysts);
     }
     fn browser_batch(&self) -> Option<HudBatch> {
         let r = self.renderer.as_ref()?;
@@ -331,6 +358,9 @@ impl Game<'_> {
     fn browser_pointed_stack(&self, layout: &Layout) -> Option<(BrowserStack, ItemStack)> {
         if self.panel.recipes.is_some() {
             if let Some((_, sent, stack)) = self.recipe_tab_hovered(layout) {
+                return Some((sent, stack));
+            }
+            if let Some((_, sent, stack)) = self.recipe_catalyst_hovered(layout) {
                 return Some((sent, stack));
             }
             let (_, _, sent, stack) = self.recipe_slot_hovered(layout)?;

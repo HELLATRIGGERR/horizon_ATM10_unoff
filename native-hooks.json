@@ -813,6 +813,10 @@
     {
       "name": "recipe_categories_version",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_categories_version"
+    },
+    {
+      "name": "show_recipes",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_show_recipes"
     }
   ],
   "hooks": [
@@ -5446,6 +5450,18 @@
       "mod_api": {
         "contract": "collect",
         "out": "categories"
+      }
+    },
+    {
+      "name": "recipe_lookup",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_recipe_lookup",
+      "neoforge": "none (JEI's IRecipesGui.show and EMI's EmiApi.displayRecipes/displayUses, called by other mods through the viewer's own API)",
+      "side": "client",
+      "cancellable": true,
+      "mod_api": {
+        "contract": "cancel",
+        "out": "handled"
       }
     }
   ]

@@ -86,3 +86,120 @@ fn modes_round_trip_and_cycle() {
     assert_eq!(give_count(false, false), 1);
     assert_eq!(give_count(true, false), 64);
 }
+
+mod recipe_screen {
+    use crate::recipes::*;
+
+    fn s(item: &str) -> Stack {
+        Stack::of(item)
+    }
+    fn book() -> Book {
+        let crafting = Category {
+            id: "minecraft:crafting".into(),
+            title: "Crafting".into(),
+            icon: s("minecraft:crafting_table"),
+            catalysts: vec![s("minecraft:crafting_table"), s("minecraft:crafter")],
+            recipes: vec![
+                Recipe::shaped(3, 3, vec![vec![s("minecraft:iron_nugget")]; 9], vec![s("minecraft:iron_ingot")]),
+                Recipe::shapeless(vec![vec![s("minecraft:iron_ingot")]], vec![Stack { count: 9, ..s("minecraft:iron_nugget") }]),
+            ],
+        };
+        let smelting = Category {
+            id: "minecraft:smelting".into(),
+            title: "Smelting".into(),
+            icon: s("minecraft:furnace"),
+            catalysts: vec![s("minecraft:furnace")],
+            recipes: vec![Recipe {
+                shape: Shape::Cooking,
+                inputs: vec![vec![s("minecraft:raw_iron"), s("minecraft:iron_ore")]],
+                outputs: vec![vec![Output::always(s("minecraft:iron_ingot"))]],
+                notes: vec![cooking_note(0.7, 200)],
+                ..Recipe::default()
+            }],
+        };
+        let crusher = Category {
+            id: "mekanism:crusher".into(),
+            title: "Crusher".into(),
+            icon: s("mekanism:crusher"),
+            catalysts: vec![s("mekanism:crusher")],
+            recipes: vec![Recipe::machine(
+                vec![vec![s("minecraft:iron_ingot")]],
+                vec![
+                    vec![Output::always(s("mekanism:dust_iron"))],
+                    vec![Output { stack: s("mekanism:dust_tin"), chance: 0.25, min: 1, max: 2, notes: vec![] }],
+                ],
+                vec!["Energy: 50 J/t".into()],
+            )],
+        };
+        let names = [("mekanism:dust_tin", "Tin Dust")].map(|(a, b)| (a.to_string(), b.to_string()));
+        Book { categories: vec![crafting, smelting, crusher], names: names.into_iter().collect() }
+    }
+    fn focus(item: &str, mode: Mode) -> Focus {
+        Focus { item: item.into(), mode }
+    }
+
+    #[test]
+    fn jei_places_small_recipes_in_the_three_by_three_grid() {
+        assert_eq!((0..3).map(|i| crafting_index(i, 1, 3)).collect::<Vec<_>>(), [1, 4, 7]);
+        assert_eq!(crafting_index(0, 1, 1), 4);
+        assert_eq!((0..4).map(|i| crafting_index(i, 2, 2)).collect::<Vec<_>>(), [0, 1, 3, 4]);
+        assert_eq!((0..3).map(|i| crafting_index(i, 3, 1)).collect::<Vec<_>>(), [3, 4, 5]);
+        let r = Recipe::shapeless(vec![vec![s("a")], vec![s("b")], vec![s("c")]], vec![s("d")]);
+        assert_eq!(r.inputs.iter().map(|c| c.len()).collect::<Vec<_>>(), [1, 1, 0, 1, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn r_shows_the_categories_that_make_it_and_u_the_ones_that_take_it() {
+        let mut v = Viewer::new(book());
+        assert!(v.open(focus("minecraft:iron_ingot", Mode::Recipes)));
+        let p = v.page().unwrap();
+        assert_eq!(p.title, "Crafting");
+        assert_eq!(p.tabs.iter().map(|t| t.item.as_str()).collect::<Vec<_>>(), ["minecraft:crafting_table", "minecraft:furnace"]);
+        assert_eq!(p.catalysts.len(), 2);
+        assert_eq!(p.views.len(), 1);
+        v.tab(1);
+        let p = v.page().unwrap();
+        assert_eq!((p.title.as_str(), p.views[0].note.as_str()), ("Smelting", "0.7 XP, 10s"));
+        // U: the crafting and the crusher take it; the furnace's own U shows all of smelting.
+        assert!(v.open(focus("minecraft:iron_ingot", Mode::Uses)));
+        let titles = |v: &Viewer| v.current().unwrap().found.iter().map(|f| v.book.categories[f.category].id.clone()).collect::<Vec<_>>();
+        assert_eq!(titles(&v), ["minecraft:crafting", "mekanism:crusher"]);
+        assert!(v.open(focus("minecraft:furnace", Mode::Uses)));
+        assert_eq!(titles(&v), ["minecraft:smelting"]);
+        assert!(!v.open(focus("minecraft:dirt", Mode::Recipes)), "nothing makes dirt: nothing opens");
+        assert_eq!(titles(&v), ["minecraft:smelting"]);
+    }
+
+    #[test]
+    fn backspace_walks_the_history_back_to_the_list() {
+        let mut v = Viewer::new(book());
+        v.open(focus("minecraft:iron_ingot", Mode::Recipes));
+        v.tab(1);
+        v.open(focus("minecraft:raw_iron", Mode::Uses));
+        assert_eq!(v.history(), 1);
+        assert!(v.back());
+        let s = v.current().unwrap();
+        assert_eq!((s.focus.item.as_str(), s.tab), ("minecraft:iron_ingot", 1), "back to the tab it was on");
+        assert!(!v.back(), "then the screen closes");
+        assert!(v.page().is_none());
+    }
+
+    #[test]
+    fn a_machine_shows_its_chance_outputs_after_the_result() {
+        let mut v = Viewer::new(book());
+        v.open(focus("minecraft:iron_ingot", Mode::Uses));
+        v.tab(1);
+        let p = v.page().unwrap();
+        assert_eq!(p.title, "Crusher");
+        let view = &p.views[0];
+        assert_eq!(view.shape, Shape::Single);
+        assert_eq!(view.slots.iter().map(|s| s[0].item.as_str()).collect::<Vec<_>>(), ["minecraft:iron_ingot", "mekanism:dust_tin"]);
+        assert_eq!(view.results[0].item, "mekanism:dust_iron");
+        assert_eq!(view.note, "Tin Dust: 25%\nTin Dust: 1-2\nEnergy: 50 J/t");
+        // Smelting's U on raw iron locks the cycling input on it.
+        v.open(focus("minecraft:raw_iron", Mode::Uses));
+        assert_eq!(v.page().unwrap().views[0].slots[0], vec![s("minecraft:raw_iron")]);
+        assert_eq!(percent(0.005), "0.5");
+        assert_eq!(wrap("a bb ccc dddd", 6), ["a bb", "ccc", "dddd"]);
+    }
+}

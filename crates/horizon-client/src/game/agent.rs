@@ -1726,7 +1726,9 @@ impl Game<'_> {
                 if label.is_empty() {
                     return Err("click-button LABEL".into());
                 }
-                let w = widgets::find(&widgets::last(), label)?;
+                // Tabs and sliders are labelled widgets, not buttons: asked by name, they click too.
+                let w = widgets::find(&widgets::last(), label)
+                    .or_else(|e| widgets::find(&widgets::last_labelled(), label).map_err(|_| e))?;
                 if !w.enabled {
                     return Err(format!("button {:?} is disabled", w.label).into());
                 }

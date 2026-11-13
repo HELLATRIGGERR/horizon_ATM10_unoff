@@ -1,34 +1,56 @@
 # JEI (Just Enough Items) port plan
 
-> **Handoff (2026-11-13): slice 1 is done, slice 2 (the recipe screen) is next.**
-> **Slice 1 as it stands** (`JEI, slice 1: the ingredient list and its search`): `pack/mods/jei` (crate `jei-core`: JEI's
-> order and search, 5 unit tests; `runtime/jei_world.rs`: the list follows the world in `frame`, search in `panel_event`,
-> Ctrl+O through `screen_key_pressed_pre` + a flag the next frame flips, cheat mode through `native_give`, the Options >
-> Mods page, the `/jeiclient` probe under `JEI_DEV=1`; 8 hooks in `horizon-mixin.toml`), `pack/scripts/jei.ts`, and the
-> engine change in `crates/horizon-client/src/game/native_panel.rs`: the right-edge layout, the creative screen, Back, the
-> config button and the right-click-empties-the-box rule follow `NativePanelStyle::Viewer`, not the id `recipes`; the box
-> is a widget `Search...`. World test `jei/item-list` passes (11 checks, 25-35 s): 2021 items, Minecraft first, 27 pages
-> of 7 x 11, 7 searches, Ctrl+O, a cheat-mode give; its screenshots show the list on the right edge like JEI's (nav
-> bar `n/27` on top, search box and wrench at the foot), items drawn, the box emptying and the overlay vanishing on Ctrl+O.
-> **Test traps** (they cost runs): the `key` control does not reach the panel's box (only `type TEXT` and `type \b`, one
-> backspace, do); `click-button Search...` puts the caret at the click, mid-text, so empty the box with
-> `click-at X Y right` (rect from `screen` buttons) and then `type`; a passing run's folder is deleted, so `jei.sh` copies
-> the PNGs to `jei-work/logs/shots-<name>/` first.
-> **Slice 2, the recipe screen: what to do.** R over a slot or a list item shows its recipes, U its uses (`panel_event`
-> Key for the list; `screen_key_pressed_pre` + the slot under the pointer for container screens; `recipe_lookup` for what
-> other mods' screens ask), as `native_panel_recipes(mod, title, tabs, tab, views)` (`native_panel_recipes.rs`:
-> `RecipePage`, at most 256 recipes and 16 tabs, `NativeRecipeView` with layout, slots, results, note, action). One tab
-> per category with its catalysts as the icon; vanilla's types from `native_recipes()` (tables of the open world) and the
-> mods' from `native_collect_recipe_categories()` (Mekanism 21 + boiler/SPS/fission, AE2 7, ExtendedAE 3, Advanced AE
-> 1), collected again when `native_recipe_categories_version()` moves; page arrows; Backspace history (the engine's
-> Backspace and Back already follow the Viewer style: `close_transferred_recipe`, `show_recipes`'s `filtering`). Add the
-> `recipe_lookup` hook (`hooks/recipe_lookup.rs`, a line in `horizon-mixin.toml`) and a test `tests/recipes.ts` (R on a
-> list item, tabs, Backspace back to the list). Read Horizon's own viewer for the engine calls, not to copy:
-> `D:/VSCODE_PROJECTS/DEV_1/atm10-work/ref/horizon-mods/native/recipes` (MIT, read-only). JEI draws a centred window over
-> the container, the engine's panel draws pages beside it: keep the panel and say so in the commit.
-> Build/test: `bash D:/VSCODE_PROJECTS/DEV_1/atm10-work/jei-work/jei.sh [units stage build world]` (`JEI_LIST=jei/item-list`
-> picks tests; own stage and target under `jei-work`, `AE2_PROFILE=iter`, through `wait-slot.sh 3`); never edit sources
-> while `stage` runs (`E_STALE_SOURCE`). Left after slice 2: slices 3-5 below.
+> **Handoff (2026-11-13, slice 2 done, test green): the recipe screen shows R/U, category tabs, the catalyst column,
+> page arrows and history in the engine's right-edge panel. Next: slice 2b, then slice 3.**
+> **Slice 2b (next): JEI's recipe screen as a centred window, as real JEI draws it, not the right-edge panel.** The user
+> wants JEI's own look: the window centred over the container, its background, the category title with the tab row on
+> top, the page arrows and "1/N" under the title, the catalysts beside the recipe, JEI's recipe slots and arrows. FTB
+> Chunks' claim map, a full-screen mod screen drawn by a bundle with `native_mod_image` (API 355), shows a bundle can
+> draw its own screen; start from how it opens, draws and takes input. Keep `jei-core::recipes` (the Book/Viewer, the
+> placements, the history) and the tables in `runtime/jei_recipes.rs`; replace the output (`native_panel_recipes`,
+> `native_panel_catalysts`) with the bundle's own screen and keep the panel for the item list only. JEI's textures come
+> from the player's jar through the carry (generated content, never committed).
+> **Then slice 3:** bookmarks (A, the left panel, `bookmarks.ini`) and JEI's config screen (see Slices).
+> **Slice 2 as built (commits on `feat/jei`):** `jei-core/src/recipes.rs` (Book/Viewer: R = categories whose outputs
+> hold the item, U = categories whose inputs hold it, catalyst categories first with all recipes; JEI's vanilla order
+> crafting, stonecutting, smelting, smoking, blasting, campfire, smithing, brewing, then the mods' categories; JEI's 3x3
+> placement; history; focus-locked slots; chance/count lines wrapped at 26 characters into `note`). `runtime/
+> jei_recipes.rs` (the tables, `native_collect_recipe_categories()` into the book, rebuilt when `native_recipes()`'s Arc
+> or `native_recipe_categories_version()` moves; events Key R/U, SlotClicked, Catalyst, Tab, Back; `recipe_lookup`;
+> probe `recipes` in `/jeiclient`). `jei_world.rs`: KEYS toggleOverlay/showRecipe/showUses/recipeBack; a click on the
+> list without cheat mode = recipes (left) / uses (right); Backspace through `screen_key_pressed_pre` (not while
+> `mod_browser_typing()`). Hook `recipe_lookup` is **API 429** (pending fragment stamped; 428 is taken by FTB Chunks'
+> `native_map_tile` on another branch), helper `native_show_recipes`.
+> **Engine changes (minimal, generic):** (1) `native_panel_catalysts(mod_id, stacks)` (`native_panel.rs`, fragment
+> `tools/native-hook-fragments/panel_catalysts.json`, docs/native-mods.md): a column of slots left of the recipes
+> (recipes shift right by 22 px), hover gives `Key`, click gives `NativePanelEvent::Catalyst {index, stack, right}`
+> (`mod_api.rs`); (2) `native_panel_recipes.rs`: a recipe's slots beyond its layout draw as more outputs after the
+> result, a `note` with newlines takes a row per line; (3) the dev harness's `click-button LABEL` (`game/agent.rs`) falls
+> back to the labelled widgets, so a tab (`<icon name> tab`) or a slider clicks by name (`screen`'s `buttons` still lists
+> buttons only).
+> **Test results:** `jei/recipes` 6 checks and `jei/item-list` 11 checks pass; `jei.sh units` 9 pass; engine
+> `cargo test -p horizon-client --lib` (filters `panel`, `recipe`) 23 pass, 4 ignored; `horizon-mod-api-gen` 16 pass and the one that fails on main
+> (`new_hook_placeholder_is_reported_then_filled`). Screenshots land in `jei-work/logs/shots-recipes/` on a pass (`r-iron-ingot`, `smelting`, `uses-of-input`,
+> `u-iron-ingot` and `-page-2` with "1/44" and both arrows, `u-inscriber`, `inscriber-recipes`, `back-to-list`).
+> **Seen in the screenshots (960x540 window, GUI scale 2, the panel is about 130 units wide):** tabs with icons (crafting
+> table, furnace, ...) with the selected one framed; the catalyst column left of the recipes (Crafting Table, Crafter;
+> Furnace; the Inscriber); a 3x3 crafting recipe in its grid; smelting rows with the flame and "0.7 XP, 10s"; the
+> Inscriber's own category first on U with the machine as the catalyst and its press recipes; the page count and arrows
+> above the title once a category holds more than two recipes.
+> **Gaps:** the panel shows only on the inventory/creative screens, so R/U over other containers' slots need the screen
+> to ask through `recipe_lookup`; no fuel/compost/anvil/grindstone categories; no chance overlay on the slot (odds are
+> note lines); at most 256 recipes and 16 tabs; Escape steps back like Backspace instead of closing; a note's lines are
+> wrapped at 26 characters whatever the panel's width, so the Inscriber's notes clip at the screen edge in a small
+> window (2b's own window fixes it); the tutorial toast covers the panel's top right in later shots of a run; JEI's own
+> textures/lang still not carried.
+> **Build/test:** `bash D:/VSCODE_PROJECTS/DEV_1/atm10-work/jei-work/jei.sh [units stage build world]` (own stage and
+> target under `jei-work`, `AE2_PROFILE=iter`, through `wait-slot.sh 3`); `JEI_LIST="jei/recipes jei/item-list"` picks
+> the world tests. Never edit sources while `stage` runs (`E_STALE_SOURCE`). Test traps: `key` does not reach the panel's
+> box (`type TEXT`, `type ` do); empty the box with `click-at X Y right`; after `type` the box keeps the keys, so click
+> the list's empty area (`click-at X 150`) before R/U/Backspace (the engine's `native_panel_key` ignores keys while the
+> box is focused); `scroll-at X Y 0` is the hover; list items' widget label = item name, tab label `<icon name> tab`,
+> catalyst label `<name> catalyst`, recipe slot label `<name> <recipe>:<slot>`; a passing run's folder is deleted,
+> `jei.sh` copies the PNGs to `jei-work/logs/shots-<name>/`.
 
 ATM10 ships JEI 19.70.0.464 (`jei-1.21.1-neoforge-19.70.0.464.jar`, MIT). This port is JEI itself, its look and
 behaviour, as a native bundle `pack/mods/jei` (bundle id `jei`); it is not Horizon's own Recipes viewer. Behaviour is
@@ -59,11 +81,12 @@ jar at run time through the carry (generated content), never committed.
    switches; `/jeiclient` probe (dev only) for tests. Hooks: `frame`, `panel_event`, `screen_key_pressed_pre`, `mods`,
    `settings`, `settings_click`, `commands`, `command`; helpers `native_recipes`, `native_panel_items`,
    `native_panel_style`, `native_give`, `native_setting`, `native_mod_key`.
-2. **The recipe screen**: R/U over any slot or list item (`panel_event` Key, `recipe_lookup` for other mods' screens),
+2. **The recipe screen** (done, in the engine's right-edge panel): R/U over any slot or list item (`panel_event` Key, `recipe_lookup` for other mods' screens),
    one tab per category with catalysts, vanilla's types from `native_recipes` and the mods' from
    `native_collect_recipe_categories()` (Mekanism 21 + boiler/SPS/fission, AE2 7, ExtendedAE 3, Advanced AE 1; again
    when `native_recipe_categories_version()` moves), page arrows, Backspace history. Helpers `native_panel_recipes`.
    JEI draws its recipe screen as a centred window over the container; the engine's panel draws pages beside it.
+   **2b. The centred window** (next): the same screen as a window of the bundle's own, in JEI's look (see the handoff).
 3. **Bookmarks and config**: A adds/removes a bookmark, a left panel (`bookmarks.ini` in JEI's format under
    `config/jei/`); JEI's config screen (`config/jei/jei-client.ini` keys); key rebinding through `mods` keys.
 4. **Recipe transfer**: "+" with the dry-run state (red missing slots, grey "not possible"); vanilla grids through

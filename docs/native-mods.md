@@ -186,6 +186,12 @@ The pending `panel_style` helper, `native_panel_style(mod_id, style)`, lets a re
 viewer's skin, as Horizon's Recipes panel does; `NativePanelStyle::RecipeBook` (the default) keeps the recipe book's
 arrows. Only the drawing changes. Bundles need `"hooks": @API:panel_style@`.
 
+The pending `panel_catalysts` helper, `native_panel_catalysts(mod_id, catalysts)`, shows the items that make the recipes
+on the panel's page as a column of slots left of them, as JEI draws a category's catalysts; a click on one comes back as
+`NativePanelEvent::Catalyst { index, stack, right }`, a key over one as `Key`. At most 16; a new recipe page has none
+until the mod sets them again. A recipe's slots beyond its layout's are drawn as more outputs after the result, and a
+`note` of several lines (`\n`) takes a row each. Bundles need `"hooks": @API:panel_catalysts@`.
+
 API 11 adds `GameLevel::native_send_particles` on authoritative servers. It sends supported
 vanilla particles to nearby players. Block particles require a valid block state. Item, trail and
 vibration particles are not supported by the current dispatch. Count zero sends one directional
@@ -1850,6 +1856,8 @@ API 425 adds `native_insert_slots(dimension, pos, face, stack)`, the slots of a 
 API 426 adds `native_level_particles(options, at, spread, speed, count)`, `ServerLevel.sendParticles` from a server hook outside a block's tick, in the level in place: a packet to each player whose block is within 32 blocks of `at`, and this window's own copy when its player is that near, as `native_send_particles` sends them from inside a block's tick. Mekanism's bundle (`pack/mods/mekanism`) sends a multiblock's red sparkles with it when the multiblock forms at the end of a level's tick. Bundles need "hooks": 426.
 
 API 427 adds `native_recipe_categories(categories)` (client) collects the mods' own recipe categories for a recipe viewer: push a `NativeRecipeCategory` (id, title, subtitle, icon, catalysts, and recipes of inputs to outputs, each output with its chance, count range and notes) for a fishing spot, a sieve or a machine. A viewer gets them all with `native_collect_recipe_categories()` and asks again when `native_recipe_categories_version()` moves, which a mod makes happen with `native_recipe_categories_changed()` (its server's data came). Bundles need "hooks": 427.
+
+API 429 adds `native_show_recipes(stack, lookup)` (client, `host.show_recipes`) asks whatever recipe viewer is installed to show `stack`'s recipes (`NativeRecipeLookup::Recipes`), its uses (`Uses`), or to act on a key that went down over it in a screen the mod draws (`Key("key.keyboard.a")`), so a quest book's items open the viewer as its own list's do. The viewer hears it at the start of the next frame as `native_recipe_lookup(stack, lookup, handled)` and sets `handled`; with no viewer, nothing happens. Bundles need "hooks": 429.
 
 ## What the launcher does
 

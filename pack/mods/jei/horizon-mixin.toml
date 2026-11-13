@@ -1,7 +1,8 @@
-# JEI (Just Enough Items) 19.70.0.464 as a native mod of this fork (horizon-mixins bundle), slice 1: the
-# ingredient list beside container screens and its search. JEI is MIT (mezz); its behaviour is reimplemented
-# in the crate `jei-core` from what the mod does; no file of it is copied. JEI's artwork for the panel is the
-# engine's (`NativePanelStyle::Viewer`); the rest comes from the player's jar at run time. See README.md.
+# JEI (Just Enough Items) 19.70.0.464 as a native mod of this fork (horizon-mixins bundle): the ingredient list
+# beside container screens and its search (slice 1), the recipe screen with R, U and Backspace (slice 2). JEI is
+# MIT (mezz); its behaviour is reimplemented in the crate `jei-core` from what the mod does; no file of it is
+# copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the rest comes from
+# the player's jar at run time. See README.md.
 # It hooks Horizon's named hook points only; it pins no revision.
 [mod]
 id = "jei"
@@ -17,6 +18,12 @@ id = "world"
 file = "crates/horizon-client/src/game.rs"
 name = "jei_world"
 source = "runtime/jei_world.rs"
+
+[[module]]
+id = "recipes"
+file = "crates/horizon-client/src/game.rs"
+name = "jei_recipes"
+source = "runtime/jei_recipes.rs"
 
 [[injection]]
 id = "mods"
@@ -108,4 +115,17 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "command", ty = "&str", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+
+[[injection]]
+id = "recipe-lookup"
+hook = "recipe_lookup"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/recipe_lookup.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "stack", ty = "&crate::game::native_hooks::NativeStack", value = "stack" },
+  { name = "lookup", ty = "&crate::game::native_hooks::NativeRecipeLookup", value = "lookup" },
+  { name = "handled", ty = "&mut bool", value = "&mut *handled" },
 ]

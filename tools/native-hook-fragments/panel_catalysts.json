@@ -1,0 +1,14 @@
+{
+  "hooks": [],
+  "helpers": [
+    {
+      "name": "panel_catalysts",
+      "target": "horizon_client::game::native_panel::Game<'_>::native_panel_catalysts"
+    }
+  ],
+  "rust_summary": "the items that make a recipe page's recipes, as a column beside them (`native_panel_catalysts`), heard back as `NativePanelEvent::Catalyst`.",
+  "doc_summary": "`native_panel_catalysts(mod_id, catalysts)` (client) shows the items that make the recipes mod `mod_id`'s panel shows now (`native_panel_recipes`) as a column of slots left of them, as JEI draws a category's catalysts: a click on one comes back as `NativePanelEvent::Catalyst { index, stack, right }`, a key over one as `Key`. At most 16; a new recipe page has none until the mod sets them again. On the same page, slots a recipe sends beyond its layout's (`NativeRecipeView::slots`) are drawn as more outputs in a row after the result, and a `note` of several lines (`\n`) takes a row each. Bundles need \"hooks\": @API:panel_catalysts@.",
+  "comments": [
+    "crates/horizon-client/src/game/native_panel.rs"
+  ]
+}

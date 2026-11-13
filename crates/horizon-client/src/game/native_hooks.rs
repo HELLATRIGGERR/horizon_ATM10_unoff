@@ -6,6 +6,8 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 429 adds a mod asking the recipe viewer to show a stack's recipes or uses, or to act on a key over it (`native_show_recipes`, heard as `native_recipe_lookup`).
+//!
 //! API 427 adds mods' own recipe categories for recipe viewers, outputs with chances (`native_recipe_categories`, `native_collect_recipe_categories`).
 //!
 //! API 426 adds particles a server hook sends outside a block's tick (`native_level_particles`,
@@ -1139,7 +1141,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 427;
+pub(crate) const NATIVE_HOOKS_API: u32 = 429;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -3283,7 +3285,7 @@ impl Game<'_> {
     /// its recipes, its uses, or what a key over it does in the viewer
     /// (`NativeRecipeLookup`). A recipe viewer acts on it and sets `handled`,
     /// so no other viewer does. Heard at the start of the frame after the ask,
-    /// once for each, in the order asked. Client-side. API @API:recipe_lookup@.
+    /// once for each, in the order asked. Client-side. API 429.
     pub(super) fn native_recipe_lookup(
         &mut self,
         stack: &NativeStack,
@@ -12302,7 +12304,7 @@ impl Game<'_> {
     /// the mod draws (`Key`, so its recipe, uses and bookmark keys work there
     /// as over its own list). The viewer hears it at the start of the next
     /// frame (`native_recipe_lookup`), so a screen hook may ask; with no
-    /// viewer installed nothing happens. Client-side. API @API:recipe_lookup@.
+    /// viewer installed nothing happens. Client-side. API 429.
     pub(super) fn native_show_recipes(&self, stack: NativeStack, lookup: NativeRecipeLookup) {
         let mut lookups = self
             .recipe_tables

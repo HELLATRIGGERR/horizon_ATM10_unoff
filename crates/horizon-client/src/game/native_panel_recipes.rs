@@ -29,6 +29,8 @@ const RECIPES: usize = 256;
 const RECIPE_SLOTS: usize = 9;
 const SLOT_STACKS: usize = 64;
 const TABS: usize = 16;
+/// Catalysts a page shows (`native_panel_catalysts`).
+pub(super) const CATALYSTS: usize = 16;
 
 /// What the panel shows instead of its items: a title, tabs (`tab` the
 /// selected one) and the recipes.
@@ -38,6 +40,8 @@ pub(super) struct RecipePage {
     pub(super) tabs: Vec<BrowserStack>,
     pub(super) tab: u32,
     pub(super) recipes: Vec<BrowserRecipe>,
+    /// The column left of the recipes (`native_panel_catalysts`).
+    pub(super) catalysts: Vec<BrowserStack>,
 }
 impl RecipePage {
     /// `native_panel_recipes`' page, cut as `set-recipes` cuts one; none
@@ -68,6 +72,7 @@ impl RecipePage {
             tabs: tabs.into_iter().take(TABS).collect(),
             tab,
             recipes,
+            catalysts: Vec::new(),
         })
     }
 }
@@ -91,6 +96,7 @@ pub(super) struct Pages {
     tabs: Vec<(BrowserStack, Option<ItemStack>)>,
     tab: usize,
     recipes: Vec<Shown>,
+    catalysts: Vec<(BrowserStack, ItemStack)>,
     page: usize,
     since: Instant,
 }
@@ -133,6 +139,7 @@ impl Pages {
                 .collect(),
             tab,
             recipes,
+            catalysts: cycle(&shown.catalysts),
             page: kept.as_ref().map_or(0, |o| o.page),
             since: kept.map_or_else(Instant::now, |o| o.since),
         }
@@ -168,7 +175,12 @@ impl Shown {
         }
     }
     fn height(&self, room: f32) -> f32 {
-        let note = if self.note.is_empty() { 0.0 } else { 11.0 };
+        // A note of several lines takes a row each.
+        let note = if self.note.is_empty() {
+            0.0
+        } else {
+            11.0 * self.note.lines().count() as f32
+        };
         self.block(room) + note + GAP
     }
     /// Every slot's place from the recipe's corner (the result last), the
@@ -176,17 +188,19 @@ impl Shown {
     /// when the panel is `room` wide and that doesn't fit.
     fn places(&self, room: f32) -> (Vec<(f32, f32)>, (f32, f32), (f32, f32)) {
         let ((w, h), mut at) = self.inputs();
-        // The mod's slots beyond the layout's are not shown.
         at.truncate(self.slots.len() - 1);
         let arrow = (w + 4.0, ((h - 16.0) / 2.0).floor());
         let result = (w + 32.0, ((h - SLOT) / 2.0).floor());
-        let action = if result.0 + SLOT + 16.0 <= room {
-            (result.0 + SLOT + 4.0, ((h - 12.0) / 2.0).floor())
+        // The mod's slots beyond the layout's: more outputs, in a row after the result.
+        let extra = self.slots.len() - 1 - at.len();
+        let last = result.0 + extra as f32 * SLOT;
+        let action = if last + SLOT + 16.0 <= room {
+            (last + SLOT + 4.0, ((h - 12.0) / 2.0).floor())
         } else {
             (result.0 + 3.0, result.1 + SLOT + 2.0)
         };
-        while at.len() < self.slots.len() - 1 {
-            at.push((f32::NAN, f32::NAN));
+        for k in 1..=extra {
+            at.push((result.0 + k as f32 * SLOT, result.1));
         }
         at.push(result);
         (at, arrow, action)
@@ -205,6 +219,27 @@ fn tab_places(pages: &Pages, layout: &Layout) -> Vec<(f32, f32)> {
         })
         .collect()
 }
+/// The catalysts' column left of the recipes, when there are any.
+fn inset(pages: &Pages) -> f32 {
+    if pages.catalysts.is_empty() {
+        0.0
+    } else {
+        SLOT + 4.0
+    }
+}
+/// The width left for the recipes beside the catalysts.
+fn recipe_room(pages: &Pages, layout: &Layout) -> f32 {
+    layout.width() - inset(pages)
+}
+/// The catalysts' places: a column under the tabs, as many as fit.
+fn catalyst_places(pages: &Pages, layout: &Layout) -> Vec<(f32, f32)> {
+    let top = recipes_top(pages, layout);
+    let bottom = layout.search[1] - 4.0;
+    (0..pages.catalysts.len())
+        .map(|i| (layout.grid.0, top + i as f32 * SLOT))
+        .take_while(|&(_, y)| y + SLOT <= bottom)
+        .collect()
+}
 /// Where the recipes start: under the title row and the tabs.
 fn recipes_top(pages: &Pages, layout: &Layout) -> f32 {
     let tabs = tab_places(pages, layout);
@@ -220,7 +255,7 @@ impl Game<'_> {
         let mut starts = vec![0];
         let mut used = 0.0;
         for (i, r) in pages.recipes.iter().enumerate() {
-            let h = r.height(layout.width());
+            let h = r.height(recipe_room(pages, layout));
             if used > 0.0 && used + h > room {
                 starts.push(i);
                 used = 0.0;
@@ -240,8 +275,8 @@ impl Game<'_> {
         let mut y = recipes_top(pages, layout);
         (starts[page]..end)
             .map(|i| {
-                let at = (layout.grid.0, y);
-                y += pages.recipes[i].height(layout.width());
+                let at = (layout.grid.0 + inset(pages), y);
+                y += pages.recipes[i].height(recipe_room(pages, layout));
                 (i, at)
             })
             .collect()
@@ -273,6 +308,41 @@ impl Game<'_> {
             Some((i, sent.clone(), stack.clone()?))
         })
     }
+    /// The catalyst under the pointer: its index, as the mod sent it and as a stack.
+    pub(super) fn recipe_catalyst_hovered(
+        &self,
+        layout: &Layout,
+    ) -> Option<(usize, BrowserStack, ItemStack)> {
+        let pages = self.panel.recipes.as_ref()?;
+        let places = catalyst_places(pages, layout);
+        let i = places
+            .iter()
+            .position(|&(x, y)| inside(self.cursor, [x, y, SLOT, SLOT]))?;
+        let (sent, stack) = pages.catalysts.get(i)?.clone();
+        Some((i, sent, stack))
+    }
+    /// The catalysts, on slots, as a column left of the recipes.
+    fn draw_recipe_catalysts(&mut self, batch: &mut HudBatch, layout: &Layout) {
+        let Some(pages) = &self.panel.recipes else {
+            return;
+        };
+        let shown: Vec<_> = catalyst_places(pages, layout)
+            .into_iter()
+            .zip(pages.catalysts.iter().map(|c| c.1.clone()))
+            .collect();
+        for ((x, y), stack) in shown {
+            batch.sprite(&self.gui.atlas, "gui/sprites/container/slot", x, y);
+            self.draw_item(batch, &stack, x + 1.0, y + 1.0);
+            if inside(self.cursor, [x, y, SLOT, SLOT]) {
+                let white = rgba(255, 255, 255, 128);
+                batch.fill(&self.gui.atlas, x + 1.0, y + 1.0, 16.0, 16.0, white);
+            }
+            let name = self.pack.names.display_item(&stack.item);
+            let rect = [x + 1.0, y + 1.0, 16.0, 16.0];
+            let kind = horizon_client::widgets::Kind::Button;
+            horizon_client::widgets::record_as(&format!("{name} catalyst"), rect, true, kind);
+        }
+    }
     /// The recipe slot under the pointer: recipe, slot, and its stack now.
     pub(super) fn recipe_slot_hovered(
         &self,
@@ -282,7 +352,7 @@ impl Game<'_> {
         self.recipes_shown(layout)
             .into_iter()
             .find_map(|(i, (x, y))| {
-                let (at, _, _) = pages.recipes[i].places(layout.width());
+                let (at, _, _) = pages.recipes[i].places(recipe_room(pages, layout));
                 at.iter().enumerate().find_map(|(k, &(sx, sy))| {
                     if !inside(self.cursor, [x + sx, y + sy, SLOT, SLOT]) {
                         return None;
@@ -375,12 +445,18 @@ impl Game<'_> {
             let x = (layout.grid.0 + (layout.width() - w) / 2.0).floor();
             batch.text(atlas, &text, x, layout.arrows_y + 5.0, u32::MAX, true);
         }
+        self.draw_recipe_catalysts(batch, layout);
+        let width = self
+            .panel
+            .recipes
+            .as_ref()
+            .map_or(layout.width(), |p| recipe_room(p, layout));
         for (i, (x, y)) in self.recipes_shown(layout) {
             let Some(r) = self.panel.recipes.as_ref().map(|p| &p.recipes[i]) else {
                 break;
             };
-            let (at, arrow, action) = r.places(layout.width());
-            let h = r.block(layout.width());
+            let (at, arrow, action) = r.places(width);
+            let h = r.block(width);
             let (cooking, note, button) =
                 (r.layout == BrowserLayout::Cooking, r.note.clone(), r.action);
             let atlas = &self.gui.atlas;
@@ -428,8 +504,9 @@ impl Game<'_> {
                 batch.text(atlas, "+", rect[0] + 3.0, rect[1] + 2.0, color, true);
                 horizon_client::widgets::record(&format!("+ {i}"), rect, enabled);
             }
-            if !note.is_empty() {
-                batch.text(atlas, &note, x, y + h + 2.0, rgba(224, 224, 224, 255), true);
+            for (n, line) in note.lines().enumerate() {
+                let y = y + h + 2.0 + n as f32 * 11.0;
+                batch.text(atlas, line, x, y, rgba(224, 224, 224, 255), true);
             }
             for (k, &(sx, sy)) in at.iter().enumerate().filter(|(_, p)| p.0.is_finite()) {
                 let Some((_, stack)) = self.recipe_slot_now(i, k).cloned() else {
@@ -552,6 +629,15 @@ impl Game<'_> {
             self.panel_event(owner, BrowserEvent::Tab(tab as u32));
             return true;
         }
+        if let Some((index, stack, _)) = self.recipe_catalyst_hovered(layout) {
+            let event = BrowserEvent::Catalyst {
+                index: index as u32,
+                stack,
+                right,
+            };
+            self.panel_event(owner, event);
+            return true;
+        }
         if inside(cursor, self.back_button(layout).0) {
             self.audio
                 .play("minecraft:ui.button.click", None, 0.25, 1.0);
@@ -570,7 +656,7 @@ impl Game<'_> {
         }
         let action = self.recipes_shown(layout).into_iter().find(|&(i, (x, y))| {
             let r = &pages.recipes[i];
-            let (_, _, (ax, ay)) = r.places(layout.width());
+            let (_, _, (ax, ay)) = r.places(recipe_room(pages, layout));
             self.screen != super::Screen::Creative
                 && r.action.is_some()
                 && inside(cursor, [x + ax, y + ay, 12.0, 12.0])

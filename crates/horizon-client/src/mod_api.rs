@@ -579,6 +579,13 @@ pub enum NativePanelEvent {
     Back,
     /// The player picked the tab at this index.
     Tab(u32),
+    /// A click on a catalyst of the recipe page (`native_panel_catalysts`):
+    /// its index there and its stack.
+    Catalyst {
+        index: u32,
+        stack: NativeStack,
+        right: bool,
+    },
 }
 
 /// The zoom a native mod asks for (`native_zoom`): the factor (1 is none), eased through the

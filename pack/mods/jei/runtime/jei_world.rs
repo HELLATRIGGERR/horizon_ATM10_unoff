@@ -1,7 +1,8 @@
 // JEI in the game (support module `crate::game::jei_world` of the `jei` native bundle): the item panel beside
 // container screens as JEI's ingredient list. The list's order and search are the bundle's crate `jei_core`; this
 // module is the glue: the game's items in, the kept ones out to the panel (`native_panel_items`, drawn in the viewer
-// style with JEI's artwork), Ctrl+O, cheat mode (`native_give`), the Options > Mods page and the tests' probe.
+// style with JEI's artwork), Ctrl+O, cheat mode (`native_give`), the Options > Mods page and the tests' probe. The
+// recipe screen (R, U, Backspace) is `jei_recipes`.
 use super::Game;
 use super::native_hooks::{NativeMod, NativePanelEvent, NativeStack};
 use horizon_client::mod_api::NativePanelStyle;
@@ -12,9 +13,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) const ID: &str = "jei";
 const TITLE: &str = "Just Enough Items 19.70.0.464";
 const DESCRIPTION: &str = "JEI's item list beside every container screen and the inventory, with JEI's search \
-(@mod, #tag, $tooltip, %tab, ^colour, &id, -word, a | b, \"a phrase\"). Ctrl+O hides it; cheat mode gives items.";
-/// JEI's keys: name, label, default. Ctrl+O is the overlay's (`toggleOverlay`).
-const KEYS: [[&str; 3]; 1] = [["key.jei.toggleOverlay", "Show/Hide Item List (with Ctrl)", "key.keyboard.o"]];
+(@mod, #tag, $tooltip, %tab, ^colour, &id, -word, a | b, \"a phrase\"). Ctrl+O hides it; cheat mode gives items. R shows an item's recipes, U its uses, Backspace goes back.";
+/// JEI's keys: name, label (JEI's en_us), default. Ctrl+O is the overlay's (`toggleOverlay`).
+pub(super) const KEYS: [[&str; 3]; 4] = [
+    ["key.jei.toggleOverlay", "Show/Hide Item List (with Ctrl)", "key.keyboard.o"],
+    ["key.jei.showRecipe", "Show Recipe", "key.keyboard.r"],
+    ["key.jei.showUses", "Show Uses", "key.keyboard.u"],
+    ["key.jei.recipeBack", "Show Previous Recipe Page", "key.keyboard.backspace"],
+];
 /// GLFW's Control bit in the screen hooks' modifiers.
 const CONTROL: u32 = 2;
 
@@ -90,10 +96,17 @@ pub(super) fn frame(game: &mut Game<'_>) {
         game.native_set_setting(ID, "overlayEnabled", if s.hidden { "false" } else { "true" });
         show(game, s);
     }
+    let in_world = guard.is_some();
+    drop(guard);
+    super::jei_recipes::frame(game, in_world);
 }
 
 /// The player's search or click on the panel.
 pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
+    let loaded = state().is_some();
+    if !loaded || super::jei_recipes::event(game, event) {
+        return;
+    }
     let mut guard = state();
     let Some(s) = guard.as_mut() else { return };
     match event {
@@ -110,19 +123,43 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
                 game.native_chat(&e);
             }
         }
+        // Without cheat mode a click shows the item's recipes, a right click its uses.
+        NativePanelEvent::Clicked { index, right } => {
+            let Some(&n) = s.shown.get(*index as usize) else { return };
+            let id = s.list.id(n).to_owned();
+            drop(guard);
+            let mode = if *right { jei_core::recipes::Mode::Uses } else { jei_core::recipes::Mode::Recipes };
+            super::jei_recipes::open(game, &id, mode);
+        }
         _ => {}
     }
 }
 
-/// `screen_key_pressed_pre`: Ctrl and JEI's overlay key on any screen.
+/// `screen_key_pressed_pre`: Ctrl and JEI's overlay key on any screen; Backspace with the recipes open (not while
+/// the search box takes the keys).
 pub(super) fn key_pressed(game: &Game<'_>, key: &str, repeat: bool, modifiers: u32, canceled: &mut bool) {
-    if *canceled || repeat || modifiers & CONTROL == 0 || !game.native_on(ID) || state().is_none() {
+    if *canceled || repeat || !game.native_on(ID) || state().is_none() {
         return;
     }
-    let [name, _, default] = KEYS[0];
-    if key == game.native_mod_key(ID, name, default) {
+    let bound = |k: usize| game.native_mod_key(ID, KEYS[k][0], KEYS[k][2]);
+    if modifiers & CONTROL != 0 && key == bound(0) {
         TOGGLE.store(true, Ordering::Relaxed);
         *canceled = true;
+    } else if modifiers & CONTROL == 0 && key == bound(3) && !game.mod_browser_typing() && super::jei_recipes::is_open() {
+        super::jei_recipes::ask_back();
+        *canceled = true;
+    }
+}
+
+/// The `recipe_lookup` hook: another mod's screen asks for a stack's recipes or uses.
+pub(super) fn recipe_lookup(
+    game: &mut Game<'_>,
+    stack: &NativeStack,
+    lookup: &super::native_hooks::NativeRecipeLookup,
+    handled: &mut bool,
+) {
+    if state().is_some() {
+        super::jei_recipes::lookup(game, stack, lookup, handled);
     }
 }
 
@@ -224,6 +261,7 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
             "shown": s.shown.len(),
             "first": s.shown.iter().take(12).map(|&n| s.list.id(n)).collect::<Vec<_>>(),
             "modes": Prefix::ALL.map(|p| modes.get(p).name()),
+            "recipes": super::jei_recipes::probe(),
         }),
     };
     game.native_chat(&format!("JEI {json}"));

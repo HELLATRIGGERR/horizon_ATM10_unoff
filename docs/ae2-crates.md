@@ -371,3 +371,36 @@ duplicate guard, drain, config, restart) and `aeinfinitybooster-range` (5, now t
 An edit of `horizon-ae2x-enderdrives/src/game.rs` builds in 2.5 s (`fast`, `-j 6`, quiet machine, the program
 included).
 
+
+### Extension point v2 (no addon moved)
+
+The addons after Ender Drives each need kinds of extension point the hooks above do not cover. v2 adds them,
+each small and `dyn` or a registry; no addon uses them yet, so the game is the same:
+
+- **Static rules** (`horizon_client::ae2x::rules`, re-exported by `ae2_ext`): `AddonRules`, one `&'static dyn`
+  per addon (`install_rules`, `rules(id)`), for what the lib's and the game's free functions ask an addon with no
+  game at hand: `reset_unsaved`, the fixed cells and handler cells, an item's name, the pack's content, and the
+  tables by item id the renderer and the screens read (`part_model`, `part_boxes`, `part_style`,
+  `part_menu_title`, `bus_operations_multiplier`, `display_part_screen`), the machines' slots, progress and menus.
+  The place that asked `<addon>::f(...)` asks `rules("<id>")` in the same order.
+- **Screens**: `Ae2Addon::screen()` gives an addon's own window (`Ae2AddonScreen`: size, slots, draw, press,
+  scroll, tooltip, hotkey, payload, agent: the `ae2x_screen_*` chain), `Ae2Addon::terminal()` its buttons and
+  sub-screens on AE2's terminals (`Ae2TerminalWidgets`; the terminal's `Widget`/`Sub` will carry the addon's
+  id and its own number).
+- **Key types at startup**: the lib's `ae2_key_types::register` is public already (an addon's `install` calls
+  it); the world strategies of an addon type are `add_key_strategies(kind, owner, kinds)` (which ones it has,
+  read with no game) plus `Ae2Addon::key_strategies()` (`Ae2KeyStrategies`: import, export, external storage,
+  placement, through the host).
+- **Keybinds** (`horizon-client-input`): `keybinds::add_mappings(rows, category)` adds a mod's mappings after
+  `MAPPINGS` and its category after `CATEGORIES`; `all_mappings`, `options_mappings` (what `options.txt` holds)
+  and `category_order` include them. With nothing added the lists are the same as before.
+- **Addon to addon**: `Ae2Host::call_addon(id, what, args)` reaches `Ae2Addon::call` of another addon (or of
+  one above, from the code still inside horizon-client), arguments and answer as `dyn Any`.
+- **Host**: `world_mut`, `spectator`, `shift_down`, `held`, `consume_held`, `block_state_name`,
+  `block_registry`, `level_set`, `provider_patterns_changed(_local)`, what the kits and the two big addons use
+  most.
+
+What v2 leaves to the moves: the game-typed static questions (`orientation`, `part_view`/`part_tools`,
+`bus_tick` with a `dyn TransferHost`, the machine screens' `layout`/`style_slots`) need their types made public in
+their fork-only modules first, as `GridAddress` was; and each hook gets its `Game::ae2_addon_<hook>` wrapper when
+its first caller moves (an unused one would be a warning).

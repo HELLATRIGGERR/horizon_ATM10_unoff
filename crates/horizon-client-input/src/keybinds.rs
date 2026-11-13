@@ -114,9 +114,38 @@ pub const HORIZON_MAPPINGS: &[(&str, &str, &str)] = &[
     // The emote wheel (docs/cosmetics.md), on a key vanilla leaves free.
     ("key.emote", "key.keyboard.b", "multiplayer"),
 ];
-/// Every mapping the game binds: vanilla's in `Options.keyMappings` order, then Horizon's.
+/// Every mapping the game binds: vanilla's in `Options.keyMappings` order, then the added ones
+/// ([`add_mappings`]), then Horizon's.
 pub fn all_mappings() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {
-    MAPPINGS.iter().chain(HORIZON_MAPPINGS)
+    options_mappings().chain(HORIZON_MAPPINGS)
+}
+/// The mappings `options.txt` holds: [`MAPPINGS`], then the added ones.
+pub fn options_mappings() -> impl Iterator<Item = &'static (&'static str, &'static str, &'static str)> {
+    MAPPINGS.iter().chain(added_mappings())
+}
+/// A (name, default key, category) row.
+pub type Mapping = (&'static str, &'static str, &'static str);
+/// Mappings and categories a mod crate above adds (the fork's AE2 addon crates), in the order they
+/// were added.
+static ADDED: std::sync::RwLock<(Vec<&'static [Mapping]>, Vec<&'static str>)> = std::sync::RwLock::new((Vec::new(), Vec::new()));
+/// Adds a mod's mappings after [`MAPPINGS`], and its own `category` after [`CATEGORIES`]. The
+/// program calls it before the game starts, as a mod crate's `install` does.
+pub fn add_mappings(mappings: &'static [Mapping], category: Option<&'static str>) {
+    let mut added = ADDED.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    added.0.push(mappings);
+    if let Some(category) = category.filter(|c| !CATEGORIES.contains(c) && !added.1.contains(c)) {
+        added.1.push(category);
+    }
+}
+fn added_mappings() -> Vec<&'static Mapping> {
+    ADDED.read().unwrap_or_else(std::sync::PoisonError::into_inner).0.iter().flat_map(|rows| rows.iter()).collect()
+}
+/// A category's place in the Controls list: [`CATEGORIES`], then the added ones.
+pub fn category_order(category: &str) -> Option<usize> {
+    CATEGORIES.iter().position(|c| *c == category).or_else(|| {
+        let added = ADDED.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        added.1.iter().position(|c| *c == category).map(|i| CATEGORIES.len() + i)
+    })
 }
 /// Mappings Options builds as `ToggleKeyMapping` (hold or toggle by option).
 pub fn is_toggle(name: &str) -> bool {
@@ -401,8 +430,7 @@ impl KeyBinds {
     }
     /// The bindings `options.txt` holds: vanilla's mappings only.
     pub fn saved(&self) -> Vec<(&'static str, String)> {
-        MAPPINGS
-            .iter()
+        options_mappings()
             .map(|(n, _, _)| (*n, self.get(n).to_owned()))
             .collect()
     }

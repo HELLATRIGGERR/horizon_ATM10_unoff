@@ -9,7 +9,7 @@ pub use crate::settings::Opt;
 use crate::{
     gamepad::{self, GlyphStyle},
     hud::{HudAtlas, HudBatch, rgba},
-    keybinds::{self, CATEGORIES, KeyBinds, all_mappings},
+    keybinds::{self, KeyBinds, all_mappings},
     lang::{self, LanguageInfo},
     settings::{SOUND_SOURCES, Settings},
     settings_shell as shell,
@@ -3209,8 +3209,8 @@ impl OptionsUi {
                     query.is_empty() || lang::get(name).to_lowercase().contains(&query)
                 });
                 mappings.sort_by(|a, b| {
-                    let ca = CATEGORIES.iter().position(|c| *c == a.1).unwrap_or(99);
-                    let cb = CATEGORIES.iter().position(|c| *c == b.1).unwrap_or(99);
+                    let ca = keybinds::category_order(a.1).unwrap_or(99);
+                    let cb = keybinds::category_order(b.1).unwrap_or(99);
                     ca.cmp(&cb)
                         .then_with(|| lang::get(a.0).cmp(&lang::get(b.0)))
                 });

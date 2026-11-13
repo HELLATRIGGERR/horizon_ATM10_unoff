@@ -6,7 +6,8 @@ use super::{
     lan::LanHost,
 };
 use horizon_client::{ae2_world::Machine, containers::BlockEntity, items::ItemStack, streaming::Streaming, text::Text, world::World};
-use std::path::Path;
+use horizon_world::registry::{BlockRegistry, BlockStateId};
+use std::{any::Any, path::Path};
 
 impl Ae2Host for Game<'_> {
     fn is_remote(&self) -> bool {
@@ -95,6 +96,51 @@ impl Ae2Host for Game<'_> {
     fn set_main_hand_stack(&mut self, stack: ItemStack) {
         let selected = self.selected;
         *self.stack_in_mut(selected) = Some(stack);
+    }
+
+    fn call_addon(&mut self, id: &str, what: &str, args: &dyn Any) -> Option<Box<dyn Any>> {
+        let ext = self.ae2_ext.get()?;
+        ext.addon(id)?.call(self, what, args)
+    }
+
+    fn world_mut(&mut self) -> &mut World {
+        &mut self.world
+    }
+
+    fn spectator(&self) -> bool {
+        Game::spectator(self)
+    }
+
+    fn shift_down(&self) -> bool {
+        self.keys.contains(&super::KeyCode::ShiftLeft)
+    }
+
+    fn held(&self) -> Option<&ItemStack> {
+        Game::held(self)
+    }
+
+    fn consume_held(&mut self) {
+        Game::consume_held(self);
+    }
+
+    fn block_state_name(&self, state: BlockStateId) -> &str {
+        self.res.facts().get(state).name.as_ref()
+    }
+
+    fn block_registry(&self) -> &'static BlockRegistry {
+        self.pack.assets.registry
+    }
+
+    fn level_set(&mut self, pos: [i32; 3], state: BlockStateId) -> Result<(), String> {
+        Game::level_set(self, pos, state).map_err(|e| e.to_string())
+    }
+
+    fn provider_patterns_changed(&self, address: GridAddress, face: Option<u8>) {
+        self.ae2_provider_patterns_changed(address, face);
+    }
+
+    fn provider_patterns_changed_local(&self, pos: (i32, i32, i32), face: Option<u8>) {
+        self.ae2_provider_patterns_changed_local(pos, face);
     }
 }
 

@@ -444,7 +444,7 @@ impl Settings {
     /// Typed view of an options file.
     pub fn from_file(f: OptionsFile) -> Self {
         let mut keys = KeyBinds::default();
-        for (name, _, _) in crate::keybinds::MAPPINGS {
+        for (name, _, _) in crate::keybinds::options_mappings() {
             keys.set(name, &f.key_binding(name));
         }
         let mut volumes = [1.0; 11];

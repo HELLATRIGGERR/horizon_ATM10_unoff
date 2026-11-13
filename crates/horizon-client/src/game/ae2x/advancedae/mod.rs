@@ -31,6 +31,7 @@ pub(in crate::game) mod encoder;
 pub(in crate::game) mod encoder_screen;
 mod lab;
 pub(in crate::game) mod quantum;
+pub(in crate::game) mod recipe_viewer;
 pub(in crate::game) mod throughput;
 
 use crate::game::ae2_source_patterns as source;

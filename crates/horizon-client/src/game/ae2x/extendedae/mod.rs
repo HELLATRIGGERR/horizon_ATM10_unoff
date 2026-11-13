@@ -17,6 +17,7 @@ pub(in crate::game) mod matrix;
 pub(in crate::game) mod special;
 pub(in crate::game) mod tape;
 pub(in crate::game) mod tools;
+pub(in crate::game) mod recipe_viewer;
 pub(in crate::game) mod upgrade;
 pub(in crate::game) mod wireless;
 

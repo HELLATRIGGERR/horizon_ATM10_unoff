@@ -3301,6 +3301,8 @@ impl Game<'_> {
     /// 427.
     pub(super) fn native_recipe_categories(&mut self, categories: &mut Vec<NativeRecipeCategory>) {
         mod_api::dispatch_recipe_categories(self, mod_api::mods(), categories);
+        // The fork's built-in AE2 and its addons (`game/ae2_recipe_viewer.rs`).
+        self.ae2_recipe_categories(categories);
     }
     /// Block `block` (`mymod:machine`) gets a block entity
     /// (`EntityBlock.newBlockEntity`): set `entity` to its id and saved

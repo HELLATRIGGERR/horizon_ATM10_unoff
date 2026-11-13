@@ -1915,3 +1915,14 @@ impl Game<'_> {
         None
     }
 }
+
+impl Game<'_> {
+    /// The addons' recipe viewer categories (`native_recipe_categories`), after AE2's own.
+    pub(super) fn ae2x_recipe_categories(&self, out: &mut Vec<horizon_client::mod_api::NativeRecipeCategory>) {
+        let _ = &out;
+        #[cfg(feature = "ae2-extendedae")]
+        extendedae::recipe_viewer::categories(self, out);
+        #[cfg(feature = "ae2-advancedae")]
+        advancedae::recipe_viewer::categories(self, out);
+    }
+}

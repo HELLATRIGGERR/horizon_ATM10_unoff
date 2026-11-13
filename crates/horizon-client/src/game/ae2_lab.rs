@@ -89,6 +89,9 @@ impl Game<'_> {
         if words.get(1) == Some(&"grid") {
             return self.ae2_grid_command(&words[2..]);
         }
+        if words.get(1) == Some(&"recipes") {
+            return self.ae2_recipes_command(&words[2..]);
+        }
         if words.get(1) == Some(&"crafting") {
             return self.ae2_crafting_command(&words[2..]);
         }

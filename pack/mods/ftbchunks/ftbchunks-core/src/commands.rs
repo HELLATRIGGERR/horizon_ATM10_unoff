@@ -101,6 +101,10 @@ pub fn usages() -> Vec<(String, u8)> {
         ("admin unclaim_as <team:word> <radius_in_blocks:integer> <anchor:block_pos> [dimension:word]", 2),
     ];
     let mut u: Vec<(String, u8)> = fixed.iter().map(|(s, l)| (s.to_string(), *l)).collect();
+    // `waypoint add`: the server only parses it (`waypoints::parse_add`); the client keeps the waypoint.
+    for tail in [" [dimension:word]", " <dimension:word> [color:word]", " <dimension:word> <color:word> [gui:boolean]"] {
+        u.push((format!("waypoint add <name:word> <position:block_pos>{tail}"), 0));
+    }
     for kind in ["extra_claim_chunks", "extra_force_load_chunks"] {
         for tail in ["get", "set <number:integer>", "add <number:integer>"] {
             u.push((format!("admin {kind} <player:player_name> {tail}"), 2));

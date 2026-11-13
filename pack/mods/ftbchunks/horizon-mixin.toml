@@ -24,6 +24,12 @@ name = "ftbchunks_world"
 source = "runtime/ftbchunks_world.rs"
 
 [[module]]
+id = "minimap"
+file = "crates/horizon-client/src/game.rs"
+name = "ftbchunks_minimap"
+source = "runtime/ftbchunks_minimap.rs"
+
+[[module]]
 id = "map"
 file = "crates/horizon-client/src/game.rs"
 name = "ftbchunks_map"
@@ -248,6 +254,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/net_from_server.rs"
 bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "channel", ty = "&str", value = "channel" },
   { name = "data", ty = "&[u8]", value = "data" },
 ]
@@ -344,4 +351,38 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "command", ty = "&str", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
+]
+
+[[injection]]
+id = "player-died"
+hook = "player_died"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_died.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+]
+
+[[injection]]
+id = "player-respawned"
+hook = "player_respawned"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_respawned.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+]
+
+[[injection]]
+id = "hud"
+hook = "hud"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/hud.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "corners", ty = "&mut horizon_client::extras_hud::Corners", value = "&mut *corners" },
 ]

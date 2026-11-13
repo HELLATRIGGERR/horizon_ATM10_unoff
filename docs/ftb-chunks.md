@@ -1,12 +1,88 @@
 # FTB Chunks, FTB Teams and JourneyMap on this fork
 
-> **Handoff (2026-11-13, branch `feat/ftb-chunks`, worktree `atm10-wt/megacells`): slices 1 to 3 are done and pass; the
-> next is slice 4: waypoints, the death waypoint and the corner minimap (FTB Chunks' client, second half).**
+> **Handoff (2026-11-13, branch `feat/ftb-chunks`, worktree `atm10-wt/megacells`): slices 1 to 4 are done and pass;
+> slice 4 (waypoints, the death waypoint, the corner minimap) is the commit `FTB Chunks, slice 4: waypoints and the
+> minimap` after `98e7f297db`. Next: slice 5, below.**
+>
+> **Slice 5, the plan.**
+> 1. *The large map* (FTB Chunks' large map screen; M opens only the claim screen today): pan with the mouse, zoom, and a
+>    region cache so chunks the client has not loaded show too. Keep the cache next to the waypoints
+>    (`<instance>/local/ftbchunks/data/<manager>/<dim>/`), one file a 32x32-chunk region, filled from `native_map_tile`
+>    as chunks load (a scan is 1024 bytes a chunk). The claim screen (31x31 chunks round the player) and the minimap (5x5)
+>    both read live tiles today: make both read the cache first with the live tile over it, which also removes the dark
+>    disc round the player on the claim screen. Waypoint markers and the right-click menu exist on the claim screen
+>    (`ftbchunks_map.rs`, `ftbchunks_minimap.rs`: `render`, `open_menu`, `menu_click`): reuse them on the large map.
+>    The shared mod image slot (`native_mod_image`) is taken by one picture at a time: `image_taken` makes the minimap
+>    upload again after the claim screen; a large map that draws from the cache needs the same care (or several slots).
+> 2. *The sidebar button*: FTB Library's `ftbchunks:chunks` / `ftbchunks:map` buttons on the inventory screen, opening
+>    the claim screen and the map. Needs a way to add a button to the inventory screen: look at the screen hooks first.
+> 3. *The action-bar notice on entering a claim*: server side, a line over the hotbar when the player's chunk changes to
+>    another team's claim or back to wilderness (from the player's block each tick, as `remember_alive` does for the
+>    death spot); translation key plus our own fallback.
+> 4. *The server messages left*: `update_force_load_expiry`, `teleport_from_map`, `open_claim_gui` (`player_death` is
+>    done in slice 4).
+> Polish noted from slice 3's screenshot: the force-load cross is always red, so it nearly vanishes on a red team (use a
+> contrasting colour).
+>
+> **Slice 4, waypoints and the minimap (done).**
+> - *Written.* Crate `ftbchunks-core/src/waypoints.rs`: `Waypoint`/`Waypoints` with FTB's `waypoints.json` keys
+>   (`hidden`, `name`, `x`, `y`, `z`, `color` `#RRGGBB`, `type` `default`|`death`; checked with `javap` on
+>   `WaypointManagerImpl`), `add_death` (hides earlier death ones, adds red `Death #<n>`), `parse_add` for `/ftbchunks
+>   waypoint add <name> <pos> [dim [color [gui]]]` (quoted names, `~` coordinates, the 16 chat colours), messages
+>   `ftbchunks:add_waypoint` / `ftbchunks:player_death`, `minimap_on_by_default` (FTB's `hasOtherMinimapMod` rule over
+>   the ids `journeymap`, `voxelmap`, `antiqueatlas`, `xaerominimap`). The crate's unit tests pass: 16 (4 new). The
+>   command's usages are in `commands::usages`.
+> - *Server* (`ftbchunks_world.rs`): `perform` parses `waypoint add` and sends `add_waypoint` to the player (feedback
+>   `ftbchunks.command.waypoint_added`, our fallback); `player_died` keeps the spot (as of the last tick), `player_respawned` sends
+>   `player_death` with the `minecraft:deaths` statistic (`native_player_stat`).
+> - *Client* (new module `runtime/ftbchunks_minimap.rs`): waypoints per dimension in
+>   `<instance>/local/ftbchunks/data/<manager>/<dim with ':' as '_'>/waypoints.json`, saved on each change; markers with
+>   names on the claim screen (hidden ones faint); a right click that stays on one chunk opens a menu: on unclaimed land
+>   `ftbchunks.gui.add_waypoint` (adds a white waypoint named `x, z` there), on a marker `ftbchunks.label.hide`/`show`
+>   and `ftbchunks.gui.delete` (in `ftbchunks_map.rs`: `released` asks `open_menu`, `pressed` asks `menu_click`,
+>   `render` draws markers and menu). The corner minimap on the existing `hud` hook (API 1, `native_hud`, batch +
+>   `Corners`; no new engine API, so **no API 430 was added**): on by default because `option_env!("HORIZON_MIXIN_MODS")`
+>   (the staged bundles) has no other minimap mod; FTB's size (a tenth of the GUI width, `scale` 1) at the top right 5
+>   px in (below the status effects, where FTB moves them aside), round, north up (`locked_north`), 64 blocks across
+>   (FTB's 240-block texture at zoom 1 shows a quarter); a 5x5-chunk image from `native_map_tile` with the claims baked
+>   in (team colour alpha 100, full-colour borders), uploaded with `native_mod_image` (the slot is shared with the claim
+>   screen: `image_taken` makes the minimap upload again after it); reticle, N/E/S/W, waypoints (clamped to the rim),
+>   the player's arrow (fills rotated by the yaw through `batch.vertices`), and at `font_scale` 0.5 the lines `x y z`,
+>   the biome (`biome.<ns>.<path>`) and, in a claim, the team's name in its colour. Mod key `toggle_minimap` (unbound,
+>   as in FTB). The probe `/ftbchunksclient` has `minimap` {enabled, default, shown, rect, tiles, uploaded, menu,
+>   waypoints, file}.
+> - *Hooks added to `horizon-mixin.toml`*: `player_died`, `player_respawned`, `hud` (all existing hooks, version 1);
+>   `net_from_server` now binds `game`; module `minimap`. Helpers `hooks/{hud,player_died,player_respawned}.rs`.
+> - *World test* `pack/mods/ftbchunks/tests/waypoints.ts` (`FTB_LIST=ftbchunks/waypoints`, passes: 5 checks, 64 to 169 s):
+>   the minimap on by default and drawn top right (rect 427, 5, 48, 48 on the 480x270 GUI); `/ftbchunks claim` + two
+>   `waypoint add`s, the file's keys; a screenshot `ftbchunks-minimap.png`; on the claim screen a right click adds a
+>   waypoint (screenshot `ftbchunks-menu.png`), a marker's menu (`ftbchunks-marker-menu.png`) hides then removes it
+>   (screenshot `ftbchunks-map-waypoints.png`); `kill @s`, the death screen's respawn button (`ui` shows the screen
+>   `dead` with a button of id `respawn`, label "Respawn"), then `Death #1` at the death spot, red, saved. The
+>   `click-at` coordinates of the menu (items 12 px high from the click point) worked as written. The shots copy to
+>   `ftb-work/logs/shots-waypoints/`. Re-run with `claims`, `teams` and `map` after the slice: 22, 29 and 4 checks pass;
+>   the units pass (ftbteams-core 16, ftbchunks-core 16).
+> - *What the screenshots show.* The minimap: a round map top right, north up, terrain in the minimap extra's colours
+>   (grass, forest, a lake with sand), the claimed chunk tinted in the team's colour with a lighter border, a white
+>   `Base` diamond just north-east of the player's arrow, the gold `Far` diamond on the rim at the east, the N, E, S, W
+>   letters, a faint reticle, the arrow pointing south, and under it `x y z`, the biome (`Plains`) and the team's
+>   name in its colour. The claim screen: markers with their names (white `Base`, gold `Far`, a small marker and its
+>   `x, z` label for the one the menu added) over the terrain. The menus are a grey box at the click point: `New
+>   waypoint here` on free land; `Hide on the maps` and `Remove waypoint` on a marker, the hovered item lighter.
+> - *Findings.* (1) Inside the `player_died` hook the server's player list is empty (the host's players are taken out
+>   while a guest dies), so the death spot comes from `ALIVE`, each living player's block as of the last tick (up to one
+>   tick stale: a fall's last block can be a few blocks off); the respawn hook runs with the player swapped in, so
+>   `native_player_stat` (the `minecraft:deaths` count) works there. (2) The first draft's remove label matched a
+>   word of FTB Library's lang file, so it reads `Remove waypoint`; a script over the slice's diff found no fallback
+>   equal to any line of the FTB jars' lang files (only identifiers and file keys match single words).
+> - *Not done in slice 4:* FTB's add/edit screens (`WaypointAddScreen`, the manager), in-world beacons, death waypoint
+>   auto-removal (`death_waypoint_autoremove_distance`, 0 = off by default), sharing, reading `ftbchunks-client.snbt`
+>   (the minimap's options are the defaults; only `toggle_minimap`, unbound, switches it).
 >
 > **Done.** *Slice 1, FTB Teams* (`pack/mods/ftbteams`, world test `ftbteams/teams`, 29 checks). *Slice 2, FTB Chunks
 > server* (`pack/mods/ftbchunks`: crate `ftbchunks-core`, runtime `runtime/ftbchunks_world.rs`, world test
 > `ftbchunks/claims`, 22 checks, about 2 minutes). Details of both in each bundle's `NOTES.md`. *Slice 3, the claim
-> map* (one commit after `4282a27368`), below.
+> map* (one commit after `4282a27368`) and *slice 4, waypoints and the minimap* (one commit after `98e7f297db`), below.
 >
 > **Slice 3, the claim map.**
 > - *Crate* `ftbchunks-core/src/net.rs` (depends on serde and serde_json): channels `ftbchunks:login_data`,
@@ -57,30 +133,9 @@
 >   way against `ftb-work/jars/*/assets/*/lang/en_us.json`).
 >
 > **The minimap default, checked in the jar** (`FTBChunksClientConfig`, `javap -c`): `hasOtherMinimapMod()` is true when
-> any of `journeymap`, `voxelmap`, `antiqueatlas` or `xaerominimap` is loaded (`Platform.isModLoaded`), and the
-> `minimap.enabled` option's default is `!hasOtherMinimapMod()`. ATM10 ships JourneyMap and no `ftbchunks-client.snbt`,
-> so **FTB Chunks' corner minimap is OFF by default on ATM10** (the coordinator's "on" does not match the jar). Slice 4
-> builds it, ships it default-off with the same rule, and the option turns it on. There is no "is a mod loaded" helper
-> in `native-hooks.json`: decide between a bundle constant (the ids above checked against the instance's mod list when
-> a host helper exists) and a plain default-off until `journeymap` lands as a bundle.
->
-> **Slice 4, in order.**
-> 1. *Waypoints and the death waypoint* (client). On the transition to `Screen::Dead`, hide the earlier `death` ones and
->    add `Death #<n>`, `#FF0000`, at the player's block. File `waypoints.json` per dimension under
->    `<instance>/local/ftbchunks/data/<manager id>/<dimension with ':' as '_'>/` in FTB's layout
->    (`{"waypoints":[{"hidden","name","x","y","z","color":"#RRGGBB","type":"default"|"death"}]}`; read the exact keys
->    from the jar with `javap` before writing). Draw them on the claim screen (the screen already has the world to
->    screen mapping in `ftbchunks_map.rs`) and add `/ftbchunks waypoint add` (the server sends `add_waypoint`; see
->    `ftbchunks-spec.md` section 8). World test: `/kill`, `respawn`, the file on disk, the probe's list, the mark on
->    the screenshot.
-> 2. *The corner minimap.* The `minimap` hook (`NativeMinimap`: corner, size, round) shows the extra's own map; claims
->    and waypoints over it need `gui_layer_post`. Options from `ftbchunks-spec.md` (position `TOP_RIGHT`, scale, zoom,
->    `locked_north`, `waypoints`, `square`), default off (see above), plus a test with the option on and a screenshot.
->
-> **After slice 4 (slice 5).** The large map (M's other half: pan, zoom, a region cache under the same folder, so
-> unloaded chunks show too) and the inventory sidebar button (FTB Library's `ftbchunks:chunks`/`ftbchunks:map`), the
-> action-bar notice on entering a claim, `update_force_load_expiry`, `teleport_from_map`, `player_death` (server side),
-> `open_claim_gui`. Then JourneyMap (slice 6) over the same tiles.
+> any of `journeymap`, `voxelmap`, `antiqueatlas` or `xaerominimap` is loaded, and `minimap.enabled` defaults to
+> `!hasOtherMinimapMod()`. JourneyMap is not ported (its licence forbids reverse-engineering), so on Horizon FTB's
+> minimap is on by default; the rule reads the staged bundles (`HORIZON_MIXIN_MODS`).
 >
 > **How to run.** `atm10-work/ftb-work/ftb.sh [units] [stage] [build] [world]` (this PC's paths for `bun run
 > pack/scripts/ftbchunks.ts <step>`; `wait-slot.sh 3`, `-j 4`; export `AE2_PROFILE=iter`). `stage` applies only the
@@ -236,12 +291,12 @@ and the claim screen read (claim colours, ally checks).
    selection sending one request on release, claim and force-load overlays in team colours, the counters, the server's
    `send_many_chunks` / `request_chunk_change` half. *World test* `pack/mods/ftbchunks/tests/map.ts`: a 3x3 drag with
    real mouse events claims 9 chunks, Shift force-loads them, a right drag unclaims, a screenshot.
-4. **FTB Chunks client: waypoints, death waypoint, corner minimap** (next; the minimap defaults off on ATM10, see
-   the handoff). *World test*: a death leaves a waypoint file and a mark on the map; the minimap with its option on.
+4. **FTB Chunks client: waypoints, death waypoint, corner minimap** (done; the minimap is on by default here, see the
+   handoff). *World test* `pack/mods/ftbchunks/tests/waypoints.ts`: the minimap drawn top right, `/ftbchunks waypoint add`
+   and the claim screen's menu write `waypoints.json`, a death leaves the red `Death #n` waypoint, four screenshots.
 5. **FTB Chunks client: the large map** (pan, zoom, region cache), the sidebar button, the action-bar notice and the
    server's remaining messages (see the handoff).
-6. **JourneyMap**: full map, minimap presets, waypoint manager, death waypoints, chat sharing, its modes over the
-   shared tiles. *World test*: screens open with their keys, a waypoint made with B survives a restart.
+JourneyMap is not in the slices: its licence forbids reverse-engineering, so it will not be ported.
 
 ## Handoff
 

@@ -7,7 +7,7 @@
 // FTB Chunks is All Rights Reserved: this is written from its behaviour; the labels are its translation keys with
 // our own fallback wording.
 
-use super::{Game, ftbteams_world};
+use super::{Game, ftbchunks_minimap, ftbteams_world};
 use ftbchunks_core::net::{self, ChangeRequest, ChangeResponse, ChunkInfo, GeneralData, ManyChunks, Op};
 use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
 use std::{
@@ -18,7 +18,7 @@ use std::{
 
 const MOD: &str = "ftbchunks";
 /// `FTBChunks.TILES`: the claim screen shows this many chunks a side, the player's in the middle.
-const TILES: i32 = 31;
+pub(super) const TILES: i32 = 31;
 const HALF: i32 = TILES / 2;
 const IMAGE: usize = TILES as usize * 16;
 /// Chunks scanned a frame while the map fills, then while it is refreshed.
@@ -30,6 +30,7 @@ struct Drag {
     left: bool,
     shift: bool,
     chunks: BTreeSet<(i32, i32)>,
+    start: [f32; 2],
     last: [f32; 2],
 }
 
@@ -127,7 +128,21 @@ pub(super) fn from_server(channel: &str, data: &[u8]) {
 
 // ---- The claim screen -------------------------------------------------------------------------------------
 
-fn screen_open(game: &Game<'_>) -> bool {
+/// The FTB Teams manager id `login_data` gave (the client's map folder), once logged in.
+pub(super) fn manager() -> Option<String> {
+    CLIENT.with(|c| c.borrow().manager.clone())
+}
+
+/// The teams claiming the `n` x `n` chunks from `origin` in `dim`, row by row.
+pub(super) fn owners(dim: &str, origin: (i32, i32), n: i32) -> Vec<Option<u128>> {
+    CLIENT.with(|c| {
+        let c = c.borrow();
+        let key = |u: i32, v: i32| (dim.to_owned(), origin.0 + u, origin.1 + v);
+        (0..n * n).map(|i| c.claims.get(&key(i % n, i / n)).map(|(team, _)| *team)).collect()
+    })
+}
+
+pub(super) fn screen_open(game: &Game<'_>) -> bool {
     game.native_mod_screen() == Some(MOD)
 }
 
@@ -178,6 +193,9 @@ pub(super) fn frame(game: &mut Game<'_>) {
     let (center, todo) = CLIENT.with(|c| {
         let mut c = c.borrow_mut();
         if !shown {
+            if c.open {
+                ftbchunks_minimap::close_menu();
+            }
             c.open = false;
             c.drag = None;
             return (c.center, 0);
@@ -222,6 +240,7 @@ pub(super) fn frame(game: &mut Game<'_>) {
     });
     if let Some(image) = upload {
         if game.native_mod_image(IMAGE as u32, IMAGE as u32, &image) {
+            ftbchunks_minimap::image_taken();
             CLIENT.with(|c| c.borrow_mut().uploaded = Some(Instant::now()));
         }
     }
@@ -233,13 +252,16 @@ pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i3
         return;
     }
     *canceled = true;
+    if ftbchunks_minimap::menu_click(game, screen.mouse, button) {
+        return;
+    }
     CLIENT.with(|c| {
         let mut c = c.borrow_mut();
         let layout = Layout::of(screen.rect);
         c.layout = layout;
         let mut chunks = BTreeSet::new();
         chunks.extend(layout.at(screen.mouse));
-        c.drag = Some(Drag { left: button == 0, shift: modifiers & 1 != 0, chunks, last: screen.mouse });
+        c.drag = Some(Drag { left: button == 0, shift: modifiers & 1 != 0, chunks, start: screen.mouse, last: screen.mouse });
     });
 }
 
@@ -269,16 +291,30 @@ pub(super) fn released(game: &Game<'_>, button: i32, canceled: &mut bool) {
         return;
     }
     *canceled = true;
-    CLIENT.with(|c| {
-        let mut c = c.borrow_mut();
-        let Some(drag) = c.drag.take() else { return };
-        if drag.chunks.is_empty() {
+    let Some(drag) = CLIENT.with(|c| c.borrow_mut().drag.take()) else { return };
+    if drag.chunks.is_empty() {
+        return;
+    }
+    let (layout, (cx, cz), dim) = CLIENT.with(|c| {
+        let c = c.borrow();
+        (c.layout, c.center, c.dim.clone())
+    });
+    // A right click that stays on one chunk: FTB Chunks' map menu where it would change nothing (no claim there), or
+    // over a waypoint.
+    if !drag.left && drag.chunks.len() == 1 && (drag.last[0] - drag.start[0]).hypot(drag.last[1] - drag.start[1]) < 3.0 {
+        let &(u, v) = drag.chunks.first().expect("one chunk");
+        let free = owners(&dim, (cx - HALF + u, cz - HALF + v), 1)[0].is_none();
+        let per_block = layout.cell() / 16.0;
+        let bx = (cx - HALF) * 16 + ((drag.last[0] - layout.x) / per_block).floor() as i32;
+        let bz = (cz - HALF) * 16 + ((drag.last[1] - layout.y) / per_block).floor() as i32;
+        let y = game.native_player().map_or(64, |p| p.y.floor() as i32);
+        let origin = [(cx - HALF) * 16, (cz - HALF) * 16];
+        if ftbchunks_minimap::open_menu(game, [layout.x, layout.y, layout.side], origin, &dim, drag.last, [bx, y, bz], free) {
             return;
         }
-        let (cx, cz) = c.center;
-        let chunks = drag.chunks.iter().map(|&(u, v)| [cx - HALF + u, cz - HALF + v]).collect();
-        c.outgoing.push(ChangeRequest { op: Op::create(drag.left, drag.shift), chunks, admin: false, team: None });
-    });
+    }
+    let chunks = drag.chunks.iter().map(|&(u, v)| [cx - HALF + u, cz - HALF + v]).collect();
+    CLIENT.with(|c| c.borrow_mut().outgoing.push(ChangeRequest { op: Op::create(drag.left, drag.shift), chunks, admin: false, team: None }));
 }
 
 fn argb(alpha: u32, rgb: u32) -> u32 {
@@ -397,6 +433,13 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
             }
         }
     });
+    let (cx, cz, dim) = CLIENT.with(|c| {
+        let c = c.borrow();
+        (c.center.0, c.center.1, c.dim.clone())
+    });
+    let origin = [(cx - HALF) * 16, (cz - HALF) * 16];
+    ftbchunks_minimap::draw_on_claim_map(game, batch, [layout.x, layout.y, layout.side], origin, &dim);
+    ftbchunks_minimap::draw_menu(game, batch, screen.mouse);
 }
 
 // ---- The tests' probe -------------------------------------------------------------------------------------
@@ -424,6 +467,8 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
         Some("ftbchunksclient") => {
             *ran = true;
             let open = screen_open(game);
+            let dim = game.native_player().map(|p| p.dimension.to_string()).unwrap_or_default();
+            let minimap = ftbchunks_minimap::probe(game, &dim);
             let json = CLIENT.with(|c| {
                 let c = c.borrow();
                 let mut by_team: HashMap<String, (u32, u32)> = HashMap::new();
@@ -447,6 +492,7 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
                     "tiles": c.tiles,
                     "filled": c.filled,
                     "uploaded": c.uploaded.is_some(),
+                    "minimap": minimap,
                 })
             });
             game.native_chat(&format!("FTBCC {json}"));

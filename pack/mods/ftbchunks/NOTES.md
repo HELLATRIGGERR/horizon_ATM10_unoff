@@ -1,9 +1,10 @@
 # FTB Chunks: where the work stands
 
-Slices 2 (the server) and 3 (the claim screen, its messages, the map tile API 428) of docs/ftb-chunks.md are done;
-slice 4 (waypoints, the death waypoint, the corner minimap) is next. FTB Chunks 2101.1.22 is All Rights Reserved (FTB): the crate reimplements its behaviour; nothing of it is
-copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world` (this PC:
-`atm10-work/ftb-work/ftb.sh`; `FTB_LIST=ftbchunks/claims` or `ftbchunks/map` for this bundle's world tests).
+Slices 2 (the server), 3 (the claim screen, its messages, the map tile API 428) and 4 (waypoints, the death waypoint, the
+corner minimap) of docs/ftb-chunks.md are done; slice 5 (the large map with a region cache, the sidebar button, the
+action-bar notice, the remaining server messages) is next. FTB Chunks 2101.1.22 is All Rights Reserved (FTB): the crate
+reimplements its behaviour; nothing of it is copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world` (this PC:
+`atm10-work/ftb-work/ftb.sh`; `FTB_LIST=ftbchunks/claims`, `ftbchunks/map` or `ftbchunks/waypoints` for this bundle's world tests).
 
 ## How it fits
 
@@ -13,6 +14,23 @@ copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build wor
 - FTB Teams' events (`TeamEvent`: created, joined, left, deleted, ownership, login, properties) reach FTB Chunks
   through a queue in `ftbteams_world` (`take_events`), drained each server tick; the tickets are checked then (at
   once after an event or a command, else every 100 ticks): wanted minus held are held, held minus wanted let go.
+
+## Slice 4: waypoints and the minimap
+
+- `ftbchunks-core/src/waypoints.rs`: FTB's `waypoints.json` keys, `add_death`, `parse_add` for `/ftbchunks waypoint add`,
+  `add_waypoint` / `player_death` messages, `minimap_on_by_default`. The client half is `runtime/ftbchunks_minimap.rs`
+  (waypoints under `<instance>/local/ftbchunks/data/<manager>/<dim>/`, markers and the right-click menu on the claim
+  screen, the corner minimap on the `hud` hook); the server half is in `ftbchunks_world.rs` (`perform`, `player_died`,
+  `player_respawned`). World test `tests/waypoints.ts`.
+- The death spot is the player's block as of the last tick (`ALIVE`, filled in `tick`): inside `player_died` the server's
+  player list is empty (the host's players are taken out), so `native_server_players` cannot be asked there.
+  `native_player_stat` works in `player_respawned` (the player is swapped in) and gives the `minecraft:deaths` count.
+- The minimap is on by default because no other minimap mod is built in (FTB's own rule over `journeymap`, `voxelmap`,
+  `antiqueatlas`, `xaerominimap`; JourneyMap is not ported). No new engine API.
+- Not done: FTB's waypoint add/edit screens and manager, in-world beacons, `death_waypoint_autoremove_distance`,
+  sharing, reading `ftbchunks-client.snbt` (the options are the defaults; the unbound `toggle_minimap` key switches it).
+- The labels are translation keys with our own fallbacks (`ftbchunks.gui.add_waypoint`, `ftbchunks.label.hide|show`,
+  `ftbchunks.gui.delete`, `ftbchunks.command.waypoint_added`); none equals a line of the FTB jars' lang files.
 
 ## Not done yet
 
@@ -35,7 +53,8 @@ copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build wor
   slice 3): the fields are kept and saved; `ClaimExpirationManager` isn't there.
 - FTB Ranks permissions (`ftbchunks.max_claimed`, `max_force_loaded`, `chunk_load_offline`, `no_wilderness`): ATM10
   defines none, so the config's values apply; `offline_force_loader` is read from the files.
-- The action-bar "entered claim" notice: slice 5 (`request_chunk_change` and `send_many_chunks` are done in slice 3).
+- The action-bar "entered claim" notice, the large map with its region cache, the sidebar button, `update_force_load_expiry`,
+  `teleport_from_map`, `open_claim_gui`: slice 5.
 - Admin feedback to other operators; team name completions.
 
 ## Gaps in the mod API (none added: the slice works without them)

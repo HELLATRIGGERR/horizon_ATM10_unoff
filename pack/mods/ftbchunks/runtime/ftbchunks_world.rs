@@ -11,7 +11,7 @@ use super::{
 use ftbchunks_core::{
     Actor, ChunkPos, Chunks, Claim, Config, Kind, MemberData, Protection, TeamData, TeamView, Teams, Uuid, chunk_of,
     commands::{self, Ctx, Msg},
-    net,
+    net, waypoints,
 };
 use ftbteams_core::{
     Manager,
@@ -366,6 +366,7 @@ pub(super) fn saved() {
 
 /// `native_server_tick`: the team events (claims follow a player into a party and back), then the tickets.
 pub(super) fn tick(game: &mut Game<'_>) {
+    remember_alive(game);
     let events = ftbteams_world::take_events();
     let Some(changes) = with(|server, view| {
         let chunks = &mut server.chunks;
@@ -756,6 +757,11 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
     if first != "ftbchunks" && first != "chunks" {
         return;
     }
+    if let Some(add) = waypoints::parse_add(command, player.position, &player.dimension) {
+        *ran = true;
+        waypoint_add(game, player.uuid, add);
+        return;
+    }
     let reply = with(|server, view| {
         let ctx = Ctx {
             sender: player.uuid,
@@ -785,6 +791,60 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
     }
     resync_soon();
     tick(game);
+}
+
+/// `/ftbchunks waypoint add`: the waypoint goes to the player's client (`add_waypoint`), which keeps it.
+fn waypoint_add(game: &mut Game<'_>, player: Uuid, add: Result<waypoints::AddWaypoint, String>) {
+    let add = match add {
+        Ok(add) => add,
+        Err(arg) => {
+            let line = Text::translate_with_fallback("command.unknown.argument", "Incorrect argument for command", &[]);
+            game.native_feedback(line.append(Text::literal(format!(": {arg}"))).with_color(commands::RED));
+            return;
+        }
+    };
+    if let Err(e) = game.native_net_send_to_player(player, waypoints::ADD_WAYPOINT, &json_bytes(&add)) {
+        log::debug!("[ftbchunks] {}: {e}", waypoints::ADD_WAYPOINT);
+    }
+    if !add.gui {
+        let name = Text::literal(add.name);
+        game.native_feedback(Text::translate_with_fallback("ftbchunks.command.waypoint_added", "Waypoint %s saved", &[name]));
+    }
+}
+
+thread_local! {
+    /// Where each living player was at the last tick (the server's player list is out of reach inside the death hook).
+    static ALIVE: RefCell<BTreeMap<Uuid, (String, [i32; 3])>> = const { RefCell::new(BTreeMap::new()) };
+    /// Where each player last died (`player_died`), told to their client when they respawn.
+    static DEATHS: RefCell<BTreeMap<Uuid, (String, [i32; 3])>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Each tick: the block, and dimension, of every living player.
+fn remember_alive(game: &Game<'_>) {
+    let players = game.native_server_players();
+    ALIVE.with(|a| {
+        let mut a = a.borrow_mut();
+        a.retain(|id, _| players.iter().any(|p| p.uuid == *id));
+        for p in players.iter().filter(|p| p.health > 0.0) {
+            a.insert(p.uuid, (p.dimension.clone(), p.position.map(|v| v.floor() as i32)));
+        }
+    });
+}
+
+/// `native_player_died`: the spot (as of the last tick) is kept for the respawn.
+pub(super) fn player_died(_game: &mut Game<'_>, player: Uuid) {
+    let Some(spot) = ALIVE.with(|a| a.borrow().get(&player).cloned()) else { return };
+    DEATHS.with(|d| d.borrow_mut().insert(player, spot));
+}
+
+/// `native_player_respawned`: FTB Chunks' `player_death` (sent when the dead player is cloned) with the death count.
+pub(super) fn player_respawned(game: &mut Game<'_>, player: Uuid) {
+    let Some((dim, pos)) = DEATHS.with(|d| d.borrow_mut().remove(&player)) else { return };
+    let deaths = game.native_player_stat(player, "minecraft:custom", "minecraft:deaths").unwrap_or(1).max(1);
+    let death = waypoints::PlayerDeath { dim, pos, deaths };
+    if let Err(e) = game.native_net_send_to_player(player, waypoints::PLAYER_DEATH, &json_bytes(&death)) {
+        log::debug!("[ftbchunks] {}: {e}", waypoints::PLAYER_DEATH);
+    }
 }
 
 fn probe(server: &Server, view: &View<'_>) -> serde_json::Value {

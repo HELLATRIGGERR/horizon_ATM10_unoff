@@ -9,6 +9,7 @@
 
 pub mod commands;
 pub mod net;
+pub mod waypoints;
 #[cfg(test)]
 mod tests;
 

@@ -28,6 +28,7 @@
 // Building native code is the player's own decision; the launcher's `native-build` is the player's route.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { profile } from '../../ae2/scripts/common';
 import { runSuites, takeJobs } from '../../ae2/scripts/suites';
 
 const root = resolve(import.meta.dir, '../..');
@@ -121,10 +122,10 @@ const steps: Record<string, () => Promise<void>> = {
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', 'fast', '-p', 'horizon-client', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-client', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
   },
   async world() {
-    const binary = join(target, `fast/horizon-client${exe}`);
+    const binary = join(target, `${profile}/horizon-client${exe}`);
     if (!existsSync(binary)) throw new Error(`No staged build at ${binary}; run the build step.`);
     const harness = {
       ...process.env, AE2_TEST_BINARY: binary, MEK_CONTENT_DIR: content, MEKGEN_CONTENT_DIR: genContent, MEK_ATO_CONTENT_DIR: atoContent,

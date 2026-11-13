@@ -110,3 +110,17 @@ inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
+
+# The edit-compile-test loop: `fast` with the game's own big crates (horizon-client, its library and the renderer:
+# ~1M lines, most of every rebuild) unoptimised; every dependency stays at `fast`'s opt-level 3. A horizon-client
+# edit rebuilds in ~30 s instead of ~220-270 s; world suites run ~25% slower, Mekanism's ~1.5-2x (measured 13.11).
+# Full checks stay on `fast`. Opt-in: cargo build --profile iter, or AE2_PROFILE=iter for ae2/ and pack/ scripts.
+[profile.iter]
+inherits = "fast"
+
+[profile.iter.package.horizon-client]
+opt-level = 0
+[profile.iter.package.horizon-client-lib]
+opt-level = 0
+[profile.iter.package.horizon-client-render]
+opt-level = 0

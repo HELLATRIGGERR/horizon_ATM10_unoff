@@ -3,6 +3,8 @@ import { resolve, join } from 'node:path';
 export const root = resolve(import.meta.dir, '../..');
 export const engine = root;
 export const manifest = join(engine, 'Cargo.toml');
+/** The Cargo profile of the client build and its binary's folder: `fast`; AE2_PROFILE=iter picks the cheaper-to-rebuild one. */
+export const profile = process.env.AE2_PROFILE ?? 'fast';
 export async function run(command: string[], cwd = root, env = process.env): Promise<void> {
   const child = Bun.spawn(command, { cwd, env, stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' });
   const code = await child.exited;

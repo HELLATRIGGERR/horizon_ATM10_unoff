@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { appendFileSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { root, engine, addonContent } from '../../scripts/common';
+import { root, engine, profile, addonContent } from '../../scripts/common';
 import { acquireRenderLease, awakeNowMs, awakeTimeout } from './background';
 
 export type Mode = 'server-thread' | 'in-frame';
@@ -79,7 +79,7 @@ const inTemp = (path: string) => { const rel = relative(tmpdir(), path); return 
 const contentRoots = (cache: string) => { try { return readdirSync(join(cache, 'mod-content')).filter(name => /^[0-9a-f]{16}$/.test(name) && existsSync(join(cache, 'mod-content', name, 'horizon-mod-content.stamp'))); } catch { return []; } };
 
 export class WorldFixture {
-  readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target/fast', process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
+  readonly binary = resolve(process.env.AE2_TEST_BINARY ?? join(engine, 'target', profile, process.platform === 'win32' ? 'horizon-client.exe' : 'horizon-client'));
   readonly resources = resolve(process.env.AE2_RESOURCES ?? join(root, '.local/resources/26.3'));
   readonly content: string;
   /** Addon content folders loaded next to AE2's: the fixture's `addons`, and those AE2_ADDONS names (comma-separated). */

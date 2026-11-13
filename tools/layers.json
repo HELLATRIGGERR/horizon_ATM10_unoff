@@ -54,6 +54,7 @@
     "ae2-network-core": "platform",
     "horizon-ae2": "platform",
     "horizon-ae2x-aeinfinitybooster": "platform",
+    "horizon-ae2x-enderdrives": "platform",
     "horizon-atm10": "platform",
 
     "horizon-addresses": "horizon",

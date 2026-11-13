@@ -574,7 +574,7 @@ impl Game<'_> {
 /// not interchangeable with the host block address: six parts can own six
 /// independent inventories and configuration records on the same cable.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct PartAddress {
+pub struct PartAddress {
     pub host: super::ae2_global::GridAddress,
     pub face: u8,
 }

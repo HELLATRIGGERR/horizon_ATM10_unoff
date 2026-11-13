@@ -20,8 +20,8 @@ struct Ae2 {
 }
 
 impl Ae2Ext for Ae2 {
-    fn addon(&mut self, id: &str) -> Option<&mut dyn Ae2Addon> {
-        self.addons.iter_mut().find(|addon| addon.id() == id).map(|addon| addon.as_mut() as &mut dyn Ae2Addon)
+    fn addon(&self, id: &str) -> Option<&dyn Ae2Addon> {
+        self.addons.iter().find(|addon| addon.id() == id).map(|addon| addon.as_ref())
     }
 }
 

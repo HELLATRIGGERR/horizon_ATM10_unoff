@@ -9,7 +9,7 @@ pub(super) type LocalPos = (i32, i32, i32);
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
-pub(super) struct GridAddress(LocalPos);
+pub struct GridAddress(LocalPos);
 impl GridAddress {
     pub(super) fn from_local(dim: Dim, pos: LocalPos) -> Option<Self> {
         encode(dim, pos)

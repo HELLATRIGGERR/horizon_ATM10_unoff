@@ -20,6 +20,7 @@ path = "src/main.rs"
 horizon-client = { path = "../horizon-client", default-features = false }
 horizon-ae2 = { path = "../horizon-ae2", optional = true }
 horizon-ae2x-aeinfinitybooster = { path = "../horizon-ae2x-aeinfinitybooster", optional = true }
+horizon-ae2x-enderdrives = { path = "../horizon-ae2x-enderdrives", optional = true }
 # The mod API level mark and the allocator, as horizon-client's own program has them.
 horizon-mods = { path = "../horizon-mods", default-features = false }
 horizon-threads = { path = "../horizon-threads" }
@@ -39,7 +40,7 @@ ae2-ae2wtlib = ["ae2-lab", "horizon-client/ae2-ae2wtlib"]
 ae2-aeinfinitybooster = ["ae2-lab", "horizon-client/ae2-aeinfinitybooster", "dep:horizon-ae2x-aeinfinitybooster"]
 ae2-importexportcard = ["ae2-lab", "horizon-client/ae2-importexportcard"]
 ae2-appflux = ["ae2-lab", "horizon-client/ae2-appflux"]
-ae2-enderdrives = ["ae2-lab", "horizon-client/ae2-enderdrives"]
+ae2-enderdrives = ["ae2-lab", "horizon-client/ae2-enderdrives", "dep:horizon-ae2x-enderdrives"]
 ae2-advancedae = ["ae2-lab", "horizon-client/ae2-advancedae"]
 audio = ["horizon-client/audio"]
 controllers = ["horizon-client/controllers"]

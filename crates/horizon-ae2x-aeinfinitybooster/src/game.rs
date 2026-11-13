@@ -7,7 +7,7 @@
 //! (`horizon_client::game::ae2_ext`).
 use horizon_client::game::ae2_ext::{Ae2Addon, Ae2Host};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity};
-use std::collections::BTreeMap;
+use std::{cell::RefCell, collections::BTreeMap};
 
 /// What one access point did about its chunk: `ib$forcedChunk`, whether it
 /// is what keeps the chunk forced.
@@ -16,9 +16,9 @@ struct AccessPoint {
     forced: bool,
 }
 
-/// The addon in one game, with what it keeps while the game runs.
+/// What the addon keeps while the game runs.
 #[derive(Default)]
-pub(crate) struct State {
+struct State {
     /// The access points seen, by dimension and position.
     seen: BTreeMap<(String, (i32, i32, i32)), AccessPoint>,
     next: u64,
@@ -52,26 +52,34 @@ fn next(point: Option<AccessPoint>, card: bool, enabled: bool, newly_forced: imp
     }
 }
 
+/// The addon in one game. What it keeps is borrowed for a read or a write only, never across a call
+/// to the host (`horizon_client::game::ae2_ext`).
+#[derive(Default)]
+struct Booster(RefCell<State>);
+
 /// A game's addon, for `horizon_ae2::add_addon`.
 pub(crate) fn make() -> Box<dyn Ae2Addon> {
-    Box::new(State::default())
+    Box::new(Booster::default())
 }
 
-impl Ae2Addon for State {
+impl Ae2Addon for Booster {
     fn id(&self) -> &'static str {
         crate::defs::NAMESPACE
     }
 
     /// Once a second: the access points' chunks, as the card's mixins keep them.
-    fn tick(&mut self, host: &mut dyn Ae2Host) {
+    fn tick(&self, host: &mut dyn Ae2Host) {
         if host.is_remote() {
             return;
         }
         let now = host.world().game_time.max(0) as u64;
-        if now < self.next {
-            return;
+        {
+            let mut state = self.0.borrow_mut();
+            if now < state.next {
+                return;
+            }
+            state.next = now + 20;
         }
-        self.next = now + 20;
         let enabled = crate::defs::Config::get().chunk_loading;
         let defs = horizon_client::ae2x::defs::get();
         let dim = host.dimension().to_owned();
@@ -87,7 +95,7 @@ impl Ae2Addon for State {
                 _ => None,
             })
             .collect();
-        let state = std::mem::take(&mut self.seen);
+        let state = std::mem::take(&mut self.0.borrow_mut().seen);
         let mut seen = BTreeMap::new();
         for (key, point) in state {
             if key.0 != dim || present.contains_key(&key.1) {
@@ -112,7 +120,7 @@ impl Ae2Addon for State {
             });
             seen.insert(key, point);
         }
-        self.seen = seen;
+        self.0.borrow_mut().seen = seen;
     }
 }
 

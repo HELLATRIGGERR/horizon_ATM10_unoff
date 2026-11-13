@@ -11,7 +11,7 @@
 use crate::ae2_world::{AE2_CRAFTING_UNITS, AE2_ENERGY_CELLS, CraftingUnit, EnergyCell, ExtMachine, MachineVariant};
 use ae2_cell_core::{CellConfig, KeyType, Tier};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         LazyLock, Mutex, PoisonError,
         atomic::{AtomicBool, Ordering},
@@ -159,6 +159,9 @@ pub struct AccessPointCard {
 pub struct Defs {
     cells: HashMap<String, CellDef>,
     handler_cells: HashMap<String, HandlerCellDef>,
+    /// The cells of an addon's own handler that never fit inside another cell
+    /// (`StorageCell.canFitInsideCell` left at its default: no).
+    cells_kept_out_of_cells: HashSet<String>,
     /// The batteries of portable cells of an addon's own handler.
     portable_handler_cells: HashMap<String, PortableBattery>,
     components: HashMap<String, Tier>,
@@ -305,6 +308,14 @@ impl Defs {
         self.portable_cell(id)
             .map(|cell| PortableBattery { battery_scale: cell.battery_scale, charge_scale: cell.charge_scale })
             .or_else(|| self.portable_handler_cells.get(id).copied())
+    }
+    /// Marks a cell of the addon's own handler that never fits inside another cell.
+    pub fn add_cell_kept_out_of_cells(&mut self, id: &str) {
+        self.cells_kept_out_of_cells.insert(id.to_owned());
+    }
+    /// Whether the cell `id` never fits inside another cell ([`Defs::add_cell_kept_out_of_cells`]).
+    pub fn is_cell_kept_out_of_cells(&self, id: &str) -> bool {
+        self.cells_kept_out_of_cells.contains(id)
     }
     /// A cell of an addon's own handler; none for AE2's and the basic cells.
     pub fn handler_cell(&self, id: &str) -> Option<&HandlerCellDef> {
@@ -614,9 +625,8 @@ pub fn get() -> &'static Defs {
         // Applied Flux's key type and FE cells.
         #[cfg(feature = "ae2-appflux")]
         super::appflux::register(&mut defs);
-        // Ender Drives' disks, cells of its own handler.
-        #[cfg(feature = "ae2-enderdrives")]
-        super::enderdrives::register(&mut defs);
+        // Ender Drives' disks, cells of its own handler (horizon-ae2x-enderdrives).
+        add_addon_rows("enderdrives", &mut defs);
         #[cfg(feature = "ae2-advancedae")]
         super::advancedae::register(&mut defs);
         // The addon machines' block ids, for `MachineKind::from_id`, the

@@ -15,7 +15,7 @@ const CHANNEL: &str = "ae2:visual";
 const MAX_SOURCE_CHUNKS: usize = horizon_protocol::frame::MAX_FRAME / 8;
 const ANCHOR_FRAGMENT_CHUNKS: usize = 1024;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Visual {
+pub struct Visual {
     pub pos: [i32; 3],
     pub kind: String,
     pub slots: Vec<Option<CellVisual>>,
@@ -45,12 +45,12 @@ pub(super) struct Visual {
     pub(super) anchor_pending: Option<AnchorTransfer>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct CellVisual {
+pub struct CellVisual {
     pub id: String,
     pub state: u8,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Part {
+pub struct Part {
     pub id: String,
     pub face: String,
     #[serde(default)]
@@ -74,7 +74,7 @@ pub(super) struct Part {
 }
 /// Only the configured display key and its public aggregate are replicated.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct MonitorVisual {
+pub struct MonitorVisual {
     pub item: String,
     pub components: Vec<u8>,
     pub fluid: bool,
@@ -88,14 +88,14 @@ pub(super) struct MonitorVisual {
 /// A line of text a monitor draws under its amount: its translation (two
 /// `%s`: `sign`, `value`) and colour, 0xRRGGBB (none: the amount's).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct RateVisual {
+pub struct RateVisual {
     pub key: String,
     pub sign: String,
     pub value: String,
     pub color: Option<u32>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct Facade {
+pub struct Facade {
     pub face: String,
     pub block: String,
     /// The facade's public material item; a block item may use a distinct ID.

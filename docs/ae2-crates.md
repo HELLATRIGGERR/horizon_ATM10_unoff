@@ -293,8 +293,9 @@ The move is only worth it if builds get much faster and the game behaves exactly
   game while no AE2 core code has moved; they must switch to `horizon-atm10` before step 3.
 - **0c, `horizon-ae2`.** Holds the extension it installs, and the list of addon behaviours (`add_addon`).
 - **0d, the extension point.** `game/ae2_ext.rs`: `Ae2Host`, `Ae2Ext`, `Ae2Addon`, the factory and the `Slot` in
-  `Game` (`ae2_ext`, beside `ae2x`). `game/ae2_host.rs`: `Ae2Host for Game` and `Game::ae2_addon_tick`, which
-  takes the extension out of `Game` for the call and puts it back.
+  `Game` (`ae2_ext`, beside `ae2x`). `game/ae2_host.rs`: `Ae2Host for Game` and the game's calls into the addons
+  (`Game::ae2_addon_*`). The extension is shared (an `Rc` the call clones), not taken out of `Game` for the call:
+  see Step 1, Ender Drives, for why.
 
 ### Step 1, the pilot: AEInfinityBooster
 
@@ -331,3 +332,42 @@ in `split-work/bt-pilot`, `-p horizon-atm10` (`cargo-atm10.cmd`). Reports: `spli
 - Edits that stay in `horizon-client` cost what they did: `game.rs` the same, `ae2x/mod.rs` +2.9 s (1.7%, about
   the spread of the repeats), for `horizon-ae2`, the addon crate and the program now built after it. Watch this
   row as addons move: their crates build side by side, so it should stay a few seconds.
+
+### Step 1, Ender Drives
+
+`horizon-ae2x-enderdrives`: the rows and the config (`defs.rs`, from the lib's `ae2x/enderdrives.rs`) and the
+game behaviour (`game.rs`, from `game/ae2x/enderdrives/`). Ender Drives reaches into AE2's core more than the
+booster does, so this step made the extension point what the next addons need:
+
+- `Ae2Addon` has default no-op methods, one per place the game called the addon: `tick`, `tick_frozen`
+  (`tick_ae2x_frozen`), `snapshot` (`ae2x_snapshot`, with `Ae2Snapshot::restore`), `save`, `cell_mounted`,
+  `cell_idle_drain`, `enrich_visual`, `handler_cell`, `item_hover_lines`, `command`, and
+  `lan_main_hand_payload` (the guest lookup and the inventory resend stay in the game: `ae2_host.rs`). The
+  game calls each one by the addon's id where `game/ae2x/mod.rs` called the addon's function, at the same place:
+  `tick_enderdrives` ran in both ticks, `enderdrives_primary` in `ae2x_cell_mounted`, and so on.
+- `Ae2Host` gained the 15 methods the addon needs, each a one-line forward to the AE2 core (`block_entity`,
+  `address_parts`, `local_address`, `storage_priority`, `part_machine`, `cell_hosts`, `known_cell_key`,
+  `machine_addresses`...) and `world_root`, the UUIDs and names, and the main hand's stack. The handles it passes
+  (`GridAddress`, `PartAddress`, `Visual`, `HandlerCell`) are opaque to the addon: their types became `pub` in
+  their (fork-only, private) modules and are re-exported by `ae2_ext`; no upstream item was made `pub`.
+- **The extension is shared, not taken out.** The pilot's slot took the extension out of `Game` for each call.
+  That was enough for the booster, which asks the host only for plain reads. Ender Drives' own tick asks the host
+  for `cell_hosts`, which builds the AE2 network, and the network asks every addon for its cells' idle drain
+  (`ae2x_cell_idle_drain`, including Ender Drives'): with the extension taken out that answer would have been
+  missing, and the grid's power analysis in that tick changed. So `Slot` holds an `Rc<dyn Ae2Ext>` that each call
+  clones, the addons' methods take `&self`, and what an addon keeps is behind a `RefCell` (or a `Mutex`),
+  borrowed for a read or a write and never across a call to the host. A nested call into the same addon works;
+  a nested write while a borrow is open would panic (loud, not a silent difference).
+- The lib's `handler_cell_fits_inside` named `enderdrives::is_disk`; the row now marks its disks
+  (`Defs::add_cell_kept_out_of_cells`) and the lib asks the registry. Same answer, no addon in the lib.
+
+`horizon-client`'s and `-lib`'s `ae2-enderdrives` features: the lib's is gone, the client's gates nothing (as the
+booster's).
+
+Checks at this step: `build.ts` 58 warnings (as the base); units as at the pilot (client bin 1, lib 1613,
+client-lib 2544 + the one known failure, command 59), the new crate 11, the booster's 3; default-features check,
+layers and `xtask mod-api` clean; world: `enderdrives-disks` (9 checks: two networks share a storage, the
+duplicate guard, drain, config, restart) and `aeinfinitybooster-range` (5, now through the shared extension).
+An edit of `horizon-ae2x-enderdrives/src/game.rs` builds in 2.5 s (`fast`, `-j 6`, quiet machine, the program
+included).
+

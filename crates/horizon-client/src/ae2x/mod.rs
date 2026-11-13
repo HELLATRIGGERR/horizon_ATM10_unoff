@@ -16,8 +16,6 @@ pub mod ae2wtlib;
 pub mod importexportcard;
 #[cfg(feature = "ae2-appflux")]
 pub mod appflux;
-#[cfg(feature = "ae2-enderdrives")]
-pub mod enderdrives;
 #[cfg(feature = "ae2-advancedae")]
 pub mod advancedae;
 
@@ -87,9 +85,8 @@ pub fn handler_cell_fits_inside(stack: &crate::items::ItemStack) -> Option<bool>
     if stack.item.as_ref() == extendedae::VOID_CELL {
         return Some(false);
     }
-    // EnderDiskInventory keeps StorageCell's default: no.
-    #[cfg(feature = "ae2-enderdrives")]
-    if enderdrives::is_disk(&stack.item) {
+    // EnderDiskInventory keeps StorageCell's default: no (a row of the addon's, `Defs::add_cell_kept_out_of_cells`).
+    if defs::get().is_cell_kept_out_of_cells(&stack.item) {
         return Some(false);
     }
     None

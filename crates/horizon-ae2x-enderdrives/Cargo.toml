@@ -1,0 +1,24 @@
+[package]
+name = "horizon-ae2x-enderdrives"
+version = "0.1.0"
+edition.workspace = true
+license = "MIT AND LGPL-3.0-or-later"
+rust-version.workspace = true
+description = "Ender Drives 1.5.23 on the AE2 port, above horizon-client (ae2/addons/enderdrives, docs/ae2-crates.md)"
+
+[dependencies]
+# AE2's extension point and the definitions registry; no default features, as horizon-ae2.
+horizon-client = { path = "../horizon-client", default-features = false, features = ["ae2-lab"] }
+horizon-ae2 = { path = "../horizon-ae2" }
+# The cells' keys and actions.
+ae2-cell-core = { path = "../ae2-cell-core" }
+# The disks' NBT, the frequency packet's VarInts and the UUID strings.
+horizon-world = { path = "../horizon-world" }
+horizon-protocol = { path = "../horizon-protocol" }
+# `enderdrives-server.toml`, the `/ae2 enderdrives` replies.
+toml = "1.1"
+serde_json = "1.0.151"
+log = "0.4"
+
+[lints]
+workspace = true

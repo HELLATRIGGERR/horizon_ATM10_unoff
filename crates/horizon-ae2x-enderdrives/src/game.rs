@@ -1,11 +1,12 @@
-//! Ender Drives 1.5.23 in the game (feature `ae2-enderdrives`): its Ender
+//! Ender Drives 1.5.23 in the game: its Ender
 //! Item Storage Cells on AE2 networks. Derived from Ender Drives by STS15
 //! (`EnderDiskInventory`, `AbstractEnderDiskInventory`, `EnderDBManager`,
 //! `DuplicateCellGuard`, `AbstractEnderDiskItem.appendHoverText`,
 //! `UpdateFrequencyPacket`), https://github.com/sts15/EnderDrives commit
 //! 264ec0a and the 1.5.23 jar's classes, MIT; see `ae2/addons/enderdrives/`.
 //! The disks, their data and the storage's rules are the registry's
-//! (`horizon_client::ae2x::enderdrives`).
+//! (`defs.rs`). It reaches the game only as its host
+//! (`horizon_client::game::ae2_ext`).
 //!
 //! A disk holds nothing itself: every disk of one scope and frequency is a
 //! window on one storage of the world ([`Store`]), which this module reads
@@ -15,19 +16,18 @@
 //! the least dimension, position and slot; the others sleep, FULL and drawing
 //! nothing. A disk in an ME Chest, a Cell Dock or an addon's drive is never
 //! bound to the guard, so it always works.
-use super::super::{
-    Game, ae2_global::GridAddress, ae2_visual_sync::Visual, ae2x::HandlerCell, lan::LanHost,
-};
+use crate::defs::{self as rows, Config, Scope, StorageKey, Store};
 use ae2_cell_core::{Action, ItemKey};
 use horizon_client::{
     ae2_world::MachineKind,
-    ae2x::enderdrives::{self as rows, Config, Scope, StorageKey, Store},
     containers::BlockEntity,
+    game::ae2_ext::{Ae2Addon, Ae2Host, Ae2Snapshot, GridAddress, HandlerCell, PartAddress, Visual},
     items::ItemStack,
     text::{Text, format_translation},
 };
 use horizon_world::nbt::Tag;
 use std::{
+    cell::RefCell,
     collections::HashSet,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
@@ -47,12 +47,20 @@ fn lock(shared: &Shared) -> MutexGuard<'_, Inner> {
     shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The addon in one game, with what it keeps while the game runs.
 #[derive(Default)]
-pub(in crate::game) struct State {
+struct EnderDrives {
     shared: Shared,
     /// The disks in a Drive that sleep (`isPrimary` false) as of the last
-    /// grid tick: by their drive and slot. Their idle drain and LED read it.
-    sleeping: HashSet<(GridAddress, usize)>,
+    /// grid tick: by their drive and slot. Their idle drain and LED read it,
+    /// also while the tick that sets it is running (the grid it builds asks
+    /// the idle drain), so it is only borrowed for a read or a write.
+    sleeping: RefCell<HashSet<(GridAddress, usize)>>,
+}
+
+/// A game's addon, for `horizon_ae2::add_addon`.
+pub(crate) fn make() -> Box<dyn Ae2Addon> {
+    Box::new(EnderDrives::default())
 }
 
 /// The save's path in the world folder.
@@ -62,7 +70,7 @@ fn save_path(root: &Path) -> PathBuf {
 
 /// What the storage was when a block snapshot was taken
 /// (`ae2_snapshot_blocks`): restoring it puts back every change since.
-pub(in crate::game) struct Snapshot {
+struct Snapshot {
     shared: Shared,
     mark: usize,
 }
@@ -75,8 +83,13 @@ impl Snapshot {
         inner.snapshots += 1;
         Self { shared: shared.clone(), mark: inner.store.mark() }
     }
-    pub(in crate::game) fn restore(self) {
+    fn restore(self) {
         lock(&self.shared).store.undo_to(self.mark);
+    }
+}
+impl Ae2Snapshot for Snapshot {
+    fn restore(self: Box<Self>) {
+        Snapshot::restore(*self);
     }
 }
 impl Drop for Snapshot {
@@ -90,7 +103,7 @@ impl Drop for Snapshot {
 }
 
 /// `EnderDiskInventory` over a disk: the storage of its scope and frequency.
-pub(in crate::game) struct EnderCell {
+struct EnderCell {
     shared: Shared,
     key: StorageKey,
     type_limit: i32,
@@ -176,17 +189,17 @@ fn apply_update_frequency(stack: &mut ItemStack, frequency: i32, scope: i32, mod
     true
 }
 
-impl Game<'_> {
+impl EnderDrives {
     /// The world's storage, read from its save on the first use in a world.
-    fn enderdrives_shared(&self) -> Shared {
-        let shared = self.ae2x.enderdrives.shared.clone();
-        if self.remote.is_some() {
+    fn shared(&self, host: &dyn Ae2Host) -> Shared {
+        let shared = self.shared.clone();
+        if host.is_remote() {
             return shared;
         }
         let mut inner = lock(&shared);
-        if inner.root.as_deref() != Some(self.world_root.as_path()) {
-            let path = save_path(&self.world_root);
-            let known = |id: &str, kind: ae2_cell_core::KeyType| self.ae2_known_cell_key(id, kind);
+        if inner.root.as_deref() != Some(host.world_root()) {
+            let path = save_path(host.world_root());
+            let known = |id: &str, kind: ae2_cell_core::KeyType| host.known_cell_key(id, kind);
             inner.store = match horizon_client::save::read_dat(&path) {
                 Some(tag) => Store::from_nbt(&tag, &known).unwrap_or_else(|error| {
                     log::warn!("Ender Drives: {} does not read ({error}); the storage starts empty", path.display());
@@ -194,42 +207,23 @@ impl Game<'_> {
                 }),
                 None => Store::default(),
             };
-            inner.root = Some(self.world_root.clone());
+            inner.root = Some(host.world_root().to_path_buf());
         }
         drop(inner);
         shared
     }
-    pub(in crate::game) fn enderdrives_snapshot(&self) -> Snapshot {
-        Snapshot::new(&self.enderdrives_shared())
-    }
-    /// The storage written to the world's save, when it changed.
-    pub(in crate::game) fn enderdrives_save(&mut self) {
-        if self.remote.is_some() {
-            return;
-        }
-        let shared = self.ae2x.enderdrives.shared.clone();
-        let mut inner = lock(&shared);
-        let Some(root) = inner.root.clone().filter(|root| *root == self.world_root) else { return };
-        if !inner.store.dirty {
-            return;
-        }
-        match inner.store.to_nbt().and_then(|tag| horizon_client::save::write_dat(&save_path(&root), tag).map_err(|e| e.to_string())) {
-            Ok(()) => inner.store.dirty = false,
-            Err(error) => log::warn!("Ender Drives: the storage is not saved: {error}"),
-        }
-    }
 
     /// `EnderDiskInventory.HANDLER.getCellInventory`: the disk's window on
     /// its storage, its partition checked against the game's items.
-    pub(in crate::game) fn enderdrives_cell(&self, stack: &ItemStack) -> Result<EnderCell, String> {
+    fn cell(&self, host: &dyn Ae2Host, stack: &ItemStack) -> Result<EnderCell, String> {
         let config = Config::get();
         let key = StorageKey::of(stack, config).ok_or("not an ender disk")?;
         if stack.count != 1 {
             return Err("not one ender disk".into());
         }
-        let known = |id: &str, kind: ae2_cell_core::KeyType| self.ae2_known_cell_key(id, kind);
+        let known = |id: &str, kind: ae2_cell_core::KeyType| host.known_cell_key(id, kind);
         Ok(EnderCell {
-            shared: self.enderdrives_shared(),
+            shared: self.shared(host),
             key,
             type_limit: config.type_limit(&stack.item).unwrap_or(0),
             disabled: config.disabled(&stack.item),
@@ -239,14 +233,14 @@ impl Game<'_> {
     }
 
     /// `DuplicateCellGuard.isPrimary` of the disk in slot `slot` of the cell
-    /// host `host`, among the online cell hosts `hosts` of its grid. Only
+    /// host `at`, among the online cell hosts `hosts` of its grid. Only
     /// AE2's own Drives take part (`getMachines(DriveBlockEntity.class)`);
     /// a disk in another host is bound only in a drive of an addon, which
     /// then sleeps when an AE2 Drive holds the same storage.
-    pub(in crate::game) fn enderdrives_primary(&self, host: GridAddress, slot: usize, stack: &ItemStack, hosts: &[GridAddress]) -> bool {
+    fn primary(&self, host: &dyn Ae2Host, at: GridAddress, slot: usize, stack: &ItemStack, hosts: &[GridAddress]) -> bool {
         let config = Config::get();
         let Some(key) = StorageKey::of(stack, config) else { return true };
-        match self.ae2_block_entity(host) {
+        match host.block_entity(at) {
             Some(BlockEntity::Ae2(m)) if m.kind == MachineKind::Drive => {}
             _ => return true,
         }
@@ -254,87 +248,52 @@ impl Game<'_> {
         type Rank = (std::cmp::Reverse<i32>, &'static str, (i32, i32, i32), usize);
         let mut best: Option<(Rank, GridAddress)> = None;
         for &drive in hosts {
-            let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(drive) else { continue };
+            let Some(BlockEntity::Ae2(m)) = host.block_entity(drive) else { continue };
             if m.kind != MachineKind::Drive || m.variant.is_some() {
                 continue;
             }
-            let Some((dim, pos)) = self.ae2_address_parts(drive) else { continue };
-            let priority = self.ae2_storage_priority(drive).unwrap_or(0);
+            let Some((dim, pos)) = host.address_parts(drive) else { continue };
+            let priority = host.storage_priority(drive).unwrap_or(0);
             for (i, cell) in m.slots.iter().enumerate() {
                 let Some(cell) = cell else { continue };
                 if StorageKey::of(cell, config).as_ref() != Some(&key) {
                     continue;
                 }
-                let rank = (std::cmp::Reverse(priority), dim.id(), pos, i);
+                let rank = (std::cmp::Reverse(priority), dim, pos, i);
                 if best.as_ref().is_none_or(|(b, _)| rank < *b) {
                     best = Some((rank, drive));
                 }
             }
         }
-        best.is_none_or(|((_, _, _, i), drive)| drive == host && i == slot)
+        best.is_none_or(|((_, _, _, i), drive)| drive == at && i == slot)
     }
     /// `getIdleDrain` of a disk in slot `slot` of the Drive or ME Chest at
-    /// `host`; none for any other stack.
-    pub(in crate::game) fn enderdrives_idle_drain(&self, host: GridAddress, slot: usize, stack: &ItemStack) -> Option<f64> {
+    /// `at`; none for any other stack.
+    fn idle_drain(&self, host: &dyn Ae2Host, at: GridAddress, slot: usize, stack: &ItemStack) -> Option<f64> {
         let config = Config::get();
         let key = StorageKey::of(stack, config)?;
-        if config.disabled(&stack.item) || self.ae2x.enderdrives.sleeping.contains(&(host, slot)) {
+        if config.disabled(&stack.item) || self.sleeping.borrow().contains(&(at, slot)) {
             return Some(0.0);
         }
-        Some(rows::idle_drain(lock(&self.enderdrives_shared()).store.total(&key)))
+        Some(rows::idle_drain(lock(&self.shared(host)).store.total(&key)))
     }
     /// `getStatus` as `CellState`'s LED number: FULL for a disk turned off or
     /// asleep, else by its frequency's types.
-    fn enderdrives_state(&self, stack: &ItemStack, sleeping: bool) -> Option<u8> {
+    fn state(&self, host: &dyn Ae2Host, stack: &ItemStack, sleeping: bool) -> Option<u8> {
         let config = Config::get();
         let key = StorageKey::of(stack, config)?;
         if sleeping || config.disabled(&stack.item) {
             return Some(4);
         }
-        let types = lock(&self.enderdrives_shared()).store.type_count(&key);
+        let types = lock(&self.shared(host)).store.type_count(&key);
         Some(rows::cell_state(types, config.type_limit(&stack.item).unwrap_or(0)))
     }
-    /// The LEDs of the disks a Drive or a cell part shows (`getCellStatus`).
-    pub(in crate::game) fn enderdrives_visual(&self, v: &mut Visual) {
-        if self.remote.is_some() {
-            return;
-        }
-        let Some(address) = self.ae2_local_address((v.pos[0], v.pos[1], v.pos[2])) else { return };
-        let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(address) else { return };
-        if m.kind == MachineKind::Drive {
-            for (slot, cell) in v.slots.iter_mut().enumerate() {
-                let (Some(cell), Some(Some(stack))) = (cell.as_mut(), m.slots.get(slot)) else { continue };
-                if let Some(state) = self.enderdrives_state(stack, self.ae2x.enderdrives.sleeping.contains(&(address, slot))) {
-                    cell.state = state;
-                }
-            }
-        }
-        for part in &mut v.parts {
-            let Some(cell) = part.cell.as_mut().filter(|c| rows::is_disk(&c.id)) else { continue };
-            let Some(face) = super::super::ae2_grid::face_index(&part.face) else { continue };
-            let Ok(Some(machine)) = self.ae2_part_machine(super::super::ae2_parts::PartAddress { host: address, face }) else { continue };
-            if let Some(state) = machine.slots.first().and_then(Option::as_ref).and_then(|stack| self.enderdrives_state(stack, false)) {
-                cell.state = state;
-            }
-        }
-    }
     /// Once a grid tick: which disks in Drives sleep (`DuplicateCellGuard`).
-    pub(in crate::game) fn tick_enderdrives(&mut self) {
-        if self.remote.is_some() {
+    fn sleep_tick(&self, host: &dyn Ae2Host) {
+        if host.is_remote() {
             return;
         }
-        let mut drives = Vec::new();
-        for (dim, world) in self.ae2_loaded_worlds() {
-            for (&p, entity) in world.block_entities.iter() {
-                if let BlockEntity::Ae2(m) = entity
-                    && m.kind == MachineKind::Drive
-                    && m.slots.iter().flatten().any(|s| rows::is_disk(&s.item))
-                    && let Some(address) = self.ae2_dimension_address(dim, p)
-                {
-                    drives.push(address);
-                }
-            }
-        }
+        let drives = host.machine_addresses(&|m| m.kind == MachineKind::Drive && m.slots.iter().flatten().any(|s| rows::is_disk(&s.item)));
         let mut sleeping = HashSet::new();
         let mut seen = HashSet::new();
         for address in drives {
@@ -342,27 +301,166 @@ impl Game<'_> {
                 continue;
             }
             // An offline drive's disks draw nothing anyway.
-            let Ok((hosts, _)) = self.ae2_cell_hosts_encoded(address) else { continue };
+            let Ok((hosts, _)) = host.cell_hosts(address) else { continue };
             seen.extend(hosts.iter().copied());
-            for &host in &hosts {
-                let Some(BlockEntity::Ae2(m)) = self.ae2_block_entity(host) else { continue };
+            for &at in &hosts {
+                let Some(BlockEntity::Ae2(m)) = host.block_entity(at) else { continue };
                 for (slot, stack) in m.slots.iter().enumerate() {
                     if let Some(stack) = stack
                         && rows::is_disk(&stack.item)
-                        && !self.enderdrives_primary(host, slot, stack, &hosts)
+                        && !self.primary(host, at, slot, stack, &hosts)
                     {
-                        sleeping.insert((host, slot));
+                        sleeping.insert((at, slot));
                     }
                 }
             }
         }
-        self.ae2x.enderdrives.sleeping = sleeping;
+        *self.sleeping.borrow_mut() = sleeping;
+    }
+
+    /// `/ae2 enderdrives ...`: `set <frequency> [global|private|team]
+    /// [bidirectional|input|output]` on the main hand's disk (the frequency
+    /// screen's `UpdateFrequencyPacket`, in its range), `info` of that disk,
+    /// `store <scope> <frequency>` of a storage.
+    fn run_command(&self, host: &mut dyn Ae2Host, words: &[&str]) -> Result<serde_json::Value, String> {
+        let config = Config::get();
+        match words {
+            ["set", frequency, rest @ ..] => {
+                let frequency: i32 = frequency.parse().map_err(|_| "bad frequency")?;
+                if !(config.frequency_min..=config.frequency_max).contains(&frequency) {
+                    return Err(format!("the frequency is from {} to {}", config.frequency_min, config.frequency_max));
+                }
+                let current = host.main_hand_stack().cloned().ok_or("no ender disk in the main hand")?;
+                let scope = match rest.first() {
+                    Some(word) => Scope::parse(word).ok_or("not a scope")?,
+                    None => rows::scope(&current, config),
+                };
+                let mode = match rest.get(1).copied() {
+                    Some("bidirectional") => rows::BIDIRECTIONAL,
+                    Some("input") => rows::INPUT_ONLY,
+                    Some("output") => rows::OUTPUT_ONLY,
+                    Some(_) => return Err("not a transfer mode".into()),
+                    None => rows::transfer_mode(&current),
+                };
+                let player = horizon_protocol::crypto::uuid_string(horizon_client::lan::playerdata::ints_uuid(host.acting_player_uuid()));
+                let mut stack = current;
+                if !apply_update_frequency(&mut stack, frequency, scope.id(), mode, &player, config) {
+                    return Err("no ender disk in the main hand".into());
+                }
+                host.set_main_hand_stack(stack);
+                self.run_command(host, &["info"])
+            }
+            ["info"] => {
+                let stack = host.main_hand_stack().cloned().ok_or("no ender disk in the main hand")?;
+                let key = StorageKey::of(&stack, config).ok_or("no ender disk in the main hand")?;
+                let mut value = self.storage_json(host, &key);
+                value["item"] = stack.item.to_string().into();
+                value["frequency"] = rows::frequency(&stack).into();
+                value["scope"] = rows::scope(&stack, config).name().into();
+                value["owner"] = rows::owner(&stack).into();
+                value["mode"] = rows::transfer_mode(&stack).into();
+                value["limit"] = config.type_limit(&stack.item).into();
+                Ok(value)
+            }
+            ["store", scope, frequency] => {
+                let frequency: i32 = frequency.parse().map_err(|_| "bad frequency")?;
+                Ok(self.storage_json(host, &StorageKey { scope: (*scope).to_owned(), frequency }))
+            }
+            _ => Err("usage: enderdrives set <frequency> [scope] [mode] | info | store <scope> <frequency>".into()),
+        }
+    }
+    fn storage_json(&self, host: &dyn Ae2Host, key: &StorageKey) -> serde_json::Value {
+        let shared = self.shared(host);
+        let inner = lock(&shared);
+        serde_json::json!({
+            "prefix": key.scope,
+            "types": inner.store.type_count(key),
+            "total": inner.store.total(key),
+            "items": inner.store.entries(key).into_iter().map(|(k, n)| serde_json::json!({"item": k.item_id, "count": n})).collect::<Vec<_>>(),
+        })
+    }
+}
+
+impl Ae2Addon for EnderDrives {
+    fn id(&self) -> &'static str {
+        crate::defs::NAMESPACE
+    }
+
+    /// Once a grid tick: which disks in Drives sleep.
+    fn tick(&self, host: &mut dyn Ae2Host) {
+        self.sleep_tick(&*host);
+    }
+
+    /// The same, while the server's ticks are frozen.
+    fn tick_frozen(&self, host: &mut dyn Ae2Host) {
+        self.sleep_tick(&*host);
+    }
+
+    fn snapshot(&self, host: &dyn Ae2Host) -> Option<Box<dyn Ae2Snapshot>> {
+        Some(Box::new(Snapshot::new(&self.shared(host))))
+    }
+
+    /// The storage written to the world's save, when it changed.
+    fn save(&self, host: &mut dyn Ae2Host) {
+        if host.is_remote() {
+            return;
+        }
+        let mut inner = lock(&self.shared);
+        let Some(root) = inner.root.clone().filter(|root| root == host.world_root()) else { return };
+        if !inner.store.dirty {
+            return;
+        }
+        match inner.store.to_nbt().and_then(|tag| horizon_client::save::write_dat(&save_path(&root), tag).map_err(|e| e.to_string())) {
+            Ok(()) => inner.store.dirty = false,
+            Err(error) => log::warn!("Ender Drives: the storage is not saved: {error}"),
+        }
+    }
+
+    fn cell_mounted(&self, host: &dyn Ae2Host, at: GridAddress, slot: usize, stack: &ItemStack, hosts: &[GridAddress]) -> bool {
+        self.primary(host, at, slot, stack, hosts)
+    }
+
+    fn cell_idle_drain(&self, host: &dyn Ae2Host, at: GridAddress, slot: usize, stack: &ItemStack) -> Option<f64> {
+        self.idle_drain(host, at, slot, stack)
+    }
+
+    /// The LEDs of the disks a Drive or a cell part shows (`getCellStatus`).
+    fn enrich_visual(&self, host: &dyn Ae2Host, v: &mut Visual) {
+        if host.is_remote() {
+            return;
+        }
+        let Some(address) = host.local_address((v.pos[0], v.pos[1], v.pos[2])) else { return };
+        let Some(BlockEntity::Ae2(m)) = host.block_entity(address) else { return };
+        if m.kind == MachineKind::Drive {
+            for (slot, cell) in v.slots.iter_mut().enumerate() {
+                let (Some(cell), Some(Some(stack))) = (cell.as_mut(), m.slots.get(slot)) else { continue };
+                let sleeping = self.sleeping.borrow().contains(&(address, slot));
+                if let Some(state) = self.state(host, stack, sleeping) {
+                    cell.state = state;
+                }
+            }
+        }
+        for part in &mut v.parts {
+            let Some(cell) = part.cell.as_mut().filter(|c| rows::is_disk(&c.id)) else { continue };
+            let Some(face) = host.face_index(&part.face) else { continue };
+            let Ok(Some(machine)) = host.part_machine(PartAddress { host: address, face }) else { continue };
+            if let Some(state) = machine.slots.first().and_then(Option::as_ref).and_then(|stack| self.state(host, stack, false)) {
+                cell.state = state;
+            }
+        }
+    }
+
+    fn handler_cell(&self, host: &dyn Ae2Host, stack: &ItemStack) -> Option<Result<Box<dyn HandlerCell>, String>> {
+        if rows::is_disk(&stack.item) {
+            return Some(self.cell(host, stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
+        }
+        None
     }
 
     /// `AbstractEnderDiskItem.appendHoverText`: the types used of the limit,
     /// the frequency, the mode, the scope and the partition; only that it is
     /// off when the config turns the disk off.
-    pub(in crate::game) fn enderdrives_hover_lines(&self, stack: &ItemStack, translate: &dyn Fn(&str) -> Option<String>) -> Option<Vec<Text>> {
+    fn item_hover_lines(&self, host: &dyn Ae2Host, stack: &ItemStack, translate: &dyn Fn(&str) -> Option<String>) -> Option<Vec<Text>> {
         let config = Config::get();
         let key = StorageKey::of(stack, config)?;
         let template = |k: &str| translate(k).unwrap_or_else(|| k.to_owned());
@@ -371,7 +469,7 @@ impl Game<'_> {
         }
         let limit = config.type_limit(&stack.item).unwrap_or(0);
         // A client of a remote server has no storage (the mod asks the server, RequestDiskTypeCountPacket).
-        let used = if self.remote.is_some() { 0 } else { lock(&self.enderdrives_shared()).store.type_count(&key).min(i32::MAX as usize) as i32 };
+        let used = if host.is_remote() { 0 } else { lock(&self.shared(host)).store.type_count(&key).min(i32::MAX as usize) as i32 };
         let percent = if limit == 0 { 0 } else { (i64::from(used) * 100 / i64::from(limit)) as i32 };
         let usage = if used <= 0 {
             0x55FF55
@@ -393,9 +491,9 @@ impl Game<'_> {
         let unknown = || template("tooltip.enderdrives.unknown");
         lines.push(match rows::scope(stack, config) {
             Scope::Personal => {
-                let own = horizon_protocol::crypto::uuid_string(self.own_uuid());
+                let own = horizon_protocol::crypto::uuid_string(host.local_player_uuid());
                 let name = match rows::owner(stack) {
-                    Some(owner) if owner == own => self.options.player_name(),
+                    Some(owner) if owner == own => host.join_name(),
                     Some(owner) => owner,
                     None => unknown(),
                 };
@@ -404,7 +502,7 @@ impl Game<'_> {
             Scope::Team => format_translation(&template("tooltip.enderdrives.scope.team"), &[Text::literal(rows::team_name(stack).unwrap_or_else(unknown))]),
             Scope::Global => Text::legacy(&template("tooltip.enderdrives.scope.global")),
         });
-        let known = |id: &str, kind: ae2_cell_core::KeyType| self.ae2_known_cell_key(id, kind);
+        let known = |id: &str, kind: ae2_cell_core::KeyType| host.known_cell_key(id, kind);
         let partitioned = partition(stack, &known).map_or(0, |filters| filters.len());
         if partitioned > 0 {
             let plural = if partitioned == 1 { "" } else { "s" };
@@ -413,81 +511,18 @@ impl Game<'_> {
         Some(lines)
     }
 
-    /// `/ae2 enderdrives ...`: `set <frequency> [global|private|team]
-    /// [bidirectional|input|output]` on the main hand's disk (the frequency
-    /// screen's `UpdateFrequencyPacket`, in its range), `info` of that disk,
-    /// `store <scope> <frequency>` of a storage.
-    pub(in crate::game) fn ae2_enderdrives_command(&mut self, words: &[&str]) -> Result<serde_json::Value, String> {
-        let config = Config::get();
-        match words {
-            ["set", frequency, rest @ ..] => {
-                let frequency: i32 = frequency.parse().map_err(|_| "bad frequency")?;
-                if !(config.frequency_min..=config.frequency_max).contains(&frequency) {
-                    return Err(format!("the frequency is from {} to {}", config.frequency_min, config.frequency_max));
-                }
-                let selected = self.selected;
-                let current = self.stack_in(selected).cloned().ok_or("no ender disk in the main hand")?;
-                let scope = match rest.first() {
-                    Some(word) => Scope::parse(word).ok_or("not a scope")?,
-                    None => rows::scope(&current, config),
-                };
-                let mode = match rest.get(1).copied() {
-                    Some("bidirectional") => rows::BIDIRECTIONAL,
-                    Some("input") => rows::INPUT_ONLY,
-                    Some("output") => rows::OUTPUT_ONLY,
-                    Some(_) => return Err("not a transfer mode".into()),
-                    None => rows::transfer_mode(&current),
-                };
-                let player = horizon_protocol::crypto::uuid_string(horizon_client::lan::playerdata::ints_uuid(self.acting_uuid()));
-                let mut stack = current;
-                if !apply_update_frequency(&mut stack, frequency, scope.id(), mode, &player, config) {
-                    return Err("no ender disk in the main hand".into());
-                }
-                *self.stack_in_mut(selected) = Some(stack);
-                self.ae2_enderdrives_command(&["info"])
-            }
-            ["info"] => {
-                let stack = self.stack_in(self.selected).cloned().ok_or("no ender disk in the main hand")?;
-                let key = StorageKey::of(&stack, config).ok_or("no ender disk in the main hand")?;
-                let mut value = self.enderdrives_storage_json(&key);
-                value["item"] = stack.item.to_string().into();
-                value["frequency"] = rows::frequency(&stack).into();
-                value["scope"] = rows::scope(&stack, config).name().into();
-                value["owner"] = rows::owner(&stack).into();
-                value["mode"] = rows::transfer_mode(&stack).into();
-                value["limit"] = config.type_limit(&stack.item).into();
-                Ok(value)
-            }
-            ["store", scope, frequency] => {
-                let frequency: i32 = frequency.parse().map_err(|_| "bad frequency")?;
-                Ok(self.enderdrives_storage_json(&StorageKey { scope: (*scope).to_owned(), frequency }))
-            }
-            _ => Err("usage: enderdrives set <frequency> [scope] [mode] | info | store <scope> <frequency>".into()),
-        }
-    }
-    fn enderdrives_storage_json(&self, key: &StorageKey) -> serde_json::Value {
-        let shared = self.enderdrives_shared();
-        let inner = lock(&shared);
-        serde_json::json!({
-            "prefix": key.scope,
-            "types": inner.store.type_count(key),
-            "total": inner.store.total(key),
-            "items": inner.store.entries(key).into_iter().map(|(k, n)| serde_json::json!({"item": k.item_id, "count": n})).collect::<Vec<_>>(),
-        })
+    fn command(&self, host: &mut dyn Ae2Host, words: &[&str]) -> Option<Result<serde_json::Value, String>> {
+        Some(self.run_command(host, words))
     }
 
     /// A guest's `enderdrives:update_frequency`: its main hand's disk set as
     /// the packet says.
-    pub(in crate::game) fn lan_enderdrives_payload(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
-        let Some((frequency, scope, mode)) = parse_update_frequency(data) else { return };
-        let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
-        let guest = &mut host.hub.guests[gi];
-        let player = horizon_protocol::crypto::uuid_string(guest.uuid);
-        let selected = guest.selected;
-        let Some(Some(stack)) = guest.inventory.get_mut(selected) else { return };
-        if apply_update_frequency(stack, frequency, scope, mode, &player, Config::get()) {
-            host.hub.send_inventory(gi);
+    fn lan_main_hand_payload(&self, channel: &str, data: &[u8], player: &str, stack: &mut ItemStack) -> bool {
+        if channel != rows::UPDATE_FREQUENCY {
+            return false;
         }
+        let Some((frequency, scope, mode)) = parse_update_frequency(data) else { return false };
+        apply_update_frequency(stack, frequency, scope, mode, player, Config::get())
     }
 }
 

@@ -19,8 +19,6 @@ pub(super) mod ae2wtlib;
 pub(super) mod importexportcard;
 #[cfg(feature = "ae2-appflux")]
 pub(super) mod appflux;
-#[cfg(feature = "ae2-enderdrives")]
-pub(super) mod enderdrives;
 #[cfg(feature = "ae2-advancedae")]
 pub(super) mod advancedae;
 #[cfg(any(feature = "ae2-extendedae", feature = "ae2-advancedae"))]
@@ -238,7 +236,7 @@ pub(super) fn item_store_encoding(stack: &mut horizon_client::items::ItemStack, 
 /// FE cells. Keys of one type, [`HandlerCell::key_type`]; a change is written
 /// back to its stack with [`HandlerCell::store`].
 /// Its LED is `horizon_client::ae2x::handler_cell_state`.
-pub(super) trait HandlerCell {
+pub trait HandlerCell {
     /// The type of the keys it holds: items unless it says otherwise.
     fn key_type(&self) -> ae2_cell_core::KeyType {
         ae2_cell_core::KeyType::ITEMS
@@ -670,8 +668,8 @@ pub(super) fn item_opens_menu(id: &str) -> bool {
     false
 }
 
-/// What the addons keep while the game runs; of it only Ender Drives'
-/// storage is saved, with the world ([`Game::ae2x_save`]).
+/// What the addons keep while the game runs. What an addon built above the
+/// game (`horizon-ae2x-<id>`) keeps is its own, behind AE2's extension (`ae2_ext`).
 #[derive(Default)]
 pub(super) struct State {
     #[cfg(feature = "ae2-megacells")]
@@ -686,8 +684,6 @@ pub(super) struct State {
     pub(super) importexportcard: importexportcard::State,
     #[cfg(feature = "ae2-appflux")]
     pub(super) appflux: appflux::State,
-    #[cfg(feature = "ae2-enderdrives")]
-    pub(super) enderdrives: enderdrives::State,
     #[cfg(feature = "ae2-advancedae")]
     pub(super) advancedae: advancedae::State,
 }
@@ -697,8 +693,8 @@ pub(super) struct State {
 /// fails or only simulates puts back with the blocks.
 #[derive(Default)]
 pub(super) struct Snapshot {
-    #[cfg(feature = "ae2-enderdrives")]
-    enderdrives: Option<enderdrives::Snapshot>,
+    /// Ender Drives' (horizon-ae2x-enderdrives).
+    enderdrives: Option<Box<dyn super::ae2_ext::Ae2Snapshot>>,
 }
 
 /// What an addon's pick from the network came to (AE2WTLib's Pick Block,
@@ -750,52 +746,38 @@ impl Game<'_> {
         None
     }
     pub(super) fn ae2x_snapshot(&self) -> Snapshot {
-        Snapshot {
-            #[cfg(feature = "ae2-enderdrives")]
-            enderdrives: Some(self.enderdrives_snapshot()),
-        }
+        Snapshot { enderdrives: self.ae2_addon_snapshot("enderdrives") }
     }
     pub(super) fn ae2x_restore(&mut self, snapshot: Snapshot) {
-        #[cfg(feature = "ae2-enderdrives")]
         if let Some(ender) = snapshot.enderdrives {
             ender.restore();
         }
-        let _ = snapshot;
     }
     /// The addons' own data of the world, written with its save
     /// (`save_game_metadata`): Ender Drives' storage.
     pub(super) fn ae2x_save(&mut self) {
-        #[cfg(feature = "ae2-enderdrives")]
-        self.enderdrives_save();
+        // Ender Drives' storage (horizon-ae2x-enderdrives).
+        self.ae2_addon_save("enderdrives");
     }
     /// Whether the cell in slot `slot` of the Drive or ME Chest at `host`
     /// is mounted on the grid whose online cell hosts are `hosts`: Ender
     /// Drives' `DuplicateCellGuard` leaves a second disk of one storage out.
     pub(super) fn ae2x_cell_mounted(&self, host: super::ae2_global::GridAddress, slot: usize, stack: &horizon_client::items::ItemStack, hosts: &[super::ae2_global::GridAddress]) -> bool {
-        let _ = (host, slot, stack, hosts);
-        #[cfg(feature = "ae2-enderdrives")]
-        if !self.enderdrives_primary(host, slot, stack, hosts) {
-            return false;
-        }
-        true
+        // Ender Drives (horizon-ae2x-enderdrives).
+        self.ae2_addon_cell_mounted("enderdrives", host, slot, stack, hosts)
     }
     /// `StorageCell.getIdleDrain` of an addon's cell that changes with what it
     /// holds (an Ender Drives disk), in slot `slot` of the Drive or ME Chest
     /// at `host`; none for a cell whose row has it.
     pub(super) fn ae2x_cell_idle_drain(&self, host: super::ae2_global::GridAddress, slot: usize, stack: &horizon_client::items::ItemStack) -> Option<f64> {
-        let _ = (host, slot, stack);
-        #[cfg(feature = "ae2-enderdrives")]
-        if let Some(drain) = self.enderdrives_idle_drain(host, slot, stack) {
-            return Some(drain);
-        }
-        None
+        // Ender Drives (horizon-ae2x-enderdrives).
+        self.ae2_addon_cell_idle_drain("enderdrives", host, slot, stack)
     }
     /// What a block's visual shows of an addon's cells that the stack alone
     /// does not tell: Ender Drives' LEDs, by their storage.
     pub(super) fn ae2x_enrich_visual(&self, v: &mut super::ae2_visual_sync::Visual) {
-        let _ = &v;
-        #[cfg(feature = "ae2-enderdrives")]
-        self.enderdrives_visual(v);
+        // Ender Drives (horizon-ae2x-enderdrives).
+        self.ae2_addon_enrich_visual("enderdrives", v);
     }
     /// Whether a slot of an addon machine's menu takes `item` from the cursor.
     pub(super) fn ae2x_machine_may_place(&self, machine: &Machine, slot: usize, item: &horizon_client::items::ItemStack) -> Option<bool> {
@@ -900,9 +882,9 @@ impl Game<'_> {
         if horizon_client::ae2x::appflux::cell_bytes(&stack.item).is_some() {
             return Some(self.appflux_fe_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
         }
-        #[cfg(feature = "ae2-enderdrives")]
-        if horizon_client::ae2x::enderdrives::is_disk(&stack.item) {
-            return Some(self.enderdrives_cell(stack).map(|cell| Box::new(cell) as Box<dyn HandlerCell>));
+        // Ender Drives' disks (horizon-ae2x-enderdrives).
+        if let Some(cell) = self.ae2_addon_handler_cell("enderdrives", stack) {
+            return Some(cell);
         }
         let _ = stack;
         None
@@ -937,8 +919,8 @@ impl Game<'_> {
         if let Some(lines) = self.extendedae_hover_lines(stack, translate) {
             return lines;
         }
-        #[cfg(feature = "ae2-enderdrives")]
-        if let Some(lines) = self.enderdrives_hover_lines(stack, translate) {
+        // Ender Drives (horizon-ae2x-enderdrives).
+        if let Some(lines) = self.ae2_addon_item_hover_lines("enderdrives", stack, translate) {
             return lines;
         }
         // MixinEncodedPatternItem: an Advanced Processing Pattern's own lines.
@@ -1080,9 +1062,9 @@ impl Game<'_> {
     /// The addons' grid services while the server's ticks are frozen (AE2's
     /// grid services keep running).
     pub(super) fn tick_ae2x_frozen(&mut self) {
-        // Which ender disks sleep, as DuplicateCellGuard decides on each mount.
-        #[cfg(feature = "ae2-enderdrives")]
-        self.tick_enderdrives();
+        // Which ender disks sleep, as DuplicateCellGuard decides on each mount
+        // (Ender Drives, horizon-ae2x-enderdrives).
+        self.ae2_addon_tick_frozen("enderdrives");
         #[cfg(feature = "ae2-megacells")]
         self.tick_megacells_decompression();
         // The Assembler Matrix's crafter cores are grid tickables.
@@ -1122,8 +1104,8 @@ impl Game<'_> {
         // then the interfaces and providers with an Induction Card.
         #[cfg(feature = "ae2-appflux")]
         self.tick_appflux_accessors();
-        #[cfg(feature = "ae2-enderdrives")]
-        self.tick_enderdrives();
+        // Ender Drives, a crate above the game (horizon-ae2x-enderdrives).
+        self.ae2_addon_tick("enderdrives");
         #[cfg(feature = "ae2-appflux")]
         self.tick_appflux_induction();
     }
@@ -1636,10 +1618,8 @@ impl Game<'_> {
             self.lan_iecard_payload(host, conn, data);
             return true;
         }
-        // The frequency screen's UpdateFrequencyPacket.
-        #[cfg(feature = "ae2-enderdrives")]
-        if channel == horizon_client::ae2x::enderdrives::UPDATE_FREQUENCY {
-            self.lan_enderdrives_payload(host, conn, data);
+        // The frequency screen's UpdateFrequencyPacket (Ender Drives, horizon-ae2x-enderdrives).
+        if channel == "enderdrives:update_frequency" && self.ae2_addon_lan_main_hand_payload("enderdrives", host, conn, channel, data) {
             return true;
         }
         false
@@ -1680,9 +1660,11 @@ impl Game<'_> {
         if words.first() == Some(&"iecard") {
             return Some(self.ae2_iecard_command(&words[1..]));
         }
-        #[cfg(feature = "ae2-enderdrives")]
-        if words.first() == Some(&"enderdrives") {
-            return Some(self.ae2_enderdrives_command(&words[1..]));
+        // Ender Drives (horizon-ae2x-enderdrives).
+        if words.first() == Some(&"enderdrives")
+            && let Some(result) = self.ae2_addon_command("enderdrives", &words[1..])
+        {
+            return Some(result);
         }
         #[cfg(feature = "ae2-advancedae")]
         if words.first() == Some(&"advae") {

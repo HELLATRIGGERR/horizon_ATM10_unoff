@@ -132,8 +132,9 @@ ae2-aeinfinitybooster = ["ae2-lab"]
 ae2-importexportcard = ["ae2-lab", "horizon-client-lib/ae2-importexportcard"]
 # Applied Flux 1.21-2.1.7 (ae2/addons/appflux).
 ae2-appflux = ["ae2-lab", "horizon-client-lib/ae2-appflux"]
-# Ender Drives 1.5.23 (ae2/addons/enderdrives).
-ae2-enderdrives = ["ae2-lab", "horizon-client-lib/ae2-enderdrives"]
+# Ender Drives 1.5.23 (ae2/addons/enderdrives) is the crate horizon-ae2x-enderdrives above this one, which
+# horizon-atm10's feature of the same name builds in; this one keeps the pack's features valid here.
+ae2-enderdrives = ["ae2-lab"]
 # Advanced AE 1.6.12-1.21.1 (ae2/addons/advancedae).
 ae2-advancedae = ["ae2-lab", "horizon-client-lib/ae2-advancedae"]
 default = ["audio", "controllers", "horizon-extras"]

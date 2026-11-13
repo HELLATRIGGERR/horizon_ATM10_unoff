@@ -1,16 +1,19 @@
 //! Ender Drives 1.5.23's rows in the definitions registry, the data its
-//! disks keep, the storage they share and its server config (feature
-//! `ae2-enderdrives`). Derived from Ender Drives by STS15 (`ItemInit`,
+//! disks keep, the storage they share and its server config. Derived from Ender Drives by STS15 (`ItemInit`,
 //! `AbstractEnderDiskItem`, `EnderDiskItem`, `EnderDiskInventory`,
 //! `AbstractEnderDiskInventory`, `EnderDBManager`, `FrequencyScope`,
 //! `TransferMode`, `serverConfig`), https://github.com/sts15/EnderDrives
 //! commit 264ec0a (1.5.0, the newest public 1.21.1 source) and the 1.5.23
 //! jar's classes where they differ, MIT; see `ae2/addons/enderdrives/`. The
 //! game's side (the cells on a network, the duplicate guard, the save) is in
-//! `game/ae2x/enderdrives/`.
-use super::defs::{Defs, HandlerCellDef};
-use crate::{ae2_generic_stack, items::ItemStack, save};
+//! `game.rs`.
 use ae2_cell_core::{ItemKey, KeyType};
+use horizon_client::{
+    ae2_generic_stack,
+    ae2x::defs::{Defs, HandlerCellDef},
+    items::ItemStack,
+    save,
+};
 use horizon_world::nbt::{Compound, Tag};
 use std::{collections::BTreeMap, sync::OnceLock};
 
@@ -174,7 +177,7 @@ impl Config {
     pub fn get() -> &'static Self {
         static CONFIG: OnceLock<Config> = OnceLock::new();
         CONFIG.get_or_init(|| {
-            let path = crate::logging::game_home().join("config/enderdrives-server.toml");
+            let path = horizon_client::logging::game_home().join("config/enderdrives-server.toml");
             match std::fs::read_to_string(&path) {
                 Ok(text) => Self::parse(&text).unwrap_or_else(|error| {
                     log::warn!("invalid Ender Drives config {}: {error}", path.display());
@@ -210,6 +213,8 @@ impl Config {
 pub fn register(defs: &mut Defs) {
     for id in ENDER_DISKS {
         defs.add_handler_cell(HandlerCellDef { id: id.to_owned(), idle_drain: idle_drain(0), drive_model: DRIVE_MODEL.to_owned(), config_slots: CONFIG_SLOTS }, 0);
+        // EnderDiskInventory keeps StorageCell.canFitInsideCell's default: no.
+        defs.add_cell_kept_out_of_cells(id);
     }
 }
 
@@ -509,7 +514,7 @@ mod tests {
     use super::*;
 
     fn key(id: &str) -> ItemKey {
-        crate::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap()
+        horizon_client::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap()
     }
     fn global(frequency: i32) -> StorageKey {
         StorageKey { scope: "global".into(), frequency }

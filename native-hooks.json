@@ -817,6 +817,10 @@
     {
       "name": "show_recipes",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_show_recipes"
+    },
+    {
+      "name": "map_tile",
+      "target": "horizon_client::game::native_client_services::Game<'_>::native_map_tile"
     }
   ],
   "hooks": [

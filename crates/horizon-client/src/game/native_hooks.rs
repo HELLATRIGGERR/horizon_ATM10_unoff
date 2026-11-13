@@ -6,6 +6,7 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 428 adds `native_map_tile`: a loaded chunk's 16x16 picture from the minimap extra's scanner, for a mod's map.
 //! API 429 adds a mod asking the recipe viewer to show a stack's recipes or uses, or to act on a key over it (`native_show_recipes`, heard as `native_recipe_lookup`).
 //!
 //! API 427 adds mods' own recipe categories for recipe viewers, outputs with chances (`native_recipe_categories`, `native_collect_recipe_categories`).

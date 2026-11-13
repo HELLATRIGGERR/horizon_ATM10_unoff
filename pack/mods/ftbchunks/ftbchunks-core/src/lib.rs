@@ -4,9 +4,11 @@
 //!
 //! FTB Chunks is All Rights Reserved (FTB): this is a reimplementation of its behaviour; nothing of it is copied.
 //! The crate stands alone (a bundle crate may not depend on another bundle's by path): the teams come in through
-//! [`Teams`], built by the runtime module from FTB Teams' manager, and files are written by the runtime.
+//! [`Teams`], built by the runtime module from FTB Teams' manager, and files are written by the runtime. `net` holds the
+//! messages the client's map and claim screen exchange with the server (slice 3).
 
 pub mod commands;
+pub mod net;
 #[cfg(test)]
 mod tests;
 

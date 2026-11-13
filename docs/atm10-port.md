@@ -224,6 +224,8 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   content's data files 423, an item's use on a block 424, a container's insert slots and `native_pop_resource` 425,
   particles from outside a block's tick (`native_level_particles`, Mekanism's multiblocks) 426, recipe categories for
   viewers (upstream's pending fragment `recipe_categories`, stamped for the Mekanism bundle's viewer categories) 427,
+  a loaded chunk's map picture for mods' maps (`native_map_tile` over the minimap extra's scanner, FTB Chunks' claim
+  screen) 428,
   a mod asking the recipe viewer for a stack's recipes or uses (`native_show_recipes`, `recipe_lookup`; JEI's bundle) 429.
   At each merge the fork's take the numbers after upstream's latest again, in the same order: the merge notes'
   `fork_hooks.py unstamp` turns the stamped numbers back into fragments, then each is stamped with `--only`. The

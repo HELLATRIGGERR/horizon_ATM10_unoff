@@ -21,7 +21,7 @@ pub(super) struct ExtrasState {
     /// Left and right mouse buttons: held, and their clicks.
     mouse: [bool; 2],
     cps: [Cps; 2],
-    minimap: Minimap,
+    pub(super) minimap: Minimap,
     /// The dimension the minimap's tiles belong to.
     minimap_dim: Option<Dim>,
     /// Auto-reconnect's attempts at the current server.

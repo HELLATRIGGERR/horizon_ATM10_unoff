@@ -218,3 +218,79 @@ fn config_keys() {
     assert!(c.set_list("claim_dimension_whitelist", vec!["minecraft:overworld".into()]) && !c.may_claim_in("minecraft:the_nether"));
     assert!(!c.set("nope", "1") && !c.set("max_claimed_chunks", "x"));
 }
+
+// ---- The client messages (slice 3) ----
+
+use crate::net::{self, ChangeRequest, ChunkInfo, Op};
+
+#[test]
+fn the_buttons_and_shift_pick_the_operation() {
+    assert_eq!(Op::create(true, false), Op::Claim);
+    assert_eq!(Op::create(false, false), Op::Unclaim);
+    assert_eq!(Op::create(true, true), Op::Load);
+    assert_eq!(Op::create(false, true), Op::Unload);
+}
+
+#[test]
+fn a_change_request_runs_over_the_set_and_counts_problems() {
+    let w = world();
+    let mut chunks = Chunks::default();
+    let a = w.team(A).unwrap();
+    let b = w.team(B).unwrap();
+    let dim = "minecraft:overworld";
+    chunks.claim(&b, (dim.into(), 1, 0), 0).unwrap();
+    let set = [[0, 0], [1, 0], [2, 0], [0, 0]];
+    let (r, changed) = chunks.change(&a, Op::Claim, dim, &set, false, 5000);
+    assert_eq!((r.changed, r.total), (2, 3), "the duplicate counts once");
+    assert_eq!(r.problems.get("already_claimed"), Some(&1));
+    assert_eq!(changed.len(), 2);
+    let (r, _) = chunks.change(&a, Op::Load, dim, &[[0, 0], [1, 0], [5, 5]], false, 6000);
+    assert_eq!(r.changed, 1);
+    assert_eq!(r.problems.get("not_owner"), Some(&1));
+    assert_eq!(r.problems.get("not_claimed"), Some(&1));
+    let (r, _) = chunks.change(&a, Op::Unclaim, dim, &[[1, 0]], true, 7000);
+    assert_eq!(r.changed, 1, "an operator's admin request takes another team's chunk");
+    let g = chunks.general_data(A);
+    assert_eq!((g.claimed, g.loaded, g.max_claims, g.max_force_loads), (2, 1, 500, 25));
+}
+
+#[test]
+fn chunk_messages_group_by_team_hide_private_claims_and_split() {
+    let w = world();
+    let mut chunks = Chunks::default();
+    let a = w.team(A).unwrap();
+    let dim = "minecraft:overworld";
+    let before = chunks.claims.clone();
+    for x in 0..450 {
+        chunks.claim(&a, (dim.into(), x, 0), 1000).unwrap();
+    }
+    chunks.load(&a, &(dim.into(), 0, 0), false, 2000).unwrap();
+    let changed = chunks.changed_since(&before);
+    assert_eq!(changed.len(), 450);
+    let msgs = chunks.many_chunks(&changed, &before, &|_| true, 11_000);
+    assert_eq!(msgs.len(), 2, "400 chunks a message");
+    assert_eq!(msgs[0].team, net::uuid_text(A));
+    let first = msgs[0].chunks[0];
+    assert_eq!(first, ChunkInfo { x: 0, z: 0, claimed: true, since: 10, force_loaded: Some(9), expires: None });
+    let hidden = chunks.many_chunks(&changed[..1], &before, &|_| false, 11_000);
+    assert_eq!(hidden[0].chunks[0], ChunkInfo::unclaimed(0, 0));
+    let snapshot = chunks.claims.clone();
+    chunks.unclaim(A, &(dim.into(), 3, 0), false).unwrap();
+    let gone = chunks.changed_since(&snapshot);
+    let msgs = chunks.many_chunks(&gone, &snapshot, &|_| true, 11_000);
+    assert_eq!((msgs[0].team.clone(), msgs[0].chunks[0]), (net::uuid_text(A), ChunkInfo::unclaimed(3, 0)));
+    let mut private = a.clone();
+    private.props.claim_visibility = Privacy::Private;
+    assert!(net::sees_claims(&chunks.config, &private, A) && !net::sees_claims(&chunks.config, &private, C));
+}
+
+#[test]
+fn the_wire_is_json_and_takes_a_team_uuid() {
+    let req: ChangeRequest =
+        serde_json::from_str(r#"{"op":"LOAD","chunks":[[1,2],[-3,4]],"team":"00000000-0000-0000-0000-000000000064"}"#).unwrap();
+    assert_eq!(req.op, Op::Load);
+    assert!(!req.admin);
+    assert_eq!(req.team.as_deref().and_then(net::parse_uuid_text), Some(P));
+    let text = serde_json::to_string(&ChunkInfo::unclaimed(1, 2)).unwrap();
+    assert_eq!(text, r#"{"x":1,"z":2,"claimed":false}"#);
+}

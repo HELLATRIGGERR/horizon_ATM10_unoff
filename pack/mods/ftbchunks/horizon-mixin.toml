@@ -1,4 +1,5 @@
-# FTB Chunks as a native mod of this fork (horizon-mixins bundle), slice 2: the server side.
+# FTB Chunks as a native mod of this fork (horizon-mixins bundle): the server side (slice 2), and the
+# client's messages and claim screen (slice 3).
 # FTB Chunks 2101.1.22 is All Rights Reserved (FTB): its behaviour is reimplemented
 # in the crate `ftbchunks-core` from what the mod does; no file of it is copied.
 # See README.md.
@@ -21,6 +22,12 @@ id = "world"
 file = "crates/horizon-client/src/game.rs"
 name = "ftbchunks_world"
 source = "runtime/ftbchunks_world.rs"
+
+[[module]]
+id = "map"
+file = "crates/horizon-client/src/game.rs"
+name = "ftbchunks_map"
+source = "runtime/ftbchunks_map.rs"
 
 [[injection]]
 id = "lifecycle"
@@ -209,4 +216,132 @@ bindings = [
   { name = "push", ty = "&[horizon_core::position::BlockPos]", value = "push" },
   { name = "destroy", ty = "&[horizon_core::position::BlockPos]", value = "destroy" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "logged-in"
+hook = "player_logged_in"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/player_logged_in.rs"
+bindings = [
+  { name = "player", ty = "u128", value = "player" },
+]
+
+[[injection]]
+id = "net-from-client"
+hook = "net_from_client"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_client.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "net-from-server"
+hook = "net_from_server"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_server.rs"
+bindings = [
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "key"
+hook = "key"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/key.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "key", ty = "&str", value = "key" },
+  { name = "pressed", ty = "bool", value = "pressed" },
+]
+
+[[injection]]
+id = "frame"
+hook = "frame"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/frame.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "screen-draw"
+hook = "screen_render_post"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_render_post.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+]
+
+[[injection]]
+id = "mouse-pressed"
+hook = "screen_mouse_button_pressed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_button_pressed_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "modifiers", ty = "u32", value = "modifiers" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "mouse-dragged"
+hook = "screen_mouse_dragged_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_dragged_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "mouse-released"
+hook = "screen_mouse_button_released_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_button_released_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "client-commands"
+hook = "commands"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/commands.rs"
+bindings = [
+  { name = "commands", ty = "&mut Vec<&'static str>", value = "&mut *commands" },
+]
+
+[[injection]]
+id = "client-command"
+hook = "command"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/command.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "command", ty = "&str", value = "command" },
+  { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]

@@ -218,6 +218,22 @@ pub struct NativeClientProfile {
 }
 
 impl Game<'_> {
+    /// Loaded chunk `chunk`'s 16x16 map picture in the dimension the player is in, as the
+    /// minimap extra draws the surface (`horizon-client-render/src/minimap.rs`: each column's
+    /// `MapColor` with the map item's height shading and water depth): 1024 bytes of RGBA, rows
+    /// north to south. From the minimap's tile cache, or scanned now, about a chunk section's
+    /// mesh in cost, so a mod's map asks for a few chunks a frame and keeps what it got (FTB
+    /// Chunks keeps regions, JourneyMap tiles). None for a chunk not loaded, with no player, and
+    /// off the window's client. Upload the picture with `native_mod_image`. API 428.
+    pub(super) fn native_map_tile(&mut self, chunk: [i32; 2]) -> Option<[u8; 1024]> {
+        if self.player.is_none() || !self.native_window() {
+            return None;
+        }
+        let facts = self.res.facts();
+        self.extras
+            .minimap
+            .chunk_image(&self.world, facts, (chunk[0], chunk[1]))
+    }
     /// A screenshot as F2 takes it (`ScreenShot.grab`): of the next frame, at
     /// the game's resolution times Screenshot Quality, into `screenshots/` with
     /// vanilla's file name, and the same "Saved screenshot as" line in chat.

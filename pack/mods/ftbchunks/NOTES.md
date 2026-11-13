@@ -1,9 +1,9 @@
 # FTB Chunks: where the work stands
 
-Slice 2 of docs/ftb-chunks.md, the server side, is done; slice 3 (the map, the claim screen, the minimap, waypoints)
-is next. FTB Chunks 2101.1.22 is All Rights Reserved (FTB): the crate reimplements its behaviour; nothing of it is
+Slices 2 (the server) and 3 (the claim screen, its messages, the map tile API 428) of docs/ftb-chunks.md are done;
+slice 4 (waypoints, the death waypoint, the corner minimap) is next. FTB Chunks 2101.1.22 is All Rights Reserved (FTB): the crate reimplements its behaviour; nothing of it is
 copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world` (this PC:
-`atm10-work/ftb-work/ftb.sh`; `FTB_LIST=ftbchunks/claims` for this bundle's world test).
+`atm10-work/ftb-work/ftb.sh`; `FTB_LIST=ftbchunks/claims` or `ftbchunks/map` for this bundle's world tests).
 
 ## How it fits
 
@@ -35,8 +35,7 @@ copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build wor
   slice 3): the fields are kept and saved; `ClaimExpirationManager` isn't there.
 - FTB Ranks permissions (`ftbchunks.max_claimed`, `max_force_loaded`, `chunk_load_offline`, `no_wilderness`): ATM10
   defines none, so the config's values apply; `offline_force_loader` is read from the files.
-- The `request_chunk_change` message, `send_many_chunks` sync and the action-bar "entered claim" notice: slice 3, with
-  the client.
+- The action-bar "entered claim" notice: slice 5 (`request_chunk_change` and `send_many_chunks` are done in slice 3).
 - Admin feedback to other operators; team name completions.
 
 ## Gaps in the mod API (none added: the slice works without them)

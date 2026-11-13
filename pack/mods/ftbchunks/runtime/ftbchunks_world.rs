@@ -11,6 +11,7 @@ use super::{
 use ftbchunks_core::{
     Actor, ChunkPos, Chunks, Claim, Config, Kind, MemberData, Protection, TeamData, TeamView, Teams, Uuid, chunk_of,
     commands::{self, Ctx, Msg},
+    net,
 };
 use ftbteams_core::{
     Manager,
@@ -38,6 +39,12 @@ struct Server {
     resync_in: u32,
     /// When each player was last told an action was refused (2 s apart).
     noticed: BTreeMap<Uuid, i64>,
+    /// The claims as the clients were last told them (`send_many_chunks`).
+    sent: BTreeMap<ChunkPos, Claim>,
+    /// Players who logged in and get the whole picture at the next tick (`login_data`).
+    logins: Vec<Uuid>,
+    /// Claims may have changed since `sent`: tell the clients at the next tick.
+    publish: bool,
 }
 
 thread_local! {
@@ -321,7 +328,16 @@ pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
                 }
             }
             log::info!("[ftbchunks] loaded {} claims of {} teams", chunks.claims.len(), chunks.teams.len());
-            let server = Server { chunks, dir: Some(world), held: BTreeSet::new(), resync_in: 0, noticed: BTreeMap::new() };
+            let server = Server {
+                chunks,
+                dir: Some(world),
+                held: BTreeSet::new(),
+                resync_in: 0,
+                noticed: BTreeMap::new(),
+                sent: BTreeMap::new(),
+                logins: Vec::new(),
+                publish: true,
+            };
             SERVER.with(|s| *s.borrow_mut() = Some(server));
         }
         WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => saved_and(true),
@@ -397,6 +413,7 @@ pub(super) fn tick(game: &mut Game<'_>) {
         }
         if !events.is_empty() {
             server.resync_in = 0;
+            server.publish = true;
         }
         if server.resync_in > 0 {
             server.resync_in -= 1;
@@ -417,14 +434,113 @@ pub(super) fn tick(game: &mut Game<'_>) {
             log::debug!("[ftbchunks] ticket {owner} {pos:?} hold={hold} changed nothing");
         }
     }
+    publish(game);
 }
 
 fn resync_soon() {
     SERVER.with(|s| {
         if let Some(server) = s.borrow_mut().as_mut() {
             server.resync_in = 0;
+            server.publish = true;
         }
     });
+}
+
+// ---- The clients' messages (slice 3) ------------------------------------------------------------------------
+
+/// `native_player_logged_in`: the player gets `login_data`, the counters and every claim they may see at the next tick.
+pub(super) fn logged_in(player: u128) {
+    SERVER.with(|s| {
+        if let Some(server) = s.borrow_mut().as_mut() {
+            server.logins.push(player);
+            server.publish = true;
+        }
+    });
+}
+
+fn json_bytes(value: &impl serde::Serialize) -> Vec<u8> {
+    serde_json::to_vec(value).unwrap_or_default()
+}
+
+/// Tells the clients what changed since they were last told (`send_many_chunks`, `send_general_data`), and gives
+/// players who just logged in the whole picture.
+fn publish(game: &mut Game<'_>) {
+    let online = game.native_server_players();
+    let Some(out) = with(|server, view| {
+        if !std::mem::take(&mut server.publish) {
+            return Vec::new();
+        }
+        let chunks = &server.chunks;
+        let config = &chunks.config;
+        let now = now_ms();
+        let changed = chunks.changed_since(&server.sent);
+        let teams: BTreeSet<Uuid> = changed
+            .iter()
+            .filter_map(|p| chunks.claims.get(p).or_else(|| server.sent.get(p)).map(|c| c.team))
+            .collect();
+        let logins = std::mem::take(&mut server.logins);
+        let all: Vec<ChunkPos> = chunks.claims.keys().cloned().collect();
+        let mut out: Vec<(Uuid, &'static str, Vec<u8>)> = Vec::new();
+        for p in &online {
+            let visible = |team: Uuid| view.team(team).is_none_or(|t| net::sees_claims(config, &t, p.uuid));
+            let own = view.team_of(p.uuid).map(|t| t.id);
+            let fresh = logins.contains(&p.uuid);
+            if fresh {
+                let login = serde_json::json!({ "manager": uuid_string(view.m.id) });
+                out.push((p.uuid, net::LOGIN_DATA, json_bytes(&login)));
+            }
+            let (positions, before) = if fresh { (&all, &BTreeMap::new()) } else { (&changed, &server.sent) };
+            for m in chunks.many_chunks(positions, before, &visible, now) {
+                out.push((p.uuid, net::MANY_CHUNKS, json_bytes(&m)));
+            }
+            if let Some(own) = own.filter(|t| fresh || teams.contains(t)) {
+                out.push((p.uuid, net::GENERAL_DATA, json_bytes(&chunks.general_data(own))));
+            }
+        }
+        server.sent = chunks.claims.clone();
+        out
+    }) else {
+        return;
+    };
+    for (player, channel, data) in out {
+        if let Err(e) = game.native_net_send_to_player(player, channel, &data) {
+            log::debug!("[ftbchunks] {channel} to {player:032x}: {e}");
+        }
+    }
+}
+
+/// `native_net_from_client`: `request_chunk_change` from the claim screen, answered by `chunk_change_response`.
+pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data: &[u8]) {
+    if channel != net::CHUNK_CHANGE {
+        return;
+    }
+    let Ok(request) = serde_json::from_slice::<net::ChangeRequest>(data) else {
+        log::warn!("[ftbchunks] a bad {channel} message from {player:032x}");
+        return;
+    };
+    let Some(sender) = game.native_server_players().into_iter().find(|p| p.uuid == player) else { return };
+    let operator = sender.permission >= 2;
+    let response = with(|server, view| {
+        let asked = request.team.as_deref().and_then(net::parse_uuid_text).and_then(|id| view.team(id));
+        let team = match asked {
+            Some(t) if operator || t.is_member(player) => Some(t),
+            _ => view.team_of(player),
+        }?;
+        let admin = request.admin && operator;
+        let (response, changed) =
+            server.chunks.change(&team, request.op, &sender.dimension, &request.chunks, admin, now_ms());
+        if !changed.is_empty() {
+            server.resync_in = 0;
+            server.publish = true;
+        }
+        Some(response)
+    })
+    .flatten();
+    let Some(response) = response else { return };
+    if let Err(e) = game.native_net_send_to_player(player, net::CHANGE_RESPONSE, &json_bytes(&response)) {
+        log::debug!("[ftbchunks] {} to {player:032x}: {e}", net::CHANGE_RESPONSE);
+    }
+    tick(game);
 }
 
 // ---- Protection ---------------------------------------------------------------------------------------------

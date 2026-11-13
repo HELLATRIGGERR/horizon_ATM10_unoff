@@ -392,6 +392,51 @@ impl Minimap {
     pub fn tile_count(&self) -> usize {
         self.tiles.len()
     }
+    /// Loaded chunk `chunk`'s 16x16 picture, RGBA rows north to south, as this map draws the
+    /// surface: each column's map colour with the map item's shading. The cached tile when it
+    /// shows the surface, else a scan now (not kept: the minimap's own tiles follow its view).
+    /// None for a chunk not loaded. For mods' own maps (`native_map_tile`).
+    pub fn chunk_image(
+        &mut self,
+        world: &World,
+        facts: &BlockFacts,
+        chunk: (i32, i32),
+    ) -> Option<[u8; 1024]> {
+        let palette = self.palette.get_or_insert_with(|| Palette::new(facts));
+        let surface = |t: &&Tile| t.layer == Layer::Surface;
+        let scanned;
+        let tile = match self.tiles.get(&chunk).filter(surface) {
+            Some(t) => t,
+            None => {
+                let c = world.chunks.get(&chunk)?;
+                scanned = scan_tile(c, palette, world.air.0, Layer::Surface, world.revision);
+                &scanned
+            }
+        };
+        let north = self.tiles.get(&(chunk.0, chunk.1 - 1)).filter(surface);
+        let mut out = [0u8; 1024];
+        for z in 0..16usize {
+            for x in 0..16usize {
+                let i = z * 16 + x;
+                let color = tile.color[i];
+                let rgba = if color & !WALL == 0 {
+                    UNKNOWN
+                } else {
+                    let up = if z > 0 {
+                        Some((tile.color[i - 16], tile.height[i - 16]))
+                    } else {
+                        north.map(|n| (n.color[240 + x], n.height[240 + x]))
+                    };
+                    let up = up.filter(|c| c.0 & !WALL != 0).map(|c| c.1);
+                    let parity = chunk.0 * 16 + x as i32 + chunk.1 * 16 + z as i32;
+                    let b = brightness(color, tile.height[i], up, tile.depth[i], parity);
+                    packed_rgba(color & !WALL, b)
+                };
+                out[i * 4..i * 4 + 4].copy_from_slice(&rgba);
+            }
+        }
+        Some(out)
+    }
 }
 /// Chunk offsets at Chebyshev distance `ring`.
 fn ring_offsets(ring: i32) -> impl Iterator<Item = (i32, i32)> {
@@ -601,6 +646,50 @@ mod tests {
         );
         assert_eq!(n, 24);
         assert!(!map.tiles.contains_key(&(2, 2)));
+    }
+
+    #[test]
+    fn a_chunk_image_is_the_surface_picture_of_a_loaded_chunk() {
+        let mut map = Minimap {
+            palette: Some(palette()),
+            ..Default::default()
+        };
+        let facts = BlockFacts {
+            states: Vec::new(),
+            air: horizon_world::registry::BlockStateId(0),
+            woods: Default::default(),
+        };
+        let world = world_with(vec![
+            grass_chunk(0, 0),
+            grass_chunk(0, 1),
+            Chunk::empty(1, 0),
+        ]);
+        // Scanned on demand (nothing cached), 16x16 RGBA, every grass column drawn opaque.
+        let fresh = map.chunk_image(&world, &facts, (0, 1)).unwrap();
+        assert_eq!(map.tile_count(), 0, "the on-demand scan is not kept");
+        assert!(
+            fresh
+                .chunks(4)
+                .all(|p| p[3] == 255 && p[..3] != UNKNOWN[..3])
+        );
+        // The same picture from the cached tile.
+        map.update(
+            &world,
+            &facts,
+            (0, 0),
+            1,
+            Layer::Surface,
+            Duration::from_secs(1),
+        );
+        assert!(map.tile_count() >= 2);
+        assert_eq!(map.chunk_image(&world, &facts, (0, 1)), Some(fresh));
+        // The shading looks one block north: the first row of (0, 1) reads (0, 0)'s last row.
+        let seam = map.chunk_image(&world, &facts, (0, 0)).unwrap();
+        assert_eq!(seam[..4], seam[16 * 4..16 * 4 + 4]);
+        // A chunk with no coloured block is the unknown colour; an unloaded chunk is None.
+        let empty = map.chunk_image(&world, &facts, (1, 0)).unwrap();
+        assert!(empty.chunks(4).all(|p| p == UNKNOWN));
+        assert_eq!(map.chunk_image(&world, &facts, (5, 5)), None);
     }
 
     #[test]

@@ -1857,6 +1857,8 @@ API 426 adds `native_level_particles(options, at, spread, speed, count)`, `Serve
 
 API 427 adds `native_recipe_categories(categories)` (client) collects the mods' own recipe categories for a recipe viewer: push a `NativeRecipeCategory` (id, title, subtitle, icon, catalysts, and recipes of inputs to outputs, each output with its chance, count range and notes) for a fishing spot, a sieve or a machine. A viewer gets them all with `native_collect_recipe_categories()` and asks again when `native_recipe_categories_version()` moves, which a mod makes happen with `native_recipe_categories_changed()` (its server's data came). Bundles need "hooks": 427.
 
+API 428 adds `native_map_tile(chunk)`: a loaded chunk's 16x16 map picture in the player's dimension, RGBA rows north to south, as the minimap extra draws the surface (each column's `MapColor` with the map item's height shading and water depth), from the minimap's tile cache or scanned on the spot; none for a chunk not loaded and off the window's client. A mod's map (FTB Chunks' claim screen and map, JourneyMap) asks for a few chunks a frame, keeps them, and shows them with `native_mod_image`. Bundles need "hooks": 428.
+
 API 429 adds `native_show_recipes(stack, lookup)` (client, `host.show_recipes`) asks whatever recipe viewer is installed to show `stack`'s recipes (`NativeRecipeLookup::Recipes`), its uses (`Uses`), or to act on a key that went down over it in a screen the mod draws (`Key("key.keyboard.a")`), so a quest book's items open the viewer as its own list's do. The viewer hears it at the start of the next frame as `native_recipe_lookup(stack, lookup, handled)` and sets `handled`; with no viewer, nothing happens. Bundles need "hooks": 429.
 
 ## What the launcher does

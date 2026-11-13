@@ -112,7 +112,13 @@ try {
   // Broken by the player (AEBaseEntityBlock.getDrops exports the stored energy), then placed again.
   await fixture.raw(`break ${placed}`);
   await until(() => block(placed), b => b.block === 'minecraft:air', 'the cell is broken', 30000);
-  const inv = await until(() => fixture.raw('inventory'), s => s.counts?.[CELL] === 1, 'the broken cell is picked up', 30000);
+  // The drop pops out with the usual random scatter and can roll off the far side of the 1x1 support, past the
+  // player's pickup box (about a quarter of the runs): go to it, then back to the spot the support is reached from.
+  const inv = await until(async () => {
+    try { await fixture.command('tp @s @e[type=minecraft:item,sort=nearest,limit=1]'); } catch { /* none left: picked up */ }
+    return fixture.raw('inventory');
+  }, s => s.counts?.[CELL] === 1, 'the broken cell is picked up', 30000);
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z - 0.5}`);
   const slot = inv.hotbar.findIndex((item: any) => item?.item === CELL);
   await fixture.select(slot, CELL);
   assert.equal(component(await fixture.command('data get entity @s SelectedItem'), 'ae2:stored_energy'), 12_000_000, 'the dropped cell carries its energy');

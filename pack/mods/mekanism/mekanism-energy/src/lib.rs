@@ -48,7 +48,9 @@
 //! into heat that boils its coolant. The Supercritical Phase Shifter
 //! (`sps`) turns polonium into antimatter on its coils' Joules, which the
 //! Antiprotonic Nucleosynthesizer (`nucleo`) turns items into others with,
-//! as fast as its own Joules let it.
+//! as fast as its own Joules let it. The lasers (`laser`: the Laser, the
+//! Laser Amplifier and the Laser Tractor Beam) fire Joules down a beam that
+//! digs the block it meets or fills the receptor there.
 //! The Electric Pump and the Fluidic Plenisher (`pump`) take the world's
 //! fluid blocks into a tank and put them back.
 //! Nothing here knows the game: the native mod's helpers bring the world.
@@ -74,6 +76,7 @@ pub mod generator;
 pub mod heat;
 pub mod heater;
 pub mod induction;
+pub mod laser;
 pub mod machine;
 pub mod miner;
 pub mod menu;

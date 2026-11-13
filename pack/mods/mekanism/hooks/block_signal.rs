@@ -14,5 +14,7 @@ fn mek_block_signal(
         horizon_world::level::Dimension::Nether => "minecraft:the_nether",
         horizon_world::level::Dimension::End => "minecraft:the_end",
     };
-    crate::game::mek_fission::block_signal(name, level.native_state_block(state), [pos.x, pos.y, pos.z], face.normal(), direct, signal);
+    let block = level.native_state_block(state);
+    crate::game::mek_fission::block_signal(name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
+    crate::game::mek_lasers::block_signal(name, block, [pos.x, pos.y, pos.z], direct, signal);
 }

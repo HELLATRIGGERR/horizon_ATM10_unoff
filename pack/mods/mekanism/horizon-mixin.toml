@@ -3,7 +3,7 @@
 # Chemical Tanks and their items, the Pressurized Tubes, the Chemical Oxidizer
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
 # Washer and Chemical Crystallizer, the Rotary Condensentrator), its Antiprotonic
-# Nucleosynthesizer, its Mechanical Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
+# Nucleosynthesizer, its Laser, Laser Amplifier and Laser Tractor Beam, its Mechanical Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
 # (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the SPS) and
 # its Resistive Heater, Mekanism Generators' Solar, Heat,
 # Gas-Burning, Bio, Wind and Advanced Solar Generators, Industrial Turbine and Fission Reactor, its Electric Pump and
@@ -25,8 +25,9 @@
 # (`native_update_signal_neighbors`), the attachments
 # helper (`native_attachments`: the multiblocks' caches in the level's saved data), and upstream's pending
 # `native_default_state`, `native_sneaking`, `native_block_name_in_tag`, `native_player_equipment` and
-# `native_machine_destroy_block`, `native_machine_block_drops` (fragments default_state, host_bridge, player_equipment and machine_breaking: the
-# tier installers, the Configurator and the Digital Miner), so it builds on any Horizon with hooks API 426 or later: it pins no
+# `native_machine_destroy_block`, `native_machine_block_drops`, `native_clip_blocks`, `native_destroy_speed` (fragments
+# default_state, host_bridge, player_equipment, machine_breaking and machine_beams: the tier installers, the
+# Configurator, the Digital Miner and the lasers), so it builds on any Horizon with hooks API 426 or later: it pins no
 # revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
@@ -165,6 +166,12 @@ id = "nucleo"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_nucleo"
 source = "runtime/mek_nucleo.rs"
+
+[[module]]
+id = "lasers"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_lasers"
+source = "runtime/mek_lasers.rs"
 
 [[module]]
 id = "transmit"

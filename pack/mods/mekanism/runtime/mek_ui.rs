@@ -123,6 +123,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         *screen = Some(super::mek_heater::screen());
         return;
     }
+    if let Some(kind) = super::mek_lasers::kind_of(block) {
+        *screen = Some(super::mek_lasers::screen(kind));
+        return;
+    }
     if super::mek_miner::is_miner(block) {
         *screen = Some(super::mek_miner::screen());
         return;
@@ -300,6 +304,10 @@ pub(super) fn click(block: &str, data: &[i32], at: [f32; 2], right: bool, button
         super::mek_miner::click(data, at, right, button);
         return;
     }
+    if let Some(kind) = super::mek_lasers::kind_of(block) {
+        super::mek_lasers::click(kind, at, right, button);
+        return;
+    }
     if let Some(kind) = ProcessKind::of_block(block) {
         super::mek_factory_ui::click(kind, data, at, right, button);
         return;
@@ -387,6 +395,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
     }
     if super::mek_heater::is_heater(block) {
         super::mek_heater::tooltip(data, at, lines);
+        return;
+    }
+    if let Some(kind) = super::mek_lasers::kind_of(block) {
+        super::mek_lasers::tooltip(kind, data, at, lines);
         return;
     }
     if super::mek_tanks::tier_of(block).is_some() {
@@ -598,6 +610,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if super::mek_heater::is_heater(block) {
         super::mek_heater::draw(game, data, batch, origin);
+        return;
+    }
+    if let Some(kind) = super::mek_lasers::kind_of(block) {
+        super::mek_lasers::draw(game, kind, data, batch, origin);
         return;
     }
     if super::mek_tanks::tier_of(block).is_some() {

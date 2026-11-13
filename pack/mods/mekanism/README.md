@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer), its chemicals, their tanks and tubes, its Mechanical
+Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer), its lasers, its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the Supercritical Phase Shifter), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
@@ -147,6 +147,19 @@ assets when `mekanism-content` is given them.
   past the 400 ticks a new machine requires starts over when its recipe is cached, as Mekanism's does. Antimatter goes
   in on every side and comes out on none; its screen (`GuiAntiprotonicNucleosynthesizer`) shows the antimatter and
   energy gauges, the process rate (the Joules the last tick took over a run's) and the progress along its bottom.
+- The lasers (`mekanism_energy::laser`, runtime `mek_lasers`): the Laser (Joules in through its back from cables,
+  cubes and Forge Energy, a store of 10 000 000 J) fires 50 000 J a tick (`machine-usage.toml` `laser`) or what it
+  holds below that down a beam out of its front, `[laser] range` (64) blocks long, stopped by the first block whose
+  outline it meets. A Laser Amplifier or Laser Tractor Beam there takes the Joules into its store (5 000 000 000 J; what
+  doesn't fit is lost); any other block gathers them and breaks once they reach its hardness times `energyPerHardness`
+  (100 000 J: stone on the third tick), its drops popping where it was. A Laser's tick without fire drops what it gathered;
+  unbreakable blocks gather nothing; `aestheticWorldDamage = false` breaks nothing. The amplifier fires up to its max
+  threshold every `delay + 1` ticks once it holds its min threshold and redstone control lets it; its Joules go out as
+  Forge Energy on every side, and its redstone output gives its store's fill (`ENERGY_CONTENTS`). Its screen shows
+  its store, thresholds and delay and cycles the redstone output with a button; `/mek laser <x> <y> <z> min|max
+  <J> | delay <ticks> | output <0-2> | control <0-3>` sets what Mekanism's text fields and redstone tab set. The
+  tractor beam fires all it holds and keeps what it breaks in its 27 slots (hoppers take from them), the rest popping
+  two blocks in front of it.
 - The ore chain: the Chemical Dissolution Chamber (an ore and sulfuric acid drawn at random every tick into 1000 mB
   of a dirty slurry in 100 ticks of 400 J), the Chemical Washer (`2^speed` operations a tick of water and a dirty
   slurry into the clean one, its water from fluid handlers and buckets) and the Chemical Crystallizer (200 mB of a
@@ -543,6 +556,11 @@ assets when `mekanism-content` is given them.
   their transfer animation aren't there; fuel and control rod assemblies are plain blocks.
 - The Antiprotonic Nucleosynthesizer's screen has no lightning between its slots (`BoltRenderer`), and the machine no
   sound; its rate bar is drawn in flat colours. Its custom shape is a full block.
+- The lasers' beams aren't drawn and make no sound, and a block being dug shows no effect. Entities in a beam are
+  neither hurt nor set on fire, don't stop it and aren't detected (`ENTITY_DETECTION` gives no signal); the tractor
+  beam doesn't pick up item entities in its beam. The break skips NeoForge's break event and doesn't light TNT. The
+  amplifier's screen is the bundle's own (no text fields, no redstone control tab: `/mek laser`), cables don't pull
+  its Joules, comparators don't read it and its item keeps no settings.
 - The SPS's coils have no lasers and it has no orbit effects (`RenderSPS`) or sound; it doesn't hurt the entities
   inside it (`kill`: `lastReceivedEnergy / 1000` a hit, one tick in twenty, and the lightning of its experiments) nor
   give its advancements; comparators don't read its ports. Its saved cache is written as it is when the level saves,

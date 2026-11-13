@@ -1,0 +1,12 @@
+{
+  "hooks": [],
+  "helpers": [
+    {"name": "clip_blocks", "target": "horizon_client::game::native_machines::Game<'_>::native_clip_blocks"},
+    {"name": "destroy_speed", "target": "horizon_client::game::native_machines::Game<'_>::native_destroy_speed"}
+  ],
+  "rust_summary": "a mod's machine traces a beam through the blocks' outlines (`native_clip_blocks`) and reads a block's hardness (`native_destroy_speed`).",
+  "doc_summary": "`native_clip_blocks(from, to)` is `Level.clip` with `ClipContext.Block.OUTLINE` and `Fluid.NONE` in the level in place: the first block whose outline the segment enters, the face's normal and the point, none when it meets no block; `native_destroy_speed(pos)` is `BlockState.getDestroySpeed` there (negative for an unbreakable block). Both answer only on a server. Mekanism's lasers use them. Bundles need \"hooks\": @API:machine_beams@.",
+  "comments": [
+    "crates/horizon-client/src/game/native_machines.rs"
+  ]
+}

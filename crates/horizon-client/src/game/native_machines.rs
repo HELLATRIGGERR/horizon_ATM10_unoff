@@ -92,6 +92,43 @@ impl Game<'_> {
         Some(drops)
     }
 
+    /// `Level.clip` from `from` to `to` with `ClipContext.Block.OUTLINE` and
+    /// `Fluid.NONE` in the level in place, as a machine's beam finds what it
+    /// meets (Mekanism's lasers): the first block whose outline shape the
+    /// segment enters, the face it enters through (a unit normal) and the
+    /// point it enters at. Fluids and air let it through. None when it meets
+    /// no block, for a segment of no length, and off a server.
+    /// API @API:machine_beams@.
+    pub(super) fn native_clip_blocks(
+        &self,
+        from: [f64; 3],
+        to: [f64; 3],
+    ) -> Option<([i32; 3], [i32; 3], [f64; 3])> {
+        if !self.native_authoritative() {
+            return None;
+        }
+        let delta = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        let length = (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+        if !length.is_finite() || length <= 0.0 {
+            return None;
+        }
+        let dir = delta.map(|d| d / length);
+        self.clip_ray_fluids(from, dir, length, false)
+            .map(|hit| (hit.pos, hit.face, hit.point))
+    }
+
+    /// `BlockState.getDestroySpeed`: the hardness of the block at `pos` in
+    /// the level in place (stone 1.5, obsidian 50, air 0), negative for an
+    /// unbreakable one (bedrock -1). None for an unloaded block and off a
+    /// server. API @API:machine_beams@.
+    pub(super) fn native_destroy_speed(&self, pos: [i32; 3]) -> Option<f32> {
+        if !self.native_authoritative() || !self.world.loaded(pos[0], pos[2]) {
+            return None;
+        }
+        let state = self.world.block(pos[0], pos[1], pos[2]);
+        Some(self.res.facts().get(state).hardness)
+    }
+
     /// `ServerLevel.destroyBlockProgress`: shows breaker `breaker`'s crack on
     /// the block at `pos` at stage `progress` (0 to 9) to the players within 64
     /// blocks, as a zombie breaking a door shows its; any other stage takes the

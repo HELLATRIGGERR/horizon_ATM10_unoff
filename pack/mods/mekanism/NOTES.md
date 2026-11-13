@@ -371,7 +371,36 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   and `machine`. Left: the screen's lightning (`BoltRenderer`), the machine's sound, its custom shape, comparators
   (`Attributes.COMPARATOR`), redstone control, `pausedForErrors` (a recipe paused on an error until its contents change:
   checking again every run comes to the same here), a `perTick` of 0 (Mekanism would run without end; here once).
-- Next: the Fusion Reactor (its frame: corners left out); the fission reactor's rest (the entities in
+- The lasers (branch `feat/mekanism-lasers`, on main `74c0215ef`: `mekanism_energy::laser`, runtime `mek_lasers`, the
+  amplifier's redstone through the bundle's API 38 hooks, and a new pending fragment `machine_beams` in the engine:
+  `native_clip_blocks` (`Level.clip` with `OUTLINE` and `Fluid.NONE`, over `Game::clip_ray_fluids`) and
+  `native_destroy_speed` (`getDestroySpeed`)). Read from Mekanism 10.7.19's classes (`TileEntityBasicLaser`,
+  `TileEntityLaser`, `TileEntityLaserReceptor`, `TileEntityLaserAmplifier`, `TileEntityLaserTractorBeam`,
+  `LaserEnergyContainer`, `TileEntityMekanism`; there is no `LaserManager` in 10.7: its beam is in
+  `TileEntityBasicLaser.onUpdateServer`) and measured on a private copy of the nucleosynthesizer's oracle (local
+  `meklaser-work/oracle`, RCON 25691, `lab/l1.py`, `lab/l2.py`). The Laser fires `machine-usage.toml` `laser`
+  (50 000 J) a tick or what it holds below that, the amplifier up to its max threshold once its delay count reached
+  the delay (a delay of 2 fires one tick in three), it holds its min and redstone control lets it, the tractor beam
+  all it holds (`toFire` is `Long.MAX_VALUE`). The beam runs from 0.501 past the centre for `range - 0.002`; a
+  receptor it meets takes the Joules (`insert(INTERNAL)`, the rest lost); any other block gathers them as progress
+  and breaks at `(float) progress >= hardness * energyPerHardness` (stone 1.5: the third tick of 50 000 J), the
+  progress starting over either way; bedrock gathers nothing. Learned on the oracle: the Laser's block has `active`
+  (the content mod's definition leaves it out; it changes nothing drawn) and `getActive` follows `setActive` at once,
+  so a Laser's tick without fire drops the progress and `last_fired` (120 000 J fire 50 000, 50 000, 20 000, then
+  30 000 J more don't break the stone); the amplifier and tractor beam have no active state and keep both (an
+  amplifier's `last_fired` of 10^6 stays through its delay). Measured too: a laser into an amplifier: the amplifier fires the 50 000 J on in the same
+  tick (it ticks after the laser placed before it); min 300 000 and delay 2 fire 10^6 J on the second tick; a tractor
+  beam with 10^6 J breaks iron ore at once into its first slot (one raw iron); `ENERGY_CONTENTS` gives 8 at half of
+  5 * 10^9 J and 1 at 1 J; a max of 20 000 J breaks stone on the eighth tick. The amplifier's and tractor beam's block
+  definitions are the carried ones on the `minecraft:beacon` template, so a use opens their screens (the carried
+  coral template opened none). World test `lasers`; unit tests `laser`.
+  Left: entities in the beam (damage `energy / energyPerDamage` with fire, shields and armour's dissipation and
+  refraction, the stop at an invulnerable one, `ENTITY_DETECTION`, the tractor beam's pickup of item entities), the
+  beam's drawing (`LaserParticleData`) and sound, the hit effect while digging (`PacketHitBlockEffect`), the
+  `BlockEvent.BreakEvent` and TNT's ignition, the amplifier's text fields (`/mek laser`) and its redstone control
+  button, pulling its Joules with cables, comparators, the item's kept settings, and the order of block entity ticks
+  when a receptor ticks before the laser that feeds it.
+- Next: the Fusion Reactor (its frame: corners left out; the lasers ignite it); the fission reactor's rest (the entities in
   its core, with the radiation leftovers above; Mekanism's own ray pass
   of a meltdown blast, the heat graph, a text field for the burn rate, comparators, the ports' heat to blocks beside
   them, sounds); the turbine's rest

@@ -543,6 +543,7 @@ mod native_player_state;
 mod native_profiles;
 mod native_projectiles;
 mod native_quick_move;
+mod native_recipe_transfer;
 mod native_recipes;
 mod native_registry_name;
 mod native_reload_listeners;

@@ -825,6 +825,10 @@
     {
       "name": "panel_area",
       "target": "horizon_client::game::native_panel::Game<'_>::native_panel_area"
+    },
+    {
+      "name": "recipe_transfer",
+      "target": "horizon_client::game::native_recipe_transfer::Game<'_>::native_recipe_transfer"
     }
   ],
   "hooks": [

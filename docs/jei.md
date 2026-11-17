@@ -1,14 +1,60 @@
 # JEI (Just Enough Items) port plan
 
-> **Handoff (2026-11-17): slice 3 (bookmarks) done; tests green. Next is slice 4.**
-> **Slice 4 (next): "+" recipe transfer** with JEI's dry-run state: the button is grey (or red, as JEI's
-> `RecipeTransferButton`/`IRecipeTransferError` do) when the transfer can't be done, red slots for what is missing.
-> Into the vanilla grids first (`native_transfer_recipe`/`native_place_recipe`), then AE2's Pattern Encoding Terminal
-> (encode the recipe into the pattern) and its crafting terminal (pull the ingredients from the network), by calling
-> our AE2 code directly (`crates/horizon-client/src/ae2*`, `ae2/addons`, `docs/ae2-crates.md`). `jei_window.rs` lays the
-> recipes out, so the button goes beside each recipe there (check JEI's `RecipeLayout`/`RecipeTransferButton` by
-> `javap` for the place) and `Action` gets a transfer variant that `jei_recipes::frame` does.
+> **Handoff (2026-11-17): slice 4a ("+" recipe transfer into the vanilla grids) done and tested; slice 4b (AE2) is next.**
+> **Slice 4a as built:**
+> - Engine helper `native_recipe_transfer(&NativeRecipeTransfer, run, max, craft_missing) -> NativeTransferAnswer`,
+>   **API 433** (`crates/horizon-client/src/game/native_recipe_transfer.rs`, new `mod` in `game.rs`; types
+>   `NativeRecipeTransfer`, `NativeTransferHandler {CraftingGrid, Furnace, Ae2Encoding, Ae2Crafting}`,
+>   `NativeTransferAnswer {handler, too_large, missing, craftable, done}` in `mod_api.rs`; `native-hooks.json` helper
+>   `recipe_transfer`; `NATIVE_HOOKS_API = 433`; `docs/atm10-port.md` lists it). `recipe_book.rs`'s
+>   `mod_crafting_open` became `pub(super)`. Vanilla handlers: crafting grid (inventory 2x2 / table / mod grid; JEI
+>   counts inventory + grid; too large = recipe's used cells > grid; run = `transfer_viewer_recipe(book_id, max)`),
+>   furnace/blast furnace/smoker (only its own recipe type; slot 300 input; run = quick-move the input out, pick the
+>   ingredient up, right click (one) or left click (Shift, all) on 300, put the rest back). `craft_missing` (Ctrl) is
+>   accepted and unused until 4b.
+> - Bundle: `jei_window.rs` draws JEI's "+" (13 px, 2 px right of the recipe, bottom aligned:
+>   `RecipeLayout.RECIPE_BUTTON_SIZE/SPACING`), `button_enabled/highlight/disabled_v2` + `icons/recipe_transfer`;
+>   hidden with no handler; grey when missing/too large (`button_state`); on hover red `0x66FF0000` over missing slots,
+>   blue `0x400000FF` over AE2-craftable ones, tooltip "Move Items" + red "Missing Items" / "Recipe is too large to
+>   craft in the 2x2 player crafting grid." (AE2: "Encode pattern", "Move items", "Missing items will be skipped",
+>   "CTRL + click to craft unavailable items", "Found no compatible items"; COSMETIC orange `0x80FFA500` / blue
+>   `0x804545FF` button tint, not drawn yet). Widget label `Move Items <recipe index>`. `Action::Transfer(i)`;
+>   `jei_recipes::frame` asks `native_recipe_transfer` (dry run) for the shown recipes each frame
+>   (`jei_window::transfers/set_answers`) and runs it on click (Shift = max, Ctrl = craft missing), closing the window
+>   when done. `jei_recipes` keeps each vanilla category's native recipe indices (`State.native`) to hand the window
+>   `(category id, book_id)` per recipe. The recipe x moved 7.5 px left to make room for the "+".
+>   Probe `/jeiclient` -> `recipes.window.transfers` `[{recipe, handler, too_large, missing, craftable}]`, `shown`.
+> - World test `tests/transfer.ts` (4 checks, green; `JEI_LIST=jei/transfer bash jei.sh world`, shots in
+>   `jei-work/logs/shots-transfer`): crafting table "+" fills the grid (slot 200 = crafting table) and closes the
+>   window; the chest's "+" grey with 4 missing (red slots, tooltip "Missing Items"); the chest too large for the
+>   inventory's 2x2 grid; furnace: a smelting "+" moves one iron ore (the page shows 2 recipes at a time and which
+>   ore comes first is not fixed, so the test holds raw iron, iron ore and deepslate ore and accepts whichever).
+>   Test gotchas: `interact` needs a clear line to the block (the test clears `x-1..x`, `y..y+2`, `z-1..z+2`);
+>   closing a crafting table returns the grid to the inventory. `jei/recipes`, `jei/bookmarks`, `jei/item-list`,
+>   `jei.sh units` (18) and `cargo test -p horizon-mod-api-gen` stay green (but for the main-only failure
+>   `new_hook_placeholder_is_reported_then_filled`).
+> **Slice 4b (next): AE2.** JEI's tests run `server-thread`, so the client is remote: AE2's terminals there are host-side
+> (`host.play[conn].ae2_terminal`, `lan_load_encoding_state`/`lan_store_encoding_state`/`lan_send_ae2_terminal` in
+> `game/ae2_terminal.rs`, payloads handled in `game/lan_actions.rs` like `ae2:clear_encoding` ~3504; the client sends
+> them as `remote.rs` ~11431). Add `#[cfg(feature = "ae2-lab")] fn ae2_recipe_transfer(..) -> Option<NativeTransferAnswer>`
+> in `ae2_terminal.rs` and call it first in `native_recipe_transfer`. Encoding terminal (`remote.ae2_encoding_screen`,
+> local `ae2_local_encoding_session_open`): always active; run sends a new client-to-host payload (window + inputs +
+> outputs) and the host sets `pattern_grid` (crafting: 3x3 cells, count 1, `processing=false`) or processing
+> inputs/`processing_outputs` for other categories (`ae2jeiintegration` `EncodePatternTransferHandler`; prefer the
+> alternative the network stores, craftable slots blue). Local (in-frame) path: `ae2_local_encoding_machine` +
+> `EncodingState` + `ae2_store_local_encoding`. Crafting terminal (`UseCraftingRecipeTransfer`): only
+> `minecraft:crafting` (else handler None = hidden), missing = neither network (`ae2_terminal_entries`) nor inventory
+> nor grid, craftable = `ae2_craftable_outputs`; all missing -> grey "Found no compatible items"; run = matrix back to
+> the network (`ae2_grid_insert`), each cell `ae2_grid_extract(pos, key, 1)` then the inventory, Ctrl ->
+> `ae2_open_local_craft_confirm(pos, key, false)` for the first craftable missing key; remote needs a payload too.
+> Test cases for a new `tests/transfer-ae2.ts`: see AE2's `ae2/tests/world/inframe-pattern-encoding.ts` (network:
+> creative energy cell, drive, cable bus + part) and `terminal-craft-gestures.ts` (`grid deposit`, `crafting encode`).
+> The vanilla handlers' screen check for a remote menu is `remote_menu_type()`; AE2's terminals need the same.
 > **Then: JEI's config screen** (`config/jei/jei-client.ini` keys; key rebinding already goes through `mods` keys).
+> **Known gaps of the vanilla part:** items matched by id only (components ignored); a mod crafting grid's nearby
+> sources aren't counted in the dry run; JEI's bookmark star above the "+" is not drawn.
+
+> **Slice 3 handoff (kept): bookmarks done; tests green.**
 > **Known gaps:**
 > - The bookmark panel shows only where the item list's `native_panel_area` exists (the inventory and creative
 >   screens), not on AE2's terminals; its page arrows and wheel work only there too.

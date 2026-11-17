@@ -45,6 +45,8 @@ struct State {
     viewer: Viewer,
     tables: Arc<NativeRecipes>,
     version: u64,
+    /// Each vanilla category's recipes as indices into `tables.recipes`, for their `book_id`s.
+    native: Vec<Vec<usize>>,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -104,7 +106,7 @@ fn mod_category(c: NativeRecipeCategory) -> Category {
 }
 
 /// Vanilla's categories from the tables, then the mods' in the order they came.
-fn book(t: &NativeRecipes, mods: Vec<NativeRecipeCategory>) -> Book {
+fn book(t: &NativeRecipes, mods: Vec<NativeRecipeCategory>) -> (Book, Vec<Vec<usize>>) {
     let mut categories: Vec<Category> = VANILLA
         .iter()
         .map(|(id, title, catalysts)| Category {
@@ -115,12 +117,14 @@ fn book(t: &NativeRecipes, mods: Vec<NativeRecipeCategory>) -> Book {
             recipes: Vec::new(),
         })
         .collect();
-    for r in &t.recipes {
+    let mut native = vec![Vec::new(); VANILLA.len()];
+    for (n, r) in t.recipes.iter().enumerate() {
         categories[vanilla_index(r.kind)].recipes.push(vanilla_recipe(t, r));
+        native[vanilla_index(r.kind)].push(n);
     }
     categories.extend(mods.into_iter().filter(|c| !c.recipes.is_empty()).map(mod_category));
     let names = t.items.iter().map(|i| (i.id.clone(), i.name.clone())).collect();
-    Book { categories, names }
+    (Book { categories, names }, native)
 }
 
 /// The viewer, its book made again when the game's tables or the mods' categories changed.
@@ -129,23 +133,33 @@ fn ready<'a>(game: &mut Game<'_>, guard: &'a mut Option<State>) -> Option<&'a mu
     let version = game.native_recipe_categories_version();
     let fresh = guard.as_ref().is_some_and(|s| Arc::ptr_eq(&s.tables, &tables) && s.version == version);
     if !fresh {
-        let book = book(&tables, game.native_collect_recipe_categories());
+        let (book, native) = book(&tables, game.native_collect_recipe_categories());
         jei_window::set_names(Arc::new(book.names.clone()));
         match guard.as_mut() {
             Some(s) => {
                 s.viewer.set_book(book);
                 s.tables = tables;
                 s.version = version;
+                s.native = native;
             }
-            None => *guard = Some(State { viewer: Viewer::new(book), tables, version }),
+            None => *guard = Some(State { viewer: Viewer::new(book), tables, version, native }),
         }
     }
     guard.as_mut()
 }
 
 /// The open page to the window, or the window closed.
-fn show(viewer: &Viewer) {
-    jei_window::set(viewer.page());
+fn show(s: &State) {
+    jei_window::set(s.viewer.page(), sources(s));
+}
+/// Each recipe of the page: its category's id and, for a vanilla one, its `book_id` (for its transfer).
+fn sources(s: &State) -> Vec<(String, i32)> {
+    let Some(cur) = s.viewer.current() else { return Vec::new() };
+    let Some(found) = cur.found.get(cur.tab) else { return Vec::new() };
+    let id = &s.viewer.book.categories[found.category].id;
+    let native = s.native.get(found.category);
+    let book_id = |r: usize| native.and_then(|n| n.get(r)).and_then(|&n| s.tables.recipes.get(n)).map_or(-1, |n| n.book_id);
+    found.recipes.iter().take(jei_core::recipes::RECIPES).map(|&r| (id.clone(), book_id(r))).collect()
 }
 
 /// R or U on `item`: its recipes or uses, the open page going onto the history. Nothing happens when it has none.
@@ -155,7 +169,7 @@ pub(super) fn open(game: &mut Game<'_>, item: &str, mode: Mode) -> bool {
     if !s.viewer.open(Focus { item: item.to_owned(), mode }) {
         return false;
     }
-    show(&s.viewer);
+    show(s);
     true
 }
 
@@ -187,7 +201,7 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) -> bool {
         NativePanelEvent::Tab(tab) => {
             if let Some(s) = state().as_mut() {
                 s.viewer.tab(*tab as usize);
-                show(&s.viewer);
+                show(s);
             }
             return true;
         }
@@ -223,7 +237,7 @@ pub(super) fn lookup(game: &mut Game<'_>, stack: &NativeStack, lookup: &NativeRe
 fn back(game: &mut Game<'_>) {
     if let Some(s) = state().as_mut() {
         s.viewer.back();
-        show(&s.viewer);
+        show(s);
     }
 }
 
@@ -239,7 +253,7 @@ pub(super) fn ask_back() {
 fn close() {
     if let Some(s) = state().as_mut() {
         s.viewer.close();
-        show(&s.viewer);
+        show(s);
     }
 }
 
@@ -248,7 +262,7 @@ fn close() {
 pub(super) fn frame(game: &mut Game<'_>, in_world: bool) {
     if !in_world {
         *state() = None;
-        jei_window::set(None);
+        jei_window::set(None, Vec::new());
         jei_window::take_actions();
         BACK.store(false, Ordering::Relaxed);
         return;
@@ -265,11 +279,18 @@ pub(super) fn frame(game: &mut Game<'_>, in_world: bool) {
             Action::Category(by) => select(|tab, n| (tab as i32 + by).rem_euclid(n as i32) as usize),
             Action::Page(by) => jei_window::turn(by),
             Action::Close => close(),
+            Action::Transfer(i) => transfer(game, i),
         }
     }
     if jei_window::stale() {
         close();
     }
+    // JEI asks the screen's transfer handler about each recipe shown (`updateRecipeTransferError`) for its "+".
+    let answers = jei_window::transfers()
+        .into_iter()
+        .map(|(i, t)| (i, game.native_recipe_transfer(&t, false, false, false)))
+        .collect();
+    jei_window::set_answers(answers);
 }
 
 /// Another tab: `to(tab, tabs)` picks it.
@@ -279,7 +300,7 @@ fn select(to: impl Fn(usize, usize) -> usize) {
     {
         let n = cur.found.len().min(jei_core::recipes::TABS);
         s.viewer.tab(to(cur.tab, n.max(1)));
-        show(&s.viewer);
+        show(s);
     }
 }
 
@@ -303,4 +324,15 @@ pub(super) fn probe() -> serde_json::Value {
         "categories": book.categories.len(),
         "window": jei_window::probe(),
     })
+}
+
+/// JEI's "+" on recipe `i` (`RecipeTransferButtonController.transferRecipe`): Shift moves as many as the items allow,
+/// Ctrl asks AE2's crafting terminal to craft what is missing; a transfer made closes the window, back to the screen
+/// under it (`onSuccessfulTransfer`).
+fn transfer(game: &mut Game<'_>, i: usize) {
+    let Some(t) = jei_window::transfer(i) else { return };
+    let (max, ctrl) = (game.native_has_shift_down(), game.native_has_control_down());
+    if game.native_recipe_transfer(&t, true, max, ctrl).done {
+        close();
+    }
 }

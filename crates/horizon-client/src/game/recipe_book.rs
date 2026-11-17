@@ -1181,7 +1181,7 @@ impl Game<'_> {
             && !self.spectator()
     }
     /// Whether the open menu is a mod menu type with a crafting grid.
-    fn mod_crafting_open(&self) -> bool {
+    pub(super) fn mod_crafting_open(&self) -> bool {
         self.remote
             .as_ref()
             .and_then(|r| r.menu.as_ref())

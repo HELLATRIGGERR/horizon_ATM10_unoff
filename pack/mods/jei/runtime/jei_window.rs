@@ -8,7 +8,8 @@
 // that carry, with the game's sprites and fills in JEI's sizes and colours.
 use super::Game;
 use super::jei_world::ID;
-use horizon_client::{hud::HudBatch, items::ItemStack, mod_api::NativeScreenView, text::Text};
+use horizon_client::mod_api::{NativeRecipeTransfer, NativeScreenView, NativeStack, NativeTransferAnswer, NativeTransferHandler};
+use horizon_client::{hud::HudBatch, items::ItemStack, text::Text};
 use jei_core::recipes::{Mode, Page, Shape, Stack, View};
 use jei_core::window::{
     ARROW, LINE, OUTPUT, OUTPUT_RIM, Rect, SLOT, Sizes, Window, inside, output_slot, pages, places, spread, window,
@@ -26,6 +27,8 @@ pub(super) enum Action {
     Category(i32),
     Page(i32),
     Close,
+    /// JEI's "+" on the page's recipe `n` (`RecipeTransferButtonController.onPress`).
+    Transfer(usize),
 }
 
 /// A place on the window that answers a click.
@@ -42,6 +45,8 @@ struct Drawn {
     pages: usize,
     hits: Vec<(Rect, Hit)>,
     panel: Option<Rect>,
+    /// The recipes on the recipe page shown, `first..end` of the page's.
+    shown: std::ops::Range<usize>,
 }
 
 struct Shown {
@@ -50,6 +55,10 @@ struct Shown {
     since: Instant,
     drawn_at: Instant,
     drawn: Drawn,
+    /// Each recipe's category id and `book_id` (-1 past the vanilla crafting ones), for its transfer.
+    sources: Vec<(String, i32)>,
+    /// What the open screen would do with the shown recipes' transfers (`native_recipe_transfer`, asked each frame).
+    answers: Vec<(usize, NativeTransferAnswer)>,
 }
 
 static SHOWN: Mutex<Option<Shown>> = Mutex::new(None);
@@ -75,20 +84,130 @@ pub(super) fn name(item: &str) -> String {
 }
 
 /// The page to show, or none to close the window. The same page again keeps its recipe page.
-pub(super) fn set(page: Option<Page>) {
+pub(super) fn set(page: Option<Page>, sources: Vec<(String, i32)>) {
     let mut guard = shown();
     match page {
         None => *guard = None,
         Some(page) => {
-            if guard.as_ref().is_some_and(|s| s.page == page) {
+            if let Some(s) = guard.as_mut().filter(|s| s.page == page) {
+                s.sources = sources;
                 return;
             }
             let now = Instant::now();
             let since = guard.as_ref().map_or(now, |s| s.since);
-            *guard = Some(Shown { page, recipe_page: 0, since, drawn_at: now, drawn: Drawn::default() });
+            let drawn = Drawn::default();
+            *guard = Some(Shown { page, recipe_page: 0, since, drawn_at: now, drawn, sources, answers: Vec::new() });
         }
     }
 }
+
+/// Recipe `i` of the page as the open screen's transfer takes it: the input slots its shape lays out (a crafting
+/// recipe's 3x3 grid; `width` x `height` the cells it uses), the result then the other outputs.
+fn transfer_of(v: &View, source: Option<&(String, i32)>) -> NativeRecipeTransfer {
+    let n = jei_core::window::inputs(v.shape, v.width, v.height).min(v.slots.len());
+    let native = |s: &Stack| NativeStack { item: s.item.clone(), count: s.count, components: s.components.clone() };
+    let inputs: Vec<Vec<NativeStack>> = v.slots[..n].iter().map(|l| l.iter().map(native).collect()).collect();
+    let cols = v.width.max(1) as usize;
+    let used: Vec<usize> = (0..n).filter(|&i| !v.slots[i].is_empty()).collect();
+    let span = |at: &dyn Fn(usize) -> usize| {
+        let (lo, hi) = used.iter().map(|&i| at(i)).fold((usize::MAX, 0), |(lo, hi), c| (lo.min(c), hi.max(c)));
+        if used.is_empty() { 0 } else { (hi - lo + 1) as u32 }
+    };
+    let (width, height) = if v.shape == Shape::Grid { (span(&|i| i % cols), span(&|i| i / cols)) } else { (1, 1) };
+    let outputs = v.results.first().into_iter().chain(v.slots[n..].iter().filter_map(|l| l.first())).map(native).collect();
+    let (category, book_id) = source.cloned().unwrap_or_else(|| (String::new(), -1));
+    NativeRecipeTransfer { category, book_id, width, height, inputs, outputs }
+}
+/// The transfers of the recipes on the recipe page shown, to ask the open screen about each frame.
+pub(super) fn transfers() -> Vec<(usize, NativeRecipeTransfer)> {
+    let guard = shown();
+    let Some(s) = guard.as_ref() else { return Vec::new() };
+    let end = s.drawn.shown.end.min(s.page.views.len());
+    (s.drawn.shown.start.min(end)..end).map(|i| (i, transfer_of(&s.page.views[i], s.sources.get(i)))).collect()
+}
+/// Recipe `i`'s transfer, for its "+".
+pub(super) fn transfer(i: usize) -> Option<NativeRecipeTransfer> {
+    let guard = shown();
+    let s = guard.as_ref()?;
+    Some(transfer_of(s.page.views.get(i)?, s.sources.get(i)))
+}
+pub(super) fn set_answers(answers: Vec<(usize, NativeTransferAnswer)>) {
+    if let Some(s) = shown().as_mut() {
+        s.answers = answers;
+    }
+}
+
+/// JEI's `RecipeTransferButtonController.updateStateForTransferError` for an answer: whether the "+" can be pressed,
+/// and a COSMETIC error's highlight over it (AE2's crafting terminal: orange with items missing, blue with
+/// craftable ones only).
+fn button_state(a: &NativeTransferAnswer, inputs: usize) -> (bool, Option<u32>) {
+    match a.handler {
+        Some(NativeTransferHandler::Ae2Crafting) => {
+            let none = !a.missing.is_empty() && a.missing.len() >= inputs;
+            let highlight = if none || a.too_large {
+                None
+            } else if !a.missing.is_empty() {
+                Some(0x80FFA500)
+            } else if !a.craftable.is_empty() {
+                Some(0x804545FF)
+            } else {
+                None
+            };
+            (!none && !a.too_large, highlight)
+        }
+        Some(NativeTransferHandler::Ae2Encoding) => (true, None),
+        _ => (!a.too_large && a.missing.is_empty(), None),
+    }
+}
+/// The "+"'s tooltip: JEI's "Move Items" and the error's lines (`RecipeTransferUtil.addTransferRecipeTooltip`), or
+/// AE2's handlers' (`ae2.rei_jei_integration.*`).
+fn button_tooltip(a: &NativeTransferAnswer, active: bool, small_grid: bool) -> Vec<Text> {
+    const RED: u32 = 0xFF5555;
+    const BLUE: u32 = 0x5555FF;
+    let mut lines = Vec::new();
+    match a.handler {
+        Some(NativeTransferHandler::Ae2Encoding) => {
+            lines.push(Text::literal("Encode pattern"));
+            if !a.craftable.is_empty() {
+                lines.push(Text::colored("Highlighted elements are already craftable", BLUE));
+            }
+        }
+        Some(NativeTransferHandler::Ae2Crafting) => {
+            lines.push(Text::literal("Move items"));
+            if a.too_large {
+                lines.push(Text::colored("Recipe too large", RED));
+            } else if !active {
+                lines.push(Text::colored("Found no compatible items", RED));
+            } else {
+                if !a.missing.is_empty() {
+                    lines.push(Text::colored("Missing items will be skipped", RED));
+                }
+                if !a.craftable.is_empty() {
+                    lines.push(Text::colored("CTRL + click to craft unavailable items", BLUE));
+                }
+            }
+        }
+        _ => {
+            lines.push(Text::literal("Move Items"));
+            if a.too_large {
+                let text = if small_grid {
+                    "Recipe is too large to craft in the 2x2 player crafting grid."
+                } else {
+                    "Recipe is too large."
+                };
+                lines.push(Text::colored(text, RED));
+            } else if !a.missing.is_empty() {
+                lines.push(Text::colored("Missing Items", RED));
+            }
+        }
+    }
+    lines
+}
+/// JEI's 13 px recipe buttons (`RecipeLayout.RECIPE_BUTTON_SIZE`), 2 px right of the recipe (`RECIPE_BUTTON_SPACING`),
+/// the "+" level with its bottom.
+const RECIPE_BUTTON: f32 = 13.0;
+const RECIPE_BUTTON_SPACING: f32 = 2.0;
+const BUTTON_DISABLED: Nine = Nine("button_disabled_v2", 20.0, [6.0; 4]);
 pub(super) fn is_open() -> bool {
     shown().is_some()
 }
@@ -304,7 +423,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     let (sw, sh) = (batch.width.floor(), batch.height.floor());
     let page = &s.page;
     let laid: Vec<_> = page.views.iter().map(|v| places(v.shape, v.width, v.height, v.slots.len())).collect();
-    let widest = laid.iter().map(|p| p.size[0]).fold(0.0, f32::max);
+    let widest = laid.iter().map(|p| p.size[0] + RECIPE_BUTTON_SPACING + RECIPE_BUTTON).fold(0.0, f32::max);
     let sizes = Sizes {
         screen: [sw, sh],
         panel_left: panel.map(|a| a[0]),
@@ -392,9 +511,10 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     // The recipes of this page, spread over the room, each centred.
     let tops = spread(&heights[first..end], w.recipes[1], w.recipes[3]);
     let mut hover: Option<Stack> = None;
+    let mut button_tip: Option<Vec<Text>> = None;
     for (i, top) in (first..end).zip(tops) {
         let (v, p, n) = (&page.views[i], &laid[i], &notes[i]);
-        let x = (w.recipes[0] + (room - p.size[0]) / 2.0).floor();
+        let x = (w.recipes[0] + (room - p.size[0] - RECIPE_BUTTON_SPACING - RECIPE_BUTTON) / 2.0).floor();
         // JEI's `recipe_arrow` and `icons/flame`, else the furnace's (its arrow's tail cut to JEI's 22 px).
         let arrow = [x + p.arrow[0], top + p.arrow[1], ARROW[0], ARROW[1]];
         if !sprite(game, batch, "recipe_arrow", arrow) {
@@ -429,16 +549,56 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
             let y = top + p.size[1] + 2.0 + l as f32 * LINE;
             game.native_text(batch, line, [w.recipes[0] + ((room - game.native_text_width(line)) / 2.0).floor(), y], NOTE, false);
         }
+        // JEI's "+" right of the recipe (`RecipeLayoutWithButtons`), hidden when the open screen takes no such
+        // recipe; over it, the slots it lacks in red (`recipeTransferMissingSlotHighlight`) and AE2's craftable
+        // ones in blue.
+        if let Some(a) = s.answers.iter().find(|(k, _)| *k == i).map(|(_, a)| a)
+            && a.handler.is_some()
+        {
+            let r = [x + p.size[0] + RECIPE_BUTTON_SPACING, top + p.size[1] - RECIPE_BUTTON, RECIPE_BUTTON, RECIPE_BUTTON];
+            let inputs = jei_core::window::inputs(v.shape, v.width, v.height).min(v.slots.len());
+            let (active, highlight) = button_state(a, v.slots[..inputs].iter().filter(|l| !l.is_empty()).count());
+            let over = inside(cursor, r);
+            let face = if !active { &BUTTON_DISABLED } else if over { &BUTTON_HOVER } else { &BUTTON };
+            if !nine(game, batch, face, r) {
+                let name = if !active { "button_disabled_v2" } else if over { "button_highlight_v2" } else { "button_enabled_v2" };
+                game.native_gui_nine_slice(batch, &format!("horizon/jei/{name}"), r, 0xFFFFFFFF);
+            }
+            if let Some(color) = highlight {
+                game.native_fill(batch, r, color);
+            }
+            let icon = [r[0] + 3.0, r[1] + 3.0, 7.0, 7.0];
+            if !sprite(game, batch, "icons/recipe_transfer", icon) {
+                centred(game, batch, "+", r, if active { 0xFFFFFF } else { 0xA0A0A0 });
+            }
+            horizon_client::widgets::record(&format!("Move Items {i}"), r, active);
+            if active {
+                hits.push((r, Hit::Do(Action::Transfer(i))));
+            }
+            if over {
+                for (k, at) in p.slots.iter().enumerate().take(inputs) {
+                    let red = a.missing.contains(&k);
+                    if red || a.craftable.contains(&k) {
+                        let color = if red { 0x66FF0000 } else { 0x400000FF };
+                        game.native_fill(batch, [x + at[0] + 1.0, top + at[1] + 1.0, 16.0, 16.0], color);
+                    }
+                }
+                let small = a.handler == Some(NativeTransferHandler::CraftingGrid);
+                button_tip = Some(button_tooltip(a, active, small));
+            }
+        }
     }
     if hover.is_none()
         && let Some((_, Hit::Stack(st))) = hits.iter().find(|(r, h)| matches!(h, Hit::Stack(_)) && inside(cursor, *r))
     {
         hover = Some(st.clone());
     }
-    if let Some(st) = hover {
+    if let Some(lines) = button_tip {
+        game.native_gui_tooltip(batch, &lines, cursor);
+    } else if let Some(st) = hover {
         game.native_gui_tooltip(batch, &[Text::literal(name(&st.item))], cursor);
     }
-    s.drawn = Drawn { window: w, pages: starts.len(), hits, panel };
+    s.drawn = Drawn { window: w, pages: starts.len(), hits, panel, shown: first..end };
 }
 
 /// `text` cut with vanilla's ellipsis to `room`.
@@ -538,5 +698,13 @@ pub(super) fn probe() -> serde_json::Value {
         "pages": s.drawn.pages,
         "area": s.drawn.window.area,
         "list": s.drawn.panel,
+        "shown": [s.drawn.shown.start, s.drawn.shown.end],
+        "transfers": s.answers.iter().map(|(i, a)| serde_json::json!({
+            "recipe": i,
+            "handler": a.handler.map(|h| format!("{h:?}")),
+            "too_large": a.too_large,
+            "missing": a.missing,
+            "craftable": a.craftable,
+        })).collect::<Vec<_>>(),
     })
 }

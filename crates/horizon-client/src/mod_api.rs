@@ -492,6 +492,53 @@ pub enum NativeRecipeLookup {
     Key(String),
 }
 
+/// A recipe a recipe viewer moves into the open screen (`native_recipe_transfer`, JEI's "+" beside a recipe).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NativeRecipeTransfer {
+    /// The viewer's category (`minecraft:crafting`, `minecraft:smelting`, a mod's `ae2:inscriber`).
+    pub category: String,
+    /// A crafting recipe's `book_id` (`NativeRecipe::book_id`), -1 for others.
+    pub book_id: i32,
+    /// The cells a crafting recipe takes (a shapeless one its square), checked against the open grid.
+    pub width: u32,
+    pub height: u32,
+    /// The input slots in the viewer's order (a crafting recipe's 3x3 grid, row by row), each slot's
+    /// alternatives with the count it takes; an empty slot is empty.
+    pub inputs: Vec<Vec<NativeStack>>,
+    /// The outputs, the result first.
+    pub outputs: Vec<NativeStack>,
+}
+
+/// The open screen's handler for a recipe viewer's transfer (JEI's `IRecipeTransferHandler`s).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NativeTransferHandler {
+    /// A crafting grid: the inventory's 2x2, a crafting table's, a mod menu type's (JEI's basic handler).
+    CraftingGrid,
+    /// A furnace's, blast furnace's or smoker's input, for its own recipe type.
+    Furnace,
+    /// AE2's Pattern Encoding Terminal: the recipe is encoded, no items needed.
+    Ae2Encoding,
+    /// AE2's crafting terminal: the ingredients come from the ME network.
+    Ae2Crafting,
+}
+
+/// What a recipe viewer's transfer would do or did (`native_recipe_transfer`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NativeTransferAnswer {
+    /// None: the open screen takes no such recipe (JEI hides its button).
+    pub handler: Option<NativeTransferHandler>,
+    /// The recipe is larger than the open grid (a 3x3 one in the inventory's 2x2).
+    pub too_large: bool,
+    /// Input slots (indices into `inputs`) nothing on hand fills; for AE2's crafting terminal, nor its network
+    /// can craft.
+    pub missing: Vec<usize>,
+    /// AE2: input slots its network can craft (the crafting terminal: those it lacks; the encoding terminal: any).
+    pub craftable: Vec<usize>,
+    /// Whether the transfer was made.
+    pub done: bool,
+}
+
 /// A category of a mod's own recipes for recipe viewers
 /// (`native_recipe_categories`): what a fishing spot, a sieve or a machine
 /// turns its inputs into, each output with its odds.

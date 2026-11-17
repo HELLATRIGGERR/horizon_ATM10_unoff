@@ -5,4 +5,5 @@ fn ftbchunks_screen_mouse_dragged_pre(
     canceled: &mut bool,
 ) {
     crate::game::ftbchunks_map::dragged(game, screen, canceled);
+    crate::game::ftbchunks_largemap::dragged(game, screen, canceled);
 }

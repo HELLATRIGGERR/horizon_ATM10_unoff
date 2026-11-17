@@ -67,6 +67,8 @@ pub struct Reply {
     pub failed: bool,
     /// The sender's protection bypass, toggled.
     pub bypass: Option<bool>,
+    /// `admin open_claim_gui_as <team>`: the sender's client opens the claim screen as that team (`open_claim_gui`).
+    pub open_gui: Option<Uuid>,
 }
 
 impl Reply {
@@ -74,13 +76,13 @@ impl Reply {
         Reply { lines: vec![line], ..Reply::default() }
     }
     fn err(line: Msg) -> Self {
-        Reply { lines: vec![line], failed: true, bypass: None }
+        Reply { lines: vec![line], failed: true, bypass: None, open_gui: None }
     }
 }
 
 /// The usages to register, with the level each needs.
 pub fn usages() -> Vec<(String, u8)> {
-    let fixed: [(&str, u8); 18] = [
+    let fixed: [(&str, u8); 19] = [
         ("claim [radius_in_blocks:integer]", 0),
         ("unclaim [radius_in_blocks:integer]", 0),
         ("load [radius_in_blocks:integer]", 0),
@@ -96,6 +98,7 @@ pub fn usages() -> Vec<(String, u8)> {
         ("admin unclaim_dimension [dimension:word]", 2),
         ("admin unload_everything", 2),
         ("admin claim_as <team:word> [radius_in_blocks:integer]", 2),
+        ("admin open_claim_gui_as <team:word>", 2),
         ("admin claim_as <team:word> <radius_in_blocks:integer> <anchor:block_pos> [dimension:word]", 2),
         ("admin unclaim_as <team:word> [radius_in_blocks:integer]", 2),
         ("admin unclaim_as <team:word> <radius_in_blocks:integer> <anchor:block_pos> [dimension:word]", 2),
@@ -291,7 +294,7 @@ fn run(chunks: &mut Chunks, teams: &dyn Teams, ctx: &Ctx, w: &[&str], now: i64) 
             } else {
                 Msg::tr("ftbchunks.command.bypass_protection_disabled", "Claims stop you again", vec![])
             };
-            Ok(Reply { lines: vec![line], failed: false, bypass: Some(on) })
+            Ok(Reply { lines: vec![line], failed: false, bypass: Some(on), open_gui: None })
         }
         ["admin", "unclaim_everything"] | ["admin", "unload_everything"] => {
             let all: Vec<(ChunkPos, Uuid)> = chunks.claims.iter().map(|(p, c)| (p.clone(), c.team)).collect();
@@ -312,6 +315,10 @@ fn run(chunks: &mut Chunks, teams: &dyn Teams, ctx: &Ctx, w: &[&str], now: i64) 
             let all: Vec<(ChunkPos, Uuid)> = chunks.claims.iter().filter(|(p, _)| p.0 == dimension).map(|(p, c)| (p.clone(), c.team)).collect();
             let n = all.into_iter().filter(|(pos, team)| chunks.unclaim(*team, pos, true).is_ok()).count();
             Ok(Reply::ok(counted(Op::Unclaim, n)))
+        }
+        ["admin", "open_claim_gui_as", team] => {
+            let team = team_arg(teams, ctx, team)?;
+            Ok(Reply { open_gui: Some(team.id), ..Reply::default() })
         }
         ["admin", verb @ ("claim_as" | "unclaim_as"), team, rest @ ..] => {
             let team = team_arg(teams, ctx, team)?;

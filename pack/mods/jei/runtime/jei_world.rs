@@ -13,14 +13,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub(super) const ID: &str = "jei";
 const TITLE: &str = "Just Enough Items 19.70.0.464";
 const DESCRIPTION: &str = "JEI's item list beside every container screen and the inventory, with JEI's search \
-(@mod, #tag, $tooltip, %tab, ^colour, &id, -word, a | b, \"a phrase\"). Ctrl+O hides it; cheat mode gives items. R shows an item's recipes, U its uses, Backspace goes back.";
+(@mod, #tag, $tooltip, %tab, ^colour, &id, -word, a | b, \"a phrase\"). Ctrl+O hides it; cheat mode gives items. R shows an item's recipes, U its uses, Backspace goes back, A bookmarks an item (the list on the left).";
 /// JEI's keys: name, label (JEI's en_us), default. Ctrl+O is the overlay's (`toggleOverlay`).
-pub(super) const KEYS: [[&str; 3]; 4] = [
+pub(super) const KEYS: [[&str; 3]; 5] = [
     ["key.jei.toggleOverlay", "Show/Hide Item List (with Ctrl)", "key.keyboard.o"],
     ["key.jei.showRecipe", "Show Recipe", "key.keyboard.r"],
     ["key.jei.showUses", "Show Uses", "key.keyboard.u"],
     ["key.jei.recipeBack", "Show Previous Recipe Page", "key.keyboard.backspace"],
+    ["key.jei.bookmark", "Add/Remove Bookmark", "key.keyboard.a"],
 ];
+/// The bookmark key's place in `KEYS`.
+const BOOKMARK: usize = 4;
 /// GLFW's Control bit in the screen hooks' modifiers.
 const CONTROL: u32 = 2;
 
@@ -99,12 +102,20 @@ pub(super) fn frame(game: &mut Game<'_>) {
     let in_world = guard.is_some();
     drop(guard);
     super::jei_recipes::frame(game, in_world);
+    super::jei_bookmarks::frame(game, in_world);
 }
 
 /// The player's search or click on the panel.
 pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
     let loaded = state().is_some();
     if !loaded || super::jei_recipes::event(game, event) {
+        return;
+    }
+    // JEI's bookmark key over an ingredient (the list's or a slot of the screen's): bookmarked, or taken off again.
+    if let NativePanelEvent::Key { key, stack } = event
+        && *key == game.native_mod_key(ID, KEYS[BOOKMARK][0], KEYS[BOOKMARK][2])
+    {
+        super::jei_bookmarks::toggle(&stack.item);
         return;
     }
     let mut guard = state();
@@ -148,6 +159,14 @@ pub(super) fn key_pressed(game: &Game<'_>, key: &str, repeat: bool, modifiers: u
     } else if modifiers & CONTROL == 0 && key == bound(3) && !game.mod_browser_typing() && super::jei_recipes::is_open() {
         super::jei_recipes::ask_back();
         *canceled = true;
+    } else if modifiers & CONTROL == 0 && key == bound(BOOKMARK) && !game.mod_browser_typing() {
+        // The bookmark key over a bookmark takes it off, over a stack of the recipe window it adds it (the list's
+        // and the screen's slots reach `event` as the panel's `Key`).
+        let at = game.native_cursor();
+        if let Some(item) = super::jei_bookmarks::slot_at(at).or_else(|| super::jei_window::stack_at(at)) {
+            super::jei_bookmarks::toggle(&item);
+            *canceled = true;
+        }
     } else if !game.mod_browser_typing() && super::jei_window::is_open() {
         let mode = super::jei_recipes::key_mode(game, key);
         if super::jei_window::key(key, mode, game.native_cursor()) {
@@ -163,9 +182,19 @@ pub(super) fn recipe_lookup(
     lookup: &super::native_hooks::NativeRecipeLookup,
     handled: &mut bool,
 ) {
-    if state().is_some() {
-        super::jei_recipes::lookup(game, stack, lookup, handled);
+    if state().is_none() {
+        return;
     }
+    // Another mod's screen asks what the bookmark key over a stack does: it bookmarks it.
+    if let super::native_hooks::NativeRecipeLookup::Key(key) = lookup
+        && !*handled
+        && *key == game.native_mod_key(ID, KEYS[BOOKMARK][0], KEYS[BOOKMARK][2])
+    {
+        super::jei_bookmarks::toggle(&stack.item);
+        *handled = true;
+        return;
+    }
+    super::jei_recipes::lookup(game, stack, lookup, handled);
 }
 
 /// The mod's row in Options > Mods, with its key.
@@ -267,6 +296,7 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
             "first": s.shown.iter().take(12).map(|&n| s.list.id(n)).collect::<Vec<_>>(),
             "modes": Prefix::ALL.map(|p| modes.get(p).name()),
             "recipes": super::jei_recipes::probe(),
+            "bookmarks": super::jei_bookmarks::probe(),
         }),
     };
     game.native_chat(&format!("JEI {json}"));

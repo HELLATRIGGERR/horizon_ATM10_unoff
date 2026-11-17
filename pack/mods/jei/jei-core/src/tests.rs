@@ -246,11 +246,11 @@ mod window {
         // Crafting: the 3x3 grid, the arrow, the result beside it.
         let p = places(Shape::Grid, 3, 3, 9);
         assert_eq!(p.slots.len(), 10);
-        assert_eq!((p.slots[4], p.slots[9]), ([18.0, 18.0], [90.0, 18.0]));
-        assert_eq!(p.size, [108.0, 54.0]);
+        assert_eq!((p.slots[4], p.slots[9], p.arrow), ([18.0, 18.0], [94.0, 18.0], [61.0, 19.0]));
+        assert_eq!(p.size, [116.0, 54.0], "JEI's 116 x 54, the output slot's rim included");
         // Smelting: the input over the flame, 82 px wide.
         let p = places(Shape::Cooking, 1, 1, 1);
-        assert_eq!((p.slots[0], p.slots[1], p.flame), ([0.0, 0.0], [54.0, 18.0], Some([1.0, 20.0])));
+        assert_eq!((p.slots[0], p.slots[1], p.flame, p.arrow), ([0.0, 0.0], [60.0, 18.0], Some([1.0, 20.0]), [26.0, 17.0]));
         assert_eq!(p.size, [82.0, 54.0]);
         // A machine with one input and six outputs: the extra five after the result, four to a row.
         let p = places(Shape::Single, 1, 1, 6);
@@ -266,5 +266,67 @@ mod window {
         assert_eq!(pages(&[200.0, 20.0], 135.0), [0, 1], "a tall recipe has a page of its own");
         assert_eq!(spread(&[54.0, 54.0], 100.0, 135.0), [106.0, 173.0]);
         assert!(inside([10.0, 10.0], [0.0, 0.0, 18.0, 18.0]) && !inside([18.0, 0.0], [0.0, 0.0, 18.0, 18.0]));
+    }
+}
+
+mod bookmarks {
+    use crate::bookmarks::{Bookmarks, NAV, grid, pages};
+
+    const IRON: &str = r#"{"bookmarkType":"INGREDIENT","type":"item_stack","ingredient":{"id":"minecraft:iron_ingot","count":1}}"#;
+
+    #[test]
+    fn the_bookmark_key_adds_at_the_end_and_takes_off_again() {
+        let mut b = Bookmarks::default();
+        assert!(b.toggle("minecraft:iron_ingot"));
+        assert!(b.toggle("ae2:inscriber"));
+        assert_eq!(b.items(), ["minecraft:iron_ingot", "ae2:inscriber"]);
+        assert!(!b.toggle("minecraft:iron_ingot"), "a second press removes it");
+        assert_eq!(b.items(), ["ae2:inscriber"]);
+        assert_eq!(b.remove(0).as_deref(), Some("ae2:inscriber"));
+        assert!(b.is_empty() && b.remove(0).is_none());
+    }
+
+    #[test]
+    fn the_json_file_is_jeis_array_with_its_version_first() {
+        let mut b = Bookmarks::default();
+        b.toggle("minecraft:iron_ingot");
+        assert_eq!(Bookmarks::default().write_json(), "[\n{\"version\":2}\n]");
+        assert_eq!(b.write_json(), format!("[\n{{\"version\":2}},\n{IRON}\n]"));
+        assert_eq!(Bookmarks::parse_json(&b.write_json()), b);
+    }
+
+    #[test]
+    fn jeis_file_reads_back_and_what_it_does_not_draw_stays() {
+        let recipe = r#"{"bookmarkType":"RECIPE","recipeType":"minecraft:crafting","recipe":{"registryName":"minecraft:stick","a":[1,2,{"b":"]"}]}}"#;
+        let sword = r#"{"bookmarkType":"INGREDIENT","type":"item_stack","ingredient":{"id":"minecraft:diamond_sword","count":1,"components":{"minecraft:damage":5}}}"#;
+        let fluid = r#"{"bookmarkType":"INGREDIENT","type":"fluid_stack","ingredient":{"id":"minecraft:water"}}"#;
+        let text = format!("[\n  {{\"version\":2}},\n  {IRON},\n{recipe},\n{sword},\n{fluid}\n]\n");
+        let mut b = Bookmarks::parse_json(&text);
+        assert_eq!(b.items(), ["minecraft:iron_ingot", "minecraft:diamond_sword"], "fluids and recipes are not drawn");
+        assert_eq!(b.write_json(), format!("[\n{{\"version\":2}},\n{IRON},\n{recipe},\n{sword},\n{fluid}\n]"));
+        b.remove(0);
+        assert_eq!(b.write_json(), format!("[\n{{\"version\":2}},\n{recipe},\n{sword},\n{fluid}\n]"));
+        assert!(Bookmarks::parse_json("not json").is_empty() && Bookmarks::parse_json("").is_empty());
+    }
+
+    #[test]
+    fn the_legacy_ini_imports_its_item_stacks_once() {
+        // `T:` lines were SNBT (`ItemStack.save`), earlier ones JSON; `I:` and `R:` need JEI's registries.
+        let ini = "T:{id:\"minecraft:stick\",count:1}\nI:minecraft:water\n\nT:{\"id\":\"minecraft:iron_ingot\",\"count\":1}\nR:{recipe}\n";
+        let imported = Bookmarks::import_ini(ini);
+        assert_eq!(imported.items(), ["minecraft:stick", "minecraft:iron_ingot"]);
+        let mut b = Bookmarks::parse_json(&format!("[{{\"version\":2}},{IRON}]"));
+        b.merge(imported);
+        assert_eq!(b.items(), ["minecraft:iron_ingot", "minecraft:stick"], "the json's first, no twice");
+    }
+
+    #[test]
+    fn the_list_fills_its_area_up_to_nine_by_sixteen() {
+        let slots = grid([4.0, 10.0, 100.0, NAV + 40.0]);
+        assert_eq!(slots.len(), 5 * 2);
+        assert_eq!((slots[0], slots[6]), ([4.0, 30.0], [22.0, 48.0]));
+        assert_eq!(grid([0.0, 0.0, 400.0, 1000.0]).len(), 9 * 16);
+        assert!(grid([0.0, 0.0, 10.0, 100.0]).is_empty());
+        assert_eq!((pages(0, 10), pages(10, 10), pages(11, 10), pages(5, 0)), (1, 1, 2, 5));
     }
 }

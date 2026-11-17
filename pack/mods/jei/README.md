@@ -22,8 +22,11 @@ the category title and the "x/y" page row with their arrows, as many recipes as 
 
 JEI is MIT (mezz, https://github.com/mezz/JustEnoughItems). Its behaviour is reimplemented here from what the mod
 does; no file of it is in the repository. The panel's buttons and search box use JEI's artwork the engine carries
-(`crates/horizon-client-render/src/jei_recipes`, MIT); further textures and the lang come from the player's jar at
-run time through the carry.
+(`crates/horizon-client-render/src/jei_recipes`, MIT; byte for byte JEI's own). The recipe window's sprites come
+from the player's jar through the carry: `bun run pack/scripts/jei.ts carry` runs `horizon-port-pack carry <work> jei`,
+which writes JEI's `assets/jei` into `<work>/mods/jei/carry`, a content mod whose GUI textures the game names
+`jei:gui/sprites/...`; `tools/atm10/play-atm10.ts` loads it as every carry, and the world tests take it from
+`JEI_CARRY`. Without it the window draws fills in the same sizes. Nothing of it is committed.
 
 | File | What it is |
 |---|---|

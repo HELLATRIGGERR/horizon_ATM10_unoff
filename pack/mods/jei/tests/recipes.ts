@@ -6,10 +6,14 @@
  * the catalyst its recipes; U on the Charger shows its recipes with their notes.
  * What the client holds comes from the bundle's probe (`/jeiclient`, `JEI_DEV=1`); screenshots in the run folder. */
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { WorldFixture, until } from '../../../../ae2/tests/world/harness';
 
-const fixture = new WorldFixture('jei-recipes', 'server-thread');
+// JEI's sprites come with the carry of the player's jar (JEI_CARRY, `jei.ts carry`); without it the fallback draws.
+const carry = process.env.JEI_CARRY;
+const devMods = carry && existsSync(join(carry, 'horizon-mod.toml')) ? [carry] : [];
+const fixture = new WorldFixture('jei-recipes', 'server-thread', { devMods });
 type Window = { page: number; pages: number; area: number[]; list: number[] | null };
 type Recipes = { focus: string; mode: string; category: string; title: string; tabs: string[]; catalysts: string[]; recipes: number; history: number; categories: number; window: Window | null };
 type Probe = { loaded: boolean; query: string; recipes: Recipes | null };

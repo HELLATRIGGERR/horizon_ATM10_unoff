@@ -11,7 +11,7 @@ use super::{
 use ftbchunks_core::{
     Actor, ChunkPos, Chunks, Claim, Config, Kind, MemberData, Protection, TeamData, TeamView, Teams, Uuid, chunk_of,
     commands::{self, Ctx, Msg},
-    net, waypoints,
+    net, regions, waypoints,
 };
 use ftbteams_core::{
     Manager,
@@ -367,6 +367,7 @@ pub(super) fn saved() {
 /// `native_server_tick`: the team events (claims follow a player into a party and back), then the tickets.
 pub(super) fn tick(game: &mut Game<'_>) {
     remember_alive(game);
+    claim_notices(game);
     let events = ftbteams_world::take_events();
     let Some(changes) = with(|server, view| {
         let chunks = &mut server.chunks;
@@ -512,6 +513,11 @@ fn publish(game: &mut Game<'_>) {
 
 /// `native_net_from_client`: `request_chunk_change` from the claim screen, answered by `chunk_change_response`.
 pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data: &[u8]) {
+    match channel {
+        regions::FORCE_LOAD_EXPIRY => return force_load_expiry(game, player, data),
+        regions::TELEPORT_FROM_MAP => return teleport_from_map(game, player, data),
+        _ => {}
+    }
     if channel != net::CHUNK_CHANGE {
         return;
     }
@@ -542,6 +548,85 @@ pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data
         log::debug!("[ftbchunks] {} to {player:032x}: {e}", net::CHANGE_RESPONSE);
     }
     tick(game);
+}
+
+/// `update_force_load_expiry` (the claim screen's wheel): from a member of the claim's team, in its dimension.
+fn force_load_expiry(game: &mut Game<'_>, player: u128, data: &[u8]) {
+    let Ok(m) = serde_json::from_slice::<regions::ForceLoadExpiry>(data) else {
+        log::warn!("[ftbchunks] a bad {} message from {player:032x}", regions::FORCE_LOAD_EXPIRY);
+        return;
+    };
+    let Some(sender) = game.native_server_players().into_iter().find(|p| p.uuid == player) else { return };
+    if sender.dimension != m.dim {
+        return;
+    }
+    let changed = with(|server, view| {
+        let pos = (m.dim.clone(), m.x, m.z);
+        let changed = server.chunks.set_force_load_expiry(view, player, &pos, m.relative_ms, now_ms());
+        if changed {
+            server.resync_in = 0;
+            server.publish = true;
+        }
+        changed
+    });
+    if changed == Some(true) {
+        tick(game);
+    }
+}
+
+/// `teleport_from_map` (T on the large map): an operator goes to that column, on its surface when the client had no
+/// height there (FTB Chunks' fallback height where the server has none either).
+fn teleport_from_map(game: &mut Game<'_>, player: u128, data: &[u8]) {
+    let Ok(m) = serde_json::from_slice::<regions::TeleportFromMap>(data) else { return };
+    let Some(sender) = game.native_server_players().into_iter().find(|p| p.uuid == player) else { return };
+    if sender.permission < 2 {
+        return;
+    }
+    let [x, y, z] = m.pos;
+    let y = if m.unknown_y {
+        game.native_surface_heights(&m.dim, &[(x, z)], super::NativeHeightmap::MotionBlockingNoLeaves)
+            .ok()
+            .and_then(|h| h.first().copied().flatten())
+            .unwrap_or(regions::TELEPORT_FALLBACK_Y)
+    } else {
+        y + 1
+    };
+    let to = [f64::from(x) + 0.5, f64::from(y) + 0.1, f64::from(z) + 0.5];
+    if !game.native_teleport_player(player, &m.dim, to, sender.yaw, sender.pitch) {
+        log::debug!("[ftbchunks] teleport_from_map: {player:032x} to {to:?} in {} refused", m.dim);
+    }
+}
+
+/// FTB Chunks' notice over the hotbar when a player walks into another chunk whose claim is another team's (its
+/// name in its colour) or none (the wilderness line, dark green): real players only, as FTB Chunks' section event.
+fn claim_notices(game: &mut Game<'_>) {
+    let players = game.native_server_players();
+    let lines = with(|server, view| {
+        NOTICE.with(|n| {
+            let mut n = n.borrow_mut();
+            n.retain(|id, _| players.iter().any(|p| p.uuid == *id));
+            let mut out = Vec::new();
+            for p in players.iter().filter(|p| !p.fake) {
+                let pos = chunk_of(&p.dimension, p.position[0].floor() as i32, p.position[2].floor() as i32);
+                let owner = server.chunks.claims.get(&pos).map(|c| c.team);
+                if let Some((was_at, was)) = n.insert(p.uuid, (pos.clone(), owner))
+                    && was_at != pos
+                    && was != owner
+                {
+                    let line = match owner.and_then(|t| view.team(t)) {
+                        Some(t) => Text::literal(t.name.clone()).with_color(t.color),
+                        None => Text::translate_with_fallback("ftbchunks.wilderness", "Unclaimed land", &[]).with_color(0x00AA00),
+                    };
+                    out.push((p.uuid, line));
+                }
+            }
+            out
+        })
+    })
+    .unwrap_or_default();
+    for (uuid, line) in lines {
+        game.native_action_bar(uuid, line);
+    }
 }
 
 // ---- Protection ---------------------------------------------------------------------------------------------
@@ -776,6 +861,12 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
     .flatten();
     let Some(reply) = reply else { return };
     *ran = true;
+    if let Some(team) = reply.open_gui {
+        let open = regions::OpenClaimGui { team: net::uuid_text(team) };
+        if let Err(e) = game.native_net_send_to_player(player.uuid, regions::OPEN_CLAIM_GUI, &json_bytes(&open)) {
+            log::debug!("[ftbchunks] {}: {e}", regions::OPEN_CLAIM_GUI);
+        }
+    }
     if let Some(on) = reply.bypass {
         ftbteams_world::with_manager(|m| {
             if let Some(t) = m.teams.get_mut(&player.uuid) {
@@ -817,6 +908,8 @@ thread_local! {
     static ALIVE: RefCell<BTreeMap<Uuid, (String, [i32; 3])>> = const { RefCell::new(BTreeMap::new()) };
     /// Where each player last died (`player_died`), told to their client when they respawn.
     static DEATHS: RefCell<BTreeMap<Uuid, (String, [i32; 3])>> = const { RefCell::new(BTreeMap::new()) };
+    /// Each player's chunk and its claim's team as of the last tick (the notice on walking into another's claim).
+    static NOTICE: RefCell<BTreeMap<Uuid, (ChunkPos, Option<Uuid>)>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// Each tick: the block, and dimension, of every living player.

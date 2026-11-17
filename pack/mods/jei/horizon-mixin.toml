@@ -1,9 +1,10 @@
 # JEI (Just Enough Items) 19.70.0.464 as a native mod of this fork (horizon-mixins bundle): the ingredient list
 # beside container screens and its search (slice 1), the recipe screen with R, U and Backspace (slice 2), drawn as
-# JEI's own centred window over the screen (slice 2b). JEI is
+# JEI's own centred window over the screen (slice 2b), the bookmarks (slice 3: A, the list left of the screen, the
+# per-world bookmarks.json). JEI is
 # MIT (mezz); its behaviour is reimplemented in the crate `jei-core` from what the mod does; no file of it is
-# copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the rest comes from
-# the player's jar at run time. See README.md.
+# copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the recipe window's sprites come
+# from the player's jar at run time through the carry (`jei:gui/sprites/...`). See README.md.
 # It hooks Horizon's named hook points only; it pins no revision.
 [mod]
 id = "jei"
@@ -31,6 +32,12 @@ id = "window"
 file = "crates/horizon-client/src/game.rs"
 name = "jei_window"
 source = "runtime/jei_window.rs"
+
+[[module]]
+id = "bookmarks"
+file = "crates/horizon-client/src/game.rs"
+name = "jei_bookmarks"
+source = "runtime/jei_bookmarks.rs"
 
 [[injection]]
 id = "mods"
@@ -64,6 +71,17 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "mod_id", ty = "&str", value = "mod_id" },
   { name = "button", ty = "usize", value = "button" },
+]
+
+[[injection]]
+id = "world-lifecycle"
+hook = "world_lifecycle"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/world_lifecycle.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
 ]
 
 [[injection]]

@@ -3,5 +3,8 @@ fn ftbchunks_world_lifecycle(
     game: &mut crate::game::Game<'_>,
     phase: crate::game::native_lifecycle::WorldPhase,
 ) {
+    if matches!(phase, crate::game::native_lifecycle::WorldPhase::WorldCloseFinal) {
+        crate::game::ftbchunks_largemap::world_closed();
+    }
     crate::game::ftbchunks_world::lifecycle(game, phase);
 }

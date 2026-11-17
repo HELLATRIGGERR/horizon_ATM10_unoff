@@ -246,11 +246,11 @@ mod window {
         // Crafting: the 3x3 grid, the arrow, the result beside it.
         let p = places(Shape::Grid, 3, 3, 9);
         assert_eq!(p.slots.len(), 10);
-        assert_eq!((p.slots[4], p.slots[9]), ([18.0, 18.0], [90.0, 18.0]));
-        assert_eq!(p.size, [108.0, 54.0]);
+        assert_eq!((p.slots[4], p.slots[9], p.arrow), ([18.0, 18.0], [94.0, 18.0], [61.0, 19.0]));
+        assert_eq!(p.size, [116.0, 54.0], "JEI's 116 x 54, the output slot's rim included");
         // Smelting: the input over the flame, 82 px wide.
         let p = places(Shape::Cooking, 1, 1, 1);
-        assert_eq!((p.slots[0], p.slots[1], p.flame), ([0.0, 0.0], [54.0, 18.0], Some([1.0, 20.0])));
+        assert_eq!((p.slots[0], p.slots[1], p.flame, p.arrow), ([0.0, 0.0], [60.0, 18.0], Some([1.0, 20.0]), [26.0, 17.0]));
         assert_eq!(p.size, [82.0, 54.0]);
         // A machine with one input and six outputs: the extra five after the result, four to a row.
         let p = places(Shape::Single, 1, 1, 6);

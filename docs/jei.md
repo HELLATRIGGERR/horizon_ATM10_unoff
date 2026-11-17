@@ -1,7 +1,22 @@
 # JEI (Just Enough Items) port plan
 
-> **Handoff (2026-11-13, slice 2b done, tests green): the recipe screen is JEI's own centred window. Next: slice 3**
-> (bookmarks, A, the left panel, `bookmarks.ini`; JEI's config screen; see Slices).
+> **Handoff (2026-11-17): JEI's own textures done, tests green. Next: slice 3** (bookmarks, A, the left panel,
+> `bookmarks.ini`; JEI's config screen; see Slices).
+> **Textures as built:** `bun run pack/scripts/jei.ts carry` (`jei.sh carry`) runs `horizon-port-pack carry <work> jei`
+> on the player's jar: JEI's `assets/jei` (105 files) become the content mod `<work>/mods/jei/carry`, loaded as every
+> carry (`--dev-mod`; `tools/atm10/play-atm10.ts` takes each `<work>/mods/<id>/carry`, the world tests `JEI_CARRY`).
+> Its GUI textures are the sprites `jei:gui/sprites/...`. `jei_window.rs` draws the window with them: `gui_background_v2`,
+> `tab_selected`/`tab_unselected`, `catalyst_tab_v2` with one `recipe_catalyst_slot_background_v2` round the
+> catalysts (`RecipeCatalysts.draw`: inset 5), `button_*_v2`, `icons/arrow_*_v2`, `slot`, `output_slot` (26 px round
+> the crafting and furnace results), `recipe_arrow`, `icons/flame`, and JEI's `pageNavigationBackground` (0x30000000,
+> `colors.json`) behind the title and page rows (`RecipesGui.render`). The engine reads `.mcmeta` only for vanilla's
+> sprites, so the nine-slice borders (from the jar's `.mcmeta`) are constants there and the bundle tiles them itself
+> (`nine`). Without the carry everything falls back to the fills and the game's sprites. Recipes sit as JEI's
+> categories (javap): crafting 116 x 54 with the arrow at 61 and the result at 95; the furnace 82 x 54, arrow (26, 17),
+> result (61, 19). The item list's nav bar and search box were JEI's already: the engine's copies in
+> `crates/horizon-client-render/src/jei_recipes` are byte for byte the jar's. Not animated: the furnace's arrow and
+> flame are drawn full. No engine change. Shots: `jei-work/logs/shots-recipes/` (`r-iron-ingot`, `smelting`,
+> `u-inscriber`), `shots-item-list/`.
 > **Slice 2b as built:** `jei-core/src/window.rs` places JEI's `RecipesGui` from JEI's own sizes (javap of
 > `RecipesGui`, `RecipeGuiTab`, `RecipeCatalysts`, `RecipeGuiSizing`): 198 px wide at least (wider for a wider
 > recipe), height `clamp(screen - 58, 175, 350)`, centred and moved left of the item list (`native_panel_area`); 24 px
@@ -28,10 +43,7 @@
 > `jei-core`'s 13 unit tests pass (`jei.sh units`). Screenshots in `jei-work/logs/shots-recipes/` were checked by eye: crafting
 > (`r-iron-ingot`), smelting (`smelting`, XP and time in the corners), the Inscriber (`u-inscriber`,
 > `inscriber-recipes`, notes no longer clip), multi-page (`u-iron-ingot`, `-page-2`), the Charger (`u-charger`).
-> **Left:** JEI's own textures (`gui_background_v2`, `tab_*`, `catalyst_tab_v2`, `recipe_arrow`, `slot`, `output_slot`,
-> `shapeless_icon_v2`): no JEI carry exists yet, so the window is drawn with fills in vanilla's container colours and
-> the game's sprites (`container/slot`, the furnace's arrow and flame); once a carry brings `jei:gui/sprites/...`,
-> draw them with `native_sprite`/`native_gui_nine_slice` where `raised`/`slot` fill now. No Mekanism screenshot: the
+> **Left:** JEI's own textures are done (below, 2026-11-17). No Mekanism screenshot: the
 > JEI world test loads AE2's content only (no Mekanism items or categories). No tab-page arrows (the title's arrows
 > walk the categories, and the tab page follows); no shapeless icon, no "+"/bookmark buttons (slices 3, 4); no mod
 > name line in the tooltips. The screen under the window still draws: it shows faintly through the dim, and its own
@@ -82,8 +94,9 @@ ATM10 ships JEI 19.70.0.464 (`jei-1.21.1-neoforge-19.70.0.464.jar`, MIT). This p
 behaviour, as a native bundle `pack/mods/jei` (bundle id `jei`); it is not Horizon's own Recipes viewer. Behaviour is
 read from the player's jar (targeted `javap`, file listings), written anew in the crate `jei-core`; no JEI file is in
 the repository. JEI's artwork that the engine already carries under MIT (`crates/horizon-client-render/src/jei_recipes`,
-drawn by `NativePanelStyle::Viewer`) covers slice 1; the rest of JEI's textures and its lang come from the player's
-jar at run time through the carry (generated content), never committed.
+drawn by `NativePanelStyle::Viewer`) covers slice 1; the recipe window's come from the player's jar at run time through
+the carry (`pack/scripts/jei.ts carry`: `horizon-port-pack carry <work> jei`, a content mod `jei` with JEI's
+`assets/jei`), never committed.
 
 ## What ATM10 players use
 
@@ -134,5 +147,6 @@ jar at run time through the carry (generated content), never committed.
   filled tanks) and no item colours (`^` needs the texture's colours). The crate takes them once the game gives them.
 - No mod display names: `@` and the sort use a table of ATM10's mods in the crate, with the namespace for the rest.
 - Fluids and chemicals are not ingredients the panel can list (JEI lists fluids after items).
-- JEI's own textures for slices 2-3 (recipe background, bookmarks, tabs) need the carry to bring `assets/jei/textures`
-  from the player's jar into the generated content, as Mekanism's are.
+- The recipe window's textures arrive with the carry of the player's jar (`jei.ts carry`); a game without it draws
+  the window with fills. The nine-slice borders are read from JEI's `.mcmeta` once (javap and the jar's files) and
+  kept in `jei_window.rs`: the engine reads `.mcmeta` only for vanilla's GUI sprites.

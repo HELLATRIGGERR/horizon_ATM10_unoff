@@ -3,10 +3,14 @@
  * keeping nothing leaves the box to edit); Ctrl+O hides and shows it; cheat mode gives a clicked item in creative.
  * What the client holds comes from the bundle's probe (`/jeiclient`, `JEI_DEV=1`); screenshots in the run folder. */
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { WorldFixture, until } from '../../../../ae2/tests/world/harness';
 
-const fixture = new WorldFixture('jei-item-list', 'server-thread');
+// JEI's sprites come with the carry of the player's jar (JEI_CARRY, `jei.ts carry`); without it the fallback draws.
+const carry = process.env.JEI_CARRY;
+const devMods = carry && existsSync(join(carry, 'horizon-mod.toml')) ? [carry] : [];
+const fixture = new WorldFixture('jei-item-list', 'server-thread', { devMods });
 type Probe = { loaded: boolean; hidden: boolean; cheat: boolean; query: string; total: number; shown: number; first: string[] };
 
 async function jei(args = ''): Promise<Probe> {

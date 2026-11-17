@@ -1,17 +1,25 @@
 // Builds and tests the pack's JEI port in a checkout of this fork: the bundle's crate's unit tests, the game staged
 // with that bundle only (horizon-mixins apply), its build and the world tests.
-// Usage: bun run pack/scripts/jei.ts <step>... (steps: units, stage, build, world; all: every one)
+// Usage: bun run pack/scripts/jei.ts <step>... (steps: carry, units, stage, build, world; all: every one)
 //
 // Paths default to this machine's layout beside the checkout (`<base>` = the checkout's parent folder) and can be
 // set in the environment:
+//   JEI_WORK         horizon-port-pack's work folder  <base>/ports/atm10
+//   JEI_CARRY        the carry of the player's JEI     <work>/mods/jei/carry
+//   HORIZON_PORT_PACK  the horizon-port-pack binary    <base>/.build/target-portpack/release/horizon-port-pack
 //   JEI_STAGE        the staged, modded source        <base>/stage-jei
 //   JEI_TARGET       the staged game's target dir     <base>/.build/target-jei-game
 //   JEI_TOOL_TARGET  target dir of the bundle's crate <base>/.build/target-jei
 //   HORIZON_MIXINS   the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
 //   JEI_JOBS         cargo jobs                       2
-// `world` passes AE2_RESOURCES and AE2_CONTENT_DIR to the harness, and JEI_DEV=1 (the bundle's `/jeiclient` probe).
+// `carry` needs the work folder imported with JEI's jar (`horizon-port-pack import`, `inventory`), as the full pack's
+// is: it writes JEI's `assets/jei` (its GUI sprites and colours) as a content mod, the way every carry reaches the
+// game (`tools/atm10/play-atm10.ts` loads each `<work>/mods/<id>/carry`). `world` passes AE2_RESOURCES and
+// AE2_CONTENT_DIR to the harness, JEI_CARRY (the tests load it when it is there; without it the window draws its
+// fallback) and JEI_DEV=1 (the bundle's `/jeiclient` probe).
 //
-// No file of JEI is in the bundle: it is reimplemented from what the mod does (MIT); see its README.
+// No file of JEI is in the bundle: it is reimplemented from what the mod does (MIT); see its README. Its textures
+// come from the player's jar through the carry and are never committed.
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
@@ -27,6 +35,9 @@ const stage = env('JEI_STAGE', join(base, 'stage-jei'));
 const target = env('JEI_TARGET', join(base, '.build/target-jei-game'));
 const toolTarget = env('JEI_TOOL_TARGET', join(base, '.build/target-jei'));
 const mixins = env('HORIZON_MIXINS', join(base, `.build/target-mixins/debug/horizon-mixins${exe}`));
+const work = env('JEI_WORK', join(base, 'ports/atm10'));
+const carry = env('JEI_CARRY', join(work, 'mods/jei/carry'));
+const portPack = env('HORIZON_PORT_PACK', join(base, `.build/target-portpack/release/horizon-port-pack${exe}`));
 const jobs = process.env.JEI_JOBS ?? '2';
 const cargoEnv = { ...process.env, CARGO_PROFILE_DEV_DEBUG: '0', CARGO_PROFILE_TEST_DEBUG: '0', CARGO_PROFILE_FAST_DEBUG: '0' };
 
@@ -67,6 +78,10 @@ function syncStage(from: string, to: string): number {
 }
 
 const steps: Record<string, () => Promise<void>> = {
+  async carry() {
+    const prepared = (path: string) => existsSync(join(root, path)) ? join(root, path) : join(base, 'horizon', path);
+    await run([portPack, 'carry', work, '--resources', process.env.AE2_RESOURCES ?? prepared('.local/resources/26.3'), 'jei']);
+  },
   async units() {
     try {
       for (const name of BUNDLES) {
@@ -95,7 +110,7 @@ const steps: Record<string, () => Promise<void>> = {
     if (!existsSync(binary)) throw new Error(`No staged build at ${binary}; run the build step.`);
     const prepared = (path: string) => existsSync(join(root, path)) ? join(root, path) : join(base, 'horizon', path);
     const harness = {
-      ...process.env, AE2_TEST_BINARY: binary, JEI_DEV: '1',
+      ...process.env, AE2_TEST_BINARY: binary, JEI_DEV: '1', JEI_CARRY: carry,
       AE2_RESOURCES: process.env.AE2_RESOURCES ?? prepared('.local/resources/26.3'),
       AE2_CONTENT_DIR: process.env.AE2_CONTENT_DIR ?? prepared('content/ae2'),
       AE2_TEST_STARTUP_MS: process.env.AE2_TEST_STARTUP_MS ?? '600000',

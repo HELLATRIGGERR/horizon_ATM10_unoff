@@ -15,8 +15,11 @@ pub const BUTTON: f32 = 13.0;
 pub const TAB: f32 = 24.0;
 /// A note's line under a recipe.
 pub const LINE: f32 = 10.0;
-/// The arrow between a recipe's inputs and its result (vanilla's furnace progress arrow).
-pub const ARROW: [f32; 2] = [24.0, 16.0];
+/// The arrow between a recipe's inputs and its result (JEI's `recipe_arrow`).
+pub const ARROW: [f32; 2] = [22.0, 16.0];
+/// JEI's `output_slot`, drawn this much around a vanilla category's result slot.
+pub const OUTPUT: f32 = 26.0;
+pub const OUTPUT_RIM: f32 = (OUTPUT - SLOT) / 2.0;
 /// `borderPadding`, `navBarPadding`, `minGuiWidth`.
 const BORDER: f32 = 6.0;
 const NAV_PAD: f32 = 2.0;
@@ -150,7 +153,9 @@ pub fn inputs(shape: Shape, width: u32, height: u32) -> usize {
 const EXTRA_ROW: usize = 4;
 
 /// Where a recipe of `shape` with `slots` slots before its result puts them (JEI's vanilla categories: the
-/// crafting grid, the furnace's input over its flame with the arrow and the result beside it, 82 px wide).
+/// crafting grid, the arrow at x 61 and the result at 95, 116 px wide; the furnace's input over its flame, the arrow
+/// at (26, 17), the result at (61, 19), 82 px wide; JEI's slot positions are the items', a slot's box is 1 px out).
+/// Those results are JEI's output slots ([`OUTPUT`]); a mod's machine keeps plain slots.
 pub fn places(shape: Shape, width: u32, height: u32, slots: usize) -> Places {
     let n = inputs(shape, width, height).min(slots);
     let (w, h) = (width.max(1) as usize, height.max(1) as usize);
@@ -159,18 +164,31 @@ pub fn places(shape: Shape, width: u32, height: u32, slots: usize) -> Places {
         Shape::Cooking => ([SLOT, 3.0 * SLOT], vec![[0.0, 0.0]; n]),
         _ => ([n.max(1) as f32 * SLOT, SLOT], (0..n).map(|i| [i as f32 * SLOT, 0.0]).collect()),
     };
-    let arrow = [block[0] + 6.0, ((block[1] - ARROW[1]) / 2.0).floor()];
-    let result = [arrow[0] + ARROW[0] + 6.0, ((block[1] - SLOT) / 2.0).floor()];
+    let arrow = match shape {
+        Shape::Cooking => [26.0, 17.0],
+        Shape::Grid => [block[0] + 7.0, ((block[1] - ARROW[1]) / 2.0).floor()],
+        _ => [block[0] + 6.0, ((block[1] - ARROW[1]) / 2.0).floor()],
+    };
+    let result = match shape {
+        Shape::Cooking => [60.0, 18.0],
+        Shape::Grid => [arrow[0] + ARROW[0] + 11.0, ((block[1] - SLOT) / 2.0).floor()],
+        _ => [arrow[0] + ARROW[0] + 8.0, ((block[1] - SLOT) / 2.0).floor()],
+    };
     let extra = slots - n;
     for k in 0..extra {
         at.push([result[0] + SLOT + 4.0 + (k % EXTRA_ROW) as f32 * SLOT, result[1] + (k / EXTRA_ROW) as f32 * SLOT]);
     }
     at.push(result);
-    let right = at.iter().map(|p| p[0] + SLOT).fold(0.0, f32::max);
+    let rim = if output_slot(shape) { OUTPUT_RIM } else { 0.0 };
+    let right = at.iter().map(|p| p[0] + SLOT).fold(result[0] + SLOT + rim, f32::max);
     let bottom = at.iter().map(|p| p[1] + SLOT).fold(block[1], f32::max);
     let flame = (shape == Shape::Cooking).then_some([1.0, 20.0]);
-    let right = if shape == Shape::Cooking { right.max(82.0) } else { right };
     Places { size: [right, bottom], slots: at, arrow, flame }
+}
+
+/// Whether `shape`'s result is JEI's output slot (its vanilla crafting and furnace categories).
+pub fn output_slot(shape: Shape) -> bool {
+    matches!(shape, Shape::Grid | Shape::Cooking)
 }
 
 /// Recipes `heights` tall cut into pages `room` high: each page's first recipe. A recipe taller than the room has

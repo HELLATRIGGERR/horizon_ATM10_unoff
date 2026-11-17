@@ -2,8 +2,8 @@
 # beside container screens and its search (slice 1), the recipe screen with R, U and Backspace (slice 2), drawn as
 # JEI's own centred window over the screen (slice 2b). JEI is
 # MIT (mezz); its behaviour is reimplemented in the crate `jei-core` from what the mod does; no file of it is
-# copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the rest comes from
-# the player's jar at run time. See README.md.
+# copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the recipe window's sprites come
+# from the player's jar at run time through the carry (`jei:gui/sprites/...`). See README.md.
 # It hooks Horizon's named hook points only; it pins no revision.
 [mod]
 id = "jei"

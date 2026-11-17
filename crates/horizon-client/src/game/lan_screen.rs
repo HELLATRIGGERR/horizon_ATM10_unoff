@@ -1941,8 +1941,12 @@ mod tests {
     #[test]
     fn the_port_box_explains_itself_on_hover() {
         let mut port = EditBox::new(158.0, 100.0, 40.0, 20.0);
+        // In no language, so a test that set the process-wide one doesn't translate the keys.
         let tip = |port: &EditBox| {
-            WorldOptions::port_tooltip(port, (159.0, 101.0), false).map(|t| t.plain())
+            horizon_client::lang::scoped(horizon_client::lang::Language::default(), || {
+                WorldOptions::port_tooltip(port, (159.0, 101.0), false).map(|t| t.plain())
+            })
+            .0
         };
         assert_eq!(tip(&port).as_deref(), Some("lanServer.port"));
         // Empty takes the suggestion, a number in range is fine.

@@ -1,7 +1,53 @@
 # JEI (Just Enough Items) port plan
 
-> **Handoff (2026-11-17): JEI's own textures done, tests green. Next: slice 3** (bookmarks, A, the left panel,
-> `bookmarks.ini`; JEI's config screen; see Slices).
+> **Handoff (2026-11-17): slice 3 (bookmarks) done; tests green. Next is slice 4.**
+> **Slice 4 (next): "+" recipe transfer** with JEI's dry-run state: the button is grey (or red, as JEI's
+> `RecipeTransferButton`/`IRecipeTransferError` do) when the transfer can't be done, red slots for what is missing.
+> Into the vanilla grids first (`native_transfer_recipe`/`native_place_recipe`), then AE2's Pattern Encoding Terminal
+> (encode the recipe into the pattern) and its crafting terminal (pull the ingredients from the network), by calling
+> our AE2 code directly (`crates/horizon-client/src/ae2*`, `ae2/addons`, `docs/ae2-crates.md`). `jei_window.rs` lays the
+> recipes out, so the button goes beside each recipe there (check JEI's `RecipeLayout`/`RecipeTransferButton` by
+> `javap` for the place) and `Action` gets a transfer variant that `jei_recipes::frame` does.
+> **Then: JEI's config screen** (`config/jei/jei-client.ini` keys; key rebinding already goes through `mods` keys).
+> **Known gaps:**
+> - The bookmark panel shows only where the item list's `native_panel_area` exists (the inventory and creative
+>   screens), not on AE2's terminals; its page arrows and wheel work only there too.
+> - The recipe window covers bookmarks: while it is open the panel is dimmed with the screen (JEI keeps its overlays
+>   bright), and RECIPE bookmarks (JEI's "+" on a recipe) are not drawn or made; they are kept in the file as read.
+> - Bookmarks are kept per world only for the world the window's own integrated server has open: the world folder
+>   reaches the bundle from the server thread's `world_lifecycle` hook (`jei_bookmarks::lifecycle`; the window's `Game`
+>   has no `world_root`). Joined to a LAN or remote server they live in memory only (JEI keys those by server address).
+> - Other ingredient types (fluids, chemicals) and an item's components are kept in the file but the panel draws and
+>   adds plain item stacks. A reaches the bookmarks three ways: the panel's `Key` event (the list's and the screen's
+>   slots), `screen_key_pressed_pre` (over a bookmark or a stack of the recipe window: `jei_bookmarks::slot_at`,
+>   `jei_window::stack_at`) and `recipe_lookup` (other mods' screens).
+> **Slice 3 as built:** `jei-core/src/bookmarks.rs` (18 unit tests in all, `jei.sh units`): `Bookmarks::parse_json/
+> write_json` in JEI 19.70's `bookmarks.json` (`BookmarkJsonConfig`: an array, `{"version":2}` then one element each,
+> `{"bookmarkType":"INGREDIENT","type":"item_stack","ingredient":{"id":"minecraft:iron_ingot","count":1}}`; elements it
+> doesn't draw are kept as read), `import_ini`/`merge` for the legacy `bookmarks.ini` (`T:` + the stack as SNBT or JSON),
+> `toggle` (A adds at the end, `addBookmarksToFrontEnabled = false` in ATM10, or removes), `grid(area)` (18 px slots
+> under a 20 px page row, at most 9 columns x 16 rows, ATM10's `bookmarkList`). `runtime/jei_bookmarks.rs` (a
+> `[[module]]` in `horizon-mixin.toml`): per world `config/jei/world/local/<world folder>/bookmarks.json`, written
+> beside as `.tmp` and renamed over it on each change (as `JsonArrayFileHelper.write`); a `bookmarks.ini` there is
+> imported once, merged, saved at once and renamed `bookmarks.ini.bak`; a file that isn't JEI's array goes aside as
+> `bookmarks.json.bak`. The panel is drawn from `screen_render_post` left of the container screen, `[8, list.y,
+> screen.x - 16, list.h]` from `native_panel_area(jei)`, as JEI's `bookmark_list_background_v2` and
+> `bookmark_list_slot_background_v2` (nine-slice from the carry; fills without it), page row with JEI's arrows and "n/m"
+> (13 px arrows on the 0x30000000 band), the items with `native_item_stack`, the hovered one's tooltip. Left click
+> opens its recipes, right click its uses (through `jei_window::ask_open`), the wheel turns the pages, the last page
+> wraps to the first. A (`key.jei.bookmark`, "Add/Remove Bookmark", `key.keyboard.a`) over a list or screen slot (panel
+> `Key` event), over a stack of the recipe window or over a bookmark toggles it. Item names for the labels come from
+> `native_recipes()` each time its tables change (the recipe window used to take them only on its first open).
+> Hooks added: `world_lifecycle` (`hooks/world_lifecycle.rs`); probe `bookmarks` in `/jeiclient` (items, page, pages,
+> area, slots, file). **Tests:** `jei/bookmarks` 6 checks (A adds iron and gold ingot, both on the left; the file in
+> JEI's format; click = recipes, right click = uses; A over a window stack adds, A over a bookmark takes it off; restart
+> keeps them and imports and backs up a `bookmarks.ini`; A over a bookmark removes it and the file follows),
+> `jei/recipes` 9 and `jei/item-list` 11 pass; `jei.sh units` 18 pass. Screenshots in `jei-work/logs/shots-bookmarks/`
+> checked by eye: the panel with JEI's grey background and slot sprites, page arrows with "1/1", the ingots and a stick,
+> the tooltip, the window over it. Test traps: with nothing typed the whole list sits under y=150, so a click there
+> opens an item's recipes (the test clicks above the list, y=6, then); after a restart the labels need the item names.
+> **Engine:** no change in this slice.
+
 > **Textures as built:** `bun run pack/scripts/jei.ts carry` (`jei.sh carry`) runs `horizon-port-pack carry <work> jei`
 > on the player's jar: JEI's `assets/jei` (105 files) become the content mod `<work>/mods/jei/carry`, loaded as every
 > carry (`--dev-mod`; `tools/atm10/play-atm10.ts` takes each `<work>/mods/<id>/carry`, the world tests `JEI_CARRY`).
@@ -126,8 +172,9 @@ the carry (`pack/scripts/jei.ts carry`: `horizon-port-pack carry <work> jei`, a 
    when `native_recipe_categories_version()` moves), page arrows, Backspace history. Helpers `native_panel_recipes`.
    **2b. The centred window** (done): the same screen as JEI's own window, drawn by the bundle over the screen (see
    the handoff); the engine's panel keeps the item list.
-3. **Bookmarks and config**: A adds/removes a bookmark, a left panel (`bookmarks.ini` in JEI's format under
-   `config/jei/`); JEI's config screen (`config/jei/jei-client.ini` keys); key rebinding through `mods` keys.
+3. **Bookmarks** (done): A adds/removes, a left panel, per-world `bookmarks.json` in JEI's format (see the handoff).
+   **Config** (next after 4): JEI's config screen (`config/jei/jei-client.ini` keys); key rebinding is through `mods`
+   keys already.
 4. **Recipe transfer**: "+" with the dry-run state (red missing slots, grey "not possible"); vanilla grids through
    `native_transfer_recipe`/`native_place_recipe`; AE2's Pattern Encoding Terminal (encode) and crafting terminal
    (pull from the network) by calling our AE2 code directly (`crates/horizon-client/src/ae2*`, `ae2/addons`,

@@ -69,7 +69,7 @@ pub(super) fn take_actions() -> Vec<Action> {
 pub(super) fn set_names(names: Arc<HashMap<String, String>>) {
     *NAMES.lock().unwrap_or_else(|e| e.into_inner()) = Some(names);
 }
-fn name(item: &str) -> String {
+pub(super) fn name(item: &str) -> String {
     let names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
     names.as_ref().and_then(|n| n.get(item).cloned()).unwrap_or_else(|| item.to_owned())
 }
@@ -139,16 +139,19 @@ const TAB_FACE: u32 = 0xFFA8A8A8;
 const NOTE: u32 = 0x808080;
 const TITLE: u32 = 0xFFFFFF;
 /// JEI's `pageNavigationBackground` (`assets/jei/gui/colors.json`): the band between a row's arrows.
-const BAND: u32 = 0x30000000;
+pub(super) const BAND: u32 = 0x30000000;
 
 /// A nine-slice sprite of JEI's: its name under `jei:gui/sprites/`, its `gui.scaling` size and its border (left,
 /// right, top, bottom), as its `.png.mcmeta` in JEI's jar says.
-struct Nine(&'static str, f32, [f32; 4]);
+pub(super) struct Nine(&'static str, f32, [f32; 4]);
 const BACKGROUND: Nine = Nine("gui_background_v2", 64.0, [16.0; 4]);
 const CATALYST_TAB: Nine = Nine("catalyst_tab_v2", 28.0, [8.0, 9.0, 8.0, 8.0]);
 const CATALYST_SLOTS: Nine = Nine("recipe_catalyst_slot_background_v2", 18.0, [4.0; 4]);
 const BUTTON: Nine = Nine("button_enabled_v2", 20.0, [6.0; 4]);
 const BUTTON_HOVER: Nine = Nine("button_highlight_v2", 20.0, [6.0; 4]);
+/// The bookmark list's background and the slots' (`bookmark_list_background_v2`, `bookmark_list_slot_background_v2`).
+pub(super) const BOOKMARK_LIST: Nine = Nine("bookmark_list_background_v2", 64.0, [16.0; 4]);
+pub(super) const BOOKMARK_SLOTS: Nine = Nine("bookmark_list_slot_background_v2", 18.0, [4.0; 4]);
 
 fn jei_sprite(name: &str) -> String {
     format!("jei:gui/sprites/{name}")
@@ -165,7 +168,7 @@ fn sprite(game: &Game<'_>, batch: &mut HudBatch, name: &str, dst: Rect) -> bool 
 }
 /// `GuiGraphics.blitNineSlicedSprite` over `r` with a JEI sprite: the corners as they are, the edges and the centre
 /// tiled, each border at most half of `r`. A pack's larger copy is read in its own pixels. False without it.
-fn nine(game: &Game<'_>, batch: &mut HudBatch, n: &Nine, [x, y, w, h]: Rect) -> bool {
+pub(super) fn nine(game: &Game<'_>, batch: &mut HudBatch, n: &Nine, [x, y, w, h]: Rect) -> bool {
     let Nine(name, size, [l, rt, t, b]) = *n;
     let name = jei_sprite(name);
     let Some(own) = game.native_sprite_size(&name) else { return false };
@@ -208,7 +211,7 @@ fn raised(game: &Game<'_>, batch: &mut HudBatch, [x, y, w, h]: Rect, face: u32) 
     game.native_fill(batch, [x + w - 3.0, y + 2.0, 2.0, h - 3.0], 0xFF555555);
 }
 /// A sunken box: a slot.
-fn inset(game: &Game<'_>, batch: &mut HudBatch, [x, y, w, h]: Rect, face: u32) {
+pub(super) fn inset(game: &Game<'_>, batch: &mut HudBatch, [x, y, w, h]: Rect, face: u32) {
     game.native_fill(batch, [x, y, w, h], face);
     game.native_fill(batch, [x, y, w - 1.0, 1.0], 0xFF373737);
     game.native_fill(batch, [x, y, 1.0, h - 1.0], 0xFF373737);
@@ -227,7 +230,7 @@ fn slot(game: &Game<'_>, batch: &mut HudBatch, x: f32, y: f32, output: bool) {
     }
 }
 /// A stack in an 18 px slot at `(x, y)`, with its count; the white hover over it.
-fn stack(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y: f32, cursor: [f32; 2]) {
+pub(super) fn stack(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y: f32, cursor: [f32; 2]) {
     if game.native_item_stack(batch, &item_stack(s), [x + 1.0, y + 1.0], 16.0) && s.count > 1 {
         let count = s.count.to_string();
         let w = game.native_text_width(&count);
@@ -239,7 +242,7 @@ fn stack(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y: f32, curso
 }
 /// JEI's small arrow button (13 px, `RecipesGui.smallButtonWidth`): its `button_*_v2` and `arrow_*_v2`, else the
 /// engine's copy of them.
-fn button(game: &Game<'_>, batch: &mut HudBatch, r: Rect, next: bool, cursor: [f32; 2]) {
+pub(super) fn button(game: &Game<'_>, batch: &mut HudBatch, r: Rect, next: bool, cursor: [f32; 2]) {
     let hover = inside(cursor, r);
     if !nine(game, batch, if hover { &BUTTON_HOVER } else { &BUTTON }, r) {
         let face = if hover { "horizon/jei/button_highlight_v2" } else { "horizon/jei/button_enabled_v2" };
@@ -251,7 +254,7 @@ fn button(game: &Game<'_>, batch: &mut HudBatch, r: Rect, next: bool, cursor: [f
         game.native_sprite(batch, &format!("horizon/jei/icons/{icon}"), [0.0, 0.0, 9.0, 7.0], at);
     }
 }
-fn centred(game: &Game<'_>, batch: &mut HudBatch, text: &str, r: Rect, rgb: u32) {
+pub(super) fn centred(game: &Game<'_>, batch: &mut HudBatch, text: &str, r: Rect, rgb: u32) {
     let w = game.native_text_width(text);
     game.native_text(batch, text, [(r[0] + (r[2] - w) / 2.0).floor(), r[1] + ((r[3] - 8.0) / 2.0).floor()], rgb, true);
 }
@@ -452,9 +455,21 @@ fn fit(game: &Game<'_>, text: &str, room: f32) -> String {
 
 // ---- Input -----------------------------------------------------------------------------------------------------
 
-/// Whether `at` is the item list's, whose clicks go through.
+/// Whether `at` is the item list's or the bookmark list's (where the window leaves it), whose clicks go through.
 fn on_list(d: &Drawn, at: [f32; 2]) -> bool {
-    d.panel.is_some_and(|p| inside(at, p))
+    d.panel.is_some_and(|p| inside(at, p)) || (super::jei_bookmarks::over(at) && !on_window(d, at))
+}
+
+/// A stack of the window asks for its recipes or uses, as a click on it does (the bookmark list's clicks).
+pub(super) fn ask_open(item: &str, mode: Mode) {
+    ask(Action::Open(item.to_owned(), mode));
+}
+/// The item of the window's stack at `at`, if it is over one (the bookmark key adds it).
+pub(super) fn stack_at(at: [f32; 2]) -> Option<String> {
+    match hit_at(&shown().as_ref()?.drawn, at)? {
+        Hit::Stack(st) => Some(st.item.clone()),
+        Hit::Do(_) => None,
+    }
 }
 
 /// `native_screen_mouse_button_pressed_pre`: a click on a stack shows its recipes (left) or uses (right), on a tab,

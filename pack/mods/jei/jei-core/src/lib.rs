@@ -3,6 +3,7 @@
 //! `IngredientFilterConfig`, `IngredientSorter`). JEI is MIT (mezz); no file of it is here. The runtime module
 //! (`runtime/jei_world.rs`) feeds the game's items in and shows what [`List::filter`] keeps.
 
+pub mod bookmarks;
 pub mod recipes;
 pub mod window;
 #[cfg(test)]

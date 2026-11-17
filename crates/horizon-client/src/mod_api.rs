@@ -762,6 +762,24 @@ pub struct NativeChemicalTankInfo {
     pub extractable: bool,
 }
 
+/// An item's food (`FoodProperties`, vanilla's `minecraft:food` component), as `native_food_table` and
+/// `native_food` give it: what a machine that makes something of food reads (Mekanism's Nutritional Liquifier
+/// builds its recipe from the nutrition and the remainder).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NativeFood {
+    /// The item's registry id.
+    pub item: String,
+    /// `nutrition`: the hunger points it gives back.
+    pub nutrition: u32,
+    /// `saturation`: what it adds to the saturation level.
+    pub saturation: f32,
+    /// `can_always_eat`: eaten on a full hunger bar.
+    pub can_always_eat: bool,
+    /// What eating it leaves, an item id: 1.21.1's `FoodProperties.usingConvertsTo`, the `use_remainder`
+    /// component here (a stew's bowl). None when it leaves nothing.
+    pub remainder: Option<String>,
+}
+
 /// What falls in a biome when it rains (`Biome.Precipitation`), as `native_biome_climate` reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativePrecipitation {

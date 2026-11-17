@@ -99,6 +99,10 @@ pub enum MachineKind {
     /// `mekanism:painting_machine`, `mekanism:painting` recipes
     /// (`TileEntityPaintingMachine`: an item and a pigment in, an item out; `crate::pigment`).
     PaintingMachine,
+    /// `mekanism:nutritional_liquifier`, no recipe files: a recipe made from
+    /// the food in its slot (`TileEntityNutritionalLiquifier`: a food in,
+    /// nutritional paste and what the food leaves out; `crate::liquifier`).
+    NutritionalLiquifier,
 }
 
 /// Where a machine keeps its items: Mekanism's own slot order (input,
@@ -120,7 +124,7 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::EnrichmentChamber,
         Self::Crusher,
         Self::EnergizedSmelter,
@@ -144,6 +148,7 @@ impl MachineKind {
         Self::PigmentExtractor,
         Self::PigmentMixer,
         Self::PaintingMachine,
+        Self::NutritionalLiquifier,
     ];
 
     pub fn id(self) -> &'static str {
@@ -171,6 +176,7 @@ impl MachineKind {
             Self::PigmentExtractor => "mekanism:pigment_extractor",
             Self::PigmentMixer => "mekanism:pigment_mixer",
             Self::PaintingMachine => "mekanism:painting_machine",
+            Self::NutritionalLiquifier => "mekanism:nutritional_liquifier",
         }
     }
 
@@ -205,6 +211,7 @@ impl MachineKind {
             Self::PigmentExtractor => "pigmentExtractor",
             Self::PigmentMixer => "pigmentMixer",
             Self::PaintingMachine => "paintingMachine",
+            Self::NutritionalLiquifier => "nutritionalLiquifier",
         }
     }
 
@@ -234,6 +241,8 @@ impl MachineKind {
             Self::PigmentExtractor => "mekanism:pigment_extracting",
             Self::PigmentMixer => "mekanism:pigment_mixing",
             Self::PaintingMachine => "mekanism:painting",
+            // The recipe viewer's type (`RecipeViewerRecipeType.NUTRITIONAL_LIQUIFICATION`): no recipe files.
+            Self::NutritionalLiquifier => crate::liquifier::CATEGORY,
         }
     }
 
@@ -244,7 +253,7 @@ impl MachineKind {
             Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 400,
             Self::OsmiumCompressor => 100,
             Self::AntiprotonicNucleosynthesizer => 100_000,
-            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge | Self::PigmentExtractor | Self::PigmentMixer => 200,
+            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge | Self::PigmentExtractor | Self::PigmentMixer | Self::NutritionalLiquifier => 200,
             Self::PaintingMachine => 100,
             Self::PressurizedReactionChamber => 5,
             Self::SolarNeutronActivator => 0,
@@ -257,7 +266,7 @@ impl MachineKind {
         match self {
             Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 160_000,
             Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge | Self::PigmentMixer => 80_000,
-            Self::PigmentExtractor | Self::PaintingMachine => 40_000,
+            Self::PigmentExtractor | Self::PaintingMachine | Self::NutritionalLiquifier => 40_000,
             Self::PressurizedReactionChamber => 2000,
             Self::SolarNeutronActivator => 0,
             Self::Combiner => 40_000,
@@ -317,7 +326,7 @@ impl MachineKind {
     /// The machines of slice 5 (`crate::ore`, `crate::rotary`), whose ticks
     /// are the runtime's `mek_ore_machines`.
     pub fn ore_chain(self) -> bool {
-        self.dissolves() || self.washes() || self.crystallizes() || self.rotates() || self.reacts() || self.converts_chemicals() || self.paints()
+        self.dissolves() || self.washes() || self.crystallizes() || self.rotates() || self.reacts() || self.converts_chemicals() || self.paints() || self.liquifies()
     }
 
     /// The Pressurized Reaction Chamber (`crate::reaction`).
@@ -359,6 +368,11 @@ impl MachineKind {
         self == Self::PaintingMachine
     }
 
+    /// The Nutritional Liquifier (`crate::liquifier`).
+    pub fn liquifies(self) -> bool {
+        self == Self::NutritionalLiquifier
+    }
+
     /// The upgrades it takes (`AttributeUpgradeSupport`).
     pub fn upgrades(self) -> &'static [Upgrade] {
         if self == Self::SolarNeutronActivator {
@@ -378,7 +392,7 @@ impl MachineKind {
     /// condensentrates); the separator's and the washer's fluid tanks are
     /// inputs that their ejectors leave out (`setOutputData(ITEM, CHEMICAL)`).
     pub fn fluids_eject(self) -> bool {
-        self.rotates()
+        self.rotates() || self.liquifies()
     }
 
     /// Whether its chemical config can eject (`setCanEject`): the separator's,
@@ -421,7 +435,7 @@ impl MachineKind {
     /// Whether its block shows `active` (`AttributeStateActive`): the
     /// infuser's and the separator's models have no such state.
     pub fn shows_active(self) -> bool {
-        !self.infuses() && !self.separates() && (!self.oxidizes() || self.pigments()) && (!self.infuses_chemicals() || self.pigments()) && (!self.ore_chain() || matches!(self, Self::SolarNeutronActivator | Self::PaintingMachine))
+        !self.infuses() && !self.separates() && (!self.oxidizes() || self.pigments()) && (!self.infuses_chemicals() || self.pigments()) && (!self.ore_chain() || matches!(self, Self::SolarNeutronActivator | Self::PaintingMachine | Self::NutritionalLiquifier))
     }
 
     pub fn slots(self) -> Slots {
@@ -434,6 +448,11 @@ impl MachineKind {
             // Its fluid slot, the fluid slot's output, the slurry output's drain
             // slot and energy (`TileEntityChemicalWasher.getInitialInventory`).
             return Slots { infusion: None, input: 0, output: 2, output2: Some(1), energy: 3, upgrade: 4, upgrade_out: 5, count: 6 };
+        }
+        if self.liquifies() {
+            // Its input, the food's output, the fluid slot and its output, energy
+            // (`TileEntityNutritionalLiquifier.getInitialInventory`).
+            return Slots { infusion: None, input: 0, output: 1, output2: Some(2), energy: 4, upgrade: 5, upgrade_out: 6, count: 7 };
         }
         if self.rotates() {
             // The chemical tank's drain (`input`) and fill (`infusion`) slots,
@@ -594,6 +613,10 @@ impl MachineKind {
     /// Its fluid config: the separator's and the washer's `INPUT_ONLY`, the
     /// rotary condensentrator's `OUT_EJECT` (right output, the rest input).
     pub fn default_fluids(self) -> Option<[DataType; 6]> {
+        if self.liquifies() {
+            // `setupOutputConfig(FLUID, fluidTank, RIGHT)`, ejecting.
+            return Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::None }));
+        }
         if self.rotates() {
             return Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input }));
         }

@@ -994,8 +994,8 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     // The rotary condensentrator's fluid while it condensentrates (FLUID comes
     // before CHEMICAL): `FluidUtils.emit` out of its fluid output sides.
-    if kind.rotates()
-        && !saved.mode
+    // The liquifier's paste the same way (`setOutputData(config, FLUID)`).
+    if (kind.liquifies() || (kind.rotates() && !saved.mode))
         && saved.sides.fluids_eject
         && let Some(sides) = saved.sides.fluids
     {
@@ -1745,14 +1745,14 @@ pub(super) fn chemical_handler<R>(
 /// a closed side; else its kind, its saved state and whether that side is a
 /// real one (not the null side, which reads and changes nothing).
 fn fluid_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<(MachineKind, Saved, bool)> {
-    let kind = kind_of(&entity.id).filter(|k| k.separates() || k.washes() || k.rotates() || k.reacts())?;
+    let kind = kind_of(&entity.id).filter(|k| k.separates() || k.washes() || k.rotates() || k.reacts() || k.liquifies())?;
     let saved = read(&entity.nbt, kind);
     let fluids = saved.sides.fluids?;
     match face {
         None => Some((kind, saved, false)),
         Some(f) => {
             let data = fluids[RelativeSide::from_directions(saved.facing, mek_world::mek_direction(f)).index()];
-            let open = if kind.rotates() { data != DataType::None } else { data == DataType::Input };
+            let open = if kind.rotates() || kind.liquifies() { data != DataType::None } else { data == DataType::Input };
             open.then_some((kind, saved, true))
         }
     }
@@ -1982,11 +1982,11 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
         out["used_so_far"] = saved.used_so_far.into();
         out["randomized"] = (kind.dissolves() || kind.takes_chemical_upgrades() && config.machines.randomized_consumption).into();
     }
-    if kind.washes() || kind.rotates() || kind.reacts() {
+    if kind.washes() || kind.rotates() || kind.reacts() || kind.liquifies() {
         out["fluid"] = super::mek_ore_machines::probe_fluid(nbt);
         out["mode"] = saved.mode.into();
     }
-    if (kind.infuses_chemicals() || kind.washes() || kind.rotates() || kind.reacts() || kind.converts_chemicals() || kind.paints())
+    if (kind.infuses_chemicals() || kind.washes() || kind.rotates() || kind.reacts() || kind.converts_chemicals() || kind.paints() || kind.liquifies())
         && let Some(extra) = menu::InfuserView::unpack(data)
     {
         out["energy_used"] = extra.energy_used.into();

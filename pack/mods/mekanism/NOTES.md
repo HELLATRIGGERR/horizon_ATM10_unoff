@@ -416,11 +416,28 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   which opens the menu); a content mod made before a definition came holds the carry's generated block instead
   (`minecraft:carved_pumpkin`: `interact` answers ok, no menu opens), so `mekanism.ts world` refuses to run on content
   mods that lack a file of the overlay or hold an older copy: run the content step after adding one.
-  Left: the Nutritional Liquifier. Its recipes aren't JSON (`NutritionalLiquifierIRecipe` builds one from every food
-  item's `FoodProperties` at lookup) and the mod API has no food table to read them from; it also has a fluid tank
-  with a fluid slot, a container output slot and `nutritional_paste`. Needs a food-properties accessor in the
-  native hooks (a fork change) first. The extractor's and mixer's gauge and progress positions from their own GUI
+  Left: the Nutritional Liquifier (done on `feat/mekanism-liquifier`, below). The extractor's and mixer's gauge and progress positions from their own GUI
   classes, the mixer's disabled top side, the painter's chemical sides (`setupInputConfig` assumed), comparators.
+- The Nutritional Liquifier (branch `feat/mekanism-liquifier`; `MachineKind::NutritionalLiquifier`, an `ore_chain()`
+  kind run by runtime `mek_liquifier` through `mek_ore_machines`; sizes in `mekanism_energy::liquifier`). Its recipes
+  aren't JSON: `TileEntityNutritionalLiquifier.getRecipe` builds one from the stack's `getFoodProperties(null)`, so
+  the engine got a food table, hook points API 436 (`native_food_table()`: every item with food in item registry
+  order; `native_food(stack)`: one stack's, its own `food` and `use_remainder` components over its item's;
+  `NativeFood`: item, nutrition, saturation, `can_always_eat`, remainder). A food with nutrition > 0 makes
+  `nutrition * 50` mB of `mekanism:nutritional_paste` and its remainder (1.21.1's `usingConvertsTo`) into the output
+  slot, over 100 ticks at 200 J a tick from 40 000 J (ATM10's `nutritionalLiquifier`); the 10 000 mB tank
+  (`BasicFluidTank.output`) takes paste only. Slots (`getInitialInventory`): input (26, 36), output (110, 36), fluid
+  slot (155, 25) and its output (155, 56), energy (155, 5); items `setupItemIOConfig` (the default sides), fluid
+  `setupOutputConfig(FLUID, tank, RIGHT)` ejecting, its ejector `setOutputData(config, FLUID)` (no item ejection;
+  the paste leaves by `mek_rotary::eject_fluid`). Screen (`GuiNutritionalLiquifier`): fluid gauge (133, 13), down
+  arrow (159, 44), `LARGE_RIGHT` progress (54, 40), horizontal power bar (115, 75). Recipe viewer category
+  `mekanism:nutritional_liquifier` (`RecipeViewerUtils.getLiquificationRecipes`: one recipe per food of the registry,
+  `mekanism:/liquification/<ns>_<path>`). Read from the jar's classes; not measured on the oracle. Not ported: the
+  block entity renderer (the item spinning and its particles, `RenderNutritionalLiquifier`), the honey bottle's
+  difference (26's data gives it a `use_remainder` glass bottle, 1.21.1's `HONEY_BOTTLE` food has no
+  `usingConvertsTo`, so here it leaves a bottle), comparators, sounds. World tests `nutritional-liquifier` (its
+  screen too), `recipe-viewer`; unit tests `liquifier`, `native_hooks_tests::the_food_table_reads_the_stack_over_the_item`.
+- Nutritional Liquifier, status: done and tested (built; bundle units 238 + 19 pass, the `liquifier` ones among them; engine unit `the_food_table_reads_the_stack_over_the_item` and `horizon-mod-api-gen` 19/19 pass; world tests `nutritional-liquifier`, `recipe-viewer`, `electric-machines`, `pigment-extractor`, `chemical-factories` pass; its screen looked at: input, output, fluid slot, its output, energy slot, paste gauge, down arrow, progress arrow and power bar sit where `GuiNutritionalLiquifier` has them). Left: the honey bottle's remainder difference (above), the renderer, comparators, sounds; the world test's numbers (progress 1 and 29 800 J on tick 1, 200 mB of paste on the 100th, the bucket, the ejection) are read from the classes, not measured; check them on the oracle (`mekmach3-work/oracle`, RCON 25721) if a row disagrees.
 - The lasers (branch `feat/mekanism-lasers`, on main `74c0215ef`: `mekanism_energy::laser`, runtime `mek_lasers`, the
   amplifier's redstone through the bundle's API 38 hooks, and a new pending fragment `machine_beams` in the engine:
   `native_clip_blocks` (`Level.clip` with `OUTLINE` and `Fluid.NONE`, over `Game::clip_ray_fluids`) and

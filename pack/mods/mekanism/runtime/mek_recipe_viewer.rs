@@ -226,6 +226,15 @@ const SPECS: &[Spec] = &[
         outputs: &[Item("output")],
         catalysts: Catalysts::Machine(MachineKind::PaintingMachine, None),
     },
+    // No recipe files: one recipe for each food of the item registry (`liquification`).
+    Spec {
+        id: mekanism_energy::liquifier::CATEGORY,
+        title: "Nutritional Liquifier",
+        recipe_type: mekanism_energy::liquifier::CATEGORY,
+        inputs: &[],
+        outputs: &[],
+        catalysts: Catalysts::Machine(MachineKind::NutritionalLiquifier, None),
+    },
     Spec {
         id: "mekanism:nucleosynthesizing",
         title: "Antiprotonic Nucleosynthesizer",
@@ -608,6 +617,31 @@ fn made_up(game: &Game<'_>) -> Vec<NativeRecipeCategory> {
         .collect()
 }
 
+/// `RecipeViewerUtils.getLiquificationRecipes`: for each item of the registry whose default
+/// stack is a food with nutrition (the engine's food table, hook points API 436), the recipe
+/// `TileEntityNutritionalLiquifier.getRecipe` builds: the food in, its paste and what it leaves out.
+fn liquification(game: &Game<'_>) -> Vec<NativeCategoryRecipe> {
+    use mekanism_energy::liquifier;
+    let Some(paste) = FluidKind::from_name(liquifier::PASTE) else {
+        return Vec::new();
+    };
+    let bucket = fluid_stack::filled_bucket(paste).map(|b| stack(b, 1));
+    game.native_food_table()
+        .into_iter()
+        .filter_map(|food| {
+            let r = liquifier::liquify(food.nutrition, food.remainder.as_deref())?;
+            let line = format!("{} {} mB", fluid_name(paste), r.paste);
+            let mut outputs: Vec<NativeChanceOutput> = bucket.iter().map(|b| output(b.clone(), 1.0, vec![line.clone()])).collect();
+            outputs.extend(r.remainder.as_deref().map(|rest| output(stack(rest, 1), 1.0, Vec::new())));
+            Some(NativeCategoryRecipe {
+                inputs: vec![vec![stack(&food.item, 1)]],
+                outputs,
+                notes: vec![format!("Out: {line}"), format!("{} ticks", liquifier::TICKS), format!("Recipe: {}", liquifier::recipe_id(&food.item))],
+            })
+        })
+        .collect()
+}
+
 /// `native_recipe_categories`: Mekanism's categories. A category whose machine block this world lacks is left out.
 pub(super) fn categories(game: &Game<'_>, out: &mut Vec<NativeRecipeCategory>) {
     if !exists(game, "mekanism:crusher") {
@@ -622,7 +656,9 @@ pub(super) fn categories(game: &Game<'_>, out: &mut Vec<NativeRecipeCategory>) {
         let Some(icon) = catalysts.first().cloned() else {
             continue;
         };
-        let recipes: Vec<NativeCategoryRecipe> = if spec.recipe_type == "minecraft:smelting" {
+        let recipes: Vec<NativeCategoryRecipe> = if spec.recipe_type == mekanism_energy::liquifier::CATEGORY {
+            liquification(game)
+        } else if spec.recipe_type == "minecraft:smelting" {
             game.native_cooking_recipes()
                 .iter()
                 .filter(|c| {

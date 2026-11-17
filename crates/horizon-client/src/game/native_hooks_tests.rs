@@ -962,3 +962,32 @@ fn data_files_lists_one_kind_in_every_namespace() {
     assert!(super::data_files(&root, "nothing").is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn the_food_table_reads_the_stack_over_the_item() {
+    use horizon_client::items::ItemStack;
+    use horizon_world::nbt::Tag;
+    let stew = |stack: Option<&ItemStack>| {
+        super::food_entry(
+            "minecraft:mushroom_stew",
+            Some((6, 7.2)),
+            false,
+            Some("minecraft:bowl".into()),
+            stack,
+        )
+    };
+    let food = stew(None).expect("a stew is food");
+    assert_eq!((food.nutrition, food.remainder.as_deref()), (6, Some("minecraft:bowl")));
+    assert_eq!(super::food_entry("minecraft:stone", None, false, None, None), None);
+    let mut stack = ItemStack::new("minecraft:mushroom_stew", 1);
+    assert_eq!(stew(Some(&stack)), Some(food));
+    stack.data_mut().set_other(
+        "minecraft:food",
+        Some(Tag::compound([("nutrition", Tag::Int(2)), ("saturation", Tag::Float(1.5f32.to_bits()))])),
+    );
+    stack.data_mut().set_other("!minecraft:use_remainder", Some(Tag::compound(Vec::<(&str, Tag)>::new())));
+    let changed = stew(Some(&stack)).expect("its own food");
+    assert_eq!((changed.nutrition, changed.saturation, changed.remainder), (2, 1.5, None));
+    stack.data_mut().set_other("!minecraft:food", Some(Tag::compound(Vec::<(&str, Tag)>::new())));
+    assert_eq!(stew(Some(&stack)), None, "a removed food component is no food");
+}

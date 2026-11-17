@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer, the Pressurized Reaction Chamber, the Isotopic Centrifuge, the Solar Neutron Activator, the Pigment Extractor, the Pigment Mixer and the Painting Machine), its lasers, its chemicals, their tanks and tubes, its Mechanical
+Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer, the Pressurized Reaction Chamber, the Isotopic Centrifuge, the Solar Neutron Activator, the Pigment Extractor, the Pigment Mixer, the Painting Machine and the Nutritional Liquifier), its lasers, its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the Supercritical Phase Shifter), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
@@ -170,7 +170,12 @@ assets when `mekanism-content` is given them.
   (`mekanism:pigment_mixing`, either way round; 1000 mB inputs, a 2000 mB output) `2^speed` operations a tick at 200 J,
   with a bounding block above; the painter an item and 256 mB of a pigment into a coloured item
   (`mekanism:painting`) over 200 ticks at 100 J a tick, the pigment taken on the last tick, from a 15 000 mB tank
-  filled by chemical items or tubes. Each shows `active` and has its own screen and recipe viewer category. the Laser (Joules in through its back from cables,
+  filled by chemical items or tubes. Each shows `active` and has its own screen and recipe viewer category.
+- The Nutritional Liquifier (`mekanism_energy::liquifier`, runtime `mek_liquifier` through `mek_ore_machines`): no
+  recipe files; a food in its slot makes `nutrition * 50` mB of nutritional paste and what eating it leaves (a stew's
+  bowl) over 100 ticks at 200 J a tick (40 000 J), read from the engine's food table (`native_food`, hook points API
+  436). The 10 000 mB tank fills buckets in its fluid slot and ejects out of its right. It shows `active`, has its
+  screen and a recipe viewer category with a recipe for each food (`native_food_table`). the Laser (Joules in through its back from cables,
   cubes and Forge Energy, a store of 10 000 000 J) fires 50 000 J a tick (`machine-usage.toml` `laser`) or what it
   holds below that down a beam out of its front, `[laser] range` (64) blocks long, stopped by the first block whose
   outline it meets. A Laser Amplifier or Laser Tractor Beam there takes the Joules into its store (5 000 000 000 J; what

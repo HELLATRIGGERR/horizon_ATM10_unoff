@@ -85,6 +85,7 @@ pub mod multiblock;
 pub mod network;
 pub mod nucleo;
 pub mod pigment;
+pub mod liquifier;
 pub mod reaction;
 pub mod ore;
 pub mod pump;

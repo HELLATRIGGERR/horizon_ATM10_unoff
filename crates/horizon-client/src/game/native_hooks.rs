@@ -6,6 +6,10 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 436 adds the food table (`native_food_table`, `native_food`): each item's food (`FoodProperties`: nutrition,
+//! saturation, `can_always_eat` and what eating it leaves) for a mod's machine that makes something of food (Mekanism's
+//! Nutritional Liquifier).
+//!
 //! API 435 adds a block's chemical handler (`native_chemical_handler_tanks`, `native_chemical_handler_insert`,
 //! `native_chemical_handler_extract`; Mekanism's `IChemicalHandler`), with chemicals as registry ids, so AE2's
 //! Applied Mekanistics moves them without the engine knowing a chemical.
@@ -1086,7 +1090,7 @@ pub(crate) use horizon_client::mod_api::{
 };
 pub(crate) use horizon_client::mod_api::{
     NativeBiome, NativeChemicalTankInfo, NativeDimensionType, NativeFeInfo, NativeFluidTankInfo,
-    NativePrecipitation,
+    NativeFood, NativePrecipitation,
 };
 pub(crate) use horizon_client::mod_api::{NativeRecipeCategory, NativeRecipeLookup};
 use horizon_client::{
@@ -1153,7 +1157,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 435;
+pub(crate) const NATIVE_HOOKS_API: u32 = 436;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -12198,6 +12202,37 @@ impl Game<'_> {
         }
         &self.recipes().cooking
     }
+    /// The food table: every item with food (vanilla's `minecraft:food`
+    /// component, `FoodProperties`) in the item registry's order
+    /// (`BuiltInRegistries.ITEM`), each as its default stack has it
+    /// (`Item.getDefaultInstance().getFoodProperties(null)`): its nutrition,
+    /// saturation, `can_always_eat` and what eating it leaves. A mod builds
+    /// what it makes of food from it, as Mekanism's Nutritional Liquifier and
+    /// its recipe viewer do (`NutritionalLiquifierIRecipe`). Read only; built
+    /// on each call, so a mod keeps what it needs. Empty outside a world.
+    /// API 436.
+    pub(super) fn native_food_table(&self) -> Vec<NativeFood> {
+        if self.outside_world() {
+            return Vec::new();
+        }
+        let items = self.items();
+        items
+            .registry_order
+            .iter()
+            .filter_map(|id| items.get(id))
+            .filter_map(|info| food_of(info, None))
+            .collect()
+    }
+    /// The food of `stack` (`ItemStack.getFoodProperties(null)`): its own
+    /// `food` and `use_remainder` components over its item's, as
+    /// `native_food_table` gives an item's. None for a stack that isn't food
+    /// and outside a world. API 436.
+    pub(super) fn native_food(&self, stack: &ItemStack) -> Option<NativeFood> {
+        if self.outside_world() {
+            return None;
+        }
+        food_of(self.items().get(&stack.item)?, Some(stack))
+    }
     /// The validated category and icon of a custom recipe type, or None for
     /// an undeclared/invalid type, before resources load, or outside a world.
     /// Rebuilt when the recipe table changes. Does not unlock any recipes.
@@ -13484,6 +13519,45 @@ fn mod_screen_opens(
         return Some(false);
     }
     None
+}
+
+/// An item's food for `native_food_table` and `native_food`: the stack's own
+/// `food` and `use_remainder` components over the item's (`info`; a `!`
+/// component removes it), none when it has no food.
+fn food_of(
+    info: &horizon_client::items::ItemInfo,
+    stack: Option<&ItemStack>,
+) -> Option<NativeFood> {
+    food_entry(
+        &info.id,
+        info.food,
+        info.can_always_eat,
+        info.use_remainder.clone(),
+        stack,
+    )
+}
+
+fn food_entry(
+    item: &str,
+    food: Option<(u32, f32)>,
+    can_always_eat: bool,
+    remainder: Option<String>,
+    stack: Option<&ItemStack>,
+) -> Option<NativeFood> {
+    let ((nutrition, saturation), remainder) = match stack {
+        Some(stack) => (
+            horizon_client::item_sync::food(stack, food)?,
+            horizon_client::item_sync::use_remainder(stack, remainder),
+        ),
+        None => (food?, remainder),
+    };
+    Some(NativeFood {
+        item: item.to_owned(),
+        nutrition,
+        saturation,
+        can_always_eat,
+        remainder,
+    })
 }
 
 /// `native_data_files` over `root`: each namespace folder of `root/data`

@@ -833,6 +833,14 @@
     {
       "name": "panel_grid",
       "target": "horizon_client::game::native_panel::Game<'_>::native_panel_grid"
+    },
+    {
+      "name": "food_table",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_food_table"
+    },
+    {
+      "name": "food",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_food"
     }
   ],
   "hooks": [

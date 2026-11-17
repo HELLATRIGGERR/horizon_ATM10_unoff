@@ -1,7 +1,8 @@
 /** Mekanism's recipe viewer categories (`native_recipe_categories`), as a viewer collects them
  * (`native_collect_recipe_categories`, read with `/mek recipes`): the categories Mekanism's JEI plugin registers for
  * the machines this port has, their catalysts (the machine and its factories), and known recipes of each, taken from
- * the content mod's own recipe files: an item output shows as the stack, a chemical or fluid as a note. */
+ * the content mod's own recipe files: an item output shows as the stack, a chemical or fluid as a note. The Nutritional
+ * Liquifier's are made from the food table, one for each food (`RecipeViewerUtils.getLiquificationRecipes`). */
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -85,6 +86,17 @@ try {
   }
   for (const id of ['mekanism:boiler', 'mekanism:sps', 'mekanismgenerators:fission']) assert(byId.get(id)?.recipes, `${id}: ${JSON.stringify(byId.get(id))}`);
   fixture.mark(`twenty-seven machine categories and the boiler's, the SPS's and the fission reactor's: ${counts.join(', ')}`);
+
+  // The Nutritional Liquifier's has no files: a recipe for each food of the item registry (the engine's food table).
+  const liq = byId.get('mekanism:nutritional_liquifier');
+  assert(liq && liq.recipes > 40 && liq.catalysts.includes('mekanism:nutritional_liquifier'), JSON.stringify(liq));
+  const stew = ((await mek('recipes mekanism:nutritional_liquifier minecraft:mushroom_stew')).recipes as Recipe[]);
+  assert(stew.some(r => r.notes.includes('Out: Nutritional Paste 300 mB') && r.outputs.some(o => o.item === 'minecraft:bowl')), JSON.stringify(stew));
+  const apple = ((await mek('recipes mekanism:nutritional_liquifier minecraft:apple')).recipes as Recipe[]);
+  assert(apple.some(r => r.notes.includes('Out: Nutritional Paste 200 mB') && r.notes.includes('Recipe: mekanism:/liquification/minecraft_apple')), JSON.stringify(apple));
+  const stone = ((await mek('recipes mekanism:nutritional_liquifier minecraft:stone')).recipes as Recipe[]);
+  assert.equal(stone.length, 0, 'stone is no food');
+  fixture.mark(`the Nutritional Liquifier's ${liq.recipes} foods: a mushroom stew makes 300 mB of paste and its bowl, an apple 200 mB`);
 
   // Known recipes: the first three files of each item-output type whose output the category shows.
   const itemTypes: [string, string, string][] = [

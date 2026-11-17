@@ -2892,6 +2892,13 @@ mod tests {
             .set_other("!minecraft:tool", Some(Tag::Compound(Default::default())));
         let sent = crate::lan::guest::stack_to_network(|_| 1, ids, &Some(plain)).unwrap();
         assert_eq!(sent.removed, [component::TOOL]);
+        // The AE2 lab's peers also send the whole patch, the removal too, inside CUSTOM_DATA.
+        #[cfg(feature = "ae2-lab")]
+        assert_eq!(
+            sent.added.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [component::CUSTOM_DATA]
+        );
+        #[cfg(not(feature = "ae2-lab"))]
         assert!(sent.added.is_empty());
     }
 

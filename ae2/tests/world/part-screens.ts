@@ -85,12 +85,18 @@ try {
   assert.equal(imp.tools.length, 1);
   await press(imp.tools[0].rect);
   let types = (await part(p => p.key_types, 'key type screen')).key_types;
-  assert.deepEqual(types.selected, [true, true]);
-  await press(types.boxes[1]);
-  types = (await part(p => p.key_types?.selected[1] === false, 'fluids off')).key_types;
+  // Items, fluids, and one more per addon key type (Applied Mekanistics' chemicals): all on to begin with.
+  const typeCount = types.selected.length;
+  assert.ok(typeCount >= 2, `items and fluids at least: ${types.selected}`);
+  assert.deepEqual(types.selected, Array(typeCount).fill(true));
+  const onlyItems = [true, ...Array(typeCount - 1).fill(false)];
+  for (let i = typeCount - 1; i >= 1; i--) {
+    await press(types.boxes[i]);
+    types = (await part(p => p.key_types?.selected[i] === false, `type ${i} off`)).key_types;
+  }
   await press(types.boxes[0]);
   await new Promise(done => setTimeout(done, 300));
-  assert.deepEqual((await part(p => p.key_types, 'still items')).key_types.selected, [true, false], 'the last type cannot go');
+  assert.deepEqual((await part(p => p.key_types, 'still items')).key_types.selected, onlyItems, 'the last type cannot go');
   await press(types.back);
   await part(p => !p.key_types, 'back at the import bus');
   await fixture.raw('close');
@@ -140,7 +146,7 @@ try {
   await fixture.raw('close');
   imp = await open(1);
   await press(imp.tools[0].rect);
-  assert.deepEqual((await part(p => p.key_types, 'key types again')).key_types.selected, [true, false]);
+  assert.deepEqual((await part(p => p.key_types, 'key types again')).key_types.selected, onlyItems);
   await fixture.raw('close');
   await open(4);
   await part(p => p.text === '42', 'the threshold after restart');

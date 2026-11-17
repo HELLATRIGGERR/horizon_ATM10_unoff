@@ -115,6 +115,7 @@ mod tests {
         let world = World::new(horizon_world::registry::BlockStateId(0), 0);
         let (generating, finishing) = (FxHashSet::default(), FxHashSet::default());
         let protos = FxHashMap::default();
+        let retry_at = FxHashMap::default();
         let input = GenerationInputs {
             ranges: ranges(&forced),
             world: &world,
@@ -123,6 +124,7 @@ mod tests {
             finishing: &finishing,
             decorates: true,
             remote: false,
+            retry_at: &retry_at,
         };
         let candidates = GenerationScan::default()
             .candidates(input, usize::MAX)

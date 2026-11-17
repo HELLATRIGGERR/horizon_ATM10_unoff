@@ -487,6 +487,10 @@ fn bounded(item: &str) -> Option<(&'static str, Vec<[i32; 3]>)> {
     if super::mek_miner::is_miner(item) {
         return Some((super::mek_miner::MINER, super::mek_miner::bounding()));
     }
+    // The Isotopic Centrifuge's and the Solar Neutron Activator's (`ABOVE_ONLY`).
+    if let Some(kind) = mekanism_energy::machine::MachineKind::of_block(item).filter(|k| k.bounded_above()) {
+        return Some((kind.id(), vec![[0, 1, 0]]));
+    }
     GeneratorKind::of_block(item).filter(|k| !k.bounding().is_empty()).map(|k| (k.id(), k.bounding()))
 }
 

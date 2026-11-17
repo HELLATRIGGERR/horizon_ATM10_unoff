@@ -1050,6 +1050,12 @@ pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockE
             super::mek_gen2::removed(dimension, pos, kind.id());
         }
     }
+    if let Some(kind) = mekanism_energy::machine::MachineKind::of_block(&entity.id).filter(|k| k.bounded_above()) {
+        if removed {
+            super::mek_gen2::removed(dimension, pos, kind.id());
+        }
+        super::mek_reaction::forget(dimension, pos);
+    }
     if super::mek_miner::is_miner(&entity.id) {
         if removed {
             super::mek_gen2::removed(dimension, pos, &entity.id);

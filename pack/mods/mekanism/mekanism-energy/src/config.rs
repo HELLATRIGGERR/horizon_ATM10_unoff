@@ -89,6 +89,9 @@ pub struct MachinesConfig {
     /// injection chambers draw their chemical a tick at random (Mekanism's
     /// default, which ATM10's file, written before the option, leaves as it is).
     pub randomized_consumption: bool,
+    /// `general.toml` `maxSolarNeutronActivatorRate`: the activator's peak mB a
+    /// tick (1 to 1024, Mekanism's default 64; ATM10's 256).
+    pub max_sna_rate: i32,
 }
 
 impl Default for MachinesConfig {
@@ -101,6 +104,7 @@ impl Default for MachinesConfig {
             dump_excess_keep_ratio: 0.85,
             fluid_auto_eject: 1024,
             randomized_consumption: true,
+            max_sna_rate: 64,
         }
     }
 }
@@ -128,6 +132,11 @@ impl MachinesConfig {
             && (0.001..=1.0).contains(&v)
         {
             config.dump_excess_keep_ratio = v;
+        }
+        if let Some(v) = general.and_then(|g| g.get("maxSolarNeutronActivatorRate")).and_then(toml::Value::as_integer)
+            && (1..=1024).contains(&v)
+        {
+            config.max_sna_rate = v as i32;
         }
         if let Some(v) = usage.and_then(|t| t.get("randomizedConsumption")).and_then(toml::Value::as_bool) {
             config.randomized_consumption = v;

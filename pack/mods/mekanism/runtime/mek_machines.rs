@@ -1041,7 +1041,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     if makes_chemicals || kind.ore_chain() {
         let made = if kind.ore_chain() {
-            super::mek_ore_machines::tick(game, entity, kind, &mut saved, &mut tanks, &mut store, &mut live.separating, &registry, &config)
+            super::mek_ore_machines::tick(game, pos, entity, kind, &mut saved, &mut tanks, &mut store, &mut live.separating, &registry, &config)
         } else {
             super::mek_chem_machines::tick(entity, kind, &mut saved, &mut tanks, &mut store, &mut live.separating, &registry, &config)
         };
@@ -1716,7 +1716,7 @@ pub(super) fn chemical_handler<R>(
 /// a closed side; else its kind, its saved state and whether that side is a
 /// real one (not the null side, which reads and changes nothing).
 fn fluid_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<(MachineKind, Saved, bool)> {
-    let kind = kind_of(&entity.id).filter(|k| k.separates() || k.washes() || k.rotates())?;
+    let kind = kind_of(&entity.id).filter(|k| k.separates() || k.washes() || k.rotates() || k.reacts())?;
     let saved = read(&entity.nbt, kind);
     let fluids = saved.sides.fluids?;
     match face {
@@ -1951,11 +1951,11 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
         out["used_so_far"] = saved.used_so_far.into();
         out["randomized"] = (kind.dissolves() || kind.takes_chemical_upgrades() && config.machines.randomized_consumption).into();
     }
-    if kind.washes() || kind.rotates() {
+    if kind.washes() || kind.rotates() || kind.reacts() {
         out["fluid"] = super::mek_ore_machines::probe_fluid(nbt);
         out["mode"] = saved.mode.into();
     }
-    if (kind.infuses_chemicals() || kind.washes() || kind.rotates())
+    if (kind.infuses_chemicals() || kind.washes() || kind.rotates() || kind.reacts() || kind.converts_chemicals())
         && let Some(extra) = menu::InfuserView::unpack(data)
     {
         out["energy_used"] = extra.energy_used.into();

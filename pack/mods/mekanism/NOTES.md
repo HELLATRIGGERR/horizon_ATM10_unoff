@@ -371,6 +371,27 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   and `machine`. Left: the screen's lightning (`BoltRenderer`), the machine's sound, its custom shape, comparators
   (`Attributes.COMPARATOR`), redstone control, `pausedForErrors` (a recipe paused on an error until its contents change:
   checking again every run comes to the same here), a `perTick` of 0 (Mekanism would run without end; here once).
+- Machines 3 (branch `feat/mekanism-machines-3`, on `a3ab5e8fed`, no new hook point): the Pressurized Reaction
+  Chamber, the Isotopic Centrifuge and the Solar Neutron Activator, three `MachineKind`s in `ore_chain()` run by
+  runtime `mek_reaction` (reached through `mek_ore_machines` as the rotary is; rules in `mekanism_energy::reaction`;
+  categories `mekanism:reaction`, `mekanism:centrifuging` and `mekanism:activating` in `mek_recipe_viewer`).
+  Read from Mekanism 10.7.19's classes (`TileEntityPressurizedReactionChamber`, `PRCEnergyContainer`,
+  `TileEntityIsotopicCentrifuge`, `TileEntitySolarNeutronActivator`, `TileComponentConfig.setupIOConfig`,
+  `GuiPRC`, `GuiIsotopicCentrifuge`, `GuiSolarNeutronActivator`, `MekanismBlockTypes`) and measured on a private copy
+  of the lasers' oracle (local `mekmach3-work/oracle`, RCON 25721, `lab/m1.py`, rows in `lab/m1.json`): substrate from
+  4 bio fuel, 1000 mB of water and hydrogen at 5 J a tick, progress 1, 2, 3 ... and on the 100th tick 2 bio fuel, 10
+  mB of water and 100 of hydrogen into a substrate and 100 mB of ethene; a saved 60 finishes on the 40th tick and, out
+  of its 300 J, stops at 20 with the progress kept; the centrifuge one operation a tick at 200 J; the activator in
+  plains 225 operations a tick at noon (256 * 0.88), 158 at time 12000, none at night, 33 at noon after 200 ticks of
+  rain; 12 mB of waste run one operation and keep 2. The oracle runs Mekanism's own recipes (10 mB of waste an
+  operation); ATM10's take 5, which the world tests read from the carry. Learned: `setupIOConfig(type, in, out, side,
+  false, true)` lets the input side give out as well (the input tank then decides: `radioactiveInputTankPredicate`),
+  the centrifuge's and activator's top is a disabled side, the activator has no upgrade support at all
+  (`without(AttributeUpgradeSupport)`) and no energy slot, and its required ticks and operations come from its rate
+  each tick (`ceil(1 / rate)` and `(int) rate`). World tests `pressurized-reaction-chamber`, `isotopic-centrifuge`,
+  `solar-neutron-activator`, `recipe-viewer` (24 machine categories); unit tests `reaction`.
+  Left: the radioactive input tank's drain, disabled sides in the Configurator, the bounding block passing uses and
+  breaks on, comparators, sounds; the pigment machines and the Nutritional Liquifier.
 - The lasers (branch `feat/mekanism-lasers`, on main `74c0215ef`: `mekanism_energy::laser`, runtime `mek_lasers`, the
   amplifier's redstone through the bundle's API 38 hooks, and a new pending fragment `machine_beams` in the engine:
   `native_clip_blocks` (`Level.clip` with `OUTLINE` and `Fluid.NONE`, over `Game::clip_ray_fluids`) and

@@ -77,6 +77,19 @@ pub enum MachineKind {
     /// recipes (`TileEntityAntiprotonicNucleosynthesizer`: an item and
     /// antimatter in, an item out over the recipe's duration; `crate::nucleo`).
     AntiprotonicNucleosynthesizer,
+    /// `mekanism:pressurized_reaction_chamber`, `mekanism:reaction` recipes
+    /// (`TileEntityPressurizedReactionChamber`: an item, a fluid and a chemical
+    /// in, an item and a chemical out over the recipe's duration, its extra
+    /// Joules a tick on top of the base; `crate::reaction`).
+    PressurizedReactionChamber,
+    /// `mekanism:isotopic_centrifuge`, `mekanism:centrifuging` recipes
+    /// (`TileEntityIsotopicCentrifuge`: a chemical into another, `2^speed`
+    /// operations a tick).
+    IsotopicCentrifuge,
+    /// `mekanism:solar_neutron_activator`, `mekanism:activating` recipes
+    /// (`TileEntitySolarNeutronActivator`: a chemical into another at a rate
+    /// the sun, the biome and the weather set; no Joules, no upgrades).
+    SolarNeutronActivator,
 }
 
 /// Where a machine keeps its items: Mekanism's own slot order (input,
@@ -98,7 +111,7 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 20] = [
         Self::EnrichmentChamber,
         Self::Crusher,
         Self::EnergizedSmelter,
@@ -116,6 +129,9 @@ impl MachineKind {
         Self::Combiner,
         Self::PrecisionSawmill,
         Self::AntiprotonicNucleosynthesizer,
+        Self::PressurizedReactionChamber,
+        Self::IsotopicCentrifuge,
+        Self::SolarNeutronActivator,
     ];
 
     pub fn id(self) -> &'static str {
@@ -137,6 +153,9 @@ impl MachineKind {
             Self::Combiner => "mekanism:combiner",
             Self::PrecisionSawmill => "mekanism:precision_sawmill",
             Self::AntiprotonicNucleosynthesizer => "mekanism:antiprotonic_nucleosynthesizer",
+            Self::PressurizedReactionChamber => "mekanism:pressurized_reaction_chamber",
+            Self::IsotopicCentrifuge => "mekanism:isotopic_centrifuge",
+            Self::SolarNeutronActivator => "mekanism:solar_neutron_activator",
         }
     }
 
@@ -164,6 +183,10 @@ impl MachineKind {
             Self::Combiner => "combiner",
             Self::PrecisionSawmill => "precisionSawmill",
             Self::AntiprotonicNucleosynthesizer => "antiprotonicNucleosynthesizer",
+            Self::PressurizedReactionChamber => "pressurizedReactionBase",
+            Self::IsotopicCentrifuge => "isotopicCentrifuge",
+            // No Joules: no key in either file.
+            Self::SolarNeutronActivator => "solarNeutronActivator",
         }
     }
 
@@ -187,6 +210,9 @@ impl MachineKind {
             Self::Combiner => "mekanism:combining",
             Self::PrecisionSawmill => "mekanism:sawing",
             Self::AntiprotonicNucleosynthesizer => "mekanism:nucleosynthesizing",
+            Self::PressurizedReactionChamber => "mekanism:reaction",
+            Self::IsotopicCentrifuge => "mekanism:centrifuging",
+            Self::SolarNeutronActivator => "mekanism:activating",
         }
     }
 
@@ -197,7 +223,9 @@ impl MachineKind {
             Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 400,
             Self::OsmiumCompressor => 100,
             Self::AntiprotonicNucleosynthesizer => 100_000,
-            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher => 200,
+            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge => 200,
+            Self::PressurizedReactionChamber => 5,
+            Self::SolarNeutronActivator => 0,
             _ => 50,
         }
     }
@@ -206,7 +234,9 @@ impl MachineKind {
     pub fn default_storage(self) -> u64 {
         match self {
             Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 160_000,
-            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher => 80_000,
+            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge => 80_000,
+            Self::PressurizedReactionChamber => 2000,
+            Self::SolarNeutronActivator => 0,
             Self::Combiner => 40_000,
             Self::AntiprotonicNucleosynthesizer => 1_000_000_000,
             _ => 20_000,
@@ -219,7 +249,7 @@ impl MachineKind {
 
     /// A machine of `TileEntityProgressMachine`, whose recipes take ticks.
     pub fn progresses(self) -> bool {
-        !self.separates() && !self.infuses_chemicals() && !self.washes() && !self.rotates()
+        !self.separates() && !self.infuses_chemicals() && !self.washes() && !self.rotates() && !self.converts_chemicals()
     }
 
     /// The advanced machines (`TileEntityAdvancedElectricMachine`, `crate::advanced`):
@@ -264,7 +294,25 @@ impl MachineKind {
     /// The machines of slice 5 (`crate::ore`, `crate::rotary`), whose ticks
     /// are the runtime's `mek_ore_machines`.
     pub fn ore_chain(self) -> bool {
-        self.dissolves() || self.washes() || self.crystallizes() || self.rotates()
+        self.dissolves() || self.washes() || self.crystallizes() || self.rotates() || self.reacts() || self.converts_chemicals()
+    }
+
+    /// The Pressurized Reaction Chamber (`crate::reaction`).
+    pub fn reacts(self) -> bool {
+        self == Self::PressurizedReactionChamber
+    }
+
+    /// The Isotopic Centrifuge and the Solar Neutron Activator: a chemical
+    /// into another (`OneInputCachedRecipe.chemicalToChemical`), no progress
+    /// saved (`TileEntityRecipeMachine`).
+    pub fn converts_chemicals(self) -> bool {
+        matches!(self, Self::IsotopicCentrifuge | Self::SolarNeutronActivator)
+    }
+
+    /// Its bounding block above (`AttributeHasBounding.ABOVE_ONLY`; the top is
+    /// a disabled side of every type, `addDisabledSides(TOP)`).
+    pub fn bounded_above(self) -> bool {
+        self.converts_chemicals()
     }
 
     pub fn oxidizes(self) -> bool {
@@ -277,7 +325,10 @@ impl MachineKind {
 
     /// The upgrades it takes (`AttributeUpgradeSupport`).
     pub fn upgrades(self) -> &'static [Upgrade] {
-        if self.nucleosynthesizes() {
+        if self == Self::SolarNeutronActivator {
+            // `without(AttributeUpgradeSupport)`.
+            &[]
+        } else if self.nucleosynthesizes() {
             &MUFFLING_ONLY
         } else if self.takes_chemical_upgrades() {
             &ADVANCED_MACHINE_UPGRADES
@@ -300,7 +351,15 @@ impl MachineKind {
     pub fn chemicals_eject(self) -> bool {
         matches!(
             self,
-            Self::ElectrolyticSeparator | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalDissolutionChamber | Self::ChemicalWasher | Self::RotaryCondensentrator
+            Self::ElectrolyticSeparator
+                | Self::ChemicalOxidizer
+                | Self::ChemicalInfuser
+                | Self::ChemicalDissolutionChamber
+                | Self::ChemicalWasher
+                | Self::RotaryCondensentrator
+                | Self::PressurizedReactionChamber
+                | Self::IsotopicCentrifuge
+                | Self::SolarNeutronActivator
         )
     }
 
@@ -324,10 +383,15 @@ impl MachineKind {
     /// Whether its block shows `active` (`AttributeStateActive`): the
     /// infuser's and the separator's models have no such state.
     pub fn shows_active(self) -> bool {
-        !self.infuses() && !self.separates() && !self.oxidizes() && !self.infuses_chemicals() && !self.ore_chain()
+        !self.infuses() && !self.separates() && !self.oxidizes() && !self.infuses_chemicals() && (!self.ore_chain() || self == Self::SolarNeutronActivator)
     }
 
     pub fn slots(self) -> Slots {
+        if self == Self::SolarNeutronActivator {
+            // Its chemical fill and drain slots only: no energy, no upgrades
+            // (the energy and upgrade indices lie past `count`).
+            return Slots { infusion: None, input: 0, output: 1, output2: None, energy: 2, upgrade: 3, upgrade_out: 4, count: 2 };
+        }
         if self.washes() {
             // Its fluid slot, the fluid slot's output, the slurry output's drain
             // slot and energy (`TileEntityChemicalWasher.getInitialInventory`).
@@ -394,6 +458,8 @@ impl MachineKind {
             Self::ChemicalDissolutionChamber | Self::ChemicalWasher | Self::RotaryCondensentrator => chemical_supports(data),
             // `setupInputConfig(CHEMICAL, inputTank)`.
             Self::ChemicalCrystallizer => matches!(data, DataType::None | DataType::Input),
+            // `setupIOConfig(CHEMICAL, input, output, RIGHT|FRONT, false, true)`.
+            Self::PressurizedReactionChamber | Self::IsotopicCentrifuge | Self::SolarNeutronActivator => chemical_supports(data),
             _ => false,
         }
     }
@@ -422,7 +488,16 @@ impl MachineKind {
                 _ => DataType::None,
             });
         }
+        if self == Self::SolarNeutronActivator {
+            // `setupIOConfig(ITEM, input, output, FRONT)`, the top disabled.
+            return RelativeSide::ALL.map(|side| match side {
+                RelativeSide::Front => DataType::Output,
+                RelativeSide::Top => DataType::None,
+                _ => DataType::Input,
+            });
+        }
         RelativeSide::ALL.map(|side| match side {
+            RelativeSide::Top if self.bounded_above() => DataType::None,
             RelativeSide::Right => DataType::Output,
             RelativeSide::Back => DataType::Energy,
             RelativeSide::Bottom if self.has_extra_slot() => DataType::Extra,
@@ -462,6 +537,16 @@ impl MachineKind {
             Self::ChemicalCrystallizer => Some([DataType::Input; 6]),
             // `ROTARY`'s `OUT_EJECT_LEFT`.
             Self::RotaryCondensentrator => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Left { DataType::Output } else { DataType::Input })),
+            // `setupIOConfig(CHEMICAL, input, output, RIGHT, false, true)`.
+            Self::PressurizedReactionChamber => {
+                Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input }))
+            }
+            // The same with the output in front, the top disabled.
+            Self::IsotopicCentrifuge | Self::SolarNeutronActivator => Some(RelativeSide::ALL.map(|s| match s {
+                RelativeSide::Front => DataType::Output,
+                RelativeSide::Top => DataType::None,
+                _ => DataType::Input,
+            })),
             _ => None,
         }
     }
@@ -472,7 +557,7 @@ impl MachineKind {
         if self.rotates() {
             return Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input }));
         }
-        (self.separates() || self.washes()).then_some([DataType::Input; 6])
+        (self.separates() || self.washes() || self.reacts()).then_some([DataType::Input; 6])
     }
 }
 

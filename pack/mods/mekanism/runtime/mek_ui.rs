@@ -940,7 +940,10 @@ fn machine_slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
     } else {
         vec![Some([64.0, 17.0]), Some([116.0, 35.0]), Some([64.0, 53.0])]
     };
-    slots.extend(UPGRADE_SLOTS.map(Some));
+    // The activator has no upgrade component (`without(AttributeUpgradeSupport)`).
+    if !kind.upgrades().is_empty() {
+        slots.extend(UPGRADE_SLOTS.map(Some));
+    }
     slots.resize(9, None);
     slots
 }
@@ -1323,7 +1326,7 @@ fn draw_machine(pen: &mut Pen<'_, '_>, kind: MachineKind, data: &[i32], settings
 
     // The slots: Mekanism's, coloured by what their side type is (`SlotType.get`).
     let s = kind.slots();
-    for (i, at) in machine_slots(kind).into_iter().take(s.count - 2).enumerate() {
+    for (i, at) in machine_slots(kind).into_iter().take(if kind.upgrades().is_empty() { s.count } else { s.count - 2 }).enumerate() {
         let Some([x, y]) = at else { continue };
         let (frame, overlay) = if i == s.output || Some(i) == s.output2 {
             ("output", None)

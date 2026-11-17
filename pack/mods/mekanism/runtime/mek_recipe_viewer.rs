@@ -29,8 +29,11 @@ enum Part {
     Fluid(&'static str),
     /// Joules (`energy_conversion`'s `output`).
     Energy(&'static str),
-    /// The sawmill's secondary output and the field of its chance.
+    /// The sawmill's secondary output and the field of its chance (the
+    /// reaction chamber's item output, which a recipe may leave out).
     Chance(&'static str, &'static str),
+    /// A chemical result a recipe may leave out (the reaction chamber's).
+    MaybeChemical(&'static str),
 }
 
 /// What the catalysts are.
@@ -51,7 +54,7 @@ struct Spec {
     catalysts: Catalysts,
 }
 
-use Part::{Chance, Chemical, Energy, Fluid, Item};
+use Part::{Chance, Chemical, Energy, Fluid, Item, MaybeChemical};
 
 /// Mekanism's categories for the machines this port has, in `MekanismJEI.registerCategories`' order.
 const SPECS: &[Spec] = &[
@@ -174,6 +177,30 @@ const SPECS: &[Spec] = &[
             MachineKind::ChemicalInjectionChamber,
             Some(FactoryType::Injecting),
         ),
+    },
+    Spec {
+        id: "mekanism:activating",
+        title: "Solar Neutron Activator",
+        recipe_type: "mekanism:activating",
+        inputs: &[Chemical("input")],
+        outputs: &[Chemical("output")],
+        catalysts: Catalysts::Machine(MachineKind::SolarNeutronActivator, None),
+    },
+    Spec {
+        id: "mekanism:centrifuging",
+        title: "Isotopic Centrifuge",
+        recipe_type: "mekanism:centrifuging",
+        inputs: &[Chemical("input")],
+        outputs: &[Chemical("output")],
+        catalysts: Catalysts::Machine(MachineKind::IsotopicCentrifuge, None),
+    },
+    Spec {
+        id: "mekanism:reaction",
+        title: "Pressurized Reaction Chamber",
+        recipe_type: "mekanism:reaction",
+        inputs: &[Item("item_input"), Fluid("fluid_input"), Chemical("chemical_input")],
+        outputs: &[Chance("item_output", "item_output_chance"), MaybeChemical("chemical_output")],
+        catalysts: Catalysts::Machine(MachineKind::PressurizedReactionChamber, None),
     },
     Spec {
         id: "mekanism:nucleosynthesizing",
@@ -393,7 +420,7 @@ fn recipe(
                 }
                 r.notes.push(format!("In: {line}"));
             }
-            Energy(_) | Chance(..) => {}
+            Energy(_) | Chance(..) | MaybeChemical(_) => {}
         }
     }
     for part in spec.outputs {
@@ -417,6 +444,11 @@ fn recipe(
             Chemical(field) => r
                 .notes
                 .push(format!("Out: {}", chemical_out(registry, &j[field])?)),
+            MaybeChemical(field) => {
+                if let Some(v) = j.get(field) {
+                    r.notes.push(format!("Out: {}", chemical_out(registry, v)?));
+                }
+            }
             Fluid(field) => {
                 let (bucket, line) = fluid_out(&j[field])?;
                 if let Some(bucket) = bucket {
@@ -434,6 +466,9 @@ fn recipe(
     }
     if j.get("per_tick_usage").and_then(Value::as_bool) == Some(true) {
         r.notes.push("The chemical is used every tick".into());
+    }
+    if let Some(joules) = j.get("energy_required").and_then(Value::as_u64).filter(|j| *j > 0) {
+        r.notes.push(format!("{} J a tick more", thousands(joules)));
     }
     if let Some(ticks) = j.get("duration").and_then(Value::as_u64) {
         r.notes.push(format!("{ticks} ticks"));

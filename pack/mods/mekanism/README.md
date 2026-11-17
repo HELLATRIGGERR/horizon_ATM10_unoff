@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer), its lasers, its chemicals, their tanks and tubes, its Mechanical
+Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer, the Pressurized Reaction Chamber, the Isotopic Centrifuge and the Solar Neutron Activator), its lasers, its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the Supercritical Phase Shifter), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
@@ -147,6 +147,22 @@ assets when `mekanism-content` is given them.
   past the 400 ticks a new machine requires starts over when its recipe is cached, as Mekanism's does. Antimatter goes
   in on every side and comes out on none; its screen (`GuiAntiprotonicNucleosynthesizer`) shows the antimatter and
   energy gauges, the process rate (the Joules the last tick took over a run's) and the progress along its bottom.
+- The Pressurized Reaction Chamber (`mekanism_energy::reaction`, runtime `mek_reaction` through `mek_ore_machines`):
+  an item, a fluid (a 10 000 mB tank no other block drains) and a chemical (10 000 mB) into an item and a chemical
+  (`mekanism:reaction`) over the recipe's `duration` (100 ticks until a recipe is found), 5 J a tick
+  (`machine-usage.toml` `pressurizedReactionBase`) plus the recipe's `energy_required`, both under its speed and
+  energy upgrades, from 2000 J. A recipe is found only with all of its three inputs in; a saved progress goes on when
+  the recipe is found again after a load. Items in and out by the machines' item sides, the fluid on every side, the
+  chemical in on all sides but the right, out of the right (ejected). Its screen (`GuiPRC`): the fluid and chemical
+  gauges, the output's small gauge, the vertical power bar, the progress.
+- The Isotopic Centrifuge and the Solar Neutron Activator (`mekanism_energy::reaction`, runtime `mek_reaction`): a
+  chemical into another (`mekanism:centrifuging`, `mekanism:activating`; ATM10's turn 5 mB of nuclear waste into
+  1 mB of plutonium or polonium), each with two 10 000 mB tanks, a fill and a drain slot, the output in front
+  (ejected), the top closed, and a bounding block above (placed from the item, removed with the machine). The
+  centrifuge runs `2^speed` operations a tick at 200 J each (`isotopicCentrifuge`, 80 000 J stored). The activator
+  takes no Joules and no upgrades: its rate is `maxSolarNeutronActivatorRate` (ATM10's 256) times its biome's factor
+  (the solar generator's) times the sun's brightness, a fifth of that in rain where the biome has any, none when
+  the block above doesn't see the sky in daylight; below 1 mB a tick an operation takes `ceil(1 / rate)` ticks.
 - The lasers (`mekanism_energy::laser`, runtime `mek_lasers`): the Laser (Joules in through its back from cables,
   cubes and Forge Energy, a store of 10 000 000 J) fires 50 000 J a tick (`machine-usage.toml` `laser`) or what it
   holds below that down a beam out of its front, `[laser] range` (64) blocks long, stopped by the first block whose
@@ -419,7 +435,7 @@ assets when `mekanism-content` is given them.
 - Recipe viewer categories (runtime `mek_recipe_viewer`, the `recipe_categories` hook, API 427 stamped by the fork), as
   Mekanism's JEI plugin registers them for the machines this port has: crushing, enriching, the Energized Smelter
   (the world's smelting recipes), combining, sawing (the secondary output at its chance), compressing, purifying,
-  injecting, metallurgic infusing, crystallizing, nucleosynthesizing, oxidizing, chemical infusing, separating,
+  injecting, metallurgic infusing, crystallizing, nucleosynthesizing, activating, centrifuging, reaction, oxidizing, chemical infusing, separating,
   dissolution, washing, condensentrating and decondensentrating (`mekanism:rotary`), evaporating, energy conversion
   and chemical conversion, read from the world's tables as the machines read them, with the machine and its four
   factories as catalysts; and the made-up ones of the boiler, the SPS (`inputPerAntimatter`) and Mekanism
@@ -428,12 +444,11 @@ assets when `mekanism-content` is given them.
   machine's progress arrow is its recipe viewer link: a click asks the viewer (`native_show_recipes`) for the
   machine's uses, its categories. `/mek recipes [category] [item]` lists the categories a viewer collects, or one
   category's recipes making or taking `item`. Not there: the categories of machines this port lacks (the
-  Pressurized Reaction Chamber, the Isotopic Centrifuge, the Solar Neutron Activator, the pigment machines, the
-  Nutritional Liquifier), the factories' and the multiblocks' screen links, and recipe transfer (the "+" into a
+  pigment machines, the Nutritional Liquifier), the factories' and the multiblocks' screen links, and recipe transfer (the "+" into a
   machine's slots: the hook points have no transfer a mod can take). Two more gaps of the viewer's API: a stack
   holds an item, so no chemical can be an ingredient (hence the notes), and a category can only be asked for by a
   stack, not by its id (hence the arrow link asks for the machine's uses). The world test `recipe-viewer` checks
-  the 21 machine categories' and the three made-up ones' recipe counts against the content files, their catalysts
+  the 24 machine categories' and the three made-up ones' recipe counts against the content files, their catalysts
   and factories, and 29 known recipes found by their output (hydrogen chloride, water's hydrogen and oxygen,
   sawdust at its chance, redstone's 10,000 J); the viewer itself, Horizon's Recipes mod, is not in this build, so
   the arrow link has no world test.
@@ -589,6 +604,11 @@ assets when `mekanism-content` is given them.
   reactor ticks, and its signal is weak only. The burn rate has no text field (`/mek fission ... rate`); the screen's
   heat graph, the recipe viewer link, the sound, comparators, the ports' heat transfer to blocks beside them and
   their transfer animation aren't there; fuel and control rod assemblies are plain blocks.
+- The Pressurized Reaction Chamber's input chemical tank lets no other block drain it (Mekanism's lets a radioactive
+  chemical out while the output tank is empty: `radioactiveInputTankPredicate`), and so do the centrifuge's and the
+  activator's. The centrifuge's and the activator's top is closed by default but the Configurator can open it (no
+  disabled sides), their bounding block passes no use or break on, the activator reads its biome every tick (Mekanism
+  once a load), its screen shows its rate in the progress tooltip, and none of the three has comparators or sounds.
 - The Antiprotonic Nucleosynthesizer's screen has no lightning between its slots (`BoltRenderer`), and the machine no
   sound; its rate bar is drawn in flat colours. Its custom shape is a full block.
 - The lasers' beams aren't drawn and make no sound, and a block being dug shows no effect. Entities in a beam are

@@ -182,6 +182,7 @@ fn refresh(game: &Game<'_>) {
 pub(super) fn clear() {
     BOOK.with(|b| *b.borrow_mut() = Book::default());
     super::mek_rotary::clear();
+    super::mek_reaction::clear();
 }
 
 /// The number of each kind's recipes, for the probe.
@@ -192,6 +193,7 @@ pub(super) fn recipe_count(kind: MachineKind) -> usize {
             MachineKind::ChemicalDissolutionChamber => b.dissolution.len(),
             MachineKind::ChemicalWasher => b.washing.len(),
             MachineKind::ChemicalCrystallizer => b.crystallizing.len(),
+            MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::recipe_count(kind),
             _ => super::mek_rotary::recipe_count(),
         }
     })
@@ -236,6 +238,7 @@ pub(super) fn capacities(kind: MachineKind) -> &'static [i64] {
         MachineKind::ChemicalDissolutionChamber => &[ore::DISSOLUTION_TANK, ore::DISSOLUTION_TANK],
         MachineKind::ChemicalWasher => &[ore::WASHER_TANK, ore::WASHER_TANK],
         MachineKind::ChemicalCrystallizer => &[ore::CRYSTALLIZER_TANK],
+        MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::capacities(kind),
         _ => super::mek_rotary::CAPACITIES,
     }
 }
@@ -245,7 +248,7 @@ pub(super) fn fluid_capacity(kind: MachineKind) -> Option<i32> {
     match kind {
         MachineKind::ChemicalWasher => Some(ore::WASHER_FLUID),
         MachineKind::RotaryCondensentrator => Some(super::mek_rotary::FLUID_CAPACITY),
-        _ => None,
+        _ => super::mek_reaction::fluid_capacity(kind),
     }
 }
 
@@ -284,6 +287,7 @@ pub(super) fn with_rules<R>(
             let input = TankRules { can_extract: &chemical::not_external, can_insert: &can_insert, valid: &valid };
             use_them(&[&input])
         }
+        MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::with_rules(kind, item, fluid, registry, use_them),
         _ => super::mek_rotary::with_rules(mode, registry, use_them),
     }
 }
@@ -298,6 +302,7 @@ pub(super) fn chemical_side(kind: MachineKind, data: DataType) -> Option<(Vec<us
         (MachineKind::ChemicalDissolutionChamber | MachineKind::ChemicalWasher, DataType::InputOutput) => (vec![0, 1], true, true),
         (MachineKind::ChemicalCrystallizer, DataType::Input) => (vec![0], true, false),
         (MachineKind::RotaryCondensentrator, _) => return super::mek_rotary::chemical_side(data),
+        (MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator, _) => return super::mek_reaction::chemical_side(data),
         _ => return None,
     })
 }
@@ -312,6 +317,7 @@ pub(super) fn fluid_fill_allowed(kind: MachineKind, fluid: &FluidStack, slurry: 
             _ => washes_fluid(fluid),
         },
         MachineKind::RotaryCondensentrator => super::mek_rotary::fluid_fill_allowed(fluid, mode),
+        MachineKind::PressurizedReactionChamber => super::mek_reaction::fluid_fill_allowed(fluid, slurry, registry),
         _ => false,
     }
 }
@@ -355,6 +361,7 @@ pub(super) fn slot_takes(kind: MachineKind, slot: usize, stack: &ItemStack) -> b
             }
         }
         MachineKind::ChemicalCrystallizer => slot == s.input && holding,
+        MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::slot_takes(kind, slot, stack),
         _ => super::mek_rotary::slot_takes(slot, stack),
     }
 }
@@ -367,6 +374,7 @@ pub(super) fn hopper_slots(kind: MachineKind) -> (Vec<usize>, Vec<usize>) {
         MachineKind::ChemicalDissolutionChamber => (vec![s.input, s.energy, s.infusion.unwrap_or(0), s.output], vec![]),
         MachineKind::ChemicalWasher => (vec![s.input, s.energy, s.output], s.output2.into_iter().collect()),
         MachineKind::ChemicalCrystallizer => (vec![s.input, s.energy], vec![s.output]),
+        MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::hopper_slots(kind),
         _ => super::mek_rotary::hopper_slots(),
     }
 }
@@ -464,6 +472,7 @@ pub(super) fn drain_chemical(entity: &mut ModBlockEntity, slot: usize, tank: &mu
 #[allow(clippy::too_many_arguments)]
 pub(super) fn tick(
     game: &Game<'_>,
+    pos: [i32; 3],
     entity: &mut ModBlockEntity,
     kind: MachineKind,
     saved: &mut Saved,
@@ -478,6 +487,7 @@ pub(super) fn tick(
         MachineKind::ChemicalDissolutionChamber => dissolve(entity, saved, tanks, store, memo, registry, config),
         MachineKind::ChemicalWasher => wash(game, entity, saved, tanks, store, memo, registry, config),
         MachineKind::ChemicalCrystallizer => crystallize(game, entity, saved, tanks, store, memo, registry, config),
+        MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::tick(game, pos, entity, kind, saved, tanks, store, memo, registry, config),
         _ => super::mek_rotary::tick(game, entity, saved, tanks, store, memo, registry, config),
     }
 }
@@ -759,6 +769,10 @@ pub(super) fn eject_items(
     if faces.is_empty() {
         return;
     }
+    if kind.reacts() || kind.converts_chemicals() {
+        super::mek_reaction::eject_items(game, pos, entity, kind, items, facing, tanks, registry, config, &faces);
+        return;
+    }
     if kind.dissolves() || kind.washes() {
         mek_chem_machines::eject_items(game, pos, entity, kind, items, facing, tanks, registry, config);
     }
@@ -773,7 +787,7 @@ pub(super) fn eject_items(
 /// `setCanEject`): the dissolution chamber's and the washer's output, the
 /// rotary's tank while decondensentrating.
 pub(super) fn ejects_chemicals(kind: MachineKind, mode: bool) -> bool {
-    kind.dissolves() || kind.washes() || (kind.rotates() && super::mek_rotary::ejects_chemicals(mode))
+    kind.dissolves() || kind.washes() || kind.reacts() || kind.converts_chemicals() || (kind.rotates() && super::mek_rotary::ejects_chemicals(mode))
 }
 
 // ---- The screens -----------------------------------------------------------------
@@ -793,7 +807,13 @@ pub(super) const WASHER_HOLDER: Rect = [176.0, 84.0, 26.0, 57.0];
 
 /// The power bar of each: the crystallizer's vertical one, the others' horizontal.
 pub(super) fn power_bar(kind: MachineKind) -> Rect {
-    if kind.crystallizes() { CRYSTALLIZER_POWER } else { mek_chem_machines::POWER_BAR }
+    if kind.crystallizes() {
+        CRYSTALLIZER_POWER
+    } else if kind.reacts() || kind.converts_chemicals() {
+        super::mek_reaction::power_bar(kind)
+    } else {
+        mek_chem_machines::POWER_BAR
+    }
 }
 
 /// Where Mekanism puts their slots (`getInitialInventory`).
@@ -803,6 +823,7 @@ pub(super) fn slots(kind: MachineKind) -> Vec<Option<[f32; 2]>> {
         // The fluid slots sit below the upgrade holder (Mekanism: at (180, 71) and (180, 102)).
         MachineKind::ChemicalWasher => vec![Some([180.0, 89.0]), Some([180.0, 120.0]), Some([152.0, 56.0]), Some([152.0, 14.0])],
         MachineKind::ChemicalCrystallizer => vec![Some([8.0, 65.0]), Some([129.0, 57.0]), Some([152.0, 5.0])],
+        MachineKind::PressurizedReactionChamber | MachineKind::IsotopicCentrifuge | MachineKind::SolarNeutronActivator => super::mek_reaction::slots(kind),
         _ => super::mek_rotary::slots(),
     }
 }
@@ -829,6 +850,9 @@ pub(super) fn progress(pen: &mut Pen<'_, '_>, r: Rect, share: f64, name: &str) {
 /// Their own elements over the machine panel: the power bar, the gauges, the
 /// progress (the rotary's: `mek_rotary`).
 pub(super) fn draw(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView, data: &[i32]) {
+    if kind.reacts() || kind.converts_chemicals() {
+        return super::mek_reaction::draw(pen, kind, view, data);
+    }
     let level = if view.capacity == 0 { 0.0 } else { view.stored as f64 / view.capacity as f64 };
     if kind.crystallizes() {
         let bar = CRYSTALLIZER_POWER;
@@ -879,6 +903,9 @@ pub(super) fn fluid_line(id: i32, amount: u64) -> String {
 
 /// The gauges' and progress's tooltips (the rotary's: `mek_rotary`).
 pub(super) fn tip(kind: MachineKind, view: &MachineView, data: &[i32], at: [f32; 2]) -> Option<Vec<String>> {
+    if kind.reacts() || kind.converts_chemicals() {
+        return super::mek_reaction::tip(kind, view, data, at);
+    }
     let extra = InfuserView::unpack(data)?;
     let chemical = |i: usize| vec![mek_chem_machines::tank_line(extra.tanks[i].0, extra.tanks[i].1)];
     let share = || {

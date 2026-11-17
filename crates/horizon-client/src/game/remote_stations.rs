@@ -31,7 +31,12 @@ impl Game<'_> {
         self.container = None;
         let mut station=Station::new_kind(kind,pos);
         #[cfg(feature = "ae2-lab")]
-        {station.quartz_knife=quartz_knife;}
+        {
+            station.quartz_knife=quartz_knife;
+            // QuartzKnifeScreen's name box takes text without an input item,
+            // unlike AnvilScreen's (`anvil::rename_box`), which only `slotChanged` opens.
+            station.rename.editable|=quartz_knife;
+        }
         self.station = Some(station);
         self.screen = Screen::Inventory;
         self.capture(false);

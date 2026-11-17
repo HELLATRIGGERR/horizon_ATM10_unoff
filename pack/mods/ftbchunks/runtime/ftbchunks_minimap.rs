@@ -9,7 +9,7 @@
 // FTB Chunks is All Rights Reserved: this is written from its behaviour; labels are its translation keys with our
 // own fallback wording.
 
-use super::{Game, ftbchunks_map, ftbteams_world};
+use super::{Game, ftbchunks_largemap, ftbchunks_map, ftbteams_world};
 use ftbchunks_core::waypoints::{self, AddWaypoint, PlayerDeath, Waypoints};
 use horizon_client::{
     extras::Corner,
@@ -87,7 +87,7 @@ fn enabled() -> bool {
 
 // ---- Waypoints --------------------------------------------------------------------------------------------
 
-fn folder(game: &Game<'_>, manager: &str, dim: &str) -> PathBuf {
+pub(super) fn folder(game: &Game<'_>, manager: &str, dim: &str) -> PathBuf {
     game.native_instance_dir().join("local").join("ftbchunks").join("data").join(manager).join(waypoints::dimension_dir(dim))
 }
 
@@ -157,16 +157,14 @@ fn small_text(game: &Game<'_>, batch: &mut HudBatch, text: &str, center: [f32; 2
     }
 }
 
-/// The claim screen's markers: the dimension's waypoints over the map (`origin` is the block at the map's top-left,
-/// `cell` GUI pixels a chunk), names above them; hidden ones faint.
-pub(super) fn draw_on_claim_map(game: &Game<'_>, batch: &mut HudBatch, map: [f32; 3], origin: [i32; 2], dim: &str) {
-    let [x, y, side] = map;
-    let per_block = side / ftbchunks_map::TILES as f32 / 16.0;
+/// The markers on a map (the claim screen's, the large map's): the dimension's waypoints inside `map.clip`, names
+/// above them; hidden ones faint.
+pub(super) fn draw_on_map(game: &Game<'_>, batch: &mut HudBatch, map: &MapFrame, dim: &str) {
+    let [x, y, cw, ch] = map.clip;
     let list = with_dim(game, dim, false, |w| w.waypoints.clone()).unwrap_or_default();
     for w in &list {
-        let px = x + (w.x - origin[0]) as f32 * per_block + per_block / 2.0;
-        let py = y + (w.z - origin[1]) as f32 * per_block + per_block / 2.0;
-        if px < x || py < y || px >= x + side || py >= y + side {
+        let [px, py] = map.point(w.x, w.z);
+        if px < x || py < y || px >= x + cw || py >= y + ch {
             continue;
         }
         let alpha = if w.hidden { 0x70 } else { 0xFF };
@@ -178,15 +176,12 @@ pub(super) fn draw_on_claim_map(game: &Game<'_>, batch: &mut HudBatch, map: [f32
 }
 
 /// The waypoint of `dim` nearest GUI point `p` on the claim screen, within 4 pixels.
-fn waypoint_at(game: &Game<'_>, map: [f32; 3], origin: [i32; 2], dim: &str, p: [f32; 2]) -> Option<usize> {
-    let [x, y, side] = map;
-    let per_block = side / ftbchunks_map::TILES as f32 / 16.0;
+fn waypoint_at(game: &Game<'_>, map: &MapFrame, dim: &str, p: [f32; 2]) -> Option<usize> {
     let list = with_dim(game, dim, false, |w| w.waypoints.clone())?;
     list.iter()
         .enumerate()
         .map(|(i, w)| {
-            let px = x + (w.x - origin[0]) as f32 * per_block + per_block / 2.0;
-            let py = y + (w.z - origin[1]) as f32 * per_block + per_block / 2.0;
+            let [px, py] = map.point(w.x, w.z);
             (i, (px - p[0]).hypot(py - p[1]))
         })
         .filter(|(_, d)| *d <= 4.0)
@@ -197,8 +192,8 @@ fn waypoint_at(game: &Game<'_>, map: [f32; 3], origin: [i32; 2], dim: &str, p: [
 /// A right click that changed nothing on the claim screen at GUI point `p` over block `block`: the menu FTB Chunks'
 /// map gives there (a waypoint's: hide or show, remove; elsewhere: a new waypoint). `free` is whether the chunk is
 /// unclaimed (a click on a claim unclaims it instead). True when a menu opened.
-pub(super) fn open_menu(game: &Game<'_>, map: [f32; 3], origin: [i32; 2], dim: &str, p: [f32; 2], block: [i32; 3], free: bool) -> bool {
-    let items = match waypoint_at(game, map, origin, dim, p) {
+pub(super) fn open_menu(game: &Game<'_>, map: &MapFrame, dim: &str, p: [f32; 2], block: [i32; 3], free: bool) -> bool {
+    let items = match waypoint_at(game, map, dim, p) {
         Some(i) => {
             let hidden = with_dim(game, dim, false, |w| w.waypoints[i].hidden).unwrap_or(false);
             let toggle = if hidden { tr("ftbchunks.label.show", "Show on the maps", &[]) } else { tr("ftbchunks.label.hide", "Hide on the maps", &[]) };
@@ -212,6 +207,24 @@ pub(super) fn open_menu(game: &Game<'_>, map: [f32; 3], origin: [i32; 2], dim: &
 }
 
 const ITEM_H: f32 = 12.0;
+
+/// A map on the screen (the claim screen's or the large map's): `clip` is the area it fills (`[x, y, w, h]` GUI
+/// pixels), block `origin`'s north-west corner is at GUI point `at`, and a block is `per_block` GUI pixels.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct MapFrame {
+    pub clip: [f32; 4],
+    pub at: [f32; 2],
+    pub per_block: f32,
+    pub origin: [i32; 2],
+}
+
+impl MapFrame {
+    /// The middle of block column `x, z`.
+    pub fn point(&self, x: i32, z: i32) -> [f32; 2] {
+        let k = self.per_block;
+        [self.at[0] + (x - self.origin[0]) as f32 * k + k / 2.0, self.at[1] + (z - self.origin[1]) as f32 * k + k / 2.0]
+    }
+}
 
 fn menu_width(game: &Game<'_>, menu: &Menu) -> f32 {
     menu.items.iter().map(|(l, _)| game.native_text_width(l)).fold(0.0, f32::max) + 8.0
@@ -289,7 +302,7 @@ fn rescan(game: &mut Game<'_>, origin: (i32, i32), dim: &str) -> (Vec<u8>, usize
     let mut tiles = 0;
     for v in 0..CHUNKS {
         for u in 0..CHUNKS {
-            let Some(tile) = game.native_map_tile([origin.0 + u, origin.1 + v]) else { continue };
+            let Some(tile) = ftbchunks_largemap::tile(game, dim, [origin.0 + u, origin.1 + v]) else { continue };
             tiles += 1;
             for row in 0..16 {
                 let o = ((v as usize * 16 + row) * SIDE + u as usize * 16) * 4;
@@ -341,7 +354,7 @@ fn info_lines(game: &Game<'_>, block: [i32; 3], dim: &str) -> Vec<(String, u32)>
 
 /// `native_hud`: the corner minimap.
 pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corners) {
-    let shown = enabled() && !ftbchunks_map::screen_open(game) && ftbchunks_map::manager().is_some();
+    let shown = enabled() && !ftbchunks_map::screen_open(game) && !ftbchunks_largemap::screen_open(game) && ftbchunks_map::manager().is_some();
     MINI.with(|m| m.borrow_mut().shown = false);
     let Some(p) = game.native_player().filter(|_| shown) else { return };
     let dim = p.dimension.to_string();

@@ -7,8 +7,11 @@
 // FTB Chunks is All Rights Reserved: this is written from its behaviour; the labels are its translation keys with
 // our own fallback wording.
 
-use super::{Game, ftbchunks_minimap, ftbteams_world};
-use ftbchunks_core::net::{self, ChangeRequest, ChangeResponse, ChunkInfo, GeneralData, ManyChunks, Op};
+use super::{Game, ftbchunks_largemap, ftbchunks_minimap, ftbteams_world};
+use ftbchunks_core::{
+    net::{self, ChangeRequest, ChangeResponse, ChunkInfo, GeneralData, ManyChunks, Op},
+    regions::{self, ForceLoadExpiry, OpenClaimGui},
+};
 use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
 use std::{
     cell::RefCell,
@@ -79,6 +82,12 @@ struct Client {
     layout: Layout,
     drag: Option<Drag>,
     outgoing: Vec<ChangeRequest>,
+    /// Other messages for the server (`update_force_load_expiry`).
+    messages: Vec<(&'static str, Vec<u8>)>,
+    /// The team the screen acts for (`open_claim_gui` from `/ftbchunks admin open_claim_gui_as`), and that screen
+    /// waiting to open.
+    as_team: Option<String>,
+    open_as: bool,
 }
 
 thread_local! {
@@ -118,6 +127,10 @@ pub(super) fn from_server(channel: &str, data: &[u8]) {
                 }
             }),
             net::CHANGE_RESPONSE => serde_json::from_slice::<ChangeResponse>(data).map(|r| c.response = Some((r, Instant::now()))),
+            regions::OPEN_CLAIM_GUI => serde_json::from_slice::<OpenClaimGui>(data).map(|o| {
+                c.as_team = Some(o.team);
+                c.open_as = true;
+            }),
             _ => return,
         };
         if let Err(e) = ok {
@@ -146,19 +159,28 @@ pub(super) fn screen_open(game: &Game<'_>) -> bool {
     game.native_mod_screen() == Some(MOD)
 }
 
-/// `native_key`: M (FTB Chunks' `key.ftbchunks.map`) opens the claim map while playing, and closes it.
+/// `native_key`: M (FTB Chunks' `key.ftbchunks.map`, which opens the large map) closes the claim screen.
 pub(super) fn key(game: &mut Game<'_>, key: &str, pressed: bool) {
-    if !pressed || key != game.native_mod_key(MOD, "map", "key.keyboard.m") {
-        return;
-    }
-    if screen_open(game) {
+    if pressed && screen_open(game) && key == game.native_mod_key(MOD, "map", "key.keyboard.m") {
         game.native_mod_screen_close(MOD);
-    } else if game.native_playing() {
-        open(game);
     }
 }
 
-fn open(game: &mut Game<'_>) -> bool {
+/// Every claimed chunk of `dim` the client knows, and its team (the large map's overlay).
+pub(super) fn claims_in(dim: &str) -> HashMap<(i32, i32), u128> {
+    CLIENT.with(|c| {
+        let c = c.borrow();
+        c.claims.iter().filter(|((d, _, _), _)| d == dim).map(|((_, x, z), (team, _))| ((*x, *z), *team)).collect()
+    })
+}
+
+/// Opens the claim screen for the player's own team.
+pub(super) fn open(game: &mut Game<'_>) -> bool {
+    CLIENT.with(|c| c.borrow_mut().as_team = None);
+    open_screen(game)
+}
+
+fn open_screen(game: &mut Game<'_>) -> bool {
     let Some(p) = game.native_player() else { return false };
     if !game.native_mod_screen_open(MOD) {
         return false;
@@ -182,15 +204,24 @@ fn open(game: &mut Game<'_>) -> bool {
 
 /// `native_frame`: the map's tiles a few a frame and their upload, and the requests the drags made.
 pub(super) fn frame(game: &mut Game<'_>) {
-    let outgoing = CLIENT.with(|c| std::mem::take(&mut c.borrow_mut().outgoing));
-    for request in outgoing {
-        let data = serde_json::to_vec(&request).unwrap_or_default();
-        if let Err(e) = game.native_net_send_to_server(net::CHUNK_CHANGE, &data) {
-            log::debug!("[ftbchunks] {}: {e}", net::CHUNK_CHANGE);
+    let (outgoing, messages, open_as) = CLIENT.with(|c| {
+        let mut c = c.borrow_mut();
+        let open_as = std::mem::take(&mut c.open_as);
+        (std::mem::take(&mut c.outgoing), std::mem::take(&mut c.messages), open_as)
+    });
+    let requests: Vec<_> = outgoing.iter().map(|r| (net::CHUNK_CHANGE, serde_json::to_vec(r).unwrap_or_default())).collect();
+    for (channel, data) in requests.into_iter().chain(messages) {
+        if let Err(e) = game.native_net_send_to_server(channel, &data) {
+            log::debug!("[ftbchunks] {channel}: {e}");
         }
     }
+    if open_as {
+        game.native_mod_screen_close(ftbchunks_largemap::SCREEN);
+        game.native_mod_screen_close(MOD);
+        open_screen(game);
+    }
     let shown = screen_open(game);
-    let (center, todo) = CLIENT.with(|c| {
+    let (center, dim, todo) = CLIENT.with(|c| {
         let mut c = c.borrow_mut();
         if !shown {
             if c.open {
@@ -198,9 +229,9 @@ pub(super) fn frame(game: &mut Game<'_>) {
             }
             c.open = false;
             c.drag = None;
-            return (c.center, 0);
+            return (c.center, String::new(), 0);
         }
-        (c.center, if c.filled { REFRESH_PER_FRAME } else { FILL_PER_FRAME })
+        (c.center, c.dim.clone(), if c.filled { REFRESH_PER_FRAME } else { FILL_PER_FRAME })
     });
     if todo == 0 {
         return;
@@ -211,7 +242,8 @@ pub(super) fn frame(game: &mut Game<'_>) {
     for k in 0..todo {
         let i = (start + k) % count;
         let (u, v) = ((i % TILES as usize) as i32, (i / TILES as usize) as i32);
-        let tile = game.native_map_tile([center.0 - HALF + u, center.1 - HALF + v]);
+        // The live tile where the chunk is loaded, else the region cache's (no dark disc round the player).
+        let tile = ftbchunks_largemap::tile(game, &dim, [center.0 - HALF + u, center.1 - HALF + v]);
         scanned.push((u, v, tile));
     }
     let upload = CLIENT.with(|c| {
@@ -308,13 +340,53 @@ pub(super) fn released(game: &Game<'_>, button: i32, canceled: &mut bool) {
         let bx = (cx - HALF) * 16 + ((drag.last[0] - layout.x) / per_block).floor() as i32;
         let bz = (cz - HALF) * 16 + ((drag.last[1] - layout.y) / per_block).floor() as i32;
         let y = game.native_player().map_or(64, |p| p.y.floor() as i32);
-        let origin = [(cx - HALF) * 16, (cz - HALF) * 16];
-        if ftbchunks_minimap::open_menu(game, [layout.x, layout.y, layout.side], origin, &dim, drag.last, [bx, y, bz], free) {
+        if ftbchunks_minimap::open_menu(game, &frame_of(layout, (cx, cz)), &dim, drag.last, [bx, y, bz], free) {
             return;
         }
     }
     let chunks = drag.chunks.iter().map(|&(u, v)| [cx - HALF + u, cz - HALF + v]).collect();
-    CLIENT.with(|c| c.borrow_mut().outgoing.push(ChangeRequest { op: Op::create(drag.left, drag.shift), chunks, admin: false, team: None }));
+    CLIENT.with(|c| {
+        let mut c = c.borrow_mut();
+        let team = c.as_team.clone();
+        c.outgoing.push(ChangeRequest { op: Op::create(drag.left, drag.shift), chunks, admin: false, team });
+    });
+}
+
+/// The claim screen's map as the waypoint markers see it.
+fn frame_of(layout: Layout, (cx, cz): (i32, i32)) -> ftbchunks_minimap::MapFrame {
+    let side = layout.side;
+    ftbchunks_minimap::MapFrame {
+        clip: [layout.x, layout.y, side, side],
+        at: [layout.x, layout.y],
+        per_block: side / TILES as f32 / 16.0,
+        origin: [(cx - HALF) * 16, (cz - HALF) * 16],
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
+
+/// `native_screen_mouse_scrolled_pre`: the wheel over a force-loaded chunk moves when it stops being force-loaded,
+/// by FTB Chunks' steps (`update_force_load_expiry`; the server takes it from a member of the claim's team).
+pub(super) fn scrolled(game: &Game<'_>, screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+    if !screen_open(game) || scroll[1] == 0.0 {
+        return;
+    }
+    *canceled = true;
+    CLIENT.with(|c| {
+        let mut c = c.borrow_mut();
+        let Some((u, v)) = Layout::of(screen.rect).at(screen.mouse) else { return };
+        let (x, z) = (c.center.0 - HALF + u, c.center.1 - HALF + v);
+        let Some((_, info)) = c.claims.get(&(c.dim.clone(), x, z)) else { return };
+        if info.force_loaded.is_none() {
+            return;
+        }
+        let left = info.expires.map_or(0, |at| ((at - now_ms()) / 1000).max(0));
+        let secs = regions::expiry_step(left, scroll[1] > 0.0);
+        let msg = ForceLoadExpiry { dim: c.dim.clone(), x, z, relative_ms: secs * 1000 };
+        c.messages.push((regions::FORCE_LOAD_EXPIRY, serde_json::to_vec(&msg).unwrap_or_default()));
+    });
 }
 
 fn argb(alpha: u32, rgb: u32) -> u32 {
@@ -379,8 +451,10 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
                     let step = cell / n as f32;
                     for k in 0..n {
                         let d = k as f32 * step + step / 2.0 - 1.0;
-                        game.native_fill(batch, [x + d, y + d, 2.0, 2.0], 0xE0FF4040);
-                        game.native_fill(batch, [x + cell - d - 2.0, y + d, 2.0, 2.0], 0xE0FF4040);
+                        // FTB Chunks tints its force-load mark with the team colour's opposite hue.
+                        let mark = argb(0xE0, regions::force_load_color(rgb));
+                        game.native_fill(batch, [x + d, y + d, 2.0, 2.0], mark);
+                        game.native_fill(batch, [x + cell - d - 2.0, y + d, 2.0, 2.0], mark);
                     }
                 }
             }
@@ -423,7 +497,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         }
         // The chunk under the pointer: its owner.
         if let Some((u, v)) = layout.at(screen.mouse)
-            && let Some((team, _)) = owner(u, v)
+            && let Some((team, info)) = owner(u, v)
         {
             let name = ftbteams_world::with_client(|t| {
                 t.teams.get(team).and_then(|t| t.properties.get("ftbteams:display_name").cloned())
@@ -431,14 +505,19 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
             if let Some(name) = name {
                 game.native_text(batch, &name, [screen.mouse[0] + 8.0, screen.mouse[1] - 10.0], 0xFFFFFF, true);
             }
+            if let Some(at) = info.expires.filter(|_| info.force_loaded.is_some()) {
+                let left = ((at - now_ms()) / 1000).max(0);
+                let time = format!("{}h {}m", left / 3600, left % 3600 / 60);
+                let line = tr("ftbchunks.gui.force_load_expires", "Kept loaded for %s more", &[time]);
+                game.native_text(batch, &line, [screen.mouse[0] + 8.0, screen.mouse[1]], 0xFFFFAA, true);
+            }
         }
     });
     let (cx, cz, dim) = CLIENT.with(|c| {
         let c = c.borrow();
         (c.center.0, c.center.1, c.dim.clone())
     });
-    let origin = [(cx - HALF) * 16, (cz - HALF) * 16];
-    ftbchunks_minimap::draw_on_claim_map(game, batch, [layout.x, layout.y, layout.side], origin, &dim);
+    ftbchunks_minimap::draw_on_map(game, batch, &frame_of(layout, (cx, cz)), &dim);
     ftbchunks_minimap::draw_menu(game, batch, screen.mouse);
 }
 
@@ -449,6 +528,7 @@ pub(super) fn client_commands(commands: &mut Vec<&'static str>) {
     if dev() {
         commands.push("ftbchunksclient");
         commands.push("ftbchunksmap");
+        commands.push("ftbchunksbigmap");
     }
 }
 
@@ -461,14 +541,21 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
     match command.split_whitespace().next() {
         Some("ftbchunksmap") => {
             *ran = true;
+            game.native_mod_screen_close(ftbchunks_largemap::SCREEN);
             let opened = open(game);
             game.native_chat(&format!("FTBCC {}", serde_json::json!({ "opened": opened })));
+        }
+        Some("ftbchunksbigmap") => {
+            *ran = true;
+            let reply = ftbchunks_largemap::command(game, command.trim_start_matches("ftbchunksbigmap"));
+            game.native_chat(&format!("FTBCC {reply}"));
         }
         Some("ftbchunksclient") => {
             *ran = true;
             let open = screen_open(game);
             let dim = game.native_player().map(|p| p.dimension.to_string()).unwrap_or_default();
             let minimap = ftbchunks_minimap::probe(game, &dim);
+            let large = ftbchunks_largemap::probe();
             let json = CLIENT.with(|c| {
                 let c = c.borrow();
                 let mut by_team: HashMap<String, (u32, u32)> = HashMap::new();
@@ -493,6 +580,8 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
                     "filled": c.filled,
                     "uploaded": c.uploaded.is_some(),
                     "minimap": minimap,
+                    "as_team": c.as_team,
+                    "large": large,
                 })
             });
             game.native_chat(&format!("FTBCC {json}"));

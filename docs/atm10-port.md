@@ -218,7 +218,7 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   `python3 tools/stamp_native_hooks.py --only <fragment>` (upstream's pending fragments stay as they are), and
   `cargo run -p xtask -- mod-api`, which fills the placeholder with the dispatch; the `Hooks` trait, the dispatch and
   the `Host` helpers are generated into `OUT_DIR` at build time (upstream's 9116ac391), none of it is committed.
-  The fork's hooks are APIs 416-431 since the merge of upstream 21a750533 (whose latest was 415): Forge Energy 416, a
+  The fork's hooks are APIs 416-432 since the merge of upstream 21a750533 (whose latest was 415): Forge Energy 416, a
   machine's item and slots 417, the block entity lifecycle 418, biome climate and dimension type 419, a bundle's opt-in
   to entity joins and leaves 420, the world's cooking recipes for a mod's machines 421, fluid handlers 422, the
   content's data files 423, an item's use on a block 424, a container's insert slots and `native_pop_resource` 425,
@@ -227,8 +227,9 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   a loaded chunk's map picture for mods' maps (`native_map_tile` over the minimap extra's scanner, FTB Chunks' claim
   screen) 428,
   a mod asking the recipe viewer for a stack's recipes or uses (`native_show_recipes`, `recipe_lookup`; JEI's bundle) 429,
-  the area a mod's item panel takes, for a window drawn over the screen (`native_panel_area`; JEI's recipe window) 431
-  (430 is unused).
+  the area a mod's item panel takes, for a window drawn over the screen (`native_panel_area`; JEI's recipe window) 431,
+  closing the open inventory screen from a mod (`native_close_inventory`; FTB Library's sidebar buttons, FTB Chunks'
+  bundle) 432 (430 is unused).
   At each merge the fork's take the numbers after upstream's latest again, in the same order: the merge notes'
   `fork_hooks.py unstamp` turns the stamped numbers back into fragments, then each is stamped with `--only`. The
   fork's biome helper is `native_biome_climate` (upstream's `native_biome` gives the id alone); `native_default_state`

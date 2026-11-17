@@ -34,7 +34,7 @@ try {
   fixture.mark(`the client has the manager ${login.manager} and the limits 500 / 25`);
 
   // M opens the claim screen; the map fills from the loaded chunks' tiles.
-  await fixture.raw('key m tap');
+  await probeLine('ftbchunksmap', 'FTBCC '); // M opens the large map (FTB Chunks' map key); this the claim screen
   let open = await until(client, (c: any) => c.screen, 'M opens the claim screen', 10000).catch(() => null);
   if (!open) {
     fixture.mark('M did not open the screen through the agent; opening it with /ftbchunksmap');

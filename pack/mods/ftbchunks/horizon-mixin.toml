@@ -35,6 +35,12 @@ file = "crates/horizon-client/src/game.rs"
 name = "ftbchunks_map"
 source = "runtime/ftbchunks_map.rs"
 
+[[module]]
+id = "largemap"
+file = "crates/horizon-client/src/game.rs"
+name = "ftbchunks_largemap"
+source = "runtime/ftbchunks_largemap.rs"
+
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
@@ -316,6 +322,19 @@ helper = "hooks/screen_mouse_dragged_pre.rs"
 bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "mouse-scrolled"
+hook = "screen_mouse_scrolled_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_scrolled_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "scroll", ty = "[f64; 2]", value = "scroll" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
 

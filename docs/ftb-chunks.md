@@ -1,29 +1,29 @@
 # FTB Chunks, FTB Teams and JourneyMap on this fork
 
-> **Handoff (2026-11-13, branch `feat/ftb-chunks`, worktree `atm10-wt/megacells`): slices 1 to 4 are done and pass;
-> slice 4 (waypoints, the death waypoint, the corner minimap) is the commit `FTB Chunks, slice 4: waypoints and the
-> minimap` after `98e7f297db`. Next: slice 5, below.**
+> **Handoff (2026-11-17, branch `feat/ftb-chunks`, worktree `atm10-wt/megacells`): slices 1 to 5 are done and pass
+> (`ftbteams/teams` 29 checks, `ftbchunks/claims` 22, `ftbchunks/map` 4, `ftbchunks/waypoints` 5, `ftbchunks/region-map` 7;
+> units: ftbteams-core 16, ftbchunks-core 21). Slice 5 is the commit `FTB Chunks, slice 5: the large map and its region
+> cache` after `e41296604e`: the region cache (`ftbchunks-core/src/regions.rs`, `runtime/ftbchunks_largemap.rs`), the large
+> map (M), the sidebar buttons on the inventory (new engine API 432 `native_close_inventory`), the action-bar notice, and
+> the messages `update_force_load_expiry`, `teleport_from_map`, `open_claim_gui`. What it does and how it is tested:
+> `pack/mods/ftbchunks/NOTES.md`, "Slice 5". Build and test: `atm10-work/ftb-work/ftb.sh` (`units stage build world`,
+> `FTB_LIST=ftbchunks/region-map` and so on).**
 >
-> **Slice 5, the plan.**
-> 1. *The large map* (FTB Chunks' large map screen; M opens only the claim screen today): pan with the mouse, zoom, and a
->    region cache so chunks the client has not loaded show too. Keep the cache next to the waypoints
->    (`<instance>/local/ftbchunks/data/<manager>/<dim>/`), one file a 32x32-chunk region, filled from `native_map_tile`
->    as chunks load (a scan is 1024 bytes a chunk). The claim screen (31x31 chunks round the player) and the minimap (5x5)
->    both read live tiles today: make both read the cache first with the live tile over it, which also removes the dark
->    disc round the player on the claim screen. Waypoint markers and the right-click menu exist on the claim screen
->    (`ftbchunks_map.rs`, `ftbchunks_minimap.rs`: `render`, `open_menu`, `menu_click`): reuse them on the large map.
->    The shared mod image slot (`native_mod_image`) is taken by one picture at a time: `image_taken` makes the minimap
->    upload again after the claim screen; a large map that draws from the cache needs the same care (or several slots).
-> 2. *The sidebar button*: FTB Library's `ftbchunks:chunks` / `ftbchunks:map` buttons on the inventory screen, opening
->    the claim screen and the map. Needs a way to add a button to the inventory screen: look at the screen hooks first.
-> 3. *The action-bar notice on entering a claim*: server side, a line over the hotbar when the player's chunk changes to
->    another team's claim or back to wilderness (from the player's block each tick, as `remember_alive` does for the
->    death spot); translation key plus our own fallback.
-> 4. *The server messages left*: `update_force_load_expiry`, `teleport_from_map`, `open_claim_gui` (`player_death` is
->    done in slice 4).
-> Polish noted from slice 3's screenshot: the force-load cross is always red, so it nearly vanishes on a red team (use a
-> contrasting colour).
+> **What is left** (the plan's remaining items; the details are in each bundle's `NOTES.md`, "Not done yet"):
+> 1. *Client, the maps.* FTB's waypoint manager and settings screens on the large map, a dimension switch, the chunk grid
+>    toggle, other players on the map, releasing a region after `region_release_time`, the sidebar on the creative
+>    inventory, reading `ftbchunks-client.snbt` (the options are the defaults), in-world waypoint beacons,
+>    `death_waypoint_autoremove_distance`, waypoint sharing.
+> 2. *Server, FTB Chunks.* `ClaimExpirationManager` (idle days and force-load expiry: the fields are kept and saved, nothing
+>    expires), PvP modes, mob griefing (endermen), fire spread and fluid flow across borders, farmland trampling and the
+>    other interaction rules, spawning near force-loaded chunks, FTB Ranks permissions, the `ftbchunks:*` team properties
+>    (needs an open property registry in `ftbteams-core`), admin feedback to other operators, team name completions.
+> 3. *Engine gaps* (none blocks the slices): a cancellable mob-griefing check, `native_living_incoming_damage` with the
+>    `Game`, spawning in force-loaded chunks with nobody near, entity type tags on the server.
 >
+> JourneyMap is not on this list: its licence forbids reverse-engineering, so it will not be ported (the minimap is on by
+> default here because no other minimap mod is built in).
+
 > **Slice 4, waypoints and the minimap (done).**
 > - *Written.* Crate `ftbchunks-core/src/waypoints.rs`: `Waypoint`/`Waypoints` with FTB's `waypoints.json` keys
 >   (`hidden`, `name`, `x`, `y`, `z`, `color` `#RRGGBB`, `type` `default`|`death`; checked with `javap` on
@@ -242,8 +242,7 @@ Gaps, to add the smallest way through `tools/native-hook-fragments/` (docs/atm10
 slice needs them:
 1. **Map tiles for mods** (done in slice 3): API 428 `native_map_tile(chunk) -> Option<[u8; 1024]>` reads the minimap
    extra's cache (a scan for a chunk not yet scanned) and `native_mod_image` uploads a dynamic RGBA image a screen draws.
-   Still to build in the bundles: the region cache of explored chunks (FTB: 512x512 regions; JourneyMap: 512x512 PNG
-   tiles) that outlives the extra's tiles.
+   The region cache of explored chunks that outlives the extra's tiles is built (slice 5, `ftbchunks_largemap.rs`).
 2. **Spawning near force-loaded chunks** (`anyPlayerCloseEnoughForSpawning`): a hook or a ticket flag.
 3. **Fake players** (`PlayerHooks.isFake`): `native_is_player_fake` exists; machines that break blocks without a
    player (AE2's annihilation plane, Mekanism's digital miner) don't reach `destroy_block` at all, so `fake_players
@@ -285,7 +284,7 @@ and the claim screen read (claim colours, ally checks).
    breaking and placing while a member is not; limits refuse the 501st claim and the 26th force-load; a force-loaded
    furnace keeps smelting with the member 400 blocks away; the claims and tickets after a restart; the tickets go
    when nobody of the team is on; the admin bypass. Done in slice 3 with the client: `request_chunk_change`,
-   `send_many_chunks` (the action-bar notice is slice 5); left in `pack/mods/ftbchunks/NOTES.md`: PvP, mob griefing, fire and
+   `send_many_chunks` (the action-bar notice came in slice 5); left in `pack/mods/ftbchunks/NOTES.md`: PvP, mob griefing, fire and
    fluid borders, `ftbchunks:*` team properties, expiry.
 3. **FTB Chunks client: the claim map** (done): the map tile helper (gap 1, API 428), the claim screen (M) with drag
    selection sending one request on release, claim and force-load overlays in team colours, the counters, the server's
@@ -294,8 +293,12 @@ and the claim screen read (claim colours, ally checks).
 4. **FTB Chunks client: waypoints, death waypoint, corner minimap** (done; the minimap is on by default here, see the
    handoff). *World test* `pack/mods/ftbchunks/tests/waypoints.ts`: the minimap drawn top right, `/ftbchunks waypoint add`
    and the claim screen's menu write `waypoints.json`, a death leaves the red `Death #n` waypoint, four screenshots.
-5. **FTB Chunks client: the large map** (pan, zoom, region cache), the sidebar button, the action-bar notice and the
-   server's remaining messages (see the handoff).
+5. **FTB Chunks client: the large map** (done): pan, zoom, the region cache (own file format, FTB's region file names), the
+   sidebar buttons (engine API 432), the action-bar notice and the server's remaining messages. *World test*
+   `pack/mods/ftbchunks/tests/region-map.ts`: the cache fills, the notice out of and into a claim, the spawn chunk stays
+   cached 1500 blocks away and after a restart, M, a drag, the wheel, the claim screen over cached terrain, the sidebar
+   button, five screenshots.
+6. **What is left**: the block at the top of this file.
 JourneyMap is not in the slices: its licence forbids reverse-engineering, so it will not be ported.
 
 ## Handoff

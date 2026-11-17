@@ -65,7 +65,7 @@ try {
   log.minimap = { rect: c.minimap.rect, shot: hudShot };
 
   // The claim screen: markers, and its right-click menu.
-  await fixture.raw('key m tap');
+  await probeLine('ftbchunksmap', 'FTBCC '); // M opens the large map (FTB Chunks' map key); this the claim screen
   let open = await until(client, (c: any) => c.screen && c.filled && c.uploaded && c.cell > 0, 'the claim screen is open and filled', 20000)
     .catch(async () => { await probeLine('ftbchunksmap', 'FTBCC '); return until(client, (c: any) => c.screen && c.filled && c.uploaded, 'opened by /ftbchunksmap', 20000); });
   const [ox, oy] = open.map, cell = open.cell;

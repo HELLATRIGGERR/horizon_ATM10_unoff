@@ -8,6 +8,7 @@
 //!
 //! API 428 adds `native_map_tile`: a loaded chunk's 16x16 picture from the minimap extra's scanner, for a mod's map.
 //! API 431 adds the area a mod's item panel takes on the open screen (`native_panel_area`), for a window the mod draws over the screen.
+//! API 432 adds closing the open inventory screen from a mod (`native_close_inventory`), so a button the mod draws on it can open the mod's own screen.
 //!
 //! API 429 adds a mod asking the recipe viewer to show a stack's recipes or uses, or to act on a key over it (`native_show_recipes`, heard as `native_recipe_lookup`).
 //!
@@ -1144,7 +1145,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 431;
+pub(crate) const NATIVE_HOOKS_API: u32 = 432;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -11848,6 +11849,20 @@ impl Game<'_> {
         self.right = false;
         self.mining = None;
         self.capture(false);
+        true
+    }
+    /// Closes the open inventory screen (the player's own, or a container's: every window
+    /// that draws on the inventory screen) as E or Escape does, items held on the cursor
+    /// and in the crafting grid going back as there, so a mod can open its own screen
+    /// (`native_mod_screen_open`) from a button it draws on the inventory (FTB Library's
+    /// sidebar). False when no inventory screen is open. Client-side. API 432.
+    pub(super) fn native_close_inventory(&mut self) -> bool {
+        if self.screen != Screen::Inventory {
+            return false;
+        }
+        self.close_container();
+        self.screen = Screen::Playing;
+        self.capture(true);
         true
     }
     /// Closes mod `mod_id`'s own screen, if it is open. API 111.

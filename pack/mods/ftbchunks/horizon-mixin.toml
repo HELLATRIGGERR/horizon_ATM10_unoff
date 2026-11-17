@@ -216,6 +216,33 @@ bindings = [
 ]
 
 [[injection]]
+id = "block-spread"
+hook = "block_spread"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_spread.rs"
+bindings = [
+  { name = "dimension", ty = "crate::game::LevelDimension", value = "dimension" },
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "from", ty = "horizon_core::position::BlockPos", value = "from" },
+  { name = "to", ty = "horizon_core::position::BlockPos", value = "to" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "living-damage"
+hook = "living_incoming_damage"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/living_incoming_damage.rs"
+bindings = [
+  { name = "entity", ty = "i32", value = "entity" },
+  { name = "kind", ty = "&str", value = "kind" },
+  { name = "causing", ty = "i32", value = "causing" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
 id = "piston"
 hook = "piston_move"
 hook_version = 1

@@ -14,7 +14,7 @@ use ftbchunks_core::{
     net, regions, waypoints,
 };
 use ftbteams_core::{
-    Manager,
+    Manager, PropKind, PropertyDef,
     ftblib::{
         parse_uuid,
         snbt::{self, Compound, Value},
@@ -45,6 +45,15 @@ struct Server {
     logins: Vec<Uuid>,
     /// Claims may have changed since `sent`: tell the clients at the next tick.
     publish: bool,
+    /// FTB Chunks' team properties are on FTB Teams' manager (done at the first tick of the world).
+    registered: bool,
+    /// Server ticks since the world opened, and when the claims last expired (`ClaimExpirationManager`).
+    ticks: u64,
+    last_sweep: i64,
+    /// A sweep at the next tick whatever the schedule says (the dev command).
+    sweep_now: bool,
+    /// When a player who hit a player where it is not allowed was last told (3 s apart).
+    pvp_noticed: BTreeMap<Uuid, i64>,
 }
 
 thread_local! {
@@ -337,7 +346,13 @@ pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
                 sent: BTreeMap::new(),
                 logins: Vec::new(),
                 publish: true,
+                registered: false,
+                ticks: 0,
+                last_sweep: 0,
+                sweep_now: false,
+                pvp_noticed: BTreeMap::new(),
             };
+            SPREAD_GUARD.with(|g| g.set((server.chunks.config.fire_spread_protection, server.chunks.config.flowing_fluid_protection)));
             SERVER.with(|s| *s.borrow_mut() = Some(server));
         }
         WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => saved_and(true),
@@ -366,7 +381,9 @@ pub(super) fn saved() {
 
 /// `native_server_tick`: the team events (claims follow a player into a party and back), then the tickets.
 pub(super) fn tick(game: &mut Game<'_>) {
+    register_properties();
     remember_alive(game);
+    tell_pvp(game);
     claim_notices(game);
     let events = ftbteams_world::take_events();
     let Some(changes) = with(|server, view| {
@@ -396,10 +413,17 @@ pub(super) fn tick(game: &mut Game<'_>) {
                     chunks.teams.remove(team);
                     chunks.dirty.insert(*team);
                 }
-                Event::OwnershipTransferred { party, .. } | Event::PropertiesChanged { team: party } => {
+                Event::OwnershipTransferred { party, .. } => {
                     if let Some(t) = view.team(*party) {
                         chunks.update_limits(&t);
                     }
+                }
+                Event::PropertiesChanged { team } => {
+                    if let Some(t) = view.team(*team) {
+                        chunks.update_limits(&t);
+                    }
+                    // `claim_visibility` may have changed: the team's chunks go out again, to each as they may see them.
+                    server.sent.retain(|_, c| c.team != *team);
                 }
                 Event::LoggedIn { team, .. } => {
                     if let Some(t) = view.team(*team) {
@@ -411,6 +435,25 @@ pub(super) fn tick(game: &mut Game<'_>) {
                     }
                 }
                 Event::Ally { .. } => {}
+            }
+        }
+        server.ticks += 1;
+        let now = now_ms();
+        if std::mem::take(&mut server.sweep_now) || (server.ticks & 63 == 0 && now - server.last_sweep > SWEEP_EVERY_MS) {
+            server.last_sweep = now;
+            let out = server.chunks.expire(view, now);
+            for (team, pos) in &out.expired_loads {
+                log::info!("[ftbchunks] chunk {pos:?} of {} stops being kept loaded: its time ran out", uuid_string(*team));
+            }
+            for (team, n) in &out.idle_unclaimed {
+                log::info!("[ftbchunks] {} was away too long: {n} claimed chunk(s) given up", uuid_string(*team));
+            }
+            for (team, n) in &out.idle_unforced {
+                log::info!("[ftbchunks] {} was away too long: {n} force-loaded chunk(s) let go", uuid_string(*team));
+            }
+            if !out.is_empty() {
+                server.resync_in = 0;
+                server.publish = true;
             }
         }
         if !events.is_empty() {
@@ -437,6 +480,118 @@ pub(super) fn tick(game: &mut Game<'_>) {
         }
     }
     publish(game);
+}
+
+/// `ClaimExpirationManager` looks at most this often (10 minutes), on a tick divisible by 64.
+const SWEEP_EVERY_MS: i64 = 600_000;
+
+/// `TeamCollectPropertiesEvent`: FTB Chunks' properties go on FTB Teams' manager, with the config's defaults.
+fn register_properties() {
+    let specs = SERVER.with(|s| s.borrow().as_ref().filter(|s| !s.registered).map(|s| s.chunks.config.prop_defaults.specs()));
+    let Some(specs) = specs else { return };
+    let done = ftbteams_world::with_manager(|m| {
+        for spec in specs {
+            let kind = match spec.kind {
+                ftbchunks_core::SpecKind::Bool => PropKind::Bool,
+                ftbchunks_core::SpecKind::List => PropKind::List,
+                ftbchunks_core::SpecKind::Privacy => PropKind::Choice(vec!["allies", "private", "public"]),
+            };
+            m.register_property(PropertyDef {
+                id: spec.id,
+                kind,
+                default: spec.default,
+                name_key: spec.name_key,
+                name_en: spec.name_en,
+                player_editable: true,
+            });
+        }
+    });
+    if done.is_some() {
+        SERVER.with(|s| {
+            if let Some(server) = s.borrow_mut().as_mut() {
+                server.registered = true;
+            }
+        });
+    }
+}
+
+thread_local! {
+    /// `fire_spread_protection`, `flowing_fluid_protection`: both off (the default) and a flow costs nothing.
+    static SPREAD_GUARD: std::cell::Cell<(bool, bool)> = const { std::cell::Cell::new((false, false)) };
+    /// The players' entity ids this session (the hooks that only know ids), as of the last tick.
+    static BY_ENTITY: RefCell<BTreeMap<i32, Uuid>> = const { RefCell::new(BTreeMap::new()) };
+    /// Players to tell that a hit was refused (the hook has no game to talk to).
+    static PVP_TOLD: RefCell<Vec<Uuid>> = const { RefCell::new(Vec::new()) };
+}
+
+/// `native_block_spread`: fire or a fluid does not cross into another team's claim (`fire_spread_protection`,
+/// `flowing_fluid_protection`).
+pub(super) fn block_spread(
+    dimension: &str,
+    kind: &str,
+    from: horizon_core::position::BlockPos,
+    to: horizon_core::position::BlockPos,
+    canceled: &mut bool,
+) {
+    let fire = kind == "fire";
+    let (fire_on, fluid_on) = SPREAD_GUARD.with(|g| g.get());
+    if *canceled || !(if fire { fire_on } else { fluid_on }) {
+        return;
+    }
+    let refused = with(|server, view| {
+        server.chunks.refuses_spread(view, dimension, fire, [from.x, from.y, from.z], [to.x, to.y, to.z])
+    });
+    *canceled = refused.unwrap_or(false);
+}
+
+/// `native_living_incoming_damage`: a player hurting a player (an arrow's shooter counts) where `pvp_mode` forbids it.
+/// Positions are the players' blocks as of the last tick; the attacker is told at the next one.
+pub(super) fn living_damage(victim: i32, kind: &str, causing: i32, canceled: &mut bool) {
+    let always = SERVER.with(|s| s.borrow().as_ref().is_none_or(|s| s.chunks.config.pvp_mode == ftbchunks_core::PvpMode::Always));
+    if *canceled || causing == 0 || kind != "minecraft:player" || always {
+        return;
+    }
+    let ids = BY_ENTITY.with(|b| {
+        let b = b.borrow();
+        Some((*b.get(&causing)?, *b.get(&victim)?))
+    });
+    let Some((attacker, target)) = ids else { return };
+    let spots = ALIVE.with(|a| {
+        let a = a.borrow();
+        Some((a.get(&attacker)?.clone(), a.get(&target)?.clone()))
+    });
+    let Some(((a_dim, a), (v_dim, v))) = spots else { return };
+    let refused = with(|server, view| server.chunks.refuses_pvp(view, &chunk_of(&a_dim, a[0], a[2]), &chunk_of(&v_dim, v[0], v[2])));
+    if refused == Some(true) {
+        *canceled = true;
+        PVP_TOLD.with(|t| t.borrow_mut().push(attacker));
+    }
+}
+
+/// The players whose hit was refused where the hook had no game: told now.
+fn tell_pvp(game: &mut Game<'_>) {
+    let told: Vec<Uuid> = PVP_TOLD.with(|t| std::mem::take(&mut *t.borrow_mut()));
+    for player in told {
+        tell_pvp_to(game, player);
+    }
+}
+
+/// The line a player gets for a refused hit, at most every 3 seconds.
+fn tell_pvp_to(game: &mut Game<'_>, player: Uuid) {
+    let now = now_ms();
+    let due = SERVER.with(|s| {
+        let mut s = s.borrow_mut();
+        let Some(server) = s.as_mut() else { return false };
+        let last = server.pvp_noticed.entry(player).or_insert(i64::MIN / 2);
+        let due = now - *last >= 3000;
+        if due {
+            *last = now;
+        }
+        due
+    });
+    if due {
+        game.native_action_bar(player, text(&commands::no_pvp()));
+    }
 }
 
 fn resync_soon() {
@@ -777,11 +932,25 @@ fn nonliving(kind: &str) -> bool {
         || name.contains("minecart")
 }
 
-/// `native_attack_entity`: for non-living targets.
+/// `native_attack_entity`: a blow on a player is PvP (`pvp_mode`); on a non-living target ATTACK_NONLIVING_ENTITY.
 pub(super) fn attack_entity(game: &mut Game<'_>, kind: &str, pos: [f64; 3], canceled: &mut bool) {
-    if !*canceled && nonliving(kind) {
+    if *canceled {
+        return;
+    }
+    if kind == "minecraft:player" {
+        if let Some(attacker) = game.native_acting_player().filter(|p| melee_refused(p, pos)).map(|p| p.uuid) {
+            *canceled = true;
+            tell_pvp_to(game, attacker);
+        }
+    } else if nonliving(kind) {
         *canceled = !check(game, pos.map(|v| v.floor() as i32), Protection::AttackNonLiving, false);
     }
+}
+
+/// Whether `attacker`'s blow on a player standing at `victim` is refused: either stands in a claim `pvp_mode` guards.
+fn melee_refused(attacker: &NativeServerPlayer, victim: [f64; 3]) -> bool {
+    let at = |v: [f64; 3]| chunk_of(&attacker.dimension, v[0].floor() as i32, v[2].floor() as i32);
+    with(|server, view| server.chunks.refuses_pvp(view, &at(attacker.position), &at(victim))).unwrap_or(false)
 }
 
 /// `native_explosion_detonate`: claimed blocks of teams that don't allow explosions stay.
@@ -824,6 +993,7 @@ pub(super) fn register(commands: &mut Vec<NativeCommand>) {
     }
     if dev() {
         commands.push(NativeCommand::op("ftbchunks_probe", 2));
+        commands.push(NativeCommand::op("ftbchunks_probe_pvp <x:integer> <z:integer>", 2));
     }
 }
 
@@ -837,6 +1007,18 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
         *ran = true;
         let probe = with(|server, view| probe(server, view)).unwrap_or_else(|| serde_json::json!({ "error": "no claims on this side" }));
         game.native_feedback(Text::literal(format!("FTBC {probe}")));
+        return;
+    }
+    if first == "ftbchunks_probe_pvp" && dev() {
+        // What a blow from this player on a player at block (x, z) meets, and a hit that names the player as its own shooter.
+        *ran = true;
+        let xz: Vec<f64> = command.split_whitespace().skip(1).filter_map(|w| w.parse().ok()).collect();
+        let victim = [xz.first().copied().unwrap_or(0.0) + 0.5, 0.0, xz.get(1).copied().unwrap_or(0.0) + 0.5];
+        let attack = melee_refused(player, victim);
+        let mut shot = false;
+        living_damage(player.entity_id, "minecraft:player", player.entity_id, &mut shot);
+        PVP_TOLD.with(|t| t.borrow_mut().clear());
+        game.native_feedback(Text::literal(format!("FTBP {}", serde_json::json!({ "attack": attack, "shot": shot }))));
         return;
     }
     if first != "ftbchunks" && first != "chunks" {
@@ -922,6 +1104,11 @@ fn remember_alive(game: &Game<'_>) {
             a.insert(p.uuid, (p.dimension.clone(), p.position.map(|v| v.floor() as i32)));
         }
     });
+    BY_ENTITY.with(|b| {
+        let mut b = b.borrow_mut();
+        b.clear();
+        b.extend(players.iter().filter(|p| p.entity_id != 0).map(|p| (p.entity_id, p.uuid)));
+    });
 }
 
 /// `native_player_died`: the spot (as of the last tick) is kept for the respawn.
@@ -963,7 +1150,7 @@ fn probe(server: &Server, view: &View<'_>) -> serde_json::Value {
         .claims
         .iter()
         .take(64)
-        .map(|(p, cl)| serde_json::json!({ "dim": p.0, "x": p.1, "z": p.2, "team": uuid_string(cl.team), "force_loaded": cl.force_loaded > 0 }))
+        .map(|(p, cl)| serde_json::json!({ "dim": p.0, "x": p.1, "z": p.2, "team": uuid_string(cl.team), "force_loaded": cl.force_loaded > 0, "expiry": cl.expiry }))
         .collect();
     let held: Vec<serde_json::Value> =
         server.held.iter().map(|(t, p)| serde_json::json!({ "team": uuid_string(*t), "dim": p.0, "x": p.1, "z": p.2 })).collect();
@@ -975,6 +1162,16 @@ fn probe(server: &Server, view: &View<'_>) -> serde_json::Value {
         "total_claims": c.claims.len(),
         "held": held,
         "bypass": bypass,
-        "config": { "max_claimed_chunks": c.config.max_claimed_chunks, "max_force_loaded_chunks": c.config.max_force_loaded_chunks },
+        "config": {
+            "max_claimed_chunks": c.config.max_claimed_chunks,
+            "max_force_loaded_chunks": c.config.max_force_loaded_chunks,
+            "pvp_mode": format!("{:?}", c.config.pvp_mode),
+            "fire_spread_protection": c.config.fire_spread_protection,
+            "flowing_fluid_protection": c.config.flowing_fluid_protection,
+            "max_idle_days_before_unclaim": c.config.max_idle_days_before_unclaim,
+            "max_idle_days_before_unforce": c.config.max_idle_days_before_unforce,
+        },
+        "properties": view.m.registry.len(),
+        "sweeps": server.last_sweep > 0,
     })
 }

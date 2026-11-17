@@ -2,7 +2,7 @@
 
 Slices 2 (the server), 3 (the claim screen, its messages, the map tile API 428), 4 (waypoints, the death waypoint, the
 corner minimap) and 5 (the large map with its region cache, the sidebar buttons, the action-bar notice, the last server
-messages) of docs/ftb-chunks.md are done; what is left is the handoff at the top of that file. FTB Chunks 2101.1.22 is All Rights Reserved (FTB): the crate
+messages) and 6 (team properties and the claim rules) of docs/ftb-chunks.md are done; what is left is the handoff at the top of that file. FTB Chunks 2101.1.22 is All Rights Reserved (FTB): the crate
 reimplements its behaviour; nothing of it is copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world` (this PC:
 `atm10-work/ftb-work/ftb.sh`; `FTB_LIST=ftbchunks/claims`, `ftbchunks/map`, `ftbchunks/waypoints` or `ftbchunks/region-map` for this bundle's world tests).
 
@@ -65,16 +65,49 @@ reimplements its behaviour; nothing of it is copied. Build and test: `bun run pa
 - Not done: FTB's waypoint manager and settings screens on the large map, a dimension switch, the chunk grid toggle, other
   players on the map, releasing a region after `region_release_time`, the sidebar on the creative inventory.
 
+## Slice 6: team properties and the claim rules
+
+- *Team properties.* FTB Teams' `Prop` is closed, so `ftbteams-core` has an open registry (`PropertyDef`: id, `PropKind` Bool, Text, Int,
+  List or Choice, the default text, the label's key and fallback; `Manager::register_property`, `PropRef`). The settings commands
+  (`party settings`, `party settings_for`, `server settings`) look an id up in the core enum, then in the registry; a registered
+  value is kept in `Properties::other` in its file form (flag, privacy name, list of strings), so the team files read as FTB's
+  do. FTB Chunks puts its twelve on it (`Props::specs()`, `ftbchunks_world::register_properties`, at the first tick of each
+  world, because the bundles' lifecycle order is not ours to rely on) with the defaults of `team_prop_defaults`; the labels are
+  `ftbteamsconfig.ftbchunks.<name>` with fallbacks of our own. `claim_visibility`: a `PropertiesChanged` event drops the team's
+  chunks from `sent`, so the next `publish` sends them again, each recipient as they may see them (`net::sees_claims`).
+- *PvP* (`pvp_mode`, `allow_pvp`; `Chunks::refuses_pvp`): a blow on a player comes through `attack_entity` (the acting player
+  is the attacker, the hook's position the victim's), a shot through `living_incoming_damage` v1, whose `causing` is the shooter
+  (v1 names no melee attacker, which is why the blow has its own hook). The shooter and victim come from the players' entity
+  ids (`BY_ENTITY`) and their blocks as of the last tick (`ALIVE`); the hook has no game, so the shooter's notice
+  (`ftbchunks.message.no_pvp`, action bar, 3 s apart) goes out at the next tick. `never` refuses when either stands in a claim,
+  `per_team` when it is a claim whose team turned `allow_pvp` off, `always` (the default) never.
+- *Fire and fluids* (`fire_spread_protection`, `flowing_fluid_protection`, off by default): the `block_spread` hook (kinds `fire`
+  and `fluid`) refuses a spread into another team's land that does not let everyone edit (`Chunks::refuses_spread` over the
+  piston rule); a flag pair read at world open lets an unprotected world skip the work, as a fluid asks on every flow.
+- *Expiry* (`Chunks::expire`, `ClaimExpirationManager`): every 64th tick, at most every 10 minutes, a force-load whose expiry time
+  passed is let go (any config), and a team nobody of is on, last seen longer ago than `max_idle_days_before_unclaim` (0 = never,
+  the default) loses its claims, past `max_idle_days_before_unforce` its force-loads. Two choices of ours: a team whose last
+  login was never noted starts its clock when first looked at, and one with somebody on keeps its login time current (so a
+  long session does not count as idleness the moment it ends). Log lines are ours.
+- *Tests.* Unit: `ftbteams-core` `open_properties`; `ftbchunks-core` `pvp_follows_the_mode_and_the_claims_team`,
+  `fire_and_fluids_stay_in_their_claim_when_asked`, `expiry_lets_go_of_force_loads_and_idle_teams` and the specs. World:
+  `tests/rules.ts` (34 checks, about 1 to 2 minutes): the properties' defaults, refusals and values through the commands; TNT
+  leaves a claim's blocks alone until `allow_explosions` is true; the world config (`<world>/serverconfig/ftbchunks-world.snbt`
+  written between a stop and a start) switches PvP, fire and fluid protection on; water stops at a claim's border while it
+  flows in the wild; an aged team file shows an expired force-load let go, idle days doing nothing by default, then unforce and
+  unclaim after idle days. The harness has one real player, so PvP is asked through the dev command `ftbchunks_probe_pvp <x> <z>`
+  (`FTBP {attack, shot}`: a blow on a player at that block, and a shot naming the player as its own shooter), which runs the
+  same rule and glue; the hook bindings themselves are compile-checked only. Fire spread is unit-tested only (it is random
+  and slow). The probe `ftbchunks_probe` has more of the config, `properties` (how many are registered), `sweeps`, and each claim's `expiry`.
+- Labels are translation keys with our own fallbacks (`ftbteamsconfig.ftbchunks.*`, `ftbchunks.message.no_pvp`); a script over the
+  slice's diff found no line of the FTB jars' lang files in it (only single words and the mods' names match).
+
 ## Not done yet
 
-- The team properties `ftbchunks:*` are read from the team's file (FTB Teams keeps unknown properties) with the
-  config's defaults, but `/ftbteams party settings ftbchunks:...` doesn't know them: FTB Teams' `Prop` is a closed
-  enum. Needs an open property registry in `ftbteams-core` (`TeamCollectPropertiesEvent`).
-- PvP modes (`pvp_mode`, `allow_pvp`): the default `ALWAYS` changes nothing; `native_living_incoming_damage` has no
-  `Game`, so the other modes need a hook with one.
-- Mob griefing (endermen): `native_entity_change_block` only listens. Needs a cancellable form (gap, below).
-- Fire spread and fluid flow across borders (`fire_spread_protection`, `flowing_fluid_protection`, both off by
-  default): `native_block_spread` / `native_fire_odds` are there; not wired yet.
+- Mob griefing (`allow_mob_griefing`, endermen): the property and the rule (`Chunks::refuses_griefing`) are there, but no hook can
+  say no: `native_entity_change_block` only listens. The engine asks `native_entity_change_block_v3` before a mob changes a block,
+  but it is an upstream fragment still pending, not API (gap 1).
+- Lava setting fire across a border (FTB's `FluidPlaceBlockEvent` branch): `native_block_ignite` has no source position.
 - Farmland trampling (EDIT_BLOCK with the trampler), `EntityInteractSpecific`, the block-item rule of
   `blockRightClick` (INTERACT allowed but EDIT refused for a held block item: here the placement is checked where
   the block lands through `use_item_on` instead), the food and harmless-potion exemptions of `RIGHT_CLICK_ITEM`
@@ -82,15 +115,17 @@ reimplements its behaviour; nothing of it is copied. Build and test: `bun run pa
   `corpse:corpse` whitelist is built in).
 - Fake players beyond `allow_fake_players` / `by_id` / named; the prevented-access log.
 - Force-loading counts as a player near for spawning (`ChunkMapMixin`): needs a hook (gap).
-- Idle expiry (`max_idle_days_before_unclaim|unforce`, 0 by default) and force-load expiry (set from the claim screen and the
-  wheel over a force-loaded chunk, slice 5): the fields are kept and saved; `ClaimExpirationManager` isn't there.
-- FTB Ranks permissions (`ftbchunks.max_claimed`, `max_force_loaded`, `chunk_load_offline`, `no_wilderness`): ATM10
-  defines none, so the config's values apply; `offline_force_loader` is read from the files.
+- `location_mode` (long-range positions of team members); the properties are not in the clients' copy of a team (FTB Teams
+  syncs `display_name` and `color` to all, the rest to the team's own members) nor on a team screen.
+- FTB Ranks permissions (`ftbchunks.max_claimed`, `max_force_loaded`, `chunk_load_offline`, `no_wilderness`): ATM10 defines none, so
+  the config's values apply; `offline_force_loader` is read from the files.
 - Admin feedback to other operators; team name completions.
 
-## Gaps in the mod API (none added: the slice works without them)
+## Gaps in the mod API (none added: the slices work without them)
 
-1. A cancellable mob-griefing check (NeoForge `EntityMobGriefingEvent`) for endermen.
-2. `native_living_incoming_damage` with the `Game` (PvP in claims).
+1. A cancellable mob-griefing check (NeoForge `EntityMobGriefingEvent`) for endermen: `entity_change_block_v3` (pending upstream).
+2. A hit between two players with both UUIDs: `player_hurt_by_player`, `living_incoming_damage_v3` (pending upstream); PvP
+   works without them (attack_entity for blows, v1's shooter for shots) but cannot name an attacker of a hit that is neither.
 3. Spawning in force-loaded chunks with nobody near (`anyPlayerCloseEnoughForSpawning`).
 4. Entity type tags on the server (`entity_interact_whitelist`, `nonliving_entity_attack_whitelist`).
+5. A source position for `block_ignite` (lava).

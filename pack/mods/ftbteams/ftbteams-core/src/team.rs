@@ -441,3 +441,76 @@ mod tests {
         assert_eq!(Team { dirty: true, ..back }, t);
     }
 }
+
+/// How an open property's value is read, shown and kept in the team's file (`TeamPropertyType`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PropKind {
+    /// `true` or `false`, kept as a flag.
+    Bool,
+    /// Any text.
+    Text,
+    /// A whole number.
+    Int,
+    /// Words in square brackets, split by tabs.
+    List,
+    /// One of these names, as written (an enum such as the privacy mode).
+    Choice(Vec<&'static str>),
+}
+
+/// A property another mod adds to every team (`TeamCollectPropertiesEvent.add`): FTB Chunks' `ftbchunks:*`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PropertyDef {
+    pub id: &'static str,
+    pub kind: PropKind,
+    /// What a team that never set it has, as the command shows it.
+    pub default: String,
+    /// The label's translation key and its fallback.
+    pub name_key: &'static str,
+    pub name_en: &'static str,
+    pub player_editable: bool,
+}
+
+impl PropertyDef {
+    /// `TeamProperty.fromString`: the value in its file form, or None when the text doesn't read.
+    pub fn parse(&self, text: &str) -> Option<Value> {
+        match &self.kind {
+            PropKind::Bool => match text {
+                "true" => Some(Value::Bool(true)),
+                "false" => Some(Value::Bool(false)),
+                _ => None,
+            },
+            PropKind::Text => Some(Value::String(text.to_owned())),
+            PropKind::Int => text.parse::<i32>().ok().map(Value::Int),
+            PropKind::List if text.len() > 2 && text.starts_with('[') && text.ends_with(']') => {
+                Some(Value::List(text[1..text.len() - 1].split('\t').map(|s| Value::String(s.to_owned())).collect()))
+            }
+            PropKind::List => None,
+            PropKind::Choice(names) => names.iter().find(|n| **n == text).map(|n| Value::String((*n).to_owned())),
+        }
+    }
+    /// `TeamProperty.toString` of a stored value; the default's text when there is none.
+    pub fn show(&self, value: Option<&Value>) -> String {
+        let Some(value) = value else { return self.default.clone() };
+        match (&self.kind, value) {
+            (PropKind::List, Value::List(items)) => {
+                format!("[{}]", items.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\t"))
+            }
+            (_, Value::Bool(b)) => b.to_string(),
+            (_, Value::String(s)) => s.clone(),
+            (_, v) => v.as_i64().map_or_else(|| self.default.clone(), |n| n.to_string()),
+        }
+    }
+}
+
+impl Properties {
+    /// An open property's stored value.
+    pub fn extra(&self, id: &str) -> Option<&Value> {
+        self.other.iter().find(|(k, _)| k == id).map(|(_, v)| v)
+    }
+    pub fn set_extra(&mut self, id: &str, value: Value) {
+        match self.other.iter_mut().find(|(k, _)| k == id) {
+            Some(entry) => entry.1 = value,
+            None => self.other.push((id.to_owned(), value)),
+        }
+    }
+}

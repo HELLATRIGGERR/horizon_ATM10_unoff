@@ -145,6 +145,111 @@ fn protection_follows_the_team_properties() {
     assert_eq!(no_wild.refuses(&w, &actor(4), &at(9, 9), Protection::EditBlock, false), None);
 }
 
+fn props(f: impl FnOnce(&mut Props)) -> Props {
+    let mut p = Props::default();
+    f(&mut p);
+    p
+}
+
+#[test]
+fn pvp_follows_the_mode_and_the_claims_team() {
+    let mut w = world();
+    let mut chunks = Chunks::default();
+    chunks.claims.insert(at(0, 0), Claim { team: P, time: 1, force_loaded: 0, expiry: 0 });
+    assert!(!chunks.refuses_pvp(&w, &at(0, 0), &at(5, 5)), "always: nothing changes");
+    chunks.config.pvp_mode = PvpMode::Never;
+    assert!(chunks.refuses_pvp(&w, &at(5, 5), &at(0, 0)), "never: the victim in a claim");
+    assert!(chunks.refuses_pvp(&w, &at(0, 0), &at(5, 5)), "never: the attacker in a claim");
+    assert!(!chunks.refuses_pvp(&w, &at(5, 5), &at(6, 6)), "never: out in the wild");
+    chunks.config.pvp_mode = PvpMode::PerTeam;
+    assert!(!chunks.refuses_pvp(&w, &at(5, 5), &at(0, 0)), "per team: the default allows it");
+    w.teams.iter_mut().find(|t| t.id == P).unwrap().props = props(|p| p.allow_pvp = false);
+    assert!(chunks.refuses_pvp(&w, &at(5, 5), &at(0, 0)), "per team: the team turned it off");
+    chunks.config.disable_protection = true;
+    assert!(!chunks.refuses_pvp(&w, &at(5, 5), &at(0, 0)), "no protection at all");
+}
+
+#[test]
+fn fire_and_fluids_stay_in_their_claim_when_asked() {
+    let mut w = world();
+    let mut chunks = Chunks::default();
+    chunks.claims.insert(at(1, 0), Claim { team: P, time: 1, force_loaded: 0, expiry: 0 });
+    let (from, to) = ([15, 64, 3], [16, 64, 3]);
+    assert!(!chunks.refuses_spread(&w, "minecraft:overworld", true, from, to), "fire: off by default");
+    assert!(!chunks.refuses_spread(&w, "minecraft:overworld", false, from, to), "fluid: off by default");
+    chunks.config.fire_spread_protection = true;
+    assert!(chunks.refuses_spread(&w, "minecraft:overworld", true, from, to), "fire into a claim");
+    assert!(!chunks.refuses_spread(&w, "minecraft:overworld", false, from, to), "the fluid switch is its own");
+    assert!(!chunks.refuses_spread(&w, "minecraft:overworld", true, [16, 64, 3], [16, 65, 3]), "inside one chunk");
+    assert!(!chunks.refuses_spread(&w, "minecraft:overworld", true, [16, 64, 3], [15, 64, 3]), "out of a claim into the wild");
+    chunks.config.flowing_fluid_protection = true;
+    assert!(chunks.refuses_spread(&w, "minecraft:overworld", false, from, to));
+    w.teams.iter_mut().find(|t| t.id == P).unwrap().props = props(|p| p.block_edit_mode = Privacy::Public);
+    assert!(!chunks.refuses_spread(&w, "minecraft:overworld", false, from, to), "a claim anyone may edit");
+}
+
+#[test]
+fn expiry_lets_go_of_force_loads_and_idle_teams() {
+    let mut w = world();
+    let mut chunks = Chunks::default();
+    let day = 86_400_000;
+    for (i, team) in [P, P, A].into_iter().enumerate() {
+        chunks.claims.insert(at(i as i32, 0), Claim { team, time: 1, force_loaded: 5, expiry: 0 });
+    }
+    chunks.claims.get_mut(&at(0, 0)).unwrap().expiry = 1_000;
+    chunks.claims.get_mut(&at(1, 0)).unwrap().expiry = 10_000;
+    // A force-load's expiry time works whatever the config says.
+    let out = chunks.expire(&w, 5_000);
+    assert_eq!(out.expired_loads, [(P, at(0, 0))]);
+    assert_eq!(chunks.claims[&at(0, 0)].force_loaded, 0);
+    assert_eq!(chunks.claims[&at(1, 0)].force_loaded, 5, "not due yet");
+    assert!(chunks.expire(&w, 5_000).is_empty(), "nothing twice");
+    // Idle days are off by default: nobody loses anything however long they were away.
+    chunks.teams.entry(P).or_default().last_login = 1;
+    chunks.claims.get_mut(&at(1, 0)).unwrap().expiry = 0;
+    assert!(chunks.expire(&w, 400 * day).is_empty() && chunks.claims.len() == 3);
+    // Unforce after 2 days, unclaim after 5; the party's members are away (A is on, but only the party counts).
+    chunks.config.max_idle_days_before_unforce = 2.0;
+    chunks.config.max_idle_days_before_unclaim = 5.0;
+    w.online = vec![C];
+    let t0 = 10 * day;
+    chunks.teams.entry(P).or_default().last_login = t0;
+    assert!(chunks.expire(&w, t0 + day).is_empty(), "one day away");
+    let out = chunks.expire(&w, t0 + 3 * day);
+    assert_eq!((out.idle_unforced, out.idle_unclaimed), (vec![(P, 1)], vec![]), "three days: the force-loads go");
+    assert_eq!(chunks.claims[&at(1, 0)].force_loaded, 0);
+    assert_eq!(chunks.claims_of(P).count(), 2, "the claims stay");
+    let out = chunks.expire(&w, t0 + 6 * day);
+    assert_eq!(out.idle_unclaimed, [(P, 2)]);
+    assert_eq!(chunks.claims_of(P).count(), 0);
+    assert_eq!(chunks.claims_of(A).count(), 1, "A never logged in under the clock: it starts then, nothing goes");
+    // Somebody on: the clock restarts and nothing goes; a team never seen start its clock now.
+    w.online = vec![A];
+    assert!(chunks.expire(&w, t0 + 60 * day).is_empty());
+    assert_eq!(chunks.teams[&A].last_login, t0 + 60 * day);
+}
+
+#[test]
+fn the_properties_ftbchunks_adds_are_all_typed_with_the_configs_defaults() {
+    let mut defaults = Props::default();
+    assert!(defaults.set("ftbchunks:allow_pvp", "false") && defaults.set("ftbchunks:claim_visibility", "private"));
+    let specs = defaults.specs();
+    assert_eq!(specs.iter().map(|s| s.id).collect::<Vec<_>>(), PROPERTY_IDS);
+    let by = |id: &str| specs.iter().find(|s| s.id == id).unwrap();
+    assert_eq!((by("ftbchunks:allow_pvp").kind, by("ftbchunks:allow_pvp").default.as_str()), (SpecKind::Bool, "false"));
+    assert_eq!((by("ftbchunks:claim_visibility").kind, by("ftbchunks:claim_visibility").default.as_str()), (SpecKind::Privacy, "private"));
+    assert_eq!(by("ftbchunks:allow_named_fake_players").kind, SpecKind::List);
+    assert_eq!(by("ftbchunks:allow_explosions").default, "false");
+    assert_eq!(by("ftbchunks:block_edit_mode").name_key, "ftbteamsconfig.ftbchunks.block_edit_mode");
+    assert!(specs.iter().all(|s| s.id.starts_with("ftbchunks:") && !s.name_en.is_empty()));
+    // What the specs show reads back through `set`.
+    let mut copy = Props::default();
+    for s in &specs {
+        assert!(copy.set(s.id, &s.default), "{}", s.id);
+    }
+    assert_eq!(copy.claim_visibility, Privacy::Private);
+}
+
 #[test]
 fn tickets_while_a_member_is_on() {
     let mut w = world();

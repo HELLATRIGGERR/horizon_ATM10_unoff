@@ -3,6 +3,13 @@
 Slice 1 of docs/ftb-chunks.md. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world`
 (this PC: `atm10-work/ftb-work/ftb.sh`).
 
+## Open properties (slice 6)
+
+`Manager::register_property(PropertyDef)` is `TeamCollectPropertiesEvent.add`: other mods' properties (FTB Chunks' `ftbchunks:*`)
+are known to `/ftbteams party settings|settings_for` and `server settings`, kept in the team's file, and shown with their
+registered default. Not done: the team screen and the client sync of them (only `display_name` and `color` go to all, FTB's
+own rule; the rest would go to the team's members).
+
 ## Not done yet
 
 - Chat redirection is stored and toggled, but chat isn't diverted yet: `player_chat` is a lib hook with no `Game`,

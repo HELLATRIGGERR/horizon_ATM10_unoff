@@ -5,6 +5,7 @@ use crate::{
     ftblib::{offline_uuid, parse_uuid, uuid_string},
     manager::{Manager, fail, not_in_party, team_not_found},
     msg::{Msg, color as c},
+    manager::PropRef,
     team::{Prop, Rank, TeamType},
 };
 
@@ -184,8 +185,11 @@ fn own_party(m: &Manager, ctx: &Ctx<'_>, rank: Rank) -> Res<Uuid> {
     Ok(t.id)
 }
 
-fn prop_arg(word: Option<&str>) -> Res<Prop> {
-    word.and_then(Prop::from_id).ok_or_else(|| Msg::tr("ftbteams.property_not_found", "No property has that id", vec![]))
+fn prop_arg(m: &Manager, word: Option<&str>) -> Res<PropRef> {
+    word.and_then(|id| {
+        Prop::from_id(id).map(PropRef::Core).or_else(|| m.registry.iter().find(|d| d.id == id).cloned().map(PropRef::Open))
+    })
+    .ok_or_else(|| Msg::tr("ftbteams.property_not_found", "No property has that id", vec![]))
 }
 
 fn run(m: &mut Manager, ctx: &Ctx<'_>, w: &Words<'_>) -> Res {
@@ -245,12 +249,12 @@ fn run(m: &mut Manager, ctx: &Ctx<'_>, w: &Words<'_>) -> Res {
         }
         (Some("party"), Some("settings")) if in_party(m, Rank::Owner) => {
             let party = own_party(m, ctx, Rank::Owner)?;
-            let prop = prop_arg(w.get(3))?;
+            let prop = prop_arg(m, w.get(3))?;
             Ok(Reply::ok(vec![m.settings(party, prop, w.rest(4))?]))
         }
         (Some("party"), Some("settings_for")) if admin => {
             let party = party_arg(m, ctx, w.get(3), Rank::None)?;
-            let prop = prop_arg(w.get(4))?;
+            let prop = prop_arg(m, w.get(4))?;
             Ok(Reply::ok(vec![m.settings(party, prop, w.rest(5))?]))
         }
         (Some("party"), Some("allies")) if in_party(m, Rank::Member) => match w.get(3) {
@@ -279,7 +283,7 @@ fn run(m: &mut Manager, ctx: &Ctx<'_>, w: &Words<'_>) -> Res {
         }
         (Some("server"), Some("settings")) if admin => {
             let team = team_arg(m, ctx, w.get(3), Some(TeamType::Server))?;
-            let prop = prop_arg(w.get(4))?;
+            let prop = prop_arg(m, w.get(4))?;
             Ok(Reply::ok(vec![m.settings(team, prop, w.rest(5))?]))
         }
         (Some("msg"), Some(_)) => {

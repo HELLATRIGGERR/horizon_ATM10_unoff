@@ -126,6 +126,41 @@ fn officers_kick_and_ownership_moves() {
     assert_eq!(text(&run(&mut m, B, "ftbteams party settings ftbteams:lives_remaining 3")), ["Lives left is read-only"]);
 }
 
+/// A mod's property, registered by id, is set, shown and kept through the team's file like FTB Teams' own.
+#[test]
+fn open_properties() {
+    use crate::{PropKind, PropertyDef, team::Team};
+    let mut m = world();
+    for (id, kind, default) in [
+        ("x:flag", PropKind::Bool, "false"),
+        ("x:mode", PropKind::Choice(vec!["allies", "private", "public"]), "allies"),
+        ("x:names", PropKind::List, "[]"),
+    ] {
+        m.register_property(PropertyDef { id, kind, default: default.into(), name_key: "x.name", name_en: "A thing", player_editable: true });
+    }
+    run(&mut m, A, "ftbteams party create Fort");
+    // Not registered: the command doesn't know it.
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:other true")), ["No property has that id"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:flag")), ["A thing=false"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:flag yes")), ["Could not read the value yes"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:flag true")), ["A thing is now true"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:flag")), ["A thing=true"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:mode public")), ["A thing is now public"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:mode Public")), ["Could not read the value Public"]);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:names [a	b]")).len(), 1);
+    let party = m.party_of(A).unwrap();
+    assert!(m.out.iter().any(|o| matches!(o, Out::Event(crate::Event::PropertiesChanged { team }) if *team == party)));
+    // Registered again (the defaults changed): the stored value stays, the default moves.
+    m.register_property(PropertyDef { id: "x:mode", kind: PropKind::Choice(vec!["allies", "private", "public"]), default: "private".into(), name_key: "x.name", name_en: "A thing", player_editable: true });
+    assert_eq!(m.registry.len(), 3);
+    assert_eq!(text(&run(&mut m, A, "ftbteams party settings x:mode")), ["A thing=public"]);
+    // The file keeps them, and reads them back.
+    let written = m.teams[&party].write();
+    let back = Team::read(TeamType::Party, &written).unwrap();
+    assert_eq!(back.props.extra("x:flag"), Some(&crate::ftblib::snbt::Value::Bool(true)));
+    assert_eq!(back.props.extra("x:mode").and_then(|v| v.as_str()), Some("public"));
+}
+
 #[test]
 fn free_to_join_and_party_size() {
     let mut m = world();

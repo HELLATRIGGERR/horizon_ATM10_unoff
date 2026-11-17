@@ -9,7 +9,7 @@ use crate::{
         uuid_string,
     },
     msg::{Msg, color as c},
-    team::{Prop, Rank, Team, TeamMessage, TeamType},
+    team::{Prop, PropertyDef, Rank, Team, TeamMessage, TeamType},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -66,6 +66,13 @@ pub enum Event {
     PropertiesChanged { team: Uuid },
 }
 
+/// A property a command names: one of FTB Teams' own, or one another mod registered.
+#[derive(Clone, Debug, PartialEq)]
+pub enum PropRef {
+    Core(Prop),
+    Open(PropertyDef),
+}
+
 /// What the game must do after an operation.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Out {
@@ -95,6 +102,8 @@ pub struct Manager {
     pub chat_redirected: BTreeSet<Uuid>,
     pub extra: Compound,
     pub config: Config,
+    /// The properties other mods added (`TeamCollectPropertiesEvent`), in the order they were registered.
+    pub registry: Vec<PropertyDef>,
     pub dirty: bool,
     /// Set by a creation or a deletion: FTB Teams saves at once then.
     pub save_now: bool,
@@ -114,6 +123,7 @@ impl Manager {
             chat_redirected: BTreeSet::new(),
             extra: Compound::default(),
             config: Config::default(),
+            registry: Vec::new(),
             dirty: true,
             save_now: false,
             deleted: Vec::new(),
@@ -550,18 +560,38 @@ impl Manager {
         lines
     }
 
+    /// `TeamCollectPropertiesEvent.add`: a property every team has from now on; one of the same id is replaced
+    /// (FTB Chunks registers again when its config's defaults change).
+    pub fn register_property(&mut self, def: PropertyDef) {
+        match self.registry.iter_mut().find(|d| d.id == def.id) {
+            Some(known) => *known = def,
+            None => self.registry.push(def),
+        }
+    }
+
     /// `AbstractTeam.settings`: shows the value, or sets it. Err for a value that may not be set or doesn't parse.
-    pub fn settings(&mut self, team: Uuid, prop: Prop, value: &str) -> Res<Msg> {
-        let (key, en) = prop.translation();
+    pub fn settings(&mut self, team: Uuid, prop: PropRef, value: &str) -> Res<Msg> {
+        let (key, en, editable) = match &prop {
+            PropRef::Core(p) => (p.translation().0, p.translation().1, p.player_editable()),
+            PropRef::Open(def) => (def.name_key, def.name_en, def.player_editable),
+        };
         let name = Msg::tr(key, en, vec![]).color(c::YELLOW);
         let t = self.teams.get_mut(&team).unwrap();
         if value.is_empty() {
-            return Ok(name.then(Msg::lit("=")).then(Msg::lit(t.props.show(prop)).color(c::AQUA)));
+            let shown = match &prop {
+                PropRef::Core(p) => t.props.show(*p),
+                PropRef::Open(def) => def.show(t.props.extra(def.id)),
+            };
+            return Ok(name.then(Msg::lit("=")).then(Msg::lit(shown).color(c::AQUA)));
         }
-        if !prop.player_editable() {
+        if !editable {
             return Err(fail("ftbteams.message.property_not_editable", "%s is read-only", vec![name]));
         }
-        if !t.props.set_from_string(prop, value) {
+        let parsed = match &prop {
+            PropRef::Core(p) => t.props.set_from_string(*p, value),
+            PropRef::Open(def) => def.parse(value).map(|v| t.props.set_extra(def.id, v)).is_some(),
+        };
+        if !parsed {
             return Err(fail("ftbteams.message.parse_failed", "Could not read the value %s", vec![Msg::lit(value)]));
         }
         t.dirty = true;

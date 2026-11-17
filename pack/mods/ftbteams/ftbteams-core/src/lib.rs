@@ -16,7 +16,7 @@ pub mod team;
 
 pub use manager::{Config, Event, Manager, Out};
 pub use msg::Msg;
-pub use team::{Rank, Team, TeamType};
+pub use team::{PropKind, PropertyDef, Rank, Team, TeamType};
 
 /// A player's or a team's id, as Java's `UUID` (most significant bits first).
 pub type Uuid = u128;

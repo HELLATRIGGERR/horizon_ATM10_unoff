@@ -1,25 +1,31 @@
 # FTB Chunks, FTB Teams and JourneyMap on this fork
 
-> **Handoff (2026-11-17, branch `feat/ftb-chunks`, worktree `atm10-wt/megacells`): slices 1 to 5 are done and pass
-> (`ftbteams/teams` 29 checks, `ftbchunks/claims` 22, `ftbchunks/map` 4, `ftbchunks/waypoints` 5, `ftbchunks/region-map` 7;
-> units: ftbteams-core 16, ftbchunks-core 21). Slice 5 is the commit `FTB Chunks, slice 5: the large map and its region
-> cache` after `e41296604e`: the region cache (`ftbchunks-core/src/regions.rs`, `runtime/ftbchunks_largemap.rs`), the large
-> map (M), the sidebar buttons on the inventory (new engine API 432 `native_close_inventory`), the action-bar notice, and
-> the messages `update_force_load_expiry`, `teleport_from_map`, `open_claim_gui`. What it does and how it is tested:
-> `pack/mods/ftbchunks/NOTES.md`, "Slice 5". Build and test: `atm10-work/ftb-work/ftb.sh` (`units stage build world`,
-> `FTB_LIST=ftbchunks/region-map` and so on).**
+> **Handoff (2026-11-17, branch `feat/ftb-rules`, worktree `atm10-wt/megacells`): slices 1 to 6 are done and pass
+> (`ftbteams/teams` 29 checks, `ftbchunks/claims` 22, `ftbchunks/map` 4, `ftbchunks/waypoints` 5, `ftbchunks/region-map` 7,
+> `ftbchunks/rules` 34; units: ftbteams-core 17, ftbchunks-core 25). Slice 6 is the commit `FTB Chunks, slice 6: team
+> properties and the claim rules` after `a3ab5e8fed`: an open property registry on FTB Teams (`Manager::register_property`,
+> `PropertyDef`) with FTB Chunks' twelve `ftbchunks:*` properties on it, so `/ftbteams party settings ftbchunks:allow_pvp
+> false` works; PvP in claims (`pvp_mode`, `allow_pvp`); fire and fluids stopping at claim borders (`fire_spread_protection`,
+> `flowing_fluid_protection`); `claim_visibility` re-sent when it changes; and `ClaimExpirationManager` (force-load expiry
+> times, idle days). What it does and how it is tested: `pack/mods/ftbchunks/NOTES.md`, "Slice 6". Build and test:
+> `atm10-work/ftb-work/ftb.sh` (`units stage build world`, `FTB_LIST=ftbchunks/rules` and so on).**
 >
 > **What is left** (the plan's remaining items; the details are in each bundle's `NOTES.md`, "Not done yet"):
 > 1. *Client, the maps.* FTB's waypoint manager and settings screens on the large map, a dimension switch, the chunk grid
 >    toggle, other players on the map, releasing a region after `region_release_time`, the sidebar on the creative
 >    inventory, reading `ftbchunks-client.snbt` (the options are the defaults), in-world waypoint beacons,
 >    `death_waypoint_autoremove_distance`, waypoint sharing.
-> 2. *Server, FTB Chunks.* `ClaimExpirationManager` (idle days and force-load expiry: the fields are kept and saved, nothing
->    expires), PvP modes, mob griefing (endermen), fire spread and fluid flow across borders, farmland trampling and the
->    other interaction rules, spawning near force-loaded chunks, FTB Ranks permissions, the `ftbchunks:*` team properties
->    (needs an open property registry in `ftbteams-core`), admin feedback to other operators, team name completions.
-> 3. *Engine gaps* (none blocks the slices): a cancellable mob-griefing check, `native_living_incoming_damage` with the
->    `Game`, spawning in force-loaded chunks with nobody near, entity type tags on the server.
+> 2. *Server, FTB Chunks.* Mob griefing (endermen: `allow_mob_griefing` is a property and the rule is in the crate, but
+>    no hook can say no, see 3), lava setting fire across a border, farmland trampling and the other interaction rules
+>    (`EntityInteractSpecific`, the food and potion exemptions of right clicks), spawning near force-loaded chunks, FTB
+>    Ranks permissions, `location_mode` (long-range player positions), the properties on the team screen and in the
+>    clients' copy of a team (only `display_name` and `color` are synced), admin feedback to other operators, team name
+>    completions.
+> 3. *Engine gaps* (none blocks the slices): a cancellable mob-griefing check (`entity_change_block_v3`: the engine
+>    already asks it, the fragment in `tools/native-hook-fragments` is upstream's and still pending, so no bundle can
+>    use it until it is stamped); `player_hurt_by_player` (pending too: a hit between two players with both UUIDs,
+>    which would replace the attack-entity and shooter-id pair PvP uses now); spawning in force-loaded chunks with nobody
+>    near; entity type tags on the server; a source position for `block_ignite` (lava).
 >
 > JourneyMap is not on this list: its licence forbids reverse-engineering, so it will not be ported (the minimap is on by
 > default here because no other minimap mod is built in).
@@ -284,8 +290,8 @@ and the claim screen read (claim colours, ally checks).
    breaking and placing while a member is not; limits refuse the 501st claim and the 26th force-load; a force-loaded
    furnace keeps smelting with the member 400 blocks away; the claims and tickets after a restart; the tickets go
    when nobody of the team is on; the admin bypass. Done in slice 3 with the client: `request_chunk_change`,
-   `send_many_chunks` (the action-bar notice came in slice 5); left in `pack/mods/ftbchunks/NOTES.md`: PvP, mob griefing, fire and
-   fluid borders, `ftbchunks:*` team properties, expiry.
+   `send_many_chunks` (the action-bar notice came in slice 5); PvP, fire and fluid borders, the `ftbchunks:*` team properties and expiry
+   came in slice 6; mob griefing is still open (NOTES.md).
 3. **FTB Chunks client: the claim map** (done): the map tile helper (gap 1, API 428), the claim screen (M) with drag
    selection sending one request on release, claim and force-load overlays in team colours, the counters, the server's
    `send_many_chunks` / `request_chunk_change` half. *World test* `pack/mods/ftbchunks/tests/map.ts`: a 3x3 drag with
@@ -298,7 +304,12 @@ and the claim screen read (claim colours, ally checks).
    `pack/mods/ftbchunks/tests/region-map.ts`: the cache fills, the notice out of and into a claim, the spawn chunk stays
    cached 1500 blocks away and after a restart, M, a drag, the wheel, the claim screen over cached terrain, the sidebar
    button, five screenshots.
-6. **What is left**: the block at the top of this file.
+6. **Team properties and the claim rules** (done): the open property registry, FTB Chunks' properties, PvP, fire and fluid
+   borders, claim visibility, expiry. *World test* `pack/mods/ftbchunks/tests/rules.ts`: the properties are set, read and
+   refused like FTB Teams' own and kept in the team file; TNT leaves a claim's blocks until `allow_explosions`; from the
+   world config `pvp_mode NEVER`, fluid and fire protection; water stops at a claim's border; an expired force-load,
+   idle days off by default, unforce and unclaim after idle days (three restarts that age the team's file).
+7. **What is left**: the block at the top of this file.
 JourneyMap is not in the slices: its licence forbids reverse-engineering, so it will not be ported.
 
 ## Handoff

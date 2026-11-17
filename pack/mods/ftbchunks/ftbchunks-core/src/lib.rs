@@ -145,6 +145,95 @@ impl Props {
     }
 }
 
+/// How one of the properties is typed (FTB Teams' `TeamPropertyType`: this crate can't name its crate's types).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SpecKind {
+    Bool,
+    /// Words in square brackets, split by tabs.
+    List,
+    /// `allies`, `private` or `public`.
+    Privacy,
+}
+
+/// A property to register on FTB Teams (`TeamCollectPropertiesEvent`): what `/ftbteams party settings` needs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PropertySpec {
+    pub id: &'static str,
+    pub kind: SpecKind,
+    /// What a team that never set it has: the config's `team_prop_defaults`.
+    pub default: String,
+    /// The label's translation key (`ftbteamsconfig.ftbchunks.<name>`) and our fallback wording.
+    pub name_key: &'static str,
+    pub name_en: &'static str,
+}
+
+impl Props {
+    /// A property's value as the settings command shows it (a list as `[a<TAB>b]`).
+    pub fn show(&self, id: &str) -> Option<String> {
+        let name = id.strip_prefix("ftbchunks:")?;
+        let flag = |b: bool| b.to_string();
+        Some(match name {
+            "allow_fake_players" => flag(self.allow_fake_players),
+            "allow_fake_players_by_id" => flag(self.allow_fake_players_by_id),
+            "allow_explosions" => flag(self.allow_explosions),
+            "allow_mob_griefing" => flag(self.allow_mob_griefing),
+            "allow_pvp" => flag(self.allow_pvp),
+            "entity_interact_mode" => self.entity_interact_mode.name().into(),
+            "nonliving_entity_attack_mode" => self.nonliving_entity_attack_mode.name().into(),
+            "claim_visibility" => self.claim_visibility.name().into(),
+            "location_mode" => self.location_mode.name().into(),
+            "block_edit_mode" => self.block_edit_mode.name().into(),
+            "block_interact_mode" => self.block_interact_mode.name().into(),
+            "allow_named_fake_players" => format!("[{}]", self.allow_named_fake_players.join("	")),
+            _ => return None,
+        })
+    }
+
+    /// The properties FTB Chunks adds to every team, in its order, with `self` (the config's defaults) as theirs.
+    /// The labels are ours; the keys are FTB Chunks' (`ftbteamsconfig.ftbchunks.<name>`).
+    pub fn specs(&self) -> Vec<PropertySpec> {
+        const NAMES: [(&str, &str, SpecKind); 12] = [
+            ("allow_fake_players", "Fake players count as allies", SpecKind::Bool),
+            ("allow_named_fake_players", "Fake players by name", SpecKind::List),
+            ("allow_fake_players_by_id", "Fake players known by id", SpecKind::Bool),
+            ("entity_interact_mode", "Who may use mobs and entities", SpecKind::Privacy),
+            ("nonliving_entity_attack_mode", "Who may hit frames and boats", SpecKind::Privacy),
+            ("allow_explosions", "Explosions break blocks", SpecKind::Bool),
+            ("allow_mob_griefing", "Mobs may change blocks", SpecKind::Bool),
+            ("claim_visibility", "Who sees the claims", SpecKind::Privacy),
+            ("location_mode", "Who sees member positions", SpecKind::Privacy),
+            ("allow_pvp", "Players may fight", SpecKind::Bool),
+            ("block_edit_mode", "Who may break and place", SpecKind::Privacy),
+            ("block_interact_mode", "Who may use blocks", SpecKind::Privacy),
+        ];
+        const KEYS: [&str; 12] = [
+            "ftbteamsconfig.ftbchunks.allow_fake_players",
+            "ftbteamsconfig.ftbchunks.allow_named_fake_players",
+            "ftbteamsconfig.ftbchunks.allow_fake_players_by_id",
+            "ftbteamsconfig.ftbchunks.entity_interact_mode",
+            "ftbteamsconfig.ftbchunks.nonliving_entity_attack_mode",
+            "ftbteamsconfig.ftbchunks.allow_explosions",
+            "ftbteamsconfig.ftbchunks.allow_mob_griefing",
+            "ftbteamsconfig.ftbchunks.claim_visibility",
+            "ftbteamsconfig.ftbchunks.location_mode",
+            "ftbteamsconfig.ftbchunks.allow_pvp",
+            "ftbteamsconfig.ftbchunks.block_edit_mode",
+            "ftbteamsconfig.ftbchunks.block_interact_mode",
+        ];
+        PROPERTY_IDS
+            .iter()
+            .zip(NAMES.iter().zip(KEYS))
+            .map(|(id, ((_, en, kind), key))| PropertySpec {
+                id,
+                kind: *kind,
+                default: self.show(id).unwrap_or_default(),
+                name_key: key,
+                name_en: en,
+            })
+            .collect()
+    }
+}
+
 /// `ally_mode`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum AllyMode {
@@ -539,6 +628,23 @@ pub enum Refusal {
     Prevented,
 }
 
+/// What [`Chunks::expire`] let go.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Expiry {
+    /// Force-loads whose expiry time passed.
+    pub expired_loads: Vec<(Uuid, ChunkPos)>,
+    /// Teams idle past `max_idle_days_before_unclaim`, with how many chunks they lost.
+    pub idle_unclaimed: Vec<(Uuid, usize)>,
+    /// Teams idle past `max_idle_days_before_unforce`, with how many force-loads they lost.
+    pub idle_unforced: Vec<(Uuid, usize)>,
+}
+
+impl Expiry {
+    pub fn is_empty(&self) -> bool {
+        self.expired_loads.is_empty() && self.idle_unclaimed.is_empty() && self.idle_unforced.is_empty()
+    }
+}
+
 /// Every team's claims (`ClaimedChunkManagerImpl`) and FTB Chunks data.
 #[derive(Clone, Debug, Default)]
 pub struct Chunks {
@@ -717,6 +823,60 @@ impl Chunks {
         self.dirty.insert(party);
     }
 
+    /// `ClaimExpirationManager.tick`: force-loads whose expiry time has passed are let go (every team but a server's);
+    /// a team with nobody on whose last login is older than `max_idle_days_before_unclaim` loses its claims, and past
+    /// `max_idle_days_before_unforce` its force-loads (0, the default, never). A team whose login was never noted
+    /// starts its idle time now; one with somebody on keeps it current.
+    pub fn expire(&mut self, teams: &dyn Teams, now: i64) -> Expiry {
+        let mut out = Expiry::default();
+        let ids: BTreeSet<Uuid> = self.claims.values().map(|c| c.team).collect();
+        for id in ids.into_iter().filter(|id| teams.team(*id).is_some_and(|t| t.kind != Kind::Server)) {
+            let Some(team) = teams.team(id) else { continue };
+            let due: Vec<ChunkPos> = self
+                .claims
+                .iter()
+                .filter(|(_, c)| c.team == id && c.force_loaded > 0 && c.expiry > 0 && c.expiry < now)
+                .map(|(p, _)| p.clone())
+                .collect();
+            for pos in due {
+                let c = self.claims.get_mut(&pos).unwrap();
+                (c.force_loaded, c.expiry) = (0, 0);
+                self.dirty.insert(id);
+                out.expired_loads.push((id, pos));
+            }
+            let (unclaim_days, unforce_days) = (self.config.max_idle_days_before_unclaim, self.config.max_idle_days_before_unforce);
+            if unclaim_days <= 0.0 && unforce_days <= 0.0 {
+                continue;
+            }
+            let on = team.members.iter().chain([&team.id]).any(|m| teams.online(*m));
+            let data = self.data(id);
+            if on || data.last_login <= 0 {
+                data.last_login = now;
+                self.dirty.insert(id);
+                continue;
+            }
+            let idle = |days: f64| days > 0.0 && (now - data.last_login) as f64 > days * 86_400_000.0;
+            let (drop_claims, drop_loads) = (idle(unclaim_days), idle(unforce_days));
+            if drop_claims {
+                let before = self.claims.len();
+                self.claims.retain(|_, c| c.team != id);
+                out.idle_unclaimed.push((id, before - self.claims.len()));
+                self.dirty.insert(id);
+            } else if drop_loads {
+                let mut n = 0;
+                for c in self.claims.values_mut().filter(|c| c.team == id && c.force_loaded > 0) {
+                    (c.force_loaded, c.expiry) = (0, 0);
+                    n += 1;
+                }
+                if n > 0 {
+                    out.idle_unforced.push((id, n));
+                    self.dirty.insert(id);
+                }
+            }
+        }
+        out
+    }
+
     /// `canDoOfflineForceLoading`.
     pub fn offline_force_loading(&self, team: Uuid) -> bool {
         match self.config.force_load_mode {
@@ -821,6 +981,23 @@ impl Chunks {
         }
         let (ta, tb) = (self.claims.get(&a).map(|c| c.team), self.claims.get(&b).map(|c| c.team));
         ta != tb && self.owner_at(teams, &b).is_some_and(|t| t.props.block_edit_mode != Privacy::Public)
+    }
+
+    /// `onLivingHurt`: a player hitting a player where `pvp_mode` says no. `never` stops it when either stands in a
+    /// claimed chunk; `per_team` when either stands in a claim whose team turned `allow_pvp` off; `always` never.
+    pub fn refuses_pvp(&self, teams: &dyn Teams, attacker: &ChunkPos, victim: &ChunkPos) -> bool {
+        if self.config.disable_protection || self.config.pvp_mode == PvpMode::Always {
+            return false;
+        }
+        let never = self.config.pvp_mode == PvpMode::Never;
+        [attacker, victim].into_iter().any(|pos| self.owner_at(teams, pos).is_some_and(|t| never || !t.props.allow_pvp))
+    }
+
+    /// `fire_spread_protection` and `flowing_fluid_protection` (both off by default): fire (`fire`) or a fluid may not
+    /// pass from `from` into another team's land that doesn't let everyone edit.
+    pub fn refuses_spread(&self, teams: &dyn Teams, dimension: &str, fire: bool, from: [i32; 3], to: [i32; 3]) -> bool {
+        let guarded = if fire { self.config.fire_spread_protection } else { self.config.flowing_fluid_protection };
+        guarded && !self.config.disable_protection && !self.claims.is_empty() && self.refuses_crossing(teams, dimension, from, to)
     }
 
     /// `EntityMobGriefingEvent` for the griefing blacklist (endermen): not in a claim that forbids it.

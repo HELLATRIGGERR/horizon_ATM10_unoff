@@ -398,6 +398,11 @@ pub fn refusal(r: crate::Refusal) -> Msg {
     .color(GOLD)
 }
 
+/// What a player who hits a player in land that forbids it is told (gold).
+pub fn no_pvp() -> Msg {
+    Msg::tr("ftbchunks.message.no_pvp", "Fighting between players is not allowed in this land", vec![]).color(GOLD)
+}
+
 /// A problem's line, for callers that report one (the claim screen's summary, slice 3).
 pub fn problem_line(p: Problem) -> Msg {
     problem(p).color(RED)

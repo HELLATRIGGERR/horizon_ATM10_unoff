@@ -218,7 +218,7 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   `python3 tools/stamp_native_hooks.py --only <fragment>` (upstream's pending fragments stay as they are), and
   `cargo run -p xtask -- mod-api`, which fills the placeholder with the dispatch; the `Hooks` trait, the dispatch and
   the `Host` helpers are generated into `OUT_DIR` at build time (upstream's 9116ac391), none of it is committed.
-  The fork's hooks are APIs 416-432 since the merge of upstream 21a750533 (whose latest was 415): Forge Energy 416, a
+  The fork's hooks are APIs 416-432 on top of upstream's 415 (still its latest at the release merged on 17 November, nightly-source/2026-11-13-9f42064): Forge Energy 416, a
   machine's item and slots 417, the block entity lifecycle 418, biome climate and dimension type 419, a bundle's opt-in
   to entity joins and leaves 420, the world's cooking recipes for a mod's machines 421, fluid handlers 422, the
   content's data files 423, an item's use on a block 424, a container's insert slots and `native_pop_resource` 425,

@@ -97,6 +97,20 @@ pub trait Ae2Host {
     fn provider_patterns_changed(&self, address: GridAddress, face: Option<u8>);
     /// The same, for a provider block of the level the game holds (`ae2_provider_patterns_changed_local`).
     fn provider_patterns_changed_local(&self, pos: (i32, i32, i32), face: Option<u8>);
+    /// Inserts (or extracts) up to `amount` of `key` of `kind` into (from) the grid of `cable`, or
+    /// simulates it (`ae2_grid_key_move_encoded`): what moved.
+    #[allow(clippy::too_many_arguments)]
+    fn grid_key_move(&mut self, cable: GridAddress, kind: ae2_cell_core::KeyType, key: &ae2_cell_core::ItemKey, amount: u64, insert: bool, simulate: bool) -> Result<u64, String>;
+    /// The chemical tanks of the block at `at` through its side `face` (a direction's index), as
+    /// the mod that owns chemicals answers hook point `native_chemical_handler_tanks` (API 435);
+    /// none without a chemical handler there, or with no such mod.
+    fn chemical_tanks(&self, at: GridAddress, face: u8) -> Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>>;
+    /// Inserts up to `amount` of the chemical `chemical` there, or simulates it
+    /// (`native_chemical_handler_insert`): what it took.
+    fn chemical_insert(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool) -> u64;
+    /// Extracts up to `amount` of `chemical` from there, or simulates it
+    /// (`native_chemical_handler_extract`): what left.
+    fn chemical_extract(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool) -> u64;
 }
 
 /// What an addon's own storage was when AE2's blocks were snapshot (`ae2_snapshot_blocks`):

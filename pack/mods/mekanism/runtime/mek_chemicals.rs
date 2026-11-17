@@ -13,7 +13,9 @@
 // its output faces (`ChemicalUtil.emit`), and `/mek chemical` and
 // `/mek chemicals` for tests. No other native mod has
 // chemicals yet, so the capability stays in the bundle; AE2's Applied
-// Mekanistics will need it as a hook point (docs/mekanism-chemicals.md).
+// Mekanistics reaches it through hook points API 435
+// (`native_chemical_handler_*`: `tanks`, `insert`, `extract` below;
+// docs/appmek.md).
 
 use super::{
     Game, mek_machines,
@@ -163,42 +165,108 @@ pub(super) fn write_tanks(nbt: &mut Compound, tanks: &[ChemicalStack]) {
 /// and what it changed is kept. None where the block has no handler on that
 /// side (another block, a side its config closes to every tank).
 pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<Direction>, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
+    let registry = registry(game);
+    match shared_handler(game, pos, face, &registry, use_it) {
+        Ok(found) => found,
+        Err(use_it) => game.native_with_mod_block_entity(pos, |m| entity_handler(m, face, &registry, use_it)).flatten(),
+    }
+}
+
+/// `with_handler` with the game only read (`native_chemical_handler_tanks`, AE2's storage bus
+/// listing a tank): a block entity's handler runs on a copy of it, so nothing `use_it` does is
+/// kept; ask it only to read or simulate.
+fn with_handler_read<R>(game: &Game<'_>, pos: [i32; 3], face: Option<Direction>, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
+    let registry = registry(game);
+    match shared_handler(game, pos, face, &registry, use_it) {
+        Ok(found) => found,
+        Err(use_it) => entity_handler(&mut game.native_mod_block_entity(pos)?, face, &registry, use_it),
+    }
+}
+
+/// The handlers kept outside a block entity (the tubes' networks, the multiblocks' valves and
+/// ports), `use_it` given back for any other block.
+fn shared_handler<R, F: FnOnce(&mut dyn ChemicalHandler) -> R>(game: &Game<'_>, pos: [i32; 3], face: Option<Direction>, registry: &ChemicalRegistry, use_it: F) -> Result<Option<R>, F> {
     let dimension = game.native_dimension();
     if super::mek_tubes::is_tube(dimension, pos) {
-        return super::mek_tubes::with_handler(dimension, pos, face, use_it);
+        return Ok(super::mek_tubes::with_handler(dimension, pos, face, use_it));
     }
-    let registry = registry(game);
     let block = game.native_block(pos);
-    if block == super::mek_dynamic_tank::VALVE {
-        return super::mek_dynamic_tank::chemical_handler(dimension, pos, super::mek_dynamic_tank::VALVE, face, &registry, use_it);
-    }
-    if block == super::mek_boiler::VALVE {
-        return super::mek_boiler::chemical_handler(game, dimension, pos, super::mek_boiler::VALVE, face, &registry, use_it);
-    }
-    if block == super::mek_turbine::VALVE {
-        return super::mek_turbine::chemical_handler(dimension, pos, super::mek_turbine::VALVE, face, &registry, use_it);
-    }
-    if block == super::mek_fission::PORT {
-        return super::mek_fission::chemical_handler(game, dimension, pos, super::mek_fission::PORT, face, &registry, use_it);
-    }
-    if block == super::mek_fusion::PORT {
-        return super::mek_fusion::chemical_handler(dimension, pos, &block, face, use_it);
-    }
-    if block == super::mek_sps::PORT {
-        return super::mek_sps::chemical_handler(dimension, pos, &block, face, use_it);
-    }
-    game.native_with_mod_block_entity(pos, |m| {
-        if super::mek_tanks::tier_of(&m.id).is_some() {
-            super::mek_tanks::chemical_handler(m, face, &registry, use_it)
-        } else if super::mek_gas::is_gas(&m.id) {
-            super::mek_gas::chemical_handler(m, face, &registry, use_it)
-        } else if super::mek_factories::has_chemicals(&m.id) {
-            super::mek_factories::chemical_handler(m, face, &registry, use_it)
-        } else {
-            mek_machines::chemical_handler(m, face, &registry, use_it)
-        }
+    Ok(if block == super::mek_dynamic_tank::VALVE {
+        super::mek_dynamic_tank::chemical_handler(dimension, pos, super::mek_dynamic_tank::VALVE, face, registry, use_it)
+    } else if block == super::mek_boiler::VALVE {
+        super::mek_boiler::chemical_handler(game, dimension, pos, super::mek_boiler::VALVE, face, registry, use_it)
+    } else if block == super::mek_turbine::VALVE {
+        super::mek_turbine::chemical_handler(dimension, pos, super::mek_turbine::VALVE, face, registry, use_it)
+    } else if block == super::mek_fission::PORT {
+        super::mek_fission::chemical_handler(game, dimension, pos, super::mek_fission::PORT, face, registry, use_it)
+    } else if block == super::mek_fusion::PORT {
+        super::mek_fusion::chemical_handler(dimension, pos, &block, face, use_it)
+    } else if block == super::mek_sps::PORT {
+        super::mek_sps::chemical_handler(dimension, pos, &block, face, use_it)
+    } else {
+        return Err(use_it);
     })
-    .flatten()
+}
+
+/// The handler of a block entity of the bundle's: a tank's, a gas machine's, a factory's or
+/// another machine's.
+fn entity_handler<R>(m: &mut horizon_client::containers::ModBlockEntity, face: Option<Direction>, registry: &ChemicalRegistry, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
+    if super::mek_tanks::tier_of(&m.id).is_some() {
+        super::mek_tanks::chemical_handler(m, face, registry, use_it)
+    } else if super::mek_gas::is_gas(&m.id) {
+        super::mek_gas::chemical_handler(m, face, registry, use_it)
+    } else if super::mek_factories::has_chemicals(&m.id) {
+        super::mek_factories::chemical_handler(m, face, registry, use_it)
+    } else {
+        mek_machines::chemical_handler(m, face, registry, use_it)
+    }
+}
+
+// ---- AE2's Applied Mekanistics (hook points API 435) ----------------------------------------
+
+/// `native_chemical_handler_tanks`: the tanks of the block at `pos` through `face` (the engine's
+/// side), each with whether a simulated extraction of its chemical gives any. None on another
+/// level, a block without a handler there.
+pub(super) fn tanks(game: &Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>) -> Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>> {
+    if dimension != game.native_dimension() {
+        return None;
+    }
+    with_handler_read(game, pos, face.map(super::mek_world::mek_direction), |h| {
+        (0..h.tanks())
+            .map(|tank| {
+                let held = h.in_tank(tank);
+                let extractable = !held.is_empty() && !h.extract_stack(&held.copy_with_amount(1), true).is_empty();
+                horizon_client::mod_api::NativeChemicalTankInfo {
+                    chemical: held.id().unwrap_or_default().to_string(),
+                    amount: held.amount().max(0),
+                    capacity: h.capacity(tank),
+                    extractable,
+                }
+            })
+            .collect()
+    })
+}
+
+/// `native_chemical_handler_insert`: `insertChemical` of `amount` of `chemical` (a registered
+/// one) through `face`: what it took. None on another level, a block without a handler there.
+pub(super) fn insert(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>, chemical: &str, amount: i64, simulate: bool) -> Option<i64> {
+    let stack = offered(game, dimension, chemical, amount)?;
+    with_handler(game, pos, face.map(super::mek_world::mek_direction), |h| amount - h.insert(&stack, simulate).amount().clamp(0, amount))
+}
+
+/// `native_chemical_handler_extract`: `extractChemical(stack)` of at most `amount` of `chemical`
+/// through `face`: what left.
+pub(super) fn extract(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>, chemical: &str, amount: i64, simulate: bool) -> Option<i64> {
+    let stack = offered(game, dimension, chemical, amount)?;
+    with_handler(game, pos, face.map(super::mek_world::mek_direction), |h| h.extract_stack(&stack, simulate).amount().clamp(0, amount))
+}
+
+/// A stack of `amount` of the registered `chemical`, on the level the game holds.
+fn offered(game: &Game<'_>, dimension: &str, chemical: &str, amount: i64) -> Option<ChemicalStack> {
+    if dimension != game.native_dimension() || amount <= 0 || registry(game).get(chemical).is_none() {
+        return None;
+    }
+    Some(ChemicalStack::new(chemical, amount))
 }
 
 /// `ChemicalUtil.emit` (`EmitUtils.sendToAcceptors`): `offered` split evenly

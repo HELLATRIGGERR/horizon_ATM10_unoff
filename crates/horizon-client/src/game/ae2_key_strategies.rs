@@ -10,10 +10,14 @@
 //! `putIfAbsent` does. Which types have a strategy decides, as in AE2, what an
 //! import bus may select (`hasImportStrategyTypeFilter`) and which keys a bus
 //! or plane takes (`hasExportStrategyFilter`, `hasPlacementStrategy`).
-use super::{Game, ae2_global::GridAddress};
+use super::{
+    Game,
+    ae2_ext::{self, Ae2Ext, Ae2KeyStrategies, KeyStrategyKinds},
+    ae2_global::GridAddress,
+};
 use ae2_cell_core::{ItemKey, KeyType};
 use horizon_core::geometry::Direction;
-use std::sync::RwLock;
+use std::{rc::Rc, sync::RwLock};
 
 /// `StackImportStrategy`: what the block on `face` of `target` offers, and
 /// moving up to `limit` of a key from it into the grid of `cable` (moved).
@@ -73,13 +77,87 @@ pub(super) fn register(kind: KeyType, strategies: WorldStrategies) {
     slot.external_storage = slot.external_storage.or(strategies.external_storage);
     slot.placement = slot.placement.or(strategies.placement);
 }
-/// An addon type's strategies; AE2's two are the port's own code, never here.
+/// An addon type's strategies; AE2's two are the port's own code, never here. A type an addon
+/// crate above registered (`ae2_ext::add_key_strategies`) gets forwarders to its owner's
+/// `Ae2KeyStrategies` for what the game's own addons left empty.
 pub(super) fn addon(kind: KeyType) -> WorldStrategies {
     if matches!(kind, KeyType::ITEMS | KeyType::FLUIDS) {
         return WorldStrategies::default();
     }
     ADDONS.call_once(super::ae2x::register_key_strategies);
-    ADDED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(usize::from(kind.raw_id() - 2)).copied().unwrap_or_default()
+    let own = ADDED.read().unwrap_or_else(|poisoned| poisoned.into_inner()).get(usize::from(kind.raw_id() - 2)).copied().unwrap_or_default();
+    let Some((_, kinds)) = ae2_ext::key_strategies(kind) else { return own };
+    let forwarded = forwarders(kind, kinds);
+    WorldStrategies {
+        import: own.import.or(forwarded.import),
+        export: own.export.or(forwarded.export),
+        external_storage: own.external_storage.or(forwarded.external_storage),
+        placement: own.placement.or(forwarded.placement),
+    }
+}
+
+// ---- Forwarders to an addon crate's strategies -------------------------------------------
+//
+// The strategies are plain fn pointers, which carry no type: one set per raw id (from 2, the
+// first addon type, to 15) finds the type's owner with `ae2_ext::key_strategies` and calls its
+// `Ae2KeyStrategies` with the game as the host, as `Ae2Host::call_addon` reaches an addon. The
+// trait's `at` is the block the bus faces (the strategies' `target`), its `target`/`source` the
+// bus's `cable`, its `face` the side's index.
+
+/// The forwarders of the type of raw id `kind`, for the strategies `kinds` says it has.
+fn forwarders(kind: KeyType, kinds: KeyStrategyKinds) -> WorldStrategies {
+    match kind.raw_id() {
+        2 => forwarders_of::<2>(kinds),
+        3 => forwarders_of::<3>(kinds),
+        4 => forwarders_of::<4>(kinds),
+        5 => forwarders_of::<5>(kinds),
+        6 => forwarders_of::<6>(kinds),
+        7 => forwarders_of::<7>(kinds),
+        8 => forwarders_of::<8>(kinds),
+        9 => forwarders_of::<9>(kinds),
+        10 => forwarders_of::<10>(kinds),
+        11 => forwarders_of::<11>(kinds),
+        12 => forwarders_of::<12>(kinds),
+        13 => forwarders_of::<13>(kinds),
+        14 => forwarders_of::<14>(kinds),
+        15 => forwarders_of::<15>(kinds),
+        _ => WorldStrategies::default(),
+    }
+}
+fn forwarders_of<const RAW: u8>(kinds: KeyStrategyKinds) -> WorldStrategies {
+    WorldStrategies {
+        import: kinds.import.then_some(ImportStrategy { offered: forward_offered::<RAW>, transfer: forward_import::<RAW> }),
+        export: kinds.export.then_some(ExportStrategy { transfer: forward_export::<RAW> }),
+        external_storage: kinds.external_storage.then_some(ExternalStorageStrategy { entries: forward_entries::<RAW>, change: forward_change::<RAW> }),
+        placement: kinds.placement.then_some(PlacementStrategy { place: forward_place::<RAW> }),
+    }
+}
+/// `call` on the strategies of the owner of the type of raw id `RAW`, in the game's extension
+/// `ext`; none when the type, the extension or the owner is missing.
+fn with_owner<const RAW: u8, R>(ext: Option<Rc<dyn Ae2Ext>>, call: impl FnOnce(&dyn Ae2KeyStrategies) -> R) -> Option<R> {
+    let (owner, _) = ae2_ext::key_strategies(KeyType::from_raw_id(RAW)?)?;
+    let ext = ext?;
+    let strategies = ext.addon(owner)?.key_strategies()?;
+    Some(call(strategies))
+}
+fn forward_offered<const RAW: u8>(game: &Game<'_>, target: GridAddress, face: Direction) -> Vec<(ItemKey, u64)> {
+    with_owner::<RAW, _>(game.ae2_ext.get(), |s| s.import_offered(game, target, face as u8)).unwrap_or_default()
+}
+fn forward_import<const RAW: u8>(game: &mut Game<'_>, cable: GridAddress, target: GridAddress, face: Direction, key: &ItemKey, limit: u64) -> Result<u64, String> {
+    with_owner::<RAW, _>(game.ae2_ext.get(), |s| s.import(game, target, cable, face as u8, key, limit)).unwrap_or(Ok(0))
+}
+fn forward_export<const RAW: u8>(game: &mut Game<'_>, cable: GridAddress, target: GridAddress, face: Direction, key: &ItemKey, limit: u64) -> Result<u64, String> {
+    with_owner::<RAW, _>(game.ae2_ext.get(), |s| s.export(game, target, cable, face as u8, key, limit)).unwrap_or(Ok(0))
+}
+fn forward_entries<const RAW: u8>(game: &Game<'_>, target: GridAddress, face: Direction) -> Option<Vec<(ItemKey, u64)>> {
+    with_owner::<RAW, _>(game.ae2_ext.get(), |s| s.storage_entries(game, target, face as u8)).flatten()
+}
+#[allow(clippy::too_many_arguments)]
+fn forward_change<const RAW: u8>(game: &mut Game<'_>, target: GridAddress, face: Direction, key: &ItemKey, amount: u64, insert: bool, simulate: bool) -> Result<u64, String> {
+    with_owner::<RAW, _>(game.ae2_ext.get(), |s| s.storage_change(game, target, face as u8, key, amount, insert, simulate)).unwrap_or(Ok(0))
+}
+fn forward_place<const RAW: u8>(game: &mut Game<'_>, target: GridAddress, face: Direction, key: &ItemKey, amount: u64, simulate: bool) -> Result<u64, String> {
+    with_owner::<RAW, _>(game.ae2_ext.get(), |s| s.place(game, target, face as u8, key, amount, simulate)).unwrap_or(Ok(0))
 }
 fn built_in(kind: KeyType) -> bool {
     matches!(kind, KeyType::ITEMS | KeyType::FLUIDS)

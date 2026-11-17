@@ -745,6 +745,23 @@ pub struct NativeFluidTankInfo {
     pub drainable: bool,
 }
 
+/// One tank of a block's chemical handler through one side, as Mekanism's `IChemicalHandler`
+/// reads it (`getChemicalInTank`, `getChemicalTankCapacity`; `native_chemical_handler_tanks`), in
+/// millibuckets. The engine knows no chemical: one is its registry id (`mekanism:hydrogen`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NativeChemicalTankInfo {
+    /// The chemical it holds, empty when nothing.
+    pub chemical: String,
+    /// How much of it.
+    pub amount: i64,
+    /// `getChemicalTankCapacity`.
+    pub capacity: i64,
+    /// Whether a simulated extraction of `chemical` through this side gives any of it: what
+    /// Applied Mekanistics' storage bus asks of each tank to show only what it can take
+    /// (`ChemicalHandlerFacade`'s extractable-only filter). False for an empty tank.
+    pub extractable: bool,
+}
+
 /// What falls in a biome when it rains (`Biome.Precipitation`), as `native_biome_climate` reads it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NativePrecipitation {

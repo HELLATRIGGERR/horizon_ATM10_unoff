@@ -5479,6 +5479,39 @@
         "contract": "cancel",
         "out": "handled"
       }
+    },
+    {
+      "name": "chemical_handler_tanks",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_chemical_handler_tanks",
+      "neoforge": "Capabilities.CHEMICAL.block() (Mekanism's IChemicalHandler)",
+      "side": "server",
+      "mod_api": {
+        "contract": "replace",
+        "out": "tanks"
+      }
+    },
+    {
+      "name": "chemical_handler_insert",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_chemical_handler_insert",
+      "neoforge": "Capabilities.CHEMICAL.block() (Mekanism's IChemicalHandler)",
+      "side": "server",
+      "mod_api": {
+        "contract": "replace",
+        "out": "inserted"
+      }
+    },
+    {
+      "name": "chemical_handler_extract",
+      "version": 1,
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_chemical_handler_extract",
+      "neoforge": "Capabilities.CHEMICAL.block() (Mekanism's IChemicalHandler)",
+      "side": "server",
+      "mod_api": {
+        "contract": "replace",
+        "out": "extracted"
+      }
     }
   ]
 }

@@ -625,6 +625,8 @@ pub fn get() -> &'static Defs {
         // Applied Flux's key type and FE cells.
         #[cfg(feature = "ae2-appflux")]
         super::appflux::register(&mut defs);
+        // Applied Mekanistics' key type and chemical cells (horizon-ae2x-appmek).
+        add_addon_rows("appmek", &mut defs);
         // Ender Drives' disks, cells of its own handler (horizon-ae2x-enderdrives).
         add_addon_rows("enderdrives", &mut defs);
         #[cfg(feature = "ae2-advancedae")]

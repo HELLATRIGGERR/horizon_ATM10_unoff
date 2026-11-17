@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "addon": "appmek",
+  "name": "Applied Mekanistics",
+  "version": "1.6.3",
+  "minecraft": "1.21.1",
+  "source": {
+    "url": "https://github.com/AppliedEnergistics/Applied-Mekanistics",
+    "tag": "none checked: the behaviour is read from the jar with javap",
+    "license": "LGPL-3.0",
+    "license_file": "none in the jar; its neoforge.mods.toml says \"See GitHub repository for details\", whose licence is LGPL-3.0"
+  },
+  "assets_license": "not stated",
+  "jar": {
+    "file": "Applied-Mekanistics-1.6.3.jar",
+    "from": "the player's All the Mods 10 instance, mods/ (ATM10_DIR)",
+    "sha256": "8946fea39451dbce8e709dedbef40a52ba337bdf7a25ac0c4b503800b1bf0773"
+  },
+  "requires": ["ae2 19.2.10-20.0.0", "mekanism"],
+  "derived_files": [
+    "crates/horizon-ae2x-appmek/src/defs.rs"
+  ]
+}

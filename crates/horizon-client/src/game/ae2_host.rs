@@ -9,7 +9,50 @@ use horizon_client::{ae2_world::Machine, containers::BlockEntity, items::ItemSta
 use horizon_world::registry::{BlockRegistry, BlockStateId};
 use std::{any::Any, path::Path};
 
+/// A direction's index (`Direction as u8`), back; none past the six.
+fn direction(face: u8) -> Option<horizon_core::geometry::Direction> {
+    horizon_core::geometry::Direction::ALL.get(usize::from(face)).copied()
+}
+
+impl Game<'_> {
+    /// A chemical handler's insertion or extraction at a grid address of the level the game holds
+    /// (hook points `native_chemical_handler_insert`/`_extract`).
+    fn ae2_chemical_move(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool, extract: bool) -> u64 {
+        let (Some((dim, pos)), Some(face)) = (at.local_parts(), direction(face)) else { return 0 };
+        if amount == 0 || chemical.is_empty() {
+            return 0;
+        }
+        let amount = amount.min(i64::MAX as u64) as i64;
+        let mut moved = None;
+        if extract {
+            self.native_chemical_handler_extract(dim.id(), [pos.0, pos.1, pos.2], Some(face), chemical, amount, simulate, &mut moved);
+        } else {
+            self.native_chemical_handler_insert(dim.id(), [pos.0, pos.1, pos.2], Some(face), chemical, amount, simulate, &mut moved);
+        }
+        moved.unwrap_or(0).clamp(0, amount) as u64
+    }
+}
+
 impl Ae2Host for Game<'_> {
+    fn grid_key_move(&mut self, cable: GridAddress, kind: ae2_cell_core::KeyType, key: &ae2_cell_core::ItemKey, amount: u64, insert: bool, simulate: bool) -> Result<u64, String> {
+        self.ae2_grid_key_move_encoded(cable, kind, key, amount, insert, simulate)
+    }
+
+    fn chemical_tanks(&self, at: GridAddress, face: u8) -> Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>> {
+        let ((dim, pos), face) = (at.local_parts()?, direction(face)?);
+        let mut tanks = None;
+        self.native_chemical_handler_tanks(dim.id(), [pos.0, pos.1, pos.2], Some(face), &mut tanks);
+        tanks
+    }
+
+    fn chemical_insert(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool) -> u64 {
+        self.ae2_chemical_move(at, face, chemical, amount, simulate, false)
+    }
+
+    fn chemical_extract(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool) -> u64 {
+        self.ae2_chemical_move(at, face, chemical, amount, simulate, true)
+    }
+
     fn is_remote(&self) -> bool {
         self.remote.is_some()
     }

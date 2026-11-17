@@ -15,7 +15,7 @@
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26, 31, 38,
-# 42, 45, 47, 60, 71, 416-418, 420 and 422) and calls the helpers of API 419 (`native_biome_climate`,
+# 42, 45, 47, 60, 71, 416-418, 420, 422 and 435: its blocks' chemical handler for AE2's Applied Mekanistics) and calls the helpers of API 419 (`native_biome_climate`,
 # `native_dimension_type`), 421 (`native_cooking_recipes`), 422 (`FluidStack`, the fluid handler helpers), 423
 # (`native_data_files`, the content's chemical declarations), 424 (`native_used_stack`,
 # `native_instabuild`: the tier installers), 425 (`native_insert_slots`, `native_pop_resource`: the
@@ -29,7 +29,7 @@
 # `native_default_state`, `native_sneaking`, `native_block_name_in_tag`, `native_player_equipment` and
 # `native_machine_destroy_block`, `native_machine_block_drops`, `native_clip_blocks`, `native_destroy_speed` (fragments
 # default_state, host_bridge, player_equipment, machine_breaking and machine_beams: the tier installers, the
-# Configurator, the Digital Miner and the lasers), so it builds on any Horizon with hooks API 426 or later: it pins no
+# Configurator, the Digital Miner and the lasers), so it builds on any Horizon with hooks API 435 or later: it pins no
 # revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by
@@ -763,4 +763,52 @@ helper = "hooks/recipe_categories.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "categories", ty = "&mut Vec<horizon_client::mod_api::NativeRecipeCategory>", value = "&mut *categories" },
+]
+
+[[injection]]
+id = "chemical-handler-tanks"
+hook = "chemical_handler_tanks"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/chemical_handler_tanks.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "tanks", ty = "&mut Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>>", value = "&mut *tanks" },
+]
+
+[[injection]]
+id = "chemical-handler-insert"
+hook = "chemical_handler_insert"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/chemical_handler_insert.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "chemical", ty = "&str", value = "chemical" },
+  { name = "amount", ty = "i64", value = "amount" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "inserted", ty = "&mut Option<i64>", value = "&mut *inserted" },
+]
+
+[[injection]]
+id = "chemical-handler-extract"
+hook = "chemical_handler_extract"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/chemical_handler_extract.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "face", ty = "Option<horizon_core::geometry::Direction>", value = "face" },
+  { name = "chemical", ty = "&str", value = "chemical" },
+  { name = "amount", ty = "i64", value = "amount" },
+  { name = "simulate", ty = "bool", value = "simulate" },
+  { name = "extracted", ty = "&mut Option<i64>", value = "&mut *extracted" },
 ]

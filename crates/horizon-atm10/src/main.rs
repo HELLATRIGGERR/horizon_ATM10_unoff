@@ -19,6 +19,8 @@ fn main() {
     // The addon crates, then AE2, whose extension every game makes from what they added.
     #[cfg(feature = "ae2-aeinfinitybooster")]
     horizon_ae2x_aeinfinitybooster::install();
+    #[cfg(feature = "ae2-appmek")]
+    horizon_ae2x_appmek::install();
     #[cfg(feature = "ae2-enderdrives")]
     horizon_ae2x_enderdrives::install();
     #[cfg(any(feature = "ae2-extendedae", feature = "ae2-advancedae"))]

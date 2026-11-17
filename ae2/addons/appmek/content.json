@@ -1,0 +1,21 @@
+{
+  "namespace": "appmek",
+  "name": "Applied Mekanistics",
+  "description": "Applied Mekanistics 1.6.3 for the AE2 port: Mekanism's chemicals as an ME key type, the 1k-256k chemical storage cells, their housing and the portable chemical cells (slice 1).",
+  "authors": ["ramidzkh (Applied Mekanistics)"],
+  "slices": [
+    "1: the appmek:chemical key type, the 1k-256k chemical storage cells and portable chemical cells, the housing; chemicals through storage, import and export buses (docs/appmek.md)",
+    "2 (planned): the ME Interface and Pattern Provider as chemical handlers, chemical items in AE2's slots",
+    "3 (planned): chemicals drawn with their own sprite and tint, JEI's chemical ingredients, the Chemical P2P Tunnel"
+  ],
+  "items": {
+    "chemical_cell_housing": {},
+    "chemical_storage_cell_1k": {"max_stack_size": 1}, "chemical_storage_cell_4k": {"max_stack_size": 1},
+    "chemical_storage_cell_16k": {"max_stack_size": 1}, "chemical_storage_cell_64k": {"max_stack_size": 1},
+    "chemical_storage_cell_256k": {"max_stack_size": 1},
+    "portable_chemical_cell_1k": {"max_stack_size": 1}, "portable_chemical_cell_4k": {"max_stack_size": 1},
+    "portable_chemical_cell_16k": {"max_stack_size": 1}, "portable_chemical_cell_64k": {"max_stack_size": 1},
+    "portable_chemical_cell_256k": {"max_stack_size": 1}
+  },
+  "blocks": {}
+}

@@ -6,6 +6,10 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 435 adds a block's chemical handler (`native_chemical_handler_tanks`, `native_chemical_handler_insert`,
+//! `native_chemical_handler_extract`; Mekanism's `IChemicalHandler`), with chemicals as registry ids, so AE2's
+//! Applied Mekanistics moves them without the engine knowing a chemical.
+//!
 //! API 428 adds `native_map_tile`: a loaded chunk's 16x16 picture from the minimap extra's scanner, for a mod's map.
 //! API 431 adds the area a mod's item panel takes on the open screen (`native_panel_area`), for a window the mod draws over the screen.
 //! API 434 adds the size and alignment of a mod's item panel grid (`native_panel_grid`: the most columns and rows, the alignment, keeping the search box with no items; JEI's `[ingredientList]`).
@@ -1077,11 +1081,12 @@ use horizon_client::mod_api::{
     ServerTickPhase, Suggestion, TickSpan, WorldHold, WorldPhase,
 };
 pub(crate) use horizon_client::mod_api::{
-    NativeBiome, NativeDimensionType, NativeFeInfo, NativeFluidTankInfo, NativePrecipitation,
-};
-pub(crate) use horizon_client::mod_api::{
     ClientboundPlayPacket, NativeBlockRim, NativeColoredLight, NativeLootDrops, NativeMinimap,
     NativeMod, NativePanelEvent, NativeScreen, NativeScreenView, NativeStack, NativeZoom,
+};
+pub(crate) use horizon_client::mod_api::{
+    NativeBiome, NativeChemicalTankInfo, NativeDimensionType, NativeFeInfo, NativeFluidTankInfo,
+    NativePrecipitation,
 };
 pub(crate) use horizon_client::mod_api::{NativeRecipeCategory, NativeRecipeLookup};
 use horizon_client::{
@@ -1148,7 +1153,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 434;
+pub(crate) const NATIVE_HOOKS_API: u32 = 435;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -3756,6 +3761,88 @@ impl Game<'_> {
             max,
             simulate,
             drained,
+        );
+    }
+    /// The chemical handler of the block at `pos` in `dimension`, a mod's,
+    /// through `face`, as Mekanism's `IChemicalHandler` reads it
+    /// (`getChemicalTanks`, `getChemicalInTank`, `getChemicalTankCapacity`;
+    /// `Capabilities.CHEMICAL.block()`). The engine knows no chemical: a
+    /// chemical is its registry id, an amount is in millibuckets. `face` is
+    /// the side of this block the caller touches, as in
+    /// `native_fluid_handler_tanks`; none is the block itself, a null side.
+    /// Set `tanks` when the block is yours and `tanks` is none yet; leave it
+    /// none on a side without a handler, so AE2's buses see nothing there.
+    /// Asked on the server, often, and only to read: answer from your own
+    /// state, change nothing. API 435.
+    pub(super) fn native_chemical_handler_tanks(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        tanks: &mut Option<Vec<NativeChemicalTankInfo>>,
+    ) {
+        mod_api::dispatch_chemical_handler_tanks(
+            self,
+            mod_api::mods(),
+            dimension,
+            pos,
+            face,
+            tanks,
+        );
+    }
+    /// `IChemicalHandler.insertChemical` on the block at `pos`, as
+    /// `native_chemical_handler_tanks`: `amount` (1 or more) of `chemical`
+    /// offered through `face`. Set `inserted` (0 to `amount`) when the block
+    /// is yours and `inserted` is none yet; with `simulate`, answer what you
+    /// would take and change nothing. API 435.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn native_chemical_handler_insert(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        chemical: &str,
+        amount: i64,
+        simulate: bool,
+        inserted: &mut Option<i64>,
+    ) {
+        mod_api::dispatch_chemical_handler_insert(
+            self,
+            mod_api::mods(),
+            dimension,
+            pos,
+            face,
+            chemical,
+            amount,
+            simulate,
+            inserted,
+        );
+    }
+    /// `IChemicalHandler.extractChemical(stack, action)` on the block at
+    /// `pos`, as `native_chemical_handler_insert`: at most `amount` of
+    /// `chemical` and only that one. Set `extracted` (0 to `amount`) to what
+    /// leaves. API 435.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn native_chemical_handler_extract(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Option<Direction>,
+        chemical: &str,
+        amount: i64,
+        simulate: bool,
+        extracted: &mut Option<i64>,
+    ) {
+        mod_api::dispatch_chemical_handler_extract(
+            self,
+            mod_api::mods(),
+            dimension,
+            pos,
+            face,
+            chemical,
+            amount,
+            simulate,
+            extracted,
         );
     }
     /// A block entity of a mod entered the world: placed, or loaded with its
@@ -11013,7 +11100,8 @@ impl Game<'_> {
             self.particles.add(options, at, velocity);
             return true;
         }
-        let mut seed = at[0].to_bits() ^ at[1].to_bits().rotate_left(21) ^ at[2].to_bits().rotate_left(42) | 1;
+        let mut seed =
+            at[0].to_bits() ^ at[1].to_bits().rotate_left(21) ^ at[2].to_bits().rotate_left(42) | 1;
         for _ in 0..count.min(256) {
             let mut offset = [0.0; 3];
             for (o, d) in offset.iter_mut().zip(spread) {
@@ -12750,7 +12838,12 @@ impl Game<'_> {
         let block = match (menu_block, target) {
             (Some(block), _) => block,
             (None, Some(t)) => {
-                let block = self.res.facts().get(self.world.block(t.0, t.1, t.2)).name.to_string();
+                let block = self
+                    .res
+                    .facts()
+                    .get(self.world.block(t.0, t.1, t.2))
+                    .name
+                    .to_string();
                 if block.starts_with("minecraft:") {
                     return;
                 }
@@ -13397,7 +13490,8 @@ fn mod_screen_opens(
 /// that has `dir`, walked through links (a content root links its mods'
 /// folders).
 fn data_files(root: &std::path::Path, dir: &str) -> Vec<String> {
-    let plain = |p: &str| !p.is_empty() && p != "." && p != ".." && !p.contains('\\') && !p.contains(':');
+    let plain =
+        |p: &str| !p.is_empty() && p != "." && p != ".." && !p.contains('\\') && !p.contains(':');
     if !dir.split('/').all(plain) {
         return Vec::new();
     }
@@ -13419,7 +13513,11 @@ fn data_files(root: &std::path::Path, dir: &str) -> Vec<String> {
                 let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                     continue;
                 };
-                let child = if rel.is_empty() { name.clone() } else { [rel.as_str(), "/", name.as_str()].concat() };
+                let child = if rel.is_empty() {
+                    name.clone()
+                } else {
+                    [rel.as_str(), "/", name.as_str()].concat()
+                };
                 let path = entry.path();
                 if path.is_dir() {
                     folders.push((path, child));

@@ -135,3 +135,12 @@ enabled = true
 feature = "ae2-appflux"
 content = "appflux"
 configs = ["appflux-common.toml"]
+
+# Applied Mekanistics: Mekanism's chemicals as an ME key type, the chemical storage cells and portable cells
+# (slice 1; ae2/addons/appmek, docs/appmek.md). Chemicals move between the grid and Mekanism's blocks through the
+# engine's chemical handler hook points (API 435), which the Mekanism bundle answers.
+[mods.appmek]
+name = "Applied Mekanistics"
+enabled = true
+feature = "ae2-appmek"
+content = "appmek"

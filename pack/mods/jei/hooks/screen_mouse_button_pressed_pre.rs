@@ -5,6 +5,7 @@ fn jei_screen_mouse_button_pressed_pre(
     button: i32,
     canceled: &mut bool,
 ) {
+    crate::game::jei_config::pressed(screen, button, canceled);
     crate::game::jei_window::pressed(screen, button, canceled);
     crate::game::jei_bookmarks::pressed(screen, button, canceled);
 }

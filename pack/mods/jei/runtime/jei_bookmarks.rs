@@ -10,7 +10,7 @@
 use super::{Game, native_hooks::NativeRecipes, native_lifecycle::WorldPhase};
 use super::jei_window::{self, BAND, BOOKMARK_LIST, BOOKMARK_SLOTS};
 use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
-use jei_core::bookmarks::{Bookmarks, NAV, SLOT, grid, pages};
+use jei_core::bookmarks::{Bookmarks, NAV, SLOT, grid_within, pages};
 use jei_core::recipes::{Mode, Stack};
 use jei_core::window::{Rect, inside};
 use std::path::{Path, PathBuf};
@@ -151,7 +151,8 @@ pub(super) fn frame(game: &mut Game<'_>, in_world: bool) {
 /// The bookmark key on `item`: it is added, or taken off when it is bookmarked already; the file is written.
 pub(super) fn toggle(item: &str) -> bool {
     with(|s| {
-        let added = s.bookmarks.toggle(item);
+        let front = super::jei_config::value("bookmarkList", "addBookmarksToFrontEnabled") == "FRONT";
+        let added = s.bookmarks.toggle_at(item, front);
         if let Some(file) = &s.file {
             save(file, &s.bookmarks);
         }
@@ -187,18 +188,23 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     let s = guard.get_or_insert_with(State::default);
     s.drawn = Drawn::default();
     let Some(list) = game.native_panel_area(super::jei_world::ID) else { return };
+    // JEI's bookmark overlay toggle (the config screen's "Show Bookmark Overlay", `key.jei.toggleBookmarkOverlay`).
+    if !super::jei_config::bookmarks_shown() {
+        return;
+    }
+    let (max_columns, max_rows) = super::jei_config::grid_limits("bookmarkList");
     let items: Vec<String> = s.bookmarks.items().into_iter().map(str::to_owned).collect();
     if items.is_empty() {
         return;
     }
     // Left of the screen's panel, as high as the item list: `[8, list.y, screen.x - 16, list.h]`.
     let outer = [8.0, list[1], screen.rect[0] - 16.0, list[3]];
-    let columns = (((outer[2] - 2.0 * PAD) / SLOT).floor().max(0.0) as usize).min(9);
+    let columns = (((outer[2] - 2.0 * PAD) / SLOT).floor().max(0.0) as usize).min(max_columns);
     if columns < 2 {
         return;
     }
     let x = (outer[0] + PAD + (outer[2] - 2.0 * PAD - columns as f32 * SLOT) / 2.0).floor();
-    let slots = grid([x, outer[1] + PAD, columns as f32 * SLOT, outer[3] - 2.0 * PAD]);
+    let slots = grid_within([x, outer[1] + PAD, columns as f32 * SLOT, outer[3] - 2.0 * PAD], max_columns, max_rows);
     let per_page = slots.len();
     if per_page == 0 {
         return;

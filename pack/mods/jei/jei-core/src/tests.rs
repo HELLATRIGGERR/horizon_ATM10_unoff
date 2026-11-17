@@ -330,3 +330,49 @@ mod bookmarks {
         assert_eq!((pages(0, 10), pages(10, 10), pages(11, 10), pages(5, 0)), (1, 1, 2, 5));
     }
 }
+
+mod config {
+    use crate::config::*;
+
+    const OLD: &str = "[appearance]\n\t# Name: Center Search Bar\n\t# Default Value: false\n\tcenterSearch = true\n\n\n[search]\n\t# Name: @Mod Name Search Mode\n\tmodNameSearchMode = ENABLED\n\tcolorSearchMode = bogus\n\n\n[ingredientList]\n\tmaxRows = 99\n\tdrawBackground = false\n";
+
+    #[test]
+    fn keeps_comments_and_unknown_keys() {
+        let mut ini = Ini::parse(OLD);
+        assert_eq!(ini.get("appearance", "centerSearch"), Some("true"));
+        assert_eq!(ini.value("search", "modNameSearchMode"), "ENABLED");
+        // A value it may not hold reads as the default.
+        assert_eq!(ini.value("search", "colorSearchMode"), "DISABLED");
+        assert!(ini.complete());
+        // Moved values are taken over; the old ones stay as written.
+        assert_eq!(ini.value("search", "centerSearch"), "CENTERED");
+        assert_eq!(ini.value("lists", "drawBackground"), "NONE");
+        assert_eq!(ini.get("ingredientList", "drawBackground"), Some("false"));
+        assert_eq!(ini.int("ingredientList", "maxRows"), 99);
+        let text = ini.write();
+        assert!(text.starts_with("[appearance]\n\t# Name: Center Search Bar\n\t# Default Value: false\n\tcenterSearch = true\n\n\n[search]\n"), "{text}");
+        assert!(text.contains("\t# Name: Search Ingredient Tags\n\t# Description: "), "new values come with JEI's comments");
+        assert!(text.contains("\t# Valid Values: [ENABLED, REQUIRE_PREFIX, DISABLED]\n\t# Default Value: REQUIRE_PREFIX\n\ttagSearchMode = REQUIRE_PREFIX\n"));
+        // Written and read again: the same file.
+        assert_eq!(Ini::parse(&text), ini);
+        assert!(!Ini::parse(&text).complete());
+    }
+
+    #[test]
+    fn set_and_cycle() {
+        let mut ini = Ini::fresh();
+        assert_eq!(ini.int("ingredientList", "maxColumns"), 18, "ATM10's own value");
+        assert_eq!(ini.sections.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), CATEGORIES.map(|c| c.0));
+        let o = opt("search", "tagSearchMode").unwrap();
+        assert_eq!(o.cycle("REQUIRE_PREFIX", false, false), "DISABLED");
+        assert_eq!(o.cycle("ENABLED", true, false), "DISABLED");
+        assert_eq!(o.label("REQUIRE_PREFIX"), "Require Prefix");
+        let rows = opt("ingredientList", "maxRows").unwrap();
+        assert_eq!(rows.cycle("99", false, true), "100");
+        assert_eq!(rows.cycle("1", true, false), "1");
+        assert_eq!(opt("recipes", "recipeGuiWidth").unwrap().valid(), "Any integer greater than or equal to 198");
+        ini.set("search", "tagSearchMode", "ENABLED");
+        assert_eq!(ini.value("search", "tagSearchMode"), "ENABLED");
+        assert!(ini.write().contains("\ttagSearchMode = ENABLED\n"));
+    }
+}

@@ -4,6 +4,7 @@ fn jei_screen_mouse_scrolled_pre(
     scroll: [f64; 2],
     canceled: &mut bool,
 ) {
+    crate::game::jei_config::scrolled(screen, scroll, canceled);
     crate::game::jei_window::scrolled(screen, scroll, canceled);
     crate::game::jei_bookmarks::scrolled(screen, scroll, canceled);
 }

@@ -34,6 +34,12 @@ name = "jei_window"
 source = "runtime/jei_window.rs"
 
 [[module]]
+id = "config"
+file = "crates/horizon-client/src/game.rs"
+name = "jei_config"
+source = "runtime/jei_config.rs"
+
+[[module]]
 id = "bookmarks"
 file = "crates/horizon-client/src/game.rs"
 name = "jei_bookmarks"

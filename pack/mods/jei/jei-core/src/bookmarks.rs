@@ -155,6 +155,16 @@ impl Bookmarks {
     /// The bookmark key on `item`: added at the end, or removed when it is bookmarked already (JEI's
     /// `BookmarkInputHandler`). True when it was added.
     pub fn toggle(&mut self, item: &str) -> bool {
+        self.toggle_at(item, false)
+    }
+    /// As `toggle`, a new one at the front when `front` (`bookmarkList.addBookmarksToFrontEnabled = FRONT`): after the
+    /// file's version element and anything else that isn't an item, as JEI puts it first in the list.
+    pub fn toggle_at(&mut self, item: &str, front: bool) -> bool {
+        if front && !self.contains(item) {
+            let at = self.entries.iter().position(|e| matches!(e, Entry::Item { .. })).unwrap_or(self.entries.len());
+            self.entries.insert(at, Entry::Item { id: item.to_owned(), json: item_element(item) });
+            return true;
+        }
         if self.contains(item) {
             self.entries.retain(|e| !matches!(e, Entry::Item { id, .. } if id == item));
             false
@@ -174,8 +184,12 @@ impl Bookmarks {
 /// The bookmark list's slots: as many 18 px slots as `area` (`[x, y, w, h]`, under its 20 px page row) holds, at
 /// most JEI's `bookmarkList` `maxColumns` 9 and `maxRows` 16, from its top left. Each slot's top left.
 pub fn grid(area: [f32; 4]) -> Vec<[f32; 2]> {
-    let columns = ((area[2] / SLOT).floor() as usize).min(9);
-    let rows = (((area[3] - NAV) / SLOT).floor().max(0.0) as usize).min(16);
+    grid_within(area, 9, 16)
+}
+/// As `grid`, at most `max_columns` by `max_rows` (the config's `bookmarkList.maxColumns` and `maxRows`).
+pub fn grid_within(area: [f32; 4], max_columns: usize, max_rows: usize) -> Vec<[f32; 2]> {
+    let columns = ((area[2] / SLOT).floor() as usize).min(max_columns);
+    let rows = (((area[3] - NAV) / SLOT).floor().max(0.0) as usize).min(max_rows);
     (0..rows * columns)
         .map(|k| [area[0] + (k % columns) as f32 * SLOT, area[1] + NAV + (k / columns) as f32 * SLOT])
         .collect()

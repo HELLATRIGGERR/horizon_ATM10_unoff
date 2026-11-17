@@ -1,6 +1,72 @@
 # JEI (Just Enough Items) port plan
 
-> **Handoff (2026-11-17): slice 4 ("+" recipe transfer: vanilla grids 4a, AE2's terminals 4b) done and tested; JEI's config screen is next.**
+> **Handoff (2026-11-17): slice 5 ("JEI's config screen") done and tested; the ini-driven list layout, mod-name format,
+> blacklist and hide-until-search are next.**
+> **Slice 5 as built:**
+> - `jei-core/src/config.rs` (20 unit tests in `jei-core`): `Ini::parse/write/get/set/value/complete/fresh` for
+>   `config/jei/jei-client.ini` in JEI 19.70's format (MezzConfig: `[section]`, tab-indented `# Name:`, `# Description:`,
+>   `# Valid Values:`, `# Default Value:` over `key = value`, a blank line between values, two between sections).
+>   Comments, order and unknown keys are kept; missing values are added with JEI's comments; legacy values (an older
+>   JEI's, e.g. ATM10's `[appearance] centerSearch`) are taken over by `LEGACY`. `OPTS` = 63 options of JEI 19.70
+>   (`ClientConfig`, `IngredientFilterConfig`, `IngredientGridConfig`, the shared grid config; names and descriptions
+>   from JEI's en_us `jei.config.client.<section>.<key>`), `CATEGORIES` (10, the screen's order), `Opt::cycle/label/valid`.
+>   `ATM10` = the pack's own overrides, applied to a new file (`[ingredientList] maxRows = 99, maxColumns = 18`).
+>   `bookmarks.rs`: `toggle_at(item, front)` and `grid_within(area, cols, rows)`.
+> - `runtime/jei_config.rs` (`[[module]] config` in `horizon-mixin.toml`): the ini is read once and again when a world
+>   loads (`reload()`), written `.tmp` + rename on each change; `CHANGED` -> `jei_world::frame` refilters and re-reads
+>   Ctrl+O. Cheat mode and the bookmark overlay are session-only, as JEI 19.70's `ClientToggleState` (the old
+>   `.horizon-mod-data/jei/*` setting files are no longer read). The screen is drawn over the container screen from
+>   `screen_render_post`: JEI's `gui_background_v2`, `button_*_v2` category buttons (the open one pressed), the title on
+>   the navigation band, the game's `widget/button` for each value, tooltip = name + description + "Default Value".
+>   Click = next value, right click = previous, Shift = ten for numbers, wheel scrolls, "Done" and Escape close. The
+>   wrench (the engine's settings button right of the search box, rect `[a.x + a.w - 20, a.h - 26, 20, 20]` from
+>   `native_panel_area`) is taken in `screen_mouse_button_pressed_pre`; the next frame opens the screen, or with Ctrl
+>   toggles cheat mode (`toggleCheatModeConfigButton`); JEI's `icons/config_button(_cheat)` is drawn over it. Widgets
+>   recorded: `JEI Config: <category>`, each option's name, `Done`. Probe `/jeiclient` -> `config {file, cheat,
+>   bookmarks, wrench, screen {category, frame, rows [{name, value}]}}`.
+> - Wired: the six search modes (`[search]`), cheat mode, Ctrl+O (`ingredientList.overlaysEnabled`), bookmarks
+>   `addBookmarksToFrontEnabled` (FRONT/END), `bookmarkList.maxColumns/maxRows` (panel grid), the bookmark overlay
+>   toggle; Options > Mods goes through the same values. Keys `key.jei.toggleCheatMode` and
+>   `key.jei.toggleBookmarkOverlay` (unbound, as JEI 19.70) are in `KEYS`. The other options are kept and shown but
+>   change nothing yet. No engine change in this slice (no new hook; fork API still **433**).
+> - JEI's real wrench in ATM10 shows "Install the MezzConfig GUI mod" in chat (the standalone MezzConfig has no
+>   screen); the port draws the screen as the brief asks.
+> - World test `tests/config.ts` (`JEI_LIST=jei/config bash jei.sh world`, 4 checks, shots in `jei-work/logs/shots-config`):
+>   a new ini in JEI's format with ATM10's `maxRows`/`maxColumns`; the wrench opens the screen on Search; a right click on
+>   "Search Ingredient Tags" (Require Prefix -> Enabled) is in the file at once with its comments and "ingots" finds more;
+>   Cheats -> "Enable Cheat Mode" ON; Done and Escape close; after `fixture.restart()` the file and the search mode are
+>   kept and cheat mode is off. Shots checked by eye: JEI's grey background and band, the nine category buttons on the
+>   left, the values as vanilla buttons with the label ("Require Prefix", "ON"), the tooltip over the Cheats page, the
+>   wrench drawn as a red wrench in JEI's button with cheat mode on (grey off). Cosmetic: the page note "1-9 / 14" on
+>   Search sits against the Done button.
+> - Green after the slice: `jei/item-list` (11 checks), `jei/recipes` (9), `jei/bookmarks` (6), `jei/transfer` (4),
+>   `jei/transfer-ae2` (4), `jei.sh units` (20).
+> **Next, in order (each its own slice or commit):**
+> - **(a) The ingredient list's size from the ini.** ATM10's own `jei-client.ini` sets `maxRows = 99, maxColumns = 18`
+>   but the engine fixes the list at 9 columns and as many rows as fit above the search box. In
+>   `crates/horizon-client/src/game/native_panel.rs`, `browser_layout` clamps `columns` with `.min(9)` for the Viewer
+>   style and takes `rows` from the search box's top. Add an engine helper on **API 434**, e.g. `native_panel_grid(mod_id,
+>   max_cols, max_rows, horizontal_alignment)` (types in `mod_api.rs`, helper entry in `native-hooks.json`,
+>   `NATIVE_HOOKS_API = 434`, a line in `docs/atm10-port.md`, as 433 did); `browser_layout` then uses it in place of 9 and
+>   the row count, and aligns the grid in the free width (`horizontalAlignment`, default RIGHT; `verticalAlignment`).
+>   Bundle: `jei_world::frame` calls it at start and when `jei_config::take_changed()` fires, with
+>   `jei_config::grid_limits("ingredientList")` (exists) and `jei_config::value("ingredientList", "horizontalAlignment")`.
+>   `bookmarks::grid_within(area, cols, rows)` is the bookmark panel's version of the same clamp.
+> - **(b) `jei-mod-id-format.ini`** (the mod name in tooltips): JEI's second file in `config/jei/`; its format string
+>   styles the mod name line of item tooltips (the instance's own file was not read in this slice; read it first, then add
+>   a small reader beside `config.rs`, kept in the same MezzConfig style, and use it where the bundle builds the
+>   tooltip's last line).
+> - **(c) ATM10's `blacklist.json`** (`config/jei/`): hides ingredients by id; ATM10's hides the Mekanism chemicals.
+>   Read it at load (as `jei_world` reloads the ini), drop the ids from the list and the search; the "Show Hidden
+>   Ingredients in JEI" cheat option already exists in `OPTS` (Cheats page) and should bring them back.
+> - **(d) `hideIngredientsWhenNotSearching`** without losing the search box: the engine drops the whole panel when
+>   `native_panel_items` is empty (`native_panel.rs::native_changed` removes `native` unless `keep_search`, which is
+>   only true while a query is non-empty). Add a way to keep the box with an empty list (e.g. a flag on the same API 434
+>   helper) before wiring the option.
+> **Gaps left:** the other `OPTS` change nothing (`lookups`, `tooltips`, the grid alignments, etc.); creative tabs'
+> contents, fluids/chemicals as ingredients and item colours still wait for the game (see API gaps below).
+
+> **Handoff (2026-11-17): slice 4 ("+" recipe transfer: vanilla grids 4a, AE2's terminals 4b) done and tested.**
 > **Slice 4a as built:**
 > - Engine helper `native_recipe_transfer(&NativeRecipeTransfer, run, max, craft_missing) -> NativeTransferAnswer`,
 >   **API 433** (`crates/horizon-client/src/game/native_recipe_transfer.rs`, new `mod` in `game.rs`; types
@@ -32,7 +98,8 @@
 >   Test gotchas: `interact` needs a clear line to the block (the test clears `x-1..x`, `y..y+2`, `z-1..z+2`);
 >   closing a crafting table returns the grid to the inventory. `jei/recipes`, `jei/bookmarks`, `jei/item-list`,
 >   `jei.sh units` (18) and `cargo test -p horizon-mod-api-gen` stay green (but for the main-only failure
->   `new_hook_placeholder_is_repor> **Slice 4b as built (AE2's terminals, `ae2jeiintegration`'s handlers):** `ae2_recipe_transfer` in
+>   `new_hook_placeholder_is_reported_then_filled`).
+> **Slice 4b as built (AE2's terminals, `ae2jeiintegration`'s handlers):** `ae2_recipe_transfer` in
 >   `game/ae2_terminal.rs` (feature `ae2-lab`), asked first by `native_recipe_transfer`; no new hook. A remote client
 >   (JEI's tests, `server-thread`) sends `ae2:jei_transfer` (JSON `JeiTransfer {window, key, run, craft, crafting,
 >   inputs: [[(item, count)]], outputs}`, `key` = the recipe's hash) and the host (`lan_jei_transfer`, dispatched in
@@ -65,8 +132,6 @@
 > **Known gaps of 4b:** components ignored (items by id); fluids and other key types are not encoded (only items);
 > the dry run's craftable keys are recomputed per query (`ae2_craftable_outputs`); Ctrl crafts the first missing key
 > only.
-als need the same.
-> **Then: JEI's config screen** (`config/jei/jei-client.ini` keys; key rebinding already goes through `mods` keys).
 > **Known gaps of the vanilla part:** items matched by id only (components ignored); a mod crafting grid's nearby
 > sources aren't counted in the dry run; JEI's bookmark star above the "+" is not drawn.
 
@@ -235,7 +300,7 @@ the carry (`pack/scripts/jei.ts carry`: `horizon-port-pack carry <work> jei`, a 
    **2b. The centred window** (done): the same screen as JEI's own window, drawn by the bundle over the screen (see
    the handoff); the engine's panel keeps the item list.
 3. **Bookmarks** (done): A adds/removes, a left panel, per-world `bookmarks.json` in JEI's format (see the handoff).
-   **Config** (next after 4): JEI's config screen (`config/jei/jei-client.ini` keys); key rebinding is through `mods`
+   **Config** (done, slice 5): JEI's config screen and `config/jei/jei-client.ini` (see the handoff); key rebinding is through `mods`
    keys already.
 4. **Recipe transfer**: "+" with the dry-run state (red missing slots, grey "not possible"); vanilla grids through
    `native_transfer_recipe`/`native_place_recipe`; AE2's Pattern Encoding Terminal (encode) and crafting terminal
@@ -250,7 +315,7 @@ the carry (`pack/scripts/jei.ts carry`: `horizon-port-pack carry <work> jei`, a 
   `NativePanelStyle::Viewer`, so any viewer that asks for the style gets them; the config button opens the owner's own
   Options > Mods page. The search box is recorded as a widget (`click-button` reaches it).
 - No mouse wheel over the panel, no way for a mod to set the panel's page (PgUp/PgDn, JEI's scroll) or focus its
-  search (Ctrl+F); no wider grid than 9 columns (JEI's `maxColumns`).
+  search (Ctrl+F); no wider grid than 9 columns (JEI's `maxColumns`; the handoff's (a)).
 - No tooltip lines per item: `$` (and plain words, tooltip search being on) has nothing past the name and mod name,
   which JEI leaves out of it anyway; no creative tabs' contents (`%`, and JEI's subtypes: potions, enchanted books,
   filled tanks) and no item colours (`^` needs the texture's colours). The crate takes them once the game gives them.

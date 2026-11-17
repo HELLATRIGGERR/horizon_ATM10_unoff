@@ -212,7 +212,7 @@ fn button_tooltip(a: &NativeTransferAnswer, active: bool, small_grid: bool, ctrl
 /// the "+" level with its bottom.
 const RECIPE_BUTTON: f32 = 13.0;
 const RECIPE_BUTTON_SPACING: f32 = 2.0;
-const BUTTON_DISABLED: Nine = Nine("button_disabled_v2", 20.0, [6.0; 4]);
+pub(super) const BUTTON_DISABLED: Nine = Nine("button_disabled_v2", 20.0, [6.0; 4]);
 pub(super) fn is_open() -> bool {
     shown().is_some()
 }
@@ -258,7 +258,7 @@ fn item_stack(s: &Stack) -> ItemStack {
 
 /// The fallback's faces when JEI's sprites are not carried: vanilla's container panel (a light grey face, a white
 /// top-left bevel, a dark bottom-right one, a black rim with cut corners), as `gui_background_v2` looks.
-const FACE: u32 = 0xFFC6C6C6;
+pub(super) const FACE: u32 = 0xFFC6C6C6;
 const TAB_FACE: u32 = 0xFFA8A8A8;
 const NOTE: u32 = 0x808080;
 const TITLE: u32 = 0xFFFFFF;
@@ -268,11 +268,11 @@ pub(super) const BAND: u32 = 0x30000000;
 /// A nine-slice sprite of JEI's: its name under `jei:gui/sprites/`, its `gui.scaling` size and its border (left,
 /// right, top, bottom), as its `.png.mcmeta` in JEI's jar says.
 pub(super) struct Nine(&'static str, f32, [f32; 4]);
-const BACKGROUND: Nine = Nine("gui_background_v2", 64.0, [16.0; 4]);
+pub(super) const BACKGROUND: Nine = Nine("gui_background_v2", 64.0, [16.0; 4]);
 const CATALYST_TAB: Nine = Nine("catalyst_tab_v2", 28.0, [8.0, 9.0, 8.0, 8.0]);
 const CATALYST_SLOTS: Nine = Nine("recipe_catalyst_slot_background_v2", 18.0, [4.0; 4]);
-const BUTTON: Nine = Nine("button_enabled_v2", 20.0, [6.0; 4]);
-const BUTTON_HOVER: Nine = Nine("button_highlight_v2", 20.0, [6.0; 4]);
+pub(super) const BUTTON: Nine = Nine("button_enabled_v2", 20.0, [6.0; 4]);
+pub(super) const BUTTON_HOVER: Nine = Nine("button_highlight_v2", 20.0, [6.0; 4]);
 /// The bookmark list's background and the slots' (`bookmark_list_background_v2`, `bookmark_list_slot_background_v2`).
 pub(super) const BOOKMARK_LIST: Nine = Nine("bookmark_list_background_v2", 64.0, [16.0; 4]);
 pub(super) const BOOKMARK_SLOTS: Nine = Nine("bookmark_list_slot_background_v2", 18.0, [4.0; 4]);
@@ -281,11 +281,11 @@ fn jei_sprite(name: &str) -> String {
     format!("jei:gui/sprites/{name}")
 }
 /// Whether the carry brought JEI's sprites.
-fn carried(game: &Game<'_>) -> bool {
+pub(super) fn carried(game: &Game<'_>) -> bool {
     game.native_sprite_size(&jei_sprite(BACKGROUND.0)).is_some()
 }
 /// JEI's sprite `name` whole over `dst`; false without it.
-fn sprite(game: &Game<'_>, batch: &mut HudBatch, name: &str, dst: Rect) -> bool {
+pub(super) fn sprite(game: &Game<'_>, batch: &mut HudBatch, name: &str, dst: Rect) -> bool {
     let name = jei_sprite(name);
     let Some([w, h]) = game.native_sprite_size(&name) else { return false };
     game.native_sprite(batch, &name, [0.0, 0.0, w, h], dst)
@@ -383,7 +383,7 @@ pub(super) fn centred(game: &Game<'_>, batch: &mut HudBatch, text: &str, r: Rect
     game.native_text(batch, text, [(r[0] + (r[2] - w) / 2.0).floor(), r[1] + ((r[3] - 8.0) / 2.0).floor()], rgb, true);
 }
 /// `text` cut at spaces into lines `room` wide.
-fn wrap(game: &Game<'_>, text: &str, room: f32) -> Vec<String> {
+pub(super) fn wrap(game: &Game<'_>, text: &str, room: f32) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     for word in text.split_whitespace() {
@@ -607,7 +607,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
 }
 
 /// `text` cut with vanilla's ellipsis to `room`.
-fn fit(game: &Game<'_>, text: &str, room: f32) -> String {
+pub(super) fn fit(game: &Game<'_>, text: &str, room: f32) -> String {
     if game.native_text_width(text) <= room {
         return text.to_owned();
     }

@@ -161,7 +161,7 @@ fn button_state(a: &NativeTransferAnswer, inputs: usize) -> (bool, Option<u32>) 
 }
 /// The "+"'s tooltip: JEI's "Move Items" and the error's lines (`RecipeTransferUtil.addTransferRecipeTooltip`), or
 /// AE2's handlers' (`ae2.rei_jei_integration.*`).
-fn button_tooltip(a: &NativeTransferAnswer, active: bool, small_grid: bool) -> Vec<Text> {
+fn button_tooltip(a: &NativeTransferAnswer, active: bool, small_grid: bool, ctrl: bool) -> Vec<Text> {
     const RED: u32 = 0xFF5555;
     const BLUE: u32 = 0x5555FF;
     let mut lines = Vec::new();
@@ -173,17 +173,22 @@ fn button_tooltip(a: &NativeTransferAnswer, active: bool, small_grid: bool) -> V
             }
         }
         Some(NativeTransferHandler::Ae2Crafting) => {
-            lines.push(Text::literal("Move items"));
-            if a.too_large {
-                lines.push(Text::colored("Recipe too large", RED));
-            } else if !active {
-                lines.push(Text::colored("Found no compatible items", RED));
+            // UseCraftingRecipeTransfer: a user error (too large, nothing found) gets JEI's tooltip, its COSMETIC
+            // error AE2's `TransferHelper.createCraftingTooltip` (Ctrl held: "Will craft").
+            if a.too_large || !active {
+                lines.push(Text::literal("Move Items"));
+                let text = if a.too_large { "Recipe larger than 3x3" } else { "Found no compatible items" };
+                lines.push(Text::colored(text, RED));
+            } else if a.missing.is_empty() && a.craftable.is_empty() {
+                lines.push(Text::literal("Move Items"));
             } else {
+                lines.push(Text::literal("Move items"));
+                if !a.craftable.is_empty() {
+                    let text = if ctrl { "Will craft unavailable items" } else { "CTRL + click to craft unavailable items" };
+                    lines.push(Text::colored(text, BLUE));
+                }
                 if !a.missing.is_empty() {
                     lines.push(Text::colored("Missing items will be skipped", RED));
-                }
-                if !a.craftable.is_empty() {
-                    lines.push(Text::colored("CTRL + click to craft unavailable items", BLUE));
                 }
             }
         }
@@ -584,7 +589,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
                     }
                 }
                 let small = a.handler == Some(NativeTransferHandler::CraftingGrid);
-                button_tip = Some(button_tooltip(a, active, small));
+                button_tip = Some(button_tooltip(a, active, small, game.native_has_control_down()));
             }
         }
     }

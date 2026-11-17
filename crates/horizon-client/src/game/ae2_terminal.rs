@@ -7992,6 +7992,577 @@ impl Game<'_> {
     }
 }
 
+/// A recipe viewer's "+" over AE2's terminals, as ae2jeiintegration's `EncodePatternTransferHandler` (the Pattern
+/// Encoding Terminal: the recipe encoded, no items needed) and `UseCraftingRecipeTransfer` (the crafting terminal:
+/// the ingredients pulled from the ME network, then the inventory; `FillCraftingGridFromRecipePacket`). A remote
+/// client's terminal is the host's, so both the dry run (`run` false: which slots are missing, which craftable) and
+/// the move go to it as `ae2:jei_transfer`, and the host answers the dry run on the same channel; an in-frame
+/// terminal does both itself.
+#[derive(serde::Serialize, serde::Deserialize, Default, Hash)]
+struct JeiTransfer {
+    window: i32,
+    /// The recipe's hash, echoed in the answer.
+    key: u64,
+    run: bool,
+    /// Ctrl: autocrafting asked for a missing craftable ingredient.
+    craft: bool,
+    /// A `minecraft:crafting` recipe: a crafting pattern (else a processing one); the crafting terminal takes no other.
+    crafting: bool,
+    /// Each input slot's alternatives (item id, count), a crafting recipe's 3x3 grid row by row.
+    inputs: Vec<Vec<(String, u32)>>,
+    /// The outputs, the result first.
+    outputs: Vec<(String, u32)>,
+}
+impl JeiTransfer {
+    fn of(recipe: &horizon_client::mod_api::NativeRecipeTransfer, window: i32) -> Self {
+        let alts = |l: &[horizon_client::mod_api::NativeStack]| -> Vec<(String, u32)> {
+            l.iter().map(|s| (s.item.clone(), s.count.max(1))).collect()
+        };
+        let mut request = JeiTransfer {
+            window,
+            crafting: recipe.category == "minecraft:crafting",
+            inputs: recipe.inputs.iter().map(|l| alts(l)).collect(),
+            outputs: alts(&recipe.outputs),
+            ..JeiTransfer::default()
+        };
+        request.key = {
+            use std::hash::{Hash, Hasher};
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            request.hash(&mut h);
+            h.finish()
+        };
+        request
+    }
+    /// `EncodePatternTransferHandler.findCraftableSlots`: the inputs the network can craft.
+    fn craftable_slots(&self, craftable: &[ae2_cell_core::ItemKey]) -> Vec<usize> {
+        (0..self.inputs.len()).filter(|&i| jei_craftable(&self.inputs[i], craftable).is_some()).collect()
+    }
+    /// `CraftingTermMenu.findMissingIngredients`: each input slot from the inventory first, then the network (each
+    /// item counted once per slot), else craftable or missing: (missing, craftable).
+    fn missing(
+        &self,
+        inventory: &[Option<ItemStack>],
+        stored: &[(ae2_cell_core::ItemKey, u64)],
+        craftable: &[ae2_cell_core::ItemKey],
+    ) -> (Vec<usize>, Vec<usize>) {
+        let inventory = &inventory[..inventory.len().min(36)];
+        let mut held: Vec<u32> = inventory.iter().map(|s| s.as_ref().map_or(0, |s| s.count)).collect();
+        let mut left: Vec<u64> = stored.iter().map(|(_, n)| *n).collect();
+        let (mut missing, mut can) = (Vec::new(), Vec::new());
+        for (i, alts) in self.inputs.iter().enumerate() {
+            if alts.is_empty() {
+                continue;
+            }
+            let fits = |s: &ItemStack| alts.iter().any(|(id, _)| *s.item == **id);
+            if let Some(k) = (0..held.len()).find(|&k| held[k] > 0 && inventory[k].as_ref().is_some_and(fits)) {
+                held[k] -= 1;
+            } else if let Some(k) =
+                (0..stored.len()).find(|&k| left[k] > 0 && alts.iter().any(|(id, _)| stored[k].0.item_id == *id))
+            {
+                left[k] -= 1;
+            } else if jei_craftable(alts, craftable).is_some() {
+                can.push(i);
+            } else {
+                missing.push(i);
+            }
+        }
+        (missing, can)
+    }
+    /// `EncodingHelper.encodeCraftingRecipe` (each cell of the 3x3 grid, one item) or `encodeProcessingRecipe` (the
+    /// inputs merged by item into the first slots, the outputs likewise), each slot's alternative as `best` picks it:
+    /// the pattern's inputs and its outputs (None for a crafting one).
+    fn encode(
+        &self,
+        best: impl Fn(&[(String, u32)]) -> Option<(String, u32)>,
+        known: impl Fn(&str) -> bool,
+    ) -> (Vec<Option<ItemStack>>, Option<Vec<Option<ItemStack>>>) {
+        if self.crafting {
+            let grid = self.inputs.iter().take(9).map(|alts| best(alts).map(|(id, _)| ItemStack::new(id.as_str(), 1)));
+            return (grid.collect(), None);
+        }
+        let merge = |stacks: &mut Vec<(String, u32)>, (id, n): (String, u32)| match stacks.iter_mut().find(|(m, _)| *m == id) {
+            Some((_, c)) => *c += n,
+            None => stacks.push((id, n)),
+        };
+        let (mut inputs, mut outputs) = (Vec::new(), Vec::new());
+        for alts in &self.inputs {
+            if let Some(stack) = best(alts) {
+                merge(&mut inputs, stack);
+            }
+        }
+        for stack in self.outputs.iter().filter(|(id, _)| known(id)) {
+            merge(&mut outputs, stack.clone());
+        }
+        let stacks = |v: Vec<(String, u32)>| -> Vec<Option<ItemStack>> { v.into_iter().map(|(id, n)| Some(ItemStack::new(id.as_str(), n))).collect() };
+        (stacks(inputs), Some(stacks(outputs)))
+    }
+}
+/// The first of a slot's alternatives the network can craft.
+fn jei_craftable<'a>(alts: &[(String, u32)], craftable: &'a [ae2_cell_core::ItemKey]) -> Option<&'a ae2_cell_core::ItemKey> {
+    craftable.iter().find(|k| alts.iter().any(|(id, _)| k.item_id == *id))
+}
+/// AE2's `EncodingHelper` choice among a slot's alternatives: one the network stores (the most first), then one it
+/// can craft, then one the player holds, else the first.
+fn jei_best_alternative(
+    alts: &[(String, u32)],
+    stored: &[(ae2_cell_core::ItemKey, u64)],
+    craftable: &[ae2_cell_core::ItemKey],
+    held: &[Option<ItemStack>],
+) -> Option<(String, u32)> {
+    let rank = |id: &str| {
+        let amount: u64 = stored.iter().filter(|(k, _)| k.item_id == id).map(|(_, n)| *n).sum();
+        if amount > 0 {
+            (3u8, amount)
+        } else if craftable.iter().any(|k| k.item_id == id) {
+            (2, 0)
+        } else if held.iter().flatten().any(|s| *s.item == *id) {
+            (1, 0)
+        } else {
+            (0, 0)
+        }
+    };
+    let mut best: Option<(&(String, u32), (u8, u64))> = None;
+    for a in alts {
+        let r = rank(&a.0);
+        if best.is_none_or(|(_, b)| r > b) {
+            best = Some((a, r));
+        }
+    }
+    best.map(|(a, _)| a.clone())
+}
+/// Pours `stack` into the first 36 slots of `inventory`, merging first: what does not fit.
+fn jei_stow(inventory: &mut [Option<ItemStack>], mut stack: ItemStack, max: u32) -> Option<ItemStack> {
+    for slot in inventory.iter_mut().take(36) {
+        if let Some(d) = slot.as_mut().filter(|d| d.same_item_same_components(&stack) && d.count < max) {
+            let n = stack.count.min(max - d.count);
+            d.count += n;
+            stack.count -= n;
+        }
+    }
+    for slot in inventory.iter_mut().take(36) {
+        if stack.count > 0 && slot.is_none() {
+            let n = stack.count.min(max);
+            *slot = Some(ItemStack { count: n, ..stack.clone() });
+            stack.count -= n;
+        }
+    }
+    (stack.count > 0).then_some(stack)
+}
+/// One of a slot's items taken from the first 36 slots of `inventory`.
+fn jei_take(inventory: &mut [Option<ItemStack>], alts: &[(String, u32)]) -> Option<ItemStack> {
+    let k = (0..inventory.len().min(36))
+        .find(|&k| inventory[k].as_ref().is_some_and(|s| alts.iter().any(|(id, _)| *s.item == **id)))?;
+    let s = inventory[k].as_mut()?;
+    let one = ItemStack { count: 1, ..s.clone() };
+    s.count -= 1;
+    if s.count == 0 {
+        inventory[k] = None;
+    }
+    Some(one)
+}
+/// The network's keys for a slot, the most stored first.
+fn jei_stored_keys<'a>(alts: &[(String, u32)], stored: &'a [(ae2_cell_core::ItemKey, u64)]) -> Vec<&'a ae2_cell_core::ItemKey> {
+    let mut keys: Vec<&(ae2_cell_core::ItemKey, u64)> =
+        stored.iter().filter(|(k, n)| *n > 0 && alts.iter().any(|(id, _)| k.item_id == *id)).collect();
+    keys.sort_by(|a, b| b.1.cmp(&a.1));
+    keys.into_iter().map(|(k, _)| k).collect()
+}
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+struct JeiTransferAnswer {
+    key: u64,
+    missing: Vec<usize>,
+    craftable: Vec<usize>,
+}
+thread_local! {
+    /// The client's dry-run answers from the host by recipe hash: when it last asked, and the answer.
+    static JEI_ANSWERS: std::cell::RefCell<Vec<(u64, std::time::Instant, Option<JeiTransferAnswer>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+/// The host's answer to a dry run (`ae2:jei_transfer`, host to client).
+pub(super) fn jei_transfer_answer(data: &[u8]) {
+    let Ok(answer) = serde_json::from_slice::<JeiTransferAnswer>(data) else { return };
+    JEI_ANSWERS.with_borrow_mut(|all| {
+        if let Some(e) = all.iter_mut().find(|e| e.0 == answer.key) {
+            e.2 = Some(answer);
+        }
+    });
+}
+impl Game<'_> {
+    /// `native_recipe_transfer` over AE2's terminals: None when the open screen is none of them. A remote client's dry
+    /// run answers from the host's last answer and asks it again at most every 400 ms. API 433.
+    pub(super) fn ae2_recipe_transfer(
+        &mut self,
+        recipe: &horizon_client::mod_api::NativeRecipeTransfer,
+        run: bool,
+        craft_missing: bool,
+    ) -> Option<horizon_client::mod_api::NativeTransferAnswer> {
+        use horizon_client::mod_api::{NativeTransferAnswer, NativeTransferHandler};
+        let Some(remote) = self.remote.as_ref() else {
+            return self.ae2_local_recipe_transfer(recipe, run, craft_missing);
+        };
+        let handler = if remote.ae2_encoding_screen {
+            NativeTransferHandler::Ae2Encoding
+        } else if remote.ae2_crafting_screen {
+            NativeTransferHandler::Ae2Crafting
+        } else {
+            return None;
+        };
+        let mut request = JeiTransfer::of(recipe, remote.menu.as_ref()?.0);
+        // UseCraftingRecipeTransfer takes RecipeTypes.CRAFTING only.
+        if handler == NativeTransferHandler::Ae2Crafting && !request.crafting {
+            return Some(NativeTransferAnswer::default());
+        }
+        let key = request.key;
+        let mut answer = NativeTransferAnswer { handler: Some(handler), ..NativeTransferAnswer::default() };
+        let now = std::time::Instant::now();
+        let (ask, known) = JEI_ANSWERS.with_borrow_mut(|all| {
+            let at = match all.iter().position(|e| e.0 == key) {
+                Some(at) => at,
+                None => {
+                    if all.len() >= 64 {
+                        all.remove(0);
+                    }
+                    all.push((key, now.checked_sub(std::time::Duration::from_secs(1)).unwrap_or(now), None));
+                    all.len() - 1
+                }
+            };
+            let e = &mut all[at];
+            let since = now.duration_since(e.1);
+            let ask = since >= std::time::Duration::from_millis(if e.2.is_none() { 100 } else { 400 });
+            if ask {
+                e.1 = now;
+            }
+            (ask, e.2.clone())
+        });
+        if let Some(known) = known {
+            answer.missing = known.missing;
+            answer.craftable = known.craftable;
+        }
+        if run {
+            request.run = true;
+            request.craft = craft_missing;
+            answer.done = handler == NativeTransferHandler::Ae2Encoding
+                || answer.missing.len() < recipe.inputs.iter().filter(|l| !l.is_empty()).count();
+        }
+        if run || ask {
+            if let Ok(data) = serde_json::to_vec(&request) {
+                self.ae2_send_payload("ae2:jei_transfer", data);
+            }
+        }
+        Some(answer)
+    }
+    /// The in-frame terminals' side of `ae2_recipe_transfer`: the client's own world, no host.
+    fn ae2_local_recipe_transfer(
+        &mut self,
+        recipe: &horizon_client::mod_api::NativeRecipeTransfer,
+        run: bool,
+        craft_missing: bool,
+    ) -> Option<horizon_client::mod_api::NativeTransferAnswer> {
+        use horizon_client::mod_api::{NativeTransferAnswer, NativeTransferHandler};
+        let encoding = self.ae2_local_encoding_session_open();
+        if !encoding && !self.ae2_local_crafting_session_open() {
+            return None;
+        }
+        let pos = self.ae2_local_terminal.as_ref()?.pos;
+        let request = JeiTransfer::of(recipe, 0);
+        if !encoding && !request.crafting {
+            return Some(NativeTransferAnswer::default());
+        }
+        let craftable = self.ae2_craftable_outputs(pos);
+        let stored = self.ae2_local_terminal_entries(pos).unwrap_or_default();
+        if encoding {
+            let mut answer = NativeTransferAnswer {
+                handler: Some(NativeTransferHandler::Ae2Encoding),
+                craftable: request.craftable_slots(&craftable),
+                ..NativeTransferAnswer::default()
+            };
+            if !run {
+                return Some(answer);
+            }
+            let Some((part, mut machine)) = self.ae2_local_encoding_machine() else { return Some(answer) };
+            let Ok(mut state) = super::ae2_encoding::EncodingState::load(&machine) else { return Some(answer) };
+            let items = self.res.items();
+            let known = |id: &str| items.get(id).is_some();
+            let (inputs, outputs) = request.encode(
+                |alts| {
+                    let usable: Vec<(String, u32)> = alts.iter().filter(|(id, _)| known(id)).cloned().collect();
+                    jei_best_alternative(&usable, &stored, &craftable, &self.inventory)
+                },
+                known,
+            );
+            state.inputs.fill(None);
+            state.fluid_inputs.fill(None);
+            state.stone_recipe = None;
+            state.special_mode = 0;
+            state.processing = outputs.is_some();
+            for (slot, stack) in state.inputs.iter_mut().zip(inputs) {
+                *slot = stack;
+            }
+            if let Some(outputs) = outputs {
+                state.outputs.fill(None);
+                state.fluid_outputs.fill(None);
+                for (slot, stack) in state.outputs.iter_mut().zip(outputs) {
+                    *slot = stack;
+                }
+            }
+            state.normalize_crafting_inputs();
+            match state.save(&mut machine).and_then(|_| self.ae2_store_local_encoding(part, &machine)) {
+                Ok(()) => answer.done = true,
+                Err(error) => self.system_message(Text::literal(format!("Encoding: {error}"))),
+            }
+            return Some(answer);
+        }
+        let (missing, can) = request.missing(&self.inventory, &stored, &craftable);
+        let mut answer = NativeTransferAnswer {
+            handler: Some(NativeTransferHandler::Ae2Crafting),
+            missing,
+            craftable: can,
+            ..NativeTransferAnswer::default()
+        };
+        if !run || answer.missing.len() >= request.inputs.iter().filter(|l| !l.is_empty()).count() {
+            return Some(answer);
+        }
+        let Some(original) = self.ae2_local_craft_matrix() else { return Some(answer) };
+        let before = self.ae2_snapshot_blocks();
+        let inventory = self.inventory.clone();
+        let mut machine = original.clone();
+        let mut displaced: Vec<ItemStack> = machine.slots.iter_mut().filter_map(Option::take).collect();
+        let mut to_craft = None;
+        let result = (|| -> Result<(), String> {
+            for (i, alts) in request.inputs.iter().enumerate().take(9) {
+                if alts.is_empty() {
+                    continue;
+                }
+                if let Some(d) = displaced.iter_mut().find(|d| d.count > 0 && alts.iter().any(|(id, _)| *d.item == **id)) {
+                    d.count -= 1;
+                    machine.slots[i] = Some(ItemStack { count: 1, ..d.clone() });
+                    continue;
+                }
+                let mut got = None;
+                for key in jei_stored_keys(alts, &stored) {
+                    if let Some(stack) = self.ae2_grid_extract(pos, key, 1)? {
+                        got = Some(stack);
+                        break;
+                    }
+                }
+                match got.or_else(|| jei_take(&mut self.inventory, alts)) {
+                    Some(stack) => machine.slots[i] = Some(stack),
+                    None if craft_missing && to_craft.is_none() => to_craft = jei_craftable(alts, &craftable).cloned(),
+                    None => {}
+                }
+            }
+            for mut stack in std::mem::take(&mut displaced).into_iter().filter(|d| d.count > 0) {
+                stack.count -= self.ae2_grid_insert(pos, &stack, u64::from(stack.count))? as u32;
+                if stack.count > 0 {
+                    let max = self.res.items().stack_max(&stack);
+                    if let Some(left) = jei_stow(&mut self.inventory, stack, max) {
+                        displaced.push(left);
+                    }
+                }
+            }
+            self.ae2_store_local_craft_matrix(&machine)
+        })();
+        match result {
+            Ok(()) => {
+                for left in displaced {
+                    self.player_drop(left);
+                }
+                answer.done = true;
+                if let Some(key) = to_craft {
+                    self.ae2_open_local_craft_confirm(pos, key, false);
+                }
+            }
+            Err(error) => {
+                self.ae2_restore_blocks(before);
+                self.inventory = inventory;
+                self.system_message(Text::literal(format!("Crafting terminal: {error}")));
+            }
+        }
+        Some(answer)
+    }
+
+    /// `ae2:jei_transfer` on the host: the dry run answered, or the recipe encoded into the guest's Pattern Encoding
+    /// Terminal or pulled into its crafting terminal's grid.
+    pub(super) fn lan_jei_transfer(&mut self, host: &mut super::lan::LanHost, conn: u32, data: &[u8]) {
+        let Ok(request) = serde_json::from_slice::<JeiTransfer>(data) else { return };
+        let Some((pos, dimension, encoding, craft_part, wireless, stored)) = host
+            .play
+            .get(&conn)
+            .and_then(|p| p.ae2_terminal.as_ref())
+            .filter(|t| t.window == request.window)
+            .map(|t| (t.pos, t.owner_dim.clone(), t.encoding_owner(), t.craft_part, t.wireless.clone(), t.snapshot.clone()))
+        else {
+            return;
+        };
+        let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
+        let craft_owner = craft_owner(craft_part, wireless.as_ref());
+        let craftable = self.ae2_craftable_outputs(pos);
+        if !request.run {
+            let mut answer = JeiTransferAnswer { key: request.key, ..JeiTransferAnswer::default() };
+            if encoding.is_some() {
+                answer.craftable = request.craftable_slots(&craftable);
+            } else if craft_owner.is_some() && request.crafting {
+                (answer.missing, answer.craftable) = request.missing(&host.hub.guests[gi].inventory, &stored, &craftable);
+            } else {
+                return;
+            }
+            if let Ok(data) = serde_json::to_vec(&answer) {
+                let payload = horizon_protocol::packets::configuration::CustomPayload { channel: "ae2:jei_transfer".into(), data };
+                host.hub.send_to(conn, &C::CustomPayload(payload));
+            }
+            return;
+        }
+        if let Some(owner) = encoding {
+            let valid = match &owner {
+                EncodingOwner::Wireless(ctx) => self.ae2_wireless_source_valid(host, conn, ctx),
+                EncodingOwner::Part(_) => {
+                    dimension == self.dim.id()
+                        && self.ae2_has_terminal(pos)
+                        && !host.hub.guests[gi].spectator()
+                        && host.hub.guests[gi].within_block_range([pos.0, pos.1, pos.2], 4.0)
+                }
+            };
+            if !valid || !self.lan_load_encoding_state(host, conn) {
+                return;
+            }
+            let held = host.hub.guests[gi].inventory.clone();
+            let items = self.res.items();
+            let known = |id: &str| items.get(id).is_some();
+            let (inputs, outputs) = request.encode(
+                |alts| {
+                    let usable: Vec<(String, u32)> = alts.iter().filter(|(id, _)| known(id)).cloned().collect();
+                    jei_best_alternative(&usable, &stored, &craftable, &held)
+                },
+                known,
+            );
+            let Some(t) = host.play.get_mut(&conn).and_then(|p| p.ae2_terminal.as_mut()) else { return };
+            t.pattern_grid.fill(None);
+            t.fluid_inputs.fill(None);
+            t.stone_recipe = None;
+            t.special_mode = 0;
+            t.processing = outputs.is_some();
+            for (slot, stack) in t.pattern_grid.iter_mut().zip(inputs) {
+                *slot = stack;
+            }
+            if let Some(outputs) = outputs {
+                t.processing_outputs.fill(None);
+                t.fluid_outputs.fill(None);
+                for (slot, stack) in t.processing_outputs.iter_mut().zip(outputs) {
+                    *slot = stack;
+                }
+            }
+            if self.lan_store_encoding_state(host, conn).is_err() {
+                self.lan_load_encoding_state(host, conn);
+            }
+            self.lan_send_ae2_terminal(host, conn);
+            return;
+        }
+        let Some(owner) = craft_owner.filter(|_| request.crafting) else { return };
+        match self.lan_jei_fill_grid(host, conn, gi, &owner, pos, &request, &stored) {
+            Ok(to_craft) => {
+                host.hub.send_inventory(gi);
+                let viewers: Vec<_> = match &owner {
+                    CraftOwner::Wireless(_) => vec![conn],
+                    CraftOwner::Part(part) => host
+                        .play
+                        .iter()
+                        .filter_map(|(&id, p)| p.ae2_terminal.as_ref().filter(|t| t.craft_part == Some(*part)).map(|_| id))
+                        .collect(),
+                };
+                for viewer in viewers {
+                    self.lan_send_ae2_terminal(host, viewer);
+                }
+                if let Some(key) = to_craft {
+                    self.lan_open_terminal_craft_confirm(host, conn, pos, key, false, craft_part, wireless);
+                }
+            }
+            Err(message) => {
+                self.as_guest(host, conn, |g| g.system_message(Text::literal(format!("Crafting terminal: {message}"))));
+                self.lan_send_ae2_terminal(host, conn);
+            }
+        }
+    }
+    /// `FillCraftingGridFromRecipePacket.handleOnServer`: the grid's items set aside, each cell filled from them, else
+    /// one from the network (the alternative it stores most), else from the inventory; what is left goes to the
+    /// network, then the inventory, then the ground. With `craft`, the first missing ingredient the network can
+    /// craft is returned for its craft confirmation.
+    #[allow(clippy::too_many_arguments)]
+    fn lan_jei_fill_grid(
+        &mut self,
+        host: &mut super::lan::LanHost,
+        conn: u32,
+        gi: usize,
+        owner: &CraftOwner,
+        pos: (i32, i32, i32),
+        request: &JeiTransfer,
+        stored: &[(ae2_cell_core::ItemKey, u64)],
+    ) -> Result<Option<ae2_cell_core::ItemKey>, String> {
+        let original = self.lan_craft_matrix_read(host, conn, owner)?;
+        if original.kind != horizon_client::ae2_world::MachineKind::CraftingTerminal || original.slots.len() != 9 {
+            return Err("invalid crafting matrix".into());
+        }
+        let address = match owner {
+            CraftOwner::Part(part) => part.host,
+            CraftOwner::Wireless(_) => self.ae2_local_address(pos).ok_or("invalid wireless network")?,
+        };
+        let craftable = self.ae2_craftable_outputs(pos);
+        let before = self.ae2_snapshot_blocks();
+        let inventory = host.hub.guests[gi].inventory.clone();
+        let mut dropped = Vec::new();
+        let result = (|| -> Result<Option<ae2_cell_core::ItemKey>, String> {
+            let mut machine = original.clone();
+            let mut displaced: Vec<ItemStack> = machine.slots.iter_mut().filter_map(Option::take).collect();
+            let mut formation = super::ae2_buses::FormationPlan::default();
+            let mut to_craft = None;
+            for (i, alts) in request.inputs.iter().enumerate().take(9) {
+                if alts.is_empty() {
+                    continue;
+                }
+                if let Some(d) = displaced.iter_mut().find(|d| d.count > 0 && alts.iter().any(|(id, _)| *d.item == **id)) {
+                    d.count -= 1;
+                    machine.slots[i] = Some(ItemStack { count: 1, ..d.clone() });
+                    continue;
+                }
+                let mut got = None;
+                for key in jei_stored_keys(alts, stored) {
+                    if let Some(stack) = self.lan_craft_grid_extract(host, conn, owner, pos, key, &mut formation)? {
+                        got = Some(stack);
+                        break;
+                    }
+                }
+                match got.or_else(|| jei_take(&mut host.hub.guests[gi].inventory, alts)) {
+                    Some(stack) => machine.slots[i] = Some(stack),
+                    None if request.craft && to_craft.is_none() => to_craft = jei_craftable(alts, &craftable).cloned(),
+                    None => {}
+                }
+            }
+            for mut stack in displaced.into_iter().filter(|d| d.count > 0) {
+                stack.count -= self.lan_craft_grid_insert(host, conn, owner, address, &stack, &mut formation)? as u32;
+                if stack.count > 0 {
+                    let max = self.res.items().stack_max(&stack);
+                    dropped.extend(jei_stow(&mut host.hub.guests[gi].inventory, stack, max));
+                }
+            }
+            self.lan_craft_matrix_store(host, conn, owner, &machine)?;
+            self.ae2_commit_formation(formation)?;
+            Ok(to_craft)
+        })();
+        match result {
+            Ok(to_craft) => {
+                if !dropped.is_empty() {
+                    self.drop_guest_items(host, gi, dropped);
+                }
+                Ok(to_craft)
+            }
+            Err(message) => {
+                self.ae2_restore_blocks(before);
+                host.hub.guests[gi].inventory = inventory;
+                Err(message)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod terminal_filter_tests {
     use super::*;

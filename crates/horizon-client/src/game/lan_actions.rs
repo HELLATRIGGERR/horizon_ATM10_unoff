@@ -3393,6 +3393,10 @@ impl Game<'_> {
                 self.lan_clear_encoding(host,conn,&p.data);
             }
             #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if p.channel == "ae2:jei_transfer" => {
+                self.lan_jei_transfer(host, conn, &p.data);
+            }
+            #[cfg(feature = "ae2-lab")]
             S::CustomPayload(p) if p.channel == "ae2:pinned_keys" => {
                 self.lan_ae2_pinned_keys(host,conn,&p.data);
             }

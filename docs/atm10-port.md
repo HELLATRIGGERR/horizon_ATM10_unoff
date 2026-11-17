@@ -231,7 +231,8 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   closing the open inventory screen from a mod (`native_close_inventory`; FTB Library's sidebar buttons, FTB Chunks'
   bundle) 432,
   a recipe viewer's transfer of a recipe into the open screen (`native_recipe_transfer`: the screen's handler, the
-  missing slots and the move; JEI's "+") 433 (430 is unused).
+  missing slots and the move; JEI's "+"; AE2's terminals answer through the `ae2:jei_transfer` payload, no hook of
+  their own) 433 (430 is unused).
   At each merge the fork's take the numbers after upstream's latest again, in the same order: the merge notes'
   `fork_hooks.py unstamp` turns the stamped numbers back into fragments, then each is stamped with `--only`. The
   fork's biome helper is `native_biome_climate` (upstream's `native_biome` gives the id alone); `native_default_state`

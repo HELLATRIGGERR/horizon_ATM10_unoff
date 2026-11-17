@@ -3611,6 +3611,10 @@ impl Game<'_> {
                 }
             }
             #[cfg(feature = "ae2-lab")]
+            C::CustomPayload(p) if p.channel == "ae2:jei_transfer" => {
+                super::ae2_terminal::jei_transfer_answer(&p.data);
+            }
+            #[cfg(feature = "ae2-lab")]
             C::CustomPayload(p) if p.channel == "ae2:encoding_state" => {
                 if p.data.len()==5 && matches!(p.data[4],0|1) {
                     if let Ok(bytes)=<&[u8;4]>::try_from(&p.data[..4]) {

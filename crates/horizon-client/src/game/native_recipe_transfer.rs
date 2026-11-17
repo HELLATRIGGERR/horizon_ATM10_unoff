@@ -53,11 +53,16 @@ impl Game<'_> {
         max: bool,
         craft_missing: bool,
     ) -> NativeTransferAnswer {
-        let _ = craft_missing;
         let none = NativeTransferAnswer::default();
         if self.player.is_none() || self.spectator() || self.carried.is_some() && run {
             return none;
         }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(answer) = self.ae2_recipe_transfer(recipe, run, craft_missing) {
+            return answer;
+        }
+        #[cfg(not(feature = "ae2-lab"))]
+        let _ = craft_missing;
         if recipe.category == "minecraft:crafting" && self.mod_recipe_screen() {
             let modded = self.mod_crafting_open();
             if self.creative && self.craft_size != 3 && !modded {

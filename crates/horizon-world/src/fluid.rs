@@ -907,6 +907,9 @@ mod tests {
         use super::{ModFluid, set_mod_fluids};
         use crate::entity_fluid::FluidTagId;
         let _table = TABLE.lock().unwrap_or_else(|e| e.into_inner());
+        // Read the root's table: carried fluids that another test of the process
+        // registered would win over it, and hold no "ruby:" fluid.
+        let _root = RootTableOnly::on();
         set_mod_fluids(&[
             ModFluid {
                 id: "ruby:honey".into(),

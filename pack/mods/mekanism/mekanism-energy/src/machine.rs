@@ -90,6 +90,15 @@ pub enum MachineKind {
     /// (`TileEntitySolarNeutronActivator`: a chemical into another at a rate
     /// the sun, the biome and the weather set; no Joules, no upgrades).
     SolarNeutronActivator,
+    /// `mekanism:pigment_extractor`, `mekanism:pigment_extracting` recipes
+    /// (`TileEntityPigmentExtractor`: an item in, a pigment out, as the oxidizer).
+    PigmentExtractor,
+    /// `mekanism:pigment_mixer`, `mekanism:pigment_mixing` recipes
+    /// (`TileEntityPigmentMixer`: two pigments in, one out, as the chemical infuser).
+    PigmentMixer,
+    /// `mekanism:painting_machine`, `mekanism:painting` recipes
+    /// (`TileEntityPaintingMachine`: an item and a pigment in, an item out; `crate::pigment`).
+    PaintingMachine,
 }
 
 /// Where a machine keeps its items: Mekanism's own slot order (input,
@@ -111,7 +120,7 @@ pub struct Slots {
 }
 
 impl MachineKind {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 23] = [
         Self::EnrichmentChamber,
         Self::Crusher,
         Self::EnergizedSmelter,
@@ -132,6 +141,9 @@ impl MachineKind {
         Self::PressurizedReactionChamber,
         Self::IsotopicCentrifuge,
         Self::SolarNeutronActivator,
+        Self::PigmentExtractor,
+        Self::PigmentMixer,
+        Self::PaintingMachine,
     ];
 
     pub fn id(self) -> &'static str {
@@ -156,6 +168,9 @@ impl MachineKind {
             Self::PressurizedReactionChamber => "mekanism:pressurized_reaction_chamber",
             Self::IsotopicCentrifuge => "mekanism:isotopic_centrifuge",
             Self::SolarNeutronActivator => "mekanism:solar_neutron_activator",
+            Self::PigmentExtractor => "mekanism:pigment_extractor",
+            Self::PigmentMixer => "mekanism:pigment_mixer",
+            Self::PaintingMachine => "mekanism:painting_machine",
         }
     }
 
@@ -187,6 +202,9 @@ impl MachineKind {
             Self::IsotopicCentrifuge => "isotopicCentrifuge",
             // No Joules: no key in either file.
             Self::SolarNeutronActivator => "solarNeutronActivator",
+            Self::PigmentExtractor => "pigmentExtractor",
+            Self::PigmentMixer => "pigmentMixer",
+            Self::PaintingMachine => "paintingMachine",
         }
     }
 
@@ -213,6 +231,9 @@ impl MachineKind {
             Self::PressurizedReactionChamber => "mekanism:reaction",
             Self::IsotopicCentrifuge => "mekanism:centrifuging",
             Self::SolarNeutronActivator => "mekanism:activating",
+            Self::PigmentExtractor => "mekanism:pigment_extracting",
+            Self::PigmentMixer => "mekanism:pigment_mixing",
+            Self::PaintingMachine => "mekanism:painting",
         }
     }
 
@@ -223,7 +244,8 @@ impl MachineKind {
             Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 400,
             Self::OsmiumCompressor => 100,
             Self::AntiprotonicNucleosynthesizer => 100_000,
-            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge => 200,
+            Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge | Self::PigmentExtractor | Self::PigmentMixer => 200,
+            Self::PaintingMachine => 100,
             Self::PressurizedReactionChamber => 5,
             Self::SolarNeutronActivator => 0,
             _ => 50,
@@ -234,7 +256,8 @@ impl MachineKind {
     pub fn default_storage(self) -> u64 {
         match self {
             Self::ElectrolyticSeparator | Self::ChemicalInjectionChamber | Self::ChemicalDissolutionChamber | Self::ChemicalCrystallizer => 160_000,
-            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge => 80_000,
+            Self::OsmiumCompressor | Self::PurificationChamber | Self::ChemicalOxidizer | Self::ChemicalInfuser | Self::ChemicalWasher | Self::IsotopicCentrifuge | Self::PigmentMixer => 80_000,
+            Self::PigmentExtractor | Self::PaintingMachine => 40_000,
             Self::PressurizedReactionChamber => 2000,
             Self::SolarNeutronActivator => 0,
             Self::Combiner => 40_000,
@@ -294,7 +317,7 @@ impl MachineKind {
     /// The machines of slice 5 (`crate::ore`, `crate::rotary`), whose ticks
     /// are the runtime's `mek_ore_machines`.
     pub fn ore_chain(self) -> bool {
-        self.dissolves() || self.washes() || self.crystallizes() || self.rotates() || self.reacts() || self.converts_chemicals()
+        self.dissolves() || self.washes() || self.crystallizes() || self.rotates() || self.reacts() || self.converts_chemicals() || self.paints()
     }
 
     /// The Pressurized Reaction Chamber (`crate::reaction`).
@@ -312,15 +335,28 @@ impl MachineKind {
     /// Its bounding block above (`AttributeHasBounding.ABOVE_ONLY`; the top is
     /// a disabled side of every type, `addDisabledSides(TOP)`).
     pub fn bounded_above(self) -> bool {
-        self.converts_chemicals()
+        self.converts_chemicals() || self == Self::PigmentMixer
     }
 
+    /// The oxidizer and the pigment extractor: an item in, a chemical out.
     pub fn oxidizes(self) -> bool {
-        self == Self::ChemicalOxidizer
+        matches!(self, Self::ChemicalOxidizer | Self::PigmentExtractor)
     }
 
+    /// The chemical infuser and the pigment mixer: two chemicals in, one out.
     pub fn infuses_chemicals(self) -> bool {
-        self == Self::ChemicalInfuser
+        matches!(self, Self::ChemicalInfuser | Self::PigmentMixer)
+    }
+
+    /// The pigment extractor's, mixer's and painting machine's recipes are
+    /// pigments': the machines that mix, extract or paint.
+    pub fn pigments(self) -> bool {
+        matches!(self, Self::PigmentExtractor | Self::PigmentMixer | Self::PaintingMachine)
+    }
+
+    /// The Painting Machine (`crate::pigment`).
+    pub fn paints(self) -> bool {
+        self == Self::PaintingMachine
     }
 
     /// The upgrades it takes (`AttributeUpgradeSupport`).
@@ -354,6 +390,8 @@ impl MachineKind {
             Self::ElectrolyticSeparator
                 | Self::ChemicalOxidizer
                 | Self::ChemicalInfuser
+                | Self::PigmentExtractor
+                | Self::PigmentMixer
                 | Self::ChemicalDissolutionChamber
                 | Self::ChemicalWasher
                 | Self::RotaryCondensentrator
@@ -377,13 +415,13 @@ impl MachineKind {
     /// infuser's infusion slot, the combiner's extra input, an advanced
     /// machine's and the nucleosynthesizer's chemical slot.
     pub fn has_extra_slot(self) -> bool {
-        matches!(self, Self::MetallurgicInfuser | Self::Combiner | Self::ChemicalDissolutionChamber) || self.item_and_chemical()
+        matches!(self, Self::MetallurgicInfuser | Self::Combiner | Self::ChemicalDissolutionChamber | Self::PaintingMachine) || self.item_and_chemical()
     }
 
     /// Whether its block shows `active` (`AttributeStateActive`): the
     /// infuser's and the separator's models have no such state.
     pub fn shows_active(self) -> bool {
-        !self.infuses() && !self.separates() && !self.oxidizes() && !self.infuses_chemicals() && (!self.ore_chain() || self == Self::SolarNeutronActivator)
+        !self.infuses() && !self.separates() && (!self.oxidizes() || self.pigments()) && (!self.infuses_chemicals() || self.pigments()) && (!self.ore_chain() || matches!(self, Self::SolarNeutronActivator | Self::PaintingMachine))
     }
 
     pub fn slots(self) -> Slots {
@@ -402,7 +440,7 @@ impl MachineKind {
             // the fluid tank's slot (`output2`) and its output, energy.
             return Slots { infusion: Some(1), input: 0, output: 3, output2: Some(2), energy: 4, upgrade: 5, upgrade_out: 6, count: 7 };
         }
-        if self.infuses() || self.dissolves() || self.nucleosynthesizes() {
+        if self.infuses() || self.dissolves() || self.nucleosynthesizes() || self.paints() {
             // The nucleosynthesizer's chemical slot comes first too
             // (`TileEntityAntiprotonicNucleosynthesizer.getInitialInventory`).
             Slots { infusion: Some(0), input: 1, output: 2, output2: None, energy: 3, upgrade: 4, upgrade_out: 5, count: 6 }
@@ -452,8 +490,10 @@ impl MachineKind {
             // `setupInputConfig(CHEMICAL, gasTank)`.
             Self::AntiprotonicNucleosynthesizer => matches!(data, DataType::None | DataType::Input),
             // `setupOutputConfig(CHEMICAL, tank, RIGHT)`.
-            Self::ChemicalOxidizer => matches!(data, DataType::None | DataType::Output),
-            Self::ChemicalInfuser => matches!(data, DataType::None | DataType::Input1 | DataType::Input2 | DataType::Output | DataType::InputOutput),
+            Self::ChemicalOxidizer | Self::PigmentExtractor => matches!(data, DataType::None | DataType::Output),
+            // `setupInputConfig(CHEMICAL, pigmentTank)`.
+            Self::PaintingMachine => matches!(data, DataType::None | DataType::Input),
+            Self::ChemicalInfuser | Self::PigmentMixer => matches!(data, DataType::None | DataType::Input1 | DataType::Input2 | DataType::Output | DataType::InputOutput),
             // `setupIOConfig(CHEMICAL, input, output, RIGHT)`; the rotary's one tank.
             Self::ChemicalDissolutionChamber | Self::ChemicalWasher | Self::RotaryCondensentrator => chemical_supports(data),
             // `setupInputConfig(CHEMICAL, inputTank)`.
@@ -519,11 +559,11 @@ impl MachineKind {
             // `ADVANCED_MACHINE`'s `OUT_NO_EJECT`.
             Self::OsmiumCompressor => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::Input })),
             // `ADVANCED_MACHINE_INPUT_ONLY`, the nucleosynthesizer's item's too.
-            Self::PurificationChamber | Self::ChemicalInjectionChamber | Self::AntiprotonicNucleosynthesizer => Some([DataType::Input; 6]),
+            Self::PurificationChamber | Self::ChemicalInjectionChamber | Self::AntiprotonicNucleosynthesizer | Self::PaintingMachine => Some([DataType::Input; 6]),
             // `CHEMICAL_OUT_MACHINE`'s `RIGHT_OUTPUT`, ejecting.
-            Self::ChemicalOxidizer => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::None })),
+            Self::ChemicalOxidizer | Self::PigmentExtractor => Some(RelativeSide::ALL.map(|s| if s == RelativeSide::Right { DataType::Output } else { DataType::None })),
             // `TWO_INPUT_AND_OUT`, ejecting.
-            Self::ChemicalInfuser => Some(RelativeSide::ALL.map(|s| match s {
+            Self::ChemicalInfuser | Self::PigmentMixer => Some(RelativeSide::ALL.map(|s| match s {
                 RelativeSide::Left => DataType::Input1,
                 RelativeSide::Right => DataType::Input2,
                 RelativeSide::Front => DataType::Output,

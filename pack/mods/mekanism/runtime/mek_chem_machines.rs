@@ -46,14 +46,15 @@ pub(super) struct Made {
 /// takes with what the other side holds; valid, one a recipe takes at all and
 /// the default attribute validator), the centre `output`.
 pub(super) fn with_infuser_rules<R>(
+    mix: bool,
     left: &ChemicalStack,
     right: &ChemicalStack,
     registry: &ChemicalRegistry,
     use_it: impl FnOnce(&TankRules<'_>, &TankRules<'_>, &TankRules<'_>) -> R,
 ) -> R {
-    let into_left = |s: &ChemicalStack, _: Automation| mek_machines::chemical_infusing_takes(s, right, registry);
-    let into_right = |s: &ChemicalStack, _: Automation| mek_machines::chemical_infusing_takes(s, left, registry);
-    let valid = |s: &ChemicalStack| mek_machines::chemical_infusing_takes(s, &ChemicalStack::EMPTY, registry) && registry.passes_default(s);
+    let into_left = |s: &ChemicalStack, _: Automation| mek_machines::chemical_infusing_takes(mix, s, right, registry);
+    let into_right = |s: &ChemicalStack, _: Automation| mek_machines::chemical_infusing_takes(mix, s, left, registry);
+    let valid = |s: &ChemicalStack| mek_machines::chemical_infusing_takes(mix, s, &ChemicalStack::EMPTY, registry) && registry.passes_default(s);
     let l = TankRules { can_extract: &chemical::not_external, can_insert: &into_left, valid: &valid };
     let r = TankRules { can_extract: &chemical::not_external, can_insert: &into_right, valid: &valid };
     use_it(&l, &r, &separator::output_rules())
@@ -127,7 +128,7 @@ pub(super) fn tick(
     registry: &ChemicalRegistry,
     config: &EnergyConfig,
 ) -> Made {
-    if kind.oxidizes() { oxidize(entity, saved, tanks, store, recipe, registry, config) } else { infuse(entity, saved, tanks, store, recipe, registry, config) }
+    if kind.oxidizes() { oxidize(kind, entity, saved, tanks, store, recipe, registry, config) } else { infuse(kind, entity, saved, tanks, store, recipe, registry, config) }
 }
 
 /// `TileEntityChemicalOxidizer`: the output slot fills a chemical item from
@@ -135,6 +136,7 @@ pub(super) fn tick(
 /// ticks, the input's chemical into the tank when the last is done.
 #[allow(clippy::too_many_arguments)]
 fn oxidize(
+    kind: MachineKind,
     entity: &mut ModBlockEntity,
     saved: &mut Saved,
     tanks: &mut [ChemicalTank],
@@ -143,7 +145,6 @@ fn oxidize(
     registry: &ChemicalRegistry,
     config: &EnergyConfig,
 ) -> Made {
-    let kind = MachineKind::ChemicalOxidizer;
     let slots = kind.slots();
     let rules = separator::output_rules();
     if let Some(tank) = tanks.first_mut() {
@@ -153,11 +154,11 @@ fn oxidize(
     }
     let multiplier = config.machines.max_upgrade_multiplier;
     let (usage, _) = config.machines.of(kind);
-    let required = saved.upgrades.ticks(chemical_machine::OXIDIZER_TICKS, multiplier);
+    let required = saved.upgrades.ticks(if kind.pigments() { mekanism_energy::pigment::EXTRACTOR_TICKS } else { chemical_machine::OXIDIZER_TICKS }, multiplier);
     let per_tick = saved.upgrades.energy_per_tick(usage, multiplier);
     let mut made = Made { per_tick, required, warnings: 0, active: None, extra: Vec::new() };
     let input = mek_machines::stack_in(entity, slots.input).cloned();
-    let found = input.as_ref().and_then(mek_machines::find_oxidizing);
+    let found = input.as_ref().and_then(|i| mek_machines::find_oxidizing(kind, i));
     let Some(recipe) = found else {
         // The cached recipe no longer takes the input: from the start.
         if input.is_some() {
@@ -199,6 +200,7 @@ fn oxidize(
 /// from chemical items, the output slot drains the centre into one, then
 /// `2^speed` operations of the recipe the two tanks hold, either way round.
 fn infuse(
+    kind: MachineKind,
     entity: &mut ModBlockEntity,
     saved: &mut Saved,
     tanks: &mut [ChemicalTank],
@@ -207,15 +209,15 @@ fn infuse(
     registry: &ChemicalRegistry,
     config: &EnergyConfig,
 ) -> Made {
-    let kind = MachineKind::ChemicalInfuser;
     let slots = kind.slots();
+    let mix = kind.pigments();
     let [left, right, center] = tanks else {
         return Made { per_tick: 0, required: 0, warnings: 0, active: None, extra: Vec::new() };
     };
     // `leftInputSlot.fillTank`, `rightInputSlot.fillTank`, `outputSlot.drainTank`.
     for (slot, is_left) in [(slots.input, true), (slots.infusion.unwrap_or(1), false)] {
         let (l, r) = (left.stored.clone(), right.stored.clone());
-        with_infuser_rules(&l, &r, registry, |lr, rr, _| {
+        with_infuser_rules(mix, &l, &r, registry, |lr, rr, _| {
             let (tank, rules) = if is_left { (&mut *left, lr) } else { (&mut *right, rr) };
             super::mek_tanks::with_slot_item(entity, slot, registry, config, |item| chemical_tank::fill_from_item(item, &mut OwnTank { tank, rules, block: None }))
         });
@@ -231,7 +233,7 @@ fn infuse(
     let baseline = chemical_machine::infuser_operations(saved.upgrades.get(Upgrade::Speed));
     let mut made = Made { per_tick, required: 0, warnings: 0, active: Some(false), extra: Vec::new() };
     let mut used = 0;
-    match mek_machines::find_chemical_infusing(&left.stored, &right.stored, registry) {
+    match mek_machines::find_chemical_infusing(mix, &left.stored, &right.stored, registry) {
         Some(recipe) => {
             *memo = Some(recipe.id.clone());
             // `ChemicalChemicalToChemicalCachedRecipe`: the recipe's sides swap
@@ -305,7 +307,8 @@ pub(super) fn draw(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView,
         pen.sprite("bar/horizontal_power", [0.0, 0.0, w, 4.0], [POWER_BAR[0] + 1.0, POWER_BAR[1] + 1.0, w, 4.0]);
     }
     if kind.oxidizes() {
-        gauge(pen, OXIDIZER_GAUGE, view.infuse, view.infused, chemical_machine::OXIDIZER_TANK);
+        let tank = if kind.pigments() { mekanism_energy::pigment::EXTRACTOR_TANK } else { chemical_machine::OXIDIZER_TANK };
+        gauge(pen, OXIDIZER_GAUGE, view.infuse, view.infused, tank);
         let [px, py, pw, ph] = OXIDIZER_PROGRESS;
         pen.sprite("progress/large_right", [0.0, 0.0, pw, ph], OXIDIZER_PROGRESS);
         let share = if view.required == 0 { 0.0 } else { (f64::from(view.progress) / f64::from(view.required)).min(1.0) };
@@ -316,8 +319,9 @@ pub(super) fn draw(pen: &mut Pen<'_, '_>, kind: MachineKind, view: &MachineView,
         return;
     }
     let extra = InfuserView::unpack(data).unwrap_or_default();
-    for (r, (number, amount)) in INFUSER_GAUGES.into_iter().zip(extra.tanks) {
-        gauge(pen, r, number, amount, chemical_machine::INFUSER_TANK);
+    let sizes = if kind.pigments() { [mekanism_energy::pigment::MIXER_INPUT, mekanism_energy::pigment::MIXER_INPUT, mekanism_energy::pigment::MIXER_OUTPUT] } else { [chemical_machine::INFUSER_TANK; 3] };
+    for ((r, (number, amount)), size) in INFUSER_GAUGES.into_iter().zip(extra.tanks).zip(sizes) {
+        gauge(pen, r, number, amount, size);
     }
     for (r, name) in INFUSER_PROGRESS.into_iter().zip(["progress/small_right", "progress/small_left"]) {
         let row = if view.active { 8.0 } else { 0.0 };

@@ -67,6 +67,9 @@ try {
     ['mekanism:activating', 'mekanism:activating', 'mekanism:solar_neutron_activator', false],
     ['mekanism:centrifuging', 'mekanism:centrifuging', 'mekanism:isotopic_centrifuge', false],
     ['mekanism:reaction', 'mekanism:reaction', 'mekanism:pressurized_reaction_chamber', false],
+    ['mekanism:pigment_extracting', 'mekanism:pigment_extracting', 'mekanism:pigment_extractor', false],
+    ['mekanism:pigment_mixing', 'mekanism:pigment_mixing', 'mekanism:pigment_mixer', false],
+    ['mekanism:painting', 'mekanism:painting', 'mekanism:painting_machine', false],
     ['mekanism:energy_conversion', 'mekanism:energy_conversion', 'mekanism:basic_energy_cube', false],
     ['mekanism:chemical_conversion', 'mekanism:chemical_conversion', 'mekanism:metallurgic_infuser', false],
   ];
@@ -81,7 +84,7 @@ try {
     counts.push(`${id.slice(9)} ${c.recipes}`);
   }
   for (const id of ['mekanism:boiler', 'mekanism:sps', 'mekanismgenerators:fission']) assert(byId.get(id)?.recipes, `${id}: ${JSON.stringify(byId.get(id))}`);
-  fixture.mark(`twenty-four machine categories and the boiler's, the SPS's and the fission reactor's: ${counts.join(', ')}`);
+  fixture.mark(`twenty-seven machine categories and the boiler's, the SPS's and the fission reactor's: ${counts.join(', ')}`);
 
   // Known recipes: the first three files of each item-output type whose output the category shows.
   const itemTypes: [string, string, string][] = [
@@ -91,6 +94,7 @@ try {
     ['mekanism:injecting', 'mekanism:injecting', 'output'], ['mekanism:metallurgic_infusing', 'mekanism:metallurgic_infusing', 'output'],
     ['mekanism:crystallizing', 'mekanism:crystallizing', 'output'], ['mekanism:nucleosynthesizing', 'mekanism:nucleosynthesizing', 'output'],
     ['mekanism:reaction', 'mekanism:reaction', 'item_output'],
+    ['mekanism:painting', 'mekanism:painting', 'output'],
   ];
   let checked = 0;
   for (const [category, type, field] of itemTypes) {

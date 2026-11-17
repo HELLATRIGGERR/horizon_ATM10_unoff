@@ -392,6 +392,32 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   `solar-neutron-activator`, `recipe-viewer` (24 machine categories); unit tests `reaction`.
   Left: the radioactive input tank's drain, disabled sides in the Configurator, the bounding block passing uses and
   breaks on, comparators, sounds; the pigment machines and the Nutritional Liquifier.
+- Machines 3b (same branch, no new hook point): the Pigment Extractor, the Pigment Mixer and the Painting Machine
+  (`MachineKind`s; sizes in `mekanism_energy::pigment`). Pigments were already a chemical kind (`ChemicalKind::Pigment`,
+  `pigment/...` paths; 112 chemicals of the oracle's facts), so nothing was added to `mek_chemicals`. The extractor
+  (`TileEntityPigmentExtractor`, `mekanism:pigment_extracting`, 100 ticks, 20 000 mB, 200 J, 40 000 J) is the oxidizer
+  with another recipe table: `oxidizes()` is true for both and `mek_chem_machines::oxidize` takes the kind; the mixer
+  (`TileEntityPigmentMixer`, `mekanism:pigment_mixing`, tanks 1000/1000/2000 mB, `2^speed` operations a tick, 200 J,
+  80 000 J, a bounding block above) is the chemical infuser's (`infuses_chemicals()`, `mix` flag on the infuser's
+  recipe lookups and tank rules, its own `pigment_mixing` list in `mek_machines`' book). The painting machine
+  (`TileEntityPaintingMachine`, `mekanism:painting`, 200 ticks, 15 000 mB, 100 J, 40 000 J) is an `ore_chain()` kind
+  run by runtime `mek_pigment` (a recipe over its ticks with `machine::process`, the pigment and item taken on the
+  last tick; recipes with `per_tick_usage` are left out as the infuser's: ATM10 has none). Its slots follow the
+  nucleosynthesizer's order (pigment, input, output, energy). The three blocks show `active` (their blockstates have
+  `facing` and `active`). Read from `TileEntityPigmentExtractor`, `TileEntityPigmentMixer`, `TileEntityPaintingMachine`,
+  `GuiPaintingMachine`, the blockstates and recipes of the jar and ATM10's two machine configs; not measured on the
+  oracle. Screen numbers: the extractor's and mixer's are the oxidizer's and infuser's (the slots match the bytecode:
+  the mixer's (6, 56), (154, 56), (80, 65), (154, 14)); the gauges and progress of those two are not read from
+  `GuiPigmentExtractor` / `GuiPigmentMixer`. World tests `pigment-extractor`, `pigment-mixer`, `painting-machine`,
+  `recipe-viewer` (27 machine categories); unit test `pigment`.
+  The world tests don't open the three screens: `interact` on these blocks answers ok but no menu opens in the fixture
+  (the same steps open the reaction chamber's), cause not found, so their drawing code (`mek_pigment::draw`, the
+  extractor's and mixer's through `mek_chem_machines`) has not been seen on screen.
+  Left: the Nutritional Liquifier. Its recipes aren't JSON (`NutritionalLiquifierIRecipe` builds one from every food
+  item's `FoodProperties` at lookup) and the mod API has no food table to read them from; it also has a fluid tank
+  with a fluid slot, a container output slot and `nutritional_paste`. Needs a food-properties accessor in the
+  native hooks (a fork change) first. The extractor's and mixer's gauge and progress positions from their own GUI
+  classes, the mixer's disabled top side, the painter's chemical sides (`setupInputConfig` assumed), comparators.
 - The lasers (branch `feat/mekanism-lasers`, on main `74c0215ef`: `mekanism_energy::laser`, runtime `mek_lasers`, the
   amplifier's redstone through the bundle's API 38 hooks, and a new pending fragment `machine_beams` in the engine:
   `native_clip_blocks` (`Level.clip` with `OUTLINE` and `Fluid.NONE`, over `Game::clip_ray_fluids`) and

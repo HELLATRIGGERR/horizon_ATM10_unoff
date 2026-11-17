@@ -163,9 +163,12 @@ struct Book {
     energy: Vec<EnergyConversion>,
     oxidizing: Vec<Rc<Oxidizing>>,
     chemical_infusing: Vec<Rc<ChemicalInfusing>>,
+    /// `mekanism:pigment_extracting` (the oxidizer's shape) and `mekanism:pigment_mixing` (the infuser's).
+    extracting: Vec<Rc<Oxidizing>>,
+    pigment_mixing: Vec<Rc<ChemicalInfusing>>,
 }
 
-const TYPES: [&str; 12] = [
+const TYPES: [&str; 14] = [
     "mekanism:enriching",
     "mekanism:crushing",
     "mekanism:metallurgic_infusing",
@@ -174,6 +177,8 @@ const TYPES: [&str; 12] = [
     "mekanism:separating",
     "mekanism:oxidizing",
     "mekanism:chemical_infusing",
+    "mekanism:pigment_extracting",
+    "mekanism:pigment_mixing",
     "mekanism:compressing",
     "mekanism:purifying",
     "mekanism:injecting",
@@ -240,6 +245,13 @@ fn items_of(game: &Game<'_>, v: &Value) -> Option<HashSet<String>> {
             }
             if let Some(tag) = o.get("tag").and_then(Value::as_str) {
                 return one(format!("#{tag}"));
+            }
+            if o.get("type").and_then(Value::as_str) == Some("neoforge:difference") {
+                // The base's items without the subtracted's (the painting recipes').
+                let base = items_of(game, o.get("base")?)?;
+                let gone = o.get("subtracted").and_then(|s| items_of(game, s)).unwrap_or_default();
+                let left: HashSet<String> = base.into_iter().filter(|i| !gone.contains(i)).collect();
+                return (!left.is_empty()).then_some(left);
             }
             let kind = o.get("type").or_else(|| o.get("neoforge:ingredient_type")).and_then(Value::as_str)?;
             let children = o.get("children").or_else(|| o.get("ingredients")).and_then(Value::as_array)?;
@@ -347,17 +359,28 @@ pub(super) fn refresh_book(game: &Game<'_>) {
             Some(Rc::new(Oxidizing { id: r.id.clone(), input: item_in(game, &j["input"])?, output: ChemicalStack::from_json(&j["output"], &registry).ok()? }))
         })
         .collect();
-    book.chemical_infusing = game
-        .native_recipes_of_type("mekanism:chemical_infusing")
+    let infusing = |kind: &str| -> Vec<Rc<ChemicalInfusing>> {
+        game.native_recipes_of_type(kind)
+            .iter()
+            .filter_map(|r| {
+                let j = &*r.json;
+                Some(Rc::new(ChemicalInfusing {
+                    id: r.id.clone(),
+                    left: ChemicalStackIngredient::from_json(&j["left_input"], &registry).ok()?,
+                    right: ChemicalStackIngredient::from_json(&j["right_input"], &registry).ok()?,
+                    output: ChemicalStack::from_json(&j["output"], &registry).ok()?,
+                }))
+            })
+            .collect()
+    };
+    book.chemical_infusing = infusing("mekanism:chemical_infusing");
+    book.pigment_mixing = infusing("mekanism:pigment_mixing");
+    book.extracting = game
+        .native_recipes_of_type("mekanism:pigment_extracting")
         .iter()
         .filter_map(|r| {
             let j = &*r.json;
-            Some(Rc::new(ChemicalInfusing {
-                id: r.id.clone(),
-                left: ChemicalStackIngredient::from_json(&j["left_input"], &registry).ok()?,
-                right: ChemicalStackIngredient::from_json(&j["right_input"], &registry).ok()?,
-                output: ChemicalStack::from_json(&j["output"], &registry).ok()?,
-            }))
+            Some(Rc::new(Oxidizing { id: r.id.clone(), input: item_in(game, &j["input"])?, output: ChemicalStack::from_json(&j["output"], &registry).ok()? }))
         })
         .collect();
     let infusing = &book.recipes[&MachineKind::MetallurgicInfuser];
@@ -367,6 +390,7 @@ pub(super) fn refresh_book(game: &Game<'_>) {
         .map(|(kind, list)| (*kind, list.iter().flat_map(|r| r.input.items.iter().cloned()).collect()))
         .collect();
     inputs.insert(MachineKind::ChemicalOxidizer, book.oxidizing.iter().flat_map(|r| r.input.items.iter().cloned()).collect());
+    inputs.insert(MachineKind::PigmentExtractor, book.extracting.iter().flat_map(|r| r.input.items.iter().cloned()).collect());
     let takes = Takes {
         inputs,
         infusion: book
@@ -486,8 +510,11 @@ pub(super) fn energy_item(item: &str) -> bool {
 }
 
 /// `findFirstRecipe` of the oxidizer: the first oxidizing recipe taking `input`.
-pub(super) fn find_oxidizing(input: &ItemStack) -> Option<Rc<Oxidizing>> {
-    BOOK.with(|b| b.borrow().oxidizing.iter().find(|r| r.input.takes(input)).cloned())
+pub(super) fn find_oxidizing(kind: MachineKind, input: &ItemStack) -> Option<Rc<Oxidizing>> {
+    BOOK.with(|b| {
+        let b = b.borrow();
+        (if kind.pigments() { &b.extracting } else { &b.oxidizing }).iter().find(|r| r.input.takes(input)).cloned()
+    })
 }
 
 /// The number of oxidizing and chemical infusing recipes, for the probe.
@@ -497,13 +524,13 @@ pub(super) fn chemical_recipe_counts() -> (usize, usize) {
 
 /// `EitherSideChemical.findFirstRecipe`: the first chemical infusing recipe
 /// taking `a` and `b`, one on each side, either way round.
-pub(super) fn find_chemical_infusing(a: &ChemicalStack, b: &ChemicalStack, registry: &ChemicalRegistry) -> Option<Rc<ChemicalInfusing>> {
+pub(super) fn find_chemical_infusing(mix: bool, a: &ChemicalStack, b: &ChemicalStack, registry: &ChemicalRegistry) -> Option<Rc<ChemicalInfusing>> {
     if a.is_empty() || b.is_empty() {
         return None;
     }
     BOOK.with(|book| {
-        book.borrow()
-            .chemical_infusing
+        let book = book.borrow();
+        (if mix { &book.pigment_mixing } else { &book.chemical_infusing })
             .iter()
             .find(|r| {
                 let (left, right) = (|s: &ChemicalStack| r.left.test_type(s.id(), registry), |s: &ChemicalStack| r.right.test_type(s.id(), registry));
@@ -515,9 +542,10 @@ pub(super) fn find_chemical_infusing(a: &ChemicalStack, b: &ChemicalStack, regis
 
 /// `EitherSideChemical.containsRecipe(a, b)`: whether a chemical infusing
 /// recipe takes `a` on one side and `b` (any, when it is empty) on the other.
-pub(super) fn chemical_infusing_takes(a: &ChemicalStack, b: &ChemicalStack, registry: &ChemicalRegistry) -> bool {
+pub(super) fn chemical_infusing_takes(mix: bool, a: &ChemicalStack, b: &ChemicalStack, registry: &ChemicalRegistry) -> bool {
     BOOK.with(|book| {
-        book.borrow().chemical_infusing.iter().any(|r| {
+        let book = book.borrow();
+        (if mix { &book.pigment_mixing } else { &book.chemical_infusing }).iter().any(|r| {
             let other = |i: &ChemicalStackIngredient| b.is_empty() || i.test_type(b.id(), registry);
             (r.left.test_type(a.id(), registry) && other(&r.right)) || (r.right.test_type(a.id(), registry) && other(&r.left))
         })
@@ -674,6 +702,7 @@ pub(super) fn read_chemicals(nbt: &Compound, kind: MachineKind, registry: &Chemi
         MachineKind::MetallurgicInfuser => &[INFUSE_TANK],
         MachineKind::ElectrolyticSeparator => &[separator::MAX_GAS, separator::MAX_GAS],
         MachineKind::ChemicalOxidizer => &[chemical_machine::OXIDIZER_TANK],
+        k if k.pigments() && !k.paints() => mekanism_energy::pigment::tanks(k),
         k if k.advanced() => &[advanced::MAX_GAS],
         MachineKind::AntiprotonicNucleosynthesizer => &[nucleo::MAX_GAS],
         MachineKind::ChemicalInfuser => &[chemical_machine::INFUSER_TANK; 3],
@@ -1661,17 +1690,17 @@ pub(super) fn chemical_handler<R>(
             (MachineKind::MetallurgicInfuser, DataType::InputOutput) => (vec![0], true, true),
             (MachineKind::ElectrolyticSeparator, DataType::Output1) => (vec![0], false, true),
             (MachineKind::ElectrolyticSeparator, DataType::Output2) => (vec![1], false, true),
-            (MachineKind::ChemicalOxidizer, DataType::Output) => (vec![0], false, true),
+            (MachineKind::ChemicalOxidizer | MachineKind::PigmentExtractor, DataType::Output) => (vec![0], false, true),
             (MachineKind::OsmiumCompressor, DataType::Input) => (vec![0], true, false),
             (MachineKind::OsmiumCompressor, DataType::Output) => (vec![0], false, true),
             (MachineKind::OsmiumCompressor, DataType::InputOutput) => (vec![0], true, true),
             (MachineKind::PurificationChamber | MachineKind::ChemicalInjectionChamber | MachineKind::AntiprotonicNucleosynthesizer, DataType::Input) => {
                 (vec![0], true, false)
             }
-            (MachineKind::ChemicalInfuser, DataType::Input1) => (vec![0], true, false),
-            (MachineKind::ChemicalInfuser, DataType::Input2) => (vec![1], true, false),
-            (MachineKind::ChemicalInfuser, DataType::Output) => (vec![2], false, true),
-            (MachineKind::ChemicalInfuser, DataType::InputOutput) => (vec![0, 1, 2], true, true),
+            (MachineKind::ChemicalInfuser | MachineKind::PigmentMixer, DataType::Input1) => (vec![0], true, false),
+            (MachineKind::ChemicalInfuser | MachineKind::PigmentMixer, DataType::Input2) => (vec![1], true, false),
+            (MachineKind::ChemicalInfuser | MachineKind::PigmentMixer, DataType::Output) => (vec![2], false, true),
+            (MachineKind::ChemicalInfuser | MachineKind::PigmentMixer, DataType::InputOutput) => (vec![0, 1, 2], true, true),
             (k, data) if k.ore_chain() => super::mek_ore_machines::chemical_side(k, data)?,
             _ => return None,
         },
@@ -1681,7 +1710,7 @@ pub(super) fn chemical_handler<R>(
     let answer = if kind.infuses_chemicals() {
         // Each tank's own rules: what goes in the left or right depends on the other.
         let (left, right) = (tanks[0].stored.clone(), tanks[1].stored.clone());
-        super::mek_chem_machines::with_infuser_rules(&left, &right, registry, |l, r, c| {
+        super::mek_chem_machines::with_infuser_rules(kind.pigments(), &left, &right, registry, |l, r, c| {
             let all = [l, r, c];
             let list = tanks.iter_mut().enumerate().filter(|(i, _)| shown.contains(i)).map(|(i, t)| (t, all[i])).collect();
             let mut handler = SidedTanks { tanks: list, side: face.is_some(), can_insert, can_extract };
@@ -1937,6 +1966,8 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
             match kind {
                 MachineKind::ElectrolyticSeparator => b.separating.len(),
                 MachineKind::ChemicalOxidizer => b.oxidizing.len(),
+                MachineKind::PigmentExtractor => b.extracting.len(),
+                MachineKind::PigmentMixer => b.pigment_mixing.len(),
                 MachineKind::ChemicalInfuser => b.chemical_infusing.len(),
                 k if k.ore_chain() => super::mek_ore_machines::recipe_count(k),
                 _ => b.recipes.get(&kind).map_or(0, Vec::len),
@@ -1955,7 +1986,7 @@ pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, da
         out["fluid"] = super::mek_ore_machines::probe_fluid(nbt);
         out["mode"] = saved.mode.into();
     }
-    if (kind.infuses_chemicals() || kind.washes() || kind.rotates() || kind.reacts() || kind.converts_chemicals())
+    if (kind.infuses_chemicals() || kind.washes() || kind.rotates() || kind.reacts() || kind.converts_chemicals() || kind.paints())
         && let Some(extra) = menu::InfuserView::unpack(data)
     {
         out["energy_used"] = extra.energy_used.into();

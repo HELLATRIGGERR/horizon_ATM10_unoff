@@ -3,7 +3,8 @@
 # Chemical Tanks and their items, the Pressurized Tubes, the Chemical Oxidizer
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
 # Washer and Chemical Crystallizer, the Rotary Condensentrator, the Pressurized
-# Reaction Chamber, the Isotopic Centrifuge and the Solar Neutron Activator), its Antiprotonic
+# Reaction Chamber, the Isotopic Centrifuge and the Solar Neutron Activator, the Pigment Extractor,
+# the Pigment Mixer and the Painting Machine), its Antiprotonic
 # Nucleosynthesizer, its Laser, Laser Amplifier and Laser Tractor Beam, its Mechanical Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
 # (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the SPS) and
 # its Resistive Heater, Mekanism Generators' Solar, Heat,
@@ -173,6 +174,12 @@ id = "reaction"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_reaction"
 source = "runtime/mek_reaction.rs"
+
+[[module]]
+id = "pigment"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_pigment"
+source = "runtime/mek_pigment.rs"
 
 [[module]]
 id = "nucleo"

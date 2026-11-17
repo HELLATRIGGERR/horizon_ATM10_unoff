@@ -2,7 +2,7 @@
  * (`machine-usage.toml` `pigmentMixer` 200 J a tick, 80 000 J; `TileEntityPigmentMixer`: two 1000 mB input tanks and a
  * 2000 mB output, `2^speed` operations a tick): aqua and yellow make lime (1 + 1 for 2) an operation a tick; eight
  * operations a tick under three speed upgrades; the left side takes into the left tank, nothing but a pigment goes
- * in, the front gives out. */
+ * in, the front gives out. Its screen shows its three pigment item slots, its energy slot and the upgrade's. */
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -77,6 +77,19 @@ try {
   await fixture.command(`data merge block ${q} {chemical_tanks:[${tank(2, 'mekanism:lime', 50)}]}`);
   assert.equal((await mek(`mek chemical ${q} north extract 5`)).got.amount, 5, 'lime out of the front');
   fixture.mark('the left takes pigments in, the front gives lime out');
+
+  await fixture.hold(false);
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 2.5}`);
+  await until(() => fixture.raw(`block ${p1}`), v => v.block === MX, 'the mixer reaches the client');
+  await fixture.raw(`interact ${p1} south`);
+  const view = await until(() => fixture.raw('screen'), v => v.screen === 'container' && (v.slots ?? []).some((s: any) => s.slot === 300), 'its screen opens');
+  const own = (view.slots as any[]).filter(s => s.slot >= 300 && s.slot < 400).map(s => s.slot - 300);
+  log.slots = own;
+  assert.deepEqual(own, [0, 1, 2, 3, 4, 5], 'its three pigment item slots, energy and upgrade slots');
+  await Bun.sleep(1500);
+  await fixture.raw(`screenshot ${join(fixture.run, 'mixer.png')}`);
+  await fixture.raw('close');
+  fixture.mark('its screen shows its six slots');
 
   fixture.assertHidden(await fixture.raw('status'));
   console.log('MEK pigment-mixer', JSON.stringify(log));

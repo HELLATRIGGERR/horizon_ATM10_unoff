@@ -2,7 +2,7 @@
  * (`machine-usage.toml` `paintingMachine` 100 J a tick, 40 000 J; `TileEntityPaintingMachine`: 200 ticks, a 15 000 mB
  * pigment tank, an item and 256 mB of a pigment for an item, taken on the last tick): a dye base and red pigment make a
  * red dye, white wool a red wool (`neoforge:difference` ingredients); pigment goes in on all sides, nothing comes out of
- * the tank. */
+ * the tank. Its screen shows its pigment, input, output and energy slots and the upgrade's. */
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -76,6 +76,19 @@ try {
   assert.equal((await mek(`mek chemical ${p1} east insert mekanism:red 5`)).rest.amount, 0, 'pigment in on every side');
   assert.equal((await mek(`mek chemical ${p1} west extract 5`)).got?.amount ?? 0, 0, 'nothing comes out');
   fixture.mark('the pigment goes in, nothing comes out');
+
+  await fixture.hold(false);
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 2.5}`);
+  await until(() => fixture.raw(`block ${p1}`), v => v.block === PM, 'the machine reaches the client');
+  await fixture.raw(`interact ${p1} south`);
+  const view = await until(() => fixture.raw('screen'), v => v.screen === 'container' && (v.slots ?? []).some((s: any) => s.slot === 300), 'its screen opens');
+  const own = (view.slots as any[]).filter(s => s.slot >= 300 && s.slot < 400).map(s => s.slot - 300);
+  log.slots = own;
+  assert.deepEqual(own, [0, 1, 2, 3, 4, 5], 'its pigment, input, output, energy and upgrade slots');
+  await Bun.sleep(1500);
+  await fixture.raw(`screenshot ${join(fixture.run, 'painting.png')}`);
+  await fixture.raw('close');
+  fixture.mark('its screen shows its six slots');
 
   fixture.assertHidden(await fixture.raw('status'));
   console.log('MEK painting-machine', JSON.stringify(log));

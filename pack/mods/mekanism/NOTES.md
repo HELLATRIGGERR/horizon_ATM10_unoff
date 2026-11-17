@@ -406,13 +406,16 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   nucleosynthesizer's order (pigment, input, output, energy). The three blocks show `active` (their blockstates have
   `facing` and `active`). Read from `TileEntityPigmentExtractor`, `TileEntityPigmentMixer`, `TileEntityPaintingMachine`,
   `GuiPaintingMachine`, the blockstates and recipes of the jar and ATM10's two machine configs; not measured on the
-  oracle. Screen numbers: the extractor's and mixer's are the oxidizer's and infuser's (the slots match the bytecode:
-  the mixer's (6, 56), (154, 56), (80, 65), (154, 14)); the gauges and progress of those two are not read from
-  `GuiPigmentExtractor` / `GuiPigmentMixer`. World tests `pigment-extractor`, `pigment-mixer`, `painting-machine`,
-  `recipe-viewer` (27 machine categories); unit test `pigment`.
-  The world tests don't open the three screens: `interact` on these blocks answers ok but no menu opens in the fixture
-  (the same steps open the reaction chamber's), cause not found, so their drawing code (`mek_pigment::draw`, the
-  extractor's and mixer's through `mek_chem_machines`) has not been seen on screen.
+  oracle. Screen numbers: the extractor's and mixer's are the oxidizer's and infuser's (`GuiPigmentExtractor` /
+  `GuiPigmentMixer` put the power bar, gauges and progress where `GuiChemicalOxidizer` / `GuiChemicalInfuser` do; the
+  mixer's slots (6, 56), (154, 56), (80, 65), (154, 14)); the painting machine's are `GuiPaintingMachine`'s. Not
+  drawn: the progress bars' pigment colours (`PigmentColorDetails`, the mixer's `LeftColorDetails` /
+  `RightColorDetails`); they draw uncoloured. World tests `pigment-extractor`, `pigment-mixer`, `painting-machine`
+  (each opens its screen), `recipe-viewer` (27 machine categories); unit test `pigment`.
+  The block definitions are the overlay's (`content/data/mekanism/horizon/block/*.json`, `minecraft:beacon` template,
+  which opens the menu); a content mod made before a definition came holds the carry's generated block instead
+  (`minecraft:carved_pumpkin`: `interact` answers ok, no menu opens), so `mekanism.ts world` refuses to run on content
+  mods that lack a file of the overlay or hold an older copy: run the content step after adding one.
   Left: the Nutritional Liquifier. Its recipes aren't JSON (`NutritionalLiquifierIRecipe` builds one from every food
   item's `FoodProperties` at lookup) and the mod API has no food table to read them from; it also has a fluid tank
   with a fluid slot, a container output slot and `nutritional_paste`. Needs a food-properties accessor in the

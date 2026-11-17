@@ -1,7 +1,8 @@
 /** Mekanism's Pigment Extractor, as the `mekanism` native bundle makes it under ATM10's configs
  * (`machine-usage.toml` `pigmentExtractor` 200 J a tick, `machine-storage.toml` 40 000 J; `TileEntityPigmentExtractor`:
  * 100 ticks, a 20 000 mB pigment tank, the pigment out of the right): a red dye makes 256 mB of red pigment on the
- * 100th tick; nothing goes in on any side, the pigment comes out of the right (west, facing north). */
+ * 100th tick; nothing goes in on any side, the pigment comes out of the right (west, facing north).
+ * Its screen shows its input, pigment item and energy slots and the upgrade's. */
 
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
@@ -71,6 +72,19 @@ try {
   assert.equal((await mek(`mek chemical ${p1} west extract 5`)).got.amount, 5, 'the pigment out of the right (west, facing north)');
   assert.equal((await mek(`mek chemical ${p1} north extract 5`)).got?.amount ?? 0, 0, 'nothing out of the front');
   fixture.mark('the pigment comes out of the right only');
+
+  await fixture.hold(false);
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 2.5}`);
+  await until(() => fixture.raw(`block ${p1}`), v => v.block === EX, 'the extractor reaches the client');
+  await fixture.raw(`interact ${p1} south`);
+  const view = await until(() => fixture.raw('screen'), v => v.screen === 'container' && (v.slots ?? []).some((s: any) => s.slot === 300), 'its screen opens');
+  const own = (view.slots as any[]).filter(s => s.slot >= 300 && s.slot < 400).map(s => s.slot - 300);
+  log.slots = own;
+  assert.deepEqual(own, [0, 1, 2, 3, 4], 'its input, pigment item, energy and upgrade slots');
+  await Bun.sleep(1500);
+  await fixture.raw(`screenshot ${join(fixture.run, 'extractor.png')}`);
+  await fixture.raw('close');
+  fixture.mark('its screen shows its five slots');
 
   fixture.assertHidden(await fixture.raw('status'));
   console.log('MEK pigment-extractor', JSON.stringify(log));

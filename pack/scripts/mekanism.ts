@@ -90,6 +90,20 @@ function syncStage(from: string, to: string): number {
   return written;
 }
 
+/** The overlay's files (pack/mods/mekanism/content) that the content mods don't hold as they are: the content step
+ * copies each into its namespace's mod, and a world run on mods made before a file came would test the carry's
+ * generated block instead (the pigment machines' carved-pumpkin blocks, which open no menu). */
+function staleContent(): string[] {
+  const overlay = join(bundle, 'content');
+  const mods: Record<string, string> = { mekanism: content, mekanismgenerators: genContent };
+  return files(overlay).filter(file => {
+    const mod = mods[file.split(/[\\/]/)[1]];
+    if (!mod) return false;
+    const copy = join(mod, file);
+    return !existsSync(copy) || !readFileSync(copy).equals(readFileSync(join(overlay, file)));
+  });
+}
+
 const steps: Record<string, () => Promise<void>> = {
   async content() {
     const vanilla = resolve(process.env.MEK_VANILLA ?? prepared('.local/horizon-client/26.3'));
@@ -127,6 +141,8 @@ const steps: Record<string, () => Promise<void>> = {
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);
     if (!existsSync(binary)) throw new Error(`No staged build at ${binary}; run the build step.`);
+    const stale = staleContent();
+    if (stale.length) throw new Error(`The content mods lack, or hold an older copy of, ${stale.length} file(s) of the bundle's overlay (${stale.slice(0, 3).join(', ')}); run the content step.`);
     const harness = {
       ...process.env, AE2_TEST_BINARY: binary, MEK_CONTENT_DIR: content, MEKGEN_CONTENT_DIR: genContent, MEK_ATO_CONTENT_DIR: atoContent,
       AE2_RESOURCES: process.env.AE2_RESOURCES ?? prepared('.local/resources/26.3'),

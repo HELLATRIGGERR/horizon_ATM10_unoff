@@ -5,8 +5,9 @@
 // recipe screen (R, U, Backspace) is `jei_recipes`, its window `jei_window`.
 use super::Game;
 use super::native_hooks::{NativeMod, NativePanelEvent, NativeStack};
-use horizon_client::mod_api::NativePanelStyle;
-use jei_core::{Item, List, Mode, Modes, Prefix};
+use horizon_client::mod_api::{NativePanelAlign, NativePanelGrid, NativePanelStyle};
+use jei_core::blacklist::Blacklist;
+use jei_core::{Item, List, Mode, Modes, Prefix, mod_id_format};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -37,11 +38,16 @@ struct State {
     /// The places of the items the query keeps: the panel's items, in order.
     shown: Vec<usize>,
     hidden: bool,
+    /// `config/jei/blacklist.json`, read with the world.
+    blacklist: Blacklist,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
 /// Ctrl+O went down on a screen (that hook can't change the panel); the next frame flips the overlay.
 static TOGGLE: AtomicBool = AtomicBool::new(false);
+/// `jei-mod-id-format.ini`'s format as `§` codes, read with the world; empty: no mod name line. Its own lock: a
+/// tooltip may be drawn while the state is held.
+static MOD_NAME_FORMAT: Mutex<String> = Mutex::new(String::new());
 
 fn state() -> std::sync::MutexGuard<'static, Option<State>> {
     STATE.lock().unwrap_or_else(|e| e.into_inner())
@@ -67,10 +73,89 @@ fn cheating(_game: &Game<'_>) -> bool {
 fn overlay_hidden() -> bool {
     !super::jei_config::flag("ingredientList", "overlaysEnabled")
 }
+/// `[ingredientList] hideIngredientsWhenNotSearching`.
+fn hide_unsearched() -> bool {
+    super::jei_config::flag("ingredientList", "hideIngredientsWhenNotSearching")
+}
+/// The places of the items `query` keeps, less the blacklist's unless the Cheats page shows hidden ingredients.
+fn filter(list: &List, blacklist: &Blacklist, query: &str, game: &Game<'_>) -> Vec<usize> {
+    let mut shown = list.filter(query, &modes(game));
+    if !super::jei_config::flag("cheating", "showHiddenIngredients") {
+        shown.retain(|&n| !blacklist.hides_item(list.id(n)));
+    }
+    shown
+}
+/// ATM10's `config/jei/blacklist.json` (JEI's hidden ingredients), read only: none when there is no file.
+fn read_blacklist() -> Blacklist {
+    let Ok(dir) = Game::native_config_dir() else { return Blacklist::default() };
+    let Ok(text) = std::fs::read_to_string(dir.join("jei").join("blacklist.json")) else { return Blacklist::default() };
+    let Ok(serde_json::Value::Array(entries)) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Blacklist::default();
+    };
+    let triples: Vec<(&str, &str, &str)> = entries
+        .iter()
+        .filter_map(|e| {
+            let ingredient = e.get("ingredient")?;
+            let id = match ingredient.get("ingredient")? {
+                serde_json::Value::String(id) => id.as_str(),
+                other => other.get("id").or_else(|| other.get("item"))?.as_str()?,
+            };
+            let mode = e.get("hide_mode").and_then(|m| m.as_str()).unwrap_or("WILDCARD");
+            Some((mode, ingredient.get("type")?.as_str()?, id))
+        })
+        .collect();
+    Blacklist::from_entries(triples)
+}
+/// `config/jei/jei-mod-id-format.ini`'s format as `§` codes: the file's value, or JEI's `blue italic`; a new file
+/// is written as JEI writes it when there is none.
+fn read_mod_name_format() -> String {
+    let path = Game::native_config_dir().ok().map(|d| d.join("jei").join("jei-mod-id-format.ini"));
+    let text = path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+    if text.is_none()
+        && let Some(path) = &path
+    {
+        let _ = path.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|()| std::fs::write(path, mod_id_format::fresh()));
+    }
+    mod_id_format::codes(&text.and_then(|t| mod_id_format::read(&t)).unwrap_or_else(|| mod_id_format::DEFAULT.to_owned()))
+}
+/// The list's grid from `[ingredientList]` (ATM10: 18 columns, 99 rows, right, top): the engine fits what the screen
+/// allows. As JEI's overlay, the search box stays with no items (a search that finds nothing, a config change that
+/// leaves nothing, the list hidden until a search); Ctrl+O takes the whole panel away.
+fn grid(game: &mut Game<'_>, hidden: bool) {
+    let (max_columns, max_rows) = super::jei_config::grid_limits("ingredientList");
+    let align = |key, default| NativePanelAlign::parse(&super::jei_config::value("ingredientList", key)).unwrap_or(default);
+    let grid = NativePanelGrid {
+        horizontal: align("horizontalAlignment", NativePanelAlign::End),
+        vertical: align("verticalAlignment", NativePanelAlign::Start),
+        keep_search: !hidden,
+        ..NativePanelGrid::new(max_columns, max_rows)
+    };
+    game.native_panel_grid(ID, grid);
+}
+/// JEI's mod name line, last in an item's tooltip (`native_tooltip`): the format of `jei-mod-id-format.ini`, not
+/// twice when the last line already is the name.
+pub(super) fn tooltip(game: &Game<'_>, stack: &horizon_client::items::ItemStack, lines: &mut Vec<(horizon_client::text::Text, u32)>) {
+    if !game.native_on(ID) {
+        return;
+    }
+    let Ok(format) = MOD_NAME_FORMAT.try_lock().map(|f| f.clone()) else { return };
+    if format.is_empty() || lines.is_empty() {
+        return;
+    }
+    let name = jei_core::mod_name(stack.item.split(':').next().unwrap_or("minecraft"));
+    if lines.last().is_some_and(|(t, _)| t.plain() == name) {
+        return;
+    }
+    lines.push((horizon_client::text::Text::legacy(&format!("{format}{name}")), u32::MAX));
+}
 
+/// Whether the panel shows no items: Ctrl+O hid it, or it hides until a search and there is none.
+fn empty(s: &State) -> bool {
+    s.hidden || (hide_unsearched() && s.query.trim().is_empty())
+}
 /// The panel shows what the state keeps, or nothing while hidden.
 fn show(game: &mut Game<'_>, s: &State) {
-    let items = if s.hidden {
+    let items = if empty(s) {
         Vec::new()
     } else {
         s.shown.iter().map(|&n| NativeStack { item: s.list.id(n).to_owned(), count: 1, components: String::new() }).collect()
@@ -85,18 +170,22 @@ pub(super) fn frame(game: &mut Game<'_>) {
     match (tables, guard.is_some()) {
         (Some(t), false) => {
             super::jei_config::reload();
-            let items = t.items.iter().map(|i| Item { id: i.id.clone(), name: i.name.clone(), tags: i.tags.clone(), ..Item::default() });
+            // Air is no ingredient (JEI's list never holds it).
+            let items = t.items.iter().filter(|i| &*i.id != "minecraft:air").map(|i| Item { id: i.id.clone(), name: i.name.clone(), tags: i.tags.clone(), ..Item::default() });
             let list = List::new(items.collect());
-            let modes = modes(game);
-            let shown = list.filter("", &modes);
+            let blacklist = read_blacklist();
+            let shown = filter(&list, &blacklist, "", game);
             let hidden = overlay_hidden();
             game.native_panel_style(ID, NativePanelStyle::Viewer);
-            let s = State { list, query: String::new(), shown, hidden };
+            grid(game, hidden);
+            *MOD_NAME_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = read_mod_name_format();
+            let s = State { list, query: String::new(), shown, hidden, blacklist };
             show(game, &s);
             *guard = Some(s);
         }
         (None, true) => {
             *guard = None;
+            MOD_NAME_FORMAT.lock().unwrap_or_else(|e| e.into_inner()).clear();
             game.native_panel_items(ID, Vec::new());
         }
         _ => {}
@@ -112,7 +201,8 @@ pub(super) fn frame(game: &mut Game<'_>) {
         && let Some(s) = guard.as_mut()
     {
         s.hidden = overlay_hidden();
-        s.shown = s.list.filter(&s.query, &modes(game));
+        s.shown = filter(&s.list, &s.blacklist, &s.query, game);
+        grid(game, s.hidden);
         show(game, s);
     }
     let in_world = guard.is_some();
@@ -139,7 +229,7 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
     match event {
         NativePanelEvent::Search(text) => {
             s.query = text.clone();
-            s.shown = s.list.filter(text, &modes(game));
+            s.shown = filter(&s.list, &s.blacklist, text, game);
             show(game, s);
         }
         NativePanelEvent::Clicked { index, right } if cheating(game) => {
@@ -297,8 +387,15 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
         return;
     }
     *ran = true;
-    if words.next() == Some("cheat") {
-        super::jei_config::set_cheat(words.next() == Some("on"));
+    match words.next() {
+        Some("cheat") => super::jei_config::set_cheat(words.next() == Some("on")),
+        // `set <section> <key> <value>`: a value as the config screen sets it.
+        Some("set") => {
+            if let (Some(section), Some(key), Some(value)) = (words.next(), words.next(), words.next()) {
+                super::jei_config::set(section, key, value);
+            }
+        }
+        _ => {}
     }
     let modes = modes(game);
     let json = match state().as_ref() {
@@ -310,6 +407,11 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
             "query": s.query,
             "total": s.list.len(),
             "shown": s.shown.len(),
+            "displayed": if empty(s) { 0 } else { s.shown.len() },
+            "blacklist": { "entries": s.blacklist.len(), "items": s.blacklist.items() },
+            "hideUnsearched": hide_unsearched(),
+            "modNameFormat": MOD_NAME_FORMAT.try_lock().map(|f| f.clone()).unwrap_or_default(),
+            "area": game.native_panel_area(ID),
             "first": s.shown.iter().take(12).map(|&n| s.list.id(n)).collect::<Vec<_>>(),
             "modes": Prefix::ALL.map(|p| modes.get(p).name()),
             "recipes": super::jei_recipes::probe(),

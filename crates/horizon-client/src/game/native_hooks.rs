@@ -8,6 +8,7 @@
 //!
 //! API 428 adds `native_map_tile`: a loaded chunk's 16x16 picture from the minimap extra's scanner, for a mod's map.
 //! API 431 adds the area a mod's item panel takes on the open screen (`native_panel_area`), for a window the mod draws over the screen.
+//! API 434 adds the size and alignment of a mod's item panel grid (`native_panel_grid`: the most columns and rows, the alignment, keeping the search box with no items; JEI's `[ingredientList]`).
 //! API 433 adds a recipe viewer's transfer of a recipe into the open screen (`native_recipe_transfer`, JEI's "+"): the screen's handler, the missing slots, the move.
 //! API 432 adds closing the open inventory screen from a mod (`native_close_inventory`), so a button the mod draws on it can open the mod's own screen.
 //!
@@ -1147,7 +1148,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 433;
+pub(crate) const NATIVE_HOOKS_API: u32 = 434;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an

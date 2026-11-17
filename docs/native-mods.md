@@ -1873,6 +1873,8 @@ API 429 adds `native_show_recipes(stack, lookup)` (client, `host.show_recipes`) 
 
 API 431 adds `native_panel_area(mod_id)` (client) gives the area mod `mod_id`'s item panel takes on the open screen, `[x, y, width, height]` in GUI pixels, or None while it isn't showing (no container screen, another mod's panel, nothing to show, no room). A window the mod draws over the screen from `native_screen_render_post` (JEI's recipe window) keeps clear of it and lets the clicks on it through from `native_screen_mouse_button_pressed_pre`. Bundles need "hooks": 431.
 
+API 434 adds `native_panel_grid(mod_id, grid)` (client): how big mod `mod_id`'s item panel grid may grow and where it sits, kept for the session (`NativePanelGrid`: `max_columns`, `max_rows`, `horizontal` and `vertical` as `NativePanelAlign::{Start, Center, End}` in the room beside the screen, and `keep_search`, which keeps the page buttons and search box while the mod shows no items). The grid takes as many columns and rows as fit, up to the limits, as JEI's ingredient list does with `[ingredientList] maxColumns/maxRows` (ATM10 asks for 18 x 99); Horizon's Recipes panel keeps 9 x 16 at the right until it asks. `native_panel_area` follows the grid. Bundles need "hooks": 434.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's

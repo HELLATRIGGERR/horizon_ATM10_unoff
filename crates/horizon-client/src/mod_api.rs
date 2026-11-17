@@ -595,6 +595,78 @@ pub enum NativePanelStyle {
     Viewer,
 }
 
+/// How big a native mod's item panel grid may grow and where it sits in the
+/// room the screen leaves (`native_panel_grid`; JEI's `[ingredientList]` in
+/// `jei-client.ini`). The grid takes as many columns and rows as fit, up to
+/// these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NativePanelGrid {
+    pub max_columns: usize,
+    pub max_rows: usize,
+    /// In the free width beside the screen (JEI's `horizontalAlignment`).
+    pub horizontal: NativePanelAlign,
+    /// In the height over the search box, page buttons and all (JEI's
+    /// `verticalAlignment`).
+    pub vertical: NativePanelAlign,
+    /// Keep the page buttons and search box while the mod shows no items, so
+    /// the player can type a query (JEI's `hideIngredientsWhenNotSearching`).
+    pub keep_search: bool,
+}
+
+impl NativePanelGrid {
+    /// Up to `max_columns` x `max_rows`, at the right of the free width, top
+    /// aligned, gone with no items: the viewer style's grid until a mod asks.
+    pub const fn new(max_columns: usize, max_rows: usize) -> Self {
+        Self {
+            max_columns,
+            max_rows,
+            horizontal: NativePanelAlign::End,
+            vertical: NativePanelAlign::Start,
+            keep_search: false,
+        }
+    }
+}
+
+impl Default for NativePanelGrid {
+    /// Horizon's Recipes panel's: 9 columns, 16 rows.
+    fn default() -> Self {
+        Self::new(9, 16)
+    }
+}
+
+/// Where a panel's grid sits in its room (`NativePanelGrid`): left or top
+/// (`Start`), the middle, right or bottom (`End`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum NativePanelAlign {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+impl NativePanelAlign {
+    /// JEI's `LEFT`/`TOP`, `CENTER`, `RIGHT`/`BOTTOM`.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_uppercase().as_str() {
+            "LEFT" | "TOP" => Some(Self::Start),
+            "CENTER" => Some(Self::Center),
+            "RIGHT" | "BOTTOM" => Some(Self::End),
+            _ => None,
+        }
+    }
+    /// The offset of a `size` long piece in `room`: 0, half the rest
+    /// (rounded down) or all of it.
+    pub fn offset(self, room: f32, size: f32) -> f32 {
+        let rest = (room - size).max(0.0);
+        match self {
+            Self::Start => 0.0,
+            Self::Center => (rest / 2.0).floor(),
+            Self::End => rest,
+        }
+    }
+}
+
 /// What the player did on a native mod's panel (`native_panel_event`).
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]

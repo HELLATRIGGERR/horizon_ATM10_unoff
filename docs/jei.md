@@ -1,5 +1,54 @@
 # JEI (Just Enough Items) port plan
 
+> **Handoff (2026-11-17): slice 6 ("the list's size, mod names and blacklist from ATM10's config") done and tested.**
+> **Slice 6 as built:**
+> - Engine helper `native_panel_grid(mod_id, NativePanelGrid)`, **API 434** (`native_panel.rs`; types `NativePanelGrid
+>   {max_columns, max_rows, horizontal, vertical, keep_search}` and `NativePanelAlign {Start, Center, End}` with
+>   `parse` (JEI's LEFT/TOP, CENTER, RIGHT/BOTTOM) and `offset` in `mod_api.rs`; `native-hooks.json` helper
+>   `panel_grid`; `NATIVE_HOOKS_API = 434`; `docs/atm10-port.md` and `docs/native-mods.md` list it). Kept per mod for
+>   the session. `browser_layout` takes what fits up to the limits (`fit_columns`, `fit_rows`) and aligns the grid in
+>   the free width and the page bar + grid in the height over the search box; the viewer style's area is now `[grid x,
+>   0, grid width, h]` (the same as before for the right alignment). Without a call: Horizon's Recipes panel keeps 9 x
+>   16 at the right, the recipe book style 12 columns centred. `keep_search` keeps the panel (page bar, search box)
+>   with no items: `show_items`/`show_recipes` no longer drop it. Unit tests `a_mods_grid_takes_what_fits_up_to_its_limits`,
+>   `a_mod_that_keeps_its_search_box_shows_an_empty_panel`.
+> - Bundle: `jei_world::grid` sends `[ingredientList] maxColumns/maxRows/horizontalAlignment/verticalAlignment` at
+>   world load and on each config change (ATM10: 18 x 99, RIGHT, TOP), with `keep_search` = the overlay is on (not hidden by Ctrl+O), so the box stays with no items as JEI's does (a search
+>   or a config change that leaves nothing; before, a refilter from the config screen to nothing dropped the panel);
+>   `show` sends no items while `hideIngredientsWhenNotSearching` is on and the query is empty. Air is left out of the
+>   list (it was its first, empty slot). The bookmark panel
+>   aligns with `[bookmarkList] horizontalAlignment/verticalAlignment` (LEFT, TOP: it now sits at the left edge, it was
+>   centred).
+> - `jei-core/src/mod_id_format.rs`: `config/jei/jei-mod-id-format.ini` (`[modname] modNameFormat`, default `blue
+>   italic`, the codes 9 and o; empty = no line); written in MezzConfig's layout when missing (ATM10's instance has none; its
+>   `config/jei` holds only `jei-client.ini` and `blacklist.json`, `defaultconfigs` and `kubejs` have no JEI config).
+>   New `tooltip` injection (`hooks/tooltip.rs`): `jei_world::tooltip` puts the mod name (`jei_core::mod_name`) last in
+>   every item tooltip, not twice. Format kept in its own lock (`MOD_NAME_FORMAT`), read at world load.
+> - `jei-core/src/blacklist.rs`: `config/jei/blacklist.json` (version 2, read only, at world load): `(hide_mode, type,
+>   ingredient)`; item types (`item_stack`, `net.minecraft.world.item.ItemStack`) hide their id from the list and the
+>   search (`jei_world::filter`), WILDCARD all variants, another mode only the plain id; other types are kept (ATM10's
+>   file = 14 Mekanism chemicals, which are not ingredients of the list yet). `[cheating] showHiddenIngredients` shows
+>   them again.
+> - Probe `/jeiclient`: `displayed`, `area`, `blacklist {entries, items}`, `modNameFormat`, `hideUnsearched`; `set
+>   <section> <key> <value>` sets a config value (dev only).
+> - World test `tests/list-size.ts` (`JEI_LIST=jei/list-size bash jei.sh world`, 4 checks, shots in
+>   `jei-work/logs/shots-list-size`): a 1920x1080 window at GUI scale 2 (the test sets `AE2_TEST_DISPLAY_SCALE` to half
+>   the display's and puts `guiScale:2` in `options.txt`; 960x540 GUI): the list takes 18 columns (area `630 0 324
+>   540`, 26 rows, 5 pages); a new `jei-mod-id-format.ini` with `blue italic`, the line under Stone's tooltip; a
+>   `blacklist.json` (4 of ATM10's chemicals and bedrock) hides bedrock from the search until `[cheating]
+>   showHiddenIngredients`; `hideIngredientsWhenNotSearching` leaves the search box (and wrench) with no items, a
+>   search shows them, a clear empties it again. Shots checked by eye: 18 columns from the creative inventory's right
+>   edge to the screen's, the page bar and search box as wide; "Stone" over a blue italic "Minecraft"; the empty panel
+>   = the search box alone.
+> - Green after the slice: `jei/list-size` (4 checks), `jei/item-list` (11), `jei/recipes` (9), `jei/bookmarks` (6),
+>   `jei/transfer` (4), `jei/transfer-ae2` (4), `jei/config` (4), `jei.sh units` (22); engine `cargo test --profile iter
+>   -p horizon-client --lib panel` 5 pass (the two new ones among them); `horizon-mod-api-gen` 16 pass and the one that
+>   fails on main (`new_hook_placeholder_is_reported_then_filled`). The bookmark shots show the list at the left edge.
+> **Gaps left:** `ingredientList.buttonNavigationVisibility` and `drawBackground`, the `lookups`/`tooltips` options and
+>   the rest of `OPTS` still change nothing; a JEI-window recipe page doesn't narrow the list (JEI lays its list out
+>   right of the recipe GUI); creative tabs' contents, fluids/chemicals as ingredients (the blacklist's chemicals wait
+>   for them) and item colours still wait for the game (see API gaps below).
+
 > **Handoff (2026-11-17): slice 5 ("JEI's config screen") done and tested; the ini-driven list layout, mod-name format,
 > blacklist and hide-until-search are next.**
 > **Slice 5 as built:**
@@ -41,30 +90,7 @@
 >   Search sits against the Done button.
 > - Green after the slice: `jei/item-list` (11 checks), `jei/recipes` (9), `jei/bookmarks` (6), `jei/transfer` (4),
 >   `jei/transfer-ae2` (4), `jei.sh units` (20).
-> **Next, in order (each its own slice or commit):**
-> - **(a) The ingredient list's size from the ini.** ATM10's own `jei-client.ini` sets `maxRows = 99, maxColumns = 18`
->   but the engine fixes the list at 9 columns and as many rows as fit above the search box. In
->   `crates/horizon-client/src/game/native_panel.rs`, `browser_layout` clamps `columns` with `.min(9)` for the Viewer
->   style and takes `rows` from the search box's top. Add an engine helper on **API 434**, e.g. `native_panel_grid(mod_id,
->   max_cols, max_rows, horizontal_alignment)` (types in `mod_api.rs`, helper entry in `native-hooks.json`,
->   `NATIVE_HOOKS_API = 434`, a line in `docs/atm10-port.md`, as 433 did); `browser_layout` then uses it in place of 9 and
->   the row count, and aligns the grid in the free width (`horizontalAlignment`, default RIGHT; `verticalAlignment`).
->   Bundle: `jei_world::frame` calls it at start and when `jei_config::take_changed()` fires, with
->   `jei_config::grid_limits("ingredientList")` (exists) and `jei_config::value("ingredientList", "horizontalAlignment")`.
->   `bookmarks::grid_within(area, cols, rows)` is the bookmark panel's version of the same clamp.
-> - **(b) `jei-mod-id-format.ini`** (the mod name in tooltips): JEI's second file in `config/jei/`; its format string
->   styles the mod name line of item tooltips (the instance's own file was not read in this slice; read it first, then add
->   a small reader beside `config.rs`, kept in the same MezzConfig style, and use it where the bundle builds the
->   tooltip's last line).
-> - **(c) ATM10's `blacklist.json`** (`config/jei/`): hides ingredients by id; ATM10's hides the Mekanism chemicals.
->   Read it at load (as `jei_world` reloads the ini), drop the ids from the list and the search; the "Show Hidden
->   Ingredients in JEI" cheat option already exists in `OPTS` (Cheats page) and should bring them back.
-> - **(d) `hideIngredientsWhenNotSearching`** without losing the search box: the engine drops the whole panel when
->   `native_panel_items` is empty (`native_panel.rs::native_changed` removes `native` unless `keep_search`, which is
->   only true while a query is non-empty). Add a way to keep the box with an empty list (e.g. a flag on the same API 434
->   helper) before wiring the option.
-> **Gaps left:** the other `OPTS` change nothing (`lookups`, `tooltips`, the grid alignments, etc.); creative tabs'
-> contents, fluids/chemicals as ingredients and item colours still wait for the game (see API gaps below).
+> **Next was (a)-(d), the ini-driven list layout, mod-name format, blacklist and hide-until-search: done in slice 6.**
 
 > **Handoff (2026-11-17): slice 4 ("+" recipe transfer: vanilla grids 4a, AE2's terminals 4b) done and tested.**
 > **Slice 4a as built:**

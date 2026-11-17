@@ -376,3 +376,33 @@ mod config {
         assert!(ini.write().contains("\ttagSearchMode = ENABLED\n"));
     }
 }
+
+/// ATM10's `blacklist.json`: its Mekanism chemicals are kept (not items); item entries hide their id, wildcard or plain.
+#[test]
+fn blacklist_hides_items_and_keeps_the_rest() {
+    use crate::blacklist::Blacklist;
+    let list = Blacklist::from_entries([
+        ("WILDCARD", "mekanism.api.chemical.ChemicalStack", "mekanism:dirty_iron"),
+        ("WILDCARD", "mekanism.api.chemical.ChemicalStack", "mekanism:clean_iron"),
+        ("WILDCARD", "item_stack", "minecraft:bedrock"),
+        ("WILDCARD", "net.minecraft.world.item.ItemStack", "minecraft:barrier{foo:1}"),
+        ("UID", "item_stack", "minecraft:spawner"),
+        ("UID", "item_stack", "minecraft:potion;minecraft:water"),
+        ("WILDCARD", "item_stack", "not an id"),
+    ]);
+    assert_eq!((list.len(), list.items()), (5, 3));
+    assert!(list.hides_item("minecraft:bedrock") && list.hides_item("minecraft:barrier") && list.hides_item("minecraft:spawner"));
+    assert!(!list.hides_item("minecraft:potion"), "one variant of a potion hides that variant only");
+    assert!(!list.hides_item("mekanism:dirty_iron"), "a chemical is not an item");
+}
+
+/// `jei-mod-id-format.ini`: JEI's default `blue italic` is `§9§o`; a file's value; an empty one turns the line off.
+#[test]
+fn mod_id_format_reads_chat_formatting_names() {
+    use crate::mod_id_format::{codes, fresh, read, DEFAULT};
+    assert_eq!(codes(DEFAULT), "§9§o");
+    assert_eq!(read(&fresh()).as_deref(), Some("blue italic"));
+    assert_eq!(read("[modname]\n\tmodNameFormat = dark_green BOLD nonsense\n").map(|f| codes(&f)).as_deref(), Some("§2§l"));
+    assert_eq!(read("[modname]\n\tmodNameFormat = \n").as_deref(), Some(""));
+    assert_eq!(read("[other]\n\tmodNameFormat = red\n"), None);
+}

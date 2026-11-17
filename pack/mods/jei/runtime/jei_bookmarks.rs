@@ -9,7 +9,7 @@
 // `jei_recipes::frame` (through `jei_window::ask_open`).
 use super::{Game, native_hooks::NativeRecipes, native_lifecycle::WorldPhase};
 use super::jei_window::{self, BAND, BOOKMARK_LIST, BOOKMARK_SLOTS};
-use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
+use horizon_client::{hud::HudBatch, mod_api::{NativePanelAlign, NativeScreenView}, text::Text};
 use jei_core::bookmarks::{Bookmarks, NAV, SLOT, grid_within, pages};
 use jei_core::recipes::{Mode, Stack};
 use jei_core::window::{Rect, inside};
@@ -199,11 +199,17 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     }
     // Left of the screen's panel, as high as the item list: `[8, list.y, screen.x - 16, list.h]`.
     let outer = [8.0, list[1], screen.rect[0] - 16.0, list[3]];
-    let columns = (((outer[2] - 2.0 * PAD) / SLOT).floor().max(0.0) as usize).min(max_columns);
+    let room = outer[2] - 2.0 * PAD;
+    let columns = ((room / SLOT).floor().max(0.0) as usize).min(max_columns);
     if columns < 2 {
         return;
     }
-    let x = (outer[0] + PAD + (outer[2] - 2.0 * PAD - columns as f32 * SLOT) / 2.0).floor();
+    // Aligned as `[bookmarkList]` says (JEI's default and ATM10's: left, top), as the engine aligns the item list.
+    let align = |key, default| NativePanelAlign::parse(&super::jei_config::value("bookmarkList", key)).unwrap_or(default);
+    let x = (outer[0] + PAD + align("horizontalAlignment", NativePanelAlign::Start).offset(room, columns as f32 * SLOT)).floor();
+    let rows = (((outer[3] - 2.0 * PAD - NAV) / SLOT).floor().max(0.0) as usize).min(max_rows);
+    let dy = align("verticalAlignment", NativePanelAlign::Start).offset(outer[3], 2.0 * PAD + NAV + rows as f32 * SLOT).floor();
+    let outer = [outer[0], outer[1] + dy, outer[2], outer[3] - dy];
     let slots = grid_within([x, outer[1] + PAD, columns as f32 * SLOT, outer[3] - 2.0 * PAD], max_columns, max_rows);
     let per_page = slots.len();
     if per_page == 0 {

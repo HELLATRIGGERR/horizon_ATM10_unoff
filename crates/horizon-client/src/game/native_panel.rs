@@ -14,7 +14,7 @@ use super::{
 use horizon_client::{
     hud::{HudBatch, rgba},
     items::ItemStack,
-    mod_api::NativePanelStyle,
+    mod_api::{NativePanelAlign, NativePanelGrid, NativePanelStyle},
     ui::EditBox,
 };
 
@@ -76,6 +76,8 @@ pub(super) struct Panel {
     /// The mods that asked for the viewer's page buttons and search box.
     viewer_styled: std::collections::BTreeSet<String>,
     pub(super) fuel_popup: Option<super::native_panel_recipes::FuelPopup>,
+    /// The grid each mod asked for (`native_panel_grid`).
+    grids: std::collections::BTreeMap<String, NativePanelGrid>,
 }
 
 impl Panel {
@@ -85,6 +87,26 @@ impl Panel {
             NativePanelStyle::Viewer => self.viewer_styled.insert(mod_id.to_owned()),
             _ => self.viewer_styled.remove(mod_id),
         };
+    }
+    /// `native_panel_grid`.
+    pub(super) fn set_grid(&mut self, mod_id: &str, grid: NativePanelGrid) {
+        self.grids.insert(mod_id.to_owned(), grid);
+    }
+    /// The grid `owner`'s panel lays out: the mod's own, else the viewer's
+    /// 9 x 16 at the right, or the recipe book style's 12 columns, centred.
+    fn grid_of(&self, owner: &Owner) -> NativePanelGrid {
+        self.grids.get(owner.native_id()).copied().unwrap_or(if self.viewer_style(owner) {
+            NativePanelGrid::default()
+        } else {
+            NativePanelGrid {
+                horizontal: NativePanelAlign::Center,
+                ..NativePanelGrid::new(COLUMNS.0, usize::MAX)
+            }
+        })
+    }
+    /// Whether mod `mod_id` keeps its search box with no items.
+    fn keeps_search(&self, mod_id: &str) -> bool {
+        self.grids.get(mod_id).is_some_and(|g| g.keep_search)
     }
     /// Whether `owner`'s panel draws the viewer's page buttons and search box:
     /// Horizon's own Recipes panel, or a mod that asked for them.
@@ -99,18 +121,21 @@ impl Panel {
     /// `native_panel_items`.
     pub(super) fn show_items(&mut self, mod_id: &str, mut items: Vec<BrowserStack>) {
         items.truncate(ITEMS);
-        if let Some(shown) = self.native_of(mod_id, !items.is_empty()) {
+        let keep = self.keeps_search(mod_id);
+        if let Some(shown) = self.native_of(mod_id, !items.is_empty() || keep) {
             shown.items = items;
-            // An empty search result must leave a field to edit the query.
-            self.native_changed(self.searching && !self.sent.is_empty());
+            // An empty search result must leave a field to edit the query,
+            // as must a mod that keeps its search box.
+            self.native_changed(keep || (self.searching && !self.sent.is_empty()));
         }
     }
     /// `native_panel_recipes`.
     pub(super) fn show_recipes(&mut self, mod_id: &str, page: Option<RecipePage>) {
         let filtering =
             (mod_id == "recipes" || self.viewer_styled.contains(mod_id)) && !self.sent.is_empty();
+        let keep = self.keeps_search(mod_id);
         if let Some(shown) = self.native_of(mod_id, page.is_some()) {
-            let returning_to_search = filtering && shown.recipes.is_some() && page.is_none();
+            let returning_to_search = (filtering && shown.recipes.is_some() && page.is_none()) || keep;
             shown.recipes = page;
             self.native_changed(returning_to_search);
         }
@@ -167,6 +192,23 @@ impl Panel {
             }
         }
     }
+}
+
+/// The grid's left edge and columns in the free width `left..right`: what
+/// fits, up to `limits`, aligned; none when fewer than two fit.
+fn fit_columns(left: f32, right: f32, limits: &NativePanelGrid) -> Option<(f32, usize)> {
+    let room = right - left;
+    let columns = ((room / SLOT).floor().max(0.0) as usize).min(limits.max_columns);
+    (columns >= COLUMNS.1).then(|| {
+        let x = left + limits.horizontal.offset(room, columns as f32 * SLOT);
+        (x.floor(), columns)
+    })
+}
+/// The page bar and grid's offset down and the rows in `room` pixels of
+/// height under the bar: what fits, up to `limits`, aligned.
+fn fit_rows(room: f32, limits: &NativePanelGrid) -> (f32, usize) {
+    let rows = ((room / SLOT).floor().max(0.0) as usize).min(limits.max_rows);
+    (limits.vertical.offset(room, rows as f32 * SLOT).floor(), rows)
 }
 
 /// Where the panel's parts are this frame.
@@ -232,6 +274,15 @@ impl Game<'_> {
     /// them again. API @API:panel_catalysts@.
     pub(super) fn native_panel_catalysts(&mut self, mod_id: &str, catalysts: Vec<NativeStack>) {
         self.panel.show_catalysts(mod_id, catalysts);
+    }
+    /// How big mod `mod_id`'s panel grid may grow and where it sits
+    /// (`NativePanelGrid`: the most columns and rows, the alignment in the
+    /// room beside the screen, whether the search box stays with no items).
+    /// The grid takes what fits, up to that, as JEI's ingredient list does.
+    /// Kept for the session, whether or not its panel is showing; Horizon's
+    /// Recipes panel keeps 9 x 16 until it asks. API 434.
+    pub(super) fn native_panel_grid(&mut self, mod_id: &str, grid: NativePanelGrid) {
+        self.panel.set_grid(mod_id, grid);
     }
     /// The area mod `mod_id`'s panel takes on the open screen, `[x, y,
     /// width, height]` in GUI pixels, for a window the mod draws over the
@@ -305,12 +356,10 @@ impl Game<'_> {
     /// the search box at its foot. None when the screen has no room for it.
     fn browser_layout(&self, batch: &HudBatch) -> Option<Layout> {
         let image = self.container_image(batch);
+        let owner = self.panel.of.as_ref().map(|(owner, _)| owner);
         // A recipe viewer's panel (the viewer style) takes the screen's right edge, full height.
-        let recipes = self
-            .panel
-            .of
-            .as_ref()
-            .is_some_and(|(owner, _)| self.panel.viewer_style(owner));
+        let recipes = owner.is_some_and(|owner| self.panel.viewer_style(owner));
+        let limits = owner.map_or_else(NativePanelGrid::default, |owner| self.panel.grid_of(owner));
         let left = if self.screen == Screen::Creative {
             Self::creative_origin(batch).0 + 198.0 + MARGIN
         } else {
@@ -326,22 +375,10 @@ impl Game<'_> {
             },
         );
         let right = width - if recipes { 6.0 } else { MARGIN };
-        let columns = (((right - left) / SLOT).floor().max(0.0) as usize).min(if recipes {
-            9
-        } else {
-            COLUMNS.0
-        });
-        if columns < COLUMNS.1 {
-            return None;
-        }
+        let (x, columns) = fit_columns(left, right, &limits)?;
         let grid_width = columns as f32 * SLOT;
-        let x = if recipes {
-            right - grid_width
-        } else {
-            (left + (right - left - grid_width) / 2.0).floor()
-        };
+        let bar = if recipes { 22.0 } else { 21.0 };
         let arrows_y = if recipes { 6.0 } else { MARGIN };
-        let top = arrows_y + if recipes { 22.0 } else { 21.0 };
         let mut search = if recipes {
             [x, height - 26.0, grid_width, 20.0]
         } else {
@@ -356,17 +393,17 @@ impl Game<'_> {
                 search[3],
             ]
         });
-        let rows = ((search[1] - 4.0 - top) / SLOT).floor().max(0.0) as usize;
+        let (dy, rows) = fit_rows(search[1] - 4.0 - arrows_y - bar, &limits);
         (rows > 0).then_some(Layout {
             area: if recipes {
-                [x, 0.0, right - x, batch.height]
+                [x, 0.0, grid_width, batch.height]
             } else {
                 [left, 0.0, right - left, batch.height]
             },
-            grid: (x, top),
+            grid: (x, arrows_y + dy + bar),
             columns,
-            rows: if recipes { rows.min(16) } else { rows },
-            arrows_y,
+            rows,
+            arrows_y: arrows_y + dy,
             search,
             settings,
         })
@@ -842,8 +879,51 @@ pub(super) fn browser_stack(
 
 #[cfg(test)]
 mod tests {
-    use super::{BrowserStack, Owner, Panel, RecipePage};
+    use super::{BrowserStack, Owner, Panel, RecipePage, fit_columns, fit_rows};
     use crate::game::native_hooks::{NativeRecipeLayout, NativeRecipeView};
+    use horizon_client::mod_api::{NativePanelAlign, NativePanelGrid};
+
+    /// JEI's `[ingredientList] maxColumns = 18, maxRows = 99` (ATM10's) on a
+    /// wide screen; Horizon's Recipes panel keeps 9 x 16; the alignments.
+    #[test]
+    fn a_mods_grid_takes_what_fits_up_to_its_limits() {
+        let viewer = Panel::default().grid_of(&Owner::Native("recipes".into()));
+        assert_eq!((viewer.max_columns, viewer.max_rows), (9, 16));
+        // 960 GUI pixels wide: an inventory leaves 392 to the right, 21 slots.
+        let atm10 = NativePanelGrid::new(18, 99);
+        assert_eq!(fit_columns(576.0, 954.0, &atm10), Some((630.0, 18)));
+        assert_eq!(fit_columns(576.0, 954.0, &viewer), Some((792.0, 9)));
+        // 480 wide: what fits, 7.
+        assert_eq!(fit_columns(336.0, 474.0, &atm10), Some((348.0, 7)));
+        let left = NativePanelGrid { horizontal: NativePanelAlign::Start, ..atm10 };
+        assert_eq!(fit_columns(576.0, 954.0, &left), Some((576.0, 18)));
+        let centre = NativePanelGrid { horizontal: NativePanelAlign::Center, ..atm10 };
+        assert_eq!(fit_columns(576.0, 954.0, &centre), Some((603.0, 18)));
+        assert_eq!(fit_columns(576.0, 600.0, &atm10), None, "one column is no panel");
+        // Rows: 99 asks for all; 16 caps; the bottom alignment moves the bar down.
+        assert_eq!(fit_rows(480.0, &atm10), (0.0, 26));
+        assert_eq!(fit_rows(480.0, &viewer), (0.0, 16));
+        let bottom = NativePanelGrid { vertical: NativePanelAlign::End, ..viewer };
+        assert_eq!(fit_rows(480.0, &bottom), (192.0, 16));
+    }
+
+    /// `keep_search`: no items still leaves the panel (its search box) up.
+    #[test]
+    fn a_mod_that_keeps_its_search_box_shows_an_empty_panel() {
+        let mut panel = Panel::default();
+        panel.show_items("jei", Vec::new());
+        assert!(panel.shown(|_| true).is_none());
+        panel.set_grid("jei", NativePanelGrid { keep_search: true, ..NativePanelGrid::new(18, 99) });
+        panel.show_items("jei", Vec::new());
+        let shown = panel.shown(|_| true).expect("the search box stays");
+        assert!(shown.items.is_empty());
+        panel.show_items("jei", vec![stack("minecraft:stone")]);
+        panel.show_items("jei", Vec::new());
+        assert!(panel.shown(|_| true).is_some());
+        panel.set_grid("jei", NativePanelGrid::new(18, 99));
+        panel.show_items("jei", Vec::new());
+        assert!(panel.shown(|_| true).is_none(), "without it, no items is no panel");
+    }
 
     fn stack(item: &str) -> BrowserStack {
         BrowserStack {

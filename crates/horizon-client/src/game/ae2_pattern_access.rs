@@ -342,7 +342,7 @@ impl Game<'_> {
             for (i,item) in self.inventory.iter().enumerate(){menu.set_player_item(i,item.clone());}
             for (i,slot) in [39,38,37,36].into_iter().enumerate(){menu.set_player_item(slot,self.armor[i].clone());}
             menu.set_player_item(40,self.offhand.clone());menu.selected=self.selected;menu.creative=self.creative;menu.carried=self.carried.clone();
-            menu.recipe_durability_rng=Some(before_random);
+            menu.recipe_durability_rng=Some((*before_random).clone());
             let result=menu.click(&env,slot.map_or(-999,|slot|slot as i32),button,input);
             let random=menu.recipe_durability_rng.take();let dropped=std::mem::take(&mut menu.dropped);let equipped=std::mem::take(&mut menu.equipped);
             menu.drops.clear();menu.crafted.clear();
@@ -351,7 +351,7 @@ impl Game<'_> {
         };
         if let Ok((inventory,armor,offhand,carried,dropped,equipped,random))=result {
             self.inventory=inventory;self.armor=armor;self.offhand=offhand;self.carried=carried;
-            if let Some(random)=random{self.world.random=random;}
+            if let Some(random)=random{self.world.random=horizon_core::random::LevelRandom::for_level(random);}
             for item in dropped{self.player_drop(item);}for (slot,item) in equipped{self.player_equipped(slot,item.as_ref());}
         }else{session.menu=Menu::new(Kind::Chest(6));}
     }

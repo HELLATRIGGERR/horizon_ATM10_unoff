@@ -221,7 +221,7 @@ impl Game<'_> {
                 .flat_map(|(_, tags)| tags.iter()).filter(|tag| nbt_intersects(tag)).count();
             count += self.world.loaded_entities.iter()
                 .filter(|((x, z), _)| self.world.loaded(x * 16, z * 16))
-                .flat_map(|(_, tags)| tags.iter()).filter(|tag| nbt_intersects(tag)).count();
+                .flat_map(|(_, entities)| entities.iter()).filter(|entity| nbt_intersects(entity.tag())).count();
             Ok(count)
         })
     }

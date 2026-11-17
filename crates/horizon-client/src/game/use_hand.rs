@@ -3,6 +3,19 @@
 use super::*;
 
 impl Game<'_> {
+    /// `Level.playSound(player, ...)`: a guest's client already predicted the
+    /// fire-starter sound, so play it locally on the server and forward it to
+    /// the other guests without leaving it in the broadcast capture.
+    pub(super) fn play_block_use_sound(&mut self, sound: &str, at: [f64; 3], pitch: f32) {
+        if self.lan_acting.is_some() {
+            self.audio.play_unshared(sound, Some(at), 1.0, pitch);
+            self.guest_block_sounds
+                .push((sound.to_owned(), at, 1.0, pitch));
+        } else {
+            self.audio.play(sound, Some(at), 1.0, pitch);
+        }
+    }
+
     /// One hand's turn in `startUseItem`: `useItemOn` the block aimed at,
     /// then `useItem`. Whether the click ends here (it acted or failed).
     pub(super) fn use_hand(
@@ -218,28 +231,12 @@ impl Game<'_> {
                 respawn_anchor::AnchorUse::Pass => anchor_passed = true,
                 respawn_anchor::AnchorUse::Other => {}
             }
-            // CeilingHangingSignBlock.useItemOn: a hanging sign aimed at the
-            // underside passes, so the next sign chains below instead of
-            // opening the editor, unless the side has click commands to run
+            // HangingSignBlock.useItemOn, on a ceiling sign's underside or a
+            // wall sign's edge: the hanging sign in hand chains a new sign
+            // there, so the block's own use is skipped, unless the side the
+            // player faces has click commands to run
             // (`shouldTryToChainAnotherHangingSign`).
-            let chains_sign = hit.face == [0, -1, 0]
-                // `instanceof HangingSignItem`, independent of the item's name.
-                && held.as_ref().is_some_and(|s| {
-                    self.res.behaviours().item_binding(&s.item)
-                        .is_some_and(|i| i.kind == horizon_world::level::ItemKind::HangingSign)
-                })
-                && self
-                    .res
-                    .facts()
-                    .get(self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]))
-                    .has_class("CeilingHangingSignBlock")
-                && matches!(
-                    self.world
-                        .block_entities
-                        .get(&(hit.pos[0], hit.pos[1], hit.pos[2])),
-                    Some(BlockEntity::Sign(_))
-                )
-                && !self.sign_can_execute_click_commands((hit.pos[0], hit.pos[1], hit.pos[2]));
+            let chains_sign = self.chains_hanging_sign(hit.pos, hit.face, held.as_ref());
             // TRY_WITH_EMPTY_HAND: only the main hand's turn uses the block
             // itself (useWithoutItem).
             if !anchor_passed && !chains_sign && self.hand == Hand::Main {
@@ -261,6 +258,10 @@ impl Game<'_> {
                     self.with_level(|b, _, _| b.cake_candle_state(cake, item.as_deref()).is_some());
                 let pots_flower = self
                     .with_level(|b, _, _| b.potted_flower_state(cake, item.as_deref()).is_some());
+                // Read before the use runs: a sign's click commands execute in
+                // `process_level_events` and may change or remove the sign, but
+                // vanilla keeps the click consumed (`executedClickCommand`).
+                let sign_consumes = self.sign_consumes_click(hit.pos);
                 let (result, branch) = self.with_level(|b, level, ticks| {
                     b.use_item_on_branch(
                         level,
@@ -312,7 +313,15 @@ impl Game<'_> {
                         _ => {}
                     }
                 }
-                if result.consumes_action() {
+                // SignBlock.useWithoutItem answers PASS for a sign that is
+                // not waxed, has no click action to run and that nobody may
+                // build on: ServerPlayerGameMode.useItemOn goes on to
+                // ItemStack.useOn, so an adventure-mode `can_place_on` stack
+                // still places against the sign.
+                let sign_passes = branch == horizon_world::level::UseBranch::WithoutItem
+                    && self.res.facts().get(cake).sign_form().is_some()
+                    && !sign_consumes;
+                if result.consumes_action() && !sign_passes {
                     // ServerPlayerGameMode.useItemOn: ITEM_USED_ON_BLOCK with
                     // the stack before the use, or DEFAULT_BLOCK_USE.
                     match branch {
@@ -602,7 +611,10 @@ impl Game<'_> {
             };
             let pos = pending.pos;
             let target = [pos.x, pos.y, pos.z];
-            let state = pending.state;
+            let game_master = game.can_use_game_master_blocks();
+            let state = game
+                .lectern_placed(target, pending.state, &stack, game_master)
+                .map_err(|e| e.to_string())?;
             #[cfg(feature = "ae2-lab")]
             let state = game.ae2_apply_item_block_state(target, state, &stack);
             #[cfg(not(feature = "ae2-lab"))]
@@ -616,7 +628,6 @@ impl Game<'_> {
                 game.world.block_entities.insert(key, entity);
             }
             if game.world.block_entities.get(&key).is_some() {
-                let game_master = game.can_use_game_master_blocks();
                 game.apply_placed_item(target, &stack, game_master);
                 #[cfg(feature = "ae2-lab")]
                 {
@@ -678,7 +689,9 @@ impl Game<'_> {
                 Some(BlockEntity::JigsawBlock(_)) => self.jigsaw_block_placed(key),
                 Some(BlockEntity::TestBlock(_)) => self.test_block_placed(key),
                 Some(BlockEntity::Jukebox(_)) => self.jukebox_placed(target, &stack),
-                Some(BlockEntity::Sign(sign)) if !sign.waxed => self.open_sign_editor(key, true),
+                Some(BlockEntity::Sign(sign)) if !sign.waxed && sign.front.has_editable_text() => {
+                    self.open_text_edit(key, true)
+                }
                 _ => {}
             }
         }
@@ -827,7 +840,6 @@ impl Game<'_> {
             (self.known_player_movement(), pl.ground.on_ground)
         });
         arrow.shoot_from_rotation(
-            &mut self.world.random,
             self.pitch,
             self.yaw,
             0.0,
@@ -869,3 +881,11 @@ impl Game<'_> {
         self.damage_held(1);
     }
 }
+
+#[cfg(test)]
+#[path = "sign_use_tests.rs"]
+mod sign_use_tests;
+
+#[cfg(test)]
+#[path = "sign_chain_tests.rs"]
+mod sign_chain_tests;

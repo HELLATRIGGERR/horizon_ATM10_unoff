@@ -2661,7 +2661,7 @@ impl Game<'_> {
             horizon_client::block_entity_item::pick(&canonical)
         }).or_else(||saved.as_ref().map(horizon_client::block_entity_item::pick));
         if let Some(entity)=entity.as_ref() {
-            self.pending.record(at,entity,&facts.name,self.world.block_names.get(&target).cloned());
+            self.pending.record(at,entity,&facts.name,self.world.block_names.get(&target).cloned(),self.world.block_lock(target));
         } else if let Some(tag)=saved.as_ref() {
             self.pending.record_saved(at,tag);
         }

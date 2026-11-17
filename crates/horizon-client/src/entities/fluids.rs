@@ -45,6 +45,30 @@ pub fn fluid_flow(world: &World, fluids: &FluidResources, pos: [i32; 3]) -> [f64
     let flow = flow_at(&mut scene, state, at).unwrap_or(Vec3::ZERO);
     [flow.x, flow.y, flow.z]
 }
+/// `Entity.move`'s fall-reset ray along a move from `from`, up to 8 blocks:
+/// `ClipContext.Fluid.WATER` (the water's shape) and
+/// `ClipContext.Block.FALLDAMAGE_RESETTING` (a block `tagged` says is a reset
+/// block clips as a full block). Both shapes are queried for every visited
+/// block, the water's first (its first query fixes the shared cached shape);
+/// either one hitting ends the ray.
+pub fn fall_reset_hit(
+    world: &World,
+    fluids: &FluidResources,
+    tagged: impl Fn(BlockPos) -> bool,
+    from: Vec3,
+    moved: Vec3,
+) -> bool {
+    let to = from.add_vector(moved.normalize().scale(moved.length().min(8.0)));
+    let hit = horizon_core::geometry::traverse_blocks(from, to, 1_000_000, |p| {
+        let water = water_clip(world, fluids, from, to, p);
+        let reset = tagged(p)
+            && horizon_core::geometry::VoxelShape::block()
+                .clip(from, to, p)
+                .is_some();
+        (water || reset).then_some(())
+    });
+    matches!(hit, Ok(Some(())))
+}
 /// `ClipContext.Fluid.WATER` in a fall-reset ray through `p`: the water's
 /// shape from the shared `FlowingFluid.shapes` cache (the first query of a
 /// fluid state fixes its height), as the player's own ray reads it.
@@ -205,19 +229,28 @@ impl ItemEntity {
 }
 impl ExperienceOrb {
     /// `Entity.updateFluidInteraction`: refreshes fluid immersion over the
-    /// orb's box and pushes its velocity by any water or lava current.
-    /// Answers `isEyeInFluid(FluidTags.WATER)` for the eye the scan reads,
-    /// `0.425` above the orb's feet.
-    pub fn update_fluids(&mut self, world: &World, fluids: &FluidResources) -> bool {
-        update_entity_fluids(
+    /// orb's box and pushes its velocity by any water or lava current; water
+    /// resets its fall, and `Entity.baseTick` halves it in lava (`isInLava`
+    /// is false on the orb's first tick, `Entity.firstTick`). Answers
+    /// `isEyeInFluid(FluidTags.WATER)` for the eye the scan reads, `0.425`
+    /// above the orb's feet, and `isInWater`.
+    pub fn update_fluids(&mut self, world: &World, fluids: &FluidResources) -> (bool, bool) {
+        let (water, lava, eye) = update_entity_fluids(
             self.bounds(),
             self.position,
             self.position.y + f64::from(0.425f32),
             &mut self.velocity,
             world,
             fluids,
-        )
-        .2
+        );
+        if water > 0.0 {
+            self.fall_distance = 0.0;
+        }
+        // `tick_among` counts this tick first: `tickCount` is 1 on the first.
+        if lava > 0.0 && self.ticks > 1 {
+            self.fall_distance *= 0.5;
+        }
+        (eye, water > 0.0)
     }
 }
 impl ArmorStand {
@@ -517,6 +550,7 @@ mod tests {
         }
         let at = Vec3::new(20.5, 4.0, 20.5);
         let orb = ExperienceOrb {
+            fall_distance: 0.0,
             rotation: [0.0, 0.0],
             join: Default::default(),
             invulnerable: false,
@@ -531,6 +565,7 @@ mod tests {
             count: 1,
             ticks: 0,
             health: 5,
+            air: 300,
             following: None,
         };
         let mut still = orb.clone();
@@ -608,6 +643,7 @@ mod tests {
         }
         let at = Vec3::new(20.5, 4.6, 20.5);
         let mut orb = ExperienceOrb {
+            fall_distance: 0.0,
             rotation: [0.0, 0.0],
             join: Default::default(),
             invulnerable: false,
@@ -622,6 +658,7 @@ mod tests {
             count: 1,
             ticks: 0,
             health: 5,
+            air: 300,
             following: None,
         };
         assert!(orb.tick(

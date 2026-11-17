@@ -150,6 +150,12 @@ impl Game<'_> {
         {
             bar = self.ae2_energy_bar(stack).or(bar);
         }
+        // A Polytone pack's durability bar colour (`item_modifiers`, `bar_color`).
+        if let Some((_, color)) = bar.as_mut().filter(|_| stack.damage > 0 && max_damage > 0) {
+            let damage = stack.damage as f32 / max_damage as f32;
+            *color =
+                horizon_client::pack_palette::item_bar_color(&stack.item, damage).unwrap_or(*color);
+        }
         // Client-only: a mod may replace or hide the bar vanilla just chose.
         self.native_item_bar(stack, &mut bar);
         let decorations = hud_overlays::ItemDecorations {
@@ -575,5 +581,190 @@ impl Game<'_> {
             let stack = self.slot_view(i);
             self.draw_slot_item(batch, drag.as_ref(), i, &stack, ox + sx, oy + sy);
         }
+    }
+
+    /// Slot ids: 0..36 player inventory, 100..109 crafting grid, 200 result.
+    pub(super) fn container_kind(&self) -> Option<&BlockEntity> {
+        self.container
+            .and_then(|k| self.world.block_entities.get(&k))
+    }
+
+    /// 300.. are the open container's slots.
+    pub(super) fn slots(&self) -> Vec<usize> {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(slots) = self.ae2x_slots() {return slots;}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            return (0..36).chain(300..327).collect();
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {return (0..36).chain(300..327).collect();}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {return (0..36).chain(300..354).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {
+            let mut slots:Vec<usize>=(0..36).collect();
+            if let Some(rows)=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()) {
+                for (line,row) in rows.iter().take(6).enumerate() {
+                    if row.get("kind").and_then(|v|v.as_str())==Some("provider") {slots.extend(300+line*9..309+line*9);}
+                }
+            }
+            return slots;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_stock_ui() {return (300..=311).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_priority_ui() {return (300..=308).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {return (300..=321).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {return (303..311).chain([325,326]).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() {return vec![300];}
+        #[cfg(feature = "ae2-lab")]
+        if let Some((view_cells, toolbox)) = self.remote.as_ref().and_then(|r| {
+            let view_cells = r.ae2_view_cells.is_some();
+            let toolbox = r.ae2_terminal_toolbox.is_some();
+            (view_cells || toolbox).then_some((view_cells, toolbox))
+        }) {
+            return ae2_terminal::terminal_visible_slots(view_cells, toolbox);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_portable_open() { return (0..36).chain(300..354).collect(); }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() {
+            let mut slots:Vec<usize>=(0..36).chain(300..354).collect();
+            if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {slots.extend(360..365);}
+            if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {slots.extend(365..374);}
+            return slots;
+        }
+        if self.creative_inventory_open() {
+            return Creative::inventory_slots().collect();
+        }
+        if self.creative_tab_open() {
+            return Creative::tab_slots().collect();
+        }
+        if let Some(v) = self.station_slots().or_else(|| self.mount_slots()) {
+            return v;
+        }
+        let mut v: Vec<usize> = (0..36).collect();
+        if let Some(shown) = self.native_screen_slots() {
+            v.extend(shown);
+            return v;
+        }
+        match self.container_kind() {
+            #[cfg(feature = "ae2-lab")]
+            Some(BlockEntity::Ae2(_)) => v.extend((0..self.container_size()).map(|i| 300 + i)),
+            Some(BlockEntity::Chest(_)) => v.extend((0..self.container_size()).map(|i| 300 + i)),
+            Some(BlockEntity::Furnace(_)) => v.extend(300..303),
+            Some(BlockEntity::Brewing(_)) => v.extend(300..305),
+            Some(BlockEntity::Crafter(_)) => v.extend(300..310),
+            Some(
+                BlockEntity::Sign(_)
+                | BlockEntity::Jukebox(_)
+                | BlockEntity::Beacon(_)
+                | BlockEntity::Lectern(_)
+                | BlockEntity::Sculk(_)
+                | BlockEntity::Banner(_)
+                | BlockEntity::CopperGolemStatue(_)
+                | BlockEntity::CreakingHeart(_)
+                | BlockEntity::Spawner(_)
+                | BlockEntity::TrialSpawner(_)
+                | BlockEntity::Vault(_)
+                | BlockEntity::Beehive(_)
+                | BlockEntity::CommandBlock(_)
+                | BlockEntity::EndGateway(_)
+                | BlockEntity::Skull(_)
+                | BlockEntity::DaylightDetector
+                | BlockEntity::Bell
+                | BlockEntity::Conduit(_)
+                | BlockEntity::EndPortal
+                | BlockEntity::EnchantingTable
+                | BlockEntity::Campfire(_)
+                | BlockEntity::ChiseledBookshelf(_)
+                | BlockEntity::Brushable(_)
+                | BlockEntity::Shelf(_)
+                | BlockEntity::Mod(_)
+                | BlockEntity::PotentSulfur(_)
+                | BlockEntity::StructureBlock(_)
+                | BlockEntity::JigsawBlock(_)
+                | BlockEntity::TestBlock(_)
+                | BlockEntity::TestInstanceBlock(_),
+            ) => {}
+            None => {
+                v.extend((0..self.craft_size * self.craft_size).map(|i| 100 + i));
+                v.push(200);
+                if self.craft_size == 2 {
+                    v.extend(500..505);
+                }
+            }
+        }
+        v
+    }
+
+    /// How many slots `slots` lists, counted without building the list: the
+    /// screen render hook asks once a frame and must not allocate. Same
+    /// branches in the same order, so the two stay in step.
+    pub(super) fn slot_count(&self) -> usize {
+        if self.creative_inventory_open() {
+            return Creative::inventory_slots().count();
+        }
+        if self.creative_tab_open() {
+            return Creative::tab_slots().count();
+        }
+        if let Some(n) = self
+            .station_slot_count()
+            .or_else(|| self.mount_slot_count())
+        {
+            return n;
+        }
+        let inventory = 36;
+        if let Some(shown) = self.native_screen_slot_count() {
+            return inventory + shown;
+        }
+        let container = match self.container_kind() {
+            Some(BlockEntity::Chest(_)) => self.container_size(),
+            Some(BlockEntity::Furnace(_)) => 3,
+            Some(BlockEntity::Brewing(_)) => 5,
+            Some(BlockEntity::Crafter(_)) => 10,
+            #[cfg(feature = "ae2-lab")]
+            Some(BlockEntity::Ae2(_)) => self.container_size(),
+            Some(
+                BlockEntity::Sign(_)
+                | BlockEntity::Jukebox(_)
+                | BlockEntity::Beacon(_)
+                | BlockEntity::Lectern(_)
+                | BlockEntity::Sculk(_)
+                | BlockEntity::Banner(_)
+                | BlockEntity::CopperGolemStatue(_)
+                | BlockEntity::CreakingHeart(_)
+                | BlockEntity::Spawner(_)
+                | BlockEntity::TrialSpawner(_)
+                | BlockEntity::Vault(_)
+                | BlockEntity::Beehive(_)
+                | BlockEntity::CommandBlock(_)
+                | BlockEntity::EndGateway(_)
+                | BlockEntity::Skull(_)
+                | BlockEntity::DaylightDetector
+                | BlockEntity::Bell
+                | BlockEntity::Conduit(_)
+                | BlockEntity::EndPortal
+                | BlockEntity::EnchantingTable
+                | BlockEntity::Campfire(_)
+                | BlockEntity::ChiseledBookshelf(_)
+                | BlockEntity::Brushable(_)
+                | BlockEntity::Shelf(_)
+                | BlockEntity::Mod(_)
+                | BlockEntity::PotentSulfur(_)
+                | BlockEntity::StructureBlock(_)
+                | BlockEntity::JigsawBlock(_)
+                | BlockEntity::TestBlock(_)
+                | BlockEntity::TestInstanceBlock(_),
+            ) => 0,
+            None => {
+                self.craft_size * self.craft_size + 1 + if self.craft_size == 2 { 5 } else { 0 }
+            }
+        };
+        inventory + container
     }
 }

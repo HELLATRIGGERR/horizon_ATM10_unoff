@@ -525,7 +525,7 @@ impl Game<'_> {
             brewing: &self.stations().brewing,
             banners: &self.stations().banners,
             station_recipes: &self.stations().recipes,
-            enchantments: &self.stations().enchantments,
+            enchantments: self.enchantments(),
             names: &self.pack.names,
             trade: Some(&trade_env),
             maps: level_maps
@@ -604,11 +604,11 @@ impl Game<'_> {
             0
         };
         #[cfg(feature = "ae2-lab")]
-        if self.remote.is_none(){menu.recipe_durability_rng=Some(self.world.random.clone());}
+        if self.remote.is_none(){menu.recipe_durability_rng=Some((*self.world.random).clone());}
         let outcome = run(&mut menu, &env, &to_menu);
         let made = maps.made.take();
         #[cfg(feature = "ae2-lab")]
-        if self.remote.is_none(){if let Some(random)=menu.recipe_durability_rng.take(){self.world.random=random;}}
+        if self.remote.is_none(){if let Some(random)=menu.recipe_durability_rng.take(){self.world.random=horizon_core::random::LevelRandom::for_level(random);}}
         match outcome {
             None => return false,
             Some(false) => return true,
@@ -646,6 +646,9 @@ impl Game<'_> {
         let equipped = std::mem::take(&mut menu.equipped);
         let item_crafted = std::mem::take(&mut menu.item_crafted);
         for (_, stack) in &item_crafted {
+            if !predicting {
+                self.award_stat("crafted", &stack.item, stack.count as i32);
+            }
             self.tutorial_get_item(Some(stack));
         }
         for (i, stack) in after.into_iter().enumerate() {
@@ -697,10 +700,16 @@ impl Game<'_> {
                 self.station_sound(sound);
             }
         } else if kind == Kind::Stonecutter {
+            // `StonecutterMenu.container`'s listener runs on every change of the
+            // input slot (`slotsChanged` and `containerChanged` both hang off
+            // it): a recipe button or an inventory click is not one.
+            let input_changed = before[0] != menu.slot(0).cloned();
             if let Some(s) = self.station.as_mut() {
                 s.selected = usize::try_from(menu.data[0]).ok();
                 s.stone = std::mem::take(&mut menu.stone);
-                s.stonecutter_changed();
+                if input_changed {
+                    s.stonecutter_changed();
+                }
             }
             for sound in sounds.into_iter().filter(|_| !predicting) {
                 self.station_sound(sound);
@@ -719,14 +728,8 @@ impl Game<'_> {
             // EnchantmentMenu.slotsChanged: new offers for the item.
             self.station_changed();
         }
-        if kind == Kind::CrafterBlock
-            && let Some(BlockEntity::Crafter(c)) = self
-                .container
-                .and_then(|k| self.world.block_entities.get_mut(&k))
-        {
-            for (i, d) in c.disabled.iter_mut().enumerate() {
-                *d = menu.data[i] == 1;
-            }
+        if kind == Kind::CrafterBlock {
+            self.apply_crafter_slot_states(&menu);
         }
         if matches!(kind, Kind::Furnace(_))
             && let Some(BlockEntity::Furnace(f)) = self
@@ -749,6 +752,25 @@ impl Game<'_> {
             self.register_made_maps(maps);
         }
         true
+    }
+    /// `CrafterBlockEntity.setSlotState`: the menu's slot states land on the
+    /// block entity, whose `setChanged` marks the chunk for saving.
+    pub(super) fn apply_crafter_slot_states(&mut self, menu: &horizon_client::menu::Menu) {
+        let Some(key) = self.container else {
+            return;
+        };
+        let Some(BlockEntity::Crafter(c)) = self.world.block_entities.get_mut(&key) else {
+            return;
+        };
+        let mut changed = false;
+        for (i, d) in c.disabled.iter_mut().enumerate() {
+            let disabled = menu.data[i] == 1;
+            changed |= *d != disabled;
+            *d = disabled;
+        }
+        if changed {
+            self.container_changed(key);
+        }
     }
     pub(super) fn click_inventory(&mut self, right: bool) {
         if self.mod_browser_press(right) || self.mount_click(right) {
@@ -983,5 +1005,35 @@ impl Game<'_> {
         {
             f.input_clicked(world_recipes!(self), before);
         }
+    }
+
+    /// `AbstractContainerScreen` keeps `isQuickCrafting` and the drag it
+    /// belongs to on the screen. Horizon keeps both on `Game` (`inv_clicks`,
+    /// `inv_drag`, `last_inv_click`), so they are dropped when the pointer
+    /// changes hands: a screen that opens or closes starts with its own
+    /// state, and a press whose release never reached the screen -- the
+    /// pointer left the window, or the screen closed first -- would
+    /// otherwise leave every later press on every later screen swallowed.
+    pub(super) fn reset_inventory_clicks(&mut self) {
+        self.inv_clicks.cancel_drag();
+        self.inv_drag = None;
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_fake_drag.clear();
+        self.last_inv_click = None;
+    }
+
+    /// A sound a menu click made the player play (a bundle's insert or
+    /// remove): `Entity.playSound` at the player.
+    pub(super) fn player_menu_sound(&mut self, sound: &str) {
+        let Some(p) = self.player.as_ref() else {
+            return;
+        };
+        let at = [p.position.x, p.position.y, p.position.z];
+        let (volume, pitch) = if sound == horizon_client::bundle::INSERT_FAIL {
+            (1.0, 1.0)
+        } else {
+            (0.8, 0.8 + self.world.random.next_float() * 0.4)
+        };
+        self.audio.play(sound, Some(at), volume, pitch);
     }
 }

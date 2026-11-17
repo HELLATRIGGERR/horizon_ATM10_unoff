@@ -1,6 +1,6 @@
 //! Sided native inventories exposed to AE2's P2P capability adapters. Reuses
 //! vanilla container policy rather than treating every block as a plain chest.
-use super::{Containers, Game, Kind, View, bone_meal};
+use super::{Containers, Game, Kind, View};
 use crate::game::ae2_global::GridAddress;
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
 use horizon_core::geometry::Direction;
@@ -100,10 +100,10 @@ impl Game<'_> {
         address: GridAddress,
     ) -> Option<(Containers<'_>, View, super::super::Dim)> {
         let (dimension, local) = self.ae2_address_parts(address)?;
-        let world = if dimension == self.dim {
-            &self.world
+        let (world, mobs) = if dimension == self.dim {
+            (&self.world, self.mobs.as_slice())
         } else {
-            self.levels.ae2_world(dimension)?
+            (self.levels.ae2_world(dimension)?, self.levels.parked_mobs(dimension).unwrap_or(&[]))
         };
         // These AE2 inventories have well-defined native physical slots. Other
         // AE2 inventories need their own capability adapter (e.g. condenser
@@ -127,7 +127,7 @@ impl Game<'_> {
             items: self.res.items(),
             registry: self.pack.assets.registry,
             brewing: Some(&self.res.stations().brewing),
-            bone_meal: bone_meal(),
+            mobs,
         };
         let view = c.view(local, false)?;
         if matches!(view.kind, Kind::Composter(_)) {

@@ -1095,7 +1095,7 @@ impl Game<'_> {
         let order:Vec<usize>=(9..36).chain(0..9).collect();
         let (clicked,next,inventory,offhand,carried,crafted,dropped,sounds,random)={
             let env=self.menu_env();let mut menu=Menu::new(Kind::Crafting);
-            menu.creative=self.creative;menu.selected=self.selected;menu.recipe_durability_rng=Some(self.world.random.clone());
+            menu.creative=self.creative;menu.selected=self.selected;menu.recipe_durability_rng=Some((*self.world.random).clone());
             for (i,stack) in machine.slots.iter().cloned().enumerate() {menu.set_slot(&env,1+i,stack);}
             for (i,&index) in order.iter().enumerate() {menu.set_slot(&env,10+i,self.inventory[index].clone());}
             menu.set_player_item(40,self.offhand.clone());menu.carried=self.carried.clone();menu.settle(&env);
@@ -1118,7 +1118,7 @@ impl Game<'_> {
             return Err(error);
         }
         for (index,stack) in order.into_iter().zip(inventory) {self.inventory[index]=stack;}
-        self.offhand=offhand;self.carried=carried;if let Some(random)=random {self.world.random=random;}
+        self.offhand=offhand;self.carried=carried;if let Some(random)=random {self.world.random=horizon_core::random::LevelRandom::for_level(random);}
         self.award_crafted(&crafted);for stack in dropped {self.player_drop(stack);}for sound in sounds {self.player_menu_sound(sound);}
         self.ae2_invalidate_local_terminal();Ok(())
     }
@@ -1148,7 +1148,7 @@ impl Game<'_> {
                     if room<u64::from(expected.count){break;}
                 }
                 let (next,next_inventory,next_offhand,next_carried,effects,drops,player_sounds,next_random)={
-                    let env=self.menu_env();let mut menu=Menu::new(Kind::Crafting);menu.creative=self.creative;menu.selected=self.selected;menu.recipe_durability_rng=Some(random.clone());
+                    let env=self.menu_env();let mut menu=Menu::new(Kind::Crafting);menu.creative=self.creative;menu.selected=self.selected;menu.recipe_durability_rng=Some((*random).clone());
                     for (i,stack) in previous.iter().cloned().enumerate(){menu.set_slot(&env,1+i,stack);}
                     for (i,&index) in order.iter().enumerate(){menu.set_slot(&env,10+i,inventory[index].clone());}
                     menu.set_player_item(40,offhand.clone());menu.carried=carried.clone();menu.settle(&env);
@@ -1163,7 +1163,7 @@ impl Game<'_> {
                 };
                 if next==previous {break;}
                 for (&index,stack) in order.iter().zip(next_inventory){inventory[index]=stack;}
-                offhand=next_offhand;carried=next_carried;if let Some(rng)=next_random{random=rng;}
+                offhand=next_offhand;carried=next_carried;if let Some(rng)=next_random{random=horizon_core::random::LevelRandom::for_level(rng);}
                 crafted.extend(effects);dropped.extend(drops);sounds.extend(player_sounds);machine.slots=next;
                 for i in 0..9 {
                     if machine.slots[i].is_some(){continue;}
@@ -1211,7 +1211,7 @@ impl Game<'_> {
         let Some(clicks)=clicks else{return true;};
         let staged=(||->Result<_,String>{
             let env=self.menu_env();let mut menu=Menu::new(Kind::Crafting);
-            menu.creative=self.creative;menu.selected=self.selected;menu.recipe_durability_rng=Some(self.world.random.clone());
+            menu.creative=self.creative;menu.selected=self.selected;menu.recipe_durability_rng=Some((*self.world.random).clone());
             for (i,item) in machine.slots.iter().cloned().enumerate(){menu.set_slot(&env,1+i,item);}
             for (i,&index) in order.iter().enumerate(){menu.set_slot(&env,10+i,self.inventory[index].clone());}
             menu.set_player_item(40,self.offhand.clone());menu.carried=self.carried.clone();menu.settle(&env);

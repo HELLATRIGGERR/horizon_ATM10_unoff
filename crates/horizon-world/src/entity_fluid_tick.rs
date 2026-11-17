@@ -13,18 +13,14 @@ pub trait EntityFluidTickWorld:
     fn water_splash(&mut self) -> Result<(), WorldError<Self>>;
     fn set_was_touching_water(&mut self, value: bool);
     fn fast_lava(&mut self) -> Result<bool, WorldError<Self>>;
-    /// NeoForge's `Entity.updateInWaterStateAndDoFluidPushing` for the content
-    /// mods' fluid types the entity is in: unless it rides a boat, its fall
-    /// distance times `fall_distance_modifier` (the least of their
-    /// `getFallDistanceModifier`), and with `extinguish` (one `canExtinguish`)
-    /// its fire put out. Nothing by default.
-    fn in_mod_fluid_types(
-        &mut self,
-        fall_distance_modifier: f32,
-        extinguish: bool,
-    ) -> Result<(), WorldError<Self>> {
-        let _ = (fall_distance_modifier, extinguish);
-        Ok(())
+    /// Multiplies the fall distance by a mod fluid's `fallDistanceModifier`;
+    /// an entity that keeps none only resets it (water's 0).
+    fn scale_fall_distance(&mut self, by: f32) -> Result<(), WorldError<Self>> {
+        if by == 0.0 {
+            self.reset_fall_distance()
+        } else {
+            Ok(())
+        }
     }
 }
 /// The push predicate is queried twice: before resetting immersion state and
@@ -50,6 +46,11 @@ pub fn update<W: EntityFluidTickWorld>(
             world.water_splash().map_err(FluidInteractionError::World)?;
         }
     }
+    for m in interaction.mod_fluids().filter(|m| m.height > 0.0) {
+        world
+            .scale_fall_distance(m.fluid.info().entity.fall_distance_modifier)
+            .map_err(FluidInteractionError::World)?;
+    }
     world.set_was_touching_water(in_water);
     if world
         .is_pushed_by_fluid()
@@ -70,22 +71,8 @@ pub fn update<W: EntityFluidTickWorld>(
                 .apply_current(world, lava, speed)
                 .map_err(FluidInteractionError::World)?;
         }
-        // NeoForge: each content mod's fluid type pushes by its own motion scale.
         interaction
             .apply_mod_currents(world)
-            .map_err(FluidInteractionError::World)?;
-    }
-    let types = interaction.mod_fluid_types();
-    if !types.is_empty() {
-        let types: Vec<_> = types.iter().filter_map(|(k, _)| k.mod_fluid()).collect();
-        let modifier = types
-            .iter()
-            .map(|m| m.entity.fall_distance_modifier)
-            .reduce(f32::min)
-            .unwrap_or(1.0);
-        let extinguish = types.iter().any(|m| m.entity.can_extinguish);
-        world
-            .in_mod_fluid_types(modifier, extinguish)
             .map_err(FluidInteractionError::World)?;
     }
     Ok(changed)

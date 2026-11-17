@@ -200,10 +200,10 @@ impl Game<'_> {
         };
         load_player(menu, &host.hub.guests[gi]);
         #[cfg(feature = "ae2-lab")]
-        {menu.recipe_durability_rng=Some(self.world.random.clone());}
+        {menu.recipe_durability_rng=Some((*self.world.random).clone());}
         let result = op(menu, &env);
         #[cfg(feature = "ae2-lab")]
-        if let Some(random)=menu.recipe_durability_rng.take(){self.world.random=random;}
+        if let Some(random)=menu.recipe_durability_rng.take(){self.world.random=horizon_core::random::LevelRandom::for_level(random);}
         if let Some(maps) = maps {
             self.register_made_maps(maps);
         }
@@ -252,6 +252,8 @@ impl Game<'_> {
             self.as_guest(host, conn, |g| {
                 let player = g.native_acting_id();
                 for (recipe, stack) in &effects.item_crafted {
+                    // ItemStack.onCraftedBy awards Stats.ITEM_CRAFTED.
+                    g.award_stat("crafted", &stack.item, stack.count as i32);
                     g.native_item_crafted(player, recipe, stack);
                 }
             });

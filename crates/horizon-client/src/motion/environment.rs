@@ -39,7 +39,11 @@ impl MotionWorld<'_, '_, '_> {
             }
             self.player.fire_ticks -= 1;
         }
-        if self.player.fluids.was_touching_water {
+        let extinguishes = self
+            .player
+            .mod_fluid()
+            .is_some_and(|m| m.fluid.info().entity.can_extinguish);
+        if self.player.fluids.was_touching_water || extinguishes {
             self.player.fire_ticks = self.player.fire_ticks.min(0);
         }
         Ok(())
@@ -56,22 +60,13 @@ impl MotionWorld<'_, '_, '_> {
             .registry
             .state(self.block(eye))
             .is_some_and(|state| state.name == "minecraft:bubble_column");
-        // NeoForge's CommonHooks.onLivingBreathe: the eyes in a content mod's
-        // fluid type drown as in water where its type `canDrownIn`; where it
-        // doesn't, the player breathes but gains no air.
-        let eye_mod = self
-            .player
-            .fluids
-            .interaction
-            .eye_in_mod_fluid()
-            .and_then(|k| k.mod_fluid());
-        let submerged = (self.player.is_eye_in_fluid(WATER) || eye_mod.is_some()) && !bubble_column;
+        let submerged = (self.player.is_eye_in_fluid(WATER) || self.player.eye_in_drowning_fluid())
+            && !bubble_column;
         let drowns = submerged
             && !self.player.status.water_breathing
             && !self.player.status.breath_of_the_nautilus
             && !self.player.invulnerable
-            && !self.player.spectator
-            && eye_mod.is_none_or(|m| m.entity.can_drown);
+            && !self.player.spectator;
         let vanilla = if drowns {
             // decreaseAirSupply's getAttribute: the instance exists from now
             // on, even unmodified.
@@ -93,9 +88,8 @@ impl MotionWorld<'_, '_, '_> {
         } else {
             // The nautilus' breath keeps a submerged player's air as it is.
             let held = submerged
-                && (eye_mod.is_some()
-                    || self.player.status.breath_of_the_nautilus
-                        && !self.player.status.water_breathing);
+                && self.player.status.breath_of_the_nautilus
+                && !self.player.status.water_breathing;
             Breath {
                 can_breathe: true,
                 consume: 1,
@@ -135,7 +129,7 @@ impl MotionWorld<'_, '_, '_> {
     /// take too) and suffocation (`isInWall`, which the caller decides from
     /// the blocks at the eyes).
     pub fn server_hazards_tick(&mut self, in_wall: bool) -> Result<()> {
-        if self.player.position.y < f64::from(self.scene.bottom_y() - 64) {
+        if self.player.position.y < self.scene.below_world_y() {
             let id = self
                 .health
                 .damage
@@ -224,10 +218,9 @@ pub(crate) fn cactus_contact(
 }
 impl LivingFluidWorld for MotionWorld<'_, '_, '_> {
     fn in_water(&mut self) -> Result<bool> {
-        Ok(self.player.fluids.was_touching_water)
-    }
-    fn in_mod_fluid_type(&mut self) -> Result<bool> {
-        Ok(self.in_mod_fluid_at_feet())
+        // A mod fluid moves the player as water (NeoForge's `FluidType.move`
+        // left to the default).
+        Ok(self.player.fluids.was_touching_water || self.player.mod_fluid().is_some())
     }
     fn sprinting(&mut self) -> Result<bool> {
         Ok(self.player.sprinting)
@@ -242,11 +235,11 @@ impl LivingFluidWorld for MotionWorld<'_, '_, '_> {
         Ok(self.player.status.dolphins_grace)
     }
     fn fluid_height(&mut self, tag: TravelFluidTag) -> Result<f64> {
-        Ok(self.player.fluid_height(if tag == TravelFluidTag::Lava {
-            LAVA
-        } else {
-            WATER
-        }))
+        if tag == TravelFluidTag::Lava {
+            return Ok(self.player.fluid_height(LAVA));
+        }
+        let modded = self.player.mod_fluid().map_or(0.0, |m| m.height);
+        Ok(self.player.fluid_height(WATER).max(modded))
     }
     fn fluid_jump_threshold(&mut self) -> Result<f64> {
         Ok(self.player.fluid_jump_threshold())
@@ -269,22 +262,6 @@ impl PlayerMotion {
     }
 }
 impl MotionWorld<'_, '_, '_> {
-    /// NeoForge's `isInFluidType(level.getFluidState(blockPosition()))` for a
-    /// content mod's fluid: the one at its block position is a mod's, and the
-    /// box is in that fluid's type.
-    pub(super) fn in_mod_fluid_at_feet(&self) -> bool {
-        let feet = self
-            .fluid_at(BlockPos::containing(self.player.position))
-            .kind();
-        feet.mod_fluid().is_some()
-            && self
-                .player
-                .fluids
-                .interaction
-                .mod_fluid_types()
-                .iter()
-                .any(|(k, _)| *k == feet.source())
-    }
     /// `LivingEntity.aiStep`'s jump phase: rise in water or lava, else jump
     /// from the ground (or from shallow fluid); nothing while flying.
     pub(super) fn jump_phase(&mut self) -> Result<()> {
@@ -292,35 +269,17 @@ impl MotionWorld<'_, '_, '_> {
             self.player.no_jump_delay = 0;
             return Ok(());
         }
-        // NeoForge's LivingEntity.aiStep jump with a mod's fluid in the box:
-        // the height of the highest fluid type, then water's, lava's or that
-        // type's `jumpInFluid` (0.04F a tick for each), or a jump from the ground.
-        if let Some((_, mod_height)) = self.player.fluids.interaction.max_height_mod_fluid() {
-            let water = self.player.fluid_height(WATER);
-            let lava = self.player.fluid_height(LAVA);
-            let height = if water >= mod_height && water >= lava {
-                water
-            } else if lava >= mod_height {
-                lava
-            } else {
-                mod_height
-            };
-            let in_water = self.player.fluids.was_touching_water && height > 0.0;
-            let threshold = self.player.fluid_jump_threshold();
-            let deep = !(self.player.ground.on_ground && height <= threshold);
-            if (in_water || self.player.is_in_lava() || mod_height > 0.0) && deep {
-                self.player.velocity.y += f64::from(0.04f32);
-            } else if (self.player.ground.on_ground || in_water && height <= threshold)
-                && self.player.no_jump_delay == 0
-            {
-                self.jump_from_ground()?;
-                self.player.no_jump_delay = 10;
-            }
-            return Ok(());
-        }
         let in_lava = self.player.is_in_lava();
-        let height = self.player.fluid_height(if in_lava { LAVA } else { WATER });
-        let in_water = self.player.fluids.was_touching_water && height > 0.0;
+        // `jumpInFluid` also rises in a mod fluid that `canSwim`.
+        let swim = self.player.swim_fluid();
+        let height = if in_lava {
+            self.player.fluid_height(LAVA)
+        } else {
+            self.player
+                .fluid_height(WATER)
+                .max(swim.map_or(0.0, |m| m.height))
+        };
+        let in_water = (self.player.fluids.was_touching_water || swim.is_some()) && height > 0.0;
         let threshold = self.player.fluid_jump_threshold();
         let on_ground = self.player.ground.on_ground;
         if in_water && !(on_ground && height <= threshold) {
@@ -436,5 +395,69 @@ mod fire_ignition_tests {
             assert!(ticks < 0);
         }
         assert_eq!(ignite_contact(ticks, true, &mut r, 0.4), 64);
+    }
+}
+
+#[cfg(test)]
+mod below_world_tests {
+    use super::*;
+    use crate::chunk::LevelShape;
+
+    /// The player's health after one `server_hazards_tick` at `y` in a level of `shape`.
+    fn health_after_hazards(shape: LevelShape, y: f64) -> f32 {
+        let root = std::path::PathBuf::from(
+            std::env::var_os("HORIZON_TEST_RESOURCES").expect("HORIZON_TEST_RESOURCES"),
+        );
+        let assets = Assets::load(&root).unwrap();
+        let render = assets.reload(&root).unwrap();
+        let binding = crate::collisions::load(&root, assets.registry).unwrap();
+        let resources = MotionResources::load(&root, &assets).unwrap();
+        let mut scene = World::test_scene(&assets, &render, 1).unwrap();
+        scene.shape = shape;
+        let mut player = PlayerMotion::new(&resources, Vec3::new(0.5, y, 0.5)).unwrap();
+        MotionWorld {
+            entities: &[],
+            player: &mut player,
+            scene: &mut scene,
+            assets: &assets,
+            collision_binding: &binding,
+            resources: &resources,
+            health: &resources.health,
+        }
+        .server_hazards_tick(false)
+        .unwrap();
+        player.health.health()
+    }
+
+    /// `Entity.checkBelowWorld` hurts below `Level.getMinY() - 64`: y = -64 in the End and the
+    /// Nether (min Y 0), y = -128 in the Overworld, whatever the chunks' widened column holds.
+    #[test]
+    #[ignore = "needs prepared resources in HORIZON_TEST_RESOURCES"]
+    fn the_void_starts_64_blocks_below_each_levels_floor() {
+        assert_eq!(
+            health_after_hazards(LevelShape::END, -64.5),
+            16.0,
+            "End: below -64"
+        );
+        assert_eq!(
+            health_after_hazards(LevelShape::NETHER, -64.5),
+            16.0,
+            "Nether: below -64"
+        );
+        assert_eq!(
+            health_after_hazards(LevelShape::END, -63.5),
+            20.0,
+            "End: above -64"
+        );
+        assert_eq!(
+            health_after_hazards(LevelShape::OVERWORLD, -64.5),
+            20.0,
+            "Overworld: above -128"
+        );
+        assert_eq!(
+            health_after_hazards(LevelShape::OVERWORLD, -128.5),
+            16.0,
+            "Overworld: below -128"
+        );
     }
 }

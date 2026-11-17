@@ -49,6 +49,45 @@ pub struct FluidNumbers {
     pub convert_to_source: Option<bool>,
 }
 
+/// What a fluid does to the entities in it (NeoForge's `FluidType`): a mod
+/// fluid's own numbers over its template's. Vanilla's water and lava keep
+/// their own rules (lava's faster current in an ultrawarm dimension included).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EntityNumbers {
+    /// `motionScale`: how hard its current pushes.
+    pub motion_scale: f64,
+    /// `canPushEntity`: whether its current pushes at all.
+    pub can_push: bool,
+    /// `canSwim`: entities swim and rise in it.
+    pub can_swim: bool,
+    /// `canDrown`: an eye in it loses air.
+    pub can_drown: bool,
+    /// `canExtinguish`: it puts burning entities out.
+    pub can_extinguish: bool,
+    /// `fallDistanceModifier`: an entity in it has its fall distance
+    /// multiplied by this each tick (water's 0 resets it).
+    pub fall_distance_modifier: f32,
+}
+
+impl EntityNumbers {
+    const WATER: Self = Self {
+        motion_scale: 0.014,
+        can_push: true,
+        can_swim: true,
+        can_drown: true,
+        can_extinguish: true,
+        fall_distance_modifier: 0.0,
+    };
+    const LAVA: Self = Self {
+        motion_scale: 0.0023333333333333335,
+        can_push: true,
+        can_swim: false,
+        can_drown: false,
+        can_extinguish: false,
+        fall_distance_modifier: 0.5,
+    };
+}
+
 /// One row of the fluid table.
 #[derive(Clone, Copy, Debug)]
 pub struct FluidInfo {
@@ -58,6 +97,7 @@ pub struct FluidInfo {
     pub source: FluidKind,
     pub flowing: FluidKind,
     pub numbers: FluidNumbers,
+    pub entity: EntityNumbers,
     /// A mod fluid's liquid block (a copy of its template's, `level` 0 to 15);
     /// vanilla's are `minecraft:water` and `minecraft:lava`.
     pub block: Option<&'static str>,
@@ -72,7 +112,7 @@ pub const MOD_FLUIDS_FILE: &str = "horizon-mod-fluids.json";
 
 /// A mod fluid as [`MOD_FLUIDS_FILE`] lists it: its source and flowing ids,
 /// template, numbers (none: the template's) and liquid block.
-#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ModFluid {
     pub id: String,
     pub flowing: String,
@@ -89,6 +129,18 @@ pub struct ModFluid {
     pub slope_find_distance: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub convert_to_source: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_scale: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_push_entity: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_swim: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_drown: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_extinguish: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fall_distance_modifier: Option<f32>,
 }
 
 /// The mod fluids' rows, after vanilla's: replaced whenever a content root
@@ -119,6 +171,21 @@ pub fn set_mod_fluids(fluids: &[ModFluid]) -> io::Result<()> {
             slope_find_distance: f.slope_find_distance,
             convert_to_source: f.convert_to_source,
         };
+        let base = if template == FluidTemplate::Lava {
+            EntityNumbers::LAVA
+        } else {
+            EntityNumbers::WATER
+        };
+        let entity = EntityNumbers {
+            motion_scale: f.motion_scale.unwrap_or(base.motion_scale),
+            can_push: f.can_push_entity.unwrap_or(base.can_push),
+            can_swim: f.can_swim.unwrap_or(base.can_swim),
+            can_drown: f.can_drown.unwrap_or(base.can_drown),
+            can_extinguish: f.can_extinguish.unwrap_or(base.can_extinguish),
+            fall_distance_modifier: f
+                .fall_distance_modifier
+                .unwrap_or(base.fall_distance_modifier),
+        };
         let block = f.block.as_deref().map(leak);
         let bucket = f.bucket.as_deref().map(leak);
         for name in [&f.id, &f.flowing] {
@@ -128,6 +195,7 @@ pub fn set_mod_fluids(fluids: &[ModFluid]) -> io::Result<()> {
                 source,
                 flowing,
                 numbers,
+                entity,
                 block,
                 bucket,
             });
@@ -193,6 +261,14 @@ fn carried_rows() -> Option<&'static [FluidInfo]> {
                     source,
                     flowing,
                     numbers,
+                    entity: EntityNumbers {
+                        motion_scale: m.entity.motion_scale,
+                        can_push: m.entity.can_push,
+                        can_swim: m.entity.can_swim,
+                        can_drown: m.entity.can_drown,
+                        can_extinguish: m.entity.can_extinguish,
+                        fall_distance_modifier: m.entity.fall_distance_modifier,
+                    },
                     block,
                     bucket,
                 });
@@ -207,6 +283,11 @@ fn mod_rows() -> &'static [FluidInfo] {
         return rows;
     }
     *MOD_ROWS.read().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Whether a content root loaded any mod fluid: without one, nothing need look for them.
+pub fn mod_fluids_loaded() -> bool {
+    !mod_rows().is_empty()
 }
 
 /// Vanilla's fluids, in `minecraft:fluid` order.
@@ -229,6 +310,10 @@ const VANILLA: [FluidInfo; 5] = {
             source,
             flowing,
             numbers,
+            entity: match template {
+                FluidTemplate::Lava => EntityNumbers::LAVA,
+                _ => EntityNumbers::WATER,
+            },
             block: None,
             bucket: None,
         }
@@ -815,6 +900,55 @@ mod tests {
         assert_eq!(FluidKind::of_bucket("test:brine_bucket"), Some(brine));
         assert_eq!(FluidKind::of_liquid_block("test:sludge"), Some(sludge));
         assert_eq!(format!("{brine:?}"), "Mod(test:brine)");
+    }
+
+    #[test]
+    fn a_mod_fluid_moves_entities_by_its_numbers_over_its_templates() {
+        use super::{ModFluid, set_mod_fluids};
+        use crate::entity_fluid::FluidTagId;
+        let _table = TABLE.lock().unwrap_or_else(|e| e.into_inner());
+        set_mod_fluids(&[
+            ModFluid {
+                id: "ruby:honey".into(),
+                flowing: "ruby:flowing_honey".into(),
+                template: "minecraft:water".into(),
+                motion_scale: Some(0.002),
+                can_drown: Some(false),
+                ..ModFluid::default()
+            },
+            ModFluid {
+                id: "ruby:molten_iron".into(),
+                flowing: "ruby:flowing_molten_iron".into(),
+                template: "minecraft:lava".into(),
+                ..ModFluid::default()
+            },
+        ])
+        .unwrap();
+        let honey = FluidKind::from_name("ruby:honey").unwrap();
+        let iron = FluidKind::from_name("ruby:molten_iron").unwrap();
+        let h = honey.info().entity;
+        assert_eq!(
+            (
+                h.motion_scale,
+                h.can_swim,
+                h.can_drown,
+                h.fall_distance_modifier
+            ),
+            (0.002, true, false, 0.0)
+        );
+        let i = iron.flowing().info().entity;
+        assert_eq!(
+            (i.can_swim, i.can_extinguish, i.fall_distance_modifier),
+            (false, false, 0.5)
+        );
+        // Each mod fluid has its own tag, holding both its forms; vanilla's have none.
+        let tag = FluidTagId::of_mod_fluid(honey.flowing()).unwrap();
+        assert_eq!(tag, FluidTagId::of_mod_fluid(honey).unwrap());
+        assert_eq!(tag.mod_fluid(), Some(honey));
+        assert_ne!(FluidTagId::of_mod_fluid(iron), Some(tag));
+        assert_eq!(FluidTagId::of_mod_fluid(FluidKind::Water), None);
+        assert_eq!(FluidTagId(0).mod_fluid(), None);
+        set_mod_fluids(&[]).unwrap();
     }
 
     #[test]

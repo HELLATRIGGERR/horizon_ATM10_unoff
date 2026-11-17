@@ -11,6 +11,41 @@ pub struct FluidTagId(pub u32);
 pub trait FluidMembership {
     fn fluid_in_tag(&self, fluid: FluidKind, tag: FluidTagId) -> bool;
 }
+
+/// Where the tags of the mod fluids start: one each, past any tag a caller
+/// numbers itself, holding that fluid's source and flowing forms.
+const MOD_TAGS: u32 = 1 << 16;
+
+impl FluidTagId {
+    /// The tag that holds just this mod fluid (none for vanilla's).
+    pub fn of_mod_fluid(fluid: FluidKind) -> Option<Self> {
+        (!fluid.is_vanilla()).then(|| Self(MOD_TAGS + fluid.source().index() as u32))
+    }
+    /// The mod fluid (its source) this tag holds.
+    pub fn mod_fluid(self) -> Option<FluidKind> {
+        self.0
+            .checked_sub(MOD_TAGS)
+            .and_then(|i| FluidKind::from_index(i as usize))
+    }
+}
+
+/// Whether `tag` holds `fluid`: a mod fluid's own tag by the table, the
+/// caller's tags by `tags`.
+fn holds<W: FluidMembership + ?Sized>(tags: &W, fluid: FluidKind, tag: FluidTagId) -> bool {
+    match tag.mod_fluid() {
+        Some(source) => fluid.source() == source,
+        None => tags.fluid_in_tag(fluid, tag),
+    }
+}
+
+/// An entity's immersion in one mod fluid, as `Entity.isInFluidType` sees it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ModFluidImmersion {
+    /// The fluid's source form.
+    pub fluid: FluidKind,
+    pub height: f64,
+    pub eyes_inside: bool,
+}
 #[derive(Clone, Copy, Debug)]
 pub struct FluidTracker {
     pub fluid: FluidKind,
@@ -161,29 +196,34 @@ pub fn has_fluid_and_loaded<W: FluidInteractionWorld>(
 pub struct EntityFluidInteraction {
     trackers: Vec<FluidTracker>,
     currents: Vec<(FluidTagId, CurrentAccumulator)>,
-    /// NeoForge's pushes by `FluidType` for the content mods' fluids
-    /// (`Entity.updateFluidHeightAndDoFluidPushing`'s `interimCalcs`): one a
-    /// mod fluid, by its source, in the order the box met them; only those
-    /// whose type `canPushEntity`.
-    type_currents: Vec<(FluidKind, CurrentAccumulator)>,
-}
-/// Which current a fluid block adds its flow to.
-#[derive(Clone, Copy)]
-enum Current {
-    Tag(usize),
-    Type(usize),
 }
 impl EntityFluidInteraction {
     /// Preserve the caller's tag-set iteration order: a fluid's current belongs
     /// to the first matching tag, even when several tags contain that fluid.
+    /// Each mod fluid of the table gets its own tag after the caller's (NeoForge
+    /// tracks every `FluidType`), so its current and immersion are its own.
     pub fn new(tags: impl IntoIterator<Item = FluidTagId>) -> Self {
         let mut state = Self::default();
         for tag in tags {
-            if !state.currents.iter().any(|(t, _)| *t == tag) {
-                state.currents.push((tag, CurrentAccumulator::default()));
-            }
+            state.add_tag(tag);
         }
+        state.add_mod_tags();
         state
+    }
+    fn add_tag(&mut self, tag: FluidTagId) {
+        if !self.currents.iter().any(|(t, _)| *t == tag) {
+            self.currents.push((tag, CurrentAccumulator::default()));
+        }
+    }
+    /// The table's mod fluids' tags, also for an entity made before its
+    /// content root loaded them.
+    fn add_mod_tags(&mut self) {
+        let mods = FluidKind::all()
+            .filter(|f| f.source() == *f)
+            .filter_map(FluidTagId::of_mod_fluid);
+        for tag in mods {
+            self.add_tag(tag);
+        }
     }
     pub fn trackers(&self) -> &[FluidTracker] {
         &self.trackers
@@ -194,7 +234,7 @@ impl EntityFluidInteraction {
     pub fn fluid_height<W: FluidMembership>(&self, tags: &W, tag: FluidTagId) -> f64 {
         let mut height = 0.0;
         for t in &self.trackers {
-            if t.height > height && tags.fluid_in_tag(t.fluid, tag) {
+            if t.height > height && holds(tags, t.fluid, tag) {
                 height = t.height;
             }
         }
@@ -206,7 +246,35 @@ impl EntityFluidInteraction {
     pub fn is_eye_in_fluid<W: FluidMembership>(&self, tags: &W, tag: FluidTagId) -> bool {
         self.trackers
             .iter()
-            .any(|t| t.eyes_inside && tags.fluid_in_tag(t.fluid, tag))
+            .any(|t| t.eyes_inside && holds(tags, t.fluid, tag))
+    }
+    /// The mod fluids the entity is in, from its last update: their heights and
+    /// whether the eyes are in them.
+    pub fn mod_fluids(&self) -> impl Iterator<Item = ModFluidImmersion> + '_ {
+        self.currents.iter().filter_map(|(tag, _)| {
+            let fluid = tag.mod_fluid()?;
+            let mut immersion = ModFluidImmersion {
+                fluid,
+                height: 0.0,
+                eyes_inside: false,
+            };
+            for t in self.trackers.iter().filter(|t| t.fluid.source() == fluid) {
+                immersion.height = immersion.height.max(t.height);
+                immersion.eyes_inside |= t.eyes_inside;
+            }
+            (immersion.height > 0.0 || immersion.eyes_inside).then_some(immersion)
+        })
+    }
+    /// Each mod fluid's current, at its `motionScale`, when it `canPushEntity`.
+    pub fn apply_mod_currents<W: CurrentTarget>(&self, world: &mut W) -> Result<(), W::Error> {
+        for m in self.mod_fluids().filter(|m| m.height > 0.0) {
+            let numbers = m.fluid.info().entity;
+            if numbers.can_push {
+                let tag = FluidTagId::of_mod_fluid(m.fluid).expect("a mod fluid");
+                self.apply_current(world, tag, numbers.motion_scale)?;
+            }
+        }
+        Ok(())
     }
     pub fn apply_current<W: CurrentTarget>(
         &self,
@@ -254,16 +322,6 @@ impl EntityFluidInteraction {
             .find(|t| t.eyes_inside && t.fluid.mod_fluid().is_some())
             .map(|t| t.fluid.source())
     }
-    /// NeoForge's push of each content mod's fluid type the box is in, by its
-    /// own `FluidType.motionScale` (`Entity.updateFluidHeightAndDoFluidPushing`).
-    pub fn apply_mod_currents<W: CurrentTarget>(&self, world: &mut W) -> Result<(), W::Error> {
-        for (kind, current) in &self.type_currents {
-            if let Some(m) = kind.mod_fluid() {
-                current.apply_to(world, m.entity.motion_scale)?;
-            }
-        }
-        Ok(())
-    }
     /// Reset previous tick state before any query. Provider failures and budget
     /// exhaustion retain all preceding tracker/current writes.
     pub fn update<W: FluidInteractionWorld>(
@@ -280,10 +338,10 @@ impl EntityFluidInteraction {
             t.eyes_inside = false;
             true
         });
+        self.add_mod_tags();
         for (_, c) in &mut self.currents {
             c.reset();
         }
-        self.type_currents.clear();
         let Some(bounds) = world
             .interaction_box()
             .map_err(FluidInteractionError::World)?
@@ -316,7 +374,7 @@ impl EntityFluidInteraction {
         let block_x = world.block_x();
         let eye = world.eye_y().map_err(FluidInteractionError::World)?;
         let block_z = world.block_z();
-        let mut last: Option<(FluidKind, usize, Option<Current>)> = None;
+        let mut last: Option<(FluidKind, usize, Option<usize>)> = None;
         for x in low.x..=high.x {
             for y in low.y..=high.y {
                 for z in low.z..=high.z {
@@ -354,27 +412,10 @@ impl EntityFluidInteraction {
                             };
                         let current = if ignore_current {
                             None
-                        } else if let Some(m) = kind.mod_fluid() {
-                            // `isPushedByFluid(FluidType)`: and its type pushes.
-                            m.entity.can_push.then(|| {
-                                let source = kind.source();
-                                Current::Type(
-                                    match self.type_currents.iter().position(|(k, _)| *k == source)
-                                    {
-                                        Some(i) => i,
-                                        None => {
-                                            self.type_currents
-                                                .push((source, CurrentAccumulator::default()));
-                                            self.type_currents.len() - 1
-                                        }
-                                    },
-                                )
-                            })
                         } else {
                             self.currents
                                 .iter()
-                                .position(|(tag, _)| world.fluid_in_tag(kind, *tag))
-                                .map(Current::Tag)
+                                .position(|(tag, _)| holds(world, kind, *tag))
                         };
                         let entry = (kind, index, current);
                         last = Some(entry);
@@ -393,13 +434,10 @@ impl EntityFluidInteraction {
                     }
                     self.trackers[index].height =
                         java_max(surface - base_y, self.trackers[index].height);
-                    if let Some(current) = current {
+                    if let Some(i) = current {
                         let mut flow =
                             world.flow(state, p).map_err(FluidInteractionError::World)?;
-                        let c = match current {
-                            Current::Tag(i) => &mut self.currents[i].1,
-                            Current::Type(i) => &mut self.type_currents[i].1,
-                        };
+                        let c = &mut self.currents[i].1;
                         c.height = java_max(self.trackers[index].height, c.height);
                         if c.height < 0.4 {
                             flow = flow.scale(c.height);
@@ -539,7 +577,7 @@ mod tests {
         velocity: Vec3,
         added: Vec3,
         /// What `in_mod_fluid_types` was told: the fall modifier and extinguishing.
-        mod_types: Option<(f32, bool)>,
+        mod_types: Option<f32>,
     }
     impl crate::entity_fluid_tick::EntityFluidTickWorld for Pool {
         fn is_pushed_by_fluid(&mut self) -> Result<bool, std::convert::Infallible> {
@@ -561,12 +599,8 @@ mod tests {
         fn fast_lava(&mut self) -> Result<bool, std::convert::Infallible> {
             Ok(false)
         }
-        fn in_mod_fluid_types(
-            &mut self,
-            modifier: f32,
-            extinguish: bool,
-        ) -> Result<(), std::convert::Infallible> {
-            self.mod_types = Some((modifier, extinguish));
+        fn scale_fall_distance(&mut self, by: f32) -> Result<(), std::convert::Infallible> {
+            self.mod_types = Some(by);
             Ok(())
         }
     }
@@ -648,9 +682,9 @@ mod tests {
 
     /// NeoForge's `Entity.updateInWaterStateAndDoFluidPushing` over the tick:
     /// a mod fluid pushes, and the entity hears its type's fall distance
-    /// modifier and whether it puts fires out; water tells it nothing.
+    /// modifier; water tells it nothing.
     #[test]
-    fn the_fluid_tick_hands_a_mod_fluids_fall_modifier_and_fire_to_the_entity() {
+    fn the_fluid_tick_hands_a_mod_fluids_fall_modifier_to_the_entity() {
         crate::mod_fluids::register_test_fluids();
         let mut fluids = EntityFluidInteraction::new([FluidTagId(0), FluidTagId(1)]);
         let sludge = FluidKind::from_name("test:sludge").unwrap();
@@ -663,7 +697,7 @@ mod tests {
             1000,
         )
         .unwrap();
-        assert_eq!(world.mod_types, Some((0.2, true)));
+        assert_eq!(world.mod_types, Some(0.2));
         assert!(world.added.x > 0.0, "pushed east");
         let mut world = pool(FluidKind::from_name("test:brine").unwrap(), 0.5);
         crate::entity_fluid_tick::update(
@@ -674,7 +708,7 @@ mod tests {
             1000,
         )
         .unwrap();
-        assert_eq!(world.mod_types, Some((0.5, false)));
+        assert_eq!(world.mod_types, Some(0.5));
         let mut world = pool(FluidKind::Water, 0.5);
         crate::entity_fluid_tick::update(
             &mut fluids,

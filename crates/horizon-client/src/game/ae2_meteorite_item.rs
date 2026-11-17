@@ -194,9 +194,9 @@ impl ae2_meteorite::World for LiveWorld<'_, '_> {
         if old == state || facts.get(old).name.as_ref() == "minecraft:bedrock" {
             return;
         }
-        self.game.world.random = self.random.borrow().clone();
+        self.game.world.random = horizon_core::random::LevelRandom::for_level(self.random.borrow().clone());
         let result = self.game.level_set(p, state);
-        *self.random.borrow_mut() = self.game.world.random.clone();
+        *self.random.borrow_mut() = (*self.game.world.random).clone();
         if let Err(error) = result {
             self.error = Some(error.to_string());
             return;
@@ -369,7 +369,7 @@ impl Game<'_> {
                 pure_crater: pure,
                 crater_lake: false,
             };
-            let shared = Rc::new(RefCell::new(game.world.random.clone()));
+            let shared = Rc::new(RefCell::new((*game.world.random).clone()));
             let mut rng = SharedRandom(shared.clone());
             let mut world = LiveWorld {
                 game,
@@ -385,7 +385,7 @@ impl Game<'_> {
                 ae2_common_config::world_generation(),
                 &mut rng,
             );
-            world.game.world.random = shared.borrow().clone();
+            world.game.world.random = horizon_core::random::LevelRandom::for_level(shared.borrow().clone());
             match world.error {
                 Some(error) => Err(format!("Meteorite placement stopped: {error}")),
                 None => Ok(()),

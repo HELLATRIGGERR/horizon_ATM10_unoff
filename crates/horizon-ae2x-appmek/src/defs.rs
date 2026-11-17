@@ -95,6 +95,7 @@ pub fn key_type() -> KeyType {
         };
         let kind = ae2_key_types::register(def, behaviour).expect("Applied Mekanistics' key type registers");
         ae2_key_types::register_slot_capacity(kind, SLOT_CAPACITY);
+        ae2_key_types::register_chemical_type(kind);
         kind
     })
 }

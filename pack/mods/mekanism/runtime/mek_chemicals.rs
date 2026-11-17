@@ -163,8 +163,20 @@ pub(super) fn write_tanks(nbt: &mut Compound, tanks: &[ChemicalStack]) {
 /// `Capabilities.CHEMICAL.block()` of the bundle's block at `pos` through
 /// `face` (none: the null side, read only): `use_it` runs on its handler there,
 /// and what it changed is kept. None where the block has no handler on that
-/// side (another block, a side its config closes to every tank).
+/// side (another block, a side its config closes to every tank). The engine's own blocks
+/// (AE2's ME Interface and Pattern Provider, Applied Mekanistics' `GenericStackChemicalStorage`)
+/// answer through the helpers of API 437, so machines, tanks and tubes push into them.
 pub(super) fn with_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<Direction>, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
+    let dimension = game.native_dimension();
+    let engine_face = face.map(super::mek_world::engine_face);
+    if let Some(tanks) = game.native_chemical_tanks(dimension, pos, engine_face) {
+        return Some(use_it(&mut EngineHandler { game, dimension, pos, face: engine_face, tanks }));
+    }
+    with_own_handler(game, pos, face, use_it)
+}
+
+/// `with_handler` of the bundle's own blocks alone (API 435's hook points answer for them only).
+fn with_own_handler<R>(game: &mut Game<'_>, pos: [i32; 3], face: Option<Direction>, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
     let registry = registry(game);
     match shared_handler(game, pos, face, &registry, use_it) {
         Ok(found) => found,
@@ -222,6 +234,86 @@ fn entity_handler<R>(m: &mut horizon_client::containers::ModBlockEntity, face: O
     }
 }
 
+// ---- The engine's blocks (helpers API 437) ------------------------------------------------------
+
+/// The chemical handler of an engine's block (AE2's generic inventories) as Mekanism meets it: its tanks as
+/// `native_chemical_tanks` lists them, a move through `native_chemical_insert` / `native_chemical_extract`, which
+/// place a chemical slot by slot as AE2's inventory does. Its tanks are read again after each real move.
+struct EngineHandler<'a, 'g> {
+    game: &'a mut Game<'g>,
+    dimension: &'static str,
+    pos: [i32; 3],
+    face: Option<horizon_core::geometry::Direction>,
+    tanks: Vec<horizon_client::mod_api::NativeChemicalTankInfo>,
+}
+
+impl EngineHandler<'_, '_> {
+    fn moved(&mut self, chemical: &str, amount: i64, insert: bool, simulate: bool) -> i64 {
+        if amount <= 0 {
+            return 0;
+        }
+        let (dimension, pos, face) = (self.dimension, self.pos, self.face);
+        let moved = if insert {
+            self.game.native_chemical_insert(dimension, pos, face, chemical, amount, simulate)
+        } else {
+            self.game.native_chemical_extract(dimension, pos, face, chemical, amount, simulate)
+        }
+        .clamp(0, amount);
+        if moved > 0 && !simulate {
+            self.tanks = self.game.native_chemical_tanks(dimension, pos, face).unwrap_or_default();
+        }
+        moved
+    }
+}
+
+impl ChemicalHandler for EngineHandler<'_, '_> {
+    fn tanks(&self) -> usize {
+        self.tanks.len()
+    }
+    fn in_tank(&self, tank: usize) -> ChemicalStack {
+        match self.tanks.get(tank) {
+            Some(t) if !t.chemical.is_empty() && t.amount > 0 => ChemicalStack::new(&t.chemical, t.amount),
+            _ => ChemicalStack::EMPTY,
+        }
+    }
+    fn capacity(&self, tank: usize) -> i64 {
+        self.tanks.get(tank).map_or(0, |t| t.capacity)
+    }
+    fn is_valid(&self, tank: usize, _stack: &ChemicalStack) -> bool {
+        tank < self.tanks.len()
+    }
+    /// The inventory places a chemical itself: a tank's insert is the whole handler's.
+    fn insert_tank(&mut self, _tank: usize, stack: &ChemicalStack, simulate: bool) -> ChemicalStack {
+        self.insert(stack, simulate)
+    }
+    fn extract_tank(&mut self, tank: usize, amount: i64, simulate: bool) -> ChemicalStack {
+        let held = self.in_tank(tank);
+        if held.is_empty() || !self.tanks[tank].extractable {
+            return ChemicalStack::EMPTY;
+        }
+        self.extract_stack(&held.copy_with_amount(amount.min(held.amount())), simulate)
+    }
+    fn insert(&mut self, stack: &ChemicalStack, simulate: bool) -> ChemicalStack {
+        let Some(id) = stack.id().map(str::to_owned) else { return ChemicalStack::EMPTY };
+        let took = self.moved(&id, stack.amount(), true, simulate);
+        if took >= stack.amount() { ChemicalStack::EMPTY } else { stack.copy_with_amount(stack.amount() - took) }
+    }
+    fn extract(&mut self, amount: i64, simulate: bool) -> ChemicalStack {
+        match (0..self.tanks.len()).find(|&t| self.tanks[t].extractable && !self.in_tank(t).is_empty()) {
+            Some(t) => {
+                let first = self.in_tank(t);
+                self.extract_stack(&first.copy_with_amount(amount), simulate)
+            }
+            None => ChemicalStack::EMPTY,
+        }
+    }
+    fn extract_stack(&mut self, stack: &ChemicalStack, simulate: bool) -> ChemicalStack {
+        let Some(id) = stack.id().map(str::to_owned) else { return ChemicalStack::EMPTY };
+        let left = self.moved(&id, stack.amount(), false, simulate);
+        if left > 0 { stack.copy_with_amount(left) } else { ChemicalStack::EMPTY }
+    }
+}
+
 // ---- AE2's Applied Mekanistics (hook points API 435) ----------------------------------------
 
 /// `native_chemical_handler_tanks`: the tanks of the block at `pos` through `face` (the engine's
@@ -251,14 +343,14 @@ pub(super) fn tanks(game: &Game<'_>, dimension: &str, pos: [i32; 3], face: Optio
 /// one) through `face`: what it took. None on another level, a block without a handler there.
 pub(super) fn insert(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>, chemical: &str, amount: i64, simulate: bool) -> Option<i64> {
     let stack = offered(game, dimension, chemical, amount)?;
-    with_handler(game, pos, face.map(super::mek_world::mek_direction), |h| amount - h.insert(&stack, simulate).amount().clamp(0, amount))
+    with_own_handler(game, pos, face.map(super::mek_world::mek_direction), |h| amount - h.insert(&stack, simulate).amount().clamp(0, amount))
 }
 
 /// `native_chemical_handler_extract`: `extractChemical(stack)` of at most `amount` of `chemical`
 /// through `face`: what left.
 pub(super) fn extract(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>, chemical: &str, amount: i64, simulate: bool) -> Option<i64> {
     let stack = offered(game, dimension, chemical, amount)?;
-    with_handler(game, pos, face.map(super::mek_world::mek_direction), |h| h.extract_stack(&stack, simulate).amount().clamp(0, amount))
+    with_own_handler(game, pos, face.map(super::mek_world::mek_direction), |h| h.extract_stack(&stack, simulate).amount().clamp(0, amount))
 }
 
 /// A stack of `amount` of the registered `chemical`, on the level the game holds.

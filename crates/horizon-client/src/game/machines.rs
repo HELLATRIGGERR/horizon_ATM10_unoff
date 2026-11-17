@@ -8,6 +8,7 @@ use super::{Game, spill, storage::is_shulker_box};
 pub(in crate::game) mod ae2_capabilities;
 mod crafter;
 pub(in crate::game) mod native_energy;
+pub(in crate::game) mod native_chemical;
 pub(in crate::game) mod native_fe;
 pub(in crate::game) mod native_fluid_handler;
 pub(in crate::game) mod native_fluids;

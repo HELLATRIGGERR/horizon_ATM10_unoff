@@ -841,6 +841,18 @@
     {
       "name": "food",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_food"
+    },
+    {
+      "name": "chemical_tanks",
+      "target": "horizon_client::game::machines::native_chemical::Game<'_>::native_chemical_tanks"
+    },
+    {
+      "name": "chemical_insert",
+      "target": "horizon_client::game::machines::native_chemical::Game<'_>::native_chemical_insert"
+    },
+    {
+      "name": "chemical_extract",
+      "target": "horizon_client::game::machines::native_chemical::Game<'_>::native_chemical_extract"
     }
   ],
   "hooks": [

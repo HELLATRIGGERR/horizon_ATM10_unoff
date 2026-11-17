@@ -6,6 +6,9 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 437 adds the engine's own blocks as a chemical handler, the other way from API 435
+//! (`native_chemical_tanks`, `native_chemical_insert`, `native_chemical_extract`): AE2's ME Interface and
+//! Pattern Provider (Applied Mekanistics' `GenericStackChemicalStorage`), so Mekanism's machines push into them.
 //! API 436 adds the food table (`native_food_table`, `native_food`): each item's food (`FoodProperties`: nutrition,
 //! saturation, `can_always_eat` and what eating it leaves) for a mod's machine that makes something of food (Mekanism's
 //! Nutritional Liquifier).
@@ -1157,7 +1160,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 436;
+pub(crate) const NATIVE_HOOKS_API: u32 = 437;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an

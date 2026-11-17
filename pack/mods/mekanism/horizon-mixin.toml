@@ -15,7 +15,8 @@
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26, 31, 38,
-# 42, 45, 47, 60, 71, 416-418, 420, 422 and 435: its blocks' chemical handler for AE2's Applied Mekanistics) and calls the helpers of API 419 (`native_biome_climate`,
+# 42, 45, 47, 60, 71, 416-418, 420, 422 and 435: its blocks' chemical handler for AE2's Applied Mekanistics) and calls the helpers of API 437 (`native_chemical_tanks`,
+# `native_chemical_insert`, `native_chemical_extract`: AE2's interfaces and pattern providers as chemical handlers), 419 (`native_biome_climate`,
 # `native_dimension_type`), 421 (`native_cooking_recipes`), 436 (`native_food_table`, `native_food`: the Nutritional
 # Liquifier's recipes), 422 (`FluidStack`, the fluid handler helpers), 423
 # (`native_data_files`, the content's chemical declarations), 424 (`native_used_stack`,
@@ -30,7 +31,7 @@
 # `native_default_state`, `native_sneaking`, `native_block_name_in_tag`, `native_player_equipment` and
 # `native_machine_destroy_block`, `native_machine_block_drops`, `native_clip_blocks`, `native_destroy_speed` (fragments
 # default_state, host_bridge, player_equipment, machine_breaking and machine_beams: the tier installers, the
-# Configurator, the Digital Miner and the lasers), so it builds on any Horizon with hooks API 436 or later: it pins no
+# Configurator, the Digital Miner and the lasers), so it builds on any Horizon with hooks API 437 or later: it pins no
 # revision (horizon-mixins
 # refuses any other commit than a pinned one). Its blocks, models and recipes are two content mods,
 # `mekanism` and `mekanismgenerators`, built from the ATM10 carries by

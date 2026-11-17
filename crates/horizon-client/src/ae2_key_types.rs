@@ -257,6 +257,23 @@ pub fn contained_lane(stack: &ItemStack) -> Option<(ItemKey, u64)> {
     }
 }
 
+/// The key type whose keys are Mekanism's chemicals, each by its registry id
+/// with no components (Applied Mekanistics' `MekanismKeyType`): AE2's generic
+/// inventories answer a native mod's chemical handler (API 437) with the keys
+/// of this type, as `GenericStackChemicalStorage` does. The engine names no
+/// chemical; the addon that owns the type registers it. The first one stays.
+static CHEMICAL_TYPE: RwLock<Option<KeyType>> = RwLock::new(None);
+pub fn register_chemical_type(kind: KeyType) {
+    if matches!(kind, KeyType::ITEMS | KeyType::FLUIDS) {
+        return;
+    }
+    let mut chemical = CHEMICAL_TYPE.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    chemical.get_or_insert(kind);
+}
+pub fn chemical_type() -> Option<KeyType> {
+    *CHEMICAL_TYPE.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// `GenericSlotCapacities`: the most of a type's key one generic slot holds
 /// (an ME Interface's, a Pattern Provider's return slot), registered by an
 /// addon for its type (Applied Flux: 1,000,000 FE). AE2 registers its items

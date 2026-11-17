@@ -218,7 +218,7 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   `python3 tools/stamp_native_hooks.py --only <fragment>` (upstream's pending fragments stay as they are), and
   `cargo run -p xtask -- mod-api`, which fills the placeholder with the dispatch; the `Hooks` trait, the dispatch and
   the `Host` helpers are generated into `OUT_DIR` at build time (upstream's 9116ac391), none of it is committed.
-  The fork's hooks are APIs 416-436 on top of upstream's 415 (still its latest at the release merged on 17 November, nightly-source/2026-11-13-9f42064): Forge Energy 416, a
+  The fork's hooks are APIs 416-437 on top of upstream's 415 (still its latest at the release merged on 17 November, nightly-source/2026-11-13-9f42064): Forge Energy 416, a
   machine's item and slots 417, the block entity lifecycle 418, biome climate and dimension type 419, a bundle's opt-in
   to entity joins and leaves 420, the world's cooking recipes for a mod's machines 421, fluid handlers 422, the
   content's data files 423, an item's use on a block 424, a container's insert slots and `native_pop_resource` 425,
@@ -236,7 +236,9 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
   the alignment, keeping the search box with no items; JEI's `[ingredientList]`) 434, a block's chemical handler
   (`native_chemical_handler_tanks`, `_insert`, `_extract`: Mekanism's `IChemicalHandler` with chemicals as registry ids,
   for Applied Mekanistics' buses) 435, the food table (`native_food_table`, `native_food`: each item's nutrition,
-  saturation and what eating it leaves, for Mekanism's Nutritional Liquifier) 436 (430 is unused).
+  saturation and what eating it leaves, for Mekanism's Nutritional Liquifier) 436,
+  the engine's blocks as a chemical handler (`native_chemical_tanks`, `_insert`, `_extract`: AE2's ME Interface and
+  Pattern Provider for Applied Mekanistics, the other way from 435) 437 (430 is unused).
   At each merge the fork's take the numbers after upstream's latest again, in the same order: the merge notes'
   `fork_hooks.py unstamp` turns the stamped numbers back into fragments, then each is stamped with `--only`. The
   fork's biome helper is `native_biome_climate` (upstream's `native_biome` gives the id alone); `native_default_state`

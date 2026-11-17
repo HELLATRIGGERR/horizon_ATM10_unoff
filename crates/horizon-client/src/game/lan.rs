@@ -5095,6 +5095,8 @@ mod merchant_packet_tests {
         ));
         hub.guests.push(guest);
         let mut host = super::LanHost {
+            #[cfg(feature = "ae2-lab")]
+            ae2_visual_sent: Default::default(),
             hub,
             players_told_left: false,
             settings: super::LanSettings {

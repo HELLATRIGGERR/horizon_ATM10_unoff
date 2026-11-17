@@ -87,7 +87,7 @@ fn click_sign(
     };
     crate::game::sculk::TEST_POSTED_EVENTS.with(|events| *events.borrow_mut() = Some(Vec::new()));
     // The player caused it (`GameEvent.Context.of(player, state)`).
-    game.with_player_actor(|game| game.use_hand(Some(&hit)))
+    game.with_player_actor(|game| game.use_hand(Some(&hit), None))
         .unwrap();
     let events = crate::game::sculk::TEST_POSTED_EVENTS
         .with(|events| events.borrow_mut().take().unwrap_or_default());

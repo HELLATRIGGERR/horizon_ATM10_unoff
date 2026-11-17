@@ -274,6 +274,22 @@ pub fn chemical_type() -> Option<KeyType> {
     *CHEMICAL_TYPE.read().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// `AEKeyRenderHandler.drawInGui` of a type that draws its key as one sprite
+/// tinted (Applied Mekanistics' `ChemicalRenderer`: the chemical's icon in its
+/// tint, as Mekanism's own screens draw it): given a reader of the game's
+/// resource files (relative paths, `data/<ns>/...`), the GUI atlas sprite and
+/// the tint as `0xAARRGGBB`. None draws the type's icon.
+pub type KeySprite = fn(&ItemKey, &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<(String, u32)>;
+static SPRITES: RwLock<Vec<(KeyType, KeySprite)>> = RwLock::new(Vec::new());
+pub fn register_sprite(kind: KeyType, sprite: KeySprite) {
+    let mut sprites = SPRITES.write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    sprites.retain(|(registered, _)| *registered != kind);
+    sprites.push((kind, sprite));
+}
+pub fn sprite(kind: KeyType) -> Option<KeySprite> {
+    SPRITES.read().unwrap_or_else(|poisoned| poisoned.into_inner()).iter().find(|(registered, _)| *registered == kind).map(|(_, sprite)| *sprite)
+}
+
 /// `GenericSlotCapacities`: the most of a type's key one generic slot holds
 /// (an ME Interface's, a Pattern Provider's return slot), registered by an
 /// addon for its type (Applied Flux: 1,000,000 FE). AE2 registers its items

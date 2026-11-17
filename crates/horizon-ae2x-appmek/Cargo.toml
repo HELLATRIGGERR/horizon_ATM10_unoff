@@ -12,6 +12,7 @@ horizon-client = { path = "../horizon-client", default-features = false, feature
 horizon-ae2 = { path = "../horizon-ae2" }
 horizon-world = { path = "../horizon-world" }
 ae2-cell-core = { path = "../ae2-cell-core" }
+serde_json = "1.0.151"
 
 [lints]
 workspace = true

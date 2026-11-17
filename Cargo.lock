@@ -1524,6 +1524,7 @@ dependencies = [
  "horizon-ae2",
  "horizon-client",
  "horizon-world",
+ "serde_json",
 ]
 
 [[package]]

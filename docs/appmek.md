@@ -1,6 +1,36 @@
 # Applied Mekanistics on the AE2 port
 
-> **Handoff (2026-11-17, branch `feat/appmek`, worktree `atm10-wt/fluids`).**
+> **Handoff (2026-11-17, branch `feat/appmek-2`, worktree `atm10-wt/fluids`).** Slices 1 to 3 are built and their tests
+> pass; slice 1 is below, slices 2 and 3 now:
+> - **Slice 2: the ME Interface and Pattern Provider as chemical handlers.** Helpers **API 437** (the other way from
+>   435; 436 belongs to another branch): `native_chemical_tanks(dimension, pos, face)`, `native_chemical_insert`,
+>   `native_chemical_extract` (`game/machines/native_chemical.rs`): AE2's generic inventories as
+>   `GenericStackChemicalStorage` answers them, an interface's storage slots and a provider's return slots (blocks and
+>   parts), one tank a slot, the slot capacity of the type. The engine finds the chemical key type by
+>   `ae2_key_types::register_chemical_type`, which the crate calls. Mekanism's `mek_chemicals::with_handler` asks them
+>   first (an `EngineHandler` over the helpers), so tanks, machines and tubes push into AE2 blocks; API 435's insert
+>   and extract hooks keep to the bundle's own blocks (`with_own_handler`). The Pattern Provider pushing a processing
+>   pattern's chemical into a machine needed nothing new: `ae2_key_target_insert` goes through the crate's external
+>   storage strategy (API 435). `xtask mod-api` has nothing to fill for the helpers (they are `Game` methods the
+>   Mekanism bundle's runtime calls, not hook points).
+> - **Slice 3: the terminal draws a chemical.** `ae2_key_types::register_sprite(kind, fn)`: the GUI atlas sprite and
+>   tint of a key, here from the chemical's declaration (`texture`, `tint`; the `<ns>:gui/chemical/<icon ns>/<icon
+>   path>` copy `mekanism-content` makes, which Mekanism's gauges draw); `item_draw` draws a wrapped key of such a type
+>   with `ItemRenderer::ae2_wrapped_sprite` (the fluid path's square, shared). Amounts: the type formats as fluids do
+>   (`Slot`, `SlotLargeFont`, `Full` with ` B`). Seen in `appmek-terminal.png`: hydrogen in its white-grey gas texture
+>   with `1`, chlorine in yellow-green with `2`, each filling the slot as a fluid does, not the tank icon.
+> - **Tests (run, pass).** Crate units `appmek-work/units.sh` (5); world `pack/mods/mekanism/tests/appmek-handlers.ts`
+>   (tank ejecting into an interface reaches the cell; a second tank's chlorine too; a provider's processing pattern,
+>   installed through the provider's menu, fills a tank; terminal screenshot `appmek-terminal.png`, copied to
+>   `appmek-work/logs/shots/appmek-handlers/` after a pass; `item replace block <provider> container.0` does not
+>   install a pattern); `appmek-chemicals` (slice 1) still passes; Mekanism `chemical-tank`, `chemical-factories`,
+>   `chemical-oxidizer-infuser`; `ae2.sh build` with `appflux-cells appflux-induction-card keytypes-flux-interface
+>   interface-stock-editor provider-condenser-fluid`; `cargo test -p horizon-mod-api-gen` (19, all pass here).
+>   The full `build.ts` was not run.
+> - **Not done:** the container item strategy (chemical tanks' items in the terminal), P2P, JEI, the chemical's name
+>   in the terminal's tooltip, portable cell and cell workbench world tests.
+>
+> **Slice 1 (branch `feat/appmek`).**
 > - **Done (slice 1):** the plan; crate `crates/horizon-ae2x-appmek` (`defs.rs`: key type `appmek:chemical` 125/op,
 >   8000/byte, 1000/unit `B`, codec `{id}`, slot capacity 4000, icon `mekanism:basic_chemical_tank`; the 1k-256k
 >   chemical cells, 5 types, and portable cells, 18 types, with drive models and cards; `add_key_strategies(kind,
@@ -25,9 +55,8 @@
 >   stage: Mekanism `chemical-tank`, `chemical-factories`, `chemical-oxidizer-infuser` pass; built with `ae2-appflux`
 >   too (`appmek-work/ae2.sh build <suites>`), AE2 `appflux-cells`, `appflux-accessor`, `appflux-induction-card` and
 >   `storage-bus-condenser-fluid` pass. The full `build.ts` was not run.
-> - **Not done:** the terminal draws a chemical with the type's icon (the tank), not its sprite and tint, and shows
->   no mB/B amount check yet (slice 3); the ME Interface's and Pattern Provider's chemical slots, the container item
->   strategy (slice 2); P2P, JEI. No world test of a chemical in a portable cell or the cell workbench yet.
+> - **Not done after slice 1 (slices 2 and 3 above did the rest):** the container item strategy, P2P, JEI; no world
+>   test of a chemical in a portable cell or the cell workbench yet.
 > - Work dir `atm10-work/appmek-work`: `units.sh` (the crate's units), `xtask.sh` (`cargo run -p xtask -- mod-api`),
 >   `mek.sh [content stage build units world]` (own content, stage, `target-mek`; `MEK_LIST` picks world tests;
 >   `AE2_ADDON_CONTENT_ROOT` = its `content`, which holds `appmek` and `appflux` from `prepare-addon.ts`); the full

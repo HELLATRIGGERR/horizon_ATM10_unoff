@@ -8,7 +8,7 @@ use horizon_client::ae2x::defs::{CellDef, Defs, add_storage_cell_cards};
 use horizon_client::game::ae2_ext::{KeyStrategyKinds, add_key_strategies};
 use horizon_client::items::ItemStack;
 use horizon_world::nbt::{Compound, Tag};
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 pub const NAMESPACE: &str = "appmek";
 /// `MekanismKeyType.TYPE`: `AppliedMekanistics.id("chemical")`, described as `AMText.CHEMICALS`.
@@ -96,8 +96,40 @@ pub fn key_type() -> KeyType {
         let kind = ae2_key_types::register(def, behaviour).expect("Applied Mekanistics' key type registers");
         ae2_key_types::register_slot_capacity(kind, SLOT_CAPACITY);
         ae2_key_types::register_chemical_type(kind);
+        ae2_key_types::register_sprite(kind, chemical_sprite);
         kind
     })
+}
+
+/// `ChemicalRenderer.drawInGui` (`AppliedMekanisticsClient`): the chemical's icon in its tint, from its declaration
+/// (`data/<ns>/mekanism/chemical/<path>.json`: `texture`, `tint` as Java's `0xAARRGGBB`; docs/mekanism-chemicals.md),
+/// as the GUI atlas copy `mekanism-content` makes of the icon (`<ns>:gui/chemical/<icon ns>/<icon path>`), which
+/// Mekanism's own gauges draw. Read once a chemical; none without a declaration.
+fn chemical_sprite(key: &ItemKey, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<(String, u32)> {
+    static KNOWN: RwLock<Vec<(String, Option<(String, u32)>)>> = RwLock::new(Vec::new());
+    if let Some((_, known)) = KNOWN.read().unwrap_or_else(|p| p.into_inner()).iter().find(|(id, _)| *id == key.item_id) {
+        return known.clone();
+    }
+    let found = key.components.is_empty().then(|| declared_sprite(&key.item_id, read)).flatten();
+    KNOWN.write().unwrap_or_else(|p| p.into_inner()).push((key.item_id.clone(), found.clone()));
+    found
+}
+
+/// The sprite and tint a chemical's declaration gives.
+fn declared_sprite(id: &str, read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Option<(String, u32)> {
+    let (ns, path) = id.split_once(':')?;
+    if !valid_id(id) {
+        return None;
+    }
+    let declared: serde_json::Value = serde_json::from_slice(&read(&format!("data/{ns}/mekanism/chemical/{path}.json"))?).ok()?;
+    let texture = declared.get("texture")?.as_str()?;
+    let (tns, tpath) = texture.split_once(':').unwrap_or(("minecraft", texture));
+    let tint = match declared.get("tint") {
+        Some(serde_json::Value::String(text)) => u32::from_str_radix(text.trim_start_matches("0x").trim_start_matches("0X"), 16).ok()?,
+        Some(serde_json::Value::Number(n)) => n.as_i64()? as u32,
+        _ => 0xffff_ffff,
+    };
+    Some((format!("{ns}:gui/chemical/{tns}/{tpath}"), tint))
 }
 
 /// The rows: the key type (registered here, after Applied Flux's, as ATM10's mod order has it),
@@ -169,6 +201,27 @@ mod tests {
         assert!((codec.decode)(&empty).is_err());
         assert!((codec.encode)(&ItemKey { item_id: "mekanism:hydrogen".into(), components: vec![1] }).is_err());
         assert_eq!((ae2_key_types::behaviour(kind).icon)(&chemical_key("mekanism:hydrogen")).item.as_ref(), ICON);
+    }
+
+    #[test]
+    fn a_chemical_draws_its_declared_icon_in_its_tint_and_counts_as_fluids_do() {
+        let kind = key_type();
+        assert_eq!(ae2_key_types::chemical_type(), Some(kind));
+        let read = |path: &str| {
+            (path == "data/mekanism/mekanism/chemical/hydrogen.json")
+                .then(|| br#"{"texture":"mekanism:liquid/liquid","tint":"0xFFFFFFFF","kind":"gas"}"#.to_vec())
+        };
+        let sprite = ae2_key_types::sprite(kind).unwrap();
+        assert_eq!(sprite(&chemical_key("mekanism:hydrogen"), &read), Some(("mekanism:gui/chemical/mekanism/liquid/liquid".into(), 0xffff_ffff)));
+        assert_eq!(declared_sprite("mekanism:oxygen", &read), None);
+        // `AEKeyType.formatAmount`: buckets of 1000 mB, `B` in full, as AE2 shows a fluid.
+        use ae2_cell_core::AmountFormat::{Full, Slot, SlotLargeFont};
+        for amount in [0, 1, 250, 1000, 1500, 2000, 64_000, 1_234_567, 999_999_999] {
+            for format in [Slot, SlotLargeFont, Full] {
+                assert_eq!(kind.format_amount(amount, format), KeyType::FLUIDS.format_amount(amount, format), "{amount}");
+            }
+        }
+        assert!(kind.format_amount(2000, Full).ends_with(" B"), "{}", kind.format_amount(2000, Full));
     }
 
     #[test]

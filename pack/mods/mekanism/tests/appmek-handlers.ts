@@ -7,7 +7,7 @@
  *   interface, with no config, hands it to its grid, where a 1k ME Chemical Storage Cell keeps it;
  * - a Pattern Provider holding a processing pattern of 1000 mB hydrogen to a diamond pushes the hydrogen into the
  *   Basic Chemical Tank beside it when the ME Terminal orders a diamond (the job then waits for the diamond);
- * - the ME Terminal lists the hydrogen left and the second tank's chlorine: a screenshot
+ * - the ME Terminal draws the hydrogen left and a second tank's chlorine each with its own icon in its tint (hydrogen white, chlorine yellow-green), not the type's icon: a screenshot
  *   (`appmek-terminal.png`, in the run folder; logs/shots/appmek-handlers after a pass).
  *
  * Amounts by `/mek probe` and `/ae2 grid status`. */

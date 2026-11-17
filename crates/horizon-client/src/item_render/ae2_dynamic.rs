@@ -139,6 +139,14 @@ impl ItemRenderer {
         let modded=horizon_world::mod_fluids::kind_by_name(id).and_then(|kind|kind.mod_fluid());
         let sprite=match modded {Some(m)=>m.still_texture.clone(),None=>format!("{namespace}:block/{path}_still")};
         if self.sprites.mask(&sprite).is_none() {return None;}
+        let tint=match modded {Some(m)=>m.tint&0xff_ffff,None if namespace=="minecraft" && path=="water"=>0x3f76e4,None=>0xffffff};
+        Some(self.ae2_wrapped_sprite(display,&sprite,tint))
+    }
+    /// A key drawn as one sprite of the GUI atlas in `tint` (`0xRRGGBB`), a
+    /// slot's 16x16 square: a fluid's still texture, an addon type's sprite
+    /// (Applied Mekanistics' chemicals).
+    pub fn ae2_wrapped_sprite(&self,display:DisplayContext,sprite:&str,tint:u32) -> ItemRenderState {
+        let sprite=sprite.to_owned();
         let key=format!("ae2:wrapped_fluid/{sprite}");
         let cached=self.baked.lock().ok().and_then(|cache|cache.get(&key).cloned());
         let geometry=cached.unwrap_or_else(||{
@@ -150,8 +158,7 @@ impl ItemRenderer {
         });
         let matrix=glam_matrix(&geometry.layer_matrix(display,&horizon_assets::math::Mat4::IDENTITY));
         let extents=self.quad_extents(&key,&geometry);
-        let tint=match modded {Some(m)=>m.tint&0xff_ffff,None if namespace=="minecraft" && path=="water"=>0x3f76e4,None=>0xffffff};
-        Some(ItemRenderState{display,layers:vec![LayerRender{geometry:LayerGeometry::Quads(geometry),tints:vec![opaque(tint)],foil:FoilType::None,matrix,particle:sprite_name(&sprite).to_owned(),uses_block_light:false,extents}],oversized_in_gui:false,animated:false,cit_glint:None,hdr_tier:0,hdr_light:0})
+        ItemRenderState{display,layers:vec![LayerRender{geometry:LayerGeometry::Quads(geometry),tints:vec![opaque(tint)],foil:FoilType::None,matrix,particle:sprite_name(&sprite).to_owned(),uses_block_light:false,extents}],oversized_in_gui:false,animated:false,cit_glint:None,hdr_tier:0,hdr_light:0}
     }
 }
 

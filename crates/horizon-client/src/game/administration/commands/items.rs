@@ -665,6 +665,7 @@ impl Game<'_> {
         ) {
             let uuid = self.native_acting_id();
             self.journal_player(uuid);
+        }
         #[cfg(feature = "ae2-lab")]
         if let Some(old) = self.slot_get(s) {
             horizon_client::ae2_stack_identity::mark_detached_by_replacement(&old, stack.as_ref());

@@ -168,6 +168,8 @@ pub fn fluid_look(id: &str) -> Option<FluidLook> {
         .unwrap_or_else(|e| e.into_inner())
         .get(id)
         .cloned()
+}
+
 /// The mods' fluids in registry order, by id as effects are, with NeoForge's
 /// milk when a mod turns it on (`milk_fluid`, `NeoForgeMod.enableMilkFluid`).
 /// The carried fluids (this fork's declarations, `CarriedFluid`); upstream's template fluids are
@@ -1932,59 +1934,14 @@ impl<'a> Plan<'a> {
                 {
                     *fluid = J::Bool(value == "true");
                 }
-                if gameplay {
-                    row.set("id", J::Num(next.into()));
-                    if let Some(item) = b.item_row() {
-                        row.set("item", J::Str(item.into()));
-                    }
-                    if let Some(item) = &b.decl.pick_item {
-                        row.set("pick_item", J::Str(item.clone()));
-                    }
-                    self.override_gameplay(b, state_index, combo, &mut row);
-                    if let Some(shapes) = &b.shapes {
-                        let shape = &shapes[state_index];
-                        let boxes = shape
-                            .boxes()
+                let properties: BTreeMap<&str, &str> =
+                    match parts.get(4).and_then(|state| state.get("properties")) {
+                        Some(J::Obj(p)) => p
                             .iter()
                             .filter_map(|(k, v)| match v {
                                 J::Str(v) => Some((k.as_str(), v.as_str())),
                                 _ => None,
                             })
-                        // BlockState.initCache and BlockBehaviour.getLightDampening:
-                        // the declared outline is the block's occlusion shape.
-                        let full = !shape.join_is_not_empty(&VoxelShape::block(), ShapeOp::XOR)?;
-                        let can_occlude = matches!(row.get("can_occlude"), Some(J::Bool(true)));
-                        let solid = can_occlude && full;
-                        let down = match b.skylight {
-                            SkylightRule::Shape => !full && !b.has_fluid[state_index],
-                            SkylightRule::Fluid => !b.has_fluid[state_index],
-                            SkylightRule::Template => {
-                                matches!(row.get("skylight_down"), Some(J::Bool(true)))
-                            }
-                        };
-                        // A partial outline needs directional light occlusion even
-                        // when its full-cube template bypasses shape checks. Keep
-                        // the template's participation for special full shapes.
-                        let shape_occlusion = can_occlude
-                            && (!full || matches!(row.get("shape_occlusion"), Some(J::Bool(true))));
-                        row.set("shape_occlusion", J::Bool(shape_occlusion));
-                        row.set("solid_render", J::Bool(solid));
-                        row.set("skylight_down", J::Bool(down));
-                        if !b.custom_dampening {
-                            row.set(
-                                "dampening",
-                                J::Num(
-                                    (if solid {
-                                        15
-                                    } else if down {
-                                        0
-                                    } else {
-                                        1
-                                    })
-                                    .into(),
-                                ),
-                            );
-                        }
                             .collect(),
                         _ => BTreeMap::new(),
                     };
@@ -2028,8 +1985,11 @@ impl<'a> Plan<'a> {
         }
         if gameplay {
             row.set("id", J::Num((b.rename.first + i as u32).into()));
-            if !b.decl.item && b.wall_of.is_none() {
-                row.set("item", J::Str("minecraft:air".into()));
+            if let Some(item) = b.item_row() {
+                row.set("item", J::Str(item.into()));
+            }
+            if let Some(item) = &b.decl.pick_item {
+                row.set("pick_item", J::Str(item.clone()));
             }
             self.override_gameplay(b, i, combo, &mut row);
             if let Some(shapes) = &b.shapes {
@@ -2053,6 +2013,41 @@ impl<'a> Plan<'a> {
                         )
                     })
                     .collect();
+                // BlockState.initCache and BlockBehaviour.getLightDampening:
+                // the declared outline is the block's occlusion shape.
+                let full = !shape.join_is_not_empty(&VoxelShape::block(), ShapeOp::XOR)?;
+                let can_occlude = matches!(row.get("can_occlude"), Some(J::Bool(true)));
+                let solid = can_occlude && full;
+                let down = match b.skylight {
+                    SkylightRule::Shape => !full && !b.has_fluid[i],
+                    SkylightRule::Fluid => !b.has_fluid[i],
+                    SkylightRule::Template => {
+                        matches!(row.get("skylight_down"), Some(J::Bool(true)))
+                    }
+                };
+                // A partial outline needs directional light occlusion even
+                // when its full-cube template bypasses shape checks. Keep
+                // the template's participation for special full shapes.
+                let shape_occlusion = can_occlude
+                    && (!full || matches!(row.get("shape_occlusion"), Some(J::Bool(true))));
+                row.set("shape_occlusion", J::Bool(shape_occlusion));
+                row.set("solid_render", J::Bool(solid));
+                row.set("skylight_down", J::Bool(down));
+                if !b.custom_dampening {
+                    row.set(
+                        "dampening",
+                        J::Num(
+                            (if solid {
+                                15
+                            } else if down {
+                                0
+                            } else {
+                                1
+                            })
+                            .into(),
+                        ),
+                    );
+                }
                 row.set("outline", J::Arr(boxes));
                 row.set("outline_edges", J::Arr(shape_edges(shape)));
             }

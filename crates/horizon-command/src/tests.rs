@@ -209,6 +209,9 @@ fn authorized_argument_alternatives_win_only_complete_ties() {
             .is_err(),
         "no authorized alternative must still refuse"
     );
+}
+
+#[test]
 fn loaded_namespaced_biomes_replace_exported_command_ids() {
     let mut r=reg();
     r.by_registry.get_mut("minecraft:worldgen/biome").unwrap().tags.push("minecraft:is_overworld".into());

@@ -911,6 +911,8 @@ impl Game<'_> {
                     self.load_painting_transferred(tag, uuid, key, Some(state));
                 } else {
                     self.load_painting(tag, uuid, key);
+                }
+            }
             "ae2:tiny_tnt_primed" => {
                 let before = self.tnts.len();
                 self.load_tnt(tag, uuid);

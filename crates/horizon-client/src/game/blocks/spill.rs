@@ -1237,6 +1237,7 @@ impl GameLevel<'_> {
             self.world
                 .block_entities
                 .put(lease, BlockEntity::Mod(entity));
+        }
         #[cfg(feature = "ae2-lab")]
         if !self.client_side && matches!(self.world.block_entities.get(&key),Some(BlockEntity::Ae2(m)) if matches!(m.kind,horizon_client::ae2_world::MachineKind::QuantumRing|horizon_client::ae2_world::MachineKind::QuantumLink)) {
             if let (Some(address),Some(host))=(super::ae2_global::GridAddress::from_local(self.dim,key),self.world.block_entities.incarnation(&key)) {
@@ -1822,6 +1823,8 @@ mod tests {
                 .collect();
             assert_eq!(out, [("minecraft:diamond".to_owned(), 3)]);
         });
+    }
+
     #[cfg(feature="ae2-lab")]
     #[test]
     fn ae2_provider_drop_limit_is_shared_across_entries_and_return_inventory() {

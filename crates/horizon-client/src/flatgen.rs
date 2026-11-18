@@ -482,6 +482,9 @@ mod tests {
         ] {
             assert!(!valid(layers));
         }
+    }
+
+    #[test]
     fn filled_vertical_range_preserves_empty_exterior_and_all_section_biomes() {
         let state = horizon_world::registry::BlockStateId(17);
         let terrain = FlatTerrain::filled_range(42, state, 0..256).unwrap();

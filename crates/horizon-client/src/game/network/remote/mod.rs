@@ -10271,6 +10271,7 @@ impl Game<'_> {
             self.capture(true);
         }
         self.send(S::ContainerClose(play::ContainerClose { container }));
+    }
     #[cfg(feature = "ae2-lab")]
     /// The pins go to the server whenever they change, a terminal open or not
     /// (window -1): it lays the next terminal out with them from its first view.

@@ -855,6 +855,7 @@ struct ModFluidLayers {
     overlay: Option<u16>,
     /// `0xRRGGBB`, or none for the biome's water colour.
     tint: Option<u32>,
+}
 /// A content mod's fluid as the fluid renderer draws it (its client
 /// extension's textures and tint, its render layer).
 #[derive(Clone, Copy, Debug, PartialEq)]

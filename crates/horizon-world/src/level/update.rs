@@ -840,6 +840,9 @@ impl<L: super::signal_access::SignalAccess + ?Sized> Signals<'_, L> {
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
     pub fn state(&self, pos: BlockPos) -> BlockStateId {
         self.signals().state(pos)
+    }
+}
+
 #[cfg(test)]
 mod source_position_tests {
     use super::*;

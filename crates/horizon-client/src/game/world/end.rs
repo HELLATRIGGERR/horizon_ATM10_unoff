@@ -405,6 +405,7 @@ impl Game<'_> {
             .and_then(|r| r.level_environment.as_ref())
         {
             return own;
+        }
         #[cfg(feature = "ae2-lab")]
         if matches!(self.dim, Dim::Spatial) {
             static SPATIAL: std::sync::OnceLock<Environment> = std::sync::OnceLock::new();

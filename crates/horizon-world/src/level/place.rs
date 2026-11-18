@@ -65,6 +65,8 @@ impl PlaceContext {
         let [x, y, z] = self.face.opposite().normal();
         placed_pos.offset(x, y, z)
     }
+}
+
 /// A successful primary BlockItem write, before item state/BE components and
 /// Block.setPlacedBy. The host must finish it after importing the physical item.
 #[derive(Clone, Copy, Debug)]
@@ -2093,6 +2095,10 @@ mod placed_against_tests {
             // A replaceable clicked block is itself the placement position.
             assert_eq!(ctx.placed_against_pos(clicked), clicked.offset(-x, -y, -z));
         }
+    }
+}
+
+#[cfg(test)]
 mod plane_context_tests {
     use super::*;
     #[test]

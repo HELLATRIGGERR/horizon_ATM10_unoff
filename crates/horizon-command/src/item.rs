@@ -264,6 +264,7 @@ pub fn decoded_component_value(id: &str, value: &Tag, reg: &Registries) -> Resul
 pub fn decode_component(id: &str, t: &Tag, reg: &Registries) -> Result<(), String> {
     if let Some(registry) = horizon_items::properties::pet_variants::registry(id) {
         return horizon_items::properties::pet_variants::decode(registry, t, reg).map(|_| ());
+    }
     decode_component_in(id, t, Some(reg))
 }
 /// [`decode_component`]'s shapes without the registries' membership checks: AE2's saved

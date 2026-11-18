@@ -494,6 +494,8 @@ impl BlockEntities {
     pub fn keep_client_snapshots(&mut self, mut snapshots: FxHashMap<Pos, ClientSnapshot>) {
         snapshots.retain(|pos, _| self.live.contains_key(pos));
         self.client_snapshots = snapshots;
+    }
+
     pub fn placement_snapshot(&self) -> Self {
         Self {
             map: self.map.clone(),
@@ -1122,6 +1124,7 @@ impl BlockEntities {
         let old = self.map.insert(pos, entity);
         if self.on_load_enabled && new_identity && new_is_mod {
             self.on_load.push_back((pos, self.generations[&pos]));
+        }
         self.new_incarnation(pos);
         self.note_mod_change(pos, old.as_ref());
         #[cfg(feature = "ae2-lab")]
@@ -1223,16 +1226,10 @@ impl BlockEntities {
         pos: Pos,
         make: impl FnOnce() -> BlockEntity,
     ) -> &mut BlockEntity {
-            self.replace_taken(pos);
-            self.retire(pos);
-            self.new_generation(pos);
-            forget_mod(&mut self.mods, pos);
-            self.boxes.remove(&pos);
+        // `insert` retires, renews the generation, queues `on_load` and lists a mod or box
+        // entity as upstream's absent branch did, and keeps the incarnation and journal.
         if !self.map.contains_key(&pos) { self.insert(pos, make()); }
         self.asleep.remove(&pos);
-            if self.on_load_enabled {
-                self.on_load.push_back((pos, self.generations[&pos]));
-            }
         self.map.get_mut(&pos).expect("inserted block entity")
     }
     /// Keep `data`, the saved data (with its `CustomName`) of the block entity just removed from

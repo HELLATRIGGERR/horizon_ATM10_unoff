@@ -2366,6 +2366,8 @@ pub(crate) mod tests {
                 assert_eq!(counts.0 + counts.1 + counts.2, existing + carried);
             }
         });
+    }
+
     /// A mod's menu: its slot 1 takes coal, its other slots nothing.
     struct FuelSlotRules(ItemRules);
     impl Rules for FuelSlotRules {

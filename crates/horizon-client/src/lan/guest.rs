@@ -3266,6 +3266,9 @@ mod tests {
         assert_eq!(before, after);
         assert_eq!(guest.death_time, 0);
         assert!(!guest.death_canceled);
+    }
+
+    #[test]
     fn menu_content_tells_the_inventory_sync_what_the_client_has() {
         let mut g = guest_at([0.0; 3]);
         g.inventory[0] = Some(ItemStack::new("ae2:crafting_pattern", 1));

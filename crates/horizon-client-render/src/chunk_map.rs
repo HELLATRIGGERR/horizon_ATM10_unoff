@@ -150,6 +150,8 @@ impl ChunkMap {
             let _ = observer.bind(Holder::Chunk([key.0, key.1]), &mut saved.attachments);
         }
         Ok(&mut saved.attachments)
+    }
+
     pub fn placement_snapshot(&self) -> Self {
         // A map of its own: its revisions and their deltas start here.
         let revision = next_revision();

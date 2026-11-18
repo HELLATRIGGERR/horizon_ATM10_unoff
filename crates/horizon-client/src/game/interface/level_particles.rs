@@ -297,6 +297,7 @@ impl Game<'_> {
             }
             horizon_client::blocks::Fluid::None | horizon_client::blocks::Fluid::Modded => {
                 ParticleType::DrippingDripstoneWater
+            }
             // NeoForge's `spawnDripParticle`: the type's `getDripInfo().dripParticle()` (none,
             // or one this game lacks, draws nothing), else water's.
             horizon_client::blocks::Fluid::Mod(kind) => {

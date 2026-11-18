@@ -462,6 +462,7 @@ impl Game<'_> {
                     .find(|&((sx, sy), _)| inside(self.cursor, [x + sx, y + sy, SLOT, SLOT]))
                     .map(|(_, well)| well.stack.clone())
             })
+    }
     /// The catalyst under the pointer: its index, as the mod sent it and as a stack.
     pub(super) fn recipe_catalyst_hovered(
         &self,

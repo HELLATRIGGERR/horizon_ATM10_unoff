@@ -29,8 +29,6 @@ const SIGNAL_ORDER: [Direction; 6] = [
 ];
 
 impl<L: LevelAccess + ?Sized> Sim<'_, L> {
-        if let Some(signal) = self.level.custom_signal(pos, state, direction, false) { return signal.clamp(0,15); }
-        if let Some(signal) = self.level.custom_signal(pos, state, direction, true) { return signal.clamp(0,15); }
     /// `SignalGetter.getControlInputSignal`.
     fn control_input_signal(&self, pos: BlockPos, direction: Direction, only_diodes: bool) -> i32 {
         let b = self.b;
@@ -1296,6 +1294,7 @@ impl<L: super::signal_access::SignalAccess + ?Sized> Signals<'_, L> {
         pos: BlockPos,
         direction: Direction,
     ) -> i32 {
+        if let Some(signal) = self.level.custom_signal(pos, state, direction, false) { return signal.clamp(0,15); }
         let vanilla = self.vanilla_signal(state, pos, direction);
         self.level
             .adjust_signal(pos, state, direction, false, vanilla)
@@ -1333,6 +1332,7 @@ impl<L: super::signal_access::SignalAccess + ?Sized> Signals<'_, L> {
         pos: BlockPos,
         direction: Direction,
     ) -> i32 {
+        if let Some(signal) = self.level.custom_signal(pos, state, direction, true) { return signal.clamp(0,15); }
         let vanilla = self.vanilla_direct_signal(state, pos, direction);
         self.level
             .adjust_signal(pos, state, direction, true, vanilla)
@@ -1455,6 +1455,7 @@ impl<L: super::signal_access::SignalAccess + ?Sized> Signals<'_, L> {
         direction: Option<Direction>,
         has_hook: bool,
     ) -> bool {
+        if let Some(dir) = direction { if self.level.custom_signal(pos,state,dir,false).is_some() { return true; } }
         let b = self.b;
         let vanilla = match b.data(state).class {
             Class::RedstoneWire => true,

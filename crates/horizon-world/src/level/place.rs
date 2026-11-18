@@ -1836,25 +1836,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             self.set_block(above_pos, replacement, 27);
         }
         if !self.set_block(ctx.pos, state, 11) {
-            return PlaceOutcome::Failed;
-        }
-        let placed = self.state(ctx.pos);
-        if b.block(placed) == b.block(state) {
-            self.set_placed_by(ctx.pos, placed);
-        }
-        let placed = self.state(ctx.pos);
-        let own = b.data(placed).sounds.clone();
-        let sounds = self.level.place_sound_type(ctx.pos, placed, own);
-        self.emit(LevelEvent::Sound {
-            pos: ctx.pos,
-            sound: sounds.place.clone(),
-            volume: (sounds.volume + 1.0) / 2.0,
-            pitch: sounds.pitch * 0.8,
-        });
-        self.game_event_state(ctx.pos, "minecraft:block_place", placed);
-        PlaceOutcome::Placed {
-            pos: ctx.pos,
-            state: placed,
+            return None;
         }
         Some(PendingPlacement {pos:ctx.pos,state:self.state(ctx.pos),expected:state})
     }
@@ -1864,7 +1846,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let placed=self.state(pos);
         if b.block(placed)==b.block(pending.expected) { self.set_placed_by(pos,placed); }
         let placed=self.state(pos);
-        let sounds=b.data(placed).sounds.clone();
+        let own=b.data(placed).sounds.clone();
+        let sounds=self.level.place_sound_type(pos,placed,own);
         self.emit(LevelEvent::Sound {pos,sound:sounds.place.clone(),volume:(sounds.volume+1.0)/2.0,pitch:sounds.pitch*0.8});
         self.game_event_state(pos,"minecraft:block_place",placed);
         PlaceOutcome::Placed {pos,state:placed}

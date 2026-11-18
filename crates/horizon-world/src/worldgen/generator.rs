@@ -144,7 +144,6 @@ impl TerrainBlockStates for GenBlockStates {
     }
 }
 
-    pub(super) structure_extensions: super::structure::extension::Extensions,
 /// The seed-independent resources, at the path the internals list names.
 pub mod data;
 pub use data::GeneratorData;
@@ -211,31 +210,6 @@ fn joined<T>(thread: std::thread::JoinHandle<T>) -> T {
         .join()
         .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
-            structure_extensions: Default::default(),
-    }
-    /// Install a handler before the data is shared with any generator.
-    pub fn with_structure_extension(mut self: Arc<Self>, id: String, extension: Arc<dyn super::structure::extension::StructureExtension>)->Result<Arc<Self>,GeneratorError> {
-        let data=Arc::get_mut(&mut self).ok_or_else(||resource("structure extensions must be registered before sharing generator data"))?;
-        if data.structure_extensions.insert(id.clone(),extension).is_some(){return Err(resource(format!("duplicate structure extension {id}")));}
-        Ok(self)
-    }
-    pub fn bind_block_property(&self,property:crate::block_properties::BlockProperty)->Option<crate::block_properties::BoundBlockProperty>{
-        Some(self.feature_resources.as_ref()?.blocks.as_ref()?.properties.bind(property))
-    }
-    /// Exported block facts for native custom structure placement.
-    pub fn block_property(&self, state: BlockStateId, property: crate::block_properties::BlockProperty) -> Option<bool> {
-        self.feature_resources.as_ref()?.blocks.as_ref()?.properties.property(state, property).ok()
-    }
-    pub fn block_in_tag(&self, state: BlockStateId, tag: &str) -> bool {
-        self.registry.state(state).is_some_and(|s| self.block_tags.get(tag).is_some_and(|values| values.contains(&s.name)))
-    /// Whether a resolved biome tag includes this biome.
-    pub fn biome_in_tag(&self, id: BiomeId, tag: &str) -> bool {
-        self.biome_tags.get(tag).is_some_and(|values| values.iter().any(|name| name == self.biome_name(id)))
-    }
-    /// Native climate settings used by temperature and precipitation rules.
-    pub fn biome_temperature_settings(&self, id: BiomeId) -> BiomeTemperatureSettings {
-        self.temperatures[id.0 as usize]
-    }
 
 /// A generated chunk with its quart biomes. Blocks and heightmaps live in
 /// `terrain`; after `generate_proto` it is at the TERRAIN status with the

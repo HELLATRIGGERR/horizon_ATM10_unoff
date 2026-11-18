@@ -10,7 +10,7 @@
 //! 4.11.0, LGPL-3.0; see `ae2/addons/megacells/`.
 use crate::game::{Game, ae2_parts::PartAddress, ae2_render::orientation};
 use horizon_client::{ae2x::megacells::CELL_DOCK, items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// `CellDockPart.getBoxes`: in sixteenths, the part on the south face.
 pub(in crate::game) fn boxes(id: &str) -> Option<Vec<[f64; 6]>> {

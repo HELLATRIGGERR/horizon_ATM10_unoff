@@ -11,7 +11,7 @@ use horizon_client::{
     projectiles::Projectile,
 };
 use horizon_core::geometry::{Aabb, Vec3};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::HashMap;
 
 pub(super) struct SpatialEntities {

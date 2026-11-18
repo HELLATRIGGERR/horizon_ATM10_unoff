@@ -13,7 +13,7 @@ use crate::items::ItemStack;
 use crate::save;
 use ae2_cell_core::ItemKey;
 pub use ae2_cell_core::{AmountFormat, KeyType, KeyTypeDef, KeyTypeSet, TypedKey};
-use horizon_world::nbt::{self, Compound, Limits, Tag};
+use horizon_core::nbt::{self, Compound, Limits, Tag};
 use std::sync::RwLock;
 
 /// `AEKeyType.codec()`: the key's own fields of a `GenericStack` map, apart

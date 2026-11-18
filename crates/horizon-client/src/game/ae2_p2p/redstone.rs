@@ -5,7 +5,7 @@ use super::{Game, Port, capabilities};
 use crate::game::ae2_global::GridAddress;
 use horizon_client::containers::BlockEntity;
 use horizon_core::{geometry::Direction, position::BlockPos};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 impl Game<'_> {
     fn ae2_p2p_redstone_value(&self, port: &Port) -> i32 {

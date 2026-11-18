@@ -12,7 +12,7 @@ use horizon_client::{
     items::ItemStack,
     save,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::{collections::HashMap, hash::Hash};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -161,7 +161,7 @@ fn provider_definitions(
 /// `GridNode.loadFromNBT` compares node data while ignoring only player ID;
 /// absent and empty compounds are equivalent for that comparison.
 pub(super) fn provider_node_data_unchanged(before: Option<&Tag>, after: Option<&Tag>) -> bool {
-    fn normalized(tag: Option<&Tag>) -> Option<horizon_world::nbt::Compound> {
+    fn normalized(tag: Option<&Tag>) -> Option<horizon_core::nbt::Compound> {
         let Some(Tag::Compound(raw)) = tag else { return None; };
         let mut data = raw.clone();
         data.remove(&"p".into());

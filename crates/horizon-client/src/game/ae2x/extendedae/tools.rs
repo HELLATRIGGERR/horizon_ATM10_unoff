@@ -24,7 +24,7 @@ use horizon_client::{
     save,
 };
 use horizon_protocol::packets::{configuration::CustomPayload, play::{self, Clientbound as C}};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// `HostPatternModifier`: `patternInv` 27, `targetInv` 1, `blankPatternInv`
 /// 4, `clonePatternInv` 1, `replaceInv` 2.

@@ -131,7 +131,12 @@ pub(super) fn register(
     let Some(bindings) = Bindings::new(&data) else {
         return Ok(data);
     };
-    data.with_structure_extension(TYPE.into(), Arc::new(Extension { bindings }))
+    data.with_structure_extension(
+        TYPE.into(),
+        Arc::new(Extension {
+            bindings,
+        }),
+    )
 }
 struct PieceRng<'a>(&'a mut dyn PieceRandom);
 impl MeteorRandom for PieceRng<'_> {
@@ -490,83 +495,28 @@ mod tests {
     #[test]
     fn anvil_saved_ae2_owner_is_restored_when_neighbor_generates_first() {
         use crate::save::SaveDir;
-        use horizon_world::{
-            compression::Compression,
-            nbt::{Limits, NamedTag},
-            region::{ChunkRecord, RegionFile},
-            worldgen::generator::OverworldGenerator,
-        };
-        let Some(root) =
-            std::env::var_os("AE2_MERGED_TEST_RESOURCES").map(std::path::PathBuf::from)
-        else {
-            eprintln!("skipping: AE2_MERGED_TEST_RESOURCES absent");
-            return;
-        };
-        let registry = Box::leak(Box::new(
-            horizon_world::level::data::load_registry(&root).unwrap(),
-        ));
+        use horizon_world::{compression::Compression, nbt::{Limits, NamedTag}, region::{ChunkRecord, RegionFile}, worldgen::generator::OverworldGenerator};
+        let Some(root) = std::env::var_os("AE2_MERGED_TEST_RESOURCES").map(std::path::PathBuf::from) else { eprintln!("skipping: AE2_MERGED_TEST_RESOURCES absent"); return; };
+        let registry = Box::leak(Box::new(horizon_world::level::data::load_registry(&root).unwrap()));
         let data = GeneratorData::load(&root.join("worldgen"), registry).unwrap();
         let data = register(data).unwrap();
-        let dir = std::env::temp_dir().join(format!("ae2-saved-neighbor-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("ae2-saved-neighbor-{}",std::process::id()));
         std::fs::create_dir_all(dir.join("region")).unwrap();
-        let m = Meteorite {
-            pos: [8, 70, 8],
-            radius: 6.25,
-            crater: Crater::Ice,
-            fallout: Fallout::Terracotta,
-            pure_crater: true,
-            crater_lake: false,
-        };
-        let saved_start = Tag::compound([
-            ("id", Tag::String("ae2:meteorite".into())),
-            ("ChunkX", Tag::Int(0)),
-            ("ChunkZ", Tag::Int(0)),
-            ("references", Tag::Int(7)),
-            ("Children", Tag::List(vec![Tag::Compound(settings_tag(m))])),
-        ]);
-        let saved = NamedTag {
-            name: "".into(),
-            tag: Tag::compound([
-                ("Status", Tag::String("minecraft:full".into())),
-                (
-                    "structures",
-                    Tag::compound([(
-                        "starts",
-                        Tag::compound([("ae2:meteorite", saved_start.clone())]),
-                    )]),
-                ),
-            ]),
-        };
-        let record =
-            ChunkRecord::from_nbt(&saved, Compression::Zlib, 0, Limits::default()).unwrap();
-        RegionFile::open_writable(dir.join("region/r.0.0.mca"), true)
-            .unwrap()
-            .write(ChunkPos::new(0, 0), &record)
-            .unwrap();
-        let generator = OverworldGenerator::new(data, 1234).unwrap();
-        generator.set_saved_start_source(Arc::new(SaveDir::new(
-            dir,
-            crate::save::LevelShape::OVERWORLD,
-        )));
+        let m = Meteorite { pos:[8,70,8], radius:6.25, crater:Crater::Ice, fallout:Fallout::Terracotta, pure_crater:true, crater_lake:false };
+        let saved_start = Tag::compound([("id",Tag::String("ae2:meteorite".into())),("ChunkX",Tag::Int(0)),("ChunkZ",Tag::Int(0)),("references",Tag::Int(7)),("Children",Tag::List(vec![Tag::Compound(settings_tag(m))]))]);
+        let saved = NamedTag { name:"".into(), tag:Tag::compound([("Status",Tag::String("minecraft:full".into())),("structures",Tag::compound([("starts",Tag::compound([("ae2:meteorite",saved_start.clone())]))]))]) };
+        let record = ChunkRecord::from_nbt(&saved,Compression::Zlib,0,Limits::default()).unwrap();
+        RegionFile::open_writable(dir.join("region/r.0.0.mca"),true).unwrap().write(ChunkPos::new(0,0),&record).unwrap();
+        let generator = OverworldGenerator::new(data,1234).unwrap();
+        generator.set_saved_start_source(Arc::new(SaveDir::new(dir, crate::save::LevelShape::OVERWORLD)));
         let mut worker = generator.worker();
-        let neighbor = worker.generate_proto(ChunkPos::new(1, 0)).unwrap();
-        assert!(
-            neighbor
-                .structures()
-                .iter()
-                .any(|(name, pos, _, _)| *name == "ae2:meteorite" && *pos == ChunkPos::new(0, 0))
-        );
-        let starts = worker.structure_starts(ChunkPos::new(0, 0));
-        let start = starts
-            .iter()
-            .find(|s| s.name == "ae2:meteorite")
-            .expect("saved AE2 start");
-        assert_eq!(start.save(), Some(saved_start));
+        let neighbor = worker.generate_proto(ChunkPos::new(1,0)).unwrap();
+        assert!(neighbor.structures().iter().any(|(name,pos,_,_)| *name=="ae2:meteorite" && *pos==ChunkPos::new(0,0)));
+        let starts = worker.structure_starts(ChunkPos::new(0,0));
+        let start = starts.iter().find(|s| s.name=="ae2:meteorite").expect("saved AE2 start");
+        assert_eq!(start.save(),Some(saved_start));
         let piece = start.pieces[0].save().unwrap();
-        assert_eq!(
-            piece.get(&"r".into()),
-            Some(&Tag::Float(6.25_f32.to_bits()))
-        );
+        assert_eq!(piece.get(&"r".into()), Some(&Tag::Float(6.25_f32.to_bits())));
         assert_eq!(piece.get(&"t".into()), Some(&Tag::Byte(6)));
         assert_eq!(piece.get(&"f".into()), Some(&Tag::Byte(3)));
     }

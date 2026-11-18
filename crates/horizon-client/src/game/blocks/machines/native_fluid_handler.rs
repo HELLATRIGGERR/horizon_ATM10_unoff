@@ -22,7 +22,8 @@
 use super::Game;
 use super::native_fe::{dim_of, put_back, take};
 use super::native_fluids::{Tank, read_tanks, write_tanks};
-use crate::game::{Dim, native_hooks::NativeFluidTankInfo};
+use crate::game::Dim;
+use mod_api::NativeFluidTankInfo;
 use horizon_client::{
     containers::{BlockEntity, ModBlockEntity, ModFluidTanks},
     first_person::Hand,
@@ -918,7 +919,7 @@ impl Game<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use horizon_world::nbt::{Compound, JavaString, Tag};
+    use horizon_core::nbt::{Compound, JavaString, Tag};
 
     fn declared() -> ModFluidTanks {
         // Two tanks: 0 fillable from the top, 1 drainable from the bottom;

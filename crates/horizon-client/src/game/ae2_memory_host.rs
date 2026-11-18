@@ -2,7 +2,7 @@
 //! Each part belongs to one cable face; unrelated host state is never replaced.
 use super::Game;
 use horizon_client::{containers::BlockEntity,ae2_network_tool::Inventory,ae2_world::{Machine,MachineKind},save};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 // Preserve a structured AE2 machine name beside the existing plain display.
 const MEMORY_NAME_COMPONENT: &str = "horizon:ae2_memory_name_component";
 

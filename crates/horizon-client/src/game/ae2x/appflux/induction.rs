@@ -20,7 +20,7 @@ use horizon_client::{
     containers::BlockEntity,
 };
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::{HashMap, HashSet};
 
 /// The pace of each side a host pushes on, by its position and the side

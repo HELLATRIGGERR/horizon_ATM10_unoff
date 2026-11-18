@@ -14,7 +14,7 @@ use ae2_network_core::{
 use std::collections::{BTreeMap, BTreeSet};
 
 type Local = (i32, i32, i32);
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 fn part_face(part: &Tag) -> Option<u8> {
     let Tag::String(face) = part.get("face")? else {
         return None;
@@ -501,7 +501,7 @@ impl EventReplay {
                         .get(&node_tag.into())
                         .and_then(|tag| tag.get("cm"))
                     {
-                        Some(horizon_world::nbt::Tag::String(name)) => {
+                        Some(horizon_core::nbt::Tag::String(name)) => {
                             ChannelMode::from_source_name(&name.to_string_lossy())
                         }
                         _ => None,
@@ -920,7 +920,7 @@ mod tests {
         block_entities::BlockEntities,
     };
     use ae2_network_core::{ControllerState, DeviceKind};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     fn encode(_: i32, p: Local) -> Option<Pos> {
         Some(Pos {
             x: p.0,

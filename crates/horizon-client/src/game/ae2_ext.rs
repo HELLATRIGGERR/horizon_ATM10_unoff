@@ -104,7 +104,7 @@ pub trait Ae2Host {
     /// The chemical tanks of the block at `at` through its side `face` (a direction's index), as
     /// the mod that owns chemicals answers hook point `native_chemical_handler_tanks` (API 435);
     /// none without a chemical handler there, or with no such mod.
-    fn chemical_tanks(&self, at: GridAddress, face: u8) -> Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>>;
+    fn chemical_tanks(&self, at: GridAddress, face: u8) -> Option<Vec<mod_api::NativeChemicalTankInfo>>;
     /// Inserts up to `amount` of the chemical `chemical` there, or simulates it
     /// (`native_chemical_handler_insert`): what it took.
     fn chemical_insert(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool) -> u64;

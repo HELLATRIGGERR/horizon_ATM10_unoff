@@ -190,7 +190,7 @@ pub(in crate::game) fn visual_props(machine: &Machine, props: &mut horizon_world
     if Kind::of(machine).is_none() || !props.contains_key("working") {
         return false;
     }
-    let working = matches!(machine.config.get(&machines::WORKING.into()), Some(horizon_world::nbt::Tag::Byte(1)));
+    let working = matches!(machine.config.get(&machines::WORKING.into()), Some(horizon_core::nbt::Tag::Byte(1)));
     props.insert("working".into(), working.to_string());
     true
 }

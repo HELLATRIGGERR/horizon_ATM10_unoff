@@ -11,7 +11,7 @@
 //! asked the module.
 use crate::{ae2_world::Machine, items::ItemStack};
 use ae2_cell_core::{ItemKey, KeyType};
-use horizon_world::nbt::Compound;
+use horizon_core::nbt::Compound;
 use std::sync::{Mutex, PoisonError};
 
 /// One addon's static rules (see the module). The tables by item id the renderer and the screens

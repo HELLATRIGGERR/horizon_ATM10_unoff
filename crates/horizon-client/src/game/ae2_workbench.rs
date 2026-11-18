@@ -190,7 +190,7 @@ mod workbench_template_tests {
     fn wrapped_fluid_and_item_filters_use_contents_without_consuming_wrapper() {
         use horizon_client::ae2_generic_stack::{GenericStack,wrap};
         let patch=Tag::compound([("minecraft:custom_data",Tag::compound([("variant",Tag::String("warm".into()))]))]);
-        let components=horizon_world::nbt::write_network(&patch,horizon_world::nbt::Limits::default()).unwrap();
+        let components=horizon_core::nbt::write_network(&patch,horizon_core::nbt::Limits::default()).unwrap();
         let fluid=GenericStack::fluid(ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components},1250);
         let wrapped=wrap(&fluid).unwrap();let cell=ItemStack::new("ae2:fluid_storage_cell_1k",1);
         let ghost=workbench_ghost_from_carried(Some(&cell),&wrapped,false,&|_,_|true).unwrap();

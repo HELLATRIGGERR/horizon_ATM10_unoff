@@ -19,7 +19,7 @@ use horizon_client::{
     items::ItemStack,
     text::Text,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::{BTreeMap, BTreeSet};
 
 use rows::WIRELESS_POWER as POWER;

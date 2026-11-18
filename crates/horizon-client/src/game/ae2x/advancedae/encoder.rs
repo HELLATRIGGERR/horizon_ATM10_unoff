@@ -27,7 +27,7 @@ use horizon_protocol::packets::{
     configuration::CustomPayload,
     play::{self, Clientbound as C},
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// The encoder's window, for this client to draw it (four bytes, big end first).
 pub(in crate::game) const ENCODER_WINDOW: &str = "advanced_ae:encoder_window";

@@ -5,7 +5,7 @@
 //!
 //! A viewer's slots hold items: a fluid shows as its bucket, with the amount in a note; energy is a note in AE.
 use super::Game;
-use horizon_client::mod_api::{
+use mod_api::{
     NativeCategoryRecipe, NativeChanceOutput, NativeRecipeCategory, NativeStack,
 };
 use horizon_world::{fluid::FluidKind, fluid_ingredient::FluidIngredient, fluid_stack};

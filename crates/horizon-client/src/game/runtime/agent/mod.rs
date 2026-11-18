@@ -2727,7 +2727,7 @@ mod tests {
 /// The mods' recipe viewer categories as the recipe audit reads them (`horizon_client::recipe_audit::Category`): each
 /// recipe a category lists names its recipe file in a `Recipe: <id>` note; a recipe without one isn't from a file.
 fn audit_categories(
-    categories: &[horizon_client::mod_api::NativeRecipeCategory],
+    categories: &[mod_api::NativeRecipeCategory],
 ) -> Vec<horizon_client::recipe_audit::Category> {
     use horizon_client::{
         mod_api::NativeStack,

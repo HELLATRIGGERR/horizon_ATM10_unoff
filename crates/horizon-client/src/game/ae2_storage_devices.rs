@@ -2,7 +2,7 @@
 use super::{Game, ae2_fluids, ae2_lab};
 use ae2_cell_core::{Action, Cell, KeyType};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::{Value, json};
 type Pos = (i32, i32, i32);
 fn text(c: &Compound, key: &str) -> Option<String> {

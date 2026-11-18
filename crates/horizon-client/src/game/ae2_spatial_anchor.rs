@@ -150,7 +150,7 @@ impl Game<'_> {
         if machine.kind != MachineKind::SpatialAnchor {
             return None;
         }
-        let visible = matches!(machine.config.get(&"overlay_mode".into()),Some(horizon_world::nbt::Tag::String(value))if value.to_string_lossy()=="YES");
+        let visible = matches!(machine.config.get(&"overlay_mode".into()),Some(horizon_core::nbt::Tag::String(value))if value.to_string_lossy()=="YES");
         let chunks = self
             .ae2_anchors
             .owners
@@ -246,7 +246,7 @@ impl Game<'_> {
                 .owners
                 .get(&address)
                 .map_or_else(BTreeSet::new, |o| o.state.chunks().clone()),
-            overlay: matches!(machine.config.get(&"overlay_mode".into()),Some(horizon_world::nbt::Tag::String(value))if value.to_string_lossy()=="YES"),
+            overlay: matches!(machine.config.get(&"overlay_mode".into()),Some(horizon_core::nbt::Tag::String(value))if value.to_string_lossy()=="YES"),
             anchor_max_by_dimension,
             grid_chunks_by_dimension,
         })

@@ -9,7 +9,7 @@ use horizon_client::{
     items::ItemStack,
     save,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Owner {
     Block(GridAddress),

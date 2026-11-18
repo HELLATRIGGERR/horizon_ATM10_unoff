@@ -11,7 +11,7 @@
 use crate::game::{Game, ae2_tick_tracker::Modulation, ae2_visual_sync::RateVisual};
 use ae2_cell_core::{AmountFormat, ItemKey, KeyType};
 use horizon_client::{ae2x::advancedae as rows, containers::BlockEntity};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::VecDeque;
 
 type Pos = (i32, i32, i32);

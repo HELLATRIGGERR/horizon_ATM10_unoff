@@ -2,7 +2,7 @@
 use super::{Game,ae2_global::GridAddress};
 use ae2_cell_core::{ItemKey,KeyType,TypedKey};
 use horizon_client::{ae2_world::MachineKind,containers::BlockEntity,items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 #[derive(Clone,Debug)]
 pub(super) struct CellMount {

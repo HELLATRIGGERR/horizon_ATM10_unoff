@@ -5,7 +5,7 @@
 use super::{Game, ae2_global::GridAddress, ae2_processing};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity};
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 #[derive(Clone, Copy, Default, Debug)]
 pub(super) struct FeStorage {

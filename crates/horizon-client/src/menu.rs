@@ -1488,7 +1488,7 @@ impl Menu {
     fn quartz_knife_result(&mut self,env:&Env) {
         let valid=self.containers[MAIN][0].as_ref().is_some_and(|s|env.items.item_tags.get("ae2:metal_ingots").is_some_and(|t|t.contains(s.item.as_ref())));
         let name=self.anvil.name.as_deref().filter(|v|!v.trim().is_empty());
-        self.containers[RESULT][0]=if valid {name.map(|name|{let mut out=ItemStack::new("ae2:name_press",1);out.data_mut().set_other("ae2:name_press_name",Some(horizon_world::nbt::Tag::String(name.into())));out})} else {None};
+        self.containers[RESULT][0]=if valid {name.map(|name|{let mut out=ItemStack::new("ae2:name_press",1);out.data_mut().set_other("ae2:name_press_name",Some(horizon_core::nbt::Tag::String(name.into())));out})} else {None};
         self.data[0]=if self.containers[RESULT][0].is_some(){1}else{0};
     }
     /// `SmithingMenu.createResult`.
@@ -3219,7 +3219,7 @@ pub(crate) mod tests {
         let mut menu=Menu::new(Kind::Anvil);menu.quartz_knife_slot=Some(0);menu.set_player_item(0,Some(ItemStack::new("ae2:certus_quartz_cutting_knife",1)));
         menu.set_slot(&env,0,stack("iron_ingot",1));assert!(menu.slot(2).is_none());assert!(menu.rename(&env,"Hello"));
         assert_eq!(menu.slot(2).unwrap().item.as_ref(),"ae2:name_press");
-        assert_eq!(menu.slot(2).unwrap().data().unwrap().other("ae2:name_press_name"),Some(&horizon_world::nbt::Tag::String("Hello".into())));
+        assert_eq!(menu.slot(2).unwrap().data().unwrap().other("ae2:name_press_name"),Some(&horizon_core::nbt::Tag::String("Hello".into())));
         menu.click(&env,30,0,Input::Pickup).unwrap();assert!(menu.carried.is_none());assert!(menu.player_item(0).is_some());
         menu.click(&env,2,0,Input::Pickup).unwrap();assert_eq!(menu.carried.as_ref().unwrap().item.as_ref(),"ae2:name_press");assert!(menu.slot(0).is_none());assert!(menu.quartz_knife_used);assert_eq!(menu.level_change,0);
     }

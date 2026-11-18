@@ -503,17 +503,17 @@ fn read_tank(
     let Some(tag) = machine.config.get(&"ae2_tank".into()) else {
         return Ok(None);
     };
-    let Some(horizon_world::nbt::Tag::String(id)) = tag.get("fluid") else {
+    let Some(horizon_core::nbt::Tag::String(id)) = tag.get("fluid") else {
         return Err("invalid tank fluid".into());
     };
     let id = id.to_string().map_err(|_| "invalid tank fluid")?;
     if !ae2_fluids::valid_fluid_id(&id) {
         return Err("invalid tank fluid".into());
     }
-    let Some(horizon_world::nbt::Tag::ByteArray(components)) = tag.get("components") else {
+    let Some(horizon_core::nbt::Tag::ByteArray(components)) = tag.get("components") else {
         return Err("invalid tank components".into());
     };
-    let Some(horizon_world::nbt::Tag::Long(amount)) = tag.get("amount") else {
+    let Some(horizon_core::nbt::Tag::Long(amount)) = tag.get("amount") else {
         return Err("invalid tank amount".into());
     };
     if *amount <= 0 || *amount > TANK_CAPACITY as i64 {
@@ -532,7 +532,7 @@ fn set_tank(
     key: &ItemKey,
     amount: u64,
 ) -> Result<(), String> {
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     if amount > TANK_CAPACITY || !ae2_fluids::valid_fluid_id(&key.item_id) {
         return Err("invalid tank contents".into());
     }

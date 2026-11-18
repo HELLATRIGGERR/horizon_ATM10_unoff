@@ -839,113 +839,6 @@ impl GameLevel<'_> {
             .collect()
     }
 }
-    fn custom_shape_event(&mut self, pos: BlockPos, state: BlockStateId, neighbor: BlockPos) {
-        #[cfg(feature="ae2-lab")]
-        if !self.client_side && self.facts.get(state).name.as_ref()=="ae2:cable_bus" {
-            ae2_fluid_formation::clear_facing(self.world, self.facts, self.formation_fluid, pos, neighbor);
-        }
-        #[cfg(not(feature="ae2-lab"))]
-        let _ = (pos, state, neighbor);
-    }
-    fn custom_neighbor_event(&mut self, pos: BlockPos, state: BlockStateId, source: Option<BlockPos>) {
-        #[cfg(feature="ae2-lab")]
-        if !self.client_side && self.facts.get(state).name.as_ref()=="ae2:cable_bus" {
-            if let Some(neighbor) = source {
-                ae2_fluid_formation::clear_facing(self.world, self.facts, self.formation_fluid, pos, neighbor);
-            }
-        }
-        #[cfg(feature="ae2-lab")]
-        if !self.client_side && matches!(self.facts.get(state).name.as_ref(),"ae2:quantum_ring"|"ae2:quantum_link") {
-            self.quantum.neighbor_changed(self.world,self.dim,self.facts,(pos.x,pos.y,pos.z),source.map(|p|(p.x,p.y,p.z)));
-            self.quantum.flush_events(self.world,self.dim,(pos.x,pos.y,pos.z));
-        }
-        #[cfg(feature="ae2-lab")]
-        // AbstractCraftingUnitBlock.neighborChanged, on AE2's crafting blocks and the addons'.
-        if !self.client_side && horizon_client::ae2_world::crafting_unit(self.facts.get(state).name.as_ref()).is_some() {
-            self.world.block_entities.record_ae2_cpu_neighbor((pos.x,pos.y,pos.z),source.map(|p|(p.x,p.y,p.z)));
-        }
-        #[cfg(not(feature="ae2-lab"))]
-        let _=(pos,state,source);
-    }
-    fn custom_sensor_neighbor_changed(&mut self, pos: BlockPos, state: BlockStateId) -> bool {
-        #[cfg(feature="ae2-lab")]
-        {
-            if self.facts.get(state).name.as_ref()!="ae2:light_detector" {return false}
-            let key=(self.dim,(pos.x,pos.y,pos.z));
-            let value=ae2_light_detector::brightness(self.world.light(pos.x,pos.y,pos.z),self.darken);
-            let sensor=self.detectors.entry(key).or_default();
-            if sensor.last_light==value{return false}sensor.last_light=value;true
-        }
-        #[cfg(not(feature="ae2-lab"))]
-        {let _=(pos,state);false}
-    }
-    fn custom_crank(&self, state: BlockStateId) -> bool {
-        #[cfg(feature="ae2-lab")]
-        { self.facts.get(state).name.as_ref()=="ae2:crank" }
-        #[cfg(not(feature="ae2-lab"))]
-        { let _=state;false }
-    }
-    fn custom_crankable(&self, pos: BlockPos, side: Direction) -> bool {
-        #[cfg(feature="ae2-lab")]
-        {
-            let Some(BlockEntity::Ae2(m))=self.world.block_entities.get(&(pos.x,pos.y,pos.z)) else{return false};
-            let Some(state)=self.registry.state(self.world.block(pos.x,pos.y,pos.z)) else{return false};
-            let facing=state.properties.get("facing").map(String::as_str).unwrap_or("north");
-            ae2_crank::crankable(m.kind,facing,side)
-        }
-        #[cfg(not(feature="ae2-lab"))]
-        { let _=(pos,side);false }
-    }
-    #[cfg(feature="ae2-lab")]
-    fn custom_placement_state(&self,default:BlockStateId,face:Direction,yaw:f32,pitch:f32,plane:Option<Direction>,water:bool)->Option<BlockStateId> {
-        let state=self.registry.state(default)?;
-        let (facing,spin)=match plane {
-            Some(look)=>ae2_placement::plane_placement(&state.name,look.normal()),
-            None=>ae2_placement::placement(&state.name,yaw,pitch,face.normal()),
-        }?;
-        let mut props=state.properties.clone();props.insert("facing".into(),facing.into());
-        if let Some(spin)=spin {props.insert("spin".into(),spin.to_string());}
-        if props.contains_key("waterlogged") {props.insert("waterlogged".into(),water.to_string());}
-        self.registry.resolve(&horizon_world::chunk::BlockState{name:state.name.clone(),properties:props}).ok()
-    }
-    fn custom_center_fixture(&self, state: BlockStateId) -> bool {
-        #[cfg(feature="ae2-lab")]
-        { matches!(self.facts.get(state).name.as_ref(), "ae2:quartz_fixture" | "ae2:light_detector") }
-        #[cfg(not(feature="ae2-lab"))]
-        { let _ = state; false }
-    }
-    fn custom_signal(&self, pos: BlockPos, _state: BlockStateId, direction: Direction, _direct: bool) -> Option<i32> {
-        #[cfg(feature="ae2-lab")]
-        {
-            let BlockEntity::Ae2(m) = self.world.block_entities.get(&(pos.x,pos.y,pos.z))? else { return None; };
-            if m.kind==horizon_client::ae2_world::MachineKind::LightDetector {
-                if _direct{return Some(0)}
-                let last=self.detectors.get(&(self.dim,(pos.x,pos.y,pos.z))).map_or(0,|s|s.last_light);
-                let light=ae2_light_detector::brightness(self.world.light(pos.x,pos.y,pos.z),self.darken);
-                return Some(ae2_light_detector::weak_signal(last,light));
-            }
-            if m.kind != horizon_client::ae2_world::MachineKind::CableBus { return None; }
-            let face = match direction.opposite() { Direction::Down=>"down", Direction::Up=>"up", Direction::North=>"north", Direction::South=>"south", Direction::West=>"west", Direction::East=>"east" };
-            let Some(horizon_world::nbt::Tag::List(parts)) = m.config.get(&"parts".into()) else { return None; };
-            let part = parts.iter().find(|part| part.get("face")==Some(&horizon_world::nbt::Tag::String(face.into())) && matches!(part.get("id"), Some(horizon_world::nbt::Tag::String(id)) if id.to_string().is_ok_and(|id| matches!(horizon_client::ae2_world::base_id(&id),"ae2:level_emitter"|"ae2:energy_level_emitter"|"ae2:redstone_p2p_tunnel"))))?;
-            return Some(if matches!(part.get("id"),Some(horizon_world::nbt::Tag::String(id)) if matches!(horizon_client::ae2_world::base_id(&id.to_string_lossy()),"ae2:level_emitter"|"ae2:energy_level_emitter")) {
-                if part.get("emitter_active")==Some(&horizon_world::nbt::Tag::Byte(1)) {15} else {0}
-            } else if part.get("p2p_output")==Some(&horizon_world::nbt::Tag::Byte(1)) {
-                match part.get("p2p_power") { Some(horizon_world::nbt::Tag::Int(power)) => (*power).clamp(0,15), _=>0 }
-            } else {0});
-        }
-        #[cfg(not(feature="ae2-lab"))]
-        { let _=(pos,direction); None }
-    }
-
-    fn custom_random_tick(&mut self,pos:BlockPos,state:BlockStateId)->bool{
-        #[cfg(feature="ae2-lab")]
-        if self.facts.get(state).name.starts_with("ae2:")&&self.facts.get(state).name.ends_with("_budding_quartz")
-            || crate::game::ae2x::random_ticks(&self.facts.get(state).name){
-            self.events.push(LevelEvent::BlockEvent{pos,state,kind:"ae2_random_tick"});return true;
-        }
-        false
-    }
 /// A landing's block game event, emitted after its world write is applied.
 struct LandingVibration {
     event: &'static str,
@@ -2888,6 +2781,8 @@ impl Game<'_> {
     }
     /// A block's outline boxes in world space (`getShape` plus the random offset).
     fn outline_boxes(&self, pos: [i32; 3]) -> Vec<[f64; 6]> {
+        // The fork's dynamic shapes (AE2 cable buses), for the state they were made for.
+        let state = self.world.block(pos[0], pos[1], pos[2]);
         if let Some((id, _, boxes)) = self.world.dynamic_shapes.get(&(pos[0],pos[1],pos[2]))
             && *id == state {
             return boxes.iter().map(|b| std::array::from_fn(|i| f64::from(pos[i % 3]) + b[i])).collect();
@@ -4654,7 +4549,7 @@ impl Game<'_> {
                 if let Some(energy) = cell_energy
                     && let Some(block) = stacks.iter_mut().find(|d| d.item.as_ref() == facts.name.as_ref())
                 {
-                    block.data_mut().set_other("ae2:stored_energy", Some(horizon_world::nbt::Tag::Double(energy.to_bits())));
+                    block.data_mut().set_other("ae2:stored_energy", Some(horizon_core::nbt::Tag::Double(energy.to_bits())));
                 }
                 let silk = held
                     .as_ref()

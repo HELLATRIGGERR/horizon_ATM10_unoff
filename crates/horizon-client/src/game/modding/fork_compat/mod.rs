@@ -33,7 +33,7 @@ pub(in crate::game) use fork::{biome_climate, data_files, food_entry, food_of, w
 use horizon_client::{
     block_entities::Pos,
     containers::{BlockEntity, ModBlockEntity},
-    crafting::{Cooking, CustomRecipe, Ingredient},
+    crafting::{Cooking, Ingredient},
     health::Hurting,
     hud::HudBatch,
     items::ItemStack,

@@ -10,7 +10,7 @@ pub(super) use light::LightCache;
 use ae2_network_core::{Device, DeviceKind, Network, Pos};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity};
 use horizon_core::random::RandomSource;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::{BTreeMap, BTreeSet};
 type WorldPos = (i32, i32, i32);
 pub(super) fn is_tunnel(id: &str) -> bool {

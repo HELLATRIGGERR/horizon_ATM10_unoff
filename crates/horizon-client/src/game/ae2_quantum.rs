@@ -5,7 +5,7 @@ use horizon_core::random::RandomSource;
 use ae2_links_core::{Pos, QuantumBlock, QuantumFrame};
 use ae2_network_core::{Network, NodeIdentity, Pos as NetworkPos, quantum_registry::QuantumRegistry};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::{BTreeMap,BTreeSet,HashSet};
 
 type FrameNodes = BTreeMap<NetworkPos, (NodeIdentity, u8)>;

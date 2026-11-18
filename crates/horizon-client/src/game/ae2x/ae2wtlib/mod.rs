@@ -15,7 +15,7 @@ use horizon_client::{
     items::ItemStack,
     save,
 };
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 mod magnet;
 pub(in crate::game) mod magnet_screen;

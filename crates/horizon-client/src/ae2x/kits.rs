@@ -15,7 +15,7 @@ use crate::{
     ae2_world::{Machine, variant},
     items::ItemStack,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// A kit: the item, the devices it replaces and the cable parts it replaces,
 /// each with what takes its place.

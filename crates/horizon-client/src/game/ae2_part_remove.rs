@@ -1,7 +1,7 @@
 //! Transactional removal of a single physical multipart face.
 use super::{Game,KeyCode};
 use horizon_client::{ae2_world::{Machine,MachineKind},containers::BlockEntity};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 fn valid_list(tag:Option<&Tag>,limit:usize)->bool {
     match tag {None=>true,Some(Tag::List(entries)) if entries.len()<=limit=>entries.iter().all(|e|
         matches!(e.get("count"),Some(Tag::Int(n)) if *n>0) && horizon_client::save::item_from_nbt(e).is_some()),_=>false}

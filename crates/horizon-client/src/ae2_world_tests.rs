@@ -3,7 +3,7 @@
     use crate::ae2_world::*;
     use crate::items::ItemStack;
     use crate::{containers::BlockEntity, save};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     use std::sync::Arc;
     #[test]
     fn chest_constructor_capacity_is_runtime_state_not_saved_nbt() {

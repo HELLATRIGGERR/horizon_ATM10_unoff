@@ -87,7 +87,7 @@ pub fn recharge_amount(missing: f64, stored: f64, max: f64) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
 
     fn terminal(card: bool, singularity: Option<Option<i64>>) -> ItemStack {
         let mut stack = ItemStack::new("ae2:wireless_crafting_terminal", 1);

@@ -3,7 +3,7 @@
 //! are JEI's basic ones (a crafting grid, a furnace's input) and, with AE2, `ae2jeiintegration`'s (the Pattern
 //! Encoding Terminal's and the crafting terminal's, `ae2_recipe_transfer`). API 433.
 use super::*;
-use horizon_client::mod_api::{NativeRecipeTransfer, NativeStack, NativeTransferAnswer, NativeTransferHandler};
+use mod_api::{NativeRecipeTransfer, NativeStack, NativeTransferAnswer, NativeTransferHandler};
 
 /// The furnace menu's input slot (300 input, 301 fuel, 302 result).
 const FURNACE_INPUT: usize = 300;

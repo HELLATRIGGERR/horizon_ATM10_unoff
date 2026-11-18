@@ -26,7 +26,7 @@ use horizon_client::{
 };
 use horizon_core::random::RandomSource;
 use horizon_protocol::packets::play::{Clientbound, SystemChat};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::{cell::RefCell, collections::HashMap};
 
 const STORED: &str = "ae2:stored_energy";

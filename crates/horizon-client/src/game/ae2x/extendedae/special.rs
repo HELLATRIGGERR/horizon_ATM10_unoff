@@ -12,7 +12,7 @@
 use crate::game::Game;
 use ae2_machines_core::Key;
 use horizon_client::ae2x::extendedae::special::{self as rows, ModFilter, TagFilter};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;

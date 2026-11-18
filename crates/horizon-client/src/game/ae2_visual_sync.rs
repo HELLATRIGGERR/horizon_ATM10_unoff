@@ -3,7 +3,7 @@
 use super::{Game, lan::LanHost};
 use horizon_client::containers::BlockEntity;
 use horizon_protocol::packets::{configuration::CustomPayload, play::Clientbound};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},

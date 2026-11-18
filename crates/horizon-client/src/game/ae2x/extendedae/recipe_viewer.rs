@@ -5,11 +5,11 @@ use crate::game::{
     Game,
     ae2_recipe_viewer::{category, fluid_slot, output, result, slot, stack},
 };
-use horizon_client::mod_api::{NativeCategoryRecipe, NativeChanceOutput, NativeRecipeCategory};
+use mod_api::{NativeCategoryRecipe, NativeChanceOutput, NativeRecipeCategory};
 use serde_json::Value;
 
 /// `IngredientStack.ITEM_CODEC`: `ingredient`, `amount` (1 when absent).
-fn item_stack(game: &Game<'_>, v: &Value) -> Option<Vec<horizon_client::mod_api::NativeStack>> {
+fn item_stack(game: &Game<'_>, v: &Value) -> Option<Vec<mod_api::NativeStack>> {
     let amount = v.get("amount").map_or(Some(1), Value::as_u64)?.clamp(1, 64) as u32;
     slot(game, v.get("ingredient")?, amount)
 }

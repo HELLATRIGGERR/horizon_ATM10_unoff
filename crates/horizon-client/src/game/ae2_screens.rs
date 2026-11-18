@@ -17,7 +17,7 @@ use horizon_client::{
     hud::{HudBatch, rgba},
     items::ItemStack,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::ops::Range;
 
 /// Set on a button's menu-button id for a right press, which steps the

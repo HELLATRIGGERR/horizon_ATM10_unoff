@@ -10,6 +10,19 @@
 //! beside upstream's transactional `container_*`, as on the fork's main; `native_force_chunk`
 //! and `native_force_chunk_in` are in `fork.rs` with the ticket code.
 use super::*;
+use std::result::Result;
+
+/// The fork's mod list page entry (`native_mods`), kept for its bundles' shape.
+#[allow(dead_code)]
+pub(in crate::game) struct NativeMod {
+    /// Its id: its settings folder and its keys' lines.
+    pub id: String,
+    /// `Name 1.0`.
+    pub title: String,
+    pub description: String,
+    /// Its keys: name, label and default key (`key.keyboard.z`).
+    pub keys: Vec<[String; 3]>,
+}
 
 impl Game<'_> {
     /// The block at `pos` in the level in place, by name (`minecraft:stone`).
@@ -180,7 +193,7 @@ impl Game<'_> {
 
     /// The fork's mod list pages (`native_mods`). Upstream's mod settings are declared data
     /// (`content/mod_settings.rs`); nothing in the engine asks this yet.
-    pub(in crate::game) fn native_mods(&mut self, mods: &mut Vec<mod_api::NativeMod>) {
+    pub(in crate::game) fn native_mods(&mut self, mods: &mut Vec<NativeMod>) {
         let _ = mods;
     }
     /// A mod's settings buttons (`native_settings`); upstream declares settings instead.

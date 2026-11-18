@@ -9,7 +9,7 @@
 //! https://github.com/Mari023/AE2WirelessTerminalLibrary tag `19.5.1`).
 use super::defs::{self, TerminalKind, WirelessTerminal};
 use crate::{ae2_powered_items, ae2_upgrade_inventory::Inventory, items::ItemStack, save};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 /// The stored energy and its legacy alias in the port's own custom data.
 const STORED: &str = "ae2:stored_energy";

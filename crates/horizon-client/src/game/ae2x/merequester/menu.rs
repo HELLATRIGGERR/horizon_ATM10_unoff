@@ -16,7 +16,7 @@ use horizon_protocol::packets::{
     configuration::CustomPayload,
     play::{self, Clientbound as C},
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use serde_json::{Value, json};
 
 /// The screen's container slots: one ghost slot for each line on screen.

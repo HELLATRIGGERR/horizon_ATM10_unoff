@@ -6,7 +6,7 @@ use ae2_cell_core::{KeyType, KeyTypeSet};
 use ae2_machines_core::{BusState, Direction, Key, Redstone, TransferHost};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack, save};
 use horizon_core::random::RandomSource;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::json;
 
 fn only_energy_emitter_runtime_changes(before:&[Tag],after:&[Tag])->bool {

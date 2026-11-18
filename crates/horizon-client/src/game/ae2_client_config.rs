@@ -94,7 +94,7 @@ pub(super) struct CellPreview {
 pub(super) fn cell_preview(stack:&horizon_client::items::ItemStack, settings:ClientSettings) -> Option<CellPreview> {
     use ae2_cell_core::{KeyType,FilterMode};
     use horizon_client::{ae2_cell_codec as codec,ae2_upgrade_inventory};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     let id=stack.item.as_ref();
     if !codec::is_cell(id) && !matches!(id,"ae2:matter_cannon"|"ae2:color_applicator") { return None; }
     let cell=if codec::is_fluid_cell(id) {codec::read_fluid_cell(stack).ok()?} else {codec::read_cell(stack).ok()?};
@@ -223,7 +223,7 @@ mod tests {
     fn preview_keeps_each_mixed_content_channel() {
         use ae2_cell_core::KeyType;
         use horizon_client::items::ItemStack;
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut stack=ItemStack::new("ae2:item_storage_cell_1k",1);
         let item=Tag::compound([("#t",Tag::String("ae2:i".into())),("id",Tag::String("minecraft:diamond".into())),("#",Tag::Long(3))]);
         let fluid=Tag::compound([("#t",Tag::String("ae2:f".into())),("id",Tag::String("minecraft:water".into())),("#",Tag::Long(1000))]);

@@ -2,7 +2,7 @@
 //! are recipe descriptions only; physical blank/output stacks live in Machine.slots.
 use super::ae2_processing::PatternFluid;
 use horizon_client::{ae2_world::Machine,items::ItemStack,save};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// Convert a real source wrapper into a ghost value without moving the
 /// physical carrier; preserve both its key components and stored amount.
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn wrapped_ghosts_preserve_inner_identity_amount_and_components() {
         let component=Tag::compound([("minecraft:custom_data",Tag::compound([("variant",Tag::String("warm".into()))]))]);
-        let bytes=horizon_world::nbt::write_network(&component,horizon_world::nbt::Limits::default()).unwrap();
+        let bytes=horizon_core::nbt::write_network(&component,horizon_core::nbt::Limits::default()).unwrap();
         let value=horizon_client::ae2_generic_stack::GenericStack::fluid(ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components:bytes},1750);
         let physical=horizon_client::ae2_generic_stack::wrap(&value).unwrap();
         assert_eq!(wrapped_ghost(&physical,&|_,_|true).unwrap(),Some(WrappedGhost::Fluid(PatternFluid{key:value.key,amount:1750})));

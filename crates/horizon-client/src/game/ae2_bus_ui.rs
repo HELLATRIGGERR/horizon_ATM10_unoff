@@ -7,7 +7,7 @@ use horizon_client::{
     menu::{Input, Kind, Menu},
 };
 use horizon_protocol::packets::play::{self, Clientbound as C};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 type Pos = (i32, i32, i32);
 struct BusDrag {

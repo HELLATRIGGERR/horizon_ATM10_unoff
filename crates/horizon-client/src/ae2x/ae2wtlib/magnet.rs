@@ -7,7 +7,7 @@
 //! see `ae2/addons/ae2wtlib/`. The player's side is the game's
 //! (`game/ae2x/ae2wtlib/magnet.rs`).
 use crate::{ae2_upgrade_inventory::Inventory, items::ItemStack};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::{collections::HashSet, sync::OnceLock};
 
 /// `AE2wtlibItems.MAGNET_CARD`.

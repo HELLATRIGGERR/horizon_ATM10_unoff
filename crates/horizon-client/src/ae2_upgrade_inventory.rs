@@ -1,7 +1,7 @@
 //! AE2 19.2.18 ItemUpgradeInventory / UpgradeInventory, LGPL-3.0-or-later.
 //! Full physical one-card slots; legacy dense lists retain their old indices.
 use crate::{items::ItemStack, save};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 /// The size of an item's upgrade inventory, from the definitions registry.
 pub fn capacity(id: &str) -> Option<usize> {

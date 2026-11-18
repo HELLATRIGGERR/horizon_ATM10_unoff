@@ -10,7 +10,7 @@
 //! nothing here answers. API 435 is the other way: AE2 asking a mod's block.
 use super::Game;
 use super::native_fe::dim_of;
-use crate::game::native_hooks::NativeChemicalTankInfo;
+use mod_api::NativeChemicalTankInfo;
 use horizon_core::geometry::Direction;
 
 #[cfg(feature = "ae2-lab")]
@@ -19,7 +19,7 @@ mod ae2 {
     use crate::game::{ae2_global::GridAddress, ae2_interface};
     use ae2_cell_core::{ItemKey, KeyType};
     use horizon_client::{ae2_key_types as key_types, ae2_world::MachineKind, containers::BlockEntity};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
 
     /// Which generic inventory a side reaches.
     #[derive(Clone, Copy, PartialEq, Eq)]

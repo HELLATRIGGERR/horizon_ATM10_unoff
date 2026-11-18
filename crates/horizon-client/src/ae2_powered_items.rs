@@ -3,7 +3,7 @@
 //! custom-data saves remain readable.
 use crate::items::ItemStack;
 use crate::{crafting::Recipes, items::Items};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 const STORED: &str = "ae2:stored_energy";
 const CAPACITY: &str = "ae2:energy_capacity";
 /// Tooltips.energyStorageComponent, with AE2's capacity-dependent SI precision.

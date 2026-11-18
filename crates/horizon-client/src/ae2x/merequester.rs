@@ -8,7 +8,7 @@
 use super::defs::{Defs, PartDef};
 use crate::{ae2_generic_stack::{self, GenericStack}, ae2_world::{ExtMachine, Machine}, items::ItemStack};
 use ae2_cell_core::{ItemKey, KeyType};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::sync::OnceLock;
 
 pub use ae2_merequester_core as core;

@@ -19,7 +19,7 @@ use horizon_client::{
     containers::BlockEntity,
 };
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::HashMap;
 
 /// The pace of each pushing side, by the accessor's position and the side

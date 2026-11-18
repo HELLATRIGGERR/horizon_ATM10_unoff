@@ -11,7 +11,7 @@
 use crate::game::Game;
 use horizon_client::{ae2_world::MachineKind, ae2x::extendedae as rows, containers::BlockEntity, items::ItemStack, save};
 use horizon_world::chunk::BlockState;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 const FACES: [&str; 6] = ["east", "west", "up", "down", "south", "north"];
 fn face_name(face: [i32; 3]) -> Option<&'static str> {

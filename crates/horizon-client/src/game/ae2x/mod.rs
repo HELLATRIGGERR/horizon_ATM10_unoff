@@ -57,7 +57,7 @@ pub(super) trait ExportLoop {
 /// An addon level emitter's output for the grid's `count` of its key, its
 /// `LOW_SIGNAL` setting `low` (ExtendedAE's Threshold Level Emitter: its
 /// band and saved state); none for AE2's own.
-pub(super) fn emitter_signal(part: &mut horizon_world::nbt::Compound, low: bool, count: i64) -> Option<bool> {
+pub(super) fn emitter_signal(part: &mut horizon_core::nbt::Compound, low: bool, count: i64) -> Option<bool> {
     let _ = (&part, low, count);
     #[cfg(feature = "ae2-extendedae")]
     if let Some(on) = extendedae::special::emitter_signal(part, low, count) {
@@ -68,10 +68,10 @@ pub(super) fn emitter_signal(part: &mut horizon_world::nbt::Compound, low: bool,
 
 /// Whether a formation plane `part` is the grid's storage (AE2's); an
 /// addon's that places on its own is not (ExtendedAE's Active Formation Plane).
-pub(super) fn formation_storage(part: &horizon_world::nbt::Compound) -> bool {
+pub(super) fn formation_storage(part: &horizon_core::nbt::Compound) -> bool {
     let _ = part;
     #[cfg(feature = "ae2-extendedae")]
-    if part.get(&"id".into()) == Some(&horizon_world::nbt::Tag::String(horizon_client::ae2x::extendedae::special::ACTIVE_FORMATION_PLANE.into())) {
+    if part.get(&"id".into()) == Some(&horizon_core::nbt::Tag::String(horizon_client::ae2x::extendedae::special::ACTIVE_FORMATION_PLANE.into())) {
         return false;
     }
     true
@@ -99,7 +99,7 @@ pub(super) fn interface_item_max(machine: &Machine, stack_max: u32) -> u32 {
 
 /// A config slot of an addon bus set from the hand: the amount it keeps
 /// beside the key (ExtendedAE's precise and threshold buses).
-pub(super) fn bus_config_amount(part: &mut horizon_world::nbt::Compound, slot: usize, amount: Option<u64>) {
+pub(super) fn bus_config_amount(part: &mut horizon_core::nbt::Compound, slot: usize, amount: Option<u64>) {
     let _ = (&part, slot, amount);
     #[cfg(feature = "ae2-extendedae")]
     extendedae::special::config_amount(part, slot, amount);
@@ -456,7 +456,7 @@ pub(super) fn part_style(id: &str) -> Option<(&'static str, &'static str)> {
 /// An addon bus's work (`doBusWork` of Advanced AE's buses), for its part
 /// record `part`: none where it is AE2's ([`ae2_machines_core::BusState::tick`]).
 pub(super) fn bus_tick<H: ae2_machines_core::TransferHost>(
-    part: &horizon_world::nbt::Compound,
+    part: &horizon_core::nbt::Compound,
     state: &mut ae2_machines_core::BusState,
     active: bool,
     loaded: bool,
@@ -471,13 +471,13 @@ pub(super) fn bus_tick<H: ae2_machines_core::TransferHost>(
 }
 /// A key set in filter `slot` of an addon bus whose filters keep amounts
 /// (Advanced AE's stock buses): the amount from `held`.
-pub(super) fn bus_filter_set(part: &mut horizon_world::nbt::Compound, slot: usize, key: Option<&ae2_machines_core::Key>, held: Option<&horizon_client::items::ItemStack>) {
+pub(super) fn bus_filter_set(part: &mut horizon_core::nbt::Compound, slot: usize, key: Option<&ae2_machines_core::Key>, held: Option<&horizon_client::items::ItemStack>) {
     #[cfg(feature = "ae2-advancedae")]
     advancedae::buses::filter_set(part, slot, key, held);
     let _ = (part, slot, key, held);
 }
 /// A press on the bus menu's `place` that is an addon bus's own setting.
-pub(super) fn bus_setting_press(part: &mut horizon_world::nbt::Compound, place: usize) -> bool {
+pub(super) fn bus_setting_press(part: &mut horizon_core::nbt::Compound, place: usize) -> bool {
     #[cfg(feature = "ae2-advancedae")]
     if advancedae::buses::setting_press(part, place) {
         return true;
@@ -486,7 +486,7 @@ pub(super) fn bus_setting_press(part: &mut horizon_world::nbt::Compound, place: 
     false
 }
 /// What an addon bus's screen shows beyond AE2's, from its part record.
-pub(super) fn part_view(part: &horizon_world::nbt::Compound, view: &mut super::ae2_part_screens::PartView) {
+pub(super) fn part_view(part: &horizon_core::nbt::Compound, view: &mut super::ae2_part_screens::PartView) {
     #[cfg(feature = "ae2-advancedae")]
     advancedae::buses::part_view(part, view);
     let _ = (part, view);
@@ -713,7 +713,7 @@ pub(super) enum NetworkPick {
 
 impl Game<'_> {
     /// The export loop of an addon's export bus `part`; none for AE2's.
-    pub(super) fn ae2x_export_loop(&self, part: &horizon_world::nbt::Compound) -> Option<Box<dyn ExportLoop>> {
+    pub(super) fn ae2x_export_loop(&self, part: &horizon_core::nbt::Compound) -> Option<Box<dyn ExportLoop>> {
         let _ = part;
         #[cfg(feature = "ae2-extendedae")]
         if let Some(found) = self.extendedae_export_loop(part) {
@@ -723,7 +723,7 @@ impl Game<'_> {
     }
     /// What an addon's annihilation plane `part` takes into the grid
     /// (ExtendedAE's Smart Annihilation Plane); none for AE2's, which takes all.
-    pub(super) fn ae2x_plane_filter(&self, part: &horizon_world::nbt::Compound) -> Option<Box<dyn Fn(&horizon_client::items::ItemStack) -> bool>> {
+    pub(super) fn ae2x_plane_filter(&self, part: &horizon_core::nbt::Compound) -> Option<Box<dyn Fn(&horizon_client::items::ItemStack) -> bool>> {
         let _ = part;
         #[cfg(feature = "ae2-extendedae")]
         if let Some(found) = self.extendedae_plane_filter(part) {
@@ -733,14 +733,14 @@ impl Game<'_> {
     }
     /// A formation plane that works on its own, once a bus tick: an addon's
     /// (ExtendedAE's Active Formation Plane); AE2's is storage and does nothing here.
-    pub(super) fn ae2x_plane_tick(&mut self, pos: (i32, i32, i32), part: &mut horizon_world::nbt::Compound, identity: ae2_network_core::NodeIdentity, service: Option<u64>, now: u64) {
+    pub(super) fn ae2x_plane_tick(&mut self, pos: (i32, i32, i32), part: &mut horizon_core::nbt::Compound, identity: ae2_network_core::NodeIdentity, service: Option<u64>, now: u64) {
         let _ = (pos, &part, identity, service, now);
         #[cfg(feature = "ae2-extendedae")]
         self.extendedae_active_plane_tick(pos, part, identity, service, now);
     }
     /// The partition list of an addon's storage bus `part`, on its item or
     /// fluid channel; none for AE2's own.
-    pub(super) fn ae2x_mount_filter(&self, part: &horizon_world::nbt::Compound, fluid: bool) -> Option<MountFilter> {
+    pub(super) fn ae2x_mount_filter(&self, part: &horizon_core::nbt::Compound, fluid: bool) -> Option<MountFilter> {
         let _ = (part, fluid);
         #[cfg(feature = "ae2-extendedae")]
         if let Some(filter) = self.extendedae_mount_filter(part, fluid) {
@@ -1923,7 +1923,7 @@ impl Game<'_> {
 
 impl Game<'_> {
     /// The addons' recipe viewer categories (`native_recipe_categories`), after AE2's own.
-    pub(super) fn ae2x_recipe_categories(&self, out: &mut Vec<horizon_client::mod_api::NativeRecipeCategory>) {
+    pub(super) fn ae2x_recipe_categories(&self, out: &mut Vec<mod_api::NativeRecipeCategory>) {
         let _ = &out;
         #[cfg(feature = "ae2-extendedae")]
         extendedae::recipe_viewer::categories(self, out);

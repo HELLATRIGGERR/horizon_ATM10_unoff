@@ -1,7 +1,7 @@
 //! AE2 19.2.18 developer ItemGenBlockEntity behavior, LGPL-3.0-or-later.
 use super::Game;
 use horizon_client::{ae2_world::{Machine, MachineKind}, containers::BlockEntity, items::{ItemStack, Items}};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::cell::Cell;
 
 // The upstream unfiltered generator queue is shared by all instances and is

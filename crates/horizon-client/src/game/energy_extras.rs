@@ -5,7 +5,8 @@
 //! Without it they answer nothing. AE2's adapters are sided and `int`: a
 //! call for the block itself (no side) finds none, and amounts are clamped
 //! to `i32::MAX` whatever the call's width.
-use super::{Dim, Game, native_hooks::NativeFeInfo};
+use super::{Dim, Game};
+use mod_api::NativeFeInfo;
 use horizon_core::geometry::Direction;
 
 #[cfg(feature = "ae2-lab")]

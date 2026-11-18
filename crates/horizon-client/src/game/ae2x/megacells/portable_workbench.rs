@@ -21,7 +21,7 @@ use horizon_protocol::packets::{
     configuration::CustomPayload,
     play::{self, Clientbound as C},
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::VecDeque;
 
 /// `CellWorkbenchScreen` presses filter `index` as window slot 100 + index.

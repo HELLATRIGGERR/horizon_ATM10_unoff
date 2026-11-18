@@ -10,7 +10,7 @@ use super::defs::{Defs, HandlerCellDef, PortableBattery};
 use crate::ae2_key_types::{self, KeyBehaviour, KeyCodec, KeyType, KeyTypeDef};
 use crate::items::ItemStack;
 use ae2_cell_core::ItemKey;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::sync::OnceLock;
 
 pub const NAMESPACE: &str = "appflux";

@@ -2,7 +2,7 @@
 use super::{Game,lan::LanHost,ae2_global::GridAddress,ae2_parts::PartAddress};
 use horizon_client::{ae2_world::{Machine,MachineKind},containers::BlockEntity,items::ItemStack,menu::{Input,Kind,Menu}};
 use horizon_protocol::packets::play::{self,Clientbound as C};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use horizon_core::geometry::Direction;
 use std::collections::BTreeSet;
 /// `Settings.TERMINAL_SHOW_PATTERN_PROVIDERS` in `ae2:exported_settings`.

@@ -2,7 +2,7 @@
 //! currently supported AE2 19.2.18 machines; broader component compatibility
 //! and unimplemented machines remain separate work.
 use horizon_client::{ae2_world::{Machine,MachineKind},items::ItemStack,save};
-use horizon_world::nbt::{Compound,Tag};
+use horizon_core::nbt::{Compound,Tag};
 const KEY:&str="ae2_memory_settings";
 /// Compare a source item description by component content and style.
 /// ComponentSerialization permits a one-element list, default-empty argument

@@ -3,7 +3,7 @@
 use super::{Game,ae2_global::GridAddress};
 use ae2_network_core::NodeIdentity;
 use horizon_client::containers::BlockEntity;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::{collections::{BTreeMap,BTreeSet},path::PathBuf};
 const OWNER:&str="ae2_node_owner_uuid";
 type Uuid=[i32;4];

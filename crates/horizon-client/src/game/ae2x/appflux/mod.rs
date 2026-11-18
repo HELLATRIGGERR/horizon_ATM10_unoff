@@ -79,7 +79,7 @@ impl Game<'_> {
         rows::fe_cell(stack).map(FeCell).ok_or_else(|| "not an FE cell".into())
     }
     /// The FE storage of the block at `target` through its side `face`.
-    fn appflux_fe_info(&self, target: GridAddress, face: Direction) -> Option<super::super::native_hooks::NativeFeInfo> {
+    fn appflux_fe_info(&self, target: GridAddress, face: Direction) -> Option<mod_api::NativeFeInfo> {
         let (dim, pos) = target.local_parts()?;
         self.fe_info_at(dim, [pos.0, pos.1, pos.2], Some(face), false)
     }

@@ -28,7 +28,7 @@ use horizon_client::{
     items::ItemStack,
 };
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::ops::Range;
 
 pub(in crate::game) const PATTERNS: usize = 9;

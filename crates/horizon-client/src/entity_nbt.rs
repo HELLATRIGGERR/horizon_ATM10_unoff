@@ -2877,8 +2877,8 @@ mod tiny_tnt_nbt_tests {
     fn primed_tiny_tnt_roundtrips_entity_nbt_with_fuse_and_motion() {
         let pos=Vec3::new(-13.25,67.5,2.75); let velocity=Vec3::new(0.02,-0.04,0.03);
         let tag=primed_tnt_to_nbt("ae2:tiny_tnt_primed",pos,velocity,[1,2,3,4],37,true);
-        let bytes=horizon_world::nbt::write_network(&tag,horizon_world::nbt::Limits::default()).unwrap();
-        let (read,used)=horizon_world::nbt::read_network(&bytes,horizon_world::nbt::Limits::default()).unwrap();
+        let bytes=horizon_core::nbt::write_network(&tag,horizon_core::nbt::Limits::default()).unwrap();
+        let (read,used)=horizon_core::nbt::read_network(&bytes,horizon_core::nbt::Limits::default()).unwrap();
         assert_eq!(used,bytes.len());assert_eq!(kind(&read).as_deref(),Some("ae2:tiny_tnt_primed"));
         assert_eq!(position(&read),Some(pos));assert_eq!(motion(&read),velocity);assert_eq!(uuid(&read),Some([1,2,3,4]));
         assert_eq!(read.get("fuse"),Some(&Tag::Short(37)));assert_eq!(read.get("OnGround"),Some(&Tag::Byte(1)));

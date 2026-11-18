@@ -65,8 +65,8 @@ impl Game<'_> {
        for component in &analysis.components {
           let has_storage_bus=component.positions.iter().filter_map(|p|super::ae2_global::GridAddress::from_network(*p)).any(|address| {
               let Some(horizon_client::containers::BlockEntity::Ae2(machine))=self.ae2_block_entity(address) else{return false};
-              let Some(horizon_world::nbt::Tag::List(parts))=machine.config.get(&"parts".into()) else{return false};
-              parts.iter().any(|part|part.get("id")==Some(&horizon_world::nbt::Tag::String("ae2:storage_bus".into())))
+              let Some(horizon_core::nbt::Tag::List(parts))=machine.config.get(&"parts".into()) else{return false};
+              parts.iter().any(|part|part.get("id")==Some(&horizon_core::nbt::Tag::String("ae2:storage_bus".into())))
           });
           if !has_storage_bus {continue}
           let Some(anchor)=component.positions.iter().find(|p|analysis.nodes.get(p).is_some_and(|n|n.online)).and_then(|p|super::ae2_global::GridAddress::from_network(*p)) else {continue};

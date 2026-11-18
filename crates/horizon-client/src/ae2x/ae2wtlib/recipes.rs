@@ -11,7 +11,7 @@ use crate::{
     items::{ItemStack, Items},
     recipe_book::Display,
 };
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::Value;
 
 /// `CombineSerializer.NAME`, `UpgradeSerializer.NAME`.

@@ -7,7 +7,7 @@ use horizon_client::{
     item_data,
     items::ItemStack,
 };
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::{Value, json};
 /// Source PatternProviderBlock.PUSH_DIRECTION; absent means the legacy ALL state.
 pub(super) fn provider_push_direction(state:&horizon_world::chunk::BlockState)->Result<Option<horizon_core::geometry::Direction>,()> {
@@ -1112,7 +1112,7 @@ mod recursive {
         let len=data.encode_utf16().try_fold(0usize,|n,c|n.checked_add(match c {1..=127=>1,0..=2047=>2,_=>3}))
             .ok_or("CPU job size overflow")?;
         if len<=u16::MAX as usize {Ok(Tag::String(data.as_str().into()))}
-        else if data.len()<=horizon_world::nbt::Limits::default().max_bytes {Ok(Tag::ByteArray(data.into_bytes()))}
+        else if data.len()<=horizon_core::nbt::Limits::default().max_bytes {Ok(Tag::ByteArray(data.into_bytes()))}
         else {Err("CPU job exceeds save size".into())}
     }
     fn write_session(
@@ -4834,8 +4834,8 @@ mod recursive {
             let mut session=Session{cpu,suspended:false,specs:BTreeMap::new(),flights:BTreeMap::new(),flight_threads:BTreeMap::new(),job_id:Some([3,4]),address_version:1,requester:None,export_requester:None,#[cfg(feature = "ae2-merequester")] me_requester:None,player_owner:None,started_tick:0,start_items:0};
             item.count=999_999;let mut machine=Machine::new(MachineKind::CraftingStorage256k);
             write_session(&mut machine,&session,&[item.clone()]).unwrap();
-            let bytes=horizon_world::nbt::write_network(&Tag::Compound(machine.config.clone()),Default::default()).unwrap();
-            let (Tag::Compound(config),_)=horizon_world::nbt::read_network(&bytes,Default::default()).unwrap() else{panic!("compound config")};machine.config=config;
+            let bytes=horizon_core::nbt::write_network(&Tag::Compound(machine.config.clone()),Default::default()).unwrap();
+            let (Tag::Compound(config),_)=horizon_core::nbt::read_network(&bytes,Default::default()).unwrap() else{panic!("compound config")};machine.config=config;
             session=read_session(&machine,super::super::super::Dim::Overworld).unwrap();assert_eq!(session.cpu.escrow(),&Inventory::from([(key,999_999)]));
             assert_eq!(read_escrow(&machine).unwrap(),vec![item.clone()]);session.cpu.cancel().unwrap();
             write_session(&mut machine,&session,&[item.clone()]).unwrap();assert_eq!(read_escrow(&machine).unwrap(),vec![item]);
@@ -5135,8 +5135,8 @@ mod recursive {
             let mut machine=Machine::new(MachineKind::CraftingStorage16k);write_session(&mut machine,&session,&inputs).unwrap();
             assert!(matches!(machine.config.get(&JOB.into()),Some(Tag::ByteArray(v)) if v.len()>65_535));
             let root=Tag::Compound(machine.config.clone());
-            let bytes=horizon_world::nbt::write_network(&root,horizon_world::nbt::Limits::default()).unwrap();
-            let (Tag::Compound(config),_)=horizon_world::nbt::read_network(&bytes,horizon_world::nbt::Limits::default()).unwrap() else{panic!("compound config")};
+            let bytes=horizon_core::nbt::write_network(&root,horizon_core::nbt::Limits::default()).unwrap();
+            let (Tag::Compound(config),_)=horizon_core::nbt::read_network(&bytes,horizon_core::nbt::Limits::default()).unwrap() else{panic!("compound config")};
             machine.config=config;
             let loaded=read_session(&machine,super::super::super::Dim::Overworld).unwrap();
             assert_eq!(loaded.specs.len(),1);assert_eq!(loaded.job_id,Some([7,11]));assert_eq!(loaded.cpu.pending().len(),4097);assert_eq!(loaded.cpu.escrow(),&stock);

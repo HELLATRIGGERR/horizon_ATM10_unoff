@@ -13,6 +13,7 @@
 //! `EntityRef`/`Placement`, `PlayerTickPostCall`) so that no fork-shaped forwarder can build
 //! them; nothing in the engine fires them by the old name.
 use super::*;
+use std::result::Result;
 use std::path::PathBuf;
 
 impl Game<'_> {

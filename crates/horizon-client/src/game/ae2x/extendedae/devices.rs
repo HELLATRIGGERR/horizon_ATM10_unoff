@@ -18,7 +18,7 @@ use horizon_client::{
     items::ItemStack,
 };
 use horizon_core::{geometry::Direction, random::RandomSource};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 /// The mod's devices that are AE2's machines several times over.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

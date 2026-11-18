@@ -183,7 +183,7 @@ mod portable_tests {
     use super::*;
     #[test]
     fn idle_drain_pays_ten_ticks_at_the_configured_usage() {
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut cell=ItemStack::new("ae2:portable_item_cell_1k",1);
         cell.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(1000.0f64.to_bits())));
         cell.data_mut().set_other("ae2:energy_capacity",Some(Tag::Double(1000.0f64.to_bits())));
@@ -199,7 +199,7 @@ mod portable_tests {
     }
     #[test]
     fn source_portable_power_overrides_legacy_and_updates_on_transfer() {
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut cell=ItemStack::new("ae2:portable_item_cell_1k",1);
         cell.data_mut().set_other("minecraft:custom_data",Some(Tag::compound([("ae2_portable_energy",Tag::Double(90.0f64.to_bits()))])));
         cell.data_mut().set_other("ae2:stored_energy",Some(Tag::Double(20.0f64.to_bits())));

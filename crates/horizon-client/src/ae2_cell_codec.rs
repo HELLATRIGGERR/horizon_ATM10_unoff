@@ -2,7 +2,7 @@
 //! Derived from AE2 19.2.18 BasicCellInventory (LGPL-3.0-or-later).
 use crate::{items::ItemStack, save};
 use ae2_cell_core::{Cell, CellConfig, ItemKey, KeyType, TypedKey};
-use horizon_world::nbt::{self, Compound, Limits, Tag};
+use horizon_core::nbt::{self, Compound, Limits, Tag};
 use std::collections::BTreeSet;
 const COMPONENT: &str = "minecraft:custom_data";
 const CELL_DATA: &str = "ae2_cell";
@@ -1016,7 +1016,7 @@ mod tests {
 mod item_key_tests {
     use horizon_items::item_data::{decode_components, encode_components};
     use horizon_items::items::ItemStack;
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     #[test]
     fn source_codec_alternatives_and_explicit_defaults_use_one_item_key() {
         let levels=Tag::compound([("minecraft:sharpness",Tag::Int(3))]);

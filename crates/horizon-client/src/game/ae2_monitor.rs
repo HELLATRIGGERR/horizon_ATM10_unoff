@@ -3,7 +3,7 @@
 use super::{Game, ae2_lab};
 use ae2_cell_core::ItemKey;
 use horizon_client::{containers::BlockEntity, items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use winit::keyboard::KeyCode;
 type Pos=(i32,i32,i32);
 #[derive(Clone,Debug)]

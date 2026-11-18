@@ -12,7 +12,7 @@
 //! assembler's tick and the CPU's dispatch and collection work on any of
 //! them; a job's flight names the thread it went to.
 use horizon_client::{ae2_world::{Machine, MachineKind, ASSEMBLER_THREAD_PREFIX}, save};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 /// AE2's assembler's slots: the grid, the output, the pattern.
 pub(super) const SLOTS: usize = 11;

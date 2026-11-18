@@ -141,7 +141,7 @@ pub(in crate::game) mod tests {
     use ae2_cell_core::{Action, ItemKey};
     use ae2_megacells_core::{Chains, CraftingRecipe, load_recipes};
     use horizon_client::{ae2x::megacells as rows, items::ItemStack, text::Text};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
 
     pub(in crate::game) fn key(id: &str) -> ItemKey {
         horizon_client::ae2_cell_codec::key(&ItemStack::new(id, 1)).unwrap()

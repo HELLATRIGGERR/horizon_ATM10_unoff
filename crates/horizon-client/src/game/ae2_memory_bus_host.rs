@@ -4,7 +4,7 @@ struct BusMemorySnapshot {
     face:String,
     id:String,
     host:Machine,
-    part:horizon_world::nbt::Compound,
+    part:horizon_core::nbt::Compound,
     incarnation:u64,
     name:Option<String>,
     name_component:Option<Tag>,
@@ -26,7 +26,7 @@ impl Game<'_> {
         super::ae2_buses::bus_state(part)?;
         Ok(Some(BusMemorySnapshot{index,face:face.to_owned(),id,host:(**host).clone(),part:part.clone(),incarnation:self.world.block_entities.incarnation(&key).ok_or("missing bus identity")?,name:stack.custom_name(),name_component:stack_name_component(&stack)}))
     }
-    fn bus_memory_commit(&mut self,pos:[i32;3],snapshot:&BusMemorySnapshot,mut part:horizon_world::nbt::Compound,name:Option<Option<Tag>>)->Result<(),String>{
+    fn bus_memory_commit(&mut self,pos:[i32;3],snapshot:&BusMemorySnapshot,mut part:horizon_core::nbt::Compound,name:Option<Option<Tag>>)->Result<(),String>{
         let key=(pos[0],pos[1],pos[2]);if self.world.block_entities.incarnation(&key)!=Some(snapshot.incarnation){return Err("bus host identity changed".into())}
         if part.get(&"face".into())!=Some(&Tag::String(snapshot.face.as_str().into()))||part.get(&"id".into())!=Some(&Tag::String(snapshot.id.as_str().into())){return Err("bus face changed".into())}
         if let Some(name)=name {let mut stack=part.get(&"stack".into()).and_then(save::item_from_nbt).ok_or("invalid bus stack")?;stack.set_custom_name_component(name);part.insert("stack".into(),save::item_to_nbt(&stack));}

@@ -38,7 +38,7 @@ use crate::game::ae2_source_patterns as source;
 use ae2_cell_core::{ItemKey, KeyType};
 use horizon_client::{ae2_generic_stack::GenericStack, ae2_world::Machine, ae2x::advancedae as rows, items::ItemStack};
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// What the game keeps for Advanced AE while it runs; nothing of it is saved.
 #[derive(Default)]

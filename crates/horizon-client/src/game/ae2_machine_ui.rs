@@ -40,7 +40,7 @@ impl MenuShape {
             MachineKind::PatternProvider if slots > 9 => Self { size: 54, slots, page: None },
             MachineKind::Interface if slots > 9 => {
                 let page = match m.config.get(&PAGE_KEY.into()) {
-                    Some(horizon_world::nbt::Tag::Int(page)) => usize::try_from(*page).unwrap_or(0),
+                    Some(horizon_core::nbt::Tag::Int(page)) => usize::try_from(*page).unwrap_or(0),
                     _ => 0,
                 };
                 Self { size: 54, slots, page: Some(page.min(slots / PAGE_SLOTS - 1) * PAGE_SLOTS) }
@@ -182,7 +182,7 @@ mod menu_shape_tests {
         // Player slots lie past every logical number.
         assert!(first.logical(54) > first.logical(53));
 
-        interface.config.insert(PAGE_KEY.into(), horizon_world::nbt::Tag::Int(1));
+        interface.config.insert(PAGE_KEY.into(), horizon_core::nbt::Tag::Int(1));
         let second = MenuShape::of(&interface);
         assert_eq!(second.page, Some(18));
         assert_eq!((second.logical(0), second.logical(17)), (18, 35));
@@ -190,7 +190,7 @@ mod menu_shape_tests {
         assert_eq!(second.internal(17, true), Some(335));
 
         // A saved page past the last one shows the last.
-        interface.config.insert(PAGE_KEY.into(), horizon_world::nbt::Tag::Int(9));
+        interface.config.insert(PAGE_KEY.into(), horizon_core::nbt::Tag::Int(9));
         assert_eq!(MenuShape::of(&interface).page, Some(18));
     }
 
@@ -202,7 +202,7 @@ mod menu_shape_tests {
         interface.slots[20] = Some(ItemStack::new("minecraft:dirt", 3));
         interface.upgrades[0] = Some(ItemStack::new("ae2:fuzzy_card", 1));
         super::super::ae2_interface::set_interface_config(&mut interface, 35, Some(&ItemStack::new("minecraft:sand", 5))).unwrap();
-        interface.config.insert(PAGE_KEY.into(), horizon_world::nbt::Tag::Int(1));
+        interface.config.insert(PAGE_KEY.into(), horizon_core::nbt::Tag::Int(1));
         let items = paged_interface_items(&interface, MenuShape::of(&interface));
         assert_eq!(items.len(), 54);
         assert_eq!(items[2].as_ref().unwrap().item.as_ref(), "minecraft:dirt");

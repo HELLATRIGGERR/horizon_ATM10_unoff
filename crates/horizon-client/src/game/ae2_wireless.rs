@@ -5,7 +5,7 @@
 //! (`horizon_client::ae2x::wireless`, AE2WTLib's `WTDefinition`).
 use super::{Game, ae2_global::GridAddress, lan::LanHost};
 use horizon_client::{ae2_world::MachineKind, ae2x::{defs::{AccessPointCard, TerminalKind}, wireless}, containers::BlockEntity, items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use ae2_cell_core::{KeyType, KeyTypeSet};
 pub(super) use horizon_client::ae2x::wireless::{charge_rate, energy, transfer_energy};
 type Pos = (i32, i32, i32);
@@ -64,7 +64,7 @@ pub(super) fn cycle_key_types(enabled:KeyTypeSet, all:KeyTypeSet) -> KeyTypeSet 
         _ => all,
     }
 }
-fn custom(stack: &ItemStack) -> Result<horizon_world::nbt::Compound, String> {
+fn custom(stack: &ItemStack) -> Result<horizon_core::nbt::Compound, String> {
     match stack.data().and_then(|d| d.other("minecraft:custom_data")) {
         Some(Tag::Compound(c)) => Ok(c.clone()),
         None => Ok(Default::default()),

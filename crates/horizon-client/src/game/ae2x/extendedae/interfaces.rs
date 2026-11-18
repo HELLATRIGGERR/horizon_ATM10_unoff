@@ -8,7 +8,7 @@ use ae2_machines_core::Key;
 use horizon_client::ae2_world::Machine;
 use horizon_client::ae2x::extendedae::{Config, special as rows};
 use horizon_client::containers::BlockEntity;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// `EAEConfig.getOversizeMultiplier` of an Oversize Interface's key type;
 /// none for any other machine.

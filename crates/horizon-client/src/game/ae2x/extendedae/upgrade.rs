@@ -49,7 +49,7 @@ mod tests {
     use horizon_client::ae2x::kits::{upgraded, upgraded_part};
     use super::*;
     use horizon_client::{ae2_world::{Machine, variant}, items::ItemStack};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
 
     fn kit(item: &str) -> Option<&'static Kit> {
         KITS.iter().find(|kit| kit.item == item)

@@ -387,7 +387,7 @@ mod tests {
         assert_eq!(machine.kind.ext().and_then(|row| row.power_capacity), Some(8_000.0));
         let limit = |card| crate::ae2x::defs::get().upgrade_limit(card, QUANTUM_CRAFTER);
         assert_eq!((limit("ae2:speed_card"), limit("ae2:redstone_card"), limit("ae2:capacity_card")), (4, 1, 0));
-        machine.config.insert(WORKING.into(), horizon_world::nbt::Tag::Byte(1));
+        machine.config.insert(WORKING.into(), horizon_core::nbt::Tag::Byte(1));
         reset_unsaved(&mut machine);
         assert!(machine.config.get(&WORKING.into()).is_none());
     }
@@ -401,8 +401,8 @@ mod tests {
         assert_eq!(machine.kind.ext().and_then(|row| row.power_capacity), Some(500_000.0));
         assert_eq!(crate::ae2x::defs::get().upgrade_limit("ae2:speed_card", REACTION_CHAMBER), 4);
         machine.progress = 120.0;
-        machine.config.insert(WORKING.into(), horizon_world::nbt::Tag::Byte(1));
-        machine.config.insert("auto_export".into(), horizon_world::nbt::Tag::String("YES".into()));
+        machine.config.insert(WORKING.into(), horizon_core::nbt::Tag::Byte(1));
+        machine.config.insert("auto_export".into(), horizon_core::nbt::Tag::String("YES".into()));
         crate::ae2x::reset_unsaved(&mut machine);
         assert_eq!(machine.progress, 0.0, "processingTime is not saved");
         assert!(machine.config.get(&WORKING.into()).is_none());

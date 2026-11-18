@@ -9,7 +9,7 @@ use horizon_client::{
     items::{ItemStack, Items},
 };
 use horizon_core::random::RandomSource;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::sync::Arc;
 use super::ae2_tick_tracker::{Tracker, Modulation};
 
@@ -967,7 +967,7 @@ mod tests {
     fn inscriber_auto_export_only_wakes_for_enabled_physical_output() {
         use super::{inscriber_auto_export_work,processing_input};
         use horizon_client::{ae2_world::{Machine,MachineKind},items::ItemStack};
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut machine=Machine::new(MachineKind::Inscriber);
         machine.slots[3]=Some(ItemStack::new("ae2:printed_logic_processor",4));
         let before=processing_input(&machine);assert!(!inscriber_auto_export_work(&machine));
@@ -1062,8 +1062,8 @@ mod tests {
         machine.slots[2] = Some(simple_stack("minecraft:diamond"));
         let output = name_press_recipe(&machine).unwrap();
         let encoded = horizon_client::save::item_to_nbt(&output);
-        let bytes = horizon_world::nbt::write_network(&encoded, Default::default()).unwrap();
-        let (decoded, _) = horizon_world::nbt::read_network(&bytes, Default::default()).unwrap();
+        let bytes = horizon_core::nbt::write_network(&encoded, Default::default()).unwrap();
+        let (decoded, _) = horizon_core::nbt::read_network(&bytes, Default::default()).unwrap();
         let restored = horizon_client::save::item_from_nbt(&decoded).unwrap();
         let name = restored.custom_name_component().unwrap();
         assert_eq!(name.get("color"), Some(&Tag::String("red".into())));

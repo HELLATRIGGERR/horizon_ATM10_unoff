@@ -833,8 +833,8 @@ impl Game<'_> {
         assert_eq!(spatial_plot_id(&cell), Some(3), "the source component takes precedence over the old wrapper");
         assert_eq!(cell.data().unwrap().other("minecraft:custom_data"), Some(&legacy));
         let saved = horizon_client::save::item_to_nbt(&cell);
-        let bytes = horizon_world::nbt::write_network(&saved, Default::default()).unwrap();
-        let (decoded, _) = horizon_world::nbt::read_network(&bytes, Default::default()).unwrap();
+        let bytes = horizon_core::nbt::write_network(&saved, Default::default()).unwrap();
+        let (decoded, _) = horizon_core::nbt::read_network(&bytes, Default::default()).unwrap();
         let restored = horizon_client::save::item_from_nbt(&decoded).unwrap();
         assert_eq!(restored, cell);
         assert_eq!(spatial_plot_id(&restored), Some(3));

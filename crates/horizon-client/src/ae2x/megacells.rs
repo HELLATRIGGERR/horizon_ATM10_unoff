@@ -18,7 +18,7 @@ use super::defs::{CellDef, Defs, HandlerCellDef, add_storage_cell_cards};
 use crate::items::ItemStack;
 use ae2_cell_core::ItemKey;
 use ae2_megacells_core::{Big, BulkCell, BulkData, Chains};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use crate::ae2_world::{CraftingUnit, EnergyCell, MachineKind, MachineVariant};
 use ae2_cell_core::{KeyType, Tier};
 

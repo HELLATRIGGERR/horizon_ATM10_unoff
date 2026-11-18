@@ -21,20 +21,20 @@ fn parse_common_config(text: &str) -> Result<ChannelMode, String> {
 }
 /// ManagedGridNode serializes service data under `gn`; ME P2P's separate
 /// outer node uses `outer`. A `cm` belongs to that node alone.
-pub(super) fn node_mode(data: &horizon_world::nbt::Compound, node: &str) -> Option<ChannelMode> {
+pub(super) fn node_mode(data: &horizon_core::nbt::Compound, node: &str) -> Option<ChannelMode> {
     match data.get(&node.into()).and_then(|tag| tag.get("cm")) {
-        Some(horizon_world::nbt::Tag::String(name)) => {
+        Some(horizon_core::nbt::Tag::String(name)) => {
             ChannelMode::from_source_name(&name.to_string_lossy())
         }
         _ => None,
     }
 }
 pub(super) fn set_node_mode(
-    data: &mut horizon_world::nbt::Compound,
+    data: &mut horizon_core::nbt::Compound,
     node: &str,
     mode: Option<ChannelMode>,
 ) -> Result<(), &'static str> {
-    use horizon_world::nbt::{Compound, Tag};
+    use horizon_core::nbt::{Compound, Tag};
     if data.get(&node.into()).is_some_and(|tag| !matches!(tag, Tag::Compound(_))) {
         return Err("invalid managed grid node data");
     }
@@ -52,9 +52,9 @@ pub(super) fn set_node_mode(
 }
 /// Identity belongs to the physical face part, never to its replaceable item
 /// stack or synthetic graph coordinates. Malformed legacy data fails closed.
-pub(super) fn part_identity(part: &horizon_world::nbt::Tag) -> Option<[i32; 4]> {
+pub(super) fn part_identity(part: &horizon_core::nbt::Tag) -> Option<[i32; 4]> {
     match part.get("ae2_part_identity") {
-        Some(horizon_world::nbt::Tag::IntArray(values)) => {
+        Some(horizon_core::nbt::Tag::IntArray(values)) => {
             let id: [i32; 4] = values.as_slice().try_into().ok()?;
             (id != [0; 4]).then_some(id)
         }
@@ -63,8 +63,8 @@ pub(super) fn part_identity(part: &horizon_world::nbt::Tag) -> Option<[i32; 4]> 
 }
 /// Migrate one legacy physical part exactly once. Invalid pre-existing IDs
 /// remain untouched so consumers can fail closed rather than rebind them.
-pub(super) fn ensure_part_identity(part: &mut horizon_world::nbt::Tag) -> bool {
-    use horizon_world::nbt::Tag;
+pub(super) fn ensure_part_identity(part: &mut horizon_core::nbt::Tag) -> bool {
+    use horizon_core::nbt::Tag;
     let Tag::Compound(data) = part else { return false };
     if data.contains_key(&"ae2_part_identity".into())
         || !matches!(data.get(&"id".into()), Some(Tag::String(_)))
@@ -118,7 +118,7 @@ mod tests {
     use super::*;
     #[test]
     fn legacy_part_identity_migration_is_stable_and_preserves_malformed_data() {
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut part = Tag::compound([("id", Tag::String("ae2:export_bus".into())), ("face", Tag::String("north".into()))]);
         assert!(ensure_part_identity(&mut part));
         let id = part_identity(&part).unwrap();
@@ -144,7 +144,7 @@ mod tests {
             ChannelMode::Default
         );
         assert!(parse_common_config("[general]\nchannels = \"INVALID\"\n").is_err());
-        let mut nbt = horizon_world::nbt::Compound::new();
+        let mut nbt = horizon_core::nbt::Compound::new();
         set_node_mode(&mut nbt, "gn", Some(ChannelMode::X2)).unwrap();
         set_node_mode(&mut nbt, "outer", Some(ChannelMode::X4)).unwrap();
         assert_eq!(node_mode(&nbt, "gn"), Some(ChannelMode::X2));
@@ -152,8 +152,8 @@ mod tests {
         set_node_mode(&mut nbt, "gn", None).unwrap();
         assert_eq!(node_mode(&nbt, "gn"), None);
         assert_eq!(node_mode(&nbt, "outer"), Some(ChannelMode::X4));
-        nbt.insert("gn".into(), horizon_world::nbt::Tag::Int(17));
+        nbt.insert("gn".into(), horizon_core::nbt::Tag::Int(17));
         assert!(set_node_mode(&mut nbt, "gn", Some(ChannelMode::X3)).is_err());
-        assert!(matches!(nbt.get(&"gn".into()), Some(horizon_world::nbt::Tag::Int(17))));
+        assert!(matches!(nbt.get(&"gn".into()), Some(horizon_core::nbt::Tag::Int(17))));
     }
 }

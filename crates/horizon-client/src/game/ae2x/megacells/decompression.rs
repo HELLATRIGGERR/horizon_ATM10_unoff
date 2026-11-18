@@ -12,7 +12,7 @@ use super::bulk::BulkStack;
 use crate::game::{Game, ae2_global::GridAddress, ae2_parts::PartAddress};
 use ae2_megacells_core::Pattern;
 use horizon_client::{ae2x::megacells as rows, items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// `DecompressionModulePart.getBoxes`: the Cell Dock's.
 pub(in crate::game) fn boxes(id: &str) -> Option<Vec<[f64; 6]>> {

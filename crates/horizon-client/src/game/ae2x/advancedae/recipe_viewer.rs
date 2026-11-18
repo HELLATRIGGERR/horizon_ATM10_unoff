@@ -4,7 +4,7 @@ use crate::game::{
     Game,
     ae2_recipe_viewer::{category, fluid_name, fluid_slot, output, slot, stack},
 };
-use horizon_client::mod_api::{NativeCategoryRecipe, NativeRecipeCategory};
+use mod_api::{NativeCategoryRecipe, NativeRecipeCategory};
 use horizon_world::{fluid::FluidKind, fluid_stack};
 use serde_json::Value;
 

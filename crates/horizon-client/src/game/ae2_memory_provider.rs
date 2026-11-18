@@ -3,7 +3,7 @@
 //! Face ownership and the source block/part description asymmetry are preserved.
 use super::Game;
 use horizon_client::{ae2_world::{Machine,MachineKind},containers::BlockEntity,items::ItemStack,save};
-use horizon_world::nbt::{Compound,Tag};
+use horizon_core::nbt::{Compound,Tag};
 const KEY:&str="ae2_memory_settings";
 const BLOCK_SOURCE:&str="ae2:pattern_provider";
 const PART_SOURCE:&str="ae2:cable_pattern_provider";

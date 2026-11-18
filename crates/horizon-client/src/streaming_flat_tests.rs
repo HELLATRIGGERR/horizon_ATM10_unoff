@@ -4,7 +4,7 @@
     use crate::chunk::Chunk;
     use std::sync::Arc;
     use crate::{assets::Assets, biome::Biomes, flatgen::FlatTerrain, light::LightTables, mesher::MeshTables};
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     use crate::blocks::BlockFacts;
 
     #[test]

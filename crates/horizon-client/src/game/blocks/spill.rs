@@ -36,7 +36,7 @@ pub(super) fn append_ae2_key_drops(out:&mut Vec<ItemStack>,prototype:&ItemStack,
     if amount>0 {log::warn!("AE2 source drop limit omitted {amount} of {}",prototype.item);}
 }
 #[cfg(feature = "ae2-lab")]
-fn append_provider_custody(out:&mut Vec<ItemStack>,config:&horizon_world::nbt::Compound,max:&impl Fn(&ItemStack)->u32) {
+fn append_provider_custody(out:&mut Vec<ItemStack>,config:&horizon_core::nbt::Compound,max:&impl Fn(&ItemStack)->u32) {
     if config.contains_key(&horizon_client::ae2_provider_queue::QUEUE.into()) {
         if let Ok(entries)=horizon_client::ae2_provider_queue::read(config) {
             for entry in entries {

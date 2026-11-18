@@ -124,14 +124,14 @@ fn lanes() -> usize {
 fn mods_hook_turns() -> bool {
     match option_env!("HORIZON_MOB_TURN") {
         Some(found) => found == "hooked",
-        None => !horizon_client::mod_api::mods().is_empty(),
+        None => !mod_api::mods().is_empty(),
     }
 }
 
 /// Whether native mods are loaded at all: grouped turns keep the hooks that hand nothing back
 /// for the join, and skip the others (no mod hooks them while the islands run).
 fn defers() -> bool {
-    !horizon_client::mod_api::mods().is_empty()
+    !mod_api::mods().is_empty()
 }
 
 /// The mobs of each group, by their place in the list, ascending.

@@ -7,7 +7,7 @@ use horizon_client::{
     block_entities::{Ae2Mutation,Ae2MutationKind},
     containers::BlockEntity,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use super::{ae2_event_live::dimension, ae2_global::GridAddress};
 
 #[derive(Clone,Copy,Debug)]

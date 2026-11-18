@@ -10,7 +10,7 @@ use horizon_client::items::ItemStack;
 #[cfg(test)]
 use horizon_client::save;
 #[cfg(test)]
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use serde_json::{Value, json};
 
 #[cfg(test)]

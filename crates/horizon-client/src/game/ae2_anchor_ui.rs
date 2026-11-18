@@ -3,7 +3,7 @@
 use super::{Game, lan::LanHost};
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
 use horizon_protocol::packets::play::{self, Clientbound as C};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 pub(super) struct GuestAnchor { window:i32, state:i32, pos:(i32,i32,i32), dim:String, incarnation:u64, refresh:u8 }
 impl Game<'_> {

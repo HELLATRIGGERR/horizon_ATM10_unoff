@@ -17,7 +17,7 @@ use horizon_client::{
     items::ItemStack,
     text::Text,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// `EAESingletons.VOID_MODE` and `VOID_ENERGY`, the cell's components.
 pub(in crate::game) const VOID_MODE: &str = "extendedae:void_mode";

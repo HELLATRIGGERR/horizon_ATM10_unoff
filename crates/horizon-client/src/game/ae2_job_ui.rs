@@ -2,7 +2,7 @@
 use super::{Game, Screen};
 use ae2_cell_core::ItemKey;
 use horizon_client::{ae2_job_status::{CraftingJobStatus,Status},hud::HudBatch,items::ItemStack};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::{collections::{BTreeMap,VecDeque},time::{Duration,Instant}};
 
 const FLUID_MARKER:&str="horizon:crafting_fluid/";

@@ -6,6 +6,9 @@
 //! `native_fluid_handler.rs`, `native_chemical.rs`, `native_items.rs`, the panel files) stay
 //! there.
 use super::*;
+use mod_api::ParticleOptions;
+use std::fs;
+use std::result::Result;
 
 
 // From the fork's `native_hooks.rs`.

@@ -8,7 +8,7 @@ use horizon_client::{
     containers::BlockEntity,
     items::ItemStack,
 };
-use horizon_world::nbt::{JavaString, Tag};
+use horizon_core::nbt::{JavaString, Tag};
 use std::collections::BTreeMap;
 type WorldPos = (i32, i32, i32);
 fn np(p: WorldPos) -> Pos {

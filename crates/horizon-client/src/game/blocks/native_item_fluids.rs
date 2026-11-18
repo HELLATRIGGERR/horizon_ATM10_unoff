@@ -9,7 +9,7 @@
 use super::Game;
 use horizon_client::items::ItemStack;
 use horizon_world::fluid_stack::{bucket_fluid, filled_bucket};
-use horizon_world::nbt::{Compound, JavaString, Tag};
+use horizon_core::nbt::{Compound, JavaString, Tag};
 
 /// What one item of a stack holds (`native_item_fluid`).
 #[derive(Clone, Debug, PartialEq, Eq)]

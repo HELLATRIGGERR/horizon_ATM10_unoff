@@ -111,8 +111,8 @@ pub fn wireless_ports(id: &str) -> Option<usize> {
 /// `freq` for the connector; `freq0` to `freq7` for the hub, or `freq` for
 /// its first link alone when the record has it (`TileWirelessHub.loadTag`:
 /// a connector the kit turned into a hub).
-pub fn wireless_frequencies(id: &str, config: &horizon_world::nbt::Compound) -> Vec<i64> {
-    use horizon_world::nbt::Tag;
+pub fn wireless_frequencies(id: &str, config: &horizon_core::nbt::Compound) -> Vec<i64> {
+    use horizon_core::nbt::Tag;
     let long = |key: &str| match config.get(&key.into()) {
         Some(Tag::Long(v)) => *v,
         Some(Tag::Int(v)) => i64::from(*v),
@@ -131,8 +131,8 @@ pub fn wireless_frequencies(id: &str, config: &horizon_world::nbt::Compound) -> 
 }
 /// Sets link `port`'s frequency (`setFrequency`), in the record's names
 /// (`saveAdditional`: the hub writes all eight and no `freq`).
-pub fn set_wireless_frequency(id: &str, config: &mut horizon_world::nbt::Compound, port: usize, frequency: i64) {
-    use horizon_world::nbt::Tag;
+pub fn set_wireless_frequency(id: &str, config: &mut horizon_core::nbt::Compound, port: usize, frequency: i64) {
+    use horizon_core::nbt::Tag;
     let mut all = wireless_frequencies(id, config);
     let Some(slot) = all.get_mut(port) else { return };
     *slot = frequency;
@@ -936,7 +936,7 @@ mod tests {
         assert!(close(wireless_power(&[10.0, 20.0], 0, 0, 1.0), 10.0 * 10f64.ln() + 20.0 * 20f64.ln()));
 
         // The records' names: a connector's `freq`; a hub's eight, or a connector's `freq` on its first.
-        use horizon_world::nbt::{Compound, Tag};
+        use horizon_core::nbt::{Compound, Tag};
         let mut connector = Compound::new();
         set_wireless_frequency(WIRELESS_CONNECTOR, &mut connector, 0, 42);
         assert_eq!(connector.get(&"freq".into()), Some(&Tag::Long(42)));

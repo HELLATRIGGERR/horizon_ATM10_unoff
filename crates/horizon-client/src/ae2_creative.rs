@@ -2,7 +2,7 @@
 //! Component adaptation targets this native port; it is not a general Java
 //! save importer. Derived AE2 rules: LGPL-3.0-or-later, AE2 contributors.
 use crate::{items::ItemStack, save};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::Value;
 use std::{collections::HashSet, path::Path};
 

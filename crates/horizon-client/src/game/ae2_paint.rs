@@ -2,7 +2,7 @@
 use super::Game;
 use horizon_client::{ae2_world::{Machine,MachineKind},containers::BlockEntity};
 use horizon_core::{geometry::Direction,position::BlockPos};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 fn side_index(v:[i32;3])->Option<u8>{match v {[0,-1,0]=>Some(0),[0,1,0]=>Some(1),[0,0,-1]=>Some(2),[0,0,1]=>Some(3),[-1,0,0]=>Some(4),[1,0,0]=>Some(5),_=>None}}
 fn normal(i:u8)->[i32;3]{Direction::ALL[i as usize].normal()}

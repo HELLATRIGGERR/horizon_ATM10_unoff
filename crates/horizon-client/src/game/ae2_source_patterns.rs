@@ -1,6 +1,6 @@
 //! Persistent encoded-pattern records from AE2 19.2.18 (LGPL-3.0-or-later).
 use horizon_client::{ae2_generic_stack::{self,GenericStack},items::ItemStack,save};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 fn source_int(tag:&Tag)->Option<i32> {
     match tag {

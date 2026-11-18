@@ -4,7 +4,7 @@ use super::{Game, ae2_lab};
 use ae2_cell_core::{KeyType, KeyTypeSet, TypedKey};
 use horizon_client::{items::ItemStack, menu::Input, text::Text};
 use horizon_protocol::packets::play::{self, Clientbound as C};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::sync::Arc;
 
 const PAGE_ITEMS: usize = 45;
@@ -8014,8 +8014,8 @@ struct JeiTransfer {
     outputs: Vec<(String, u32)>,
 }
 impl JeiTransfer {
-    fn of(recipe: &horizon_client::mod_api::NativeRecipeTransfer, window: i32) -> Self {
-        let alts = |l: &[horizon_client::mod_api::NativeStack]| -> Vec<(String, u32)> {
+    fn of(recipe: &mod_api::NativeRecipeTransfer, window: i32) -> Self {
+        let alts = |l: &[mod_api::NativeStack]| -> Vec<(String, u32)> {
             l.iter().map(|s| (s.item.clone(), s.count.max(1))).collect()
         };
         let mut request = JeiTransfer {
@@ -8192,11 +8192,11 @@ impl Game<'_> {
     /// run answers from the host's last answer and asks it again at most every 400 ms. API 433.
     pub(super) fn ae2_recipe_transfer(
         &mut self,
-        recipe: &horizon_client::mod_api::NativeRecipeTransfer,
+        recipe: &mod_api::NativeRecipeTransfer,
         run: bool,
         craft_missing: bool,
-    ) -> Option<horizon_client::mod_api::NativeTransferAnswer> {
-        use horizon_client::mod_api::{NativeTransferAnswer, NativeTransferHandler};
+    ) -> Option<mod_api::NativeTransferAnswer> {
+        use mod_api::{NativeTransferAnswer, NativeTransferHandler};
         let Some(remote) = self.remote.as_ref() else {
             return self.ae2_local_recipe_transfer(recipe, run, craft_missing);
         };
@@ -8254,11 +8254,11 @@ impl Game<'_> {
     /// The in-frame terminals' side of `ae2_recipe_transfer`: the client's own world, no host.
     fn ae2_local_recipe_transfer(
         &mut self,
-        recipe: &horizon_client::mod_api::NativeRecipeTransfer,
+        recipe: &mod_api::NativeRecipeTransfer,
         run: bool,
         craft_missing: bool,
-    ) -> Option<horizon_client::mod_api::NativeTransferAnswer> {
-        use horizon_client::mod_api::{NativeTransferAnswer, NativeTransferHandler};
+    ) -> Option<mod_api::NativeTransferAnswer> {
+        use mod_api::{NativeTransferAnswer, NativeTransferHandler};
         let encoding = self.ae2_local_encoding_session_open();
         if !encoding && !self.ae2_local_crafting_session_open() {
             return None;

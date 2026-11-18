@@ -5,7 +5,7 @@ use crate::{
     entities::ItemEntity,
     items::{ItemStack, Items},
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 #[derive(Clone, Debug)]

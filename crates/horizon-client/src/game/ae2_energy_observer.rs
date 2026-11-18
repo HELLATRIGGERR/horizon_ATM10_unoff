@@ -2,7 +2,7 @@
 use std::collections::BTreeMap;
 use ae2_network_core::{NodeIdentity,service_events::MembershipChange};
 use horizon_client::{ae2_world::{Machine,MachineKind},block_entities::{Ae2Mutation,Ae2MutationKind},containers::BlockEntity};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use super::{Dim,ae2_global::GridAddress,ae2_energy_lifecycle::{EnergyLifecycle,EnergyNode},ae2_energy_service::{Store,PassiveSelector,CREATIVE_STORED}};
 
 #[derive(Clone,Debug)]

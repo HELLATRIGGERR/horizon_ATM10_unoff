@@ -117,7 +117,7 @@ impl Game<'_> {
     /// items. CableBus is handled by its per-face multipart path.
     pub(super) fn ae2_try_wrench_disassemble(&mut self,pos:[i32;3])->bool {
         use horizon_client::{ae2_world::MachineKind,containers::BlockEntity};
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         if !self.keys.contains(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_disassemble(s)){return false;}
         let key=(pos[0],pos[1],pos[2]);let old=self.world.block(pos[0],pos[1],pos[2]);
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&key) else{return false};

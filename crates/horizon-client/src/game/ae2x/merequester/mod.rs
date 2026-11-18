@@ -11,7 +11,7 @@ use horizon_client::{
     ae2x::merequester::{self as rows, Config, Key, Link, Requester, core},
     containers::BlockEntity,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::collections::{BTreeMap, HashMap};
 
 mod lab;

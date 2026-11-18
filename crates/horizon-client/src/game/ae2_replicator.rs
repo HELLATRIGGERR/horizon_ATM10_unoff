@@ -4,7 +4,7 @@ use super::{Dim, Game, KeyCode, ae2_global::GridAddress};
 use ae2_links_core::SpatialRegion;
 use horizon_client::{containers::BlockEntity, items::ItemStack, text::Text};
 use horizon_core::position::BlockPos;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 const ITEM: &str = "ae2:debug_replicator_card";
 

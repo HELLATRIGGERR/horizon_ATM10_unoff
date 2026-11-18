@@ -245,7 +245,7 @@ mod emitter_memory {
         #[test]
         fn source_emitter_fluid_patch_and_empty_inventory_roundtrip(){
             let components=Tag::compound([("test:variant",Tag::String("warm".into()))]);
-            let bytes=horizon_world::nbt::write_network(&components,horizon_world::nbt::Limits::default()).unwrap();
+            let bytes=horizon_core::nbt::write_network(&components,horizon_core::nbt::Limits::default()).unwrap();
             let mut source=state();source.filter=Some(EmitterFilter::Fluid(ae2_cell_core::ItemKey{item_id:"minecraft:water".into(),components:bytes}));
             let mut card=ItemStack::new("ae2:memory_card",1);save_emitter(&mut card,&source,None).unwrap();card.data_mut().set_other("minecraft:custom_data",None);
             assert_eq!(read_emitter(&card).unwrap().unwrap().filter,Some(source.filter.clone()));

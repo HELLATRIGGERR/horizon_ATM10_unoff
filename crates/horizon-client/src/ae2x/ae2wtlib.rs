@@ -72,7 +72,7 @@ mod tests {
         ae2x::{defs, wireless},
         items::ItemStack,
     };
-    use horizon_world::nbt::{Compound, Tag};
+    use horizon_core::nbt::{Compound, Tag};
 
     fn universal(terminals: &[&str]) -> ItemStack {
         let mut wut = ItemStack::new(UNIVERSAL_TERMINAL, 1);

@@ -4,7 +4,7 @@ use super::{Containers, Game, Kind, View};
 use crate::game::ae2_global::GridAddress;
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity, items::ItemStack};
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 #[derive(Clone, Copy)]
 enum ProviderBufferOwner {

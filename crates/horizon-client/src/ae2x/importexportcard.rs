@@ -10,7 +10,7 @@
 use super::defs::Defs;
 use crate::{ae2_generic_stack::GenericStack, ae2_upgrade_inventory::Inventory, items::ItemStack, save};
 use ae2_cell_core::FuzzyMode;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::sync::OnceLock;
 
 pub const NAMESPACE: &str = "ae2importexportcard";

@@ -2,7 +2,7 @@
 use super::{Game,ae2_parts::PartAddress};
 use ae2_network_core::NodeIdentity;
 use horizon_client::containers::BlockEntity;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 impl Game<'_> {
     pub(super) fn ae2_energy_service_end_tick(&self){
         if !self.ae2_sync_events(){return}
@@ -56,10 +56,10 @@ impl Game<'_> {
         if !self.ae2_sync_events(){return}
         let live=self.ae2_live_events.borrow();
         if live.energy.failure.is_some(){return}
-        fn project(data:&mut horizon_world::nbt::Compound,key:&str,share:f64){
+        fn project(data:&mut horizon_core::nbt::Compound,key:&str,share:f64){
             if data.get(&key.into()).is_some_and(|tag|!matches!(tag,Tag::Compound(_))){return}
             if share>0.0 {
-                let value=data.entry(key.into()).or_insert_with(||Tag::Compound(horizon_world::nbt::Compound::new()));
+                let value=data.entry(key.into()).or_insert_with(||Tag::Compound(horizon_core::nbt::Compound::new()));
                 if let Tag::Compound(node)=value {node.insert("e".into(),Tag::Double(share.to_bits()));}
             } else if let Some(Tag::Compound(node))=data.get_mut(&key.into()){node.remove(&"e".into());}
         }

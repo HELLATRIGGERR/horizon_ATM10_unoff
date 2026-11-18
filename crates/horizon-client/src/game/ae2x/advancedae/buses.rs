@@ -21,7 +21,7 @@ use crate::game::{ae2_buses, ae2_part_screens::PartView};
 use ae2_cell_core::AmountFormat;
 use ae2_machines_core::{BusState, Direction, Key, Schedule, TickResult, TransferHost};
 use horizon_client::{ae2x::advancedae as rows, items::ItemStack};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 /// Which of the mod's buses a part is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

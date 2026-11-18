@@ -5,7 +5,7 @@ use horizon_client::{
     ae2_cell_codec as codec, ae2_upgrade_inventory::Inventory, crafting::Template,
     first_person::Hand, items::ItemStack, text::Text,
 };
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 enum Prepared {
     Unsupported,
     Filled,

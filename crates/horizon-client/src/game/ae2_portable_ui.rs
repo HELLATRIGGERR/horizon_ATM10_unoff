@@ -3,7 +3,7 @@
 use super::{Game, Screen, ae2_fluids, ae2_interactions, ae2_lab};
 use ae2_cell_core::{Action, Cell, KeyType, ItemKey};
 use horizon_client::{items::ItemStack, menu::Input, text::Text};
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 const PAGE: usize = 45;
 #[derive(Clone, Default)]

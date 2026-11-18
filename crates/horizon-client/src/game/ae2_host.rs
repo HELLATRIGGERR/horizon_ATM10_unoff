@@ -38,7 +38,7 @@ impl Ae2Host for Game<'_> {
         self.ae2_grid_key_move_encoded(cable, kind, key, amount, insert, simulate)
     }
 
-    fn chemical_tanks(&self, at: GridAddress, face: u8) -> Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>> {
+    fn chemical_tanks(&self, at: GridAddress, face: u8) -> Option<Vec<mod_api::NativeChemicalTankInfo>> {
         let ((dim, pos), face) = (at.local_parts()?, direction(face)?);
         let mut tanks = None;
         self.native_chemical_handler_tanks(dim.id(), [pos.0, pos.1, pos.2], Some(face), &mut tanks);

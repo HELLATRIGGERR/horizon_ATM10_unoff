@@ -8,7 +8,7 @@ use horizon_client::{
     containers::BlockEntity,
     items::ItemStack,
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 pub(super) fn cable_item(id: &str) -> Option<(DeviceKind, CableColor)> {
     let id = id.strip_prefix("ae2:")?;

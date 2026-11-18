@@ -1,7 +1,7 @@
 //! AE2 GenericStack persistent codec, derived from GenericStack, AEItemKey and
 //! AEFluidKey in 19.2.18 (LGPL-3.0-or-later). Empty maps are nullable slots.
 use ae2_cell_core::ItemKey;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use crate::{ae2_cell_codec, ae2_key_types, save};
 pub use crate::ae2_key_types::{KeyType, TypedKey};
 
@@ -120,7 +120,7 @@ pub fn wrap(stack:&GenericStack)->Result<crate::items::ItemStack,String> {
 mod tests {
     use super::*;
     use crate::items::ItemStack;
-    use horizon_world::nbt::{self, Limits};
+    use horizon_core::nbt::{self, Limits};
     #[test]
     fn item_and_fluid_components_and_empty_slots_roundtrip() {
         let mut item=ItemStack::new("minecraft:diamond_sword",1);item.damage=4;item.data_mut().custom_name = Some(crate::item_data::text_name("Physical"));

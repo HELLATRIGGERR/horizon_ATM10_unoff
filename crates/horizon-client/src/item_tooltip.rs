@@ -446,7 +446,7 @@ pub fn name_line(stack: &ItemStack, translate: &dyn Fn(&str) -> Option<String>) 
 pub fn ae2_facade_texture(stack:&ItemStack)->Option<String> {
     if stack.item.as_ref()!="ae2:facade" {return None;}
     let data=stack.data()?;
-    let horizon_world::nbt::Tag::String(id)=data.other("ae2:facade_item")
+    let horizon_core::nbt::Tag::String(id)=data.other("ae2:facade_item")
         .or_else(||data.other("minecraft:custom_data").and_then(|tag|tag.get("ae2:facade_item")))? else {return None;};
     let id=id.to_string_lossy();
     id.contains(':').then_some(id)

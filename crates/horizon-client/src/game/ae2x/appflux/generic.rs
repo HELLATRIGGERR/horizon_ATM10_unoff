@@ -14,7 +14,7 @@ use super::super::super::{Game, ae2_global::GridAddress, ae2_power::FeStorage};
 use ae2_cell_core::ItemKey;
 use horizon_client::{ae2_key_types as key_types, ae2_world::Machine, ae2x::appflux as rows, items::ItemStack};
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 
 /// `AFSingletons.INDUCTION_CARD`.
 pub(in crate::game) const INDUCTION_CARD: &str = rows::INDUCTION_CARD;

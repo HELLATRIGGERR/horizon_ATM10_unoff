@@ -29,15 +29,32 @@
 //! reach the blocks with a storage of their own through this dispatcher, in
 //! the level in place, as narrow calls.
 use super::Game;
-use super::native_energy::{NativeEnergy, extract_amount, insert_amount, read_energy};
-use crate::game::{Dim, native_hooks::NativeFeInfo};
+use super::native_energy::{extract_amount, insert_amount, read_energy};
+
+/// A block's energy as a side reaches it (the fork's `native_energy`), read through its Forge
+/// Energy storage where it has no declared buffer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct NativeEnergy {
+    pub(crate) amount: i32,
+    pub(crate) capacity: i32,
+    /// The most one insert moves.
+    pub(crate) max_insert: i32,
+    /// The most one extract moves.
+    pub(crate) max_extract: i32,
+    /// Whether a fill may come through this side (and moves more than 0).
+    pub(crate) can_insert: bool,
+    /// Whether a drain may leave by this side (and moves more than 0).
+    pub(crate) can_extract: bool,
+}
+use crate::game::Dim;
+use mod_api::NativeFeInfo;
 use horizon_client::{
     block_entities::Pos,
     containers::{BlockEntity, ModBlockEntity, ModEnergyBuffer},
     world::World,
 };
 use horizon_core::geometry::Direction;
-use horizon_world::nbt::{JavaString, Tag};
+use horizon_core::nbt::{JavaString, Tag};
 use std::cell::RefCell;
 
 /// What a call does at a block; the re-entry guard tells them apart.

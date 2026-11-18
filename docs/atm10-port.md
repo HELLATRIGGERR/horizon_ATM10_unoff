@@ -277,6 +277,22 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
    `fake-slot-drag-machines` (the server got every use within reach, no teleport pending) did not come back in the 12
    runs after the change, so its cause is not found; and radiation's server position moving 0.987 blocks after its
    last `tp` did not come back in 4 runs.
+
+   The flake that came after it (17 November: `no face of block … is visible from here: minecraft:stone … is in the
+   way` in `assembler-forced-pattern-menu`, Mekanism `appmek-handlers` and JEI `transfer-ae2`) was not a stale position:
+   the client and the server agreed, and the player was falling. Two tests teleported half a block past the north edge
+   of their floor (`z - 3.5` beside a floor that starts at `z - 3`) and the harness aimed while the player fell, so a
+   slow client fell further before the aim and the floor's edge came between the eye and the block. JEI's test
+   teleported before it built its floor: the client fell as soon as its chunk was there, the server took those moves
+   while there was no floor yet, and the player stood under the floor (its screenshot). The harness now lets the player
+   land before it aims (`settle`: two statuses a tick apart at the same place, 2 s at most). If a floor was built under
+   the player's `tp` spot after the teleport and the player fell through it, the harness repeats the same `tp` once
+   (`stand`). A sight or reach error from a player well below its `tp` spot says the player fell. The two tests now
+   stand on their floors, and the sight error names the eye. With the 250 ms hook: `assembler-forced-pattern-menu`
+   failed 6 of 10 before the change and 0 of 10 after; `appmek-handlers` failed 5 of 10 before and 0 of 10 after; six
+   suites that build after their `tp` failed 0 of 12 both times; a probe that lands before its floor is built failed
+   before, and passed 3 of 3 after. Without the hook, 22 of 22 AE2 suites passed at `--jobs 4`, `megacells-energy` and
+   `part-screens` among them.
 2. Memory of the full pack: done so far are lazy baked models (e76d5862c) and the data file written after the world
    opens (2b056e630); a first start now opens with about 1 GB free on 16 GB. Left: recipes held as JSON trees (656 MB),
    lazy GUI/entity textures (640 MB of GPU memory), the 319 placed features that can't run. Frame rate against Java

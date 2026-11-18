@@ -93,6 +93,8 @@ export class WorldFixture {
   private logs: Promise<void>[] = [];
   private release?: () => void;
   private phase = 0;
+  /** Where the last `tp @s` put the player, and whether a setup write (its floor, say) came after it. */
+  private placed?: { command: string; x: number; y: number; z: number; built: boolean };
   /** The shared warm `.horizon-cache` of this binary, resources and mods (`warmCache`), when there is one to have. */
   private warm?: string;
   readonly checks: string[] = [];
@@ -117,12 +119,40 @@ export class WorldFixture {
     if (line.startsWith('interact ')) {
       const words = line.split(/\s+/).slice(1);
       const at = words.slice(0, /^(up|down|north|south|east|west)$/.test(words[3] ?? '') ? 4 : 3).join(' ');
+      await this.stand();
       await this.visible(`look-at block ${at}`);
       const ticks = (await this.send('status')).ticks;
       await until(() => this.send('status'), view => view.ticks >= ticks + 2, 'look sent before the use');
       return this.visible(line);
     }
-    return line.startsWith('look-at block ') ? this.visible(line) : this.send(line);
+    if (line.startsWith('look-at block ')) { await this.stand(); return this.visible(line); }
+    return this.send(line);
+  }
+  /** Before it aims, the player stands where the test put it, as a player lands before it uses a block.
+   * A test teleports first (its chunks load around the player) and builds the floor after: the client's
+   * physics drops the player as soon as its chunk is there, the server takes those moves while there is
+   * no floor yet, and once the floor is built the player stands under it (or in it, and falls through,
+   * as Java's collision lets a box out of a block it is already in). That player is put on the floor
+   * now that it is there, with the same `tp`, once. */
+  private async stand(): Promise<void> {
+    const view = await this.settle(), spot = this.placed, at = view.player?.position;
+    if (!spot?.built || !at || Math.abs(at[0] - spot.x) > 1e-3 || Math.abs(at[2] - spot.z) > 1e-3 || at[1] > spot.y - 0.05) return;
+    const under = await this.send(`block ${Math.floor(spot.x)} ${Math.floor(spot.y - 1e-3)} ${Math.floor(spot.z)}`);
+    if (!under.loaded || /^minecraft:(?:cave_|void_)?air$/.test(under.block)) return;
+    await this.command(spot.command); await this.settle();
+  }
+  /** The client's status once its player stopped moving: a teleported player falls a few ticks before it
+   * lands, and a use aimed from the air goes out from wherever the fall has got to. A body that never
+   * stops (riding, swimming) is aimed from where it is after a short while. */
+  private async settle(): Promise<any> {
+    const end = awakeNowMs() + 2000;
+    let last: any;
+    for (;;) {
+      const view = await this.send('status'), at = view.player?.position;
+      if (!at || awakeNowMs() >= end) return view;
+      if (last && view.ticks > last.ticks && at.every((v: number, i: number) => Math.abs(v - last.player.position[i]) < 1e-4)) return view;
+      last = view; await Bun.sleep(50);
+    }
   }
   /** `line` once the client can see its block: it hears of a setup's blocks a little after the
    * server changed them, and until then the block may not be there, or old terrain may stand before it. */
@@ -130,8 +160,17 @@ export class WorldFixture {
     const end = awakeNowMs() + 15000;
     for (;;) {
       try { return await this.send(line); }
-      catch (error) { if (!/no face of block/.test(String(error)) || awakeNowMs() >= end) throw error; await Bun.sleep(100); }
+      catch (error) { if (!/no face of block/.test(String(error)) || awakeNowMs() >= end) throw await this.fallen(error); await Bun.sleep(100); }
     }
+  }
+  /** An aim that fails with the player well below where the last `tp` put it says so: that spot has nothing
+   * under it (beside the floor, or in the air), and the player fell from it. */
+  private async fallen(error: unknown): Promise<unknown> {
+    const spot = this.placed;
+    if (!spot || !/no face of block|out of reach/.test(String(error))) return error;
+    const at = (await this.send('status')).player?.position;
+    if (!at || Math.abs(at[0] - spot.x) > 1e-3 || Math.abs(at[2] - spot.z) > 1e-3 || at[1] > spot.y - 1) return error;
+    return new Error(`${String(error).replace(/^Error: /, '')}; the player fell from where \`${spot.command}\` put it to y ${at[1].toFixed(2)}: nothing is under that spot`);
   }
   private send(line: string): Promise<any> {
     return new Promise((resolveReply, reject) => {
@@ -260,12 +299,14 @@ export class WorldFixture {
     if (this.mode === 'in-frame' && reply.chat) reply.chat = reply.chat.slice(0, 1);
     if (setup) {
       assert(!unloaded(reply), `Unloaded setup write: ${command}: ${JSON.stringify(reply.chat)}`);
+      if (this.placed) this.placed.built = true;
     }
     if (teleport) {
       const dimension = teleport[1], [x, y, z] = teleport.slice(2).map(Number);
       const near = (at: number[]) => Math.abs(at[0] - x) < 0.2 && Math.abs(at[1] - y) < 2 && Math.abs(at[2] - z) < 0.2;
       await until(() => this.raw('status'), status => status.player?.health > 0 && status.server?.loaded !== false && (!dimension || status.dimension === dimension)
         && (before === undefined ? near(status.player.position) : !!status.player.teleport && status.player.teleport.id !== before && near(status.player.teleport.position)), 'authoritative teleport reaches the client');
+      this.placed = { command, x, y, z, built: false };
     }
     return reply;
   }

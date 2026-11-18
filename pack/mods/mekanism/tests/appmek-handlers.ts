@@ -84,7 +84,7 @@ try {
   const menu = await until(() => fixture.raw('screen'), v => v.slots?.some((slot: any) => slot.slot < 36 && slot.item === 'ae2:processing_pattern'), 'the processing pattern in the player inventory');
   await fixture.raw(`click-slot ${menu.slots.find((slot: any) => slot.slot < 36 && slot.item === 'ae2:processing_pattern').slot} shift`);
   await until(() => fixture.raw('inventory'), v => !v.counts?.['ae2:processing_pattern'], 'the processing pattern installed'); await fixture.raw('close');
-  await fixture.command(`tp @s ${x + 1.5} ${y} ${z - 3.5}`);
+  await fixture.command(`tp @s ${x + 1.5} ${y} ${z - 2.5}`);
   await fixture.raw(`interact ${term} north`);
   const craftable = (view: any) => view.slots?.find((slot: any) => slot.slot >= 300 && slot.slot < 345 && slot.item === 'minecraft:diamond');
   const screen = await until(() => fixture.raw('screen'), craftable, 'the diamond is craftable from hydrogen', 30000);

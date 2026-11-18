@@ -1101,11 +1101,11 @@ impl Game<'_> {
                 .get(self.world.block(p[0], p[1], p[2]))
                 .name;
             return Err(format!(
-                "no face of block {pos:?} is visible from here: {name} at {p:?} is in the way"
+                "no face of block {pos:?} is visible from here: {name} at {p:?} is in the way (eye at {eye:.2?})"
             )
             .into());
         }
-        Err(format!("no face of block {pos:?} is visible from here").into())
+        Err(format!("no face of block {pos:?} is visible from here (eye at {eye:.2?})").into())
     }
 
     /// `--sneak` on place or interact: hold the sneak key now and click a

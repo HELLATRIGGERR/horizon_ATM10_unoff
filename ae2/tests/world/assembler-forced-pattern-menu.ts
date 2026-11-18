@@ -40,7 +40,7 @@ try {
   // Keep the forced grid alive across restart without advancing its recipe.
   await fixture.command(`setblock ${energy} minecraft:air`); await fixture.hold(false); await fixture.restart();
   await fixture.command('gamemode survival @s'); await fixture.select(8, 'minecraft:stick');
-  await fixture.command(`tp @s ${x + 3.5} ${y} ${z - 3.5}`); await fixture.raw(`interact ${assembler} north`);
+  await fixture.command(`tp @s ${x + 3.5} ${y} ${z - 2.5}`); await fixture.raw(`interact ${assembler} north`);
   view = await until(() => fixture.raw('screen'), state => slot(state, 300)?.item === 'minecraft:oak_log' && !slot(state, 310)?.item, 'reloaded forced plan has a physical input and no installed pattern');
   await fixture.raw('click-slot 300'); await fixture.raw('click-slot 0');
   await until(() => fixture.raw('inventory'), state => !state.carried && state.hotbar[0]?.item === 'minecraft:oak_log', 'original forced input returned to player');

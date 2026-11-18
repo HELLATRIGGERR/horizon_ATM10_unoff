@@ -6,7 +6,7 @@ use crate::{
     item_model::DisplayContext,
     json::Result,
     math::{Mat4, quaternion_xyz},
-    model::{Direction, DisplayTransform, GuiLight, ItemTransform, Material, TextureSlot},
+    model::{Direction, DisplayTransform, FluidContainer, GuiLight, ItemTransform, Material, TextureSlot},
     resolve::{GENERATED_MODEL, ModelLibrary, ResolvedCuboidModel},
 };
 use std::{collections::BTreeMap, collections::BTreeSet, f32::consts::PI};

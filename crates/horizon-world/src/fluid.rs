@@ -107,69 +107,6 @@ pub fn mod_fluids() -> Vec<(ModFluid, &'static ModFluidType)> {
         .collect()
 }
 
-/// The carried fluids' rows ([`crate::mod_fluids::register_fluids`], once per
-/// process), in their registry order: each source, then its flowing form.
-static CARRIED_ROWS: OnceLock<&'static [FluidInfo]> = OnceLock::new();
-
-#[cfg(test)]
-thread_local! {
-    /// A test of the content root's table ([`set_mod_fluids`]) reads it even
-    /// where another test of the process registered the carried fluids.
-    static ROOT_TABLE_ONLY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// The carried fluids' rows, when the process registered any: they are the
-/// table's for good, as the mods' fluids are in a NeoForge game.
-fn carried_rows() -> Option<&'static [FluidInfo]> {
-    #[cfg(test)]
-    if ROOT_TABLE_ONLY.with(std::cell::Cell::get) {
-        return None;
-    }
-    let fluids = crate::mod_fluids::mod_fluids();
-    if fluids.is_empty() {
-        return None;
-    }
-    Some(CARRIED_ROWS.get_or_init(|| {
-        let leak = |s: &str| -> &'static str { Box::leak(s.to_owned().into_boxed_str()) };
-        let mut rows = Vec::with_capacity(2 * fluids.len());
-        for (i, m) in fluids.iter().enumerate() {
-            let (source, flowing) = FluidKind::of_mod(i);
-            let numbers = FluidNumbers {
-                tick_delay: Some(m.tick_rate),
-                drop_off: Some(m.level_decrease_per_block),
-                slope_find_distance: Some(m.slope_find_distance),
-                convert_to_source: Some(m.can_convert_to_source),
-            };
-            let block = (m.block != "minecraft:air").then(|| leak(&m.block));
-            let bucket = m.bucket.as_deref().map(leak);
-            // A fluid that is no `FlowingFluid` keeps its flowing row, unnamed.
-            for name in [&m.id, &m.flowing] {
-                rows.push(FluidInfo {
-                    name: leak(name),
-                    template: FluidTemplate::Empty,
-                    source,
-                    flowing,
-                    numbers,
-                    entity: EntityNumbers {
-                        motion_scale: m.entity.motion_scale,
-                        can_push: m.entity.can_push,
-                        can_swim: m.entity.can_swim,
-                        can_drown: m.entity.can_drown,
-                        can_extinguish: m.entity.can_extinguish,
-                        fall_distance_modifier: m.entity.fall_distance_modifier,
-                    },
-                    block,
-                    bucket,
-                });
-            }
-        }
-        Box::leak(rows.into_boxed_slice())
-    }))
-}
-
-    if let Some(rows) = carried_rows() {
-        return rows;
-    }
 /// The mod fluid whose block or source fluid is `id`.
 pub fn mod_fluid_named(id: &str) -> Option<ModFluid> {
     mod_fluid_table()
@@ -585,11 +522,10 @@ impl FluidBlockBindings {
             }
             Ok(result)
         };
-        let air = registry
-            .default_state("minecraft:air")
-            .ok_or_else(|| invalid("missing air block"))?;
         Ok(Self {
-            air,
+            air: registry
+                .default_state("minecraft:air")
+                .ok_or_else(|| invalid("missing air block"))?,
             water: levels("minecraft:water")?,
             lava: levels("minecraft:lava")?,
             mods: mod_fluids()
@@ -641,54 +577,6 @@ impl From<(FluidKind, u8, bool)> for FluidState {
 mod mod_fluid_tests {
     use super::*;
 
-    /// Reads the content root's table on this test's thread, whatever
-    /// carried fluids another test registered; put back when dropped.
-    struct RootTableOnly;
-    impl RootTableOnly {
-        fn on() -> Self {
-            super::ROOT_TABLE_ONLY.with(|only| only.set(true));
-            Self
-        }
-    }
-    impl Drop for RootTableOnly {
-        fn drop(&mut self) {
-            super::ROOT_TABLE_ONLY.with(|only| only.set(false));
-        }
-    }
-
-    /// The carried fluids, once registered, are the table's after vanilla's:
-    /// each source then its flowing form, with all their numbers, no
-    /// template (their `FluidType` says what they do) and no bit in vanilla's
-    /// tag masks; they are found by name, block and bucket.
-    #[test]
-    fn the_carried_fluids_are_the_tables_with_their_numbers() {
-        crate::mod_fluids::register_test_fluids();
-        let brine = FluidKind::from_name("test:brine").unwrap();
-        let flowing = FluidKind::from_name("test:flowing_brine").unwrap();
-        let sludge = FluidKind::from_name("test:sludge").unwrap();
-        assert_eq!((brine.index(), flowing.index(), sludge.index()), (5, 6, 7));
-        assert_eq!((flowing.source(), brine.flowing()), (brine, flowing));
-        assert!(brine.is_source_kind() && !flowing.is_source_kind());
-        assert_eq!(brine.template(), FluidTemplate::Empty);
-        assert_eq!(
-            sludge.numbers(),
-            FluidNumbers {
-                tick_delay: Some(10),
-                drop_off: Some(2),
-                slope_find_distance: Some(2),
-                convert_to_source: Some(true),
-            }
-        );
-        assert_eq!(brine.mask(), 0);
-        assert_eq!(brine.mod_fluid().map(|m| m.id.as_str()), Some("test:brine"));
-        assert_eq!(FluidKind::of_bucket("test:brine_bucket"), Some(brine));
-        assert_eq!(FluidKind::of_liquid_block("test:sludge"), Some(sludge));
-        assert_eq!(format!("{brine:?}"), "Mod(test:brine)");
-    }
-
-        // Read the root's table: carried fluids that another test of the process
-        // registered would win over it, and hold no "ruby:" fluid.
-        let _root = RootTableOnly::on();
     fn oil(id: &str, flowing_id: &str) -> ModFluid {
         register_mod_fluid(ModFluidType {
             id: id.into(),
@@ -704,7 +592,6 @@ mod mod_fluid_tests {
         .unwrap()
     }
     #[test]
-        let _root = RootTableOnly::on();
     fn fluid_registration_refuses_collisions_and_capacity_atomically() {
         let a = oil("refusal:oil", "refusal:flowing_oil").get();
         let before = mod_fluids();
@@ -746,7 +633,6 @@ mod mod_fluid_tests {
     }
 
     #[test]
-        let _root = RootTableOnly::on();
     fn fluid_shape_cache_keeps_each_registry_entry_separate() {
         use horizon_core::position::BlockPos;
         struct Above(FluidState);

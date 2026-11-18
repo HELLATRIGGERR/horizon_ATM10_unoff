@@ -690,7 +690,9 @@ pub(super) fn load_resources(
             .map(|state| state.name.as_str());
         level_mods::set_block_namespaces(Some(level_mods::mod_namespaces(names)));
     }
-    if let Some(folder) = launch_world {
+    // After the world's tables, for a large registry: the two read the same files.
+    let large = assets.registry.len() >= LARGE_REGISTRY;
+    if let Some(folder) = launch_world.filter(|_| !large) {
         world_loading::preload_launch_world(
             folder,
             &root,
@@ -704,7 +706,9 @@ pub(super) fn load_resources(
     api_values::resolve_block_definitions(assets.registry)?;
     mods::extend_poi_types(assets.registry);
     mods::register_cauldron_fluid_contents(assets.registry);
-    let late_preload = launch_world.filter(|_| large).map(str::to_owned);
+    let late_preload = launch_world
+        .filter(|_| large)
+        .map(|folder| (folder.to_owned(), item_data.clone(), additional_data.to_vec()));
     let tables = Arc::new(startup::time("pack.mesh_tables", || {
         MeshTables::new(
             &assets,
@@ -802,12 +806,15 @@ pub(super) fn load_resources(
                 if let Some(content_root) = content_root {
                     write_prepared_files(content_root, true);
                 }
-                if let Some(folder) = late_preload {
+                if let Some((folder, item_data, additional)) = late_preload {
                     world_loading::preload_launch_world(
                         &folder,
                         &root,
+                        resource_root.data_changes(),
                         assets.registry,
                         resources.biomes().clone(),
+                        item_data,
+                        &additional,
                     );
                 }
                 Ok(())
@@ -909,7 +916,7 @@ pub(super) fn load_resources(
 /// can use: on a thread of its own, at idle priority, once the start is done.
 /// This start has just read the folder's files (they are in the disk cache);
 /// the next starts read them from one file (arismoko/horizon#1961).
-pub(super) fn write_prepared_files(root: PathBuf) {
+pub(super) fn write_prepared_files(root: PathBuf, after_world: bool) {
     use horizon_core::prepared_files;
     if prepared_files::open(&root).is_some() || !root.join("horizon-resources.json").is_file() {
         return;

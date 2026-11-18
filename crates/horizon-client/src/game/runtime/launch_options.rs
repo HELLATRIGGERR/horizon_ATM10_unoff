@@ -261,7 +261,7 @@ impl Options {
                     "--creative" => o.creative = true,
                     "--test-terrain" => o.test_terrain = true,
                     "--no-pause" => o.no_pause = true,
-                    "--offscreen" => o.offscreen = true,
+                    "--offscreen" | "--background" => o.offscreen = true,
                     "--headless" => {
                         o.headless = true;
                         o.offscreen = true;

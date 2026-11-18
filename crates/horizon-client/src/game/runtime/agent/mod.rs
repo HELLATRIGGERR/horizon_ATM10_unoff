@@ -923,7 +923,7 @@ impl Game<'_> {
             if self.ae2_local_machine_open() {v["title"]=json!([{ "text": self.ae2_local_machine_title() }]);}
             #[cfg(feature = "ae2-lab")]
             if let Some(renderer) = self.renderer.as_ref() {
-                let batch = super::HudBatch::new([renderer.config.width, renderer.config.height]);
+                let batch = self.screen_batch([renderer.config.width, renderer.config.height]);
                 let origin = self.inventory_origin(&batch);
                 if let Some(screen) = self.ae2_screen_agent_value(origin) {
                     v["ae2_screen"] = screen;
@@ -994,7 +994,7 @@ impl Game<'_> {
             v["creative_search"]=json!(self.creative_screen.search.value);
             v["creative_item_count"]=json!(items.len());
             if let Some(renderer)=self.renderer.as_ref() {
-                let batch=super::HudBatch::new([renderer.config.width,renderer.config.height]);
+                let batch=super::HudBatch::new([renderer.config.width,renderer.config.height],self.settings.gui_scale_inputs());
                 let (ox,oy)=Self::creative_origin(&batch);
                 v["origin"]=json!([ox,oy]);
                 v["creative_tabs"]=json!(self.creative_screen.tabs.iter().map(|t| {
@@ -1177,13 +1177,7 @@ impl Game<'_> {
         let scale = self
             .renderer
             .as_ref()
-            .map(|r| {
-                horizon_client::hud::HudBatch::new(
-                    [r.config.width, r.config.height],
-                    self.settings.gui_scale_inputs(),
-                )
-                .scale
-            })
+            .map(|r| self.screen_batch([r.config.width, r.config.height]).scale)
             .ok_or("no renderer yet")?;
         let device_id = DeviceId::dummy();
         for (i, &(x, y)) in points.iter().enumerate() {

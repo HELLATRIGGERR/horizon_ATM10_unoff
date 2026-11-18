@@ -640,10 +640,29 @@ impl Game<'_> {
     }
 }
 
-/// From the fork's `native_chunk_tickets.rs`.
+/// From the fork's `native_chunk_tickets.rs`, on upstream's mod tickets: a fork owner string
+/// (`create:train/4f0c...`, `ftbchunks:<team>`) holds a ticket under [`FORK_TICKET_SLOT`], a
+/// controller slot no mod registers, so the ticket is never saved (`Save::save_mod_tickets`
+/// skips a slot without an id) nor validated, as the fork's were not.
+pub(in crate::game) const FORK_TICKET_SLOT: u32 = u32::MAX;
+
+/// The ticket owner of the fork's owner string `owner`: a 128-bit hash of it, as an entity owner.
+fn fork_ticket_owner(owner: &str) -> mod_api::TicketOwner {
+    use std::hash::{Hash, Hasher};
+    let half = |seed: u8| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        seed.hash(&mut h);
+        owner.hash(&mut h);
+        h.finish()
+    };
+    mod_api::TicketOwner::Entity((u128::from(half(0)) << 64) | u128::from(half(1)))
+}
+
 impl Game<'_> {
-    /// Hold or release `owner`'s ticket on `chunk` of `dim`'s level, and
-    /// hand the level's held chunks to its streaming if it is open.
+    /// Hold or release `owner`'s ticket on `chunk` of `dim`'s level. True when the level's
+    /// tickets changed; false for an owner without a namespace, a chunk past the world's edge,
+    /// off a server, and for a level that is not open (the fork opened it at the next tick;
+    /// upstream's tickets live in an open level's streaming).
     pub(in crate::game) fn native_chunk_ticket(
         &mut self,
         dim: Dim,
@@ -661,35 +680,37 @@ impl Game<'_> {
         if !namespaced || !self.native_authoritative() || (hold && !in_world) {
             return false;
         }
-        let key = (chunk[0], chunk[1]);
-        let level = self.mod_chunk_tickets.entry(dim).or_default();
-        let changed = if hold {
-            level.entry(key).or_default().insert(owner.to_owned())
-        } else {
-            let removed = level.get_mut(&key).is_some_and(|o| o.remove(owner));
-            if level.get(&key).is_some_and(|o| o.is_empty()) {
-                level.remove(&key);
-            }
-            removed
+        let ticket = mod_api::world::mod_chunk_tickets::ModTicket {
+            controller: FORK_TICKET_SLOT,
+            owner: fork_ticket_owner(owner),
+            chunk: (chunk[0], chunk[1]),
+            natural_spawning: false,
         };
-        if !changed {
-            return false;
-        }
-        let held = level.contains_key(&key);
-        // A level not open yet gets its tickets when it opens
-        // (`native_chunk_tickets_opened`).
         let streaming = if dim == self.dim {
             Some(&mut self.streaming)
         } else {
-            self.levels.parked_streaming_mut(dim)
+            self.levels.parked_streaming_of_mut(dim.id())
         };
-        if let Some(streaming) = streaming {
-            if !held {
-                streaming.mod_forced.remove(&key);
-            } else if streaming.mod_forced.insert(key) {
-                streaming.rank_forced(key.0, key.1, key.0, key.1);
-            }
+        streaming.is_some_and(|streaming| streaming.set_mod_forced(ticket, hold))
+    }
+
+    /// `native_force_chunk`: `owner`'s ticket on `chunk` of the level in place (API 412).
+    pub(in crate::game) fn native_force_chunk(&mut self, owner: &str, chunk: [i32; 2], hold: bool) -> bool {
+        self.native_chunk_ticket(self.dim, owner, chunk, hold)
+    }
+
+    /// `native_force_chunk_in`: `owner`'s ticket on `chunk` of the level `dimension` (API 413);
+    /// false for a dimension that isn't registered.
+    pub(in crate::game) fn native_force_chunk_in(
+        &mut self,
+        owner: &str,
+        dimension: &str,
+        chunk: [i32; 2],
+        hold: bool,
+    ) -> bool {
+        if !Dim::exists(dimension) {
+            return false;
         }
-        true
+        self.native_chunk_ticket(Dim::from_id(dimension), owner, chunk, hold)
     }
 }

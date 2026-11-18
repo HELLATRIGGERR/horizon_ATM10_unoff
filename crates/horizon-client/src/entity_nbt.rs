@@ -2903,6 +2903,7 @@ pub fn orb_to_nbt(o: &ExperienceOrb, uuid: [i32; 4]) -> Tag {
         ("Age", Tag::Short(o.age.min(i16::MAX as u32) as i16)),
         ("Value", Tag::Short(o.value as i16)),
         ("Count", Tag::Int(o.count.min(i32::MAX as u32) as i32)),
+        ("Invulnerable", Tag::Byte(i8::from(o.invulnerable))),
     ] {
         put(&mut tag, key, value);
     }
@@ -2925,6 +2926,7 @@ pub fn orbs_from_nbt(tag: &Tag) -> Vec<ExperienceOrb> {
         rotation: rotation(tag),
         join: Default::default(),
         no_gravity: flag(tag, "NoGravity"),
+        invulnerable: flag(tag, "Invulnerable"),
         id: 0,
         position,
         previous: position,

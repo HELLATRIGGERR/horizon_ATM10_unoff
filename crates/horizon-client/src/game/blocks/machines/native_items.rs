@@ -24,6 +24,18 @@ pub(crate) struct NativeInsertSlot {
     pub(crate) max: u32,
 }
 
+/// A slot of a container as a side reaches it for taking from (`native_container_slots`).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct NativeContainerSlot {
+    /// Its number, for `native_extract_item`.
+    pub(crate) slot: usize,
+    pub(crate) stack: Option<ItemStack>,
+    /// Whether its stack can be taken through this side: not a furnace's fuel
+    /// through its bottom, unless it's a bucket, nor a brewing stand's reagent
+    /// unless it's a glass bottle, nor a mod's slot outside its `outputs`.
+    pub(crate) can_take: bool,
+}
+
 impl View {
     /// Composter capability ports keep one slot as their level changes; hopper views retain
     /// vanilla's level-dependent slot enumeration.
@@ -366,6 +378,123 @@ impl Game<'_> {
                 .map(|slot| c.get(&view, slot).cloned())
                 .collect(),
         )
+    }
+    /// The slots of the container at `pos` that its side `face` reaches, with
+    /// their stacks (the fork's API 48; upstream's `container_listing` reads a
+    /// side in a transaction). None where no container is: another dimension,
+    /// a chunk that isn't loaded, a block without slots, a composter, or the
+    /// mod block entity ticking now. A double chest's slots are both halves'.
+    pub(in crate::game) fn native_container_slots(
+        &self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Direction,
+    ) -> Option<Vec<NativeContainerSlot>> {
+        let view = self.native_item_source(dimension, pos)?;
+        let c = self.containers();
+        Some(
+            view.slots_for_face_iter(Some(face))
+                .map(|slot| {
+                    let stack = c.get(&view, slot);
+                    NativeContainerSlot {
+                        slot,
+                        stack: stack.cloned(),
+                        can_take: stack.is_some_and(|s| c.can_take(&view, slot, s, face)),
+                    }
+                })
+                .collect(),
+        )
+    }
+    /// Takes up to `count` items out of slot `slot` of the container at `pos`,
+    /// through its side `face`; they're the mod's to place then, as a hopper's
+    /// are. None when nothing can be taken: see `native_container_slots`. The
+    /// fork's API 48 (upstream's `container_extract` takes in a transaction).
+    pub(in crate::game) fn native_extract_item(
+        &mut self,
+        dimension: &str,
+        pos: [i32; 3],
+        face: Direction,
+        slot: usize,
+        count: u32,
+    ) -> Option<ItemStack> {
+        let view = self.native_item_source(dimension, pos)?;
+        if count == 0 || !view.slots_for_face_iter(Some(face)).any(|s| s == slot) {
+            return None;
+        }
+        let c = self.containers();
+        if !c.can_take(&view, slot, c.get(&view, slot)?, face) {
+            return None;
+        }
+        let out = self.take_up_to(&view, slot, count)?;
+        self.view_changed(&view);
+        Some(out)
+    }
+    /// Puts `stack` into the container at `pos` (a chest, a furnace, a mod
+    /// container) through its side `face`, as a hopper would, one by one, and
+    /// returns what did not fit: a machine's auto-output. A composter takes
+    /// one a call, and a client's copy of the world none. The fork's API 20
+    /// (upstream's `container_insert` puts in a transaction).
+    pub(in crate::game) fn native_insert_item(
+        &mut self,
+        pos: [i32; 3],
+        face: Direction,
+        stack: ItemStack,
+    ) -> Option<ItemStack> {
+        if !self.native_simulates() {
+            return Some(stack);
+        }
+        let Some(view) = self.containers().view((pos[0], pos[1], pos[2]), false) else {
+            return Some(stack);
+        };
+        // `tryMoveInItem` puts all it's given in an empty slot, and a hopper
+        // gives it one item, so a bigger stack goes in one by one or it would
+        // pass the slot's limit.
+        let slots: Vec<usize> = view.slots_to_add_iter(Some(face)).collect();
+        let mut left = stack.count;
+        while left > 0 {
+            let one = ItemStack {
+                count: 1,
+                ..stack.clone()
+            };
+            if self.add_one_quietly(&view, &slots, one, face).is_some() {
+                break;
+            }
+            left -= 1;
+            // A composter's `InputContainer` holds one item.
+            if matches!(view.kind, Kind::Composter(_)) {
+                break;
+            }
+        }
+        if left < stack.count {
+            self.view_changed(&view);
+        }
+        (left > 0).then_some(ItemStack {
+            count: left,
+            ..stack
+        })
+    }
+    /// One item into `view` through `face`, trying `slots`, without
+    /// `setChanged`: the caller tells the container once it's done. The item,
+    /// when nothing took it.
+    fn add_one_quietly(
+        &mut self,
+        view: &View,
+        slots: &[usize],
+        one: ItemStack,
+        face: Direction,
+    ) -> Option<ItemStack> {
+        if let Kind::Composter(_) = view.kind {
+            // A composter takes from above only (`ComposterBlock.InputContainer`).
+            let (x, y, z) = view.parts[0].0;
+            let taken = face == Direction::Up && self.composter_capability_insert([x, y, z], &one);
+            return (!taken).then_some(one);
+        }
+        let mut rest = Some(one);
+        for &slot in slots {
+            let Some(one) = rest.take() else { break };
+            rest = self.move_in_item(None, view, one, slot).0;
+        }
+        rest
     }
     /// The slots of the container at `pos` that `native_insert_item` puts a
     /// stack into through its side `face` (`HopperBlockEntity.addItem`'s, in

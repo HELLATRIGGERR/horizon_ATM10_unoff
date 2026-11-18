@@ -5,14 +5,10 @@
 //! fork's own again (`game/blocks/native_item_fluids.rs`), `native_client_action_bar` is in
 //! `fork.rs`, and upstream kept `native_item_stack` (`native_hooks/base.rs`).
 //!
-//! Not here yet, as their analogs take a value the fork's shape cannot give (S3 decides, or a
-//! bundle moves to upstream's helper): `native_container_slots`, `native_extract_item`,
-//! `native_insert_item` (upstream's `container_*` work inside a `Transaction`),
-//! `native_force_chunk`, `native_force_chunk_in` (`chunk_set_mod_forced` takes a
-//! `TicketController` from the mod's own registration, not an owner string),
-//! `native_server_block_in_tag` (an engine `BlockState`), `native_server_item_in_tag` (no
-//! upstream item-tag read), `native_set_player_status` (experience has no setter upstream),
-//! `native_teleport_player` (`teleport_to_level` takes a `Target`).
+//! The fork's container helpers (`native_container_slots`, `native_extract_item`,
+//! `native_insert_item`) are the fork's own again, in `game/blocks/machines/native_items.rs`
+//! beside upstream's transactional `container_*`, as on the fork's main; `native_force_chunk`
+//! and `native_force_chunk_in` are in `fork.rs` with the ticket code.
 use super::*;
 
 impl Game<'_> {
@@ -209,5 +205,114 @@ impl Game<'_> {
     /// API 147 at the merge base, gone upstream). `native_item_tank_capacity` asks it.
     pub(in crate::game) fn native_item_fluid_tank(&self, item: &str, capacity: &mut Option<i32>) {
         let _ = (item, capacity);
+    }
+}
+
+impl Game<'_> {
+    /// Whether a block state's name is in the server's merged block tag `tag` (the fork's
+    /// `BlockState`, upstream's `block_in_tag` takes a resolved `BlockKey`). An error while
+    /// the tags are not built yet.
+    pub(in crate::game) fn native_server_block_in_tag(
+        &self,
+        state: &horizon_world::chunk::BlockState,
+        tag: &str,
+    ) -> Result<bool, super::native_world_read::NativeBlockReadError> {
+        let items = self
+            .native_tag_items()
+            .ok_or(super::native_world_read::NativeBlockReadError::InactiveContext)?;
+        Ok(items.block_in_tag(tag, &state.name))
+    }
+    /// Whether an item stack is in the server's merged item tag `tag` (an empty stack is
+    /// `minecraft:air`); upstream has no item tag read. An error while the tags are not built.
+    pub(in crate::game) fn native_server_item_in_tag(
+        &self,
+        stack: &ItemStack,
+        tag: &str,
+    ) -> Result<bool, super::native_world_read::NativeBlockReadError> {
+        let items = self
+            .native_tag_items()
+            .ok_or(super::native_world_read::NativeBlockReadError::InactiveContext)?;
+        let item = if stack.count == 0 {
+            "minecraft:air"
+        } else {
+            &stack.item
+        };
+        Ok(items.item_in_tag(tag, item))
+    }
+    /// Sets what is given of the player `uuid`'s health, food (level 0 to 20, saturation,
+    /// exhaustion) and experience (level, progress 0 to 1, total points); None leaves it.
+    /// Health is capped at their maximum; 0 or less kills them as `/kill` does. Food and
+    /// experience come before health. False, and nothing set, for a player not reached, a dead
+    /// one, a value that is not a number, a progress outside 0 to 1, or a negative level or
+    /// total. Upstream splits it (`player_set_food_level` ...; no experience setter): the fork's
+    /// body, in the player's state through `native_as_player`.
+    pub(in crate::game) fn native_set_player_status(
+        &mut self,
+        uuid: u128,
+        health: Option<f32>,
+        food: Option<(i32, f32, f32)>,
+        xp: Option<(i32, f32, i32)>,
+    ) -> bool {
+        let bad_food = food.is_some_and(|(_, s, e)| !s.is_finite() || !e.is_finite());
+        let bad_xp = xp.is_some_and(|(l, p, t)| l < 0 || t < 0 || !(0.0..=1.0).contains(&p));
+        if health.is_some_and(|h| !h.is_finite()) || bad_food || bad_xp {
+            return false;
+        }
+        let food = food.map(|(level, saturation, exhaustion)| {
+            // FoodData.addExhaustion's cap.
+            (level.clamp(0, 20), saturation.max(0.0), exhaustion.clamp(0.0, 40.0))
+        });
+        self.native_as_player(uuid, |game| {
+            if let (Some((level, saturation, exhaustion)), Some(p)) = (food, game.player.as_mut()) {
+                p.health.food.food = level;
+                p.health.food.saturation = saturation;
+                p.health.food.exhaustion = exhaustion;
+            }
+            if let Some((level, progress, total)) = xp {
+                game.experience = horizon_client::entities::Experience {
+                    level,
+                    progress,
+                    total,
+                };
+            }
+            if let Some(health) = health {
+                game.journal_player_health();
+                if let Some(p) = game.player.as_mut() {
+                    if health > 0.0 {
+                        let _ = p.set_health(health, false);
+                        let _ = p.clamp_health_to_max();
+                    } else {
+                        // LivingEntity.die(damageSources().generic()).
+                        let _ = p.set_health(0.0, false);
+                        game.ui.death_cause = Some("death.attack.generic".into());
+                    }
+                }
+            }
+        })
+    }
+    /// Teleports the server player `uuid` to `pos` in `dimension`, facing `yaw` and `pitch`
+    /// in degrees, as `/tp` does: upstream's `entity_teleport_to_level` (into another level,
+    /// after the current tick). False for a player not on the server, a dimension that isn't
+    /// registered, a position outside `/tp`'s bounds, an angle that is not finite.
+    pub(in crate::game) fn native_teleport_player(
+        &mut self,
+        uuid: u128,
+        dimension: &str,
+        pos: [f64; 3],
+        yaw: f32,
+        pitch: f32,
+    ) -> bool {
+        if !yaw.is_finite() || !pitch.is_finite() {
+            return false;
+        }
+        let Some(player) = self.fork_player(uuid) else {
+            return false;
+        };
+        self.entity_teleport_to_level(
+            player.entity(),
+            dimension,
+            pos,
+            Some([yaw, pitch.clamp(-90.0, 90.0)]),
+        )
     }
 }

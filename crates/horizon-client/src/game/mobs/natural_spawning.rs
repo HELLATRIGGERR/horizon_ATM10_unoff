@@ -1347,11 +1347,25 @@ impl<'a> Game<'a> {
     ) -> i32 {
         let tickets = self.streaming.mod_tickets();
         let levels = self.tickets.levels();
-        scratch.collect(
+        let count = scratch.collect(
             players,
             |chunk| tickets.forces_natural_spawning(chunk),
             |(cx, cz)| levels.loaded_ticking(cx, cz) && super::ticking_chunk(&self.world, cx, cz),
-        )
+        );
+        // AE2's ChunkMap mixin admits its forced chunks to the spawning
+        // pass, but does not enlarge the player-based mob-cap count.
+        #[cfg(feature = "ae2-lab")]
+        if horizon_client::ae2_common_config::gameplay().spatial_anchor_random_ticks {
+            for (cx, cz) in self.ae2_anchored_in(self.dim) {
+                if !scratch.candidates.contains(&(cx, cz))
+                    && levels.loaded_ticking(cx, cz)
+                    && super::ticking_chunk(&self.world, cx, cz)
+                {
+                    scratch.candidates.push((cx, cz));
+                }
+            }
+        }
+        count
     }
     /// `NaturalSpawner.createState` for a pass over the level in place, under
     /// its spawn limits (`SpawnPolicy`).

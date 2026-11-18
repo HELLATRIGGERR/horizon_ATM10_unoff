@@ -37,4 +37,15 @@ impl Game<'_> {
     ) -> bool {
         self.hurt_player_from(amount, Some(from), damage_type, None, by_creative_player)
     }
+    /// Damage another player (`attacker`) dealt from a point, who is then the
+    /// attacker rather than any mob (AE2's matter cannon).
+    pub(super) fn player_hits_player_kind(
+        &mut self,
+        amount: f32,
+        from: [f64; 3],
+        damage_type: &str,
+        attacker: u32,
+    ) -> bool {
+        self.hurt_player_from_caused(amount, Some(from), damage_type, None, false, Some(attacker))
+    }
 }

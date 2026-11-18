@@ -4100,16 +4100,17 @@ impl Game<'_> {
         known: Option<Option<u32>>,
         by_creative_player: bool,
     ) -> bool {
-        self.hurt_player_from_caused(amount, from, damage_type, known, None)
+        self.hurt_player_from_caused(amount, from, damage_type, known, by_creative_player, None)
     }
     /// `hurt_player_from` by another player (`player_cause`), who is then the
     /// attacker rather than any mob.
-    fn hurt_player_from_caused(
+    pub(super) fn hurt_player_from_caused(
         &mut self,
         amount: f32,
         from: Option<[f64; 3]>,
         damage_type: &str,
         known: Option<Option<u32>>,
+        by_creative_player: bool,
         player_cause: Option<u32>,
     ) -> bool {
         let post_attack_if_alive = std::mem::take(&mut self.combat.post_attack_if_alive);
@@ -4149,7 +4150,7 @@ impl Game<'_> {
         let owner = self.combat.projectile_owner.take();
         // The mob that caused the hit, else the attack the caller landed it in (a projectile's
         // owner, another player's blow): `combat.attack`, read through `current_attack`.
-        let mut attack = match attacker.or(owner) {
+        let mut attack = match player_cause.or(attacker).or(owner) {
             Some(id) => self.attack_of(id as i32),
             None => self.current_attack(),
         };
@@ -4157,7 +4158,7 @@ impl Game<'_> {
         attack.direct = self.combat.attack().direct;
         attack.position = from;
         attack.projectile_weapon = self.combat.attack().projectile_weapon.clone();
-        if let Some(a) = attacker.or(owner) {
+        if let Some(a) = player_cause.or(attacker).or(owner) {
             self.note_attacker(damage_type, a);
         }
         if let Some((id, name)) = self.combat.projectile_attacker.take() {
@@ -4176,7 +4177,12 @@ impl Game<'_> {
         // guessed melee attacker.
         let owner = owner.filter(|_| projectile);
         let causing = known.map_or_else(
-            || attacker.or(owner).map_or(attack.attacker, |id| id as i32),
+            || {
+                player_cause
+                    .or(attacker)
+                    .or(owner)
+                    .map_or(attack.attacker, |id| id as i32)
+            },
             |known| known.map_or(0, |id| id as i32),
         );
         let mut outcome = horizon_client::health::BlockOutcome::default();

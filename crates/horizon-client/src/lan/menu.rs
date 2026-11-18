@@ -618,7 +618,7 @@ impl View<'_> {
         } else {
             u32::MAX
         };
-        let item_max = rules.max_stack(&stack.item).max(1);
+        let item_max = rules.stack_max(stack);
         let Some(menu) = self
             .guest
             .menu
@@ -1530,12 +1530,12 @@ fn quick_craft(
             if slots.len() == 1 {
                 // A single slot behaves like a plain click.
                 if kind <= 1 {
-                    pickup(view, slots[0] as i32, i32::from(kind), rules);
+                    pickup(view, slots[0] as i32, i32::from(kind), rules, drops);
                 }
                 return;
             }
             let mut remaining = i64::from(carried.count);
-            let item_max = rules.max_stack(&carried.item).max(1);
+            let item_max = rules.stack_max(&carried);
             let count = slots.len();
             for i in slots {
                 if !view.enabled(i)
@@ -2302,7 +2302,7 @@ pub(crate) mod tests {
         };
         view.guest.carried = Some(ItemStack::new("minecraft:stone", 8));
         let mut drag = Some((0, vec![0, 1]));
-        quick_craft(&mut view, &mut drag, -999, 2, &rules);
+        quick_craft(&mut view, &mut drag, -999, 2, &rules, &mut Vec::new());
         assert_eq!(
             (view.get(0).unwrap().count, view.get(1).unwrap().count),
             (4, 4)

@@ -124,6 +124,8 @@ impl Menu {
                             }
                             remaining -= i64::from(new_count) - i64::from(have);
                             let mut placed = source.clone();
+                            #[cfg(feature = "ae2-lab")]
+                            crate::ae2_stack_identity::detach_if_tracked(&mut placed);
                             placed.count = new_count;
                             self.set_by_player(env, s, Some(placed));
                         }
@@ -134,6 +136,8 @@ impl Menu {
                         barrier.remove()
                     } else {
                         source.count = remaining.max(0) as u32;
+                        #[cfg(feature = "ae2-lab")]
+                        crate::ae2_stack_identity::synchronize_tracked(&source);
                         Some(source)
                     };
                     tidy(&mut self.state.carried);
@@ -254,6 +258,11 @@ impl Menu {
     /// plain click, ending with `slot.setChanged()`.
     pub(super) fn pickup(&mut self, env: &Env, s: usize, primary: bool) {
         self.touch();
+        #[cfg(feature = "ae2-lab")]
+        if self.network_tool_click(env, s, primary) {
+            self.slot_changed(env, s);
+            return;
+        }
         let mut canceled = false;
         let mut handled = false;
         if crate::native_client_hooks::has_mods() {
@@ -284,10 +293,82 @@ impl Menu {
         } else {
             self.bundle_click(env, s, primary)
         };
+        #[cfg(feature = "ae2-lab")]
+        let handled = handled || self.ae2_wrapped_stack_click(env, s, primary);
         if !handled {
             self.pickup_inner(env, s, primary);
         }
         self.slot_changed(env, s);
+    }
+
+    /// WrappedGenericStack.overrideOtherStackedOnMe: an encoded stack is not
+    /// picked up normally. The built-in bucket capability can take one bucket
+    /// of a component-free water or lava key without duplicating the wrapper.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_wrapped_stack_click(&mut self, env: &Env, s: usize, primary: bool) -> bool {
+        let Some(wrapper) = self
+            .slot(s)
+            .cloned()
+            .filter(|item| item.item.as_ref() == "ae2:wrapped_generic_stack")
+        else {
+            return false;
+        };
+        let decoded = crate::ae2_generic_stack::unwrap_item_stack_checked(&wrapper, &|id, kind| {
+            crate::ae2_key_types::known_id(kind, id, |id| env.items.get(id).is_some())
+        });
+        let value = match decoded {
+            Ok(Some(value)) => value,
+            Ok(None) | Err(_) => {
+                self.set_by_player(env, s, None);
+                return true;
+            }
+        };
+        if !primary || value.key_type != crate::ae2_key_types::KeyType::FLUIDS {
+            return true;
+        }
+        let Some(carried) = self.state.carried.clone().filter(|item| {
+            item.item.as_ref() == "minecraft:bucket"
+                && item.same_item_same_components(&ItemStack::new("minecraft:bucket", 1))
+        }) else {
+            return true;
+        };
+        if !value.key.components.is_empty() {
+            return true;
+        }
+        let Some(result) = crate::ae2_cell_codec::fluid_bucket(&value.key.item_id) else {
+            return true;
+        };
+        if value.amount <= 0 {
+            self.set_by_player(env, s, None);
+            return true;
+        }
+        if value.amount < 1000 {
+            return true;
+        }
+        let remaining = value.amount - 1000;
+        let replacement = if remaining == 0 {
+            None
+        } else {
+            let next = crate::ae2_generic_stack::GenericStack {
+                amount: remaining,
+                ..value
+            };
+            let Ok(stack) = crate::ae2_generic_stack::wrap(&next) else {
+                return true;
+            };
+            Some(stack)
+        };
+        self.set_by_player(env, s, replacement);
+        let mut filled = ItemStack::new(result, 1);
+        if carried.count == 1 {
+            self.state.carried = Some(filled);
+        } else {
+            let mut empty = carried;
+            empty.count -= 1;
+            self.state.carried = Some(empty);
+            self.place_back(env, &mut filled);
+        }
+        true
     }
 
     pub(super) fn pickup_inner(&mut self, env: &Env, s: usize, primary: bool) {
@@ -377,6 +458,10 @@ impl Menu {
 
     /// The SWAP branch of `doClick`.
     pub(super) fn swap(&mut self, env: &Env, target: usize, button: usize) {
+        #[cfg(feature = "ae2-lab")]
+        if self.quartz_knife_slot == Some(button) || self.network_tool_slot == Some(40) {
+            return;
+        }
         self.touch();
         let inv_slot = button;
         let target_slot = self.state.slots[target];
@@ -563,17 +648,29 @@ impl Menu {
         if self.has_item(s) && self.may_pickup(env, s) {
             return;
         }
-        let total = self.state.slots.len() as i32;
-        let (start, step) = if button == 0 { (0, 1) } else { (total - 1, -1) };
+        let mut order: Vec<usize> = (0..self.state.slots.len()).collect();
+        #[cfg(feature = "ae2-lab")]
+        if self.network_tool_source_order && self.state.slots.len() == 45 {
+            // AEBaseMenu adds the nine pocket slots, then player indices 0..35.
+            // The generic chest wire layout places player main before hotbar.
+            order = (0..9).chain(36..45).chain(9..36).collect();
+        }
+        #[cfg(feature = "ae2-lab")]
+        if let Some(upgrade) = self
+            .emitter_upgrade_slot
+            .filter(|_| self.state.slots.len() == 90)
+        {
+            order = std::iter::once(upgrade).chain(81..90).chain(54..81).collect();
+        }
+        if button != 0 {
+            order.reverse();
+        }
         let carried_max = Self::max_stack(env, &carried);
         for pass in 0..2 {
-            let mut i = start;
-            while i >= 0
-                && i < total
-                && self.state.carried.as_ref().map_or(0, |c| c.count) < carried_max
-            {
-                let t = i as usize;
-                i += step;
+            for &t in &order {
+                if self.state.carried.as_ref().map_or(0, |c| c.count) >= carried_max {
+                    break;
+                }
                 let have = self.state.carried.clone().expect("some");
                 if self.has_item(t)
                     && self.quick_replace(t, &have, env)

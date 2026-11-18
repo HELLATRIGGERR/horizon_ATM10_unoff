@@ -206,7 +206,8 @@ impl Game<'_> {
         removed: &[u32],
         through: Option<horizon_client::join_seq::JoinSeq>,
     ) -> bool {
-        if self.remote.is_some() || mod_api::__private::mods().is_empty() || !self.joins_pending() {
+        // A native hook that listens (`entity_level_listened`) hears joins without a mod loaded.
+        if self.remote.is_some() || !self.entity_level_heard() || !self.joins_pending() {
             return true;
         }
         self.assign_pending_join_ids();
@@ -423,7 +424,7 @@ impl Game<'_> {
     /// be told when it leaves.
     pub(super) fn native_joins_skip(&mut self) {
         let observed = horizon_client::join_seq::JoinSeq::latest();
-        if self.remote.is_none() && !mod_api::__private::mods().is_empty() {
+        if self.remote.is_none() && self.entity_level_heard() {
             self.assign_pending_join_ids();
             while let Some((slot, id, seq)) =
                 self.next_unannounced(self.persist.joined_seq, &[], None)

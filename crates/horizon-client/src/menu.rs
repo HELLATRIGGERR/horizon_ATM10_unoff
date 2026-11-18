@@ -2335,8 +2335,13 @@ pub(crate) fn inventory_add(
     }
     if items.get(&stack.item).is_some_and(|i| i.max_damage > 0) && stack.damage > 0 {
         if let Some(slot) = inventory[..36].iter().position(Option::is_none) {
-            inventory[slot] = Some(stack.clone());
+            let mut copy = stack.clone();
+            #[cfg(feature = "ae2-lab")]
+            crate::ae2_stack_identity::detach_if_tracked(&mut copy);
+            inventory[slot] = Some(copy);
             stack.count = 0;
+            #[cfg(feature = "ae2-lab")]
+            crate::ae2_stack_identity::synchronize_tracked(stack);
             return true;
         }
         if creative {

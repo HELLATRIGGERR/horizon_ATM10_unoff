@@ -87,6 +87,13 @@ impl Menu {
             return;
         }
         if self.state.slots[s].role == Role::CombineResult && self.state.kind == Kind::Anvil {
+            #[cfg(feature = "ae2-lab")]
+            if self.quartz_knife_slot.is_some() {
+                self.remove(env, 0, 1);
+                self.quartz_knife_used = true;
+                self.quartz_knife_result(env);
+                return;
+            }
             if self.state.anvil_hook {
                 self.state.anvil_craft = Some(AnvilCraft {
                     left: self.state.containers[MAIN][0].clone(),
@@ -183,6 +190,8 @@ impl Menu {
             self.state.crafted.push((id, grid.clone()));
             self.state.item_crafted.push(made);
         }
+        #[cfg(feature = "ae2-lab")]
+        let mut recipe_rng = self.recipe_durability_rng.take();
         let remaining = match env
             .recipes
             .find_with(env.loop_context, &grid, n, &map_scale)
@@ -195,18 +204,54 @@ impl Menu {
                         Some(crate::crafting::Recipe::Mod(_))
                     ) =>
             {
-                env.recipes.remainders(id, &grid, n, &|s| env.remainder(s))
+                // A committed craft's damageable remainders lose durability with the menu's
+                // random (`recipe_durability_rng`, set for a server-side craft).
+                #[cfg(feature = "ae2-lab")]
+                let committed = recipe_rng.as_mut().map(|random| {
+                    let mut loss = |stack: &ItemStack, amount: u32| {
+                        crate::crafting::committed_durability_loss(
+                            env.enchantments,
+                            env.items,
+                            stack,
+                            random,
+                            amount,
+                        )
+                    };
+                    env.recipes.remainders_with_durability(
+                        id,
+                        &grid,
+                        n,
+                        &|s| env.remainder(s),
+                        Some(&mut loss),
+                    )
+                });
+                #[cfg(not(feature = "ae2-lab"))]
+                let committed = None;
+                committed
+                    .unwrap_or_else(|| env.recipes.remainders(id, &grid, n, &|s| env.remainder(s)))
             }
             Some(_) => grid
                 .iter()
                 .map(|cell| cell.as_ref().and_then(|s| env.remainder(s)))
                 .collect(),
-            None => return,
+            None => {
+                #[cfg(feature = "ae2-lab")]
+                {
+                    self.recipe_durability_rng = recipe_rng;
+                }
+                return;
+            }
         };
+        #[cfg(feature = "ae2-lab")]
+        {
+            self.recipe_durability_rng = recipe_rng;
+        }
         for cell in 0..n * n {
             let mut here = self.state.containers[GRID][cell].take();
             if let Some(stack) = here.as_mut() {
                 stack.count -= 1;
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::synchronize_tracked(stack);
             }
             tidy(&mut here);
             self.state.containers[GRID][cell] = here;

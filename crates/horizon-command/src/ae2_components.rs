@@ -173,7 +173,7 @@ pub fn is_known(id: &str) -> bool {
     PERSISTENT_IDS.contains(&id)
 }
 
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 
 pub fn register(reg: &mut crate::args::Registries) {
     reg.persistent_components
@@ -758,7 +758,7 @@ fn decode(id: &str, t: Tag, depth: usize) -> Result<Tag, String> {
 mod tests {
     use super::*;
     fn snbt(s: &str) -> Tag {
-        horizon_world::nbt::parse_snbt(s).unwrap().0
+        horizon_core::nbt::parse_snbt(s).unwrap().0
     }
     #[test]
     fn ae2_registered_item_commands_reject_missing_strict_content() {

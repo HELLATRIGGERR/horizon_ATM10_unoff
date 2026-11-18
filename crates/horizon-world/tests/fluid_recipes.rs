@@ -8,7 +8,7 @@ use horizon_world::fluid::FluidKind;
 use horizon_world::fluid_ingredient::{FluidIngredient, SizedFluidIngredient};
 use horizon_world::fluid_stack::{FluidStack, fluid_from_json, positive_int};
 use horizon_world::mod_fluids::{ModFluid, fluids_in_tag, register_fluids};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::Once;

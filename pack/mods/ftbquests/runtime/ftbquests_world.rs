@@ -3,8 +3,16 @@
 //   with the book screen;
 // - each FTB team's progress, `<world>/ftbquests/<team uuid>.snbt` in FTB Quests' layout, written on each save;
 // - item tasks seen in the players' inventories every `detection_delay` ticks, checkmark tasks and reward claims
-//   from the book (`ftbquests:submit_task`, `ftbquests:claim_reward`), the team's progress sent to its members;
-// - the book item (`ftbquests:book`, right click) and `/ftbquests open_book` open the book;
+//   from the book (`ftbquests:submit_task`, `ftbquests:claim_reward` with a choice's pick, `ftbquests:claim_all_rewards`),
+//   the team's progress sent to its members;
+// - the rewards given: items (what doesn't fit drops at the player's feet), experience points and levels, a reward
+//   table's draws or pick, a command run as the player at the reward's permission level (on the next tick, where
+//   no player's state is swapped in), a toast; claims refused while the team's `rewards_blocked` is set;
+// - what the team just completed (`TeamData::newly`), handled at the next tick: completion toasts
+//   (`ftbquests:notify`) to the members who are on, then the quests' auto-claimed rewards;
+// - chat notices: a refused claim while rewards are blocked, a command reward's output (unless `silent`) and its
+//   `feedback_message`, items dropped for want of room;
+// - the book item (`ftbquests:book`, right click), `/ftbquests open_book`, `/ftbquests block_rewards`;
 //   `/ftbquests_probe` (FTBTEAMS_DEV=1) answers `FTBQ {json}` for the tests.
 // FTB Quests is All Rights Reserved: written from its behaviour; messages are translation keys with our own
 // fallback wording.
@@ -15,10 +23,10 @@ use super::{
     native_server::{NativeCommand, NativeServerPlayer},
 };
 use ftbquests_core::{
-    CLAIM_REWARD, OPEN_BOOK, Request, SUBMIT_TASK, SYNC,
-    file::{QuestFile, parse_id},
+    CLAIM_ALL, CLAIM_REWARD, NOTIFY, Notice, OPEN_BOOK, Request, SUBMIT_TASK, SYNC,
+    file::{QuestFile, code, parse_id},
     snbt,
-    team::{TeamData, dashed},
+    team::{Grant, TeamData, auto_claims, dashed},
 };
 use horizon_client::text::Text;
 use std::{
@@ -73,13 +81,48 @@ fn file_error() -> Option<String> {
     FILE.lock().ok()?.as_ref()?.as_ref().err().cloned()
 }
 
+/// A command reward waiting for the next tick.
+struct PendingCommand {
+    player: u128,
+    team: String,
+    reward: u64,
+    command: String,
+    level: u8,
+    silent: bool,
+    feedback: Option<String>,
+}
+
 struct Server {
     world: PathBuf,
     teams: BTreeMap<u128, TeamData>,
     ticks: u64,
     /// The team each player's client last got, to send a new picture when it changes.
     synced: HashMap<u128, u128>,
+    /// For the probe: items, experience points and levels given, toasts sent, the last commands run and chat notices.
     gave: u64,
+    xp_given: u64,
+    levels_given: i64,
+    notices: u64,
+    ran: Vec<serde_json::Value>,
+    told: Vec<String>,
+    commands: Vec<PendingCommand>,
+    rng: u64,
+}
+
+/// A uniform draw in [0, 1) (SplitMix64).
+fn roll(state: &mut u64) -> f64 {
+    *state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *state;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    ((z ^ (z >> 31)) >> 11) as f64 / (1u64 << 53) as f64
+}
+
+fn keep_last<T>(list: &mut Vec<T>, item: T) {
+    list.push(item);
+    if list.len() > 8 {
+        list.remove(0);
+    }
 }
 
 thread_local! {
@@ -116,7 +159,21 @@ pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
                 }
             }
             log::info!("[ftbquests] {} team progress file(s)", teams.len());
-            SERVER.with(|s| *s.borrow_mut() = Some(Server { world, teams, ticks: 0, synced: HashMap::new(), gave: 0 }));
+            let server = Server {
+                world,
+                teams,
+                ticks: 0,
+                synced: HashMap::new(),
+                gave: 0,
+                xp_given: 0,
+                levels_given: 0,
+                notices: 0,
+                ran: Vec::new(),
+                told: Vec::new(),
+                commands: Vec::new(),
+                rng: now_ms() as u64,
+            };
+            SERVER.with(|s| *s.borrow_mut() = Some(server));
         }
         WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => {
             saved();
@@ -167,8 +224,193 @@ fn sync(game: &mut Game<'_>, file: &QuestFile, team: u128, only: Option<u128>) {
     }
 }
 
-/// `native_server_tick` (its end): every `detection_delay` ticks each player's inventory is looked at for the item
-/// tasks; a player whose client lacks their team's progress gets it.
+fn notify(game: &mut Game<'_>, player: u128, notice: &Notice) {
+    let data = serde_json::to_vec(notice).unwrap_or_default();
+    match game.native_net_send_to_player(player, NOTIFY, &data) {
+        Ok(()) => {
+            with_server(|s| s.notices += 1);
+        }
+        Err(e) => log::debug!("[ftbquests] {NOTIFY}: {e}"),
+    }
+}
+
+/// A chat notice for the player.
+fn tell(game: &mut Game<'_>, player: u128, line: Text) {
+    let plain = line.plain();
+    if game.native_tell(player, line) {
+        with_server(|s| keep_last(&mut s.told, plain));
+    }
+}
+
+/// A console command for the named player's grant; whether it ran.
+fn console(game: &mut Game<'_>, name: &str, line: String) -> bool {
+    !name.is_empty() && game.native_run_command_captured(&line).ran
+}
+
+/// Gives what a claim of `reward` handed out; what it gave, for the toast. Commands wait for the next tick. Where
+/// the player's state can't be swapped in (the server tick's auto-claims), items and experience go through the
+/// console's `give` and `experience add` instead.
+fn give(game: &mut Game<'_>, player: u128, team: &str, reward: u64, grants: Vec<Grant>) -> Notice {
+    let mut notice = Notice { kind: "reward".into(), id: code(reward), ..Notice::default() };
+    let me = game.native_server_players().into_iter().find(|p| p.uuid == player);
+    let feet = me.as_ref().map(|p| p.position.map(|v| v.floor() as i32));
+    let name = me.map(|p| p.name).unwrap_or_default();
+    for grant in grants {
+        match grant {
+            Grant::Item { item, count } => {
+                let mut given = 0;
+                let swapped = game.native_as_player(player, |g| {
+                    given = g.native_give_items(&item, count);
+                    if let (true, Some(at)) = (given < count, feet) {
+                        g.native_pop_resource(at, horizon_client::items::ItemStack { item: item.as_str().into(), count: count - given, damage: 0, extra: None });
+                    }
+                });
+                if !swapped && console(game, &name, format!("give {name} {item} {count}")) {
+                    given = count;
+                }
+                if swapped && given < count {
+                    let name = Text::translate_with_fallback(&format!("item.{}", item.replace(':', ".")), &item, &[]);
+                    let args = [Text::literal((count - given).to_string()), name];
+                    tell(game, player, Text::translate_with_fallback("ftbquests.port.dropped", "No room for %s %s: dropped at your feet.", &args));
+                }
+                with_server(|s| s.gave += given as u64);
+                notice.items.push((item, count));
+            }
+            Grant::Xp(points) => {
+                if game.native_give_experience(player, points) || console(game, &name, format!("experience add {name} {points} points")) {
+                    with_server(|s| s.xp_given += points as u64);
+                } else {
+                    log::warn!("[ftbquests] {points} experience for {player:032x} not given (reward {reward:016X})");
+                }
+                notice.xp += points;
+            }
+            Grant::Levels(levels) => {
+                if game.native_give_levels(player, levels) || console(game, &name, format!("experience add {name} {levels} levels")) {
+                    with_server(|s| s.levels_given += levels as i64);
+                } else {
+                    log::warn!("[ftbquests] {levels} levels for {player:032x} not given (reward {reward:016X})");
+                }
+                notice.levels += levels;
+            }
+            Grant::Command { command, level, silent, feedback } => {
+                with_server(|s| s.commands.push(PendingCommand { player, team: team.to_owned(), reward, command, level, silent, feedback }));
+            }
+            Grant::Toast { reward, description } => notify(game, player, &Notice { kind: "toast".into(), id: code(reward), text: description, ..Notice::default() }),
+        }
+    }
+    notice
+}
+
+/// Claims `reward` for `player` and gives it; what it gave, or None (refused: blocked rewards are told in chat).
+fn claim_one(game: &mut Game<'_>, file: &QuestFile, team: u128, name: &str, player: u128, reward: u64, choice: Option<usize>) -> Option<Notice> {
+    let claimed = with_server(|s| {
+        let mut rng = s.rng;
+        let out = data_of(s, team, name).claim(file, player, reward, choice, now_ms(), &mut || roll(&mut rng));
+        s.rng = rng;
+        out
+    })?;
+    match claimed {
+        Ok(grants) => Some(give(game, player, name, reward, grants)),
+        Err(why) => {
+            if why == "rewards blocked" {
+                tell(game, player, tr("ftbquests.port.blocked", "Your team's rewards are held back for now; this one stays unclaimed."));
+            }
+            log::debug!("[ftbquests] reward {reward:016X} not claimed: {why}");
+            None
+        }
+    }
+}
+
+fn worth_a_toast(n: &Notice) -> bool {
+    !n.items.is_empty() || n.xp > 0 || n.levels != 0
+}
+
+/// `{p}` the player's name, `{x}` `{y}` `{z}` their block, `{quest}` and `{chapter}` the ids, `{team}` the
+/// team's name; no leading slash.
+fn fill(command: &str, player: &NativeServerPlayer, file: &QuestFile, reward: u64, team: &str) -> String {
+    let quest = file.rewards.get(&reward).map_or(0, |r| r.quest);
+    let chapter = file.quests.get(&quest).map_or(0, |q| q.chapter);
+    let [x, y, z] = player.position.map(|v| v.floor() as i64);
+    command
+        .trim()
+        .trim_start_matches('/')
+        .replace("{p}", &player.name)
+        .replace("{x}", &x.to_string())
+        .replace("{y}", &y.to_string())
+        .replace("{z}", &z.to_string())
+        .replace("{quest}", &code(quest))
+        .replace("{chapter}", &code(chapter))
+        .replace("{team}", team)
+}
+
+/// The command rewards claimed since the last tick, each run as its player (`execute as` them `at` them, so `@s`
+/// and `@p` are they) when the command's level is within the reward's `permission_level`.
+fn run_commands(game: &mut Game<'_>, file: &QuestFile) {
+    let pending = with_server(|s| std::mem::take(&mut s.commands)).unwrap_or_default();
+    for c in pending {
+        let Some(p) = game.native_server_players().into_iter().find(|p| p.uuid == c.player) else { continue };
+        let line = fill(&c.command, &p, file, c.reward, &c.team);
+        let needs = game.native_command_info(line.split_whitespace().next().unwrap_or_default()).map(|i| i.level);
+        let (ran, output) = if needs.is_some_and(|n| n > c.level) {
+            (false, vec![Text::translate("command.unknown.command", &[]).with_color(horizon_client::text::RED)])
+        } else {
+            let r = game.native_run_command_captured(&format!("execute as {} at @s run {line}", p.name));
+            (r.ran, r.output)
+        };
+        if !c.silent {
+            for l in &output {
+                tell(game, c.player, l.clone());
+            }
+        }
+        if let (true, Some(f)) = (ran, &c.feedback) {
+            tell(game, c.player, Text::translate_with_fallback(f, f, &[]));
+        }
+        log::info!("[ftbquests] command reward {:016X} for {}: {line} (level {}) ran={ran}", c.reward, p.name, c.level);
+        let entry = serde_json::json!({
+            "reward": code(c.reward), "line": line, "level": c.level, "needs": needs, "ran": ran,
+            "output": output.iter().map(Text::plain).collect::<Vec<_>>(),
+        });
+        with_server(|s| keep_last(&mut s.ran, entry));
+    }
+}
+
+/// What the teams completed since the last tick: toasts to the members who are on, then the quests' auto-claimed
+/// rewards for each of them, then the new progress.
+fn completions(game: &mut Game<'_>, file: &QuestFile, players: &[NativeServerPlayer]) {
+    let done: Vec<(u128, String, Vec<u64>)> =
+        with_server(|s| s.teams.iter_mut().filter(|(_, d)| !d.newly.is_empty()).map(|(id, d)| (*id, d.name.clone(), std::mem::take(&mut d.newly))).collect()).unwrap_or_default();
+    for (team, name, ids) in done {
+        let members: Vec<u128> = players.iter().map(|p| p.uuid).filter(|p| team_of(*p).map(|t| t.0) == Some(team)).collect();
+        for id in ids {
+            // A task's own toast only where its quest has more than one; the quest's follows anyway.
+            let kind = if let Some(t) = file.tasks.get(&id) {
+                file.quests.get(&t.quest).is_some_and(|q| q.tasks.len() > 1).then_some("task")
+            } else if file.quests.contains_key(&id) {
+                Some("quest")
+            } else {
+                file.chapter(id).map(|_| "chapter")
+            };
+            if let (Some(kind), true) = (kind, file.toast_for(id)) {
+                for m in &members {
+                    notify(game, *m, &Notice { kind: kind.into(), id: code(id), ..Notice::default() });
+                }
+            }
+            if kind == Some("quest") {
+                for (reward, toast) in auto_claims(file, id) {
+                    for m in &members {
+                        if let Some(n) = claim_one(game, file, team, &name, *m, reward, None).filter(|n| toast && worth_a_toast(n)) {
+                            notify(game, *m, &n);
+                        }
+                    }
+                }
+            }
+        }
+        sync(game, file, team, None);
+    }
+}
+
+/// `native_server_tick` (its end): the commands and completions since the last tick; every `detection_delay` ticks
+/// each player's inventory is looked at for the item tasks; a player whose client lacks their team's progress gets it.
 pub(super) fn tick(game: &mut Game<'_>) {
     let Some(file) = quest_file() else { return };
     let Some(ticks) = with_server(|s| {
@@ -178,6 +420,8 @@ pub(super) fn tick(game: &mut Game<'_>) {
         return;
     };
     let players = game.native_server_players();
+    run_commands(game, &file);
+    completions(game, &file, &players);
     for p in &players {
         let Some((team, name)) = team_of(p.uuid) else { continue };
         if with_server(|s| s.synced.get(&p.uuid) != Some(&team)) == Some(true) {
@@ -206,39 +450,47 @@ pub(super) fn logged_in(player: u128) {
     with_server(|s| s.synced.remove(&player));
 }
 
-/// `native_net_from_client`: the book's checkmark and claim buttons.
+/// `native_net_from_client`: the book's checkmark, claim, pick and claim-all buttons.
 pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data: &[u8]) {
-    if channel != SUBMIT_TASK && channel != CLAIM_REWARD {
+    if channel != SUBMIT_TASK && channel != CLAIM_REWARD && channel != CLAIM_ALL {
         return;
     }
     let Some(file) = quest_file() else { return };
-    let Some(id) = serde_json::from_slice::<Request>(data).ok().and_then(|r| parse_id(&r.id)) else {
+    let Some(request) = serde_json::from_slice::<Request>(data).ok() else {
         log::warn!("[ftbquests] a bad {channel} message");
         return;
     };
     let Some((team, name)) = team_of(player) else { return };
     let now = now_ms();
+    if channel == CLAIM_ALL {
+        // One toast for all of it, as the book's "claim all" gathers what it took.
+        let list = with_server(|s| data_of(s, team, &name).claim_all_list(&file, player)).unwrap_or_default();
+        let mut all = Notice { kind: "reward".into(), ..Notice::default() };
+        for reward in list {
+            if let Some(n) = claim_one(game, &file, team, &name, player, reward, None) {
+                all.items.extend(n.items);
+                all.xp += n.xp;
+                all.levels += n.levels;
+            }
+        }
+        if worth_a_toast(&all) {
+            notify(game, player, &all);
+        }
+        sync(game, &file, team, None);
+        return;
+    }
+    let Some(id) = parse_id(&request.id) else { return };
     if channel == SUBMIT_TASK {
         if with_server(|s| data_of(s, team, &name).check(&file, id, now)) == Some(true) {
             sync(game, &file, team, None);
         }
         return;
     }
-    let claimed = with_server(|s| data_of(s, team, &name).claim(&file, player, id, now));
-    match claimed {
-        Some(Ok(item)) => {
-            if let Some((item, count)) = item {
-                let mut given = 0;
-                game.native_as_player(player, |g| given = g.native_give_items(&item, count));
-                if given < count {
-                    log::warn!("[ftbquests] {} of {count} {item} didn't fit in the inventory", count - given);
-                }
-                with_server(|s| s.gave += given as u64);
-            }
-            sync(game, &file, team, None);
+    if let Some(n) = claim_one(game, &file, team, &name, player, id, request.index) {
+        if worth_a_toast(&n) {
+            notify(game, player, &n);
         }
-        Some(Err(why)) => log::debug!("[ftbquests] reward {id:016X} not claimed: {why}"),
-        None => {}
+        sync(game, &file, team, None);
     }
 }
 
@@ -260,16 +512,21 @@ pub(super) fn use_item(game: &mut Game<'_>, stack: &horizon_client::items::ItemS
 
 pub(super) fn register(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::new("ftbquests open_book"));
+    commands.push(NativeCommand::op("ftbquests block_rewards <blocked:word> [player:player_name]", 2));
     if dev() {
         commands.push(NativeCommand::op("ftbquests_probe", 2));
         commands.push(NativeCommand::op("ftbquests_probe pick", 2));
+        commands.push(NativeCommand::op("ftbquests_probe complete <quest:word>", 2));
+        commands.push(NativeCommand::op("ftbquests_probe command <level:word> <line:text>", 2));
     }
 }
 
 /// Quests of the book for the tests to play, in book order, none waiting on another: one whose only task is a
-/// plain vanilla item and which gives a plain vanilla item, and one with a checkmark.
+/// plain vanilla item and which gives a plain vanilla item, and one with a checkmark. Then, for each reward kind of
+/// this slice, the first reward of that kind on a quest no other pick has (the test completes its quest with
+/// `/ftbquests_probe complete`), and `auto`: an xp reward of yet another quest, for the auto-claim.
 fn pick(f: &QuestFile) -> serde_json::Value {
-    use ftbquests_core::file::{RewardKind, TaskKind, code};
+    use ftbquests_core::file::{RewardKind, TaskKind};
     let vanilla = |i: &str| i.starts_with("minecraft:");
     let free = |q: &ftbquests_core::file::Quest| q.dependencies.iter().all(|d| !f.quests.contains_key(d));
     let quests = || f.chapters.iter().flat_map(|c| c.quests.iter().filter_map(|q| f.quests.get(q)).map(move |q| (c, q)));
@@ -280,7 +537,7 @@ fn pick(f: &QuestFile) -> serde_json::Value {
             return None;
         }
         let (r, ritem, rcount) = q.rewards.iter().find_map(|r| match &f.rewards.get(r)?.kind {
-            RewardKind::Item { item, count, components: false } if vanilla(item) && *count <= 64 => Some((*r, item.clone(), *count)),
+            RewardKind::Item { item, count, components: false, random_bonus: 0 } if vanilla(item) && *count <= 64 => Some((*r, item.clone(), *count)),
             _ => None,
         })?;
         Some(serde_json::json!({
@@ -292,7 +549,73 @@ fn pick(f: &QuestFile) -> serde_json::Value {
         let t = q.tasks.iter().find(|t| matches!(f.tasks.get(t).map(|t| &t.kind), Some(TaskKind::Checkmark)))?;
         free(q).then(|| serde_json::json!({ "quest": code(q.id), "chapter": c.filename, "task": code(*t) }))
     });
-    serde_json::json!({ "item": item, "check": check })
+    let mut used: Vec<String> = [&item, &check].iter().filter_map(|p| p.as_ref()?["quest"].as_str().map(str::to_owned)).collect();
+    let mut picks = serde_json::json!({ "item": item, "check": check });
+    for (name, kind) in [("xp", "xp"), ("xp_levels", "xp_levels"), ("random", "random"), ("loot", "loot"), ("choice", "choice"), ("command", "command"), ("toast", "toast"), ("auto", "xp")] {
+        // The auto-claim's quest from the book's end, where nothing the test did before completes it.
+        let order: Vec<_> = if name == "auto" { quests().collect::<Vec<_>>().into_iter().rev().collect() } else { quests().collect() };
+        let found = order.into_iter().find_map(|(c, q)| {
+            if used.contains(&code(q.id)) {
+                return None;
+            }
+            let r = q.rewards.iter().filter_map(|r| f.rewards.get(r)).find(|r| r.type_name() == kind && !matches!(r.kind, RewardKind::Other(_)))?;
+            if name == "auto" && r.exclude_from_claim_all {
+                return None;
+            }
+            let takes = |r: &&ftbquests_core::file::Reward| !r.exclude_from_claim_all && !matches!(r.kind, RewardKind::Choice { .. } | RewardKind::Other(_));
+            let mut p = serde_json::json!({
+                "quest": code(q.id), "chapter": c.filename, "reward": code(r.id), "excluded": r.exclude_from_claim_all,
+                "quest_rewards": q.rewards.iter().map(|r| code(*r)).collect::<Vec<_>>(),
+                "claim_all": q.rewards.iter().filter_map(|r| f.rewards.get(r)).filter(takes).map(|r| code(r.id)).collect::<Vec<_>>(),
+            });
+            match &r.kind {
+                RewardKind::Xp { points } => p["xp"] = (*points).into(),
+                RewardKind::XpLevels { levels } => p["levels"] = (*levels).into(),
+                RewardKind::Random { table } | RewardKind::Loot { table } | RewardKind::Choice { table } => {
+                    let t = f.reward_tables.get(table)?;
+                    p["table"] = code(*table).into();
+                    p["entries"] = t.entries.len().into();
+                    p["loot_size"] = t.loot_size.into();
+                }
+                RewardKind::Command { command, permission_level, .. } => {
+                    p["command"] = command.clone().into();
+                    p["permission_level"] = (*permission_level).into();
+                }
+                _ => {}
+            }
+            Some(p)
+        });
+        if let Some(q) = found.as_ref().and_then(|p| p["quest"].as_str()) {
+            used.push(q.to_owned());
+        }
+        picks[name] = found.unwrap_or_default();
+    }
+    picks
+}
+
+/// `/ftbquests block_rewards <true|false> [player]`: sets the team's `rewards_blocked` (the player's own team by default).
+fn block_rewards(game: &mut Game<'_>, player: &NativeServerPlayer, words: &[&str]) {
+    let Some(blocked) = words.get(2).and_then(|w| w.parse::<bool>().ok()) else {
+        game.native_feedback(tr("ftbquests.port.block_usage", "Say true or false: /ftbquests block_rewards <true|false> [player]"));
+        return;
+    };
+    let who = match words.get(3) {
+        Some(name) => game.native_server_players().into_iter().find(|p| p.name.eq_ignore_ascii_case(name)).map(|p| p.uuid),
+        None => Some(player.uuid),
+    };
+    let Some((team, name)) = who.and_then(team_of) else {
+        game.native_feedback(tr("ftbquests.port.no_team", "No such player on the server."));
+        return;
+    };
+    let Some(file) = quest_file() else { return };
+    with_server(|s| {
+        let d = data_of(s, team, &name);
+        d.rewards_blocked = blocked;
+        d.dirty = true;
+    });
+    sync(game, &file, team, None);
+    let args = [Text::literal(name), Text::literal(blocked.to_string())];
+    game.native_feedback(Text::translate_with_fallback("ftbquests.port.blocked_set", "Rewards of %s held back: %s", &args));
 }
 
 /// `native_perform_command`: `/ftbquests open_book`; `/ftbquests_probe` for the tests.
@@ -306,6 +629,10 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             *ran = true;
             open_book(game, player.uuid);
         }
+        ["ftbquests", "block_rewards", ..] => {
+            *ran = true;
+            block_rewards(game, player, &words);
+        }
         ["ftbquests", ..] => {
             *ran = true;
             game.native_feedback(tr("ftbquests.port.not_yet", "This part of the quest commands isn't in the port yet."));
@@ -314,6 +641,22 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             *ran = true;
             let file = quest_file();
             let me = team_of(player.uuid);
+            if let (Some(f), Some((team, name)), ["ftbquests_probe", "complete", quest]) = (&file, &me, words.as_slice()) {
+                let id = parse_id(quest).unwrap_or(0);
+                let done = with_server(|s| data_of(s, *team, name).force_complete(f, id, now_ms())).unwrap_or(false);
+                game.native_feedback(Text::literal(format!("FTBQC {{\"quest\":\"{}\",\"done\":{done}}}", code(id))));
+                return;
+            }
+            // A command reward's run, for a line of the test's own: `command <level> <line>`.
+            if let (Some((_, name)), ["ftbquests_probe", "command", level, line @ ..]) = (&me, words.as_slice()) {
+                let level = level.parse::<u8>().unwrap_or(2).min(4);
+                let command = line.join(" ");
+                with_server(|s| s.commands.push(PendingCommand { player: player.uuid, team: name.clone(), reward: 0, command, level, silent: false, feedback: None }));
+                game.native_feedback(Text::literal("FTBQC {}"));
+                return;
+            }
+            let online = game.native_server_players();
+            let xp = online.iter().find(|p| p.uuid == player.uuid).map(|p| serde_json::json!({ "level": p.xp_level, "progress": p.xp_progress }));
             let json = with_server(|s| {
                 let teams: Vec<serde_json::Value> = s
                     .teams
@@ -321,7 +664,8 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
                     .map(|d| {
                         serde_json::json!({
                             "id": dashed(d.uuid), "tasks": d.task_progress.len(), "completed": d.completed.len(),
-                            "claimed": d.claimed.len(), "dirty": d.dirty,
+                            "claimed": d.claimed.len(), "dirty": d.dirty, "blocked": d.rewards_blocked,
+                            "claims": d.claimed.keys().map(|(_, r)| code(*r)).collect::<Vec<_>>(),
                             "progress": d.task_progress.iter().map(|(k, v)| (format!("{k:016X}"), *v)).collect::<BTreeMap<_, _>>(),
                             "done": d.completed.keys().map(|k| format!("{k:016X}")).collect::<Vec<_>>(),
                         })
@@ -329,7 +673,8 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
                     .collect();
                 serde_json::json!({
                     "world": s.world.display().to_string(), "ticks": s.ticks, "gave": s.gave, "teams": teams,
-                    "team": me.as_ref().map(|t| dashed(t.0)),
+                    "team": me.as_ref().map(|t| dashed(t.0)), "xp_given": s.xp_given, "levels_given": s.levels_given,
+                    "notices": s.notices, "ran": s.ran, "told": s.told, "xp": xp,
                 })
             })
             .unwrap_or_else(|| serde_json::json!({ "error": "no world on this side" }));

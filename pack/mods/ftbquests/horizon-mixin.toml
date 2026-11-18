@@ -1,6 +1,6 @@
-# FTB Quests as a native mod of this fork (horizon-mixins bundle), slice 1: the quest book read from the
+# FTB Quests as a native mod of this fork (horizon-mixins bundle), slices 1 and 2: the quest book read from the
 # instance's config/ftbquests/quests, the book screen, item and checkmark tasks with the team's progress saved as
-# FTB Quests saves it, and item rewards. See docs/ftb-quests.md.
+# FTB Quests saves it, and the rewards of every kind the book has. See docs/ftb-quests.md.
 # FTB Quests 2101.1.37 is All Rights Reserved (FTB): its behaviour is reimplemented in the crate `ftbquests-core`
 # and the runtime modules; no file of it is copied. See README.md.
 #

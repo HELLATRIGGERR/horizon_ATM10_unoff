@@ -1,7 +1,9 @@
 // FTB Quests' book screen (support module `crate::game::ftbquests_book` of the `ftbquests` native bundle), the
 // mod screen `ftbquests`: the chapters by group down the left, the chosen chapter's quests on a grid that a drag
 // pans and the wheel zooms (dependency lines, item icons, the state of each quest), and a quest's view over it
-// (its text, its tasks with their progress and the checkmark button, its rewards with the claim button).
+// (its text, its tasks with their progress and the checkmark button, its rewards with the claim button, a choice
+// reward's picker), and "take all" over the grid. The server's notices (`ftbquests:notify`) become toasts: a task,
+// quest or chapter completed, what a claim gave, a toast reward.
 // It opens from the server (the book item, `/ftbquests open_book`) or with the quests key (unbound, as in FTB
 // Quests). The team's progress comes from the server (`ftbquests:sync_team_data`); `/ftbquestsbook` (FTBTEAMS_DEV=1)
 // puts `FTBQB {json}` in chat for the tests. FTB Quests is All Rights Reserved: written from its behaviour, drawn
@@ -9,8 +11,8 @@
 
 use super::{Game, ftbquests_world};
 use ftbquests_core::{
-    CLAIM_REWARD, OPEN_BOOK, Request, SUBMIT_TASK, SYNC, Sync,
-    file::{QuestFile, RewardKind, TaskKind, code, parse_id},
+    CLAIM_ALL, CLAIM_REWARD, NOTIFY, Notice, OPEN_BOOK, Request, SUBMIT_TASK, SYNC, Sync,
+    file::{AutoClaim, QuestFile, Reward, RewardKind, TaskKind, code, parse_id},
 };
 use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
 use std::{
@@ -43,6 +45,12 @@ enum Action {
     Check(u64),
     Claim(u64),
     CloseView,
+    /// Opens a choice reward's picker.
+    Choose(u64),
+    /// The picker's entry `.1` for the choice reward `.0`.
+    Pick(u64, usize),
+    ClosePicker,
+    ClaimAll,
 }
 
 #[derive(Default)]
@@ -52,13 +60,18 @@ struct Book {
     tasks: HashMap<u64, i64>,
     completed: HashSet<u64>,
     claimed: HashSet<u64>,
+    blocked: bool,
     syncs: u32,
+    /// The server's notices, shown as toasts on the next frame; the toasts' titles, for the tests.
+    notices: Vec<Notice>,
+    toasts: Vec<String>,
     // The screen.
     chapter: usize,
     centered: Option<usize>,
     pan: [f32; 2],
     zoom: f32,
     view: Option<u64>,
+    picking: Option<u64>,
     scroll: f32,
     rect: [f32; 4],
     last_mouse: Option<[f32; 2]>,
@@ -81,7 +94,11 @@ fn open(game: &mut Game<'_>) -> bool {
     if ftbquests_world::quest_file().is_none() || !game.native_mod_screen_open(SCREEN) {
         return false;
     }
-    BOOK.with(|b| b.borrow_mut().view = None);
+    BOOK.with(|b| {
+        let mut b = b.borrow_mut();
+        b.view = None;
+        b.picking = None;
+    });
     true
 }
 
@@ -97,6 +114,7 @@ pub(super) fn from_server(channel: &str, data: &[u8]) {
                     b.claimed.clear();
                 }
                 b.team = part.team;
+                b.blocked = part.rewards_blocked;
                 b.tasks.extend(part.tasks.iter().filter_map(|(k, v)| Some((parse_id(k)?, *v))));
                 b.completed.extend(part.completed.iter().filter_map(|k| parse_id(k)));
                 b.claimed.extend(part.claimed.iter().filter_map(|k| parse_id(k)));
@@ -105,8 +123,52 @@ pub(super) fn from_server(channel: &str, data: &[u8]) {
             Err(e) => log::warn!("[ftbquests] a bad {SYNC} message: {e}"),
         },
         OPEN_BOOK => BOOK.with(|b| b.borrow_mut().open_requested = true),
+        NOTIFY => match serde_json::from_slice::<Notice>(data) {
+            Ok(n) => BOOK.with(|b| b.borrow_mut().notices.push(n)),
+            Err(e) => log::warn!("[ftbquests] a bad {NOTIFY} message: {e}"),
+        },
         _ => {}
     }
+}
+
+/// A notice's toast: (icon, title, line, challenge frame).
+fn toast_of(file: &QuestFile, n: &Notice) -> Option<(String, String, String, bool)> {
+    let id = parse_id(&n.id).unwrap_or(0);
+    let xp = "minecraft:experience_bottle".to_owned();
+    Some(match n.kind.as_str() {
+        "quest" => (file.quest_icon(file.quests.get(&id)?).unwrap_or_default(), tr("ftbquests.port.toast.quest", "Quest done", &[]), quest_title(file, id), false),
+        "chapter" => {
+            let ch = file.chapter(id)?;
+            let name = file.text("chapter", id, "title").unwrap_or_else(|| ch.filename.clone());
+            (ch.icon.clone().unwrap_or_default(), tr("ftbquests.port.toast.chapter", "Chapter done", &[]), name, true)
+        }
+        "task" => {
+            let t = file.tasks.get(&id)?;
+            let (icon, label) = match &t.kind {
+                TaskKind::Item { item, count, .. } => (item.clone(), format!("{count} x {}", item_name(item))),
+                _ => (String::new(), file.text("task", id, "title").unwrap_or_else(|| quest_title(file, t.quest))),
+            };
+            (icon, tr("ftbquests.port.toast.task", "Task done", &[]), label, false)
+        }
+        "reward" => {
+            let mut parts: Vec<String> = n.items.iter().map(|(i, c)| format!("{c} x {}", item_name(i))).collect();
+            if n.xp > 0 {
+                parts.push(tr("ftbquests.port.reward.xp", "%s experience", &[n.xp.to_string()]));
+            }
+            if n.levels != 0 {
+                parts.push(tr("ftbquests.port.reward.levels", "%s levels of experience", &[n.levels.to_string()]));
+            }
+            let icon = n.items.first().map_or(xp, |i| i.0.clone());
+            (icon, tr("ftbquests.port.toast.reward", "Rewards received", &[]), parts.join(", "), false)
+        }
+        "toast" => {
+            let r = file.rewards.get(&id)?;
+            let title = file.text("reward", id, "title").unwrap_or_else(|| quest_title(file, r.quest));
+            let icon = r.icon.clone().or_else(|| file.quests.get(&r.quest).and_then(|q| file.quest_icon(q))).unwrap_or_default();
+            (icon, title, n.text.clone(), false)
+        }
+        _ => return None,
+    })
 }
 
 /// `native_key`: the quests key opens and closes the book (unbound unless the player binds it, as in FTB Quests).
@@ -127,25 +189,49 @@ pub(super) fn key(game: &mut Game<'_>, key: &str, pressed: bool) {
 
 /// `native_frame`: opens the book when the server said so; sends what the clicks asked for.
 pub(super) fn frame(game: &mut Game<'_>) {
-    let (open_now, actions) = BOOK.with(|b| {
+    let (open_now, actions, notices) = BOOK.with(|b| {
         let mut b = b.borrow_mut();
-        (std::mem::take(&mut b.open_requested), std::mem::take(&mut b.pending))
+        (std::mem::take(&mut b.open_requested), std::mem::take(&mut b.pending), std::mem::take(&mut b.notices))
     });
     if open_now && !screen_open(game) {
         open(game);
     }
+    if let Some(file) = ftbquests_world::quest_file() {
+        for n in &notices {
+            let Some((icon, title, line, challenge)) = toast_of(&file, n) else { continue };
+            let id = format!("ftbquests:{}/{}", n.kind, n.id);
+            if game.native_add_toast(&id, &icon, Text::literal(title.clone()), Text::literal(line), challenge) {
+                BOOK.with(|b| b.borrow_mut().toasts.push(format!("{}: {title}", n.kind)));
+            }
+        }
+    }
     for action in actions {
-        let (channel, id) = match action {
-            Action::Check(id) => (SUBMIT_TASK, id),
-            Action::Claim(id) => (CLAIM_REWARD, id),
+        let (channel, id, index) = match action {
+            Action::Check(id) => (SUBMIT_TASK, id, None),
+            Action::Claim(id) => (CLAIM_REWARD, id, None),
+            Action::Pick(id, i) => (CLAIM_REWARD, id, Some(i)),
+            Action::ClaimAll => (CLAIM_ALL, 0, None),
             _ => continue,
         };
-        let data = serde_json::to_vec(&Request { id: code(id) }).unwrap_or_default();
+        let data = serde_json::to_vec(&Request { id: code(id), index }).unwrap_or_default();
         match game.native_net_send_to_server(channel, &data) {
             Ok(()) => BOOK.with(|b| b.borrow_mut().sent.push(format!("{channel} {}", code(id)))),
             Err(e) => log::debug!("[ftbquests] {channel}: {e}"),
         }
     }
+}
+
+/// What "take all" would take: the rewards of completed quests not yet claimed, but the excluded ones and the
+/// choices (the server decides; this is the button's count).
+fn claim_all_count(file: &QuestFile, b: &Book) -> usize {
+    if b.blocked {
+        return 0;
+    }
+    file.rewards
+        .values()
+        .filter(|r| !r.exclude_from_claim_all && b.completed.contains(&r.quest) && !b.claimed.contains(&r.id))
+        .filter(|r| !matches!(r.kind, RewardKind::Choice { .. } | RewardKind::Other(_)))
+        .count()
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -188,6 +274,42 @@ pub(super) fn quest_title(file: &QuestFile, id: u64) -> String {
         Some(TaskKind::Item { item, .. }) => item_name(item),
         _ => tr("ftbquests.port.unnamed_quest", "A quest", &[]),
     }
+}
+
+/// `text` cut to `width`, with an ellipsis when cut.
+fn fit(game: &Game<'_>, text: &str, width: f32) -> String {
+    if game.native_text_width(text) <= width {
+        return text.to_owned();
+    }
+    let mut out: String = text.to_owned();
+    while !out.is_empty() && game.native_text_width(&format!("{out}...")) > width {
+        out.pop();
+    }
+    format!("{}...", out.trim_end())
+}
+
+/// A reward's row in the quest view: its icon and line (its own title from the lang first).
+fn reward_line(file: &QuestFile, r: &Reward) -> (Option<String>, String) {
+    let title = file.text("reward", r.id, "title");
+    let table = |t: &u64| file.reward_tables.get(t).and_then(|t| t.icon.clone()).or_else(|| Some("minecraft:chest".into()));
+    let (icon, line) = match &r.kind {
+        RewardKind::Item { item, count, random_bonus, .. } => {
+            let n = if *random_bonus > 0 { format!("{count}-{}", count + random_bonus) } else { count.to_string() };
+            (Some(item.clone()), format!("{n} x {}", item_name(item)))
+        }
+        RewardKind::Xp { points } => (Some("minecraft:experience_bottle".into()), tr("ftbquests.port.reward.xp", "%s experience", &[points.to_string()])),
+        RewardKind::XpLevels { levels } => (Some("minecraft:experience_bottle".into()), tr("ftbquests.port.reward.levels", "%s levels of experience", &[levels.to_string()])),
+        RewardKind::Random { table: t } => (table(t), tr("ftbquests.port.reward.random", "A random pick from %s", &[file.table_title(*t)])),
+        RewardKind::Loot { table: t } => {
+            let n = file.reward_tables.get(t).map_or(1, |t| t.loot_size);
+            (table(t), tr("ftbquests.port.reward.loot", "%s draws from %s", &[n.to_string(), file.table_title(*t)]))
+        }
+        RewardKind::Choice { table: t } => (table(t), tr("ftbquests.port.reward.choice", "Your pick from %s", &[file.table_title(*t)])),
+        RewardKind::Command { .. } => (Some("minecraft:command_block".into()), tr("ftbquests.port.reward.command", "A server command", &[])),
+        RewardKind::Toast { .. } => (Some("minecraft:paper".into()), tr("ftbquests.port.reward.toast", "A note in the corner", &[])),
+        RewardKind::Other(kind) => (None, tr("ftbquests.port.reward_not_yet", "(%s: not in the port yet)", &[kind.clone()])),
+    };
+    (r.icon.clone().or(icon), title.unwrap_or(line))
 }
 
 fn wrap(game: &Game<'_>, text: &str, width: f32) -> Vec<String> {
@@ -343,6 +465,16 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         b.drawn = drawn;
         let name = file.text("chapter", ch.id, "title").unwrap_or_else(|| ch.filename.clone());
         game.native_text(batch, &name, [area[0] + 6.0, area[1] + 5.0], 0xFF_FFFF, true);
+        // "Take all": the waiting rewards of every completed quest, in the grid's top right corner.
+        let waiting = claim_all_count(&file, &b);
+        if waiting > 0 {
+            let label = tr("ftbquests.port.claim_all", "Take all (%s)", &[waiting.to_string()]);
+            let bw = game.native_text_width(&label) + 8.0;
+            let button = [area[0] + area[2] - bw - 4.0, area[1] + 3.0, bw, 12.0];
+            tile(game, batch, button, if inside(button, mouse) { 0xFFFF_FFFF } else { 0xFFFF_C107 }, 0xFF2E_6B30);
+            game.native_text(batch, &label, [button[0] + 4.0, button[1] + 2.0], 0xFF_FFFF, false);
+            b.hits.push((button, Action::ClaimAll));
+        }
         if let (Some((id, r)), None) = (hover, b.view) {
             let t = quest_title(&file, id);
             let w = game.native_text_width(&t);
@@ -352,7 +484,41 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         if let Some(id) = b.view {
             view(game, batch, &file, &mut b, id, rect, mouse);
         }
+        if let Some(id) = b.picking {
+            picker(game, batch, &file, &mut b, id, rect, mouse);
+        }
     });
+}
+
+/// A choice reward's picker, over the quest's view: the table's rewards in columns, a click takes one.
+fn picker(game: &Game<'_>, batch: &mut HudBatch, file: &QuestFile, b: &mut Book, id: u64, rect: [f32; 4], mouse: [f32; 2]) {
+    let Some(RewardKind::Choice { table }) = file.rewards.get(&id).map(|r| &r.kind) else { return };
+    let Some(t) = file.reward_tables.get(table) else { return };
+    const COL: f32 = 150.0;
+    let cols = (((rect[2] - 60.0) / COL).floor() as usize).clamp(1, 4).min(t.entries.len().max(1));
+    let rows_fit = (((rect[3] - 70.0) / ROW).floor() as usize).max(1);
+    let rows = t.entries.len().div_ceil(cols).min(rows_fit);
+    let w = cols as f32 * COL + 12.0;
+    let h = rows as f32 * ROW + 30.0;
+    let v = [rect[0] + (rect[2] - w) / 2.0, rect[1] + (rect[3] - h) / 2.0, w, h];
+    b.hits.retain(|_| false);
+    b.hits.push((rect, Action::ClosePicker));
+    tile(game, batch, v, 0xFFFF_C107, 0xFA18_1C24);
+    let title = tr("ftbquests.port.pick_one", "Pick one: %s", &[file.table_title(*table)]);
+    game.native_text(batch, &fit(game, &title, w - 12.0), [v[0] + 6.0, v[1] + 6.0], 0xFF_D54F, true);
+    for (i, e) in t.entries.iter().enumerate().take(rows * cols) {
+        let (col, row) = (i / rows, i % rows);
+        let cell = [v[0] + 6.0 + col as f32 * COL, v[1] + 22.0 + row as f32 * ROW, COL - 4.0, ROW - 1.0];
+        let hovered = inside(cell, mouse);
+        if hovered {
+            game.native_fill(batch, cell, 0xFF3A_4656);
+        }
+        let entry = Reward { id: e.id, quest: 0, kind: e.kind.clone(), team: None, exclude_from_claim_all: false, auto: AutoClaim::Default, ignore_blocking: false, icon: None };
+        let (icon_id, line) = reward_line(file, &entry);
+        icon(game, batch, icon_id.as_deref(), [cell[0] + 1.0, cell[1] + 1.0], 12.0);
+        game.native_text(batch, &fit(game, &line, COL - 22.0), [cell[0] + 16.0, cell[1] + 3.0], if hovered { 0xFF_FFFF } else { 0xDD_DDDD }, false);
+        b.hits.push((cell, Action::Pick(id, i)));
+    }
 }
 
 /// The quest's view, over the grid: title, text, tasks, rewards.
@@ -396,6 +562,7 @@ fn view(game: &Game<'_>, batch: &mut HudBatch, file: &QuestFile, b: &mut Book, i
             TaskKind::Checkmark => (None, file.text("task", t.id, "title").unwrap_or_else(|| tr("ftbquests.port.checkmark", "Tick it when done", &[]))),
             TaskKind::Other(kind) => (None, tr("ftbquests.port.task_not_yet", "(%s: not in the port yet)", &[kind.clone()])),
         };
+        let label = fit(game, &label, half - 23.0);
         let row = [x, ty, half - 8.0, 14.0];
         if let TaskKind::Checkmark = t.kind {
             let mark = [x, ty, 12.0, 12.0];
@@ -412,33 +579,50 @@ fn view(game: &Game<'_>, batch: &mut HudBatch, file: &QuestFile, b: &mut Book, i
     ty += 6.0;
     game.native_text(batch, &tr("ftbquests.port.rewards", "You get", &[]), [x, ty], 0xFF_D54F, true);
     ty += 12.0;
-    for r in q.rewards.iter().filter_map(|r| file.rewards.get(r)) {
+    if b.blocked {
+        game.native_text(batch, &fit(game, &tr("ftbquests.port.rewards_blocked", "Held back for your team", &[]), half - 8.0), [x, ty], 0xFF_6F6F, false);
+        ty += 11.0;
+    }
+    let bottom = v[1] + v[3] - 14.0;
+    // An auto-claimed `invisible` reward isn't listed.
+    for r in q.rewards.iter().filter_map(|r| file.rewards.get(r)).filter(|r| file.auto_claim(r) != AutoClaim::Invisible) {
+        if ty > bottom {
+            game.native_text(batch, "...", [x + 15.0, ty - 4.0], 0x9F_9F9F, false);
+            break;
+        }
         let claimed = b.claimed.contains(&r.id);
-        match &r.kind {
-            RewardKind::Item { item, count, .. } => {
-                icon(game, batch, Some(item), [x, ty], 12.0);
-                let line = format!("{count} x {}", item_name(item));
-                game.native_text(batch, &line, [x + 15.0, ty + 2.0], 0xFF_FFFF, false);
-                let label = if claimed { tr("ftbquests.port.claimed", "taken", &[]) } else { tr("ftbquests.port.claim", "Take", &[]) };
-                let bw = game.native_text_width(&label) + 8.0;
-                let right = v[0] + v[2] - bw - 6.0;
-                // The button sits at the view's edge; a name that would run under it puts the button on its own row.
-                let button = if x + 15.0 + game.native_text_width(&line) + 6.0 <= right {
-                    [right, ty, bw, 12.0]
-                } else {
-                    ty += 14.0;
-                    [x + 15.0, ty, bw, 12.0]
-                };
-                let can = state == State::Done && !claimed;
-                tile(game, batch, button, if can && inside(button, mouse) { 0xFFFF_FFFF } else { 0xFF70_7070 }, if can { 0xFF2E_6B30 } else { 0xFF30_3030 });
-                game.native_text(batch, &label, [button[0] + 4.0, ty + 2.0], if can { 0xFF_FFFF } else { 0x9F_9F9F }, false);
-                if can {
-                    b.hits.push((button, Action::Claim(r.id)));
-                }
-            }
-            RewardKind::Other(kind) => {
-                game.native_text(batch, &tr("ftbquests.port.reward_not_yet", "(%s: not in the port yet)", &[kind.clone()]), [x + 15.0, ty + 2.0], 0x9F_9F9F, false);
-            }
+        let (item, line) = reward_line(file, r);
+        icon(game, batch, item.as_deref(), [x, ty], 12.0);
+        if let RewardKind::Other(_) = r.kind {
+            game.native_text(batch, &fit(game, &line, half - 23.0), [x + 15.0, ty + 2.0], 0x9F_9F9F, false);
+            ty += 14.0;
+            continue;
+        }
+        let choice = matches!(r.kind, RewardKind::Choice { .. });
+        let label = if claimed {
+            tr("ftbquests.port.claimed", "taken", &[])
+        } else if choice {
+            tr("ftbquests.port.choose", "Pick", &[])
+        } else {
+            tr("ftbquests.port.claim", "Take", &[])
+        };
+        let bw = game.native_text_width(&label) + 8.0;
+        let right = v[0] + v[2] - bw - 6.0;
+        // The button sits at the view's edge; a line that would run under it puts the button on its own row.
+        let (line, button) = if x + 15.0 + game.native_text_width(&line) + 6.0 <= right {
+            (line, [right, ty, bw, 12.0])
+        } else {
+            (fit(game, &line, v[0] + v[2] - 6.0 - x - 15.0), [x + 15.0, ty + 14.0, bw, 12.0])
+        };
+        game.native_text(batch, &line, [x + 15.0, ty + 2.0], 0xFF_FFFF, false);
+        if button[1] > ty {
+            ty += 14.0;
+        }
+        let can = state == State::Done && !claimed && (!b.blocked || r.ignore_blocking);
+        tile(game, batch, button, if can && inside(button, mouse) { 0xFFFF_FFFF } else { 0xFF70_7070 }, if can { 0xFF2E_6B30 } else { 0xFF30_3030 });
+        game.native_text(batch, &label, [button[0] + 4.0, button[1] + 2.0], if can { 0xFF_FFFF } else { 0x9F_9F9F }, false);
+        if can {
+            b.hits.push((button, if choice { Action::Choose(r.id) } else { Action::Claim(r.id) }));
         }
         ty += 14.0;
     }
@@ -462,7 +646,13 @@ pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i3
             }
             Action::Quest(id) => b.view = Some(id),
             Action::CloseView => b.view = None,
-            Action::Check(_) | Action::Claim(_) => b.pending.push(action),
+            Action::Choose(id) => b.picking = Some(id),
+            Action::ClosePicker => b.picking = None,
+            Action::Pick(..) => {
+                b.picking = None;
+                b.pending.push(action);
+            }
+            Action::Check(_) | Action::Claim(_) | Action::ClaimAll => b.pending.push(action),
         }
         b.last_mouse = None;
     });
@@ -540,6 +730,10 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
                     Action::Claim(id) => ("claim", code(*id)),
                     Action::CloseView => ("close", String::new()),
                     Action::Chapter(i) => ("chapter", i.to_string()),
+                    Action::Choose(id) => ("choose", code(*id)),
+                    Action::Pick(id, i) => ("pick", format!("{}:{i}", code(*id))),
+                    Action::ClosePicker => ("close_picker", String::new()),
+                    Action::ClaimAll => ("claim_all", String::new()),
                 };
                 serde_json::json!({ "kind": kind, "id": id, "rect": r })
             })
@@ -549,6 +743,7 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
             "claimed": b.claimed.iter().map(|c| code(*c)).collect::<Vec<_>>(),
             "chapter": file.as_ref().and_then(|f| f.chapters.get(b.chapter)).map(|c| c.filename.clone()),
             "view": b.view.map(code), "drawn": b.drawn, "hits": hits, "sent": b.sent, "rect": b.rect,
+            "blocked": b.blocked, "picking": b.picking.map(code), "toasts": b.toasts,
         })
     });
     game.native_chat(&format!("FTBQB {json}"));

@@ -16,8 +16,12 @@ pub const SYNC: &str = "ftbquests:sync_team_data";
 pub const OPEN_BOOK: &str = "ftbquests:open_quest_book";
 /// Client to server: tick a checkmark task.
 pub const SUBMIT_TASK: &str = "ftbquests:submit_task";
-/// Client to server: claim a reward.
+/// Client to server: claim a reward (a choice reward with the table entry picked, `index`).
 pub const CLAIM_REWARD: &str = "ftbquests:claim_reward";
+/// Client to server: claim every reward the book's "claim all" takes.
+pub const CLAIM_ALL: &str = "ftbquests:claim_all_rewards";
+/// Server to client: a toast to show (`Notice`).
+pub const NOTIFY: &str = "ftbquests:notify";
 
 /// One part of the team's progress. `reset` starts a new picture; a message holds at most `PART` entries.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -28,6 +32,25 @@ pub struct Sync {
     pub completed: Vec<String>,
     /// The rewards this player has (their own and the team's).
     pub claimed: Vec<String>,
+    /// The team's `rewards_blocked`.
+    #[serde(default)]
+    pub rewards_blocked: bool,
+}
+
+/// A toast for the player. `kind`: `task`, `quest` or `chapter` (`id` completed); `reward` (what a claim of
+/// reward `id` gave: `items`, `xp` points, `levels`); `toast` (the toast reward `id`, `text` its description).
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Notice {
+    pub kind: String,
+    pub id: String,
+    #[serde(default)]
+    pub items: Vec<(String, u32)>,
+    #[serde(default)]
+    pub xp: u32,
+    #[serde(default)]
+    pub levels: i32,
+    #[serde(default)]
+    pub text: String,
 }
 pub const PART: usize = 600;
 
@@ -35,6 +58,8 @@ pub const PART: usize = 600;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Request {
     pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
 }
 
 /// The progress of `data` for `player`, cut into messages.
@@ -53,6 +78,7 @@ pub fn sync_parts(file: &file::QuestFile, data: &team::TeamData, player: Uuid) -
                 tasks: a.unwrap_or_default().to_vec(),
                 completed: b.unwrap_or_default().to_vec(),
                 claimed: d.unwrap_or_default().to_vec(),
+                rewards_blocked: data.rewards_blocked,
             });
         } else {
             return parts;

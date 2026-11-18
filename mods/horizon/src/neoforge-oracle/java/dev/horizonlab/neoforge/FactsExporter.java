@@ -104,6 +104,21 @@ public final class FactsExporter {
             server.halt(false);
             return;
         }
+        if (Boolean.getBoolean("horizon.oracle.kubejs_generated_only")) {
+            // Only KubeJS's generated data packs (KubeJsGenerated: what generateData scripts make at load) into
+            // <dump>/kubejs-generated, no dump and no facts: the few minutes the pack takes to start.
+            try {
+                Path dir = Path.of(dump == null ? out.resolveSibling("dump").toString() : dump);
+                var packs = KubeJsGenerated.write(server, dir.resolve("kubejs-generated"));
+                Files.writeString(dir.resolve("summary.json"),
+                        "{\"kubejs_generated_only\": true, \"kubejs_generated\": " + packs + "}\n");
+            } catch (Throwable e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(3);
+            }
+            server.halt(false);
+            return;
+        }
         if (Boolean.getBoolean("horizon.oracle.fluids_only")) {
             // Only the server's fluid facts of every namespace (FluidFacts: fluids, types, cauldrons), no dump and
             // no batches: a few minutes for a fluid probe instead of the whole pack's facts. The summary only says so.

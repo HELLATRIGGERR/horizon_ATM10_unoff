@@ -18,7 +18,9 @@ Kinds, and how "applied" is decided:
 - registrations (`StartupEvents.registry`): KubeJS's items, blocks, fluids in the oracle's registries against the pack
   mod's declarations, with a model and texture for each item; other registries' entries (chemicals, MI machines).
 - the data pack (`kubejs/data`) and data generators (`ServerEvents.generateData`): recipes, tags and loot tables reach
-  the game through the dump; every other file is applied when its owner carry holds the same JSON at its path.
+  the game through the dump; every other file is applied when its owner carry holds the same JSON at its path. What
+  the generators made is read from the dump's `kubejs-generated/<stage>/data` (the oracle's export of KubeJS's
+  generated packs), when it has one; a generated file `kubejs/data` lies over is counted as such.
 - assets (`kubejs/assets`): applied when a carry holds the same bytes at the path.
 - event handlers (players, items, blocks, levels, network, commands, NeoForge events) and client-only scripts (recipe
   viewer hiding, tooltips, ponder scenes): counted; nothing applies them.
@@ -489,52 +491,77 @@ def main():
 
     # --- the data pack and the data generators
     own = owners(a.carries)
+
+    def data_files(root, data_rows, data_missing, over=None):
+        for rel, full in walk(root):
+            parts = rel.split('/')
+            if len(parts) < 3:
+                continue
+            ns, kind = parts[0], parts[1]
+            if kind == 'neoforge' and len(parts) > 3:
+                kind = 'neoforge/' + parts[2]
+            if kind == 'worldgen' and len(parts) > 3:
+                kind = 'worldgen/' + parts[2]
+            path_in = '/'.join(parts[1:])
+            if over is not None and os.path.exists(os.path.join(over, rel)):
+                data_rows[(kind, 'under kubejs/data')] += 1
+                continue
+            if kind in DUMP_KINDS:
+                rid = f"{ns}:{'/'.join(parts[2:])[:-5]}"
+                if kind == 'recipe':
+                    ok = (rid in dump_recipes) == (rid in carried or rid in parked or rid in stands)
+                elif kind == 'loot_table':
+                    conditions = (read_json(full) or {}).get('neoforge:conditions') or []
+                    if any(isinstance(c, dict) and c.get('type') == 'neoforge:false' for c in conditions):
+                        # Turned off: the game has no table there, and no carry may keep the jar's.
+                        carry = own.get(ns)
+                        gone = rid not in dump_loot and not (carry and os.path.exists(os.path.join(carry, 'data', rel)))
+                        data_rows[(kind, 'turned off' if gone else 'turned off: not applied')] += 1
+                        continue
+                    ok = rid in dump_loot
+                elif over is None:
+                    continue  # counted with the tags
+                else:
+                    ok = True  # a generated tag is in the dump's tags
+                data_rows[(kind, 'via the dump' if ok else 'not applied')] += 1
+                continue
+            if kind == 'kubejs':
+                data_rows[(kind, "KubeJS's own (schemas)")] += 1
+                continue
+            carry = own.get(ns)
+            if carry is None:
+                data_rows[(kind, 'namespace not carried')] += 1
+                data_missing[kind].append(rel)
+                continue
+            mine = read_json(full)
+            theirs = read_json(os.path.join(carry, 'data', ns, path_in))
+            if isinstance(mine, dict) and isinstance(theirs, dict):
+                if kind == 'data_maps' and isinstance(mine.get('values'), dict) and isinstance(theirs.get('values'), dict):
+                    # The game merges a data map; the pack's entries win.
+                    mine = theirs if all(theirs['values'].get(k) == v for k, v in mine['values'].items()) else mine
+                elif kind.startswith('worldgen/') and isinstance(mine.get('config'), dict):
+                    # 26.3's form: `config` unwrapped, states rewritten; the same ids and numbers.
+                    flat = {**mine['config'], 'type': mine.get('type')}
+                    if ids_in(flat, set()) == ids_in(theirs, set()) and numbers(flat) == numbers(theirs):
+                        mine = theirs
+            if mine is not None and mine == theirs:
+                data_rows[(kind, 'applied')] += 1
+            else:
+                data_rows[(kind, 'not applied: the jar\'s file stands' if theirs is not None else 'not applied: absent')] += 1
+                data_missing[kind].append(rel)
+
     data_rows = Counter()
     data_missing = defaultdict(list)
-    for rel, full in walk(os.path.join(kubejs, 'data')):
-        parts = rel.split('/')
-        if len(parts) < 3:
-            continue
-        ns, kind = parts[0], parts[1]
-        if kind == 'neoforge' and len(parts) > 3:
-            kind = 'neoforge/' + parts[2]
-        if kind == 'worldgen' and len(parts) > 3:
-            kind = 'worldgen/' + parts[2]
-        path_in = '/'.join(parts[1:])
-        if kind in DUMP_KINDS:
-            rid = f"{ns}:{'/'.join(parts[2:])[:-5]}"
-            if kind == 'recipe':
-                ok = (rid in dump_recipes) == (rid in carried or rid in parked or rid in stands)
-            elif kind == 'loot_table':
-                ok = rid in dump_loot
-            else:
-                continue  # counted with the tags
-            data_rows[(kind, 'via the dump' if ok else 'not applied')] += 1
-            continue
-        if kind == 'kubejs':
-            data_rows[(kind, "KubeJS's own (schemas)")] += 1
-            continue
-        carry = own.get(ns)
-        if carry is None:
-            data_rows[(kind, 'namespace not carried')] += 1
-            data_missing[kind].append(rel)
-            continue
-        mine = read_json(full)
-        theirs = read_json(os.path.join(carry, 'data', ns, path_in))
-        if isinstance(mine, dict) and isinstance(theirs, dict):
-            if kind == 'data_maps' and isinstance(mine.get('values'), dict) and isinstance(theirs.get('values'), dict):
-                # The game merges a data map; the pack's entries win.
-                mine = theirs if all(theirs['values'].get(k) == v for k, v in mine['values'].items()) else mine
-            elif kind.startswith('worldgen/') and isinstance(mine.get('config'), dict):
-                # 26.3's form: `config` unwrapped, states rewritten; the same ids and numbers.
-                flat = {**mine['config'], 'type': mine.get('type')}
-                if ids_in(flat, set()) == ids_in(theirs, set()) and numbers(flat) == numbers(theirs):
-                    mine = theirs
-        if mine is not None and mine == theirs:
-            data_rows[(kind, 'applied')] += 1
-        else:
-            data_rows[(kind, 'not applied: the jar\'s file stands' if theirs is not None else 'not applied: absent')] += 1
-            data_missing[kind].append(rel)
+    data_files(os.path.join(kubejs, 'data'), data_rows, data_missing)
+    generated = os.path.join(a.dump, 'kubejs-generated')
+    gen_files = {}
+    for stage in sorted(os.listdir(generated)) if os.path.isdir(generated) else []:
+        if os.path.isdir(os.path.join(generated, stage, 'data')):
+            rows, missing = Counter(), defaultdict(list)
+            data_files(os.path.join(generated, stage, 'data'), rows, missing, over=os.path.join(kubejs, 'data'))
+            gen_files[stage] = {'files': {' '.join(k): n for k, n in sorted(rows.items())},
+                                'not applied, by kind': {k: len(v) for k, v in sorted(missing.items())},
+                                'not applied': {k: v[:20] for k, v in sorted(missing.items())}}
     gen_rows = Counter()
     for rel, path in gen_paths:
         m = re.match(r'([a-z0-9_.-]+):([^/]+)/', path)
@@ -542,7 +569,8 @@ def main():
         gen_rows[(rel, kind)] += 1
     report['data'] = {'kubejs/data files': {' '.join(k): n for k, n in sorted(data_rows.items())},
                       'not applied, by kind': {k: len(v) for k, v in sorted(data_missing.items())},
-                      'generators': {f'{r} -> {k}': n for (r, k), n in sorted(gen_rows.items())}}
+                      'generators': {f'{r} -> {k}': n for (r, k), n in sorted(gen_rows.items())},
+                      'generated packs': gen_files}
 
     # --- assets
     asset_rows = Counter()
@@ -598,6 +626,8 @@ def main():
          f"MI machines {len(bes)} ({len(mi_declared)} declared), {dict(others)}"),
         ('kubejs/data files', sum(data_rows.values()), ', '.join(f'{" ".join(k)} {n}' for k, n in sorted(data_rows.items()))),
         ('data generators (json calls)', len(gen_paths), f'{len(generators)} files'),
+        *[(f'generated {stage} files', sum(g['files'].values()), ', '.join(f'{k} {n}' for k, n in g['files'].items()))
+          for stage, g in gen_files.items()],
         ('assets', sum(asset_rows.values()), ', '.join(f'{" ".join(k)} {n}' for k, n in sorted(asset_rows.items()))),
         ('event handlers', sum(handlers.values()), ', '.join(f'{k} {n}' for k, n in sorted(handlers.items()))),
         ('client-only', sum(client.values()), ', '.join(f'{k} {n}' for k, n in sorted(client.items()))),

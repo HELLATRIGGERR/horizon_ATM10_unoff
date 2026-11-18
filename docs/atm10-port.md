@@ -107,8 +107,9 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
    (`coverage-summary.py` names the groups); `tools/atm10/batches.py` cuts them into oracle batches.
 2. `tools/atm10/oracle-pack.sh` (under `fullpack.lock`): the whole pack on NeoForge with KubeJS and Almost Unified
    (`neoforge_oracle.py pack`), 448 mods. It writes the final recipes, tags and loot tables, `pack-facts.json` (fuel,
-   compost, worn slot, piston and light facts of every item and block), and each batch's facts (`--batches`,
-   `facts-<batch>.json`, 1.5 GB in all): one server run, about 16 minutes at `-Xmx5G` on the 16 GB PC.
+   compost, worn slot, piston and light facts of every item and block), KubeJS's generated data packs
+   (`kubejs-generated/`, see "Pack logic" below), and each batch's facts (`--batches`, `facts-<batch>.json`, 1.5 GB in
+   all): one server run, about 16 minutes at `-Xmx5G` on the 16 GB PC.
    Then `tools/atm10/oracle-client.sh`: the pack on NeoForge's client, hidden, for what only a client knows of its
    fluids (textures, tints, render layers, bucket colours: `client-facts.json`, docs/mod-fluids.md), about 2.5 minutes.
 3. `tools/atm10/carry-with-facts.sh`: each batch carried with its facts and the client's (about 10 minutes for all);
@@ -382,7 +383,7 @@ ATM10 8.4. Calls are counted in the scripts' text, so a call inside a loop count
 | Startup registrations | 101 items, 7 blocks, 3 fluids | Yes, declared from the oracle's facts. 27 items get their texture from the script (`.texture()`, `.color()`: the enchanting bases, Theurgy's sulfurs, the ore clumps), so they draw the missing texture |
 | Other registrations | 4 Mekanism chemicals, 4 MI machines with casings, hatches and 4 recipe types, 13 Modular Machinery machines | No. The machines need MI's multiblocks, and the chemicals need Mekanism's chemical registry to take data |
 | Data pack (`kubejs/data`) | 337 files | Recipes (100) and loot tables (23) through the dump. Every other file is laid over the carries by `final-data` (below) |
-| Data generators (`generateData`) | 29 calls in 11 scripts | Only the recipes and loot tables they make, through the dump. Not applied: Create's zinc turned off, the Mining dimension's ores, Forbidden Arcanus rituals (the MI machines' and the star altar's), 17 Hostile Neural Networks data models |
+| Data generators (`generateData`) | 29 calls in 11 scripts | Yes. The oracle exports what they made (1,100 files), and `final-data` lays it over the carries (below) |
 | Resource pack (`kubejs/assets`) | 2,081 files | 1,947 are laid over the carries. 134 belong to mods that aren't carried: the native ports (AE2, MEGA, Powah...) and client-only mods |
 | Event handlers | 21 | No: right-clicks, logins, NeoForge events, a command, a level unload |
 | Client only | 61 tooltip lines, 34 recipe viewer removals, 5 information pages, 9 ponder scenes | No |
@@ -400,6 +401,30 @@ that All the Ores' ores stand for them: 47 biome modifiers become `neoforge:none
 Railcraft 11, Mekanism 6...). It also sets All the Ores' vein sizes and counts, and its biome tags place
 Dungeons Arise's structures.
 
+What the `generateData` scripts make at load lives only in the running game: KubeJS keeps it in virtual data packs,
+one per stage. The oracle's server writes them out (`KubeJsGenerated`, through each pack's own `export`) to
+`<dump>/kubejs-generated/<stage>/data`, with `packs.json` giving their order among the game's 518 packs. The pack
+oracle does it on every run. A run that does only this takes 3.5 minutes: `oracle-pack.sh` with
+`-Dhorizon.oracle.kubejs_generated_only=true` in `JVM` and its own `ATM10_DATA` (its `--out`), under `fullpack.lock`.
+Then copy its `dump/kubejs-generated` into the dump. `final-data --instance` lays the packs as the game orders them.
+`internal`, `registries` and `after_mods` go first, then `kubejs/data` over them, then `last`. `before_mods` lies under
+the mods' own files. The files are handled as `kubejs/data`'s are. A loot table that a file turns off
+(`neoforge:false`) is also taken out of the carry that kept the jar's. ATM10 8.4 uses `after_mods` only, plus
+KubeJS's `internal` pack:
+
+| Generated | Files | Where |
+|---|--:|---|
+| The Mining dimension's ores (`miningDim.js`): configured and placed features, biome modifiers on `#allthemodium:mining_features/mining_biomes` | 32 + 32 + 32 | `allthemodium`, in 26.3's form; the jar has none of them |
+| Hephaestus Forge rituals (`atm:`): the star altar, auto forge, runic crucible and enchanter, MI's hatches, modularium... | 15 | the pack mod |
+| Hostile Neural Networks data models | 17 | `hostilenetworks` |
+| Create's zinc ore turned off (`neoforge:none`) | 1 | `create` |
+| Data maps: MI's fluid fuels (creosote), KubeJS's furnace fuels (empty) | 2 | `modern_industrialization`, the pack mod |
+| Loot tables turned off (Bibliocraft's furniture of absent woods, Generator Galore's, Iron's Spellbooks' arcane debris) | 935 | none in the dump; 7 jar tables taken out of carries |
+| Recipes, KubeJS's block loot tables | 26, 8 | the dump has them |
+
+`kubejs-audit.py` reads `<dump>/kubejs-generated` too, and counts each generated file against the carries as it
+counts `kubejs/data`'s. All 131 that `final-data` lays are applied.
+
 ```sh
 ATM10_CARRIES=<the folder final-data wrote> bun run tools/atm10/tests/kubejs-data.ts
 ```
@@ -414,14 +439,22 @@ the Ores' other seven ores and all of MI's. That is a defect of these carries, n
 through carry's own 26.3 rewrite here and came out unwrapped, so carrying the two mods again should fix theirs (not
 tried).
 
+The same test proves the generated pack in effect. It also loads allthemodium's carry, and in the world it runs
+`place feature allthemodium:lignite_coal_ore` in a block of stone. That puts MI's lignite coal ore there (24 blocks
+on ATM10 8.4).
+The feature is one of the Mining dimension's, and only the generated pack has it. A feature id the game doesn't
+have fails. The Mining dimension itself can't be entered yet. Nothing in the game reads the other generated kinds
+yet: rituals, data models, Create's zinc modifier (Create's own zinc feature is still in 1.21.1's form). The test checks
+them in the carries.
+
 What remains, by size:
 
 - 353 vanilla and native recipes the pack removed (64) or changed (289). The dump has their final form, but the
   content fence keeps vanilla's and the native ports' own files. Applying them needs a pack-level override that the
   engine accepts over those namespaces.
-- What `generateData` makes at load: rituals, data models, the Mining dimension's ores. A dump of the server's
-  generated data pack from the oracle would carry it, with no scripts run.
-- The 27 items whose texture is in the script. The client oracle can export the models KubeJS generates.
+- The 27 items whose texture is in the script. `.texture()` lands in KubeJS's client virtual asset pack, which the
+  client oracle could export as the server's data packs are. `.color()` is an item colour in code, in no asset: the
+  client oracle would read the colours of each `kubejs:` item, and the pack mod would write 26.3 tints for them.
 - Tags of native and uncarried mods (12 edits) and worldgen tags edited by scripts (5).
 - Real scripting: 21 event handlers and the code behind items (`use` callbacks: the Ice and Fire eyes).
   Each is small, and each is a native hook's worth of logic in the mod it touches. About a dozen of them matter
@@ -429,7 +462,7 @@ What remains, by size:
 - Client only: tooltips and recipe viewer hiding. JEI's bundle could read them as a second blacklist.
 - The Star needs these from KubeJS: its items (registered and declared today, the star shards among them), the
   star altar, auto forge, runic crucible and enchanter as MI multiblocks (not applied), their recipes (in the dump),
-  and the Hephaestus Forge rituals that make the altar's item (generated, not applied).
+  and the Hephaestus Forge rituals that make the altar's item (in the pack mod; a Forbidden Arcanus port must read them).
 
 
 ## Porting rules

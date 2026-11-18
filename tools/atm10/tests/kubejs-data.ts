@@ -14,16 +14,28 @@
  *   ores are no control here: All the Ores' are, as the features the pack's files replaced.
  * - A screenshot: one chunk with its stone and deepslate taken away, its ores left in the air, seen from above.
  *
- * Needs ATM10_CARRIES: the carries folder `final-data` wrote with `--instance` (its `modern_industrialization` and
- * `alltheores`). */
+ * What KubeJS's scripts generate at load (`ServerEvents.generateData`), which the oracle exports from its server
+ * (`<dump>/kubejs-generated`) and `final-data` lays over the carries as it lays `kubejs/data`:
+ * - The Mining dimension's ores: configured and placed features under `allthemodium:` (none of them is in
+ *   allthemodium's jar) that put other mods' ores in the Mining dimension's biomes. The Mining dimension can't be
+ *   entered yet, so one is placed by hand in the same world: `place feature allthemodium:lignite_coal_ore` in a block
+ *   of stone puts MI's lignite coal ore there, where a feature id the game doesn't have fails. The feature reaches
+ *   the game's data from the generated pack, in 26.3's form.
+ * - Kinds nothing in the game reads yet, checked in the carries: Create's zinc ore turned off (its biome modifier is
+ *   `neoforge:none`), the Hephaestus Forge rituals in the pack mod (the one whose result is MI's star altar among
+ *   them), Hostile Neural Networks' data models.
+ *
+ * Needs ATM10_CARRIES: the carries folder `final-data` wrote with `--instance` from a dump with `kubejs-generated`
+ * (its `modern_industrialization`, `alltheores`, `allthemodium`, `create`, `hostilenetworks` and `atm10-pack`). */
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorldFixture, until } from '../../../ae2/tests/world/harness';
 
 const carries = resolve(process.env.ATM10_CARRIES ?? '');
-const mi = join(carries, 'modern_industrialization'), ato = join(carries, 'alltheores');
-for (const c of [mi, ato]) assert(existsSync(join(c, 'horizon-mod.toml')), `ATM10_CARRIES has no ${c}`);
+const mi = join(carries, 'modern_industrialization'), ato = join(carries, 'alltheores'), atm = join(carries, 'allthemodium');
+const create = join(carries, 'create'), hnn = join(carries, 'hostilenetworks'), pack = join(carries, 'atm10-pack');
+for (const c of [mi, ato, atm, create, hnn, pack]) assert(existsSync(join(c, 'horizon-mod.toml')), `ATM10_CARRIES has no ${c}`);
 const off = ['bauxite', 'iridium', 'lead', 'lignite_coal', 'nickel', 'salt', 'tin', 'uranium'];
 const kept = ['antimony', 'monazite', 'tungsten'];
 const modifiers = join(mi, 'data/modern_industrialization/neoforge/biome_modifier');
@@ -51,7 +63,25 @@ for (const ore of atoOres) {
 const atoDeclared = (id: string) => existsSync(join(ato, `data/alltheores/horizon/block/${id.split(':')[1]}.json`));
 const atoBlocks = atoOres.flatMap(o => [`alltheores:${o}_ore`, `alltheores:deepslate_${o}_ore`]).filter(atoDeclared);
 
-const fixture = new WorldFixture('kubejs-data', 'server-thread', { devMods: [mi, ato] });
+// The generated pack in the carries.
+const json = (path: string) => JSON.parse(readFileSync(path, 'utf8'));
+const lignite = ['modern_industrialization:lignite_coal_ore', 'modern_industrialization:deepslate_lignite_coal_ore'];
+for (const id of lignite) assert(declared(id), `${id} is declared`);
+const mining = json(join(atm, 'data/allthemodium/worldgen/configured_feature/lignite_coal_ore.json'));
+assert.equal(mining.type, 'minecraft:ore');
+assert(mining.config === undefined && mining.size > 0, "the generated feature in 26.3's form");
+assert.deepEqual(mining.targets.map((t: any) => t.state.id ?? t.state.Name), lignite, "it puts MI's lignite coal ore");
+const miningModifier = json(join(atm, 'data/allthemodium/neoforge/biome_modifier/allthemodium/dim_ores/lignite_coal_ore.json'));
+assert.equal(miningModifier.biomes, '#allthemodium:mining_features/mining_biomes', 'in the Mining dimension');
+const miningFeatures = readdirSync(join(atm, 'data/allthemodium/neoforge/biome_modifier/allthemodium/dim_ores')).length;
+assert.deepEqual(json(join(create, 'data/create/neoforge/biome_modifier/zinc_ore.json')), { type: 'neoforge:none' }, "Create's zinc is off");
+const rituals = join(pack, 'data/atm/forbidden_arcanus/hephaestus_forge/ritual');
+const results = readdirSync(rituals).map(f => json(join(rituals, f)).result?.result_item?.id);
+assert(results.includes('modern_industrialization:star_altar'), `a ritual makes the star altar: ${results.join(', ')}`);
+const models = readdirSync(join(hnn, 'data/hostilenetworks/data_models')).length;
+console.log(`generated, in the carries: ${miningFeatures} ore modifiers of the Mining dimension (the jar's and the pack's),${results.length} rituals, ${models} data models of Hostile Neural Networks (the jar's and the pack's), Create's zinc off`);
+
+const fixture = new WorldFixture('kubejs-data', 'server-thread', { devMods: [mi, ato, atm] });
 const passed = (reply: any) => (reply.chat ?? []).some((line: string) => line.includes('Test passed'));
 /** How many blocks a `fill` changed: 0 when it says none were. */
 const filled = async (command: string) => {
@@ -86,6 +116,18 @@ try {
   fixture.mark(`All the Ores' ores generate from the pack's features: ${atoTotal} blocks (${atoBlocks.filter(id => counts[id]).map(id => `${id.split(':')[1]} ${counts[id]}`).join(', ')})`);
   for (const id of offBlocks) assert.equal(counts[id], 0, `${id} does not generate`);
   fixture.mark(`none of the ${offBlocks.length} MI ores ATM10 turns off generates in the same nine chunks`);
+
+  // A generated feature in the game's data: one of the Mining dimension's ores, placed by hand in a block of stone.
+  const [ox, oy, oz] = [cx * 16 + 8, 20, cz * 16 + 8];
+  await filled(`fill ${ox - 5} ${oy - 5} ${oz - 5} ${ox + 5} ${oy + 5} ${oz + 5} minecraft:stone`);
+  const unknown = await fixture.raw(`command place feature allthemodium:not_generated ${ox} ${oy} ${oz}`);
+  assert(!(unknown.chat ?? []).some((l: string) => l.startsWith('Placed')), `an unknown feature does not place: ${JSON.stringify(unknown)}`);
+  const placed = await fixture.raw(`command place feature allthemodium:lignite_coal_ore ${ox} ${oy} ${oz}`);
+  assert((placed.chat ?? []).some((l: string) => l.startsWith('Placed')), `the generated feature places: ${JSON.stringify(placed)}`);
+  let ores = 0;
+  for (const id of lignite) ores += await filled(`fill ${ox - 8} ${oy - 8} ${oz - 8} ${ox + 8} ${oy + 8} ${oz + 8} minecraft:air replace ${id}`);
+  assert(ores > 0, "the generated feature puts MI's lignite coal ore in the stone");
+  fixture.mark(`generated by KubeJS at load: allthemodium:lignite_coal_ore places ${ores} lignite coal ore (an unknown feature fails)`);
 
   // The picture: a chunk further out, its stone and deepslate gone, its ores left standing, seen from above.
   const [x, z] = [(cx + 2) * 16, cz * 16];

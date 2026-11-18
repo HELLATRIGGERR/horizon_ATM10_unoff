@@ -228,7 +228,7 @@ impl PrimedTnt {
         if self.tiny {
             // AE2's TinyTNTPrimedEntity: the water current and whether it is
             // in water (its fuse goes out), before it moves.
-            let (water, _) = self.push_by_fluid(world, fluids);
+            let (water, _) = self.push_by_fluid(world, fluids, context);
             self.in_water = water > 0.0;
         }
         self.previous = self.position;

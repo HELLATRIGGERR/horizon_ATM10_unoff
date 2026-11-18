@@ -1586,6 +1586,7 @@ impl Game<'_> {
                 .or_else(||self.carts.iter().find(|c|c.id==id).map(|c|c.position))
                 .or_else(||self.mobs.iter().find(|m|m.id==id).map(|m|m.position))
                 .or_else(||self.cushions.iter().find(|c|c.id==id).map(|c|c.position)));
+            let g = &mut host.hub.guests[i];
             if trace_spatial(){eprintln!("AE2 passenger travel conn={} from={} to={} vehicle={:?} old_good={:?} destination={:?}",t.conn,source.id(),t.dim.id(),vehicle,g.vehicle_good,vehicle_position);}
             g.vehicle_good=vehicle_position.map(|p|[p.x,p.y,p.z]);
             g.vehicle_relocated=vehicle_position.is_some();

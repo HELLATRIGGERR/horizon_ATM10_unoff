@@ -52,6 +52,7 @@ impl TryIntoEngine<()> for mod_api::BlockProperties {
                 .map(|value| push_reaction(value).0),
             occludes: self.occludes,
             destroy_overlay: self.destroy_overlay,
+            ..Default::default()
         })
     }
 }
@@ -149,6 +150,7 @@ impl TryIntoEngine<()> for mod_api::Block {
             sign_text_color: self.sign_text_color.clone(),
             sign_text_glow: self.sign_text_glow,
             base_block: self.base_block.clone(),
+            ..Default::default()
         })
     }
 }

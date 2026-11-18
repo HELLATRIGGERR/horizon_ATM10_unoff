@@ -23,12 +23,17 @@ impl Game<'_> {
         if !tagged || !self.res.behaviours().data(state).is(Class::BaseRail) {
             return None;
         }
+        let kind = self
+            .res
+            .behaviours()
+            .rail_kind(state)
+            .unwrap_or(horizon_world::level::RailKind::Plain);
         let s = self.pack.assets.registry.state(state)?;
         let text = s.properties.get("shape").map_or("", String::as_str);
         let powered = s.properties.get("powered").is_some_and(|v| v == "true");
         let shape = self.cart_rail_direction(cart, state, BlockPos::new(x, y, z), text);
         Some(Rail {
-            name,
+            kind,
             shape,
             powered,
         })

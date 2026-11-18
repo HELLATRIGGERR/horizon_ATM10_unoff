@@ -476,7 +476,9 @@ impl Shape {
     }
 }
 pub(super) struct Rail {
-    pub(super) name: Arc<str>,
+    /// What the cart rides as: a content mod's copy of the powered or
+    /// activator rail rides as it (`Behaviours::rail_kind`).
+    pub(super) kind: RailKind,
     pub(super) shape: Shape,
     pub(super) powered: bool,
 }

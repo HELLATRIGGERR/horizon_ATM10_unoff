@@ -1772,7 +1772,7 @@ impl Game<'_> {
             }
             let mut drops = ExplosionDrops::default();
             for &pos in targets.iter() {
-                if self.explosion_hit_block(pos, radius, interaction, start, &mut drops)? {
+                if self.explosion_hit_block(pos, radius, interaction, None, start, &mut drops)? {
                     hit += 1;
                 }
             }
@@ -1800,6 +1800,8 @@ impl Game<'_> {
                 }
             }
         }
+        Ok(hit)
+    }
     /// AE2 TinyTNTPrimedEntity.explode: a compact, resistance-weighted blast.
     #[cfg(feature = "ae2-lab")]
     pub(super) fn ae2_explode_tiny_tnt(&mut self, center: [f64; 3],owner:Option<super::tnt::TinyTntOwner>) -> Result<()> {
@@ -1858,7 +1860,8 @@ impl Game<'_> {
         }
         if horizon_client::ae2_common_config::damage().tiny_tnt {
         let y=center[1]-0.25;
-        let mut drops=Vec::new();
+        let start=self.explosion_start(center,0.2,BlockInteraction::Destroy,false,"minecraft:explosion");
+        let mut drops=ExplosionDrops::default();
         for x in (center[0]-2.0) as i32..=(center[0]+2.0).floor() as i32 {
           for yy in (y-2.0) as i32..=(y+2.0).floor() as i32 {
             for z in (center[2]-2.0) as i32..=(center[2]+2.0).floor() as i32 {
@@ -1867,11 +1870,11 @@ impl Game<'_> {
               let d=(x as f64+0.5-center[0]).powi(2)+(yy as f64+0.5-y).powi(2)+(z as f64+0.5-center[2]).powi(2);
               let fluid=if f.fluid != Fluid::None {100.0} else {0.0};
               let strength=2.3_f32-d as f32-(f.explosion_resistance.max(fluid)+0.3)*0.11;
-              if strength>0.01 {self.explosion_hit_block(pos,0.2,BlockInteraction::Destroy,&mut drops,owner)?;}
+              if strength>0.01 {self.explosion_hit_block(pos,0.2,BlockInteraction::Destroy,owner,&start,&mut drops)?;}
             }
           }
         }
-        for (pos,stack) in drops {self.pop_resource(pos,stack);}
+        self.spawn_explosion_drops(drops);
         }
         let pitch=(1.0+(self.world.random.next_float()-self.world.random.next_float())*0.2)*32.9;
         self.audio.play("minecraft:entity.generic.explode",Some(center),4.0,pitch);
@@ -1897,8 +1900,6 @@ impl Game<'_> {
                 }
             }
         }
-    }
-        Ok(hit)
     }
     fn explosion_hit_block(
         &mut self,
@@ -2043,11 +2044,13 @@ impl Game<'_> {
         }
         // TntBlock.wasExploded: new PrimedTnt (its push drawn first), then
         // getRandomShortFuse(80); no game event.
+        // AE2's tiny TNT ignores the tntExplodes rule.
         if is_tnt
-            && self
-                .ui
-                .rules
-                .bool_at(horizon_client::gamerules::vanilla::TNT_EXPLODES)
+            && (is_tiny
+                || self
+                    .ui
+                    .rules
+                    .bool_at(horizon_client::gamerules::vanilla::TNT_EXPLODES))
         {
             let r = &mut self.world.random;
             let rot = r.next_double() * f64::from(std::f32::consts::TAU);
@@ -2055,7 +2058,7 @@ impl Game<'_> {
             // TntBlock.wasExploded hands the new TNT the blast's indirect
             // source, so a chain reaction keeps a primed TNT's owner or the
             // mob whose blast primed it.
-            let (owner, guest) = match self.blast_indirect_source() {
+            let (blast_owner, guest) = match self.blast_indirect_source() {
                 Some(Who::Player) => (Some(Who::Player), self.combat.blast_guest),
                 Some(Who::Mob(id)) => (Some(Who::Mob(id)), None),
                 None => (None, None),
@@ -2414,6 +2417,7 @@ mod tests {
                         pos,
                         4.0,
                         BlockInteraction::Destroy,
+                        None,
                         &ExplosionStart::from(mod_api::__private::built::ExplosionStart {
                             dimension: "minecraft:overworld",
                             center: [0.0; 3],

@@ -11,13 +11,12 @@ fn main() {
         "cargo:rerun-if-changed={}",
         root.join("crates/horizon-client/src/game").display()
     );
+    // The fork's own root modules (AE2 and its addons, and a few more) are declared in `game.rs`
+    // itself: `explicit_game_roots`, which the mod API generator reads too.
     std::fs::write(
         out_dir.join("game_modules.rs"),
-        horizon_game_discovery::declarations(
-            &root.join("crates/horizon-client/src/game"),
-            &["native_hooks", "host", "creatures"],
-        )
-        .expect("discovering game modules"),
+        horizon_game_discovery::game_declarations(&root.join("crates/horizon-client/src/game"))
+            .expect("discovering game modules"),
     )
     .expect("writing game modules");
     let tests =

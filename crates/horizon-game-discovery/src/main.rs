@@ -64,9 +64,8 @@ fn expand_items(
             let generated = if tokens.contains("game_modules.rs")
                 && path.ends_with("crates/horizon-client/src/game.rs")
             {
-                Some(horizon_game_discovery::declarations(
+                Some(horizon_game_discovery::game_declarations(
                     &root.join("crates/horizon-client/src/game"),
-                    &["native_hooks", "host", "creatures"],
                 )?)
             } else if tokens.contains("builtin_ingredient_test_modules.rs") {
                 Some(horizon_game_discovery::folder_modules(&root.join(

@@ -96,6 +96,40 @@ pub fn declarations(game: &Path, explicit: &[&str]) -> Result<String, String> {
     Ok(modules.into_values().collect())
 }
 
+/// The root entries of `game/` that `game.rs` declares itself, which discovery skips: upstream's
+/// (`native_hooks`, `host`, `creatures`) and the fork's (AE2 and its addons, every `ae2*` file and
+/// folder, and `energy_extras`, `screen_extras`, `native_recipe_transfer`).
+pub fn explicit_game_roots(game: &Path) -> Result<Vec<String>, String> {
+    let mut explicit: Vec<String> = [
+        "native_hooks",
+        "host",
+        "creatures",
+        "energy_extras",
+        "screen_extras",
+        "native_recipe_transfer",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    for entry in fs::read_dir(game).map_err(|e| e.to_string())? {
+        let path = entry.map_err(|e| e.to_string())?.path();
+        let Some(name) = path.file_stem().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        if name.starts_with("ae2") && !explicit.iter().any(|known| known == name) {
+            explicit.push(name.to_owned());
+        }
+    }
+    explicit.sort();
+    Ok(explicit)
+}
+
+/// [`declarations`] of the game folder with [`explicit_game_roots`]: what `game.rs` includes.
+pub fn game_declarations(game: &Path) -> Result<String, String> {
+    let explicit = explicit_game_roots(game)?;
+    let explicit: Vec<&str> = explicit.iter().map(String::as_str).collect();
+    declarations(game, &explicit)
+}
+
 /// Declare every `*.rs` file of `directory` as a module named after its file, in file-name order, for a test
 /// target's root to `include!`: a new file there needs no hand-written `mod` line. A subfolder or a `mod.rs` is
 /// refused, since the flat folder would silently skip it.

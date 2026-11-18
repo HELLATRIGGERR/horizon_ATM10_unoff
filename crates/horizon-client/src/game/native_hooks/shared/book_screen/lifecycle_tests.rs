@@ -80,6 +80,7 @@ fn entering_inventory_requests_catalogue_for_preinstalled_bound_screen() {
                 window: 1,
                 block: "bound:block".into(),
                 data: Vec::new(),
+                screen_extra: Default::default(),
                 extra: None,
                 screen: mod_api::RecipeBookLayout::registered_screen("bound:menu").unwrap(),
             });
@@ -145,6 +146,7 @@ fn authoritative_custom_book_rebuilds_cached_geometry_without_observe_screen() {
                 window: 1,
                 block: "minecraft:stone".into(),
                 data: Vec::new(),
+                screen_extra: Default::default(),
                 extra: None,
                 screen: mod_api::Screen {
                     width: 176.0,

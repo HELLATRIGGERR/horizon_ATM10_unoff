@@ -3,7 +3,8 @@
 //! (`ae2_screens`) when the game is built with them. `native_hooks.rs` calls
 //! these without `cfg`, so that its hook points stay hookable; without AE2
 //! they do nothing.
-use super::{Game, native_hooks::NativeScreen};
+use super::Game;
+use mod_api::Screen as NativeScreen;
 use horizon_client::hud::HudBatch;
 
 /// What an open extra screen keeps.

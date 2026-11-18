@@ -505,6 +505,8 @@ pub(super) struct OpenNativeScreen {
     block: String,
     screen: mod_api::Screen,
     data: Vec<i32>,
+    /// A screen of the game's own built on this path (`screen_extras`).
+    screen_extra: super::screen_extras::Extra,
     extra: Option<horizon_protocol::menu_extra::Message>,
 }
 
@@ -1323,6 +1325,12 @@ pub(super) fn incoming_damage(
     victim: Victim,
     container: &mut DamageContainer,
 ) -> bool {
+    // The game's own worn items first, as the addons' events they port.
+    let mut amount = container.new_damage();
+    if super::fork_compat::worn_items_hurt(&hurting, &mut amount) {
+        return true;
+    }
+    container.set_new_damage(amount);
     if !mod_api::__private::listened(mod_api::HookId::LivingIncomingDamage) {
         return false;
     }
@@ -3030,6 +3038,9 @@ impl Game<'_> {
         let Some(s) = self.shown_native_screen() else {
             return false;
         };
+        if self.extra_screen_draw(batch, ox, oy, &s.screen_extra, &s.data) {
+            return true;
+        }
         let atlas = &self.gui.atlas;
         if !s.screen.own_background {
             let (w, h) = (s.screen.width, s.screen.height);
@@ -4677,6 +4688,7 @@ mod tests {
             block: "gtmod:machine".into(),
             screen: mod_api::Screen::default(),
             data: Vec::new(),
+            screen_extra: Default::default(),
             extra: None,
         };
         assert!(s.set_data(4, 1, 7));

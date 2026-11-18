@@ -39,31 +39,47 @@ impl Game<'_> {
     ) {
         self.clear_mod_book_placement_screen();
         self.mod_screen = None;
-        let Some(t) = target else {
-            return;
+        // The block whose screen this window shows, when the server named it
+        // (a part's window has the cable for its block): taken now, so that it
+        // never outlives this window.
+        let menu_block = self.extra_screen_block();
+        // A window the server named a block (or an item's screen) for needs no
+        // block in front of the player: an item's menu opens in the air.
+        let block = match (menu_block, target) {
+            (Some(block), _) => block,
+            (None, Some(t)) => {
+                let block = self
+                    .res
+                    .facts()
+                    .get(self.world.block(t.0, t.1, t.2))
+                    .name
+                    .to_string();
+                if block.starts_with("minecraft:") {
+                    return;
+                }
+                block
+            }
+            (None, None) => return,
         };
-        let block = self
-            .res
-            .facts()
-            .get(self.world.block(t.0, t.1, t.2))
-            .name
-            .to_string();
-        if block.starts_with("minecraft:") {
-            return;
-        }
-        // Only when this is the menu the clicked block opens: `target` outlives the
-        // use that set it, so another menu opened later (a command's, another
-        // mod's) would otherwise get the last clicked machine's screen. Asked
-        // here, as the window's world has no mod containers.
-        let mut container = None;
-        self.native_block_entity_container(&block, &mut container);
-        let opens = container.and_then(|c| mod_menu(c.menu.as_deref()?).map(|(m, _)| m));
-        if opens != Some(menu) {
-            return;
-        }
-        let mut screen = mod_api::RecipeBookLayout::registered_screen(menu);
+        // A screen of the game's own for its own machines' menus, which asks
+        // whether `menu` is the one the block opens itself.
+        let mut screen = None;
+        let screen_extra = self.extra_native_screen(&block, menu, &mut screen);
         if screen.is_none() {
-            self.native_screen(&block, &mut screen);
+            // Only when this is the menu the clicked block opens: `target` outlives the
+            // use that set it, so another menu opened later (a command's, another
+            // mod's) would otherwise get the last clicked machine's screen. Asked
+            // here, as the window's world has no mod containers.
+            let mut container = None;
+            self.native_block_entity_container(&block, &mut container);
+            let opens = container.and_then(|c| mod_menu(c.menu.as_deref()?).map(|(m, _)| m));
+            if opens != Some(menu) {
+                return;
+            }
+            screen = mod_api::RecipeBookLayout::registered_screen(menu);
+            if screen.is_none() {
+                self.native_screen(&block, &mut screen);
+            }
         }
         if let Some(screen) = screen {
             self.mod_screen = Some(OpenNativeScreen {
@@ -77,6 +93,7 @@ impl Game<'_> {
                 block,
                 screen,
                 data: Vec::new(),
+                screen_extra,
                 extra,
             });
             self.begin_mod_book_placement();

@@ -136,7 +136,7 @@ impl ItemRenderer {
         if display!=DisplayContext::Gui || !valid_id(id) {return None;}
         let (namespace,path)=id.split_once(':')?;
         let path=match (namespace,path) {("minecraft","flowing_water")=>"water",("minecraft","flowing_lava")=>"lava",_=>path};
-        let modded=horizon_world::mod_fluids::kind_by_name(id).and_then(|kind|kind.mod_fluid());
+        let modded=horizon_world::mod_fluids::kind_by_name(id).and_then(|kind|kind.carried());
         let sprite=match modded {Some(m)=>m.still_texture.clone(),None=>format!("{namespace}:block/{path}_still")};
         if self.sprites.mask(&sprite).is_none() {return None;}
         let tint=match modded {Some(m)=>m.tint&0xff_ffff,None if namespace=="minecraft" && path=="water"=>0x3f76e4,None=>0xffffff};

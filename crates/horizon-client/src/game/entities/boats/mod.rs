@@ -489,7 +489,7 @@ impl Game<'_> {
     fn fluid_height(&self, x: i32, y: i32, z: i32) -> Option<(f32, bool)> {
         let fluid = self.res.facts().get(self.world.block(x, y, z)).fluid;
         match fluid {
-            Fluid::Mod(kind) if kind.mod_fluid().is_some_and(|m| m.entity.supports_boating) => {
+            Fluid::Mod(kind) if kind.carried().is_some_and(|m| m.entity.supports_boating) => {
                 self.fluid_height_of(x, y, z, Some(fluid))
             }
             _ => self.fluid_height_of(x, y, z, Some(Fluid::Water)),

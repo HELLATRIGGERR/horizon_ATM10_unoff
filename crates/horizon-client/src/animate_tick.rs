@@ -1916,7 +1916,7 @@ fn dripstone_drip(
     // a flowing fluid drips under the same 2% roll a source does. A content mod's
     // fluid when its type drips (NeoForge's `getDripInfo() != null`).
     let drip = match fluid {
-        Fluid::Mod(kind) => kind.mod_fluid().and_then(|m| m.drip.as_ref()),
+        Fluid::Mod(kind) => kind.carried().and_then(|m| m.drip.as_ref()),
         _ => None,
     };
     let fills = match fluid {

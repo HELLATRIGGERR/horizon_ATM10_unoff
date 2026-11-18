@@ -7726,10 +7726,12 @@ impl Game<'_> {
             // `player.awardStat(Stats.ITEM_USED.get(this))`,
             // `getPickupSound` and `level.gameEvent(player, FLUID_PICKUP)`.
             self.award_stat("used", "minecraft:bucket", 1);
-            let sound = if filled == "minecraft:lava_bucket" {
-                "minecraft:item.bucket.fill_lava"
-            } else {
-                "minecraft:item.bucket.fill"
+            // A content mod's fluid: NeoForge's BaseFlowingFluid pickup sound,
+            // its type's BUCKET_FILL sound, none without one.
+            let sound = match horizon_world::mod_fluids::kind_by_bucket(filled) {
+                Some(kind) => kind.carried().and_then(|m| m.fill_sound.as_deref()),
+                None if filled == "minecraft:lava_bucket" => Some("minecraft:item.bucket.fill_lava"),
+                None => Some("minecraft:item.bucket.fill"),
             };
             if let Some(sound) = sound {
                 self.audio.play(sound, Some(at(hit.pos)), 1.0, 1.0);
@@ -7801,14 +7803,14 @@ impl Game<'_> {
             }
             let vaporize_sound = match content {
                 horizon_world::level::BucketContent::Fluid(kind) if vaporized => kind
-                    .mod_fluid()
+                    .carried()
                     .map(|m| m.vaporize_sound().trim_start_matches("minecraft:").to_owned()),
                 _ => None,
             };
             // `BucketItem.emptyContents` uses `playSound(player, …)`: the
             // actor's client already played the empty / evaporate sound from
             // its DryLevel prediction (#4684).
-            self.keep_guest_bucket_sounds(sound);
+            self.keep_guest_bucket_sounds(sound, vaporize_sound.as_deref());
             if let Some(kind) = mob {
                 if let Some(id) = self.spawn_bucket_mob(kind, (target[0], target[1], target[2])) {
                     self.mob_placed(id, stack)?;

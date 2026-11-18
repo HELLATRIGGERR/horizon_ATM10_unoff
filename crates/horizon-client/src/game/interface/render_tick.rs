@@ -3,7 +3,10 @@
 use super::{Game, host::draw::GameCameraDrawContext};
 use horizon_client::assets::Properties;
 use horizon_client::camera::NearPlane;
-use horizon_client::fog::{FogData, FogInputs, FogType, settle_rain_fog, update_rain_fog};
+use horizon_client::fog::{
+    FogData, FogInputs, FogType, apply_mod_fluid_fog, camera_mod_fluid, settle_rain_fog,
+    update_rain_fog,
+};
 use horizon_client::{
     animate_tick::{AnimateContext, animate_tick, campfire_particles, marker_particle_target},
     biome::Biomes,
@@ -555,7 +558,6 @@ impl Game<'_> {
         BlockScreenEffects {
             block,
             water,
-            fluid_overlay,
             on_fire,
             custom,
         }

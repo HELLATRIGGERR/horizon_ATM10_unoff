@@ -260,7 +260,7 @@ pub fn fluid_bucket(id: &str) -> Option<&'static str> {
         _ => {
             let kind = horizon_world::mod_fluids::kind_by_name(id)?;
             kind.is_source_kind()
-                .then(|| kind.mod_fluid()?.bucket.as_deref())
+                .then(|| kind.carried()?.bucket.as_deref())
                 .flatten()
         }
     }

@@ -57,7 +57,8 @@ impl Game<'_> {
     /// `BucketItem.emptyContents` plays `playSound(player, …)`: a guest's own client already
     /// played the empty or evaporate `sound` from its prediction (arismoko/horizon#4684), so those go to the
     /// guest's own list instead of being sent back to them.
-    pub(in crate::game) fn keep_guest_bucket_sounds(&mut self, sound: &str) {
+    /// `vaporize`: a content mod's fluid's vaporize sound (`FluidType.onVaporize`), kept too.
+    pub(in crate::game) fn keep_guest_bucket_sounds(&mut self, sound: &str, vaporize: Option<&str>) {
         if self.lan_acting.is_none() {
             return;
         }
@@ -68,7 +69,7 @@ impl Game<'_> {
         let mut keep = Vec::with_capacity(capture.len());
         for entry in capture.drain(..) {
             let name = entry.event.trim_start_matches("minecraft:");
-            if name == want || name == "block.fire.extinguish" {
+            if name == want || name == "block.fire.extinguish" || vaporize == Some(name) {
                 self.guest_player_sounds.push((
                     entry.event,
                     entry.position,

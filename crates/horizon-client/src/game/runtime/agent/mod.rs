@@ -626,7 +626,7 @@ impl Game<'_> {
         });
         state["eye_mod_fluid"] = json!(eye_fluid.map(|k| json!({
             "fluid": k.name(),
-            "overlay": k.mod_fluid().and_then(|m| m.render_overlay.clone()),
+            "overlay": k.carried().and_then(|m| m.render_overlay.clone()),
         })));
         state
     }

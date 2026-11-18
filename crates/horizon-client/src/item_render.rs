@@ -589,7 +589,7 @@ impl SpriteLookup for FileSprites {
                 Some(look("minecraft:block/lava_still", 15))
             }
             _ => {
-                let m = horizon_world::mod_fluids::kind_by_name(fluid)?.mod_fluid()?;
+                let m = horizon_world::mod_fluids::kind_by_name(fluid)?.carried()?;
                 Some(FluidLook {
                     lighter_than_air: m.density <= 0,
                     ..look(&m.still_texture, m.light_level)

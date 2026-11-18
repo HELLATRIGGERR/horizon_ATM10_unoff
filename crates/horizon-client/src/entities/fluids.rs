@@ -161,7 +161,7 @@ pub fn entity_fluids(
         let (kind, height) = match t.fluid {
             FluidKind::Water | FluidKind::FlowingWater => (FluidKind::Water, water_height),
             FluidKind::Lava | FluidKind::FlowingLava => (FluidKind::Lava, lava_height),
-            k if k.mod_fluid().is_some() => (
+            k if k.carried().is_some() => (
                 k.source(),
                 interaction
                     .mod_fluid_types()

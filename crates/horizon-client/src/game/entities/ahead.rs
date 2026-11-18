@@ -59,13 +59,19 @@ impl ItemTables<'_> {
         // Entity.baseTick splashes before moving, except on the first tick, at
         // the motion before the currents push it.
         let before = item.velocity;
-        let heights = item.push_by_fluid(self.world, &self.motion.fluids, self.context);
+        // With NeoForge's fluid types: a content mod's fluid moves the item by its own
+        // `setItemMovement` in the move below (`EntityFluids::max_mod`).
+        let heights = if horizon_client::entity_rules::EntityRules::is_pushed_by_fluid(&*item) {
+            item.update_fluid_types(self.world, &self.motion.fluids, self.context)
+        } else {
+            horizon_client::entities::EntityFluids::default()
+        };
         let mut splashed = 0;
-        item.water_entry(heights.0 > 0.0, item.ticks == 0, before, &mut |s| {
+        item.water_entry(heights.water > 0.0, item.ticks == 0, before, &mut |s| {
             splashed += 1;
             splash(s);
         });
-        item.lava_fall(heights.1 > 0.0);
+        item.lava_fall(heights.lava > 0.0);
         let mut step = item.tick_move_before_block_effects(
             self.world,
             self.facts,

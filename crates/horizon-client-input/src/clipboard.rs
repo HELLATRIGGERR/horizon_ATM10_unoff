@@ -150,13 +150,11 @@ impl SystemClipboard {
     pub fn copied(&self) -> Option<String> {
         self.copied.borrow().clone()
     }
-        if automated() {
-            return None;
-        }
-    /// The system clipboard, connected on first use.
+    /// The system clipboard, connected on first use; never for a background
+    /// automation process ([`set_automated`]), which keeps to the game's own.
     fn system(&self) -> RefMut<'_, Option<arboard::Clipboard>> {
         let mut system = self.system.borrow_mut();
-        if system.is_none() {
+        if system.is_none() && !automated() {
             *system = arboard::Clipboard::new().ok();
         }
         system

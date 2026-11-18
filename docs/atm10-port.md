@@ -465,6 +465,26 @@ What remains, by size:
   and the Hephaestus Forge rituals that make the altar's item (in the pack mod; a Forbidden Arcanus port must read them).
 
 
+### Iron Furnaces
+
+`pack/mods/ironfurnaces` ports Iron Furnaces 4.3.2 from its source: Qelifern/IronFurnacesNeoForge, branch `4.3.2`
+(commit 41fde020), Apache-2.0 (`LICENSE-ironfurnaces`, `NOTICE-ironfurnaces`). The older Qelifern/IronFurnaces repository
+holds the 1.20.1 versions under GPL-3.0 and was not used. The blocks, items, models and recipes are the mod's carry,
+whose furnaces sit on a template with no right-click: `pack/scripts/ironfurnaces.ts content` copies the carry
+(`IRONFURNACES_CARRY`) to a content mod with each furnace on `minecraft:furnace`, as Powah's furnators are. The script's
+steps `units content stage build world` build and test the bundle. It uses hooks on main and no new one: the world's cooking recipes (421, as Mekanism's smelter reads them), a
+mod container and its menu (417), an item used on a block (424), and the screen hooks.
+
+What runs: the thirteen furnaces with their cooking time and fuel use from `config/ironfurnaces-common.toml` (an
+iron furnace takes 160 ticks for a 200-tick recipe and a coal lights 1,280 ticks), the 16-, 32- and 64-item cookings of
+the Allthemodium, Vibranium, Unobtainium and Rainbow furnaces, the speed, fuel, blasting and smoking augments (put in
+by a sneaking click), the Iron Furnaces' tier upgrades in place (a sneaking click keeps the input, fuel, output, fire
+and facing), and the furnace's screen from the jar's `gui/furnace.png`. Not ported: the factory and generator
+augments, the side configuration, redstone modes and copy tool, the Wireless Energy Heater, the Rainbow furnace's
+network, stored experience, and the vanilla furnace to Iron or Copper upgrade. The input slot takes any item. Unit
+tests of the tiers, the config, the cooking and fuel arithmetic and the upgrades are in the crate; the world test
+`tests/furnace.ts` checks the speeds in game time, the fuel use and an upgrade; `NOTES.md` lists the differences.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

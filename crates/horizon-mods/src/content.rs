@@ -593,27 +593,106 @@ mod fluid;
 use fluid::check_fluid;
 pub use fluid::{FLUID_TEMPLATES, Fluid};
 
-/// the vanilla entity types a mod's type may copy: thrown item
-/// projectiles (`ThrowableItemProjectile`), then living mobs
-/// ([`LIVING_TEMPLATES`]).
-pub const ENTITY_TEMPLATES: [&str; 4] = [
-    "minecraft:snowball",
+/// the vanilla entity types a mod's thrown type may copy: thrown item
+/// projectiles (`ThrowableItemProjectile`).
+pub const THROWN_TEMPLATES: [&str; 1] = ["minecraft:snowball"];
+
+/// the vanilla mobs a mod's living type may copy: a type copying one is a mob
+/// of its template's class (NeoForge's `EntityType.Builder.of(Zombie::new,
+/// ...)`, or a mod's class extending `Zombie`), with its own default
+/// attributes (`EntityAttributeCreationEvent`). The wandering trader is the
+/// neutral one whose behaviour is all goals, which a native mod can replace
+/// (`register_goals`); a villager's is its brain. These are the 1.21.1 mobs a
+/// mod's class can extend.
+pub const LIVING_TEMPLATES: [&str; 81] = [
+    "minecraft:allay",
+    "minecraft:armadillo",
+    "minecraft:axolotl",
+    "minecraft:bat",
+    "minecraft:bee",
+    "minecraft:blaze",
+    "minecraft:bogged",
+    "minecraft:breeze",
+    "minecraft:camel",
+    "minecraft:cat",
+    "minecraft:cave_spider",
+    "minecraft:chicken",
+    "minecraft:cod",
+    "minecraft:cow",
+    "minecraft:creeper",
+    "minecraft:dolphin",
+    "minecraft:donkey",
+    "minecraft:drowned",
+    "minecraft:elder_guardian",
+    "minecraft:enderman",
+    "minecraft:endermite",
+    "minecraft:evoker",
+    "minecraft:fox",
+    "minecraft:frog",
+    "minecraft:ghast",
+    "minecraft:giant",
+    "minecraft:glow_squid",
+    "minecraft:goat",
+    "minecraft:guardian",
+    "minecraft:hoglin",
+    "minecraft:horse",
+    "minecraft:husk",
+    "minecraft:illusioner",
+    "minecraft:iron_golem",
+    "minecraft:llama",
+    "minecraft:magma_cube",
+    "minecraft:mooshroom",
+    "minecraft:mule",
+    "minecraft:ocelot",
+    "minecraft:panda",
+    "minecraft:parrot",
+    "minecraft:phantom",
+    "minecraft:pig",
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:pillager",
+    "minecraft:polar_bear",
+    "minecraft:pufferfish",
+    "minecraft:rabbit",
+    "minecraft:ravager",
+    "minecraft:salmon",
+    "minecraft:sheep",
+    "minecraft:shulker",
+    "minecraft:silverfish",
+    "minecraft:skeleton",
+    "minecraft:skeleton_horse",
+    "minecraft:slime",
+    "minecraft:sniffer",
+    "minecraft:snow_golem",
+    "minecraft:spider",
+    "minecraft:squid",
+    "minecraft:stray",
+    "minecraft:strider",
+    "minecraft:tadpole",
+    "minecraft:trader_llama",
+    "minecraft:tropical_fish",
+    "minecraft:turtle",
+    "minecraft:vex",
     "minecraft:villager",
+    "minecraft:vindicator",
     "minecraft:wandering_trader",
+    "minecraft:warden",
+    "minecraft:witch",
+    "minecraft:wither",
+    "minecraft:wither_skeleton",
+    "minecraft:wolf",
+    "minecraft:zoglin",
     "minecraft:zombie",
+    "minecraft:zombie_horse",
+    "minecraft:zombie_villager",
+    "minecraft:zombified_piglin",
 ];
 
-/// the [`ENTITY_TEMPLATES`] that are living mobs: a type copying one is a mob
-/// of its template's class (NeoForge's `EntityType.Builder.of(Zombie::new,
-/// ...)`), with its own default attributes (`EntityAttributeCreationEvent`).
-/// The wandering trader is the neutral one whose behaviour is all goals,
-/// which a native mod can replace (`register_goals`); a villager's is its
-/// brain.
-pub const LIVING_TEMPLATES: [&str; 3] = [
-    "minecraft:villager",
-    "minecraft:wandering_trader",
-    "minecraft:zombie",
-];
+/// whether a mod's entity type may copy `template`: one of
+/// [`THROWN_TEMPLATES`] or [`LIVING_TEMPLATES`].
+pub fn is_entity_template(template: &str) -> bool {
+    THROWN_TEMPLATES.contains(&template) || LIVING_TEMPLATES.contains(&template)
+}
 
 /// an entity type the mod adds: a copy of a vanilla template's. A thrown one
 /// is thrown from `item` and drawn as it; a living one is its template's mob
@@ -624,7 +703,7 @@ pub struct EntityType {
     /// `<mod id>:<path>`.
     #[serde(skip)]
     pub id: String,
-    /// one of [`ENTITY_TEMPLATES`].
+    /// one of [`THROWN_TEMPLATES`] or [`LIVING_TEMPLATES`].
     pub template: String,
     /// a thrown type's: one of the mod's own items, which throws it. A
     /// living type has none.
@@ -639,6 +718,12 @@ pub struct EntityType {
     /// when the content root builds.
     #[serde(default)]
     pub attributes: BTreeMap<String, f64>,
+    /// a living type's own texture on its template's model, as a texture id
+    /// (`ruby:entity/ghoul` for `assets/ruby/textures/entity/ghoul.png`):
+    /// what its renderer's `getTextureLocation` gives. None draws the
+    /// template's.
+    #[serde(default)]
+    pub texture: Option<String>,
 }
 
 impl EntityType {
@@ -1609,9 +1694,9 @@ impl Content {
         for (kind, name) in types {
             let file: EntityType =
                 serde_json::from_slice(&reader.read(&name)?).map_err(|e| format!("{name}: {e}"))?;
-            if !ENTITY_TEMPLATES.contains(&file.template.as_str()) {
+            if !is_entity_template(&file.template) {
                 return Err(format!(
-                    "{name}: template {:?} is not one of {ENTITY_TEMPLATES:?}",
+                    "{name}: template {:?} is not one of {THROWN_TEMPLATES:?} or a living template",
                     file.template
                 ));
             }
@@ -1623,6 +1708,16 @@ impl Content {
                         "{name}: a living type has no item or damage (its template is {})",
                         file.template
                     ));
+                }
+                if let Some(texture) = &file.texture {
+                    let id_like = texture
+                        .split_once(':')
+                        .is_some_and(|(n, p)| !n.is_empty() && !p.is_empty() && !p.ends_with(".png"));
+                    if !id_like {
+                        return Err(format!(
+                            "{name}: texture {texture:?} is a texture id (namespace:entity/path)"
+                        ));
+                    }
                 }
                 for (attribute, value) in &file.attributes {
                     let id_like = attribute
@@ -1640,9 +1735,9 @@ impl Content {
                 self.entity_types.push(EntityType { id: kind, ..file });
                 continue;
             }
-            if !file.attributes.is_empty() {
+            if !file.attributes.is_empty() || file.texture.is_some() {
                 return Err(format!(
-                    "{name}: only a living type has attributes (its template is {})",
+                    "{name}: only a living type has attributes or a texture (its template is {})",
                     file.template
                 ));
             }
@@ -3422,6 +3517,36 @@ capabilities = ["registries"]
         ];
         let e = hmod("type-shared", MANIFEST_TEXT, files).unwrap_err();
         assert!(e.contains("already throws another entity type"), "{e}");
+    }
+
+    #[test]
+    fn living_entity_types_copy_any_mob_a_mod_class_extends_with_its_own_texture() {
+        let files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/boomer.json",
+            br#"{"template": "minecraft:creeper", "texture": "ruby:entity/boomer"}"#,
+        )];
+        let content = hmod("textured", MANIFEST_TEXT, files).unwrap();
+        let boomer = &content.entity_types[0];
+        assert!(boomer.is_living());
+        assert_eq!(boomer.texture.as_deref(), Some("ruby:entity/boomer"));
+        for (file, why) in [
+            (
+                r#"{"template": "minecraft:creeper", "texture": "ruby:textures/entity/boomer.png"}"#,
+                "is a texture id",
+            ),
+            (r#"{"template": "minecraft:ender_dragon"}"#, "is not one of"),
+            (
+                r#"{"template": "minecraft:snowball", "item": "ruby:x", "texture": "ruby:entity/x"}"#,
+                "only a living type has attributes or a texture",
+            ),
+        ] {
+            let files: &[(&str, &[u8])] = &[
+                ("data/ruby/horizon/entity_type/boomer.json", file.as_bytes()),
+                ("data/ruby/horizon/item/x.json", br#"{"template": "minecraft:stick"}"#),
+            ];
+            let e = hmod("textured", MANIFEST_TEXT, files).unwrap_err().to_string();
+            assert!(e.contains(why), "{file}: {e}");
+        }
     }
 
     #[test]

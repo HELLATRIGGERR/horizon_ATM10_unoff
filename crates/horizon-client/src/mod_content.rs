@@ -1200,8 +1200,8 @@ impl Plan<'_> {
 }
 
 /// A mod entity type's row in `entity-types.json`: its template's `row` with
-/// `template` added and the type's attribute bases in place of the
-/// template's. The other values keep the template's text.
+/// `template` (and its own `texture`) added and the type's attribute bases in
+/// place of the template's. The other values keep the template's text.
 fn mod_entity_row(
     row: &serde_json::value::RawValue,
     t: &EntityType,
@@ -1232,6 +1232,9 @@ fn mod_entity_row(
         );
     }
     fields.insert("template".into(), to_raw_value(&t.template).map_err(fail)?);
+    if let Some(texture) = &t.texture {
+        fields.insert("texture".into(), to_raw_value(texture).map_err(fail)?);
+    }
     serde_json::to_vec(&fields).map_err(fail)
 }
 

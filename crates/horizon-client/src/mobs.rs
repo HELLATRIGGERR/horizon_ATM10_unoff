@@ -495,7 +495,11 @@ impl MobTypes {
                         },
                     ),
                     layers,
-                    texture: def.texture.to_owned(),
+                    // a mod's type drawn by its template's renderer with its
+                    // own texture (`getTextureLocation`): `ns:entity/ghoul`.
+                    texture: t["texture"]
+                        .as_str()
+                        .map_or_else(|| def.texture.to_owned(), str::to_owned),
                     brain: def.brain(),
                     anim: def.anim,
                     sounds: def.sounds,

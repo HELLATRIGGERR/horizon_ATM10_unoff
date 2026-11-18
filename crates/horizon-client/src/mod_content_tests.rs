@@ -1981,6 +1981,7 @@ fn a_living_mod_types_row_is_its_templates_with_its_attributes() {
             .iter()
             .map(|(a, v)| (a.to_string(), *v))
             .collect(),
+        texture: None,
     };
     let written = mod_entity_row(&row, &ghoul(&[("minecraft:max_health", 40.0)])).unwrap();
     let written: serde_json::Value = serde_json::from_slice(&written).unwrap();
@@ -1993,6 +1994,14 @@ fn a_living_mod_types_row_is_its_templates_with_its_attributes() {
     assert!(text.contains("0.23000000417232513"), "{text}");
     let e = mod_entity_row(&row, &ghoul(&[("minecraft:flying_speed", 1.0)])).unwrap_err();
     assert!(e.contains("not one of minecraft:zombie's"), "{e}");
+    // its own texture, drawn on the template's model, goes in the row.
+    let textured = EntityType {
+        texture: Some("ruby:entity/ghoul".into()),
+        ..ghoul(&[])
+    };
+    let written: serde_json::Value =
+        serde_json::from_slice(&mod_entity_row(&row, &textured).unwrap()).unwrap();
+    assert_eq!(written["texture"], "ruby:entity/ghoul");
 }
 
 /// a mod's thrown entity type gets the network id after vanilla's last, the

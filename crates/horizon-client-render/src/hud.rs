@@ -1225,6 +1225,10 @@ impl HudAtlas {
         // to be drawn: the rest, like the GUI textures below, are `optional`.
         let namespaces = horizon_items::content_namespaces::namespaces(root);
         let mut optional = Vec::new();
+        // A content mod's mobs drawn with their own texture (`entity-types.json`'s
+        // `texture`) are drawn like vanilla's: theirs are packed as surely.
+        let mob_textures = mod_mob_textures(root);
+        let mob_texture = |p: &Path| mob_textures.contains(&p.to_string_lossy().replace('\\', "/"));
         for folder in ["entity", "mob_effect"] {
             if folders.contains(&folder) {
                 for namespace in &namespaces {
@@ -1234,6 +1238,9 @@ impl HudAtlas {
                         let mut rest = Vec::new();
                         walk(&dir, &mut rest);
                         let equipment = dir.join("equipment");
+                        let (mobs, rest): (Vec<_>, Vec<_>) =
+                            rest.into_iter().partition(|p| mob_texture(p));
+                        files.extend(mobs);
                         optional.extend(rest.into_iter().filter(|p| !p.starts_with(&equipment)));
                     } else {
                         walk(&dir, &mut files);
@@ -3335,6 +3342,26 @@ impl HudRenderer {
 #[cfg(test)]
 #[path = "hud/coverage_tests.rs"]
 mod coverage_tests;
+
+/// The textures content mods' mob types are drawn with: each `texture`
+/// (`ns:entity/ghoul`) of a mod's row in the root's `entity-types.json`, as the
+/// file's path under `root` with `/` separators.
+fn mod_mob_textures(root: &Path) -> std::collections::HashSet<String> {
+    let Ok(bytes) = fs::read(root.join("entity-types.json")) else {
+        return Default::default();
+    };
+    let Ok(serde_json::Value::Object(rows)) = serde_json::from_slice(&bytes) else {
+        return Default::default();
+    };
+    rows.values()
+        .filter_map(|row| row.get("texture")?.as_str()?.split_once(':'))
+        .map(|(namespace, path)| {
+            root.join(format!("assets/{namespace}/textures/{path}.png"))
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect()
+}
 
 #[cfg(test)]
 mod tests {

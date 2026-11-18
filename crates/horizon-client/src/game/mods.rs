@@ -736,7 +736,8 @@ impl Game<'_> {
 /// Mob types loaded from a scratch root whose `entity-types.json` has a
 /// zombie, a villager, and the rows a content root writes for a mod's types
 /// (`mod_content`): `ruby:ghoul` (a zombie with 40 health), `ruby:settler` (a
-/// villager as it is) and `ruby:bolt` (a thrown snowball, not a mob).
+/// villager as it is), `ruby:boomer` (a creeper with its own texture) and
+/// `ruby:bolt` (a thrown snowball, not a mob).
 #[cfg(test)]
 pub(super) fn living_mod_types()
 -> std::collections::HashMap<String, std::sync::Arc<horizon_client::mobs::MobType>> {
@@ -746,6 +747,8 @@ pub(super) fn living_mod_types()
         r#""width":0.6,"height":1.95,"eye_height":1.62,"category":"misc","fire_immune":false"#;
     let trader =
         r#""width":0.6,"height":1.95,"eye_height":1.62,"category":"creature","fire_immune":false"#;
+    let creeper =
+        r#""width":0.6,"height":1.7,"eye_height":1.445,"category":"monster","fire_immune":false"#;
     let table = format!(
         r#"{{"minecraft:zombie":{{{zombie},"attributes":{{"minecraft:max_health":20.0,"minecraft:movement_speed":0.23000000417232513}}}},
         "minecraft:villager":{{{villager},"attributes":{{"minecraft:max_health":20.0,"minecraft:movement_speed":0.5}}}},
@@ -754,6 +757,8 @@ pub(super) fn living_mod_types()
         "ruby:ghoul":{{{zombie},"attributes":{{"minecraft:max_health":40.0,"minecraft:movement_speed":0.23000000417232513}},"template":"minecraft:zombie"}},
         "ruby:settler":{{{villager},"attributes":{{"minecraft:max_health":20.0,"minecraft:movement_speed":0.5}},"template":"minecraft:villager"}},
         "ruby:merchant":{{{trader},"attributes":{{"minecraft:max_health":20.0,"minecraft:movement_speed":0.7}},"template":"minecraft:wandering_trader"}},
+        "minecraft:creeper":{{{creeper},"attributes":{{"minecraft:max_health":20.0,"minecraft:movement_speed":0.25}}}},
+        "ruby:boomer":{{{creeper},"attributes":{{"minecraft:max_health":20.0,"minecraft:movement_speed":0.25}},"template":"minecraft:creeper","texture":"ruby:entity/boomer"}},
         "ruby:bolt":{{"width":0.25,"height":0.25,"eye_height":0.0,"category":"misc","fire_immune":false,"template":"minecraft:snowball"}}}}"#
     );
     // A folder per call: tests run in parallel in one process, and each removes its own.
@@ -919,6 +924,11 @@ mod tests {
             (ghoul.sounds, ghoul.texture.as_str()),
             (zombie.sounds, zombie.texture.as_str())
         );
+        // a type drawn with its own texture on its template's model.
+        let boomer = &types["ruby:boomer"];
+        assert_eq!(boomer.species, Species::Creeper);
+        assert_eq!(boomer.texture, "ruby:entity/boomer");
+        assert_eq!(types["minecraft:creeper"].texture, "entity/creeper/creeper");
 
         let at = Vec3::new(0.5, 64.0, 0.5);
         let (zombie, ghoul) = (

@@ -5,18 +5,27 @@
 - **Audit numbers (ATM10 8.4):** 1,299 mod entity types registered, class found 1,165, living 630; template 228,
   abstract base only 402; natural spawns 182; spawn egg 290; texture found 632; loot carried 385; declared today 0;
   slice 1 (ready to declare) 63. Report: `atm10-work/mobs-work/mob-audit.json`.
-- **Done, committed:** `tools/atm10/mob-audit.py` and this plan.
-- **Written, NOT BUILT OR TESTED yet (committed as WIP):** the engine side of slice 1:
-  `horizon-mods/src/content.rs` (81 `LIVING_TEMPLATES`, `texture` field, `is_entity_template`),
-  `mod_content.rs` (`texture` in the row), `mobs.rs` (the row's `texture` is drawn), `hud.rs` (`mod_mob_textures`:
-  those textures are packed as required), the unit tests listed under Tests, and `tools/atm10/mob-world.ts`.
-  Vanilla rows of `entity-types.json` have no `texture` key (checked), so vanilla mobs keep their textures.
-- **Exact next step:** `bash atm10-work/mobs-work/build.sh` (iter game build, own target `mobs-work/target`, via
-  wait-slot, `-j 4`), fix compile errors, then `bash atm10-work/mobs-work/units.sh` (horizon-mods `entity_type`,
-  lib `mod_content mobs::`, bin `mods:: lan::`), then `bash atm10-work/mobs-work/world.sh 1`. The world test loads 2
-  carries, not the full pack, so it takes no `fullpack-game.lock`. Open the screenshot it prints and check it. Then run
-  parity `mob_attributes mob_ai natural_spawn finalize_spawn` (`--changed-files` selects 642 harnesses: too broad).
-  Squash the WIP commit when it passes.
+- **Slice 1 is done, built and tested:** the audit (`tools/atm10/mob-audit.py`), this plan, and the engine side: 81
+  `LIVING_TEMPLATES` and the `texture` field (`crates/horizon-mods/src/content.rs`), `texture` in the type's row
+  (`crates/horizon-client/src/mod_content.rs`), the row's texture drawn (`crates/horizon-client/src/mobs.rs`), those
+  textures packed for sure in the HUD atlas (`crates/horizon-client-render/src/hud.rs`, `mod_mob_textures`), the unit
+  tests under Tests, and the world test `tools/atm10/mob-world.ts`. Vanilla rows of `entity-types.json` have no
+  `texture` key, so vanilla mobs keep their textures.
+- **Checked:** the game builds (iter); units pass (`horizon-mods` 3, `horizon-client-lib` `mod_content mobs::` 830,
+  `horizon-client` lib `mods:: lan:: mod_content` 22); the world test passes and its screenshot shows Merrymaking's
+  Christmas creepers in their own Santa-hat texture on the creeper model, and Occultism's spider, zombie and skeleton
+  on their templates' models. Parity `mob_attributes`, `natural_spawn` and `finalize_spawn` pass. **`mob_ai` has
+  not run:** it needs 26.3's client libraries (gson 2.14.0 and others), which this PC's launcher install doesn't
+  have, and nothing is downloaded. Run it where `tools/lab.py prepare` works.
+- **Exact next step: slice 2** (below): `horizon-port-pack` writes the declarations into the carries instead of
+  `mob-audit.py --declare` writing them beside copies. The audit's class reading moves into `classes.rs`; the oracle's
+  `FactsExporter` gives attributes, `MobCategory`, size and fire immunity, and the egg's `entity_data` id; the
+  oracle's client run names the computed textures (Shiny's 71).
+- **How to run, in `atm10-work/mobs-work`:** `build.sh` (iter game build, own target, via wait-slot, `-j 4`);
+  `units.sh`; `world.sh N` (two carries from `carries-mobs`, so no `fullpack-game.lock`; it queues for the render
+  lease, 3 to 10 minutes). Parity: the worktree's `.local/minecraft/26.3` is imported from the local launcher install
+  and server jar without the decompiler and client libraries (no downloads), `.local/horizon-client` links to the
+  main checkout's; `parity-build.sh` builds `client_probe` with `-j 4`, `parity-run.sh` runs the harnesses.
 - **Test overlay:** `atm10-work/mobs-work/carries-mobs/{occultism,merrymaking}`: copies of the carries with
   `mob-audit.py --declare` output (`mobs-work/declared`) added. The generated carries are not touched.
 - **Left:** slices 2-7 below.
@@ -166,8 +175,11 @@ attacks and arenas. They come last, one boss per slice, on a template that gives
 
 ## Tests
 
-- Units: `horizon-mods` `living_entity_types_copy_any_mob_a_mod_class_extends_with_its_own_texture`;
+- Units (`horizon-client`'s `game::mods` tests are in its lib, `--lib`, not the bin):
+  `horizon-mods` `living_entity_types_copy_any_mob_a_mod_class_extends_with_its_own_texture`;
   `mod_content_tests` `a_living_mod_types_row_is_its_templates_with_its_attributes` (the texture in the row);
   the game's `mods::tests::a_mod_living_type_is_its_templates_mob_with_its_own_attributes` (a creeper copy drawn with
   its own texture).
-- World: `MOB_CARRIES=<overlay> bun run tools/atm10/mob-world.ts`; look at the screenshot it prints.
+- World: `MOB_CARRIES=<overlay> bun run tools/atm10/mob-world.ts`; look at the screenshot it prints. The pen has a
+  glowstone roof: under glass the zombie and the skeleton burn in the daylight and hide the picture.
+- Parity: `python tools/parity.py mob_attributes mob_ai natural_spawn finalize_spawn` (vanilla mobs must not move).

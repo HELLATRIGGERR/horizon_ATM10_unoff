@@ -94,6 +94,10 @@ pub struct Summary {
     pub kubejs_assets: usize,
     /// Namespaces of mods not carried: their port will own them.
     pub kubejs_assets_left_out: usize,
+    /// Files of KubeJS's data pack laid over the carries, by kind (`neoforge/biome_modifier`, `worldgen/placed_feature`,
+    /// `data_maps`...), and those left out, by kind and why.
+    pub kubejs_data: BTreeMap<String, usize>,
+    pub kubejs_data_left_out: BTreeMap<String, usize>,
     pub namespaces: Vec<String>,
 }
 
@@ -557,6 +561,15 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;
         claimed.insert(PACK_ID.to_owned());
     }
+    if let Some(instance) = o.instance {
+        kubejs_data(
+            &instance.join("kubejs/data"),
+            &tag_dirs,
+            &mut |ns: &str| dir_of(ns, &mut claimed).map(|(root, _)| root),
+            &mut sink,
+            &mut s,
+        )?;
+    }
     if let Some(jar) = o.loader
         && let Some((root, _)) = dir_of("neoforge", &mut claimed)
     {
@@ -697,6 +710,110 @@ fn loader_assets(jar: &Path, root: &Path, sink: &mut Sink) -> Result<usize, Stri
         sink.write(&root.join(name), &bytes)?;
     }
     Ok(names.len())
+}
+
+/// A tag file or data map of a data pack over the one at its path: the game merges the two (each pack's entries in
+/// turn, a later one's value winning in a data map), unless the upper one says `replace`.
+fn merged_data(under: &Value, over: &Value) -> Value {
+    if over["replace"] == json!(true) {
+        return over.clone();
+    }
+    let mut out = under.clone();
+    match (&mut out["values"], &over["values"]) {
+        (Value::Array(list), Value::Array(more)) => {
+            for v in more {
+                if !list.contains(v) {
+                    list.push(v.clone());
+                }
+            }
+        }
+        (Value::Object(map), Value::Object(more)) => map.extend(more.clone()),
+        _ => return over.clone(),
+    }
+    out
+}
+
+/// KubeJS's data pack (`kubejs/data`, which the game lays over every mod's data): the files the dump doesn't stand
+/// for, put where the namespace lives. The dump holds the recipes, the loot tables and the tags of its registries (so
+/// those files are its); the rest is the pack's own data as it ships: biome modifiers (ATM10 turns most mods' ores
+/// off for All the Ores'), worldgen features and biome tags, data maps, advancements, loot modifiers, mods' own data.
+/// A file replaces the one at its path in the carry that owns the namespace; a tag file or data map adds to it; a
+/// free namespace's go in the pack mod. Worldgen files and advancements get carry's 26.3 rewrite. Left out: a
+/// namespace of a mod that isn't carried (its port will own it), KubeJS's own folder, files that aren't JSON.
+/// What `ServerEvents.generateData` scripts make at load is not here: it needs the scripts run.
+fn kubejs_data(
+    root: &Path,
+    tag_dirs: &BTreeSet<String>,
+    dir_of: &mut dyn FnMut(&str) -> Option<PathBuf>,
+    sink: &mut Sink,
+    s: &mut Summary,
+) -> Result<(), String> {
+    let mut stack = vec![root.to_owned()];
+    while let Some(d) = stack.pop() {
+        for f in fs::read_dir(&d).into_iter().flatten().flatten() {
+            let path = f.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(rel) = path.strip_prefix(root).ok().and_then(Path::to_str).map(|r| r.replace('\\', "/")) else {
+                continue;
+            };
+            let Some((ns, inner)) = rel.split_once('/') else { continue };
+            let parts: Vec<&str> = inner.split('/').collect();
+            let kind = match parts.as_slice() {
+                [top @ ("neoforge" | "forge" | "worldgen" | "tags"), sub, _, ..] => format!("{top}/{sub}"),
+                [top, ..] => (*top).to_owned(),
+                [] => continue,
+            };
+            let theirs = |kind: &str| {
+                matches!(kind, "recipe" | "loot_table")
+                    || inner.strip_prefix("tags/").is_some_and(|t| tag_dirs.iter().any(|d| t.starts_with(&format!("{d}/"))))
+            };
+            let left = |why: &str, s: &mut Summary| *s.kubejs_data_left_out.entry(format!("{kind}: {why}")).or_default() += 1;
+            if theirs(&kind) {
+                continue;
+            }
+            if kind == "kubejs" {
+                left("KubeJS's own", s);
+                continue;
+            }
+            if !rel.ends_with(".json") {
+                left("not JSON", s);
+                continue;
+            }
+            let Some(owner) = dir_of(ns) else {
+                left("its mod is not carried", s);
+                continue;
+            };
+            let to = owner.join(format!("data/{rel}"));
+            if horizon_mods::content::check_path(&format!("data/{rel}")).is_err() {
+                left("a path the game refuses", s);
+                continue;
+            }
+            let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let Ok(mut v) = serde_json::from_slice::<Value>(&bytes) else {
+                left("not JSON", s);
+                continue;
+            };
+            if let Some(("worldgen", sub)) = kind.split_once('/') {
+                crate::processors::rule_tests(sub, &mut v, &mut BTreeMap::new());
+                crate::worldgen::upgrade(sub, &mut v, &mut crate::worldgen::Upgrade::default(), &BTreeMap::new());
+            } else if kind == "advancement" {
+                crate::carry::upgrade_advancement(&mut v);
+            }
+            renamed_ids(&mut v);
+            if kind.starts_with("tags/") || kind == "data_maps" {
+                let under = fs::read(&to).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+                if let Some(under) = under {
+                    v = merged_data(&under, &v);
+                }
+            }
+            sink.json(&to, &v)?;
+            *s.kubejs_data.entry(kind).or_default() += 1;
+        }
+    }
+    Ok(())
 }
 
 /// The blocks and items KubeJS's startup scripts register: declarations from the oracle's facts, as carry writes
@@ -848,6 +965,73 @@ fn kubejs_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kubejs_data_lies_over_the_carries_where_the_dump_does_not() {
+        let dir = std::env::temp_dir().join(format!("port-pack-kubejs-data-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (data, m, pack) = (dir.join("kubejs/data"), dir.join("m"), dir.join("pack"));
+        let put = |path: PathBuf, text: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        // The carry's own files, from its jar.
+        put(m.join("data/m/neoforge/biome_modifier/ore_tin.json"), r#"{"type": "neoforge:add_features"}"#);
+        put(m.join("data/m/tags/worldgen/biome/hot.json"), r#"{"values": ["minecraft:desert"]}"#);
+        put(m.join("data/m/data_maps/item/fuel.json"), r#"{"values": {"m:a": 1, "m:b": 2}}"#);
+        // The pack's: an ore turned off, a feature in 1.21.1's form, tags and data maps added to, a free namespace,
+        // the dump's files, a mod not carried, KubeJS's own, a structure.
+        put(data.join("m/neoforge/biome_modifier/ore_tin.json"), r#"{"type": "neoforge:none"}"#);
+        put(
+            data.join("m/worldgen/configured_feature/ore_tin.json"),
+            r#"{"type": "minecraft:ore", "config": {"size": 5, "discard_chance_on_air_exposure": 0.0, "targets": []}}"#,
+        );
+        put(data.join("m/tags/worldgen/biome/hot.json"), r#"{"values": ["minecraft:badlands", "minecraft:desert"]}"#);
+        put(data.join("m/data_maps/item/fuel.json"), r#"{"values": {"m:b": 5}}"#);
+        put(data.join("atm10/neoforge/biome_modifier/spawns.json"), r#"{"type": "neoforge:add_spawns"}"#);
+        put(data.join("m/recipe/a.json"), "{}");
+        put(data.join("m/loot_table/blocks/a.json"), "{}");
+        put(data.join("m/tags/item/gems.json"), r#"{"values": []}"#);
+        put(data.join("powah/neoforge/biome_modifier/ore.json"), r#"{"type": "neoforge:none"}"#);
+        put(data.join("m/kubejs/recipe_schema/x.json"), "{}");
+        put(data.join("m/structure/hut.nbt"), "nbt");
+        let tag_dirs = BTreeSet::from(["item".to_owned()]);
+        let mut dir_of = |ns: &str| match ns {
+            "m" => Some(m.clone()),
+            "atm10" => Some(pack.clone()),
+            _ => None,
+        };
+        let mut s = Summary::default();
+        let mut sink = Sink { made: HashSet::new() };
+        kubejs_data(&data, &tag_dirs, &mut dir_of, &mut sink, &mut s).unwrap();
+        let read = |p: PathBuf| serde_json::from_slice::<Value>(&fs::read(p).unwrap()).unwrap();
+        assert_eq!(read(m.join("data/m/neoforge/biome_modifier/ore_tin.json")), json!({"type": "neoforge:none"}));
+        let feature = read(m.join("data/m/worldgen/configured_feature/ore_tin.json"));
+        assert!(feature.get("config").is_none() && feature["size"] == json!(5), "{feature}");
+        assert_eq!(
+            read(m.join("data/m/tags/worldgen/biome/hot.json")),
+            json!({"values": ["minecraft:desert", "minecraft:badlands"]})
+        );
+        assert_eq!(read(m.join("data/m/data_maps/item/fuel.json")), json!({"values": {"m:a": 1, "m:b": 5}}));
+        assert!(pack.join("data/atm10/neoforge/biome_modifier/spawns.json").exists());
+        assert!(!m.join("data/m/recipe").exists() && !m.join("data/m/loot_table").exists());
+        assert!(!m.join("data/m/tags/item").exists() && !m.join("data/m/kubejs").exists());
+        assert!(!m.join("data/m/structure").exists());
+        assert_eq!(s.kubejs_data.values().sum::<usize>(), 5);
+        assert_eq!(s.kubejs_data["neoforge/biome_modifier"], 2);
+        assert_eq!(
+            s.kubejs_data_left_out,
+            BTreeMap::from([
+                ("kubejs: KubeJS's own".to_owned(), 1),
+                ("neoforge/biome_modifier: its mod is not carried".to_owned(), 1),
+                ("structure: not JSON".to_owned(), 1),
+            ])
+        );
+        // A second run changes nothing: tags and data maps don't grow.
+        kubejs_data(&data, &tag_dirs, &mut dir_of, &mut sink, &mut s).unwrap();
+        assert_eq!(read(m.join("data/m/tags/worldgen/biome/hot.json"))["values"].as_array().unwrap().len(), 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn tags() -> HashMap<String, Vec<String>> {
         HashMap::from([("c:gems".to_owned(), vec!["m:ruby".to_owned(), "minecraft:diamond".to_owned()])])

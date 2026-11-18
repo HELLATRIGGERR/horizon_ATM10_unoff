@@ -330,6 +330,79 @@ terminals' `combine` and `upgrade`) and Mekanism's `mek_data` 74. Another 347 re
 audited either: brewing 279, `crafting_transmute` 33, banner duplication 17, and the special crafting recipes.
 
 
+### Pack logic: ATM10's KubeJS
+
+No JavaScript runs here. What ATM10's `kubejs/` does (215 scripts: 19 startup, 180 server, 16 client; a data pack, a
+resource pack) reaches the game as data: through the oracle's dump, which is the game on NeoForge with KubeJS on, and
+`final-data`. `tools/atm10/kubejs-audit.py` counts the scripts' calls by kind. It checks each effect against the dump,
+the carries, the native content folders and vanilla's files. It copies nothing, and its report stays in the work folder:
+
+```sh
+python tools/atm10/kubejs-audit.py --instance <ATM10> --dump <dump> --carries <carries> --resources <26.3> \
+  --also content/ae2 --also <addon content root> --out kubejs-audit.json
+```
+
+ATM10 8.4. Calls are counted in the scripts' text, so a call inside a loop counts once:
+
+| Kind | Count | Applied |
+|---|--:|---|
+| Recipe removals | 294 calls; 190 name an id | Yes, through the dump. 188 of the 190 ids are gone everywhere, and none of the 13,036 jar recipes the dump lacks is in a carry. Not applied: 64 recipes that vanilla's or a native mod's own file still holds (AE2's matter cannon nuggets, vanilla's cake) |
+| Recipe additions | 561 calls in 60 types; 144 named | Yes. All 144 named ones are in the dump. Of the dump's 277 `kubejs:` recipes, the pack mod holds 228 and 49 are parked (their result isn't ours) |
+| Recipe replacements | 66 calls | Yes for carried mods. Not applied: 289 vanilla and native recipes the pack changed keep their own file |
+| Tag edits | 512 calls | Yes, through the dump, except 17 literal edits Java has. 12 are tags of native or uncarried mods (MEGA's compression overrides, Curios), whose tags the dump doesn't write. The other 5 are worldgen tags, which `final-data` leaves to the carries |
+| Startup registrations | 101 items, 7 blocks, 3 fluids | Yes, declared from the oracle's facts. 27 items get their texture from the script (`.texture()`, `.color()`: the enchanting bases, Theurgy's sulfurs, the ore clumps), so they draw the missing texture |
+| Other registrations | 4 Mekanism chemicals, 4 MI machines with casings, hatches and 4 recipe types, 13 Modular Machinery machines | No. The machines need MI's multiblocks, and the chemicals need Mekanism's chemical registry to take data |
+| Data pack (`kubejs/data`) | 337 files | Recipes (100) and loot tables (23) through the dump. Every other file is laid over the carries by `final-data` (below) |
+| Data generators (`generateData`) | 29 calls in 11 scripts | Only the recipes and loot tables they make, through the dump. Not applied: Create's zinc turned off, the Mining dimension's ores, Forbidden Arcanus rituals (the MI machines' and the star altar's), 17 Hostile Neural Networks data models |
+| Resource pack (`kubejs/assets`) | 2,081 files | 1,947 are laid over the carries. 134 belong to mods that aren't carried: the native ports (AE2, MEGA, Powah...) and client-only mods |
+| Event handlers | 21 | No: right-clicks, logins, NeoForge events, a command, a level unload |
+| Client only | 61 tooltip lines, 34 recipe viewer removals, 5 information pages, 9 ponder scenes | No |
+
+`final-data` with `--instance` also lays KubeJS's data pack over the carries, as the game lays a data pack over its
+mods. It takes each file the dump doesn't stand for (anything but recipes, loot tables and the tags of the dump's
+registries) to the carry that owns its namespace. A file replaces the one at its path. A tag file or data map adds to
+the one at its path. A free namespace's file goes in the pack mod. Worldgen files and advancements get carry's 26.3
+rewrite. ATM10 8.4: 190 files are laid over the carries: 49 biome modifiers, 74 worldgen biome tag files, 16 worldgen
+features and sets, 9 advancements, 7 loot modifiers, 2 data maps, and 33 of mods' own data (Forbidden Arcanus rituals,
+Compact Machines room templates, Silent Gear materials and traits, Productive Bees, Hostile Neural Networks). Left out:
+3 of mods that aren't carried, 6 files that aren't JSON (3 structures), and KubeJS's own 11. The largest effect is on
+ore generation. ATM10 turns most mods' ores off so
+that All the Ores' ores stand for them: 47 biome modifiers become `neoforge:none` (Modern Industrialization 16,
+Railcraft 11, Mekanism 6...). It also sets All the Ores' vein sizes and counts, and its biome tags place
+Dungeons Arise's structures.
+
+```sh
+ATM10_CARRIES=<the folder final-data wrote> bun run tools/atm10/tests/kubejs-data.ts
+```
+
+The world test loads Modern Industrialization's and All the Ores' carries. The pack replaces ten of All the Ores'
+ore features (tin, lead, nickel, osmium, silver, zinc, platinum, uranium, iridium, cinnabar), and `final-data`
+writes them in 26.3's form. The game runs all ten, and the nine chunks around spawn hold about 2,000 of their ore
+blocks. The count varies a little between runs of the same seed. None of the 15 MI ore blocks the pack turns off
+generates there. Without these files the ten don't run: the carries hold the jar's features still in 1.21.1's form
+(`config` wrapped), and the game skips those as `invalid world generation field: targets`. The same holds for All
+the Ores' other seven ores and all of MI's. That is a defect of these carries, not of KubeJS. The pack's files went
+through carry's own 26.3 rewrite here and came out unwrapped, so carrying the two mods again should fix theirs (not
+tried).
+
+What remains, by size:
+
+- 353 vanilla and native recipes the pack removed (64) or changed (289). The dump has their final form, but the
+  content fence keeps vanilla's and the native ports' own files. Applying them needs a pack-level override that the
+  engine accepts over those namespaces.
+- What `generateData` makes at load: rituals, data models, the Mining dimension's ores. A dump of the server's
+  generated data pack from the oracle would carry it, with no scripts run.
+- The 27 items whose texture is in the script. The client oracle can export the models KubeJS generates.
+- Tags of native and uncarried mods (12 edits) and worldgen tags edited by scripts (5).
+- Real scripting: 21 event handlers and the code behind items (`use` callbacks: the Ice and Fire eyes).
+  Each is small, and each is a native hook's worth of logic in the mod it touches. About a dozen of them matter
+  for play.
+- Client only: tooltips and recipe viewer hiding. JEI's bundle could read them as a second blacklist.
+- The Star needs these from KubeJS: its items (registered and declared today, the star shards among them), the
+  star altar, auto forge, runic crucible and enchanter as MI multiblocks (not applied), their recipes (in the dump),
+  and the Hephaestus Forge rituals that make the altar's item (generated, not applied).
+
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

@@ -903,7 +903,7 @@ pub struct StructureStart {
     pub(crate) has_piece_beardifier: bool,
     /// The start as its save held it, written back as it was (with
     /// `references`) when its pieces are opaque: a mod's structure.
-    pub saved_raw: Option<crate::nbt::Compound>,
+    pub saved_raw: Option<horizon_core::nbt::Compound>,
 }
 impl StructureStart {
     /// `StructureStart.createTag` in its own chunk; None while one of its

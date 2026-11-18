@@ -208,7 +208,10 @@ pub enum LandingWrite {
 }
 pub use interact::{InteractionResult, PlayerContext, PlayerEffect, UseBranch, hit_slot};
 pub use pistons::{BlockEventData, MovingPiston};
-pub use place::{PlaceContext, PlaceOutcome, PlacementContext, PlacementPreview};
+pub use place::{
+    PendingPlacement, PlaceContext, PlaceOutcome, Placement, PlacementContext, PlacementPreview,
+};
+pub use rails::RailKind;
 pub use portal::PortalShape;
 pub use states::{BlockId, PropKey, StateTable};
 pub use tick::{Precipitation, PrecipitationKind, RandomTickMask, RandomTickMaskUpdate};
@@ -1961,7 +1964,7 @@ impl Behaviours {
         direction: Direction,
     ) -> i32 {
         let sim = self.sim(level, ticks);
-        sim.state_signal(sim.state(pos), pos, direction)
+        sim.signals().state_signal(sim.state(pos), pos, direction)
     }
     pub fn has_neighbor_signal<L: LevelAccess + ?Sized>(
         &self,

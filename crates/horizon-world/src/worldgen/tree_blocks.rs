@@ -179,8 +179,6 @@ impl TreeBlocks {
                 *flag |= LIQUID;
             }
             if let Some(fluid) = bindings.fluids.state(id) {
-                    // A carried fluid copies no vanilla fluid: a fluid, neither water nor lava.
-                    _ if fluid.kind().mod_fluid().is_some() => *flag |= ANY_FLUID,
                 match fluid.kind() {
                     FluidKind::Water => *flag |= WATER_SOURCE | WATER_FLUID | ANY_FLUID,
                     FluidKind::FlowingWater => *flag |= WATER_FLUID | ANY_FLUID,

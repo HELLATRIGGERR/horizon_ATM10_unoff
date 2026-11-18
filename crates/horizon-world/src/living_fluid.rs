@@ -158,7 +158,7 @@ pub fn travel_in_fluid<W: LivingFluidWorld>(
     let falling = world.velocity().y <= 0.0;
     let old_y = world.y();
     let gravity = world.effective_gravity()?;
-    if world.in_water()? {
+    if world.in_water()? || world.in_mod_fluid_type()? {
         travel_in_water(world, gate, input, gravity, falling, old_y)?;
     } else {
         travel_in_lava(world, gate, input, gravity, falling, old_y)?;

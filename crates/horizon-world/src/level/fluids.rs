@@ -111,6 +111,12 @@ pub fn fluid_can_be_replaced_with(
         FluidKind::Water | FluidKind::FlowingWater => {
             direction == Direction::Down && !is_water(other)
         }
+        // A carried fluid is NeoForge 1.21.1's `BaseFlowingFluid`, whose
+        // `canBeReplacedWith` is water's rule by its own family: another fluid
+        // replaces it from above.
+        kind @ (FluidKind::Mod(_) | FluidKind::ModFlowing(_)) if kind.carried().is_some() => {
+            direction == Direction::Down && !kind.same_family(other)
+        }
         // NeoForge's `BaseFlowingFluid.canBeReplacedWith`: nothing replaces it.
         FluidKind::Mod(_) | FluidKind::ModFlowing(_) => false,
         FluidKind::Lava | FluidKind::FlowingLava => height() >= 0.444_444_45 && is_water(other),

@@ -216,7 +216,7 @@ impl EntityFluidInteraction {
     pub fn mod_fluid_types(&self) -> Vec<(FluidKind, f64)> {
         let mut out: Vec<(FluidKind, f64)> = Vec::new();
         for t in &self.trackers {
-            if t.height <= 0.0 || t.fluid.mod_fluid().is_none() {
+            if t.height <= 0.0 || t.fluid.carried().is_none() {
                 continue;
             }
             let source = t.fluid.source();
@@ -240,7 +240,7 @@ impl EntityFluidInteraction {
     pub fn eye_in_mod_fluid(&self) -> Option<FluidKind> {
         self.trackers
             .iter()
-            .find(|t| t.eyes_inside && t.fluid.mod_fluid().is_some())
+            .find(|t| t.eyes_inside && t.fluid.carried().is_some())
             .map(|t| t.fluid.source())
     }
     /// Reset previous tick state before any query. Provider failures and budget

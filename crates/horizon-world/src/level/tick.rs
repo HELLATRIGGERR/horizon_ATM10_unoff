@@ -1072,7 +1072,8 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
                             self.level
                                 .before_can_be_hydrated(state, pos, fluid, at, &mut hydrates);
                         }
-                        if hydrates.unwrap_or_else(|| b.is_water_fluid(fluid.kind())) {
+                        // NeoForge: `state.canBeHydrated(level, pos, fluid, at)`, a carried fluid's type's answer.
+                        if hydrates.unwrap_or_else(|| b.hydrates(fluid.kind())) {
                             near_water = true;
                             break 'search;
                         }

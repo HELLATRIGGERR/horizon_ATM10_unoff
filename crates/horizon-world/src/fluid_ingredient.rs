@@ -12,7 +12,7 @@
 //! with it (docs/mod-fluids.md, slice 6).
 use crate::fluid::FluidKind;
 use crate::fluid_stack::{BUCKET_VOLUME, FluidStack, fluid_from_json, json_to_nbt, positive_int};
-use crate::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use serde_json::{Map, Value};
 
 /// A fluid ingredient, as NeoForge's `FluidIngredient` subclasses.

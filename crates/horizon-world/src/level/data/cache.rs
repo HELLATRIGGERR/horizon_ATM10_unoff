@@ -24,7 +24,7 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"HZBEHAV\0";
-// 4: both sides' 3 joined (16-bit fluid kinds, templates and placement rules; 128-bit fluid masks).
+// 4: both sides' 3 joined (templates and placement rules; 128-bit fluid masks).
 const VERSION: u32 = 4;
 const FILE_NAME: &str = "behaviours-v4.bin";
 const REGISTRY_MAGIC: &[u8; 8] = b"HZREGIS\0";
@@ -60,7 +60,7 @@ struct Fact {
     sturdy: u32,
     weak: u32,
     strong: u32,
-    fluid_kind: u16,
+    fluid_kind: u8,
     fluid_amount: u8,
     fluid_falling: bool,
     emission: u8,

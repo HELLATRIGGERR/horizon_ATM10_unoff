@@ -100,7 +100,7 @@ impl Behaviours {
         if !crate::fluid_interactions::active() {
             return self.is_water_fluid(kind);
         }
-        match kind.mod_fluid() {
+        match kind.carried() {
             Some(m) => m.entity.can_hydrate,
             None => matches!(kind, FluidKind::Water | FluidKind::FlowingWater),
         }

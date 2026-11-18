@@ -289,7 +289,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let probability = match fluid {
             FluidKind::Water => 0.175_781_25,
             FluidKind::Lava => 0.058_593_75,
-            _ => match fluid.mod_fluid().and_then(|m| m.drip.as_ref()) {
+            _ => match fluid.carried().and_then(|m| m.drip.as_ref()) {
                 Some(drip) => drip.chance,
                 None => return,
             },
@@ -355,7 +355,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             .map(|(_, f, _)| f)
             .filter(|f| {
                 matches!(*f, FluidKind::Water | FluidKind::Lava)
-                    || f.mod_fluid().is_some_and(|m| m.drip.is_some())
+                    || f.carried().is_some_and(|m| m.drip.is_some())
             })
             .unwrap_or(FluidKind::Empty);
         if fluid == FluidKind::Empty || !self.cauldron_can_receive(state, fluid) {
@@ -363,7 +363,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         }
         let data = b.data(state);
         if data.is(Class::Cauldron)
-            && let Some(m) = fluid.mod_fluid()
+            && let Some(m) = fluid.carried()
         {
             // `CauldronBlock.receiveStalactiteDrip` -> `FluidType.handleCauldronDrip`: a source
             // fills the cauldron with `filledCauldron`'s default state and plays `CAULDRON_DRIP`.

@@ -376,6 +376,9 @@ struct Registry {
     /// Source kinds by liquid block and by bucket.
     by_block: HashMap<String, FluidKind>,
     by_bucket: HashMap<String, FluidKind>,
+    /// Each fluid's place in `fluids`, by its handle in upstream's world-fluid
+    /// registry ([`crate::fluid::register_mod_fluid`], [`FluidKind::carried`]).
+    by_handle: HashMap<usize, usize>,
     /// The fluid tags of vanilla's own fluids, by [`FluidKind::id`]: the
     /// root's, over [`VANILLA_TAGS`].
     vanilla_tags: [Vec<String>; 5],
@@ -401,7 +404,7 @@ fn default_vanilla_tags() -> [Vec<String>; 5] {
     std::array::from_fn(|id| {
         VANILLA_TAGS
             .iter()
-            .filter(|(_, kinds)| kinds.iter().any(|k| usize::from(k.id()) == id))
+            .filter(|(_, kinds)| kinds.iter().any(|k| k.vanilla_index().map(usize::from) == Some(id)))
             .map(|(tag, _)| (*tag).to_owned())
             .collect()
     })
@@ -437,6 +440,7 @@ pub fn register_fluids(
         by_name: HashMap::new(),
         by_block: HashMap::new(),
         by_bucket: HashMap::new(),
+        by_handle: HashMap::new(),
         vanilla_tags: default_vanilla_tags(),
         members: HashMap::new(),
     };
@@ -461,7 +465,33 @@ pub fn register_fluids(
             );
             continue;
         }
-        let (source, flowing) = FluidKind::of_mod(registry.fluids.len());
+        // The world fluid registry gives it its kinds; this one keeps its
+        // `FluidType` numbers. A fluid that does not flow gets a flowing name
+        // no fluid has, as upstream's registry wants one.
+        let flowing_id = if fluid.flows() {
+            fluid.flowing.clone()
+        } else {
+            format!("{}/not_flowing", fluid.id)
+        };
+        let handle = match crate::fluid::register_mod_fluid(crate::fluid::ModFluidType {
+            id: fluid.id.clone(),
+            flowing_id,
+            bucket: fluid.bucket.clone(),
+            rules: crate::fluid::ModFluidRules {
+                tick_delay: fluid.tick_rate,
+                drop_off: fluid.level_decrease_per_block,
+                slope_find_distance: fluid.slope_find_distance,
+                converts_to_source: fluid.can_convert_to_source,
+            },
+        }) {
+            Ok(handle) => handle,
+            Err(e) => {
+                log::warn!("Horizon: mod fluid {} left out: {e}", fluid.id);
+                continue;
+            }
+        };
+        let (source, flowing) = (FluidKind::Mod(handle), FluidKind::ModFlowing(handle));
+        registry.by_handle.insert(handle.index(), registry.fluids.len());
         registry.by_name.insert(fluid.id.clone(), source);
         if fluid.flows() {
             registry.by_name.insert(fluid.flowing.clone(), flowing);
@@ -493,8 +523,8 @@ pub fn register_fluids(
                     members.push(k);
                 }
             }
-            for k in members.iter().filter(|k| k.id() < 5) {
-                let held = &mut registry.vanilla_tags[usize::from(k.id())];
+            for i in members.iter().filter_map(|k| k.vanilla_index()) {
+                let held = &mut registry.vanilla_tags[usize::from(i)];
                 if !held.contains(tag) {
                     held.push(tag.clone());
                 }
@@ -509,11 +539,11 @@ pub fn register_fluids(
 /// fluids were registered with them, else vanilla's and NeoForge's water and
 /// lava tags ([`VANILLA_TAGS`]). False for a mod fluid and the empty fluid.
 pub fn vanilla_in_tag(kind: FluidKind, tag: &str) -> bool {
-    if kind == FluidKind::Empty || kind.id() >= 5 {
+    let Some(index) = kind.vanilla_index().filter(|_| kind != FluidKind::Empty) else {
         return false;
-    }
+    };
     match REGISTRY.get() {
-        Some(r) => r.vanilla_tags[usize::from(kind.id())]
+        Some(r) => r.vanilla_tags[usize::from(index)]
             .iter()
             .any(|t| t == tag),
         None => VANILLA_TAGS
@@ -529,12 +559,69 @@ pub fn fluids_in_tag(tag: &str) -> Vec<FluidKind> {
     if let Some(members) = REGISTRY.get().and_then(|r| r.members.get(tag)) {
         return members.clone();
     }
-    FluidKind::all()
-        .filter(|&k| match k.mod_fluid() {
+    all_kinds()
+        .filter(|&k| match k.carried() {
             Some(m) => !k.name().is_empty() && m.in_tag(k, tag),
             None => vanilla_in_tag(k, tag),
         })
         .collect()
+}
+
+/// Every fluid kind in registry order: vanilla's, then each registered mod
+/// fluid's source and flowing form.
+pub fn all_kinds() -> impl Iterator<Item = FluidKind> {
+    FluidKind::ALL.into_iter().chain(
+        crate::fluid::mod_fluids()
+            .into_iter()
+            .flat_map(|(handle, _)| [FluidKind::Mod(handle), FluidKind::ModFlowing(handle)]),
+    )
+}
+
+/// By registry id, as the fork's tables key fluids (upstream's kind derives no `Hash`).
+impl std::hash::Hash for FluidKind {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.tick_id().hash(state);
+    }
+}
+
+impl FluidKind {
+    /// Its family's source fluid (`FlowingFluid.getSource()`); itself for the empty fluid.
+    pub const fn source(self) -> Self {
+        match self {
+            Self::FlowingWater => Self::Water,
+            Self::FlowingLava => Self::Lava,
+            Self::ModFlowing(fluid) => Self::Mod(fluid),
+            kind => kind,
+        }
+    }
+    /// Its family's flowing fluid (`FlowingFluid.getFlowing()`); itself for the empty fluid.
+    pub const fn flowing(self) -> Self {
+        match self {
+            Self::Water => Self::FlowingWater,
+            Self::Lava => Self::FlowingLava,
+            Self::Mod(fluid) => Self::ModFlowing(fluid),
+            kind => kind,
+        }
+    }
+    /// Whether it is a family's source fluid.
+    pub const fn is_source_kind(self) -> bool {
+        matches!(self, Self::Water | Self::Lava | Self::Mod(_))
+    }
+    /// Water or flowing water (by identity, not the `minecraft:water` tag).
+    pub const fn is_water(self) -> bool {
+        matches!(self, Self::Water | Self::FlowingWater)
+    }
+    /// Lava or flowing lava (by identity, not the `minecraft:lava` tag).
+    pub const fn is_lava(self) -> bool {
+        matches!(self, Self::Lava | Self::FlowingLava)
+    }
+    /// The carried fluid this is one of (its `FluidType` and numbers), None for
+    /// vanilla's and for a mod fluid registered another way.
+    pub fn carried(self) -> Option<&'static ModFluid> {
+        let handle = self.mod_fluid()?;
+        let registry = REGISTRY.get()?;
+        registry.fluids.get(*registry.by_handle.get(&handle.index())?)
+    }
 }
 
 /// The content mods' fluids, in registry order.
@@ -734,19 +821,19 @@ mod tests {
         let flowing = FluidKind::from_name("test:flowing_brine").unwrap();
         let sludge = FluidKind::from_name("test:sludge").unwrap();
         // Upstream's mod rows after vanilla's five: each source, then its flowing form.
-        assert_eq!((brine.id(), flowing.id(), sludge.id()), (5, 6, 7));
+        assert_eq!((brine.tick_id(), flowing.tick_id(), sludge.tick_id()), (5, 6, 7));
         assert!(brine.same_family(flowing) && !brine.same_family(sludge));
         assert!(!brine.same_family(FluidKind::Water) && !flowing.same_family(FluidKind::Lava));
         assert_eq!((flowing.source(), brine.flowing()), (brine, flowing));
         assert!(brine.is_source_kind() && !flowing.is_source_kind());
         assert_eq!(brine.name(), "test:brine");
         assert_eq!(flowing.name(), "test:flowing_brine");
-        assert_eq!(FluidKind::from_id(9), None);
-        assert_eq!(FluidKind::all().count(), 9);
+        assert_eq!(FluidKind::from_tick_id(9), None);
+        assert_eq!(all_kinds().count(), 9);
         assert_eq!(kind_by_bucket("test:brine_bucket"), Some(brine));
         assert_eq!(kind_by_block("test:sludge"), Some(sludge));
         assert_eq!(brine.mask(), 0, "a mod fluid is in no vanilla tag mask");
-        assert!(brine.mod_fluid().unwrap().in_tag(flowing, "c:brine"));
+        assert!(brine.carried().unwrap().in_tag(flowing, "c:brine"));
         // Vanilla's ids and families are as they were.
         assert_eq!(FluidKind::Water.flowing(), FluidKind::FlowingWater);
         assert_eq!(FluidKind::FlowingLava.source(), FluidKind::Lava);
@@ -759,7 +846,7 @@ mod tests {
         let brine = FluidKind::from_name("test:brine").unwrap();
         let sludge = FluidKind::from_name("test:sludge").unwrap();
         // FluidType's own rule: only a fluid in minecraft:water, and only where water evaporates.
-        let mut water_tagged = brine.mod_fluid().unwrap().clone();
+        let mut water_tagged = brine.carried().unwrap().clone();
         assert!(
             !water_tagged.is_vaporized_on_placement(true),
             "brine is in no water tag"
@@ -768,11 +855,11 @@ mod tests {
         assert!(water_tagged.is_vaporized_on_placement(true));
         assert!(!water_tagged.is_vaporized_on_placement(false));
         // A type of its own: where water evaporates, whatever its tags, with its own sound.
-        let m = sludge.mod_fluid().unwrap();
+        let m = sludge.carried().unwrap();
         assert!(m.is_vaporized_on_placement(true) && !m.is_vaporized_on_placement(false));
         assert_eq!(m.vaporize_sound(), "minecraft:block.lava.extinguish");
         assert_eq!(
-            brine.mod_fluid().unwrap().vaporize_sound(),
+            brine.carried().unwrap().vaporize_sound(),
             "minecraft:block.fire.extinguish"
         );
         for (rule, nether, overworld) in [

@@ -342,6 +342,19 @@ pub fn conditions_hold(v: &Value, loaded: &ModLoaded) -> bool {
         .expect("empty condition lookup cannot fail")
 }
 
+/// What `neoforge:tag_empty` asks: whether an item tag has no items. Only a
+/// caller with the resolved item tags can answer it.
+pub type TagEmpty<'a> = dyn Fn(&str) -> bool + 'a;
+
+/// `conditions_hold`, also answering `neoforge:tag_empty` (through the
+/// registered-condition lookup); a `tag_empty` without a tag fails.
+pub fn conditions_hold_with_tags(v: &Value, loaded: &ModLoaded, tag_empty: &TagEmpty) -> bool {
+    let lookup = |name: &str, c: &Value| {
+        (name == "neoforge:tag_empty").then(|| Ok(c["tag"].as_str().is_some_and(tag_empty)))
+    };
+    conditions_hold_with_lookup(v, loaded, &lookup, &BTreeMap::new()).unwrap_or(false)
+}
+
 /// The shared evaluator, including engine-provided registered conditions.
 /// Unknown nodes propagate through combinators without becoming a passing `not`.
 pub fn conditions_hold_with_lookup(

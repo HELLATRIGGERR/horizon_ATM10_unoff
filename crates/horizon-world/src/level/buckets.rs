@@ -41,7 +41,7 @@ impl BucketContent {
     /// smoke.
     pub fn vaporizes(self, water_evaporates: bool) -> bool {
         match self {
-            Self::Fluid(kind) => match kind.mod_fluid() {
+            Self::Fluid(kind) => match kind.carried() {
                 Some(m) => m.is_vaporized_on_placement(water_evaporates),
                 None => water_evaporates && kind.is_water(),
             },
@@ -107,6 +107,9 @@ pub enum FluidChange {
     Fill(Option<PlacedLiquid>),
     /// `WATER_EVAPORATES`: the water hisses away at `pitch`, and the block stays.
     Hiss { pitch: f32 },
+    /// A carried fluid whose type `isVaporizedOnPlacement` here (NeoForge's
+    /// `FluidType.onVaporize`): its FLUID_VAPORIZE `sound` at `pitch`, and the block stays.
+    Vaporize { pitch: f32, sound: &'static str },
 }
 
 /// A world pickup or placement of fluid at `pos`, decided against the level as it is: what
@@ -127,7 +130,7 @@ impl FluidWrite {
             FluidChange::Drain(drain) => drain.to,
             FluidChange::Pour { source, .. } => source,
             FluidChange::Fill(Some(placed)) => placed.to,
-            FluidChange::Fill(None) | FluidChange::Hiss { .. } => self.from,
+            FluidChange::Fill(None) | FluidChange::Hiss { .. } | FluidChange::Vaporize { .. } => self.from,
         }
     }
     /// The block broken with its drops, as it is when it breaks: the one the fluid is poured
@@ -142,7 +145,7 @@ impl FluidWrite {
     /// Whether the bucket's sound and fluid game event go out: not for the hiss, which is
     /// its own sound.
     pub fn sounds(&self) -> bool {
-        !matches!(self.change, FluidChange::Hiss { .. })
+        !matches!(self.change, FluidChange::Hiss { .. } | FluidChange::Vaporize { .. })
     }
 }
 
@@ -170,10 +173,14 @@ pub fn fluid_bucket(fluid: FluidKind) -> Option<&'static str> {
 /// for the empty fluid, which has none.
 pub fn fluid_pickup_sound(fluid: FluidKind) -> Option<&'static str> {
     match fluid {
-        FluidKind::Water
-        | FluidKind::FlowingWater
-        | FluidKind::Mod(_)
-        | FluidKind::ModFlowing(_) => Some("minecraft:item.bucket.fill"),
+        // A carried fluid's type's `SoundActions.BUCKET_FILL`, else the plain bucket's.
+        FluidKind::Mod(_) | FluidKind::ModFlowing(_) => Some(
+            fluid
+                .carried()
+                .and_then(|m| m.fill_sound.as_deref())
+                .unwrap_or("minecraft:item.bucket.fill"),
+        ),
+        FluidKind::Water | FluidKind::FlowingWater => Some("minecraft:item.bucket.fill"),
         FluidKind::Lava | FluidKind::FlowingLava => Some("minecraft:item.bucket.fill_lava"),
         FluidKind::Empty => None,
     }
@@ -184,10 +191,14 @@ pub fn fluid_pickup_sound(fluid: FluidKind) -> Option<&'static str> {
 /// holds.
 pub fn fluid_empty_sound(fluid: FluidKind) -> Option<&'static str> {
     match fluid {
-        FluidKind::Water
-        | FluidKind::FlowingWater
-        | FluidKind::Mod(_)
-        | FluidKind::ModFlowing(_) => Some("minecraft:item.bucket.empty"),
+        // A carried fluid's type's `SoundActions.BUCKET_EMPTY`, else the plain bucket's.
+        FluidKind::Mod(_) | FluidKind::ModFlowing(_) => Some(
+            fluid
+                .carried()
+                .and_then(|m| m.empty_sound.as_deref())
+                .unwrap_or("minecraft:item.bucket.empty"),
+        ),
+        FluidKind::Water | FluidKind::FlowingWater => Some("minecraft:item.bucket.empty"),
         FluidKind::Lava | FluidKind::FlowingLava => Some("minecraft:item.bucket.empty_lava"),
         FluidKind::Empty => None,
     }
@@ -201,7 +212,17 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         let b = self.b;
         let state = self.state(pos);
         let item = if b.instance_of(state, Class::Liquid) {
-            fluid_bucket(b.fluid(state).kind())?
+            // `LiquidBlock.pickupBlock`: `new ItemStack(fluid.getBucket())`.
+            let kind = b.fluid(state).kind();
+            match fluid_bucket(kind) {
+                Some(bucket) => bucket,
+                // `Items.AIR`: the source goes, and the bucket stays empty.
+                None if kind != FluidKind::Empty => {
+                    self.pickup_block(pos, state, creative);
+                    return None;
+                }
+                None => return None,
+            }
         } else if b.implements(state, Interface::SimpleWaterlogged)
             && b.table.has(state, b.props.waterlogged)
         {
@@ -252,7 +273,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             }
             BucketContent::MobWater => FluidKind::Water,
             // `if (!(this.content instanceof FlowingFluid)) return false`.
-            BucketContent::Fluid(fluid) if fluid.mod_fluid().is_some_and(|m| !m.flows()) => {
+            BucketContent::Fluid(fluid) if fluid.carried().is_some_and(|m| !m.flows()) => {
                 return None;
             }
             BucketContent::Fluid(fluid) => fluid,
@@ -276,6 +297,10 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         match write.change {
             FluidChange::Hiss { pitch } => {
                 self.hiss(pos, pitch);
+                return Some(pos);
+            }
+            FluidChange::Vaporize { pitch, sound } => {
+                self.emit(super::LevelEvent::Sound { pos, sound: sound.into(), volume: 0.5, pitch });
                 return Some(pos);
             }
             FluidChange::Fill(placed) => {
@@ -345,18 +370,11 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
         // vaporizes, `FluidType.onVaporize`: its FLUID_VAPORIZE sound (else
         // the fire's), the smoke on the client. Vanilla's water keeps 26.3's
         // rule below.
-        if let BucketContent::Fluid(kind) = content
-            && let Some(m) = kind.mod_fluid()
+        if let Some(m) = fluid.carried()
             && m.is_vaporized_on_placement(water_evaporates)
         {
             let pitch = 2.6 + (self.random().next_float() - self.random().next_float()) * 0.8;
-            self.emit(super::LevelEvent::Sound {
-                pos,
-                sound: m.vaporize_sound().into(),
-                volume: 0.5,
-                pitch,
-            });
-            return Some(pos);
+            return planned(FluidChange::Vaporize { pitch, sound: m.vaporize_sound() });
         }
         let water = matches!(fluid, FluidKind::Water | FluidKind::FlowingWater);
         if water && water_evaporates {
@@ -475,7 +493,7 @@ impl<L: LevelAccess + ?Sized> Sim<'_, L> {
             // the 1.21.1 server inherits Level's no-op addParticle.
         } else {
             // A mod's fluid: its type's BUCKET_EMPTY sound, else the plain bucket's.
-            let sound = match fluid.mod_fluid() {
+            let sound = match fluid.carried() {
                 Some(m) => m
                     .empty_sound
                     .as_deref()

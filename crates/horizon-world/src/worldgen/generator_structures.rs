@@ -310,25 +310,25 @@ impl GeneratorData {
     }
 }
 #[derive(Debug)]
-struct OpaqueSavedPiece { raw: crate::nbt::Compound, bounds: super::structure::BoundingBox }
+struct OpaqueSavedPiece { raw: horizon_core::nbt::Compound, bounds: horizon_core::bounding_box::BoundingBox }
 impl OpaqueSavedPiece {
-    fn new(raw: crate::nbt::Compound) -> Result<Self, String> {
-        let Some(crate::nbt::Tag::IntArray(bb)) = raw.get(&"BB".into()) else { return Err("opaque structure piece lacks bounding box".into()); };
+    fn new(raw: horizon_core::nbt::Compound) -> Result<Self, String> {
+        let Some(horizon_core::nbt::Tag::IntArray(bb)) = raw.get(&"BB".into()) else { return Err("opaque structure piece lacks bounding box".into()); };
         if bb.len() != 6 { return Err("invalid opaque structure bounding box".into()); }
-        let bounds = super::structure::BoundingBox::new([bb[0],bb[1],bb[2]], [bb[3],bb[4],bb[5]]);
+        let bounds = horizon_core::bounding_box::BoundingBox::new([bb[0],bb[1],bb[2]], [bb[3],bb[4],bb[5]]);
         Ok(Self { raw, bounds })
     }
 }
 impl super::structure::legacy::LegacyPiece for OpaqueSavedPiece {
-    fn bounding_box(&self) -> super::structure::BoundingBox { self.bounds }
+    fn bounding_box(&self) -> horizon_core::bounding_box::BoundingBox { self.bounds }
     fn type_name(&self) -> &'static str { "horizon:opaque_saved_piece" }
-    fn save(&self) -> Option<crate::nbt::Compound> { Some(self.raw.clone()) }
+    fn save(&self) -> Option<horizon_core::nbt::Compound> { Some(self.raw.clone()) }
     fn post_process(&self, _: &mut super::structure::legacy::PieceContext<'_>) -> Result<(), super::placement::PlacementQueryError> {
         Err(super::placement::PlacementQueryError::Failed("cannot generate an unsupported saved structure piece".into()))
     }
 }
-fn saved_piece_json(tag: &crate::nbt::Tag) -> Value {
-    use crate::nbt::Tag;
+fn saved_piece_json(tag: &horizon_core::nbt::Tag) -> Value {
+    use horizon_core::nbt::Tag;
     match tag {
         Tag::End => Value::Null, Tag::Byte(n) => Value::from(*n), Tag::Short(n) => Value::from(*n), Tag::Int(n) => Value::from(*n), Tag::Long(n) => Value::from(*n),
         Tag::Float(n) => Value::from(f64::from(f32::from_bits(*n))), Tag::Double(n) => Value::from(f64::from_bits(*n)),
@@ -350,13 +350,20 @@ impl StructureState {
         let (Some(resources), Some(raw)) = (&data.structures, &data.structure_resources) else {
             return Ok(None);
         };
-        let registry = StructureRegistry::new(
+        let mut registry = StructureRegistry::new(
             &raw.structures,
             &raw.sets,
             raw.pools.clone(),
             &|value| biome_set(&StructureBiomes(data), value),
             super::structure::mod_types::mod_structure_types(),
         )?;
+        // A structure type no decoder knows that a native extension handles.
+        for def in &mut registry.structures {
+            if let super::structure::start::StructureKind::Unsupported(id)=&def.kind
+                && let Some(extension)=data.structure_extensions.get(id) {
+                def.kind=super::structure::start::StructureKind::Extension(extension.clone());
+            }
+        }
         let possible_sets = registry
             .sets
             .iter()
@@ -738,8 +745,8 @@ impl StructureState {
         *self.saved_source.write().unwrap() = Some(source);
         self.starts.clear();
     }
-    fn restore_starts(&self, chunk: ChunkPos, raw: &crate::nbt::Compound) -> Result<Vec<Arc<StructureStart>>, String> {
-        use crate::nbt::Tag;
+    fn restore_starts(&self, chunk: ChunkPos, raw: &horizon_core::nbt::Compound) -> Result<Vec<Arc<StructureStart>>, String> {
+        use horizon_core::nbt::Tag;
         let mut starts = Vec::new();
         for (name, value) in raw {
             let Tag::Compound(saved) = value else { return Err("invalid start compound".into()); };
@@ -1173,7 +1180,7 @@ mod tests {
     use super::*;
     #[test]
     fn saved_piece_bytes_and_reference_counts_roundtrip_without_type_loss() {
-        use crate::nbt::{Compound, Tag};
+        use horizon_core::nbt::{Compound, Tag};
         use super::super::structure::legacy::LegacyPiece;
         let raw: Compound = [
             ("id".into(), Tag::String("ae2:ae2mtrt".into())),
@@ -1192,7 +1199,7 @@ mod tests {
             ("references".into(), Tag::Int(7)),
             ("Children".into(), Tag::List(vec![Tag::Compound(raw)])),
         ].into_iter().collect();
-        let mut start = StructureStart { structure: 0, name: "ae2:meteorite".into(), chunk: ChunkPos::new(0,0), pieces: vec![Piece::Legacy(Box::new(piece))], bounding_box: super::super::structure::BoundingBox::new([-64,20,-64],[79,20,79]), references: 7, saved_raw: Some(saved.clone()) };
+        let mut start = StructureStart { structure: 0, name: "ae2:meteorite".into(), chunk: ChunkPos::new(0,0), pieces: vec![Piece::Legacy(Box::new(piece))], bounding_box: super::horizon_core::bounding_box::BoundingBox::new([-64,20,-64],[79,20,79]), references: 7, saved_raw: Some(saved.clone()) };
         assert_eq!(start.save(), Some(Tag::Compound(saved)));
         start.references = 8;
         assert_eq!(start.save().unwrap().get("references"), Some(&Tag::Int(8)));

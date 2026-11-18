@@ -26,5 +26,5 @@ pub trait StructureExtension: Debug + Send + Sync {
 /// World/dimension-scoped persisted structure starts, queried before generation.
 /// None denotes no saved STRUCTURE_STARTS yet; Some(empty) is authoritative.
 pub trait SavedStartSource: Debug + Send + Sync {
-    fn read_starts(&self, chunk: ChunkPos) -> Result<Option<crate::nbt::Compound>, String>;
+    fn read_starts(&self, chunk: ChunkPos) -> Result<Option<horizon_core::nbt::Compound>, String>;
 }

@@ -3726,7 +3726,7 @@ mod tests {
 
     #[test]
     fn saved_structure_source_is_world_scoped_and_authoritative_before_owner_load() {
-        use crate::nbt::{Compound, Tag};
+        use horizon_core::nbt::{Compound, Tag};
         use super::super::structure::extension::SavedStartSource;
         #[derive(Debug)] struct Source { saved: Option<Compound> }
         impl SavedStartSource for Source {

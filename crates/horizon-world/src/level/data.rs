@@ -840,7 +840,12 @@ fn build_with_gameplay<G: GameplayStateSource>(
     // tag whole, outside the mask, as damage tags lose only their missing
     // references: a tag left out for it would leave water without water.
     let fluid_built = fluid_definitions
-        .build(|name, _| FluidKind::from_name(name).and_then(FluidKind::vanilla_index))
+        .build(|name, _| match FluidKind::from_name(name) {
+            // A mod's fluid: in the tag, outside every mask.
+            Some(kind) => Some(kind.vanilla_index().unwrap_or(u8::MAX)),
+            // A fluid of a mod not here: the same.
+            None => (!name.starts_with("minecraft:")).then_some(u8::MAX),
+        })
         .map_err(|e| invalid(e.to_string()))?;
     let fluid_mask = |name: &str| -> u8 {
         fluid_built
@@ -848,6 +853,7 @@ fn build_with_gameplay<G: GameplayStateSource>(
             .get(name)
             .into_iter()
             .flatten()
+            .filter(|&&kind| kind < 8)
             .fold(0, |mask, kind| mask | 1 << kind)
     };
     let fluid_tags = FluidTags {

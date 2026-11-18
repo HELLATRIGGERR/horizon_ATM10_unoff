@@ -4,7 +4,7 @@
 //! patch (`DataComponentPatch`), which a stack only carries and compares. What
 //! tanks hold and what fluid handlers move (docs/mod-fluids.md, slice 5).
 use crate::fluid::FluidKind;
-use crate::nbt::{Compound, JavaString, Tag};
+use horizon_core::nbt::{Compound, JavaString, Tag};
 use serde_json::Value;
 
 /// `FluidType.BUCKET_VOLUME`: millibuckets in a bucket.
@@ -340,7 +340,7 @@ pub fn fluid_in_tag(fluid: FluidKind, tag: &str) -> bool {
     if fluid == FluidKind::Empty {
         return false;
     }
-    if let Some(m) = fluid.mod_fluid() {
+    if let Some(m) = fluid.carried() {
         return m.in_tag(fluid, tag);
     }
     crate::mod_fluids::vanilla_in_tag(fluid, tag)
@@ -356,7 +356,7 @@ pub fn filled_bucket(fluid: FluidKind) -> Option<&'static str> {
     if fluid.is_lava() {
         return Some("minecraft:lava_bucket");
     }
-    fluid.mod_fluid()?.bucket.as_deref()
+    fluid.carried()?.bucket.as_deref()
 }
 
 /// `BucketItem.content` of a filled bucket item: water's, lava's, or the
@@ -378,7 +378,7 @@ pub fn fill_sound(fluid: FluidKind) -> Option<&'static str> {
     if fluid.is_lava() {
         return Some("minecraft:item.bucket.fill_lava");
     }
-    fluid.mod_fluid()?.fill_sound.as_deref()
+    fluid.carried()?.fill_sound.as_deref()
 }
 
 /// `FluidType.getSound(SoundActions.BUCKET_EMPTY)`, as [`fill_sound`].
@@ -389,7 +389,7 @@ pub fn empty_sound(fluid: FluidKind) -> Option<&'static str> {
     if fluid.is_lava() {
         return Some("minecraft:item.bucket.empty_lava");
     }
-    fluid.mod_fluid()?.empty_sound.as_deref()
+    fluid.carried()?.empty_sound.as_deref()
 }
 
 #[cfg(test)]

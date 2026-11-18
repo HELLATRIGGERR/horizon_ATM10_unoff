@@ -44,9 +44,16 @@ pub trait SignalAccess {
     ) -> i32;
     /// The output of a source whose value lives in its block entity.
     fn block_entity_signal(&self, pos: BlockPos, state: BlockStateId, direction: Direction) -> i32;
+    /// A host-defined per-face signal ([`LevelAccess::custom_signal`]); None for vanilla's.
+    fn custom_signal(&self, _pos: BlockPos, _state: BlockStateId, _direction: Direction, _direct: bool) -> Option<i32> {
+        None
+    }
 }
 
 impl<L: LevelAccess + ?Sized> SignalAccess for L {
+    fn custom_signal(&self, pos: BlockPos, state: BlockStateId, direction: Direction, direct: bool) -> Option<i32> {
+        LevelAccess::custom_signal(self, pos, state, direction, direct)
+    }
     fn block_state(&self, pos: BlockPos) -> BlockStateId {
         LevelAccess::block_state(self, pos)
     }

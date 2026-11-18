@@ -102,6 +102,7 @@ enum Step {
     },
 }
 
+#[derive(Clone)]
 pub(crate) struct NeighborUpdater {
     stack: Vec<Update>,
     added: Vec<Update>,

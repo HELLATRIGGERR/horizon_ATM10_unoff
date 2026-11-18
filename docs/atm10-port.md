@@ -485,6 +485,63 @@ network, stored experience, and the vanilla furnace to Iron or Copper upgrade. T
 tests of the tiers, the config, the cooking and fuel arithmetic and the upgrades are in the crate; the world test
 `tests/furnace.ts` checks the speeds in game time, the fuel use and an upgrade; `NOTES.md` lists the differences.
 
+## Occultism
+
+Occultism 1.224.6 (MIT, <https://github.com/klikli-dev/occultism>, tag `release/v1.21.1-1.224.6`) is needed for the
+ATM Star: ATM10 has 691 of its recipes and 114 quest tasks. The native bundle `pack/mods/occultism` translates its code;
+the carry (`fullpack/carries/occultism`) brings its blocks, items, recipes, pentacles, loot and assets. Credits and the
+licence are in the bundle's `README.md` and `LICENSE-occultism`.
+
+```sh
+OCCULTISM_CARRY=<carries>/occultism OCCULTISM_PACK_CARRY=<carries>/atm10-pack bun run pack/scripts/occultism.ts units stage build world
+```
+
+What runs:
+
+- **Spirit fire** (`occultism:spirit_fire`, 27 recipes in ATM10): an item entity in the fire becomes the first recipe's
+  result, with the stack's count. Flint and steel or a fire charge used on a block with datura
+  (`#occultism:start_spiritfire`) in the 2x2x2 box around it lights the fire there, or on the face clicked, and uses the
+  datura up.
+- **Sacrificial bowls:** one item each. A click puts one of the held stack in, and a click on a full bowl gives its item
+  back. Hoppers can take from a bowl; they don't put items in yet.
+- **Pentacles:** Modonomicon's dense multiblocks (`data/<ns>/modonomicon/multiblocks/`, 20 in ATM10), matched in the four
+  rotations around the golden bowl (`occultism-core/src/pentacle.rs`). Only glyphs, candles, skulls and the bowl are
+  checked; the floor layer is display only.
+- **Rituals** (`occultism:ritual`, 158 in ATM10): a golden bowl clicked with the activation item finds the first
+  recipe whose activation item fits, whose ingredients the bowls in range hold (one item each, extras allowed), and whose
+  pentacle is drawn. Each tick checks the pentacle, the activation item and the ingredients still to come, or the ritual
+  stops and gives back the book and what it took. The clock adds a unit every 20 ticks on golden bowls, every 5 on iesnium
+  ones, and the chalices finish at once. An ingredient goes each time `floor(time / (duration / (ingredients + 1)))`
+  grows. A ritual that asks for an item use waits for it within 16 blocks. **Craft rituals** (`occultism:craft`, 47 in
+  ATM10) drop their result, or put it into an empty bowl hanging one to three blocks above.
+- Messages are Occultism's own lang keys (`ritual.<id>.started`, `.finished`, `.interrupted`, `does_not_exist`,
+  `book_not_bound`).
+
+Tests: `occultism-core` 14 unit tests (the pentacle matcher, the recipe check, the clock, spirit fire, and every
+ritual, spirit fire recipe and pentacle of the carry parsed when `OCCULTISM_CARRY` is set). The world test
+`tests/ritual.ts` runs spirit fire on five andesite, lights a fire over datura, then
+`occultism:ritual/craft_fragile_soul_gem` on the drawn `craft_foliot`, with ATM10's `c:` tags. Its bowls empty at times
+8, 15 and 23 and the soul gem drops at 30: 580 and 585 ticks after the click in three runs, read in steps of 5. Then a
+glyph taken away interrupts a second start, which gives the book back. Its picture (`occultism.png` in the run folder)
+shows the pentacle, the bowls and two fires.
+
+Not yet, by size:
+
+- The other ritual types: `summon` 29, `summon_spirit_with_job` 26, `summon_tamed` 17, `summon_wild` 15,
+  `craft_with_spirit_name` 9, `craft_miner_spirit` 5, `repair` 4, `upgrade` 3, `resurrect_familiar` 2 and one more. A bowl
+  says so when one would start. Summons need the spirits as mob types (`docs/mobs.md`, slices 2 and 4; their brains are
+  SmartBrainLib, MPL-2.0).
+- Sacrifices (`entity_to_sacrifice`): no hook tells a mob's death with its entity type tags. Recipe `condition`s are
+  not read, so a condition passes.
+- Chalk drawing glyphs (`ChalkItem.useOn`), the glyphs' and the fire's colours (tints in Java's code, so every glyph
+  draws white), the pentacle and ritual help messages, particles, the items drawn on the bowls, hoppers putting items
+  into a bowl, the ritual satchels and the ritual dummies.
+- Machines: the dimensional mineshaft and its miners (`occultism:miner`), the storage system, the spirit grindstone
+  (`occultism:crushing`).
+- Differences from Java: a turned item stays the same entity in place (Java drops a new one at the fire's center); a
+  ritual's dropped result and returned items come out at a random point of the bowl's block (`Block.popResource`), not
+  tossed up from its center.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

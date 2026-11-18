@@ -140,7 +140,7 @@ impl Game<'_> {
         }
     }
     /// The inventories of guests whose slots a restock changed, sent.
-    pub(in crate::game) fn lan_ae2wtlib_resync(&mut self, host: &mut LanHost, gi: usize) {
+    pub(in crate::game) fn lan_ae2wtlib_resync(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize) {
         let Some(conn) = host.hub.guests.get(gi).map(|g| g.conn) else { return };
         if self.ae2x.ae2wtlib.resync.remove(&conn) {
             host.hub.send_inventory(gi);
@@ -236,7 +236,7 @@ impl Game<'_> {
     /// `CraftAmountMenu.open(player, locator, what, 1)` over the guest's
     /// crafting terminal: AE2's craft amount screen, its back button the
     /// terminal. A universal terminal turns to its crafting terminal.
-    pub(in crate::game) fn lan_ae2wtlib_pick_craft(&mut self, host: &mut LanHost, conn: u32, key: ae2_cell_core::ItemKey) {
+    pub(in crate::game) fn lan_ae2wtlib_pick_craft(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, key: ae2_cell_core::ItemKey) {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
         let Some((slot, stack)) = located(&host.hub.guests[gi]) else { return };
         let Some((target_dim, target)) = ae2_wireless::target(stack) else { return };
@@ -253,7 +253,7 @@ impl Game<'_> {
 
     /// `RestockHotkeyAction.run`: the crafting terminal's restock turns, and
     /// the action bar says how it stands. False without a crafting terminal.
-    pub(in crate::game) fn lan_ae2wtlib_restock_hotkey(&mut self, host: &mut LanHost, conn: u32) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_restock_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return false };
         let Some((slot, _)) = located(&host.hub.guests[gi]) else { return false };
         let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], slot) else { return false };
@@ -268,7 +268,7 @@ impl Game<'_> {
     /// `StowHotkeyAction.run`: the main hand's stack into the network the
     /// crafting terminal reaches, as much as it takes; not an enchanted one
     /// (`isNotReplaceableByPickAction`).
-    pub(in crate::game) fn lan_ae2wtlib_stow_hotkey(&mut self, host: &mut LanHost, conn: u32) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_stow_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return false };
         let holder = Holder::of_guest(&host.hub.guests[gi]);
         let Some(address) = self.ae2wtlib_grid(&holder, true) else { return false };
@@ -289,7 +289,7 @@ impl Game<'_> {
     /// restock on (on the ticking stack and the crafting terminal) and in
     /// range, the network's amount of each item the guest carries (the first
     /// stack of each item, as its key) goes to its client.
-    pub(in crate::game) fn lan_ae2wtlib_restock_amounts(&mut self, host: &mut LanHost, gi: usize, ticking: &ItemStack) {
+    pub(in crate::game) fn lan_ae2wtlib_restock_amounts(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, ticking: &ItemStack) {
         let Some(g) = host.hub.guests.get(gi) else { return };
         if g.creative() || !magnet::settings(ticking).2 {
             return;

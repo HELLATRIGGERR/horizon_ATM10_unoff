@@ -480,7 +480,7 @@ impl Game<'_> {
     }
     /// `useWithoutItem`: a formed, active computer opens its screen
     /// (`QuantumComputerMenu`); any other block of it does nothing.
-    pub(in crate::game) fn lan_open_advancedae_quantum(&mut self, host: &mut LanHost, conn: u32, pos: Pos) -> bool {
+    pub(in crate::game) fn lan_open_advancedae_quantum(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, pos: Pos) -> bool {
         let Some(m) = self.quantum_machine(pos) else { return false };
         if cluster(m).is_none() || !self.ae2_online(pos) {
             return false;

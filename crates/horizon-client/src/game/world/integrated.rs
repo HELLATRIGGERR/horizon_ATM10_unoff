@@ -1072,7 +1072,7 @@ impl Game<'_> {
             // Keep this host attached through save_game below, so store_owner
             // snapshots that inventory after sync_level's server avatar.
             #[cfg(feature = "ae2-lab")]
-            self.lan_close_ae2_menus(&mut host);
+            self.with_lan_host(|g, host| g.lan_close_ae2_menus(host));
         if let Some(host) = self.lan.as_mut() {
             let conns: Vec<u32> = host.hub.guests.iter().map(|g| g.conn).collect();
             for conn in conns {

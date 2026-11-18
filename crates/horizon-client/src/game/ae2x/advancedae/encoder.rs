@@ -136,7 +136,7 @@ pub(in crate::game) fn after_button(slots: &[Option<ItemStack>; 2], id: i32) -> 
 impl Game<'_> {
     /// `AdvPatternEncoderItem.use`: the menu of the encoder in hand `hand`
     /// (0 main, 1 off). False when the hand holds none.
-    pub(in crate::game) fn lan_open_advancedae_encoder_hand(&mut self, host: &mut LanHost, conn: u32, hand: i32) -> bool {
+    pub(in crate::game) fn lan_open_advancedae_encoder_hand(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         let Some(guest) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return false };
         let source = if hand == 1 { OFFHAND_SLOT } else { guest.selected };
         self.lan_open_advancedae_encoder(host, conn, source)
@@ -144,7 +144,7 @@ impl Game<'_> {
 
     /// The hotkey (`InventoryHotkeyAction`): the first encoder of the
     /// player's inventory, `openFromInventory`.
-    pub(in crate::game) fn lan_advancedae_hotkey(&mut self, host: &mut LanHost, conn: u32) -> bool {
+    pub(in crate::game) fn lan_advancedae_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let Some(guest) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return false };
         let Some(source) = guest.inventory.iter().take(36).position(|s| s.as_ref().is_some_and(|s| s.item.as_ref() == ADV_PATTERN_ENCODER && s.count > 0)) else {
             return false;
@@ -155,8 +155,8 @@ impl Game<'_> {
     /// `MenuOpener.open(ADV_PATTERN_ENCODER, ...)` on the encoder in the
     /// player's slot `source`; the menu decodes the input it holds
     /// (`AdvPatternEncoderMenu`'s constructor).
-    fn lan_open_advancedae_encoder(&mut self, host: &mut LanHost, conn: u32, source: usize) -> bool {
-        let held = self.as_guest(host, conn, |g| g.stack_in(source).is_some_and(|s| s.item.as_ref() == ADV_PATTERN_ENCODER && s.count == 1)).unwrap_or(false);
+    fn lan_open_advancedae_encoder(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, source: usize) -> bool {
+        let held = host.back(self, |g| g.as_guest(conn, |g| g.stack_in(source).is_some_and(|s| s.item.as_ref() == ADV_PATTERN_ENCODER && s.count == 1))).unwrap_or(false);
         if !held {
             return false;
         }
@@ -168,15 +168,15 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         self.lan_advancedae_encoder_closed(host, conn, None);
         let title = horizon_protocol::text::translatable("gui.advanced_ae.AdvPatternEncoder", &[]);
         let Some(window) = host.hub.open_window(conn, "minecraft:generic_9x3", title) else { return true };
         host.hub.send_to(conn, &C::CustomPayload(CustomPayload { channel: ENCODER_WINDOW.into(), data: window.to_be_bytes().to_vec() }));
         self.ae2x.advancedae.encoders.insert(conn, Session { window, state: 0, source });
-        let _ = self.as_guest(host, conn, |g| {
+        let _ = host.back(self, |g| g.as_guest(conn, |g| {
             if let Some(stack) = g.stack_in_mut(source).as_mut() {
                 let mut held = slots(stack);
                 if held[INPUT].is_some() {
@@ -184,12 +184,12 @@ impl Game<'_> {
                     store(stack, &held);
                 }
             }
-        });
+        }));
         self.lan_send_advancedae_encoder(host, conn);
         true
     }
 
-    pub(in crate::game) fn lan_advancedae_encoder_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_advancedae_encoder_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         if !self.ae2x.advancedae.encoders.get(&conn).is_some_and(|s| window.is_none_or(|w| w == s.window)) {
             return false;
         }
@@ -202,13 +202,13 @@ impl Game<'_> {
 
     /// `ItemMenuHost.isValid`: the encoder still in its slot, the window still
     /// the player's, a player who is no spectator; else the menu closes.
-    fn lan_advancedae_encoder_valid(&mut self, host: &mut LanHost, conn: u32) -> Option<ItemStack> {
+    fn lan_advancedae_encoder_valid(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<ItemStack> {
         let (window, source) = self.ae2x.advancedae.encoders.get(&conn).map(|s| (s.window, s.source))?;
         if !host.hub.guests.iter().any(|g| g.conn == conn && !g.spectator() && g.next_window == window) {
             self.ae2x.advancedae.encoders.remove(&conn);
             return None;
         }
-        let stack = self.as_guest(host, conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == ADV_PATTERN_ENCODER && s.count == 1).cloned()).flatten();
+        let stack = host.back(self, |g| g.as_guest(conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == ADV_PATTERN_ENCODER && s.count == 1).cloned())).flatten();
         if stack.is_none() {
             self.lan_advancedae_encoder_closed(host, conn, None);
             host.hub.send_to(conn, &C::ContainerClose(play::ContainerClose { container: window }));
@@ -217,7 +217,7 @@ impl Game<'_> {
     }
 
     /// `broadcastChanges`: the two slots, then the player's inventory.
-    fn lan_send_advancedae_encoder(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_advancedae_encoder(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(stack) = self.lan_advancedae_encoder_valid(host, conn) else { return };
         let Some(s) = self.ae2x.advancedae.encoders.get_mut(&conn) else { return };
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else { return };
@@ -234,7 +234,7 @@ impl Game<'_> {
     }
 
     /// Each tick: a menu whose encoder left its slot closes.
-    pub(in crate::game) fn lan_refresh_advancedae_encoders(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_advancedae_encoders(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.advancedae.encoders.keys().copied().collect();
         for conn in conns {
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) {
@@ -247,7 +247,7 @@ impl Game<'_> {
     /// A click in the encoder's window: its two slots as their
     /// `RestrictedInputSlot` and `OutputSlot`, the player's inventory around
     /// them; the encoder's own slot takes no click (`lockPlayerInventorySlot`).
-    pub(in crate::game) fn lan_advancedae_encoder_click(&mut self, host: &mut LanHost, conn: u32, p: &play::ContainerClick) -> bool {
+    pub(in crate::game) fn lan_advancedae_encoder_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, p: &play::ContainerClick) -> bool {
         let Some((window, source)) = self.ae2x.advancedae.encoders.get(&conn).map(|s| (s.window, s.source)) else { return false };
         if p.container != window {
             return false;
@@ -291,9 +291,9 @@ impl Game<'_> {
             }
             let before_inventory = host.hub.guests[gi].inventory.clone();
             let before_carried = host.hub.guests[gi].carried.clone();
-            self.guest_menu_op(host, gi, &mut menu, |m, env| {
+            host.back(self, |g| g.guest_menu_op(gi, &mut menu, |m, env| {
                 let _ = m.click(env, i32::from(p.slot), button, input);
-            });
+            }));
             let stray = (2..ENTRIES).any(|entry| menu.slot(entry).is_some());
             next = (!stray).then(|| after_click(&before, [menu.slot(INPUT).cloned(), menu.slot(OUTPUT).cloned()], &is_pattern)).flatten();
             if next.is_none() {
@@ -302,18 +302,18 @@ impl Game<'_> {
             }
         }
         if let Some(next) = next.filter(|next| *next != before) {
-            let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| store(s, &next)));
+            let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| store(s, &next))));
         }
         self.lan_send_advancedae_encoder(host, conn);
         true
     }
 
     /// A press on a direction button (`AdvPatternEncoderChangeDirectionPacket`).
-    pub(in crate::game) fn lan_advancedae_encoder_button(&mut self, host: &mut LanHost, conn: u32, window: i32, id: i32) -> bool {
+    pub(in crate::game) fn lan_advancedae_encoder_button(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: i32, id: i32) -> bool {
         let Some(source) = self.ae2x.advancedae.encoders.get(&conn).filter(|s| s.window == window).map(|s| s.source) else { return false };
         let Some(stack) = self.lan_advancedae_encoder_valid(host, conn) else { return true };
         if let Some(next) = after_button(&slots(&stack), id) {
-            let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| store(s, &next)));
+            let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| store(s, &next))));
         }
         self.lan_send_advancedae_encoder(host, conn);
         true

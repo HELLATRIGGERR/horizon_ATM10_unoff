@@ -282,7 +282,7 @@ fn terminal_key_types(
 ) -> Vec<(ae2_cell_core::ItemKey,u64)> {
     entries.iter().filter(|(key,_)|enabled.contains(marker_key(key).key_type)).cloned().collect()
 }
-fn wireless_key_types(host:&super::lan::LanHost,conn:u32,ctx:Option<&super::ae2_wireless::WirelessContext>)->KeyTypeSet {
+fn wireless_key_types(host:&crate::game::lan_host_turn::HostTurn,conn:u32,ctx:Option<&super::ae2_wireless::WirelessContext>)->KeyTypeSet {
     let Some(ctx)=ctx else{return KeyTypeSet::all();};
     host.hub.guests.iter().find(|guest|guest.conn==conn)
         .and_then(|guest|toolbox_stack(guest,ctx.source))
@@ -2073,13 +2073,13 @@ fn chest_revision_matches(revisions:&std::collections::VecDeque<(i32,ChestTermin
 
 impl Game<'_> {
     pub(super) fn lan_ae2_wireless_source_open(
-        &self, host: &super::lan::LanHost, conn: u32, source: usize,
+        &self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, source: usize,
     ) -> bool {
         host.play.get(&conn).and_then(|p| p.ae2_terminal.as_ref())
             .and_then(|t| t.wireless.as_ref()).is_some_and(|ctx| ctx.source == source)
     }
     fn lan_craft_matrix_read(
-        &self, host: &super::lan::LanHost, conn: u32, owner: &CraftOwner,
+        &self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, owner: &CraftOwner,
     ) -> Result<horizon_client::ae2_world::Machine, String> {
         use horizon_client::ae2_world::{Machine, MachineKind};
         match owner {
@@ -2095,7 +2095,7 @@ impl Game<'_> {
         }
     }
     fn lan_craft_matrix_store(
-        &mut self, host: &mut super::lan::LanHost, conn: u32, owner: &CraftOwner,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, owner: &CraftOwner,
         machine: &horizon_client::ae2_world::Machine,
     ) -> Result<(), String> {
         match owner {
@@ -2109,38 +2109,38 @@ impl Game<'_> {
         }
     }
     fn lan_craft_grid_extract(
-        &mut self, host: &mut super::lan::LanHost, conn: u32, owner: &CraftOwner,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, owner: &CraftOwner,
         pos: (i32, i32, i32), key: &ae2_cell_core::ItemKey,
         plan: &mut super::ae2_buses::FormationPlan,
     ) -> Result<Option<ItemStack>, String> {
         match owner {
             CraftOwner::Part(_) => self.ae2_grid_extract_staged(pos, key, 1, plan),
-            CraftOwner::Wireless(ctx) => self.as_guest(host, conn, |game| {
+            CraftOwner::Wireless(ctx) => host.back(self, |g| g.as_guest(conn, |game| {
                 let previous = game.ae2_wireless_power.replace(ctx.source);
                 let result = game.ae2_grid_extract_staged(pos, key, 1, plan);
                 game.ae2_wireless_power = previous;
                 result
-            }).ok_or_else(|| "missing wireless player".to_string())?,
+            })).ok_or_else(|| "missing wireless player".to_string())?,
         }
     }
     fn lan_craft_grid_insert(
-        &mut self, host: &mut super::lan::LanHost, conn: u32, owner: &CraftOwner,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, owner: &CraftOwner,
         address: super::ae2_global::GridAddress, item: &ItemStack,
         plan: &mut super::ae2_buses::FormationPlan,
     ) -> Result<u64, String> {
         match owner {
             CraftOwner::Part(_) => self.ae2_grid_insert_staged_encoded(address, item, item.count as u64, plan),
-            CraftOwner::Wireless(ctx) => self.as_guest(host, conn, |game| {
+            CraftOwner::Wireless(ctx) => host.back(self, |g| g.as_guest(conn, |game| {
                 let previous = game.ae2_wireless_power.replace(ctx.source);
                 let result = game.ae2_grid_insert_staged_encoded(address, item, item.count as u64, plan);
                 game.ae2_wireless_power = previous;
                 result
-            }).ok_or_else(|| "missing wireless player".to_string())?,
+            })).ok_or_else(|| "missing wireless player".to_string())?,
         }
     }
     /// The encoding terminal's machine: its part's, or one made from the
     /// wireless encoding terminal's item while it is still the menu's owner.
-    fn lan_encoding_machine(&self,host:&super::lan::LanHost,conn:u32,owner:&EncodingOwner)->Result<horizon_client::ae2_world::Machine,String> {
+    fn lan_encoding_machine(&self,host:&crate::game::lan_host_turn::HostTurn,conn:u32,owner:&EncodingOwner)->Result<horizon_client::ae2_world::Machine,String> {
         match owner {
             EncodingOwner::Part(part)=>self.ae2_part_machine(*part)?.ok_or("encoding part missing".into()),
             EncodingOwner::Wireless(ctx)=>{
@@ -2150,7 +2150,7 @@ impl Game<'_> {
             }
         }
     }
-    fn lan_store_encoding_machine(&mut self,host:&mut super::lan::LanHost,conn:u32,owner:&EncodingOwner,machine:&horizon_client::ae2_world::Machine)->Result<(),String> {
+    fn lan_store_encoding_machine(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,owner:&EncodingOwner,machine:&horizon_client::ae2_world::Machine)->Result<(),String> {
         match owner {
             EncodingOwner::Part(part)=>self.ae2_store_part_machine(*part,machine),
             EncodingOwner::Wireless(ctx)=>{
@@ -2160,10 +2160,10 @@ impl Game<'_> {
             }
         }
     }
-    fn lan_encoding_owner(host:&super::lan::LanHost,conn:u32)->Option<EncodingOwner> {
+    fn lan_encoding_owner(host:&crate::game::lan_host_turn::HostTurn,conn:u32)->Option<EncodingOwner> {
         host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(GuestTerminal::encoding_owner)
     }
-    fn lan_load_encoding_state(&self,host:&mut super::lan::LanHost,conn:u32)->bool {
+    fn lan_load_encoding_state(&self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32)->bool {
         let Some(owner)=Self::lan_encoding_owner(host,conn) else{return false;};
         if let EncodingOwner::Part(part)=owner {
             let identity=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).and_then(|t|t.encoding_identity);
@@ -2175,7 +2175,7 @@ impl Game<'_> {
         t.pattern_grid=state.inputs;t.processing_outputs=state.outputs;t.fluid_inputs=state.fluid_inputs;t.fluid_outputs=state.fluid_outputs;
         t.substitutes=state.substitutes;t.fluid_substitutes=state.fluid_substitutes;t.processing=state.processing;t.special_mode=state.special_mode;t.stone_recipe=state.stone_recipe;t.encoding_snapshot=Some(machine);true
     }
-    fn lan_store_encoding_state(&mut self,host:&mut super::lan::LanHost,conn:u32)->Result<(),String> {
+    fn lan_store_encoding_state(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32)->Result<(),String> {
         let t=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).ok_or("encoding session closed")?;
         let owner=t.encoding_owner().ok_or("encoding part missing")?;
         let mut state=super::ae2_encoding::EncodingState{inputs:t.pattern_grid.clone(),outputs:t.processing_outputs.clone(),fluid_inputs:t.fluid_inputs.clone(),fluid_outputs:t.fluid_outputs.clone(),substitutes:t.substitutes,fluid_substitutes:t.fluid_substitutes,processing:t.processing,special_mode:t.special_mode,stone_recipe:t.stone_recipe.clone()};
@@ -2183,7 +2183,7 @@ impl Game<'_> {
         let mut machine=self.lan_encoding_machine(host,conn,&owner)?;
         state.save(&mut machine)?;self.lan_store_encoding_machine(host,conn,&owner,&machine)
     }
-    fn lan_encoding_slot_click(&mut self,host:&mut super::lan::LanHost,conn:u32,owner:&EncodingOwner,slot:usize,button:i8,input:horizon_client::menu::Input)->Result<(),String> {
+    fn lan_encoding_slot_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,owner:&EncodingOwner,slot:usize,button:i8,input:horizon_client::menu::Input)->Result<(),String> {
         let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn) else{return Err("player missing".into())};
         let mut machine=self.lan_encoding_machine(host,conn,owner)?;
         if slot>=2 || machine.slots.len()!=2{return Err("invalid encoding slot".into());}
@@ -2192,7 +2192,7 @@ impl Game<'_> {
         let accepts=|s:&ItemStack|if slot==0 {s.item.as_ref()=="ae2:blank_pattern"} else {s.item.as_ref()=="ae2:blank_pattern" || super::ae2_processing::decode_pattern(s).is_some() || super::ae2_processing::ae2_decode_processing_pattern(s).is_some() || super::ae2_processing::ae2_decode_special_pattern(s).is_some()};
         if input==horizon_client::menu::Input::QuickMove {
             if let Some(item)=machine.slots[slot].take(){
-                let Some(remaining)=self.as_guest(host,conn,|g|g.give(item)) else{return Err("player unavailable".into())};
+                let Some(remaining)=host.back(self, |g| g.as_guest(conn,|g|g.give(item))) else{return Err("player unavailable".into())};
                 machine.slots[slot]=remaining;
             }
         } else if input==horizon_client::menu::Input::Pickup && matches!(button,0|1) {
@@ -2211,7 +2211,7 @@ impl Game<'_> {
         if let Err(e)=self.lan_store_encoding_machine(host,conn,owner,&machine){host.hub.guests[gi].inventory=before_inventory;host.hub.guests[gi].carried=before_cursor;return Err(e);}
         Ok(())
     }
-    fn lan_encoding_quick_insert(&mut self,host:&mut super::lan::LanHost,conn:u32,owner:&EncodingOwner,index:usize)->Result<bool,String> {
+    fn lan_encoding_quick_insert(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,owner:&EncodingOwner,index:usize)->Result<bool,String> {
         let gi=host.hub.guests.iter().position(|g|g.conn==conn).ok_or("player missing")?;
         let Some(mut item)=host.hub.guests[gi].inventory.get(index).cloned().flatten() else{return Ok(false)};
         let slot=if item.item.as_ref()=="ae2:blank_pattern" {0} else if super::ae2_encoding::EncodingState::from_pattern(&item).is_some() {1} else{return Ok(false)};
@@ -2227,19 +2227,19 @@ impl Game<'_> {
     }
     pub(super) fn lan_open_ae2_terminal(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: (i32, i32, i32),
     ) -> bool {
         self.lan_open_ae2_terminal_inner(host, conn, pos, None, None, None, None)
     }
-    pub(super) fn lan_open_ae2_view_terminal(&mut self,host:&mut super::lan::LanHost,conn:u32,pos:(i32,i32,i32),part:super::ae2_parts::PartAddress)->bool {
+    pub(super) fn lan_open_ae2_view_terminal(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32),part:super::ae2_parts::PartAddress)->bool {
         if !self.ae2_part_machine(part).ok().flatten().is_some_and(|m|m.kind==horizon_client::ae2_world::MachineKind::Terminal) {return false;}
         self.lan_open_ae2_terminal_inner(host,conn,pos,None,None,None,Some(part))
     }
     pub(super) fn lan_open_ae2_wireless_terminal(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: (i32, i32, i32),
         context: super::ae2_wireless::WirelessContext,
@@ -2248,7 +2248,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_open_ae2_crafting_terminal(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: (i32, i32, i32),
         part: super::ae2_parts::PartAddress,
@@ -2263,14 +2263,14 @@ impl Game<'_> {
         }
         self.lan_open_ae2_terminal_inner(host, conn, pos, None, Some(part), None, Some(part))
     }
-    pub(super) fn lan_open_ae2_encoding_terminal(&mut self,host:&mut super::lan::LanHost,conn:u32,pos:(i32,i32,i32),part:super::ae2_parts::PartAddress)->bool {
+    pub(super) fn lan_open_ae2_encoding_terminal(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32),part:super::ae2_parts::PartAddress)->bool {
         let Some(machine)=self.ae2_part_machine(part).ok().flatten() else{return false;};
         if machine.kind!=horizon_client::ae2_world::MachineKind::PatternEncodingTerminal || super::ae2_encoding::EncodingState::load(&machine).is_err(){return false;}
         self.lan_open_ae2_terminal_inner(host,conn,pos,None,None,Some(part),Some(part))
     }
     fn lan_open_ae2_terminal_inner(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: (i32, i32, i32),
         wireless: Option<super::ae2_wireless::WirelessContext>,
@@ -2301,9 +2301,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let toolbox_owner = host.hub.guests.iter().find(|g| g.conn == conn).and_then(toolbox_owner);
         let Some(window) = host.hub.open_window(
             conn,
@@ -2392,7 +2392,7 @@ impl Game<'_> {
     }
     /// PatternEncodingTermMenu.clear: only the exact, in-range encoding
     /// owner may clear its ghost inputs/outputs. Physical patterns remain.
-    pub(super) fn lan_clear_encoding(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
+    pub(super) fn lan_clear_encoding(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,data:&[u8]) {
         let Ok(bytes)=<[u8;4]>::try_from(data) else{return};
         let window=i32::from_be_bytes(bytes);
         let Some((pos,dimension,owner))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref())
@@ -2413,7 +2413,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_terminal_search(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         value: &str,
     ) -> bool {
@@ -2430,7 +2430,7 @@ impl Game<'_> {
         self.lan_send_ae2_terminal(host, conn);
         true
     }
-    pub(super) fn lan_ae2_pinned_keys(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
+    pub(super) fn lan_ae2_pinned_keys(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,data:&[u8]) {
         if data.len()>131_072{return;}
         let Ok(value)=serde_json::from_slice::<serde_json::Value>(data) else{return};
         let (Some(window),Some(values))=(value.get("window").and_then(|v|v.as_i64()),value.get("pins").and_then(|v|v.as_array())) else{return};
@@ -2458,7 +2458,7 @@ impl Game<'_> {
     /// (`ae2:terminal_scroll`: the window, the first row shown, the request's
     /// number, which the view sent back names so the screen knows its own
     /// scroll arrived, and the rows it shows).
-    pub(super) fn lan_ae2_terminal_scroll(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
+    pub(super) fn lan_ae2_terminal_scroll(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,data:&[u8]) {
         let Ok(bytes)=<[u8;16]>::try_from(data) else{return};
         let word=|i:usize|[bytes[i],bytes[i+1],bytes[i+2],bytes[i+3]];
         let (window,row,seq,rows)=(i32::from_be_bytes(word(0)),u32::from_be_bytes(word(4)),u32::from_be_bytes(word(8)),u32::from_be_bytes(word(12)));
@@ -2473,7 +2473,7 @@ impl Game<'_> {
     /// mode, 2 sort direction (`SettingToggleButton`), 3 the crafting status
     /// tab. These work in every view, the encoding one too, whose menu
     /// places hold the encoding panel.
-    pub(super) fn lan_ae2_terminal_action(&mut self,host:&mut super::lan::LanHost,conn:u32,data:&[u8]) {
+    pub(super) fn lan_ae2_terminal_action(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,data:&[u8]) {
         let &[w0,w1,w2,w3,action,back]=data else{return};
         let window=i32::from_be_bytes([w0,w1,w2,w3]);
         let Some((pos,wireless,chest,dimension))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.window==window)
@@ -2513,7 +2513,7 @@ impl Game<'_> {
             _ => {}
         }
     }
-    fn lan_send_ae2_terminal(&mut self, host: &mut super::lan::LanHost, conn: u32) {
+    fn lan_send_ae2_terminal(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.processing_amount_edit.is_some()){self.lan_send_processing_amount(host,conn);return;}
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.priority_edit.is_some()){self.lan_send_priority(host,conn);return;}
         if let Some((window,encoding,processing,special_mode))=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.encodes()).map(|t|(t.window,t.encoding,t.processing,t.special_mode)) {
@@ -2985,7 +2985,7 @@ impl Game<'_> {
         host.hub.inventory_told_by(conn, &items);
     }
     /// Refresh only when the backing inventory changes, or close a removed part.
-    pub(super) fn lan_refresh_ae2_terminals(&mut self, host: &mut super::lan::LanHost) {
+    pub(super) fn lan_refresh_ae2_terminals(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let viewers: Vec<_> = host
             .play
             .iter()
@@ -3139,7 +3139,7 @@ impl Game<'_> {
     /// A pending drag is a proposal only. Replay across the actual toolbox,
     /// player inventory and optional matrix after checking all their owners.
     fn lan_terminal_toolbox_drag(
-        &mut self, host: &mut super::lan::LanHost, conn: u32,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32,
         owner: usize, part: Option<super::ae2_parts::PartAddress>,
         wireless: Option<&super::ae2_wireless::WirelessContext>, slot: i16, button: i8,
     ) {
@@ -3213,14 +3213,14 @@ impl Game<'_> {
         let mut menu = Menu::new(Kind::Chest(2));
         menu.network_tool_slot = Some(owner);
         menu.network_tool_main_limit = Some(9);
-        let (result, effects) = self.guest_menu_op_deferred(host, gi, &mut menu, |menu, env| {
+        let (result, effects) = host.back(self, |g| g.guest_menu_op_deferred(gi, &mut menu, |menu, env| {
             for (i, stack) in pocket.slots.iter().chain(drag.matrix.iter()).cloned().enumerate() { menu.set_slot(env, i, stack); }
             let mask = drag.mode << 2;
             menu.click(env, -999, mask, Input::QuickCraft)?;
             for &i in &drag.slots { menu.click(env, i, mask | 1, Input::QuickCraft)?; }
             menu.click(env, -999, mask | 2, Input::QuickCraft)?;
             Ok::<_, &'static str>((0..18).map(|i| menu.slot(i).cloned()).collect::<Vec<_>>())
-        });
+        }));
         let result = result.map_err(str::to_owned).and_then(|next| {
             if toolbox_stack(&host.hub.guests[gi], owner) != Some(&drag.tool) { return Err("network tool moved".into()); }
             if wireless.is_some_and(|ctx| !self.ae2_wireless_source_valid(host, conn, ctx)) { return Err("wireless terminal moved".into()); }
@@ -3243,8 +3243,8 @@ impl Game<'_> {
             for stack in pocket.slots.iter().chain(drag.matrix.iter()).chain(g.inventory.iter())
                 .chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten()
             { horizon_client::ae2_stack_identity::synchronize_tracked(stack); }
-            self.as_guest(host, conn, |g| g.system_message(Text::literal(format!("Terminal: {message}"))));
-        } else { self.apply_guest_menu_effects(host, gi, effects); }
+            host.back(self, |g| g.as_guest(conn, |g| g.system_message(Text::literal(format!("Terminal: {message}")))));
+        } else { host.back(self, |g| g.apply_guest_menu_effects(gi, effects)); }
         if wireless.is_some() { host.hub.send_inventory(gi); }
         if let Some(part) = part {
             let viewers: Vec<_> = host.play.iter().filter_map(|(&id, p)|
@@ -3255,7 +3255,7 @@ impl Game<'_> {
 
     /// Replay wireless player swaps only after excluding the held source.
     fn lan_wireless_player_swap(
-        &mut self, host: &mut super::lan::LanHost, conn: u32,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32,
         ctx: &super::ae2_wireless::WirelessContext, slot: i16, button: i8,
     ) {
         use horizon_client::menu::{Kind, Menu};
@@ -3276,10 +3276,10 @@ impl Game<'_> {
                 let offhand = g.offhand.clone(); let carried = g.carried.clone();
                 let random = self.world.random.clone();
                 let mut menu = Menu::new(Kind::Chest(6));
-                let (result, effects) = self.guest_menu_op_deferred(host, gi, &mut menu, |menu, env|
-                    menu.click(env, i32::from(slot), i32::from(button), Input::Swap));
+                let (result, effects) = host.back(self, |g| g.guest_menu_op_deferred(gi, &mut menu, |menu, env|
+                    menu.click(env, i32::from(slot), i32::from(button), Input::Swap)));
                 if result.is_ok() && self.ae2_wireless_source_valid(host, conn, ctx) {
-                    self.apply_guest_menu_effects(host, gi, effects);
+                    host.back(self, |g| g.apply_guest_menu_effects(gi, effects));
                 } else {
                     let g = &mut host.hub.guests[gi];
                     g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried;
@@ -3299,7 +3299,7 @@ impl Game<'_> {
     /// together. A changing battery does not invalidate an otherwise stable
     /// owner; the current battery is retained when the grid is written.
     fn lan_wireless_drag(
-        &mut self, host: &mut super::lan::LanHost, conn: u32,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32,
         ctx: &super::ae2_wireless::WirelessContext, slot: i16, button: i8,
     ) {
         use horizon_client::menu::{Kind, Menu};
@@ -3351,7 +3351,7 @@ impl Game<'_> {
         let offhand = g.offhand.clone(); let carried = g.carried.clone();
         let mut menu = Menu::new(if owner.is_some() { Kind::Crafting } else { Kind::Chest(6) });
         menu.network_tool_slot = Some(ctx.source); menu.network_tool_main_limit = Some(0);
-        let (result, effects) = self.guest_menu_op_deferred(host, gi, &mut menu, |menu, env| {
+        let (result, effects) = host.back(self, |g| g.guest_menu_op_deferred(gi, &mut menu, |menu, env| {
             if let Some(matrix) = &drag.matrix {
                 for (i, stack) in matrix.iter().cloned().enumerate() { menu.set_slot(env, 1 + i, stack); }
             }
@@ -3360,7 +3360,7 @@ impl Game<'_> {
             for &index in &drag.slots { menu.click(env, index, mask | 1, Input::QuickCraft)?; }
             menu.click(env, -999, mask | 2, Input::QuickCraft)?;
             Ok::<_, &'static str>(drag.matrix.as_ref().map(|_| (1..10).map(|i| menu.slot(i).cloned()).collect::<Vec<_>>()))
-        });
+        }));
         let result = result.map_err(str::to_owned).and_then(|next| {
             if !self.ae2_wireless_source_valid(host, conn, ctx) { return Err("wireless terminal moved".into()); }
             if let (Some(owner), Some(mut machine), Some(next)) = (owner.as_ref(), machine, next) {
@@ -3377,13 +3377,13 @@ impl Game<'_> {
                 .chain(std::iter::once(&g.carried)).flatten() {
                 horizon_client::ae2_stack_identity::synchronize_tracked(stack);
             }
-        } else { self.apply_guest_menu_effects(host, gi, effects); }
+        } else { host.back(self, |g| g.apply_guest_menu_effects(gi, effects)); }
         host.hub.send_inventory(gi);
         self.lan_send_ae2_terminal(host, conn);
     }
 
     fn lan_wireless_pickup_all(
-        &mut self, host: &mut super::lan::LanHost, conn: u32,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32,
         ctx: &super::ae2_wireless::WirelessContext, slot: i16, button: i8,
     ) -> Result<(), String> {
         use horizon_client::menu::{Kind, Menu};
@@ -3457,7 +3457,7 @@ impl Game<'_> {
     /// native menu only if the player and physical face are still unchanged.
     fn lan_crafting_terminal_drag(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         part: super::ae2_parts::PartAddress,
         slot: i16,
@@ -3535,7 +3535,7 @@ impl Game<'_> {
         let carried = guest.carried.clone();
         let random = self.world.random.clone();
         let mut menu = Menu::new(Kind::Crafting);
-        let (next, effects) = self.guest_menu_op_deferred(host, gi, &mut menu, |menu, env| {
+        let (next, effects) = host.back(self, |g| g.guest_menu_op_deferred(gi, &mut menu, |menu, env| {
             for (i, stack) in drag.matrix.iter().cloned().enumerate() {
                 menu.set_slot(env, 1 + i, stack);
             }
@@ -3546,7 +3546,7 @@ impl Game<'_> {
             }
             menu.click(env, -999, mask | 2, Input::QuickCraft)?;
             Ok::<_, &'static str>((1..10).map(|i| menu.slot(i).cloned()).collect::<Vec<_>>())
-        });
+        }));
         let result = next.map_err(str::to_owned).and_then(|next| {
             machine.slots = next;
             self.ae2_store_part_machine(part, &machine)
@@ -3564,11 +3564,11 @@ impl Game<'_> {
             {
                 horizon_client::ae2_stack_identity::synchronize_tracked(stack);
             }
-            self.as_guest(host, conn, |g| {
+            host.back(self, |g| g.as_guest(conn, |g| {
                 g.system_message(Text::literal(format!("Crafting terminal: {message}")))
-            });
+            }));
         } else {
-            self.apply_guest_menu_effects(host, gi, effects);
+            host.back(self, |g| g.apply_guest_menu_effects(gi, effects));
         }
         let viewers: Vec<_> = host.play.iter().filter_map(|(&id, p)| {
             p.ae2_terminal.as_ref().filter(|t| t.craft_part == Some(part)).map(|_| id)
@@ -3579,7 +3579,7 @@ impl Game<'_> {
     /// The nine toolbox slots are owned by the located player stack. Stage
     /// the native menu operation before writing that stack and its effects.
     fn lan_terminal_toolbox_click(
-        &mut self, host: &mut super::lan::LanHost, conn: u32, pos: (i32, i32, i32),
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, pos: (i32, i32, i32),
         owner: usize, slot: usize, button: i8, input: Input,
     ) -> Result<(), String> {
         use horizon_client::{ae2_network_tool::Inventory, menu::{Kind, Menu}};
@@ -3632,11 +3632,11 @@ impl Game<'_> {
         let random = self.world.random.clone();
         let mut menu = Menu::new(Kind::Chest(1));
         menu.network_tool_slot = Some(owner);
-        let (result, effects) = self.guest_menu_op_deferred(host, gi, &mut menu, |menu, env| {
+        let (result, effects) = host.back(self, |g| g.guest_menu_op_deferred(gi, &mut menu, |menu, env| {
             for (i, stack) in pocket.slots.iter().cloned().enumerate() { menu.set_slot(env, i, stack); }
             menu.click(env, slot as i32, i32::from(button), input)?;
             Ok::<_, &'static str>(std::array::from_fn(|i| menu.slot(i).cloned()))
-        });
+        }));
         let result = result.map_err(str::to_owned).and_then(|slots| {
             if toolbox_stack(&host.hub.guests[gi], owner) != Some(&tool) {
                 return Err("network tool moved".into());
@@ -3655,7 +3655,7 @@ impl Game<'_> {
             { horizon_client::ae2_stack_identity::synchronize_tracked(stack); }
             return Err(e);
         }
-        self.apply_guest_menu_effects(host, gi, effects);
+        host.back(self, |g| g.apply_guest_menu_effects(gi, effects));
         if input == Input::Swap && button == 40 { host.hub.send_inventory(gi); }
         Ok(())
     }
@@ -3663,7 +3663,7 @@ impl Game<'_> {
     /// Double-click in the source menu visits toolbox, then player inventory
     /// (hotbar before main), then the crafting matrix.
     fn lan_terminal_toolbox_pickup_all(
-        &mut self, host: &mut super::lan::LanHost, conn: u32,
+        &mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32,
         owner: usize, part: Option<super::ae2_parts::PartAddress>,
         wireless: Option<&super::ae2_wireless::WirelessContext>, slot: i16, button: i8,
     ) -> Result<(), String> {
@@ -3758,7 +3758,7 @@ impl Game<'_> {
 
     fn lan_crafting_terminal_pickup_all(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         part: super::ae2_parts::PartAddress,
         slot: i16,
@@ -3837,7 +3837,7 @@ impl Game<'_> {
 
     fn lan_crafting_terminal_click(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         owner: &CraftOwner,
         pos: (i32, i32, i32),
@@ -4006,7 +4006,7 @@ impl Game<'_> {
                 if let CraftOwner::Wireless(ctx) = owner {
                     if input != Input::Swap { menu.network_tool_slot = Some(ctx.source); }
                 }
-                let (next, pass_effects) = self.guest_menu_op_deferred(host, gi, &mut menu, |menu, env| {
+                let (next, pass_effects) = host.back(self, |g| g.guest_menu_op_deferred(gi, &mut menu, |menu, env| {
                     for (i, stack) in previous.iter().cloned().enumerate() {
                         menu.set_slot(env, 1 + i, stack);
                     }
@@ -4024,7 +4024,7 @@ impl Game<'_> {
                         let _ = menu.click(env, menu_slot, i32::from(button), input);
                     }
                     (1..10).map(|i| menu.slot(i).cloned()).collect::<Vec<_>>()
-                });
+                }));
                 effects.append(pass_effects);
                 let changed = next != previous;
                 machine.slots = next;
@@ -4126,13 +4126,13 @@ impl Game<'_> {
                 horizon_client::ae2_stack_identity::synchronize_tracked(stack);
             }
         } else {
-            self.apply_guest_menu_effects(host, gi, effects);
+            host.back(self, |g| g.apply_guest_menu_effects(gi, effects));
         }
         result
     }
     pub(super) fn lan_ae2_terminal_click(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         p: &horizon_protocol::packets::play::ContainerClick,
     ) -> bool {
@@ -4367,9 +4367,9 @@ impl Game<'_> {
             {
                 if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
                     let mut menu = horizon_client::menu::Menu::new(horizon_client::menu::Kind::Chest(6));
-                    self.guest_menu_op(host, gi, &mut menu, |menu, env| {
+                    host.back(self, |g| g.guest_menu_op(gi, &mut menu, |menu, env| {
                         let _ = menu.click(env, i32::from(p.slot), i32::from(p.button), Input::Swap);
-                    });
+                    }));
                 }
                 self.lan_send_ae2_terminal(host, conn);
                 return true;
@@ -4472,7 +4472,7 @@ impl Game<'_> {
                         if changed && super::ae2_parts::ae2_set_terminal_view_cells(&mut machine,&cells).is_ok() && self.ae2_store_part_machine(part,&machine).is_ok() {
                             host.hub.guests[gi].carried=carried;host.hub.guests[gi].inventory=inventory;host.hub.guests[gi].offhand=offhand;
                             if input==Input::Swap && p.button==40 {host.hub.send_inventory(gi);}
-                            self.drop_guest_items(host,gi,drops);
+                            host.back(self, |g| g.drop_guest_items(gi,drops));
                             let viewers:Vec<_>=host.play.iter().filter_map(|(&c,v)|v.ae2_terminal.as_ref().filter(|t|t.view_part==Some(part)).map(|_|c)).collect();
                             for viewer in viewers {self.lan_send_ae2_terminal(host,viewer);}
                             return true;
@@ -4489,7 +4489,7 @@ impl Game<'_> {
                 || (54..=89).contains(&p.slot) || (has_crafting_matrix && (27..=35).contains(&p.slot)))
             {
                 if let Err(message) = self.lan_terminal_toolbox_pickup_all(host, conn, owner, craft_part, wireless.as_ref(), p.slot, p.button) {
-                    self.as_guest(host, conn, |g| g.system_message(Text::literal(format!("Terminal: {message}"))));
+                    host.back(self, |g| g.as_guest(conn, |g| g.system_message(Text::literal(format!("Terminal: {message}")))));
                 }
                 if wireless.is_some() { if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) { host.hub.send_inventory(gi); } }
                 if let Some(part) = craft_part {
@@ -4501,7 +4501,7 @@ impl Game<'_> {
             }
             if (95..=103).contains(&p.slot) && input != Input::QuickCraft {
                 if let Err(message) = self.lan_terminal_toolbox_click(host, conn, pos, owner, (p.slot - 95) as usize, p.button, input) {
-                    self.as_guest(host, conn, |g| g.system_message(Text::literal(format!("Terminal: {message}"))));
+                    host.back(self, |g| g.as_guest(conn, |g| g.system_message(Text::literal(format!("Terminal: {message}")))));
                 }
                 self.lan_send_ae2_terminal(host, conn);
                 return true;
@@ -4542,7 +4542,7 @@ impl Game<'_> {
             if input == Input::PickupAll {
                 if !overlay {
                     if let Err(message) = self.lan_wireless_pickup_all(host, conn, ctx, p.slot, p.button) {
-                        self.as_guest(host, conn, |g| g.system_message(Text::literal(format!("Wireless terminal: {message}"))));
+                        host.back(self, |g| g.as_guest(conn, |g| g.system_message(Text::literal(format!("Wireless terminal: {message}")))));
                     }
                 }
                 if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) { host.hub.send_inventory(gi); }
@@ -4631,9 +4631,9 @@ impl Game<'_> {
                 && ((27..=35).contains(&p.slot) || (54..=89).contains(&p.slot))
             {
                 if let Err(message) = self.lan_crafting_terminal_pickup_all(host, conn, part, p.slot, p.button) {
-                    self.as_guest(host, conn, |g| {
+                    host.back(self, |g| g.as_guest(conn, |g| {
                         g.system_message(Text::literal(format!("Crafting terminal: {message}")))
-                    });
+                    }));
                 }
                 let viewers: Vec<_> = host.play.iter().filter_map(|(&id, p)| {
                     p.ae2_terminal.as_ref().filter(|t| t.craft_part == Some(part)).map(|_| id)
@@ -4656,9 +4656,9 @@ impl Game<'_> {
                     super::lan_crafting::input(p.input),
                 );
                 if let Err(message) = result {
-                    self.as_guest(host, conn, |g| {
+                    host.back(self, |g| g.as_guest(conn, |g| {
                         g.system_message(Text::literal(format!("Crafting terminal: {message}")))
-                    });
+                    }));
                 }
                 if matches!(owner, CraftOwner::Wireless(ctx) if ctx.source == super::shield::OFFHAND_SLOT
                     || (super::lan_crafting::input(p.input) == Input::Swap && p.button == 40)) {
@@ -4698,7 +4698,7 @@ impl Game<'_> {
                 let index=if p.slot<81 {9+(p.slot as usize-54)} else {p.slot as usize-81};
                 match self.lan_encoding_quick_insert(host,conn,part,index) {
                     Ok(true)=>{self.lan_load_encoding_state(host,conn);self.lan_send_ae2_terminal(host,conn);return true;}
-                    Err(message)=>{self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));self.lan_send_ae2_terminal(host,conn);return true;}
+                    Err(message)=>{host.back(self, |g| g.as_guest(conn,|g|g.system_message(Text::literal(format!("Encoding: {message}")))));self.lan_send_ae2_terminal(host,conn);return true;}
                     Ok(false)=>{}
                 }
             }
@@ -4706,7 +4706,7 @@ impl Game<'_> {
         if encoding && (p.slot==49 || p.slot==50) {
             if let Some(part)=encoding_part.as_ref() {
                 if let Err(message)=self.lan_encoding_slot_click(host,conn,part,(p.slot-49) as usize,p.button,super::lan_crafting::input(p.input)) {
-                    self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));
+                    host.back(self, |g| g.as_guest(conn,|g|g.system_message(Text::literal(format!("Encoding: {message}")))));
                 }
                 self.lan_load_encoding_state(host,conn);
             }
@@ -4940,13 +4940,13 @@ impl Game<'_> {
                         if eligible || (empty && blank) {
                             if empty {if let Some(item)=machine.slots[0].as_mut(){item.count-=1;if item.count==0 {machine.slots[0]=None;}}}
                             machine.slots[1]=Some(pattern);
-                            if let Err(message)=self.lan_store_encoding_machine(host,conn,part,&machine) {self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));}
-                        } else {self.as_guest(host,conn,|g|g.system_message(Text::literal("Insert a blank pattern into the terminal")));}
+                            if let Err(message)=self.lan_store_encoding_machine(host,conn,part,&machine) {host.back(self, |g| g.as_guest(conn,|g|g.system_message(Text::literal(format!("Encoding: {message}")))));}
+                        } else {host.back(self, |g| g.as_guest(conn,|g|g.system_message(Text::literal("Insert a blank pattern into the terminal"))));}
                     }
                 }
             }
             if let Err(message)=self.lan_store_encoding_state(host,conn) {
-                self.as_guest(host,conn,|g|g.system_message(Text::literal(format!("Encoding: {message}"))));
+                host.back(self, |g| g.as_guest(conn,|g|g.system_message(Text::literal(format!("Encoding: {message}")))));
                 self.lan_load_encoding_state(host,conn);
             }
             self.lan_send_ae2_terminal(host, conn);
@@ -5121,7 +5121,7 @@ impl Game<'_> {
         // MEStorageScreen.mouseScrolled: shift and the wheel over the storage.
         if repo.is_some() && input==Input::Pickup && matches!(button,ROLL_DOWN_BUTTON|ROLL_UP_BUTTON) {
             let key=repo.and_then(|index|displayed.get(index)).map(|(key,_)|key.clone()).filter(|key|!key.item_id.is_empty());
-            self.as_guest(host,conn,|game| {
+            host.back(self, |g| g.as_guest(conn,|game| {
                 let (old_container,old_power)=(game.container,game.ae2_wireless_power);
                 game.container=Some(pos);
                 game.ae2_wireless_power=wireless.as_ref().map(|ctx|ctx.source);
@@ -5130,7 +5130,7 @@ impl Game<'_> {
                 }
                 game.ae2_wireless_power=old_power;
                 game.container=old_container;
-            });
+            }));
             let viewers:Vec<u32>=host.play.iter().filter_map(|(&id,p)|p.ae2_terminal.as_ref().map(|_|id)).collect();
             for viewer in viewers {self.lan_send_ae2_terminal(host,viewer);}
             return true;
@@ -5160,7 +5160,7 @@ impl Game<'_> {
                 return true;
             }
         }
-        let next = self.as_guest(host, conn, |game| {
+        let next = host.back(self, |g| g.as_guest(conn, |game| {
             let old_container = game.container;
             let old_page = game.ae2_terminal_page;
             game.container = Some(pos);
@@ -5190,7 +5190,7 @@ impl Game<'_> {
             game.container = old_container;
             game.ae2_terminal_page = old_page;
             next
-        });
+        }));
         // The screen's scrollbar chooses the rows; the native page the
         // click helper keeps stays at the window it was given.
         let _ = next;
@@ -5214,7 +5214,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_terminal_closed(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         window: Option<i32>,
     ) -> bool {
@@ -5839,7 +5839,7 @@ impl Game<'_> {
             }
         }
     }
-    fn priority_session(&self,host:&super::lan::LanHost,conn:u32)->Option<(i32,PriorityTarget,PriorityEdit)> {
+    fn priority_session(&self,host:&crate::game::lan_host_turn::HostTurn,conn:u32)->Option<(i32,PriorityTarget,PriorityEdit)> {
         let player=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g) && !g.spectator())?;
         let play=host.play.get(&conn)?;
         if let Some(b)=play.ae2_bus.as_ref() {
@@ -5859,12 +5859,12 @@ impl Game<'_> {
             else {PriorityTarget::Drive{pos:m.pos,identity:m.drive_owner?}};
         Some((m.window,target,edit))
     }
-    fn priority_payload(host:&mut super::lan::LanHost,conn:u32,window:i32,token:u64,mode:&str,value:&str) {
+    fn priority_payload(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,token:u64,mode:&str,value:&str) {
         if let Ok(data)=serde_json::to_vec(&serde_json::json!({"window":window,"token":token,"mode":mode,"value":value})) {
             host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:priority_editor".into(),data}));
         }
     }
-    fn lan_priority_invalid(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    fn lan_priority_invalid(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         if let Some(window)=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).filter(|b|b.priority_edit.is_some()).map(|b|b.window) {
             self.lan_ae2_bus_closed(host,conn,Some(window));
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
@@ -5878,15 +5878,15 @@ impl Game<'_> {
         }
     }
     /// A part's priority tab.
-    pub(super) fn lan_part_priority_open(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,pos:(i32,i32,i32),face:u8,identity:(u64,[i32;4]))->bool {
+    pub(super) fn lan_part_priority_open(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,pos:(i32,i32,i32),face:u8,identity:(u64,[i32;4]))->bool {
         self.lan_priority_open(host,conn,window,PriorityTarget::Part{pos,face,identity})
     }
-    fn lan_priority_open(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,target:PriorityTarget)->bool {
+    fn lan_priority_open(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,target:PriorityTarget)->bool {
         let Some(value)=self.priority_target_read(target) else{
             if !self.lan_ae2_terminal_closed(host,conn,Some(window)){self.lan_ae2_machine_closed(host,conn,Some(window));}
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));return true;
         };
-        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_carried_back(host,gi);}
+        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){host.back(self, |g| g.guest_carried_back(gi));}
         let token=NEXT_NUMBER_EDITOR.fetch_add(1,std::sync::atomic::Ordering::Relaxed);
         let edit=PriorityEdit{value,text:value.to_string(),token};
         if let Some(b)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.as_mut()).filter(|b|b.window==window){b.priority_edit=Some(edit.clone());}
@@ -5895,7 +5895,7 @@ impl Game<'_> {
         else{return true}
         Self::priority_payload(host,conn,window,edit.token,"open",&edit.text);self.lan_send_priority(host,conn);true
     }
-    pub(super) fn lan_send_priority(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    pub(super) fn lan_send_priority(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((window,target,edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return};
         if self.priority_target_read(target).is_none(){self.lan_priority_invalid(host,conn);return;}
         let is_machine=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.window==window);
@@ -5923,7 +5923,7 @@ impl Game<'_> {
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
-    fn priority_update(&mut self,host:&mut super::lan::LanHost,conn:u32,text:&str,echo:bool)->bool {
+    fn priority_update(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,text:&str,echo:bool)->bool {
         let active=host.play.get(&conn).is_some_and(|p|p.ae2_terminal.as_ref().is_some_and(|t|t.priority_edit.is_some()) || p.ae2_machine.as_ref().is_some_and(|m|m.priority_edit.is_some()) || p.ae2_bus.as_ref().is_some_and(|b|b.priority_edit.is_some()));
         if !active{return false;}
         let Some((window,target,mut edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return true};
@@ -5945,7 +5945,7 @@ impl Game<'_> {
         else if let Some(m)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){m.priority_edit=Some(edit);}
         self.lan_send_priority(host,conn);true
     }
-    pub(super) fn lan_ae2_priority_text(&mut self,host:&mut super::lan::LanHost,conn:u32,value:&str)->bool {
+    pub(super) fn lan_ae2_priority_text(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,value:&str)->bool {
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.processing_amount_edit.is_some()) {
             return self.lan_processing_amount_text(host,conn,value);
         }
@@ -5958,7 +5958,7 @@ impl Game<'_> {
         let Some((_,_,edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return true};
         if let Some(text)=priority_transport_for(value,edit.token) {self.priority_update(host,conn,text,false);}true
     }
-    pub(super) fn lan_ae2_priority_click(&mut self,host:&mut super::lan::LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    pub(super) fn lan_ae2_priority_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,p:&play::ContainerClick)->bool {
         let Some((window,_,edit))=self.priority_session(host,conn) else{self.lan_priority_invalid(host,conn);return true};
         let input=super::lan_crafting::input(p.input);
         if p.slot==8 && input==Input::Pickup {
@@ -5983,12 +5983,12 @@ impl Game<'_> {
         } else {self.lan_send_priority(host,conn);}
         true
     }
-    fn processing_amount_payload(host:&mut super::lan::LanHost,conn:u32,window:i32,edit:&ProcessingAmountEdit,mode:&str) {
+    fn processing_amount_payload(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,edit:&ProcessingAmountEdit,mode:&str) {
         if let Ok(data)=serde_json::to_vec(&serde_json::json!({"window":window,"token":edit.token,"mode":mode,"value":edit.text,"kind":"stock","unit":edit.unit,"max":edit.max})) {
             host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:priority_editor".into(),data}));
         }
     }
-    fn processing_amount_session(&self,host:&super::lan::LanHost,conn:u32)->Option<(i32,ProcessingAmountEdit)> {
+    fn processing_amount_session(&self,host:&crate::game::lan_host_turn::HostTurn,conn:u32)->Option<(i32,ProcessingAmountEdit)> {
         let guest=host.hub.guests.iter().find(|guest|guest.conn==conn && host.hub.here(guest) && !guest.spectator())?;
         let terminal=host.play.get(&conn)?.ae2_terminal.as_ref()?;let edit=terminal.processing_amount_edit.clone()?;
         // A part's editor belongs to that part, in reach; a wireless one to its item.
@@ -6002,12 +6002,12 @@ impl Game<'_> {
         if !terminal.encoding || !terminal.processing || !owner_valid {return None;}
         Some((terminal.window,edit))
     }
-    fn lan_processing_amount_invalid(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    fn lan_processing_amount_invalid(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         if let Some(window)=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.processing_amount_edit.is_some()).map(|t|t.window) {
             self.lan_ae2_terminal_closed(host,conn,Some(window));host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
         }
     }
-    fn lan_open_processing_amount(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,slot:i16)->bool {
+    fn lan_open_processing_amount(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,slot:i16)->bool {
         let Some(terminal)=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.window==window && t.encoding && t.processing) else{return true};
         let (part,identity)=(terminal.encoding_part,terminal.encoding_identity);
         if !terminal.encodes() || (part.is_some() && identity.is_none()) {return true};
@@ -6034,7 +6034,7 @@ impl Game<'_> {
         let Some(terminal)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window) else{return true};
         terminal.processing_amount_edit=Some(edit.clone());Self::processing_amount_payload(host,conn,window,&edit,"open");self.lan_send_processing_amount(host,conn);true
     }
-    fn lan_send_processing_amount(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    fn lan_send_processing_amount(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((window,edit))=self.processing_amount_session(host,conn) else{self.lan_processing_amount_invalid(host,conn);return};
         let Some(guest)=host.hub.guests.iter().find(|guest|guest.conn==conn) else{return};
         let mut items=vec![None;54];
@@ -6047,21 +6047,21 @@ impl Game<'_> {
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
-    fn lan_processing_amount_update(&mut self,host:&mut super::lan::LanHost,conn:u32,text:&str,echo:bool)->bool {
+    fn lan_processing_amount_update(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,text:&str,echo:bool)->bool {
         let Some((window,mut edit))=self.processing_amount_session(host,conn) else{self.lan_processing_amount_invalid(host,conn);return true};
         edit.text=text.chars().take(16).collect();
         if let Some(terminal)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){terminal.processing_amount_edit=Some(edit.clone());}
         if echo {Self::processing_amount_payload(host,conn,window,&edit,"set");}self.lan_send_processing_amount(host,conn);true
     }
-    fn lan_processing_amount_text(&mut self,host:&mut super::lan::LanHost,conn:u32,value:&str)->bool {
+    fn lan_processing_amount_text(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,value:&str)->bool {
         let Some((_,edit))=self.processing_amount_session(host,conn) else{self.lan_processing_amount_invalid(host,conn);return true};
         if let Some(text)=priority_transport_for(value,edit.token){self.lan_processing_amount_update(host,conn,text,false);}true
     }
-    fn lan_processing_amount_close(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,edit:&ProcessingAmountEdit) {
+    fn lan_processing_amount_close(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,edit:&ProcessingAmountEdit) {
         if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()).filter(|t|t.window==window){t.processing_amount_edit=None;}
         Self::processing_amount_payload(host,conn,window,edit,"close");self.lan_load_encoding_state(host,conn);self.lan_send_ae2_terminal(host,conn);
     }
-    fn lan_processing_amount_click(&mut self,host:&mut super::lan::LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    fn lan_processing_amount_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,p:&play::ContainerClick)->bool {
         let Some((window,edit))=self.processing_amount_session(host,conn) else{self.lan_processing_amount_invalid(host,conn);return true};
         let input=super::lan_crafting::input(p.input);
         if p.slot==9 && input==Input::Pickup {self.lan_processing_amount_close(host,conn,window,&edit);return true;}
@@ -6090,18 +6090,18 @@ impl Game<'_> {
     }
     /// Window-scoped fake-slot metadata lets the client send source actions
     /// without predicting physical movement in a vanilla generic container.
-    pub(super) fn lan_ae2_fake_slots(host:&mut super::lan::LanHost,conn:u32,window:i32,slots:&[u8]) {
+    pub(super) fn lan_ae2_fake_slots(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,slots:&[u8]) {
         let mut data=window.to_be_bytes().to_vec();data.extend_from_slice(slots);
         host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:fake_slots".into(),data}));
     }
     /// Source repository entries are client-only slots, not physical menu
     /// slots. Publish the current mode's exact wire indices to the client.
-    pub(super) fn lan_ae2_repo_slots(host:&mut super::lan::LanHost,conn:u32,window:i32,slots:&[u8]) {
+    pub(super) fn lan_ae2_repo_slots(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,slots:&[u8]) {
         let mut data=window.to_be_bytes().to_vec();data.extend_from_slice(slots);
         host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:repo_slots".into(),data}));
     }
     /// Tell the local renderer this generic container is an AE2 base screen.
-    pub(super) fn lan_mark_ae2_base_screen(host:&mut super::lan::LanHost,conn:u32,window:i32) {
+    pub(super) fn lan_mark_ae2_base_screen(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32) {
         host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:base_screen".into(),data:window.to_be_bytes().to_vec()}));
     }
     /// Every machine menu belongs to the original block entity and, for a
@@ -6152,29 +6152,29 @@ impl Game<'_> {
             _=>None,
         }
     }
-    fn stock_payload(host:&mut super::lan::LanHost,conn:u32,window:i32,edit:&StockEdit,mode:&str) {
+    fn stock_payload(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,edit:&StockEdit,mode:&str) {
         if let Ok(data)=serde_json::to_vec(&serde_json::json!({"window":window,"token":edit.token,"mode":mode,"value":edit.text,"kind":"stock","unit":edit.unit,"max":edit.max})) {
             host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:priority_editor".into(),data}));
         }
     }
-    fn stock_session(&self,host:&super::lan::LanHost,conn:u32)->Option<(i32,(i32,i32,i32),Option<super::ae2_parts::PartAddress>,StockEdit)> {
+    fn stock_session(&self,host:&crate::game::lan_host_turn::HostTurn,conn:u32)->Option<(i32,(i32,i32,i32),Option<super::ae2_parts::PartAddress>,StockEdit)> {
         let guest=host.hub.guests.iter().find(|guest|guest.conn==conn && host.hub.here(guest) && !guest.spectator())?;
         let menu=host.play.get(&conn)?.ae2_machine.as_ref()?;let edit=menu.stock_edit.clone()?;
         if menu.owner_dim!=self.dim.id() || !guest.within_block_range([menu.pos.0,menu.pos.1,menu.pos.2],4.0)
             || self.ae2_interface_menu_owner(menu.pos,menu.part)!=Some(edit.owner){return None;}
         Some((menu.window,menu.pos,menu.part,edit))
     }
-    fn lan_stock_invalid(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    fn lan_stock_invalid(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         if let Some(window)=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).filter(|m|m.stock_edit.is_some()).map(|m|m.window) {
             self.lan_ae2_machine_closed(host,conn,Some(window));
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:window}));
         }
     }
-    fn lan_open_stock(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,pos:(i32,i32,i32),part:Option<super::ae2_parts::PartAddress>,slot:usize)->bool {
+    fn lan_open_stock(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,pos:(i32,i32,i32),part:Option<super::ae2_parts::PartAddress>,slot:usize)->bool {
         let Some(owner)=self.ae2_interface_menu_owner(pos,part) else{return false};
         let Some(machine)=self.ae2_stock_machine(pos,part,owner) else{return false};
         let Some((key,amount,max,unit,display))=self.ae2_stock_entry(&machine,slot) else {self.lan_send_ae2_machine(host,conn);return true};
-        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_carried_back(host,gi);}
+        if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){host.back(self, |g| g.guest_carried_back(gi));}
         let text=if unit==1 {amount.to_string()} else {
             let value=format!("{}.{:03}",amount/u64::from(unit),amount%u64::from(unit));
             value.trim_end_matches('0').trim_end_matches('.').to_owned()
@@ -6183,7 +6183,7 @@ impl Game<'_> {
         let Some(menu)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window) else{return true};
         menu.stock_edit=Some(edit.clone());Self::stock_payload(host,conn,window,&edit,"open");self.lan_send_stock(host,conn);true
     }
-    fn lan_send_stock(&mut self,host:&mut super::lan::LanHost,conn:u32) {
+    fn lan_send_stock(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((window,pos,part,edit))=self.stock_session(host,conn) else{self.lan_stock_invalid(host,conn);return};
         let Some(snapshot)=self.ae2_owned_machine_slots(pos,part) else{self.lan_stock_invalid(host,conn);return};
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return};
@@ -6198,17 +6198,17 @@ impl Game<'_> {
         let items=items.iter().map(|item|host.hub.stack(item)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
-    fn lan_stock_text(&mut self,host:&mut super::lan::LanHost,conn:u32,text:&str,echo:bool)->bool {
+    fn lan_stock_text(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,text:&str,echo:bool)->bool {
         let Some((window,_,_,mut edit))=self.stock_session(host,conn) else{self.lan_stock_invalid(host,conn);return true};
         edit.text=text.chars().take(16).collect();
         if let Some(menu)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){menu.stock_edit=Some(edit.clone());}
         if echo {Self::stock_payload(host,conn,window,&edit,"set");}self.lan_send_stock(host,conn);true
     }
-    fn lan_ae2_stock_text(&mut self,host:&mut super::lan::LanHost,conn:u32,value:&str)->bool {
+    fn lan_ae2_stock_text(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,value:&str)->bool {
         let Some((_,_,_,edit))=self.stock_session(host,conn) else{self.lan_stock_invalid(host,conn);return true};
         if let Some(text)=priority_transport_for(value,edit.token){self.lan_stock_text(host,conn,text,false);}true
     }
-    fn lan_stock_close(&mut self,host:&mut super::lan::LanHost,conn:u32,window:i32,edit:&StockEdit) {
+    fn lan_stock_close(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,edit:&StockEdit) {
         if let Some(menu)=host.play.get_mut(&conn).and_then(|p|p.ae2_machine.as_mut()).filter(|m|m.window==window){menu.stock_edit=None;}
         Self::stock_payload(host,conn,window,edit,"close");self.lan_send_ae2_machine(host,conn);
     }
@@ -6227,7 +6227,7 @@ impl Game<'_> {
         };
         result.is_ok() && self.ae2_store_interface_menu_machine(pos,part,&machine)
     }
-    fn lan_ae2_stock_click(&mut self,host:&mut super::lan::LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    fn lan_ae2_stock_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,p:&play::ContainerClick)->bool {
         let Some((window,pos,part,edit))=self.stock_session(host,conn) else{self.lan_stock_invalid(host,conn);return true};
         let input=super::lan_crafting::input(p.input);
         if p.slot==9 && input==Input::Pickup {self.lan_stock_close(host,conn,window,&edit);return true;}
@@ -6302,7 +6302,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_open_ae2_part_machine(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: (i32, i32, i32),
         part: super::ae2_parts::PartAddress,
@@ -6329,9 +6329,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let title = if let Some(title) = addon_title {
             title
         } else if machine.kind == horizon_client::ae2_world::MachineKind::PatternProvider {
@@ -6449,7 +6449,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_open_ae2_machine(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: (i32, i32, i32),
     ) -> bool {
@@ -6469,9 +6469,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let title = match self.world.block_entities.get(&pos) {
             Some(horizon_client::containers::BlockEntity::Ae2(m)) => match m.kind {
                 horizon_client::ae2_world::MachineKind::Drive => "ME Drive (cells)",
@@ -6880,7 +6880,7 @@ impl Game<'_> {
         }
         items
     }
-    fn lan_send_ae2_machine(&mut self, host: &mut super::lan::LanHost, conn: u32) {
+    fn lan_send_ae2_machine(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         if host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.stock_edit.is_some()){self.lan_send_stock(host,conn);return;}
         if host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.priority_edit.is_some()){self.lan_send_priority(host,conn);return;}
         use horizon_protocol::packets::play::{self, Clientbound as C};
@@ -6965,7 +6965,7 @@ impl Game<'_> {
         host.hub.inventory_told_by(conn, &items);
         self.lan_send_ae2_screen_data(host, conn, true);
     }
-    pub(super) fn lan_refresh_ae2_machines(&mut self, host: &mut super::lan::LanHost) {
+    pub(super) fn lan_refresh_ae2_machines(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let windows: Vec<_> = host
             .play
             .iter()
@@ -7018,7 +7018,7 @@ impl Game<'_> {
     }
     /// The AE2 screen's data slots of `conn`'s machine window
     /// (`ContainerSetData`): all of them with `all`, else the changed ones.
-    fn lan_send_ae2_screen_data(&mut self, host: &mut super::lan::LanHost, conn: u32, all: bool) {
+    fn lan_send_ae2_screen_data(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, all: bool) {
         let Some((pos, part, window)) =
             host.play.get(&conn).and_then(|p| p.ae2_machine.as_ref()).map(|m| (m.pos, m.part, m.window))
         else {
@@ -7060,7 +7060,7 @@ impl Game<'_> {
     /// player's AE2 machine window.
     pub(super) fn lan_ae2_machine_button(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         window: i32,
         id: i32,
@@ -7093,7 +7093,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_machine_click(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         p: &horizon_protocol::packets::play::ContainerClick,
     ) -> bool {
@@ -7161,7 +7161,7 @@ impl Game<'_> {
         }
         // A button an addon put on the Cell Workbench screen (MEGA's cutoff).
         if part.is_none() && p.slot<super::ae2_workbench_screen::CONFIG_PLACE && p.slot>=super::ae2_workbench_screen::ADDON_PLACES
-            && self.as_guest(host,conn,|game|game.ae2_workbench_addon_press(pos,p.slot,i32::from(p.button))).unwrap_or(false)
+            && host.back(self, |g| g.as_guest(conn,|game|game.ae2_workbench_addon_press(pos,p.slot,i32::from(p.button)))).unwrap_or(false)
         {
             self.lan_send_ae2_machine(host,conn);
             return true;
@@ -7173,7 +7173,7 @@ impl Game<'_> {
             let index=(p.slot-super::ae2_workbench_screen::CONFIG_PLACE) as usize;
             let mut page=index/18;
             let (slot,button)=(305+index%18,i32::from(p.button));
-            self.as_guest(host,conn,|game|{game.ae2_workbench_menu_click(pos,&mut page,Some(slot),button,Input::Pickup);});
+            host.back(self, |g| g.as_guest(conn,|game|{game.ae2_workbench_menu_click(pos,&mut page,Some(slot),button,Input::Pickup);}));
             self.lan_send_ae2_machine(host,conn);
             return true;
         }
@@ -7196,15 +7196,15 @@ impl Game<'_> {
                 if !safe {self.lan_send_ae2_machine(host,conn);return true;}
             }
             let index=(p.slot-shape.returns().start) as usize;let button=i32::from(p.button);let input=super::lan_crafting::input(p.input);
-            self.as_guest(host,conn,|g|g.ae2_provider_return_click(pos,part,index,button,input));
+            host.back(self, |g| g.as_guest(conn,|g|g.ae2_provider_return_click(pos,part,index,button,input)));
             let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|p.ae2_machine.as_ref().filter(|m|m.pos==pos && m.part==part && m.owner_dim==self.dim.id()).map(|_|c)).collect();
             for viewer in viewers {self.lan_send_ae2_machine(host,viewer);}
             return true;
         }
         let menu_input=super::lan_crafting::input(p.input);
         let interface=host.play.get(&conn).and_then(|p|p.ae2_machine.as_ref()).is_some_and(|m|m.owner.kind==horizon_client::ae2_world::MachineKind::Interface);
-        if interface && (0..=2*shape.slots as i16+5).contains(&p.slot) && self.as_guest(host,conn,|game|
-            game.ae2_interface_menu_click(pos,part,p.slot as usize,i32::from(p.button),menu_input)).unwrap_or(false) {
+        if interface && (0..=2*shape.slots as i16+5).contains(&p.slot) && host.back(self, |g| g.as_guest(conn,|game|
+            game.ae2_interface_menu_click(pos,part,p.slot as usize,i32::from(p.button),menu_input))).unwrap_or(false) {
             let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|
                 (p.ae2_machine.as_ref().is_some_and(|m|m.pos==pos && m.part==part && m.owner_dim==self.dim.id())
                     && host.hub.guests.iter().any(|g|g.conn==c && host.hub.here(g))).then_some(c)).collect();
@@ -7343,7 +7343,7 @@ impl Game<'_> {
         }.filter(|machine|machine.kind==horizon_client::ae2_world::MachineKind::PatternProvider)
             .map(|machine|machine.slots);
         let is_provider=provider_slots.is_some();
-        let provider_setter=self.as_guest(host, conn, |g| {
+        let provider_setter=host.back(self, |g| g.as_guest(conn, |g| {
             if is_provider && input==Input::Swap && slot.is_some_and(|slot|(300..300+shape.slots).contains(&slot)) {
                 return g.ae2_provider_slot_swap(pos,part,slot,button);
             }
@@ -7356,7 +7356,7 @@ impl Game<'_> {
                 if let Some(index @ 0..=35)=slot {g.ae2_provider_return_quick_insert(pos,part,index);}
             }
             false
-        }).unwrap_or(false);
+        })).unwrap_or(false);
         if let Some(before)=provider_slots {
             let after=if let Some(part)=part {
                 self.ae2_part_machine(part).ok().flatten()
@@ -7967,7 +7967,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_machine_closed(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         window: Option<i32>,
     ) -> bool {
@@ -7978,12 +7978,12 @@ impl Game<'_> {
             return false;
         };
         if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
-            self.guest_carried_back(host, gi);
+            host.back(self, |g| g.guest_carried_back(gi));
             let items: Vec<_> = [menu.link_input, menu.link_output]
                 .into_iter()
                 .flatten()
                 .collect();
-            self.drop_guest_items(host, gi, items);
+            host.back(self, |g| g.drop_guest_items(gi, items));
             // A rejected stale SWAP may have predicted an inventory edit even
             // with an empty cursor. Restore the actual player slots on close.
             host.hub.send_inventory(gi);
@@ -8383,7 +8383,7 @@ impl Game<'_> {
 
     /// `ae2:jei_transfer` on the host: the dry run answered, or the recipe encoded into the guest's Pattern Encoding
     /// Terminal or pulled into its crafting terminal's grid.
-    pub(super) fn lan_jei_transfer(&mut self, host: &mut super::lan::LanHost, conn: u32, data: &[u8]) {
+    pub(super) fn lan_jei_transfer(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, data: &[u8]) {
         let Ok(request) = serde_json::from_slice::<JeiTransfer>(data) else { return };
         let Some((pos, dimension, encoding, craft_part, wireless, stored)) = host
             .play
@@ -8477,7 +8477,7 @@ impl Game<'_> {
                 }
             }
             Err(message) => {
-                self.as_guest(host, conn, |g| g.system_message(Text::literal(format!("Crafting terminal: {message}"))));
+                host.back(self, |g| g.as_guest(conn, |g| g.system_message(Text::literal(format!("Crafting terminal: {message}")))));
                 self.lan_send_ae2_terminal(host, conn);
             }
         }
@@ -8489,7 +8489,7 @@ impl Game<'_> {
     #[allow(clippy::too_many_arguments)]
     fn lan_jei_fill_grid(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         gi: usize,
         owner: &CraftOwner,
@@ -8550,7 +8550,7 @@ impl Game<'_> {
         match result {
             Ok(to_craft) => {
                 if !dropped.is_empty() {
-                    self.drop_guest_items(host, gi, dropped);
+                    host.back(self, |g| g.drop_guest_items(gi, dropped));
                 }
                 Ok(to_craft)
             }

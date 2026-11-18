@@ -34,7 +34,7 @@ impl Game<'_> {
         if self.remote.is_none() && self.lan.is_none() { let now=self.world.game_time; self.ae2_fx_active.retain(|e|now.saturating_sub(e.born)<20); if self.ae2_fx_active.len()<256 {self.ae2_fx_active.push(Effect{event:event.clone(),born:now});} }
         if self.ae2_fx_pending.len()<256 {self.ae2_fx_pending.push(event);}
     }
-    pub(super) fn ae2_flush_fx(&mut self,host:&LanHost) {
+    pub(super) fn ae2_flush_fx(&mut self,host:&crate::game::lan_host_turn::HostTurn) {
         for event in self.ae2_fx_pending.drain(..) {
             let Ok(data)=serde_json::to_vec(&event) else {continue};
             for guest in &host.hub.guests {

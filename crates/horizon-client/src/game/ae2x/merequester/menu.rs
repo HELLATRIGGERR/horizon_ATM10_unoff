@@ -166,7 +166,7 @@ impl Game<'_> {
     }
 
     /// The guest uses the requester block or a requester terminal.
-    pub(in crate::game) fn lan_open_merequester(&mut self, host: &mut LanHost, conn: u32, pos: (i32, i32, i32), face: &str) -> bool {
+    pub(in crate::game) fn lan_open_merequester(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, pos: (i32, i32, i32), face: &str) -> bool {
         let block = matches!(self.world.block_entities.get(&pos), Some(BlockEntity::Ae2(m)) if is_requester(m));
         let terminal = !block && self.merequester_terminal_at(pos, face) && self.ae2_part_online(pos, face);
         if !block && !terminal {
@@ -191,7 +191,7 @@ impl Game<'_> {
     /// The Wireless Requester Terminal (`ReqWirelessTerminalMenu`, a
     /// `RequesterTerminalMenu` on its item): the requesters of the grid of
     /// the access point at `anchor` the item reaches.
-    pub(in crate::game) fn lan_open_merequester_wireless(&mut self, host: &mut LanHost, conn: u32, anchor: (i32, i32, i32), ctx: WirelessContext) -> bool {
+    pub(in crate::game) fn lan_open_merequester_wireless(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, anchor: (i32, i32, i32), ctx: WirelessContext) -> bool {
         self.merequester_close_others(host, conn);
         let title = self.pack.names.display_item(rows::WIRELESS_TERMINAL);
         let Some(window) = host.hub.open_window(conn, "minecraft:generic_9x6", horizon_protocol::text::literal(&title)) else { return true };
@@ -209,7 +209,7 @@ impl Game<'_> {
         self.ae2x.merequester.sessions.get(&conn)?.wireless.as_ref().map(|ctx| ctx.source)
     }
     /// The menus a requester's menu replaces.
-    fn merequester_close_others(&mut self, host: &mut LanHost, conn: u32) {
+    fn merequester_close_others(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
@@ -218,26 +218,26 @@ impl Game<'_> {
         self.lan_ae2_anchor_closed(host, conn, None);
         self.lan_ae2_bus_closed(host, conn, None);
         self.lan_craft_confirm_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         self.lan_merequester_closed(host, conn, None);
         #[cfg(feature = "ae2-ae2wtlib")]
         self.lan_ae2wtlib_trash_closed(host, conn, None);
     }
-    pub(in crate::game) fn lan_merequester_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_merequester_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         let open = self.ae2x.merequester.sessions.get(&conn).is_some_and(|s| window.is_none_or(|w| w == s.window));
         if !open {
             return false;
         }
         self.ae2x.merequester.sessions.remove(&conn);
         if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
-            self.guest_carried_back(host, gi);
+            host.back(self, |g| g.guest_carried_back(gi));
         }
         true
     }
     /// Whether the session's player may still use it (`stillValid`).
-    fn merequester_valid(&self, host: &LanHost, conn: u32, s: &Session) -> bool {
+    fn merequester_valid(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, s: &Session) -> bool {
         // `ItemMenuHost.isValid`: the item is still in its slot.
         if let Some(ctx) = &s.wireless {
             let here = host.hub.guests.iter().any(|g| g.conn == conn && host.hub.here(g) && g.next_window == s.window);
@@ -254,7 +254,7 @@ impl Game<'_> {
     }
     /// `broadcastChanges`: the lines and ghost slots when they changed, or
     /// all of them with `all`.
-    fn lan_send_merequester(&mut self, host: &mut LanHost, conn: u32, all: bool) {
+    fn lan_send_merequester(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, all: bool) {
         let Some(mut s) = self.ae2x.merequester.sessions.remove(&conn) else { return };
         // Another menu took the player's window: this one is gone already.
         if host.hub.guests.iter().find(|g| g.conn == conn).is_none_or(|g| g.next_window != s.window) {
@@ -263,7 +263,7 @@ impl Game<'_> {
         if !self.merequester_valid(host, conn, &s) {
             host.hub.send_to(conn, &C::ContainerClose(play::ContainerClose { container: s.window }));
             if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
-                self.guest_carried_back(host, gi);
+                host.back(self, |g| g.guest_carried_back(gi));
             }
             return;
         }
@@ -308,7 +308,7 @@ impl Game<'_> {
         s.lines = lines;
         self.ae2x.merequester.sessions.insert(conn, s);
     }
-    pub(in crate::game) fn lan_refresh_merequester(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_merequester(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.merequester.sessions.keys().copied().collect();
         for conn in conns {
             // A player in another level is seen on that level's pass.
@@ -333,7 +333,7 @@ impl Game<'_> {
 
     /// `AbstractRequesterMenu.doAction` on a ghost slot, and the player's
     /// inventory as any menu's.
-    pub(in crate::game) fn lan_merequester_click(&mut self, host: &mut LanHost, conn: u32, p: &play::ContainerClick) -> bool {
+    pub(in crate::game) fn lan_merequester_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, p: &play::ContainerClick) -> bool {
         let Some(mut s) = self.ae2x.merequester.sessions.remove(&conn) else { return false };
         if p.container != s.window {
             self.ae2x.merequester.sessions.insert(conn, s);
@@ -371,9 +371,9 @@ impl Game<'_> {
                 }
             }
         } else {
-            self.guest_menu_op(host, gi, &mut s.menu, |m, env| {
+            host.back(self, |g| g.guest_menu_op(gi, &mut s.menu, |m, env| {
                 let _ = m.click(env, slot, button, input);
-            });
+            }));
         }
         self.ae2x.merequester.sessions.insert(conn, s);
         self.lan_send_merequester(host, conn, true);
@@ -417,7 +417,7 @@ impl Game<'_> {
     }
 
     /// The screen's edits (`RequestUpdatePacket`), its scroll and its search.
-    pub(in crate::game) fn lan_merequester_payload(&mut self, host: &mut LanHost, conn: u32, channel: &str, data: &[u8]) {
+    pub(in crate::game) fn lan_merequester_payload(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, channel: &str, data: &[u8]) {
         let Ok(value) = serde_json::from_slice::<Value>(data) else { return };
         let Some(s) = self.ae2x.merequester.sessions.get_mut(&conn) else { return };
         if value.get("window").and_then(Value::as_i64) != Some(i64::from(s.window)) {

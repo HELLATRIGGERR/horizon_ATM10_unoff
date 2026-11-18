@@ -46,11 +46,11 @@ impl Game<'_>{
   self.ae2_advancement_service.brackets.retain(|service,_|components.contains_key(service));
   for(service,(channels,owners))in components{let current=bracket(channels);let previous=self.ae2_advancement_service.brackets.insert(service,current).flatten();if current!=previous{if let Some(trigger)=current{for uuid in owners{self.ae2_advancement_service.pending.insert((uuid,trigger));}}}}
  }
- pub(super) fn ae2_flush_advancements(&mut self,host:&mut super::lan::LanHost){
+ pub(super) fn ae2_flush_advancements(&mut self,host:&mut crate::game::lan_host_turn::HostTurn){
   let connections=std::mem::take(&mut self.ae2_advancement_service.pending_connections);
-  for(conn,trigger)in connections {if host.hub.guests.iter().any(|guest|guest.conn==conn){self.as_guest(host,conn,|game|game.trigger_player(trigger));}}
+  for(conn,trigger)in connections {if host.hub.guests.iter().any(|guest|guest.conn==conn){host.back(self, |g| g.as_guest(conn,|game|game.trigger_player(trigger)));}}
   let pending=std::mem::take(&mut self.ae2_advancement_service.pending);
-  for(uuid,trigger)in pending{if let Some(conn)=host.hub.guests.iter().find(|guest|horizon_client::lan::playerdata::uuid_ints(guest.uuid)==uuid).map(|guest|guest.conn){self.as_guest(host,conn,|game|game.trigger_player(trigger));}else if self.options.dedicated.is_none()&&self.level.player_uuid==Some(uuid){self.trigger_player(trigger);}}
+  for(uuid,trigger)in pending{if let Some(conn)=host.hub.guests.iter().find(|guest|horizon_client::lan::playerdata::uuid_ints(guest.uuid)==uuid).map(|guest|guest.conn){host.back(self, |g| g.as_guest(conn,|game|game.trigger_player(trigger)));}else if self.options.dedicated.is_none()&&self.level.player_uuid==Some(uuid){self.trigger_player(trigger);}}
  }
 }
 #[cfg(test)]mod tests{use super::*;

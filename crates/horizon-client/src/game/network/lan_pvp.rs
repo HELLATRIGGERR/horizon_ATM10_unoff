@@ -450,7 +450,7 @@ impl Game<'_> {
         if hurt && let Some(staff) = s.ae2_tool {
             match s.attacker {
                 None => self.ae2_pvp_spend(staff),
-                Some(conn) => { self.as_guest(host, conn, |g| g.ae2_pvp_spend(staff)); }
+                Some(conn) => { self.as_guest(conn, |g| g.ae2_pvp_spend(staff)); }
             }
         }
         if hurt && (s.crit || s.magic) {

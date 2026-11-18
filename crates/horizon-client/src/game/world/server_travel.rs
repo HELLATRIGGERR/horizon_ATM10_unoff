@@ -889,7 +889,7 @@ impl Game<'_> {
     /// Remove item-backed and block-backed AE2 menus in the player's real
     /// source level before a dimension transition, preserving carried items.
     #[cfg(feature = "ae2-lab")]
-    fn ae2_close_before_travel(&mut self, host: &mut LanHost, conn: u32) -> bool {
+    fn ae2_close_before_travel(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let open = host.play.get(&conn).is_some_and(|p| {
             p.ae2_terminal.is_some() || p.ae2_machine.is_some() || p.ae2_portable.is_some()
         });
@@ -947,9 +947,16 @@ impl Game<'_> {
             return;
         };
         #[cfg(feature = "ae2-lab")]
-        if !self.ae2_close_before_travel(host, conn) {
+        if !self
+            .with_lan_host(|g, host| g.ae2_close_before_travel(host, conn))
+            .unwrap_or(true)
+        {
             return;
         }
+        #[cfg(feature = "ae2-lab")]
+        let Some(host) = self.lan.as_mut() else {
+            return;
+        };
         if target != self.dim {
             drop_hook(host, conn);
         }
@@ -1553,9 +1560,16 @@ impl Game<'_> {
                 continue;
             };
             #[cfg(feature = "ae2-lab")]
-            if !self.ae2_close_before_travel(host, t.conn) {
+            if !self
+                .with_lan_host(|g, host| g.ae2_close_before_travel(host, t.conn))
+                .unwrap_or(true)
+            {
                 continue;
             }
+            #[cfg(feature = "ae2-lab")]
+            let Some(host) = self.lan.as_mut() else {
+                return;
+            };
             let source = self.dim;
             if t.dim != source {
                 drop_hook(host, t.conn);

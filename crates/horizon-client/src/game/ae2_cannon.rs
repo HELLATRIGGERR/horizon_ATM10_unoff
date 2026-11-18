@@ -67,7 +67,7 @@ impl Game<'_> {
         &self,
         from: Vec3,
         to: Vec3,
-        host: Option<&super::lan::LanHost>,
+        host: Option<&crate::game::lan_host_turn::HostTurn>,
     ) -> Option<Impact> {
         let mut scene = SceneCollisions {
             world: &self.world,
@@ -276,7 +276,7 @@ impl Game<'_> {
     }
     fn ae2_cannon_guest(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         amount: f32,
         origin: [f64; 3],
@@ -297,7 +297,7 @@ impl Game<'_> {
         {
             return (false, false);
         }
-        let result = self.guest_hit_by(host, conn, |game| {
+        let result = host.back(self, |g| g.guest_hit_by(conn, |game| {
             let hurt = game.player_hits_player_kind(amount, origin, "ae2:matter_cannon", shooter);
             if hurt {
                 let source = horizon_client::health::HurtSource {
@@ -318,7 +318,7 @@ impl Game<'_> {
                     Vec::new()
                 },
             )
-        });
+        }));
         if let Some((hurt, dead, thorns)) = result {
             for amount in thorns {
                 self.hurt_player_by("minecraft:thorns", amount);
@@ -331,7 +331,7 @@ impl Game<'_> {
     pub(super) fn ae2_use_cannon(
         &mut self,
         stack: &ItemStack,
-        host: Option<&mut super::lan::LanHost>,
+        host: Option<&mut crate::game::lan_host_turn::HostTurn>,
     ) -> Result<UseResult, String> {
         if matches!(self.guest_use, Some(GuestUse::OnBlock(_))) { return Ok(UseResult::Pass); }
         let Some(origin) = self.eye_position() else { return Ok(UseResult::Fail); };
@@ -342,7 +342,7 @@ impl Game<'_> {
         result
     }
     /// Source dispenser firing uses a 32-block ray and mutates its own slot.
-    pub(super) fn ae2_cannon_at(&mut self, stack: &mut ItemStack, origin: [f64;3], dir: [f64;3], range: f64, may_build: bool, dispenser: bool, mut host: Option<&mut super::lan::LanHost>) -> Result<UseResult, String> {
+    pub(super) fn ae2_cannon_at(&mut self, stack: &mut ItemStack, origin: [f64;3], dir: [f64;3], range: f64, may_build: bool, dispenser: bool, mut host: Option<&mut crate::game::lan_host_turn::HostTurn>) -> Result<UseResult, String> {
         let mut cell = ae2_lab::read_cell(stack)?;
         let Some((key, count)) = cell.entries().next().map(|(key, n)| (key.clone(), *n)) else {
             if !dispenser { self.system_message(horizon_client::text::Text::literal("Ammo depleted")); }

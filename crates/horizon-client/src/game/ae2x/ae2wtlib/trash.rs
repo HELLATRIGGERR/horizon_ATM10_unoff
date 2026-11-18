@@ -47,7 +47,7 @@ pub(in crate::game) struct Session {
 impl Game<'_> {
     /// `WCTMenu.openTrashMenu`: the open wireless crafting terminal's trash
     /// in its place.
-    pub(in crate::game) fn lan_ae2wtlib_open_trash(&mut self, host: &mut LanHost, conn: u32) {
+    pub(in crate::game) fn lan_ae2wtlib_open_trash(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
         let Some(g) = host.hub.guests.iter_mut().find(|g| g.conn == conn && !g.spectator()) else { return };
         let Some(stack) = ae2_wireless::source_stack_mut(g, source).filter(|s| wireless::kind(s) == Some(TerminalKind::Crafting)) else { return };
@@ -64,13 +64,13 @@ impl Game<'_> {
     }
     /// The trash's back button (`AESubScreen.addBackButton`,
     /// `returnToMainMenu`): the terminal again, the trash emptied.
-    fn lan_ae2wtlib_trash_back(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_ae2wtlib_trash_back(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(source) = self.ae2x.ae2wtlib.trash.get(&conn).map(|s| s.ctx.source) else { return };
         self.lan_ae2wtlib_trash_closed(host, conn, None);
         self.lan_open_ae2_wireless_source(host, conn, source);
     }
     /// The trash's payload: open it, or go back.
-    pub(in crate::game) fn lan_ae2wtlib_trash_payload(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
+    pub(in crate::game) fn lan_ae2wtlib_trash_payload(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, data: &[u8]) {
         match data {
             [0] => self.lan_ae2wtlib_open_trash(host, conn),
             [1] => self.lan_ae2wtlib_trash_back(host, conn),
@@ -79,18 +79,18 @@ impl Game<'_> {
     }
     /// The window closed: what the trash holds is gone, the cursor's stack
     /// goes back to the player.
-    pub(in crate::game) fn lan_ae2wtlib_trash_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_trash_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         if !self.ae2x.ae2wtlib.trash.get(&conn).is_some_and(|s| window.is_none_or(|w| w == s.window)) {
             return false;
         }
         self.ae2x.ae2wtlib.trash.remove(&conn);
         if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
-            self.guest_carried_back(host, gi);
+            host.back(self, |g| g.guest_carried_back(gi));
         }
         true
     }
     /// The window's content: the trash, then the player's inventory.
-    fn lan_send_ae2wtlib_trash(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_ae2wtlib_trash(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(s) = self.ae2x.ae2wtlib.trash.get_mut(&conn) else { return };
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else { return };
         let mut items: Vec<Option<ItemStack>> = (0..SLOTS).map(|i| s.menu.slot(i).cloned()).collect();
@@ -102,7 +102,7 @@ impl Game<'_> {
         host.hub.send_to(conn, &C::ContainerSetContent(play::ContainerSetContent { container: window, state, items: wire, carried }));
     }
     /// A click in the trash's window: AE2's slots, a chest's rules.
-    pub(in crate::game) fn lan_ae2wtlib_trash_click(&mut self, host: &mut LanHost, conn: u32, p: &play::ContainerClick) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_trash_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, p: &play::ContainerClick) -> bool {
         let Some(mut s) = self.ae2x.ae2wtlib.trash.remove(&conn) else { return false };
         if p.container != s.window {
             self.ae2x.ae2wtlib.trash.insert(conn, s);
@@ -110,9 +110,9 @@ impl Game<'_> {
         }
         if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && host.hub.here(g)) {
             let input = lan_crafting::input(p.input);
-            self.guest_menu_op(host, gi, &mut s.menu, |m, env| {
+            host.back(self, |g| g.guest_menu_op(gi, &mut s.menu, |m, env| {
                 let _ = m.click(env, i32::from(p.slot), i32::from(p.button), input);
-            });
+            }));
         }
         self.ae2x.ae2wtlib.trash.insert(conn, s);
         self.lan_send_ae2wtlib_trash(host, conn);
@@ -120,7 +120,7 @@ impl Game<'_> {
     }
     /// `AEBaseMenu.broadcastChanges`: a trash whose terminal left its slot,
     /// or whose window another menu took, closes.
-    pub(in crate::game) fn lan_refresh_ae2wtlib_trash(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_ae2wtlib_trash(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.ae2wtlib.trash.keys().copied().collect();
         for conn in conns {
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) {

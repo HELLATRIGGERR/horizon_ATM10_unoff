@@ -215,11 +215,11 @@ impl Game<'_> {
     /// `ItemVoidCell.use`: on the server, `ContainerVoidCell` over the cell in
     /// hand `hand` (0 main, 1 off). Its screen is the layout of the cell's id
     /// (`screens/void_cell.json`): the three modes' buttons, the mode's line.
-    pub(in crate::game) fn lan_open_void_cell(&mut self, host: &mut LanHost, conn: u32, hand: i32) -> bool {
+    pub(in crate::game) fn lan_open_void_cell(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         use horizon_protocol::packets::{configuration::CustomPayload, play::Clientbound as C};
         let Some(guest) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return false };
         let source = if hand == 1 { OFFHAND_SLOT } else { guest.selected };
-        let held = self.as_guest(host, conn, |g| g.stack_in(source).is_some_and(|s| s.item.as_ref() == rows::VOID_CELL && s.count == 1));
+        let held = host.back(self, |g| g.as_guest(conn, |g| g.stack_in(source).is_some_and(|s| s.item.as_ref() == rows::VOID_CELL && s.count == 1)));
         if held != Some(true) {
             return false;
         }
@@ -231,9 +231,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         self.lan_void_cell_closed(host, conn, None);
         // The window has no block: the screen goes by the item.
         host.hub.send_to(conn, &C::CustomPayload(CustomPayload { channel: "ae2:menu_block".into(), data: rows::VOID_CELL.as_bytes().to_vec() }));
@@ -246,7 +246,7 @@ impl Game<'_> {
         self.lan_send_void_cell(host, conn);
         true
     }
-    pub(in crate::game) fn lan_void_cell_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_void_cell_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         if !self.ae2x.extendedae.void_menus.get(&conn).is_some_and(|m| window.is_none_or(|w| w == m.window)) {
             return false;
         }
@@ -258,13 +258,13 @@ impl Game<'_> {
     }
     /// The cell still in its slot, for a player who is no spectator
     /// (`ItemMenuHost.isValid`); else the menu closes.
-    fn lan_void_cell_valid(&mut self, host: &mut LanHost, conn: u32) -> Option<ItemStack> {
+    fn lan_void_cell_valid(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<ItemStack> {
         let menu = *self.ae2x.extendedae.void_menus.get(&conn)?;
         if !host.hub.guests.iter().any(|g| g.conn == conn && !g.spectator() && g.next_window == menu.window) {
             self.ae2x.extendedae.void_menus.remove(&conn);
             return None;
         }
-        let stack = self.as_guest(host, conn, |g| g.stack_in(menu.source).filter(|s| s.item.as_ref() == rows::VOID_CELL && s.count == 1).cloned()).flatten();
+        let stack = host.back(self, |g| g.as_guest(conn, |g| g.stack_in(menu.source).filter(|s| s.item.as_ref() == rows::VOID_CELL && s.count == 1).cloned())).flatten();
         if stack.is_none() {
             use horizon_protocol::packets::play::{self, Clientbound as C};
             self.lan_void_cell_closed(host, conn, None);
@@ -274,7 +274,7 @@ impl Game<'_> {
     }
     /// `broadcastChanges`: the cell's mode as data slot 0, when it changed;
     /// the window's slots (none of its own) and the player's inventory.
-    fn lan_send_void_cell(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_void_cell(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         use horizon_protocol::packets::play::{self, Clientbound as C};
         let Some(stack) = self.lan_void_cell_valid(host, conn) else { return };
         let Some(menu) = self.ae2x.extendedae.void_menus.get(&conn).copied() else { return };
@@ -303,24 +303,24 @@ impl Game<'_> {
     /// A press on the screen's mode buttons (`CEAEGenericPacket("set", mode)`,
     /// `ContainerVoidCell.setMode`): the cell takes that mode. True when it
     /// was this menu's window.
-    pub(in crate::game) fn lan_void_cell_button(&mut self, host: &mut LanHost, conn: u32, window: i32, id: i32) -> bool {
+    pub(in crate::game) fn lan_void_cell_button(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: i32, id: i32) -> bool {
         let Some(menu) = self.ae2x.extendedae.void_menus.get(&conn).copied().filter(|m| m.window == window) else { return false };
         if self.lan_void_cell_valid(host, conn).is_none() {
             return true;
         }
         let entry = id & !super::super::super::ae2_screens::REVERSE;
         if let Some(mode) = usize::try_from(entry).ok().and_then(|i| Mode::ALL.get(i)).copied() {
-            let _ = self.as_guest(host, conn, |g| {
+            let _ = host.back(self, |g| g.as_guest(conn, |g| {
                 if let Some(stack) = g.stack_in_mut(menu.source).as_mut() {
                     stack.data_mut().set_other(VOID_MODE, Some(Tag::String(mode.name().into())));
                 }
-            });
+            }));
         }
         self.lan_send_void_cell(host, conn);
         true
     }
     /// Each tick: a menu whose cell left its slot closes; a changed mode is sent.
-    pub(in crate::game) fn lan_refresh_void_cells(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_void_cells(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.extendedae.void_menus.keys().copied().collect();
         for conn in conns {
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) {

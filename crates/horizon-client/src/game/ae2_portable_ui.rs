@@ -617,7 +617,7 @@ impl Game<'_> {
     /// protocol's main/offhand index. Returns false for non-portable items.
     pub(super) fn lan_open_ae2_portable(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         hand: i32,
     ) -> bool {
@@ -637,7 +637,7 @@ impl Game<'_> {
     /// Inventory hotkeys locate their actual item without changing the held slot.
     pub(super) fn lan_open_ae2_portable_source(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         source: usize,
     ) -> bool {
@@ -660,9 +660,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let Some(window) = host.hub.open_window(
             conn,
             "minecraft:generic_9x6",
@@ -684,7 +684,7 @@ impl Game<'_> {
         self.lan_send_ae2_portable(host, conn);
         true
     }
-    fn lan_send_ae2_portable(&mut self, host: &mut super::lan::LanHost, conn: u32) {
+    fn lan_send_ae2_portable(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         use horizon_protocol::packets::play::{self, Clientbound as C};
         let Some((source, page)) = host
             .play
@@ -752,7 +752,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_portable_click(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         p: &horizon_protocol::packets::play::ContainerClick,
     ) -> bool {
@@ -807,12 +807,12 @@ impl Game<'_> {
         };
         let input = super::lan_crafting::input(p.input);
         let button = i32::from(p.button);
-        let next = self.as_guest(host, conn, |g| {
+        let next = host.back(self, |g| g.as_guest(conn, |g| {
             let mut page = page;
             let mut drag = drag;
             let _ = g.portable_click_inner(source, &mut page, slot, button, input, &mut drag);
             (page, drag)
-        });
+        }));
         if let Some((page, drag)) = next {
             if let Some(menu) = host
                 .play
@@ -828,7 +828,7 @@ impl Game<'_> {
         true
     }
     /// Tick each active portable's idle drain, then refresh changed item views.
-    pub(super) fn lan_refresh_ae2_portables(&mut self, host: &mut super::lan::LanHost) {
+    pub(super) fn lan_refresh_ae2_portables(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let menus: Vec<_> = host
             .play
             .iter()
@@ -881,7 +881,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_portable_closed(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         window: Option<i32>,
     ) -> bool {

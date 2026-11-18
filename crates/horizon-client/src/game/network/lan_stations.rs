@@ -63,18 +63,18 @@ impl Game<'_> {
     /// The existing anvil wire layout supplies a text field; the server menu
     /// retains distinct source behavior and protects the bound knife slot.
     #[cfg(feature = "ae2-lab")]
-    pub(super) fn lan_open_quartz_knife(&mut self,host:&mut LanHost,conn:u32,hand:i32)->bool {
+    pub(super) fn lan_open_quartz_knife(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,hand:i32)->bool {
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else{return false};
         if g.spectator(){return false;}
         let slot=if hand==1 {40} else {g.selected};
         let held=if slot==40 {g.offhand.as_ref()} else {g.inventory.get(slot).and_then(Option::as_ref)};
         if !held.is_some_and(|s|matches!(s.item.as_ref(),"ae2:certus_quartz_cutting_knife"|"ae2:nether_quartz_cutting_knife")){return false;}
         let pos=g.position.map(|v|v.floor() as i32);
-        self.lan_station_closed(host,conn,None);self.lan_crafting_closed(host,conn,None);self.guest_container_closed(host,conn);
+        host.back(self, |g| g.lan_station_closed(conn,None));host.back(self, |g| g.lan_crafting_closed(conn,None));host.back(self, |g| g.guest_container_closed(conn));
         let Some(window)=host.hub.open_window(conn,"minecraft:anvil",horizon_protocol::text::literal("Quartz Cutting Knife")) else{return true};
         let mut menu=Box::new(Menu::new(Kind::Anvil));menu.quartz_knife_slot=Some(slot);
         host.play.entry(conn).or_default().station=Some(GuestStation{window,state:0,kind:StationKind::Anvil,pos,menu,sent_data:Vec::new(),last_sound:0});
-        self.lan_send_station(host,conn);true
+        host.back(self, |g| g.lan_send_station(conn));true
     }
     /// A workstation a guest's use opened (`ServerPlayer.openMenu`); false
     /// when guests can't use that one yet.
@@ -783,7 +783,13 @@ impl Game<'_> {
         }
         // An AE2 machine screen's toolbar, or an addon menu's buttons.
         #[cfg(feature = "ae2-lab")]
-        if self.lan_ae2_machine_button(host, conn, window, id) || self.lan_ae2x_button(host, conn, window, id) {
+        if self
+            .with_lan_host(|g, host| {
+                g.lan_ae2_machine_button(host, conn, window, id)
+                    || g.lan_ae2x_button(host, conn, window, id)
+            })
+            .unwrap_or(false)
+        {
             return;
         }
         // LecternMenu's page buttons and Take Book.

@@ -116,7 +116,7 @@ impl Game<'_> {
             }
         }
     }
-    pub(super) fn ae2_compass_sync(&mut self,host:&LanHost) {
+    pub(super) fn ae2_compass_sync(&mut self,host:&crate::game::lan_host_turn::HostTurn) {
         if self.world.game_time.rem_euclid(100)!=0 {return;}
         self.ae2_compass_refresh();
         let dim=self.dim.id().to_owned();let loaded:BTreeSet<_>=self.world.chunks.keys().copied().collect();

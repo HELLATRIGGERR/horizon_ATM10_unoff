@@ -136,7 +136,7 @@ fn map_entity_nbt(tag: &mut Tag, from: (i32, i32, i32), to: (i32, i32, i32), siz
     }
 }
 impl Game<'_> {
-    pub(super) fn ae2_formation_guest_scope(&self, host: &super::lan::LanHost) -> FormationGuestScope {
+    pub(super) fn ae2_formation_guest_scope(&self, host: &crate::game::lan_host_turn::HostTurn) -> FormationGuestScope {
         let guests = host.hub.guests.iter().filter(|g| g.loaded && !g.dead)
             .map(|g| (g.dimension.clone(), g.conn, guest_box(g))).collect();
         FORMATION_GUEST_SCOPES.with(|scopes| scopes.borrow_mut().push(guests));
@@ -412,7 +412,7 @@ impl Game<'_> {
     /// vehicles. The caller queues both sides after exchanging the blocks.
     pub(super) fn ae2_spatial_guest_transfers(
         &self,
-        host: &super::lan::LanHost,
+        host: &crate::game::lan_host_turn::HostTurn,
         batch: &SpatialEntities,
         destination: super::Dim,
         to: (i32, i32, i32),

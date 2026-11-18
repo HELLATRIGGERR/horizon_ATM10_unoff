@@ -107,14 +107,14 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_item_wheel(
         &mut self,
-        host: &mut super::lan::LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         data: &[u8],
     ) {
         if data.len() != 1 || data[0] > 1 {
             return;
         }
-        self.as_guest(host, conn, |game| {
+        host.back(self, |g| g.as_guest(conn, |game| {
             let hand = if game.inventory[game.selected]
                 .as_ref()
                 .is_some_and(|s| s.item.as_ref() == "ae2:color_applicator")
@@ -132,7 +132,7 @@ impl Game<'_> {
             let _ = game.with_hand(hand, |game| {
                 game.ae2_cycle_applicator(if data[0] == 1 { 1 } else { -1 })
             });
-        });
+        }));
         if let Some(index) = host.hub.guests.iter().position(|guest| guest.conn == conn) {
             host.hub.send_inventory(index);
         }

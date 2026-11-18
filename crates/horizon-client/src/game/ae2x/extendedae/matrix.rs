@@ -432,7 +432,7 @@ impl Game<'_> {
     /// active matrix opens its screen; an unformed block does nothing (the
     /// pattern core never opens a provider's screen). True when it was a
     /// matrix block that took the use.
-    pub(in crate::game) fn lan_open_extendedae_matrix(&mut self, host: &mut LanHost, conn: u32, pos: Pos) -> bool {
+    pub(in crate::game) fn lan_open_extendedae_matrix(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, pos: Pos) -> bool {
         let Some(m) = self.matrix_machine(pos) else { return false };
         let pattern_core = m.id() == rows::MATRIX_PATTERN;
         let Some(b) = bounds(m) else { return pattern_core };
@@ -447,9 +447,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         self.lan_void_cell_closed(host, conn, None);
         self.lan_matrix_closed(host, conn, None);
         use horizon_protocol::packets::{configuration::CustomPayload, play::Clientbound as C};
@@ -462,7 +462,7 @@ impl Game<'_> {
         self.lan_send_matrix(host, conn);
         true
     }
-    pub(in crate::game) fn lan_matrix_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_matrix_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         if !self.ae2x.extendedae.matrix_menus.get(&conn).is_some_and(|m| window.is_none_or(|w| w == m.window)) {
             return false;
         }
@@ -474,7 +474,7 @@ impl Game<'_> {
     }
     /// The open screen's cluster, while its player may still use it
     /// (`AEBaseMenu.stillValid`: near the block, the block formed).
-    fn lan_matrix_cluster(&self, host: &LanHost, conn: u32) -> Option<Bounds> {
+    fn lan_matrix_cluster(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<Bounds> {
         let s = self.ae2x.extendedae.matrix_menus.get(&conn)?;
         let here = host.hub.guests.iter().any(|g| g.conn == conn && host.hub.here(g) && g.next_window == s.window && g.within_block_range([s.pos.0, s.pos.1, s.pos.2], 4.0));
         if !here {
@@ -483,7 +483,7 @@ impl Game<'_> {
         bounds(self.matrix_machine(s.pos)?)
     }
     /// The screen's pattern core.
-    fn lan_matrix_core(&self, host: &LanHost, conn: u32) -> Option<(Bounds, Pos)> {
+    fn lan_matrix_core(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<(Bounds, Pos)> {
         let b = self.lan_matrix_cluster(host, conn)?;
         let cores = self.matrix_pattern_cores(b);
         let page = self.ae2x.extendedae.matrix_menus.get(&conn)?.page.min(cores.len().checked_sub(1)?);
@@ -492,7 +492,7 @@ impl Game<'_> {
     /// `broadcastChanges`: the core's patterns, the player's inventory and
     /// the data slots: the Pattern Access Terminal setting (0) and the
     /// running threads (1).
-    fn lan_send_matrix(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_matrix(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         use horizon_protocol::packets::play::{self, Clientbound as C};
         let Some((b, core)) = self.lan_matrix_core(host, conn) else {
             if let Some(window) = self.ae2x.extendedae.matrix_menus.get(&conn).map(|m| m.window) {
@@ -527,7 +527,7 @@ impl Game<'_> {
     }
     /// Each tick: a screen whose matrix broke or whose player left closes;
     /// the others are told what changed.
-    pub(in crate::game) fn lan_refresh_matrix_menus(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_matrix_menus(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.extendedae.matrix_menus.keys().copied().collect();
         for conn in conns {
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) {
@@ -539,7 +539,7 @@ impl Game<'_> {
     /// A toolbar press (`CEAEGenericPacket`): cancel, the Pattern Access
     /// Terminal setting for the whole cluster (`broadcastConfig`), or another
     /// pattern core. True when it was this screen's window.
-    pub(in crate::game) fn lan_matrix_button(&mut self, host: &mut LanHost, conn: u32, window: i32, id: i32) -> bool {
+    pub(in crate::game) fn lan_matrix_button(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: i32, id: i32) -> bool {
         if !self.ae2x.extendedae.matrix_menus.get(&conn).is_some_and(|m| m.window == window) {
             return false;
         }
@@ -583,7 +583,7 @@ impl Game<'_> {
     /// through the core's filter), a shift-click from the inventory into the
     /// first free slot of the cores (`transferStackToMenu`), or the player's
     /// inventory as any menu's.
-    pub(in crate::game) fn lan_matrix_click(&mut self, host: &mut LanHost, conn: u32, p: &horizon_protocol::packets::play::ContainerClick) -> bool {
+    pub(in crate::game) fn lan_matrix_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, p: &horizon_protocol::packets::play::ContainerClick) -> bool {
         let Some(mut s) = self.ae2x.extendedae.matrix_menus.remove(&conn) else { return false };
         if p.container != s.window {
             self.ae2x.extendedae.matrix_menus.insert(conn, s);
@@ -599,7 +599,7 @@ impl Game<'_> {
                 self.ae2x.extendedae.matrix_menus.insert(conn, s);
                 let core = self.lan_matrix_core(host, conn);
                 if let Some((_, core)) = core.filter(|_| (slot as usize) < MENU_SLOTS) {
-                    let _ = self.as_guest(host, conn, |g| g.extendedae_matrix_slot_action(core, slot as usize, button, input));
+                    let _ = host.back(self, |g| g.as_guest(conn, |g| g.extendedae_matrix_slot_action(core, slot as usize, button, input)));
                 }
                 s = self.ae2x.extendedae.matrix_menus.remove(&conn).expect("the menu was just put back");
             } else if (54..90).contains(&slot) && input == Input::QuickMove {
@@ -607,13 +607,13 @@ impl Game<'_> {
                 self.ae2x.extendedae.matrix_menus.insert(conn, s);
                 if let Some(b) = self.lan_matrix_cluster(host, conn) {
                     let cores = self.matrix_pattern_cores(b);
-                    let _ = self.as_guest(host, conn, |g| g.extendedae_matrix_quick_move(index, &cores));
+                    let _ = host.back(self, |g| g.as_guest(conn, |g| g.extendedae_matrix_quick_move(index, &cores)));
                 }
                 s = self.ae2x.extendedae.matrix_menus.remove(&conn).expect("the menu was just put back");
             } else if (54..90).contains(&slot) || slot == -999 {
-                self.guest_menu_op(host, gi, &mut s.menu, |m, env| {
+                host.back(self, |g| g.guest_menu_op(gi, &mut s.menu, |m, env| {
                     let _ = m.click(env, slot, button, input);
-                });
+                }));
             }
         }
         let _ = window;

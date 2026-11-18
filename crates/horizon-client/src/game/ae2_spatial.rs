@@ -747,14 +747,14 @@ impl Game<'_> {
             .map_err(|e| e.to_string())?;
         self.ae2_queue_spatial_guests(src_guests);
         if let Some(mut host) = self.lan.take() {
-            self.run_level_teleports(&mut host);
+            host.back(self, |g| g.run_level_teleports());
             self.lan = Some(host);
         }
         self.enter_level(None, Dim::Spatial)
             .map_err(|e| e.to_string())?;
         self.ae2_queue_spatial_guests(dst_guests);
         if let Some(mut host) = self.lan.take() {
-            self.run_level_teleports(&mut host);
+            host.back(self, |g| g.run_level_teleports());
             self.lan = Some(host);
         }
         self.enter_level(None, source_dim)

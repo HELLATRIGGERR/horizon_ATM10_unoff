@@ -54,7 +54,7 @@ impl Game<'_> {
     /// `WTMenuHost.recharge`: what the battery of the item at guest `conn`'s
     /// `source` slot misses, from the grid of `node` (`PowerMultiplier.ONE`),
     /// never taking the grid below half of what it can store.
-    pub(in crate::game) fn ae2wtlib_recharge(&mut self, host: &mut LanHost, conn: u32, source: usize, node: GridAddress) {
+    pub(in crate::game) fn ae2wtlib_recharge(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, source: usize, node: GridAddress) {
         let Some(stack) = host.hub.guests.iter().find(|g| g.conn == conn).and_then(|g| ae2_wireless::source_stack(g, source)) else {
             return;
         };

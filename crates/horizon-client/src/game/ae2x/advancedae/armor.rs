@@ -449,7 +449,7 @@ impl Game<'_> {
     /// `PlayerTickEvent.Pre`, `ItemAttributeModifierEvent`,
     /// `LivingBreatheEvent`), then what the server does around them: flight
     /// and the magnet's pickup.
-    pub(in crate::game) fn lan_advancedae_armor_tick(&mut self, host: &mut LanHost, gi: usize) {
+    pub(in crate::game) fn lan_advancedae_armor_tick(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize) {
         let Some(g) = host.hub.guests.get(gi) else { return };
         let (conn, entity) = (g.conn, g.entity_id);
         let worn = g.armor.iter().flatten().any(|s| piece(&s.item).is_some());
@@ -460,7 +460,7 @@ impl Game<'_> {
         if !worn && !granted && !self.ae2x.advancedae.armor_modifiers.contains(&conn) {
             return;
         }
-        let outcome = self.as_guest(host, conn, |game| game.advancedae_armor_turn(entity)).flatten();
+        let outcome = host.back(self, |g| g.as_guest(conn, |game| game.advancedae_armor_turn(entity))).flatten();
         let Some(outcome) = outcome else { return };
         if worn {
             self.ae2x.advancedae.armor_modifiers.insert(conn);
@@ -630,7 +630,7 @@ impl Game<'_> {
     /// `UpgradeCards.magnet`: the item entities in reach of the player
     /// (`MagnetHelpers.getBoundingBox`, `validEntities`) that the filter
     /// allows are touched (`playerTouch`).
-    fn advancedae_magnet(&mut self, host: &mut LanHost, gi: usize, range: f64, filter: &[ItemStack], blacklist: bool) {
+    fn advancedae_magnet(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, range: f64, filter: &[ItemStack], blacklist: bool) {
         let g = &host.hub.guests[gi];
         let [x, y, z] = g.position;
         let (min, max) = ([x - range, y - range, z - range], [x + range, y + range, z + range]);
@@ -661,7 +661,7 @@ impl Game<'_> {
     /// A helmet card's hotkey for guest `conn` (`toggleUpgrade` with the
     /// player): the card's name and ON or OFF, or that it is not installed,
     /// in the action bar. False when the guest wears no Quantum Helmet.
-    pub(in crate::game) fn lan_advancedae_armor_hotkey(&mut self, host: &mut LanHost, conn: u32, id: &str) -> bool {
+    pub(in crate::game) fn lan_advancedae_armor_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, id: &str) -> bool {
         let Some(&(_, name)) = TOGGLE_HOTKEYS.iter().find(|(hotkey, _)| *hotkey == id) else { return false };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return false };
         let Some(helmet) = host.hub.guests[gi].armor[0].as_mut().filter(|s| s.item.as_ref() == PIECES[0].item) else { return false };

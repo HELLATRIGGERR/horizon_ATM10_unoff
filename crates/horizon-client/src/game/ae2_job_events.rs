@@ -20,7 +20,7 @@ impl Game<'_> {
             self.ae2_job_status_pending.push((owner,event));
         }
     }
-    pub(super) fn ae2_flush_job_status(&mut self,host:&LanHost) {
+    pub(super) fn ae2_flush_job_status(&mut self,host:&crate::game::lan_host_turn::HostTurn) {
         for (owner,event) in self.ae2_job_status_pending.drain(..) {
             let Some(guest)=host.hub.guests.iter().find(|guest|guest.uuid==owner && guest.placed) else {continue;};
             let Ok(data)=serde_json::to_vec(&event) else {continue;};

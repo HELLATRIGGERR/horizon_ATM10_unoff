@@ -106,10 +106,10 @@ impl Game<'_> {
         }
         false
     }
-    pub(super) fn lan_open_ae2_network_tool(&mut self, host: &mut LanHost, conn: u32, hand: i32) -> bool {
+    pub(super) fn lan_open_ae2_network_tool(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         self.lan_open_ae2_network_tool_inner(host,conn,hand,None)
     }
-    pub(super) fn lan_open_ae2_network_tool_at(&mut self, host: &mut LanHost, conn: u32, hand: i32, pos: (i32,i32,i32), face: i32) -> bool {
+    pub(super) fn lan_open_ae2_network_tool_at(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32, pos: (i32,i32,i32), face: i32) -> bool {
         let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn) else {return false;};
         if g.sneaking || !g.within_block_range([pos.0,pos.1,pos.2],0.0) {return false;}
         let source=if hand==1 {40} else {g.selected};
@@ -122,7 +122,7 @@ impl Game<'_> {
         let status=self.ae2_local_address(pos).filter(|p|network.nodes.contains_key(&p.network_pos())).map(|_|pos);
         self.lan_open_ae2_network_tool_inner(host,conn,hand,status)
     }
-    fn lan_open_ae2_network_tool_inner(&mut self, host: &mut LanHost, conn: u32, hand: i32, status: Option<(i32,i32,i32)>) -> bool {
+    fn lan_open_ae2_network_tool_inner(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32, status: Option<(i32,i32,i32)>) -> bool {
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else { return false; };
         let source = if hand == 1 { 40 } else { g.selected };
         let Some(tool) = held(g, source).filter(|s| s.item.as_ref() == TOOL).cloned() else { return false; };
@@ -135,9 +135,9 @@ impl Game<'_> {
         self.lan_ae2_bus_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let title=if status.is_some(){"AE2 Network Status"}else{"AE2 Network Tool"};
         let kind=if status.is_some(){"minecraft:generic_9x3"}else{"minecraft:generic_9x1"};
         let Some(window) = host.hub.open_window(conn, kind, horizon_protocol::text::literal(title)) else { return true; };
@@ -146,7 +146,7 @@ impl Game<'_> {
         self.lan_send_ae2_network_tool(host, conn);
         true
     }
-    fn lan_send_ae2_network_tool(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_ae2_network_tool(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some((source, window, state, status, requested_page)) = host.play.get(&conn).and_then(|p| p.ae2_network_tool.as_ref()).map(|s| (s.source,s.window,s.state,s.status,s.status_page)) else { return; };
         let mut status_view=None;
         let status_lines=status.and_then(|pos| {
@@ -203,7 +203,7 @@ impl Game<'_> {
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent {container:window,state:next_state,items:wire_items,carried:wire_carried}));
         host.hub.inventory_told_by(conn,&items);
     }
-    pub(super) fn lan_ae2_network_tool_click(&mut self,host:&mut LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    pub(super) fn lan_ae2_network_tool_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,p:&play::ContainerClick)->bool {
         let Some(mut session)=host.play.get_mut(&conn).and_then(|v|v.ae2_network_tool.take()) else {return false;};
         if p.container!=session.window {host.play.entry(conn).or_default().ae2_network_tool=Some(session);return false;}
         let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn) else {return true;};
@@ -242,11 +242,11 @@ impl Game<'_> {
         let before_offhand=host.hub.guests[gi].offhand.clone();
         let before_carried=host.hub.guests[gi].carried.clone();
         let random=self.world.random.clone();
-        let (result,effects)=self.guest_menu_op_deferred(host,gi,&mut session.menu,|menu,env| {
+        let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env| {
             for (i,item) in inv.slots.iter().cloned().enumerate(){menu.set_slot(env,i,item);}
             menu.click(env,i32::from(p.slot),i32::from(p.button),input)?;
             Ok::<_,&'static str>(Inventory {slots:std::array::from_fn(|i|menu.slot(i).cloned())})
-        });
+        }));
         let result=result.map_err(str::to_owned).and_then(|after| {
             stage_owned_pocket(&tool,held(&host.hub.guests[gi],session.source),&inv,&after)
         });
@@ -268,7 +268,7 @@ impl Game<'_> {
             }
             Ok(None) => {}
         }
-        self.apply_guest_menu_effects(host,gi,effects);
+        host.back(self, |g| g.apply_guest_menu_effects(gi,effects));
         if input==horizon_client::menu::Input::Swap {host.hub.send_inventory(gi);}
         let current=held(&host.hub.guests[gi],session.source).cloned();
         if current.as_ref()!=Some(&tool) {session.menu=pocket_menu(session.source);}
@@ -280,12 +280,12 @@ impl Game<'_> {
         }
         self.lan_send_ae2_network_tool(host,conn);true
     }
-    pub(super) fn lan_ae2_network_tool_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
+    pub(super) fn lan_ae2_network_tool_closed(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:Option<i32>)->bool {
         let Some(_)=host.play.get_mut(&conn).and_then(|p|p.ae2_network_tool.take_if(|v|window.is_none_or(|w|v.window==w))) else {return false;};
         if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,gi);}
         true
     }
-    pub(super) fn lan_refresh_ae2_network_tools(&mut self,host:&mut LanHost) {
+    pub(super) fn lan_refresh_ae2_network_tools(&mut self,host:&mut crate::game::lan_host_turn::HostTurn) {
         let conns:Vec<_>=host.play.iter().filter_map(|(&conn,p)|p.ae2_network_tool.as_ref().map(|s|(conn,s.window,s.source,s.snapshot.clone(),s.status))).collect();
         for (conn,window,source,snapshot,status) in conns {
             let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g)) else {continue;};

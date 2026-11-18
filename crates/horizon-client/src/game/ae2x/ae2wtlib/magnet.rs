@@ -53,7 +53,7 @@ impl Game<'_> {
     /// `MagnetHandler.handleMagnet`: unless the guest sneaks, with the
     /// magnet on, the item entities in its box grown by the range that the
     /// pickup filter takes are touched as if the guest stood on them.
-    pub(in crate::game) fn lan_ae2wtlib_magnet_tick(&mut self, host: &mut LanHost, gi: usize) {
+    pub(in crate::game) fn lan_ae2wtlib_magnet_tick(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize) {
         let Some(g) = host.hub.guests.get(gi) else { return };
         if g.spectator() || g.sneaking || self.dropped.is_empty() {
             return;
@@ -118,7 +118,7 @@ impl Game<'_> {
     /// guest `conn`: what the network linked to its terminal takes leaves the
     /// stack (no power drawn, as `StorageService.getInventory` is not
     /// powered), counted as picked up. True when it got that far.
-    pub(in crate::game) fn lan_ae2wtlib_item_pickup(&mut self, host: &mut LanHost, conn: u32, index: usize) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_item_pickup(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, index: usize) -> bool {
         let Some(stack) = self.dropped.get(index).map(|d| d.stack.clone()).filter(|s| s.count > 0) else { return false };
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else { return false };
         if !self.ae2wtlib_can_insert(g, &stack) {
@@ -141,7 +141,7 @@ impl Game<'_> {
             }
         };
         let thrower = self.dropped[index].thrower;
-        self.as_guest(host, conn, |g| {
+        host.back(self, |g| g.as_guest(conn, |g| {
             if inserted > 0 {
                 g.award_stat("picked_up", &stack.item, inserted as i32);
             }
@@ -149,7 +149,7 @@ impl Game<'_> {
             if let Some(thrower) = thrower {
                 g.trigger_thrown_picked_up_by_player(&stack, thrower);
             }
-        });
+        }));
         if let Some(item) = self.dropped.get_mut(index) {
             item.stack.count -= inserted;
         }
@@ -159,7 +159,7 @@ impl Game<'_> {
     /// `MagnetHotkeyAction.run`: the located terminal's mode, cycled when it
     /// has the card, said in the action bar. False when the guest has no
     /// crafting terminal.
-    pub(in crate::game) fn lan_ae2wtlib_magnet_hotkey(&mut self, host: &mut LanHost, conn: u32) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_magnet_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return false };
         let Some((slot, terminal)) = located(&host.hub.guests[gi]) else { return false };
         let Some((next, key, on)) = magnet::mode(terminal).hotkey_next() else { return true };
@@ -175,7 +175,7 @@ impl Game<'_> {
 
     /// `TerminalSettingsPacket.processPacketData`, on the item of the open
     /// wireless menu.
-    pub(in crate::game) fn lan_ae2wtlib_terminal_settings(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
+    pub(in crate::game) fn lan_ae2wtlib_terminal_settings(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, data: &[u8]) {
         let [pick_block, restock, magnet, pickup_to_me, craft_if_missing] = data else { return };
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
@@ -187,7 +187,7 @@ impl Game<'_> {
     /// `MagnetMenu`'s actions on the magnet's terminal (`MagnetHost`, of
     /// `CraftingTerminalHandler`), with the open wireless crafting terminal's
     /// menu standing for `WCTMenu` (`openMagnetMenu`).
-    pub(in crate::game) fn lan_ae2wtlib_magnet_menu(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
+    pub(in crate::game) fn lan_ae2wtlib_magnet_menu(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, data: &[u8]) {
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
         let g = &host.hub.guests[gi];
@@ -217,7 +217,7 @@ impl Game<'_> {
     /// `WCTScreen`'s settings: on a wireless crafting terminal's menu (the
     /// terminal, or a universal terminal turned to it), the item's terminal
     /// settings and its magnet mode (`getMagnetMode`).
-    pub(in crate::game) fn lan_ae2wtlib_wireless_view(&self, host: &LanHost, conn: u32, ctx: &ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
+    pub(in crate::game) fn lan_ae2wtlib_wireless_view(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
         if ctx.kind != defs::TerminalKind::Crafting {
             return None;
         }

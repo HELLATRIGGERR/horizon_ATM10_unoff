@@ -365,10 +365,10 @@ pub(in crate::game) const CONFIG_STEPS: [(i32, i64); 4] = [(1, 1), (2, -1), (3, 
 impl Game<'_> {
     /// `ItemPatternModifier.use` and `ItemConfigModifier.use`: their menus
     /// over the item in hand `hand` (0 main, 1 off).
-    pub(in crate::game) fn lan_open_extendedae_tool(&mut self, host: &mut LanHost, conn: u32, hand: i32) -> bool {
+    pub(in crate::game) fn lan_open_extendedae_tool(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         let Some(guest) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return false };
         let source = if hand == 1 { OFFHAND_SLOT } else { guest.selected };
-        let item = self.as_guest(host, conn, |g| g.stack_in(source).filter(|s| s.count == 1).map(|s| s.item.clone())).flatten();
+        let item = host.back(self, |g| g.as_guest(conn, |g| g.stack_in(source).filter(|s| s.count == 1).map(|s| s.item.clone()))).flatten();
         let item = match item.as_deref() {
             Some(rows::PATTERN_MODIFIER) => rows::PATTERN_MODIFIER,
             Some(rows::CONFIG_MODIFIER) => rows::CONFIG_MODIFIER,
@@ -377,7 +377,7 @@ impl Game<'_> {
         self.lan_open_extendedae_tool_page(host, conn, source, item, 0);
         true
     }
-    fn lan_open_extendedae_tool_page(&mut self, host: &mut LanHost, conn: u32, source: usize, item: &'static str, page: usize) {
+    fn lan_open_extendedae_tool_page(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, source: usize, item: &'static str, page: usize) {
         self.lan_ae2_portable_closed(host, conn, None);
         self.lan_ae2_bus_closed(host, conn, None);
         self.lan_ae2_network_tool_closed(host, conn, None);
@@ -386,9 +386,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         self.lan_void_cell_closed(host, conn, None);
         self.ae2x.extendedae.tool_menus.remove(&conn);
         let (layout, size) = if item == rows::CONFIG_MODIFIER { (rows::CONFIG_MODIFIER, 27) } else { (page_layout(page), page_size(page)) };
@@ -402,7 +402,7 @@ impl Game<'_> {
         self.ae2x.extendedae.tool_menus.insert(conn, ToolMenu { window, source, item, page, state: 0, menu });
         self.lan_send_extendedae_tool(host, conn);
     }
-    pub(in crate::game) fn lan_extendedae_tool_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_extendedae_tool_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         if !self.ae2x.extendedae.tool_menus.get(&conn).is_some_and(|m| window.is_none_or(|w| w == m.window)) {
             return false;
         }
@@ -414,13 +414,13 @@ impl Game<'_> {
     }
     /// The item still in its slot, for a player who is no spectator
     /// (`ItemMenuHost.isValid`); else the menu closes.
-    fn lan_extendedae_tool_valid(&mut self, host: &mut LanHost, conn: u32) -> Option<ItemStack> {
+    fn lan_extendedae_tool_valid(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<ItemStack> {
         let (window, source, item) = self.ae2x.extendedae.tool_menus.get(&conn).map(|m| (m.window, m.source, m.item))?;
         if !host.hub.guests.iter().any(|g| g.conn == conn && !g.spectator() && g.next_window == window) {
             self.ae2x.extendedae.tool_menus.remove(&conn);
             return None;
         }
-        let stack = self.as_guest(host, conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == item && s.count == 1).cloned()).flatten();
+        let stack = host.back(self, |g| g.as_guest(conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == item && s.count == 1).cloned())).flatten();
         if stack.is_none() {
             self.lan_extendedae_tool_closed(host, conn, None);
             host.hub.send_to(conn, &C::ContainerClose(play::ContainerClose { container: window }));
@@ -429,7 +429,7 @@ impl Game<'_> {
     }
     /// `broadcastChanges`: the window's slots and the player's, the page and,
     /// for the Config Modifier, its mode and number (data slots 0 to 4).
-    fn lan_send_extendedae_tool(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_extendedae_tool(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(stack) = self.lan_extendedae_tool_valid(host, conn) else { return };
         let Some(m) = self.ae2x.extendedae.tool_menus.get_mut(&conn) else { return };
         m.state = (m.state + 1) & 0x7FFF;
@@ -466,7 +466,7 @@ impl Game<'_> {
         }
     }
     /// Each tick: a menu whose item left its slot closes.
-    pub(in crate::game) fn lan_refresh_extendedae_tools(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_extendedae_tools(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.extendedae.tool_menus.keys().copied().collect();
         for conn in conns {
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) {
@@ -479,7 +479,7 @@ impl Game<'_> {
     /// A click in the Pattern Modifier's window: its slots as their
     /// `RestrictedInputSlot`s, `OutputSlot` and `SingleFakeSlot`s, the player's
     /// inventory around them; the item's own slot takes no click.
-    pub(in crate::game) fn lan_extendedae_tool_click(&mut self, host: &mut LanHost, conn: u32, p: &play::ContainerClick) -> bool {
+    pub(in crate::game) fn lan_extendedae_tool_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, p: &play::ContainerClick) -> bool {
         let Some((window, source, item, page)) = self.ae2x.extendedae.tool_menus.get(&conn).map(|m| (m.window, m.source, m.item, m.page)) else { return false };
         if p.container != window {
             return false;
@@ -504,7 +504,7 @@ impl Game<'_> {
                 s
             });
             inv.replace[i] = carried;
-            let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s)));
+            let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s))));
             self.lan_send_extendedae_tool(host, conn);
             return true;
         }
@@ -547,7 +547,7 @@ impl Game<'_> {
                     }
                 }
                 host.hub.guests[gi].inventory[index] = (moving.count > 0).then_some(moving);
-                let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s)));
+                let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s))));
             }
             self.lan_send_extendedae_tool(host, conn);
             return true;
@@ -563,9 +563,9 @@ impl Game<'_> {
         }
         let before_inventory = host.hub.guests[gi].inventory.clone();
         let before_carried = host.hub.guests[gi].carried.clone();
-        self.guest_menu_op(host, gi, &mut menu, |m, env| {
+        host.back(self, |g| g.guest_menu_op(gi, &mut menu, |m, env| {
             let _ = m.click(env, i32::from(p.slot), button, input);
-        });
+        }));
         let mut next = inv.clone();
         let mut ok = true;
         for entry in 0..size as usize {
@@ -583,7 +583,7 @@ impl Game<'_> {
             }
         }
         if ok {
-            let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| next.store(s)));
+            let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| next.store(s))));
         } else {
             host.hub.guests[gi].inventory = before_inventory;
             host.hub.guests[gi].carried = before_carried;
@@ -596,7 +596,7 @@ impl Game<'_> {
     }
 
     /// A press on the modifiers' buttons (`CEAEGenericPacket`, `CUpdatePage`).
-    pub(in crate::game) fn lan_extendedae_tool_button(&mut self, host: &mut LanHost, conn: u32, window: i32, id: i32) -> bool {
+    pub(in crate::game) fn lan_extendedae_tool_button(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: i32, id: i32) -> bool {
         let Some((source, item, page)) = self.ae2x.extendedae.tool_menus.get(&conn).filter(|m| m.window == window).map(|m| (m.source, m.item, m.page)) else { return false };
         let Some(stack) = self.lan_extendedae_tool_valid(host, conn) else { return true };
         let reverse = id & crate::game::ae2_screens::REVERSE != 0;
@@ -609,7 +609,7 @@ impl Game<'_> {
             } else if let Some((_, step)) = CONFIG_STEPS.iter().find(|(e, _)| *e == entry) {
                 settings.data = settings.data.saturating_add(*step).max(0);
             }
-            let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| settings.store(s)));
+            let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| settings.store(s))));
             self.lan_send_extendedae_tool(host, conn);
             return true;
         }
@@ -636,7 +636,7 @@ impl Game<'_> {
             CLONE_BUTTON if page == 3 => inv.clone_pattern(),
             _ => {}
         }
-        let _ = self.as_guest(host, conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s)));
+        let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s))));
         self.lan_send_extendedae_tool(host, conn);
         true
     }

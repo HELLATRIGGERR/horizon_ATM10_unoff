@@ -1375,7 +1375,14 @@ impl Game<'_> {
             return;
         };
         #[cfg(feature = "ae2-lab")]
-        self.lan_close_ae2_menus(&mut host);
+        let mut host = {
+            let mut turn = super::lan_host_turn::HostTurn::lend(host);
+            self.lan_close_ae2_menus(&mut turn);
+            let Some(host) = turn.into_inner() else {
+                return;
+            };
+            host
+        };
         host.hub.disconnect_all();
         // Give the network threads a moment to flush the disconnect packets.
         std::thread::sleep(std::time::Duration::from_millis(100));
@@ -1399,7 +1406,7 @@ impl Game<'_> {
     /// Return real carried stacks while the owner is still attached. The
     /// integrated server must do this before its final player/world snapshot.
     #[cfg(feature = "ae2-lab")]
-    pub(super) fn lan_close_ae2_menus(&mut self,host:&mut LanHost) {
+    pub(super) fn lan_close_ae2_menus(&mut self,host:&mut crate::game::lan_host_turn::HostTurn) {
         let conns:Vec<u32>=host.hub.guests.iter().map(|guest|guest.conn).collect();
         for conn in conns {
             self.lan_pattern_access_closed(host,conn,None);
@@ -2945,13 +2952,12 @@ impl Game<'_> {
         #[cfg(feature = "ae2-lab")]
         self.ae2_tick_paint();
         #[cfg(feature = "ae2-lab")]
-        self.ae2_sync_visuals(&mut host);
-        #[cfg(feature = "ae2-lab")]
-        self.ae2_compass_sync(&host);
-        #[cfg(feature = "ae2-lab")]
-        self.ae2_flush_fx(&host);
-        #[cfg(feature = "ae2-lab")]
-        self.ae2_flush_job_status(&host);
+        self.with_lan_host(|g, host| {
+            g.ae2_sync_visuals(host);
+            g.ae2_compass_sync(host);
+            g.ae2_flush_fx(host);
+            g.ae2_flush_job_status(host);
+        });
         #[cfg(feature = "ae2-lab")]
         { self.ae2_lan_active = false; }
         self.lan_flush_effects();

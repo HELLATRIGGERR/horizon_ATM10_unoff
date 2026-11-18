@@ -236,7 +236,7 @@ impl Game<'_> {
     /// menu, the next (or previous) terminal it holds, opened in its place;
     /// with no menu open, the universal terminal in the main hand, else the
     /// off hand, turns to it and says which it is now.
-    fn lan_cycle_universal_terminal(&mut self, host: &mut LanHost, conn: u32, reverse: bool) {
+    fn lan_cycle_universal_terminal(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, reverse: bool) {
         let in_menu = self.lan_wireless_menu_source(host, conn);
         let any_menu = in_menu.is_some() || host.play.get(&conn).is_some_and(|p| p.ae2_terminal.is_some() || p.ae2_pattern_access.is_some());
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return };
@@ -266,7 +266,7 @@ impl Game<'_> {
     }
     /// `SelectTerminalPacket`: in a universal terminal's menu, a terminal it
     /// holds becomes the current one and opens in its place.
-    fn lan_select_universal_terminal(&mut self, host: &mut LanHost, conn: u32, name: &str) {
+    fn lan_select_universal_terminal(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, name: &str) {
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
         let Some(terminal) = horizon_client::ae2x::defs::get().wireless_terminal_named(name) else { return };
         let Some(stack) = host.hub.guests.iter_mut().find(|g| g.conn == conn).and_then(|g| super::super::ae2_wireless::source_stack_mut(g, source)) else { return };
@@ -278,7 +278,7 @@ impl Game<'_> {
     }
     /// AE2WTLib's own hotkey actions (the terminals' are the locating
     /// service's, before them): true when one ran.
-    pub(in crate::game) fn lan_ae2wtlib_hotkey(&mut self, host: &mut LanHost, conn: u32, id: &str) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, id: &str) -> bool {
         match id {
             magnet::MAGNET_HOTKEY => self.lan_ae2wtlib_magnet_hotkey(host, conn),
             restock::RESTOCK_HOTKEY => self.lan_ae2wtlib_restock_hotkey(host, conn),
@@ -288,14 +288,14 @@ impl Game<'_> {
     }
     /// `ItemWCT.inventoryTick` once a server tick (`MagnetHandler.handle`):
     /// the hotbar's counts, then the magnet.
-    pub(in crate::game) fn lan_ae2wtlib_tick(&mut self, host: &mut LanHost, gi: usize) {
+    pub(in crate::game) fn lan_ae2wtlib_tick(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize) {
         self.lan_ae2wtlib_resync(host, gi);
         let Some(ticking) = host.hub.guests.get(gi).and_then(magnet::ticking).cloned() else { return };
         self.lan_ae2wtlib_restock_amounts(host, gi, &ticking);
         self.lan_ae2wtlib_magnet_tick(host, gi);
     }
     /// The universal terminal's packets and the terminal settings.
-    pub(in crate::game) fn lan_ae2wtlib_payload(&mut self, host: &mut LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
+    pub(in crate::game) fn lan_ae2wtlib_payload(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, channel: &str, data: &[u8]) -> bool {
         match channel {
             magnet::TERMINAL_SETTINGS => {
                 self.lan_ae2wtlib_terminal_settings(host, conn, data);

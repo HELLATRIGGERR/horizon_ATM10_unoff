@@ -99,7 +99,7 @@ impl Game<'_> {
     }
     /// The client supplies an action name only; the server chooses and validates
     /// its actual inventory owner. No client slot or item payload is trusted.
-    pub(super) fn lan_ae2_hotkey(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
+    pub(super) fn lan_ae2_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, data: &[u8]) {
         // The addons' terminals on this hotkey come first, the last registered
         // first (HotkeyActions.register): AE2WTLib's locating service makes
         // the universal terminal's current terminal the one the key names.

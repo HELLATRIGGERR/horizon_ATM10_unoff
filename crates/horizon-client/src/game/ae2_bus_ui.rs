@@ -311,7 +311,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_open_ae2_bus(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         pos: Pos,
         face: u8,
@@ -339,9 +339,9 @@ impl Game<'_> {
         self.lan_ae2_portable_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let Some(window) = host.hub.open_window(
             conn,
             "minecraft:generic_9x6",
@@ -445,7 +445,7 @@ impl Game<'_> {
     }
     /// What the client sees of the open part: its menu, or the priority
     /// editor in front of it, and the part screen's view.
-    pub(super) fn lan_send_ae2_bus(&mut self, host: &mut LanHost, conn: u32) {
+    pub(super) fn lan_send_ae2_bus(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         if host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).is_some_and(|s|s.priority_edit.is_some()) {
             self.lan_send_priority(host,conn);
             return;
@@ -454,7 +454,7 @@ impl Game<'_> {
         self.lan_send_part_view(host,conn);
     }
     /// `ae2:part_view`, when it differs from what the client has.
-    fn lan_send_part_view(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_part_view(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some((pos,face,window))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).map(|s|(s.pos,s.face,s.window)) else{return};
         let Some(data)=self.bus_ui_read(pos,face) else{return};
         let Some(view)=self.ae2_part_view_of(window,pos,face,&data) else{return};
@@ -564,7 +564,7 @@ impl Game<'_> {
             self.bus_ui_store(session.pos,session.face,data);
         }
     }
-    fn lan_send_ae2_bus_menu(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_ae2_bus_menu(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some((pos, face, window, page)) = host
             .play
             .get(&conn)
@@ -994,7 +994,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_bus_click(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         p: &play::ContainerClick,
     ) -> bool {
@@ -1063,7 +1063,7 @@ impl Game<'_> {
         }
         if (super::ae2_part_screens::CONFIG_PLACE..300).contains(&(p.slot as usize)) && session.emitter_identity.is_none() {
             let (place,button)=(p.slot as usize,i32::from(p.button));
-            self.as_guest(host,conn,|game|game.ae2_part_place(&mut session,data,place,button));
+            host.back(self, |g| g.as_guest(conn,|game|game.ae2_part_place(&mut session,data,place,button)));
             host.play.entry(conn).or_default().ae2_bus = Some(session);
             self.lan_send_ae2_bus(host,conn);
             return true;
@@ -1084,7 +1084,7 @@ impl Game<'_> {
             }
         }
         let stage=i32::from(p.button)&3;
-        self.as_guest(host,conn,|game|game.ae2_bus_action(&mut session,data,slot,i32::from(p.button),input));
+        host.back(self, |g| g.as_guest(conn,|game|game.ae2_bus_action(&mut session,data,slot,i32::from(p.button),input)));
         host.play.entry(conn).or_default().ae2_bus=Some(session);
         // Do not reset the client's pointer drag while it is being assembled.
         if input!=Input::QuickCraft || stage>=2 {self.lan_send_ae2_bus(host,conn);}
@@ -1092,7 +1092,7 @@ impl Game<'_> {
     }
     pub(super) fn lan_ae2_bus_closed(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         window: Option<i32>,
     ) -> bool {
@@ -1108,7 +1108,7 @@ impl Game<'_> {
         }
         true
     }
-    pub(super) fn lan_refresh_ae2_buses(&mut self, host: &mut LanHost) {
+    pub(super) fn lan_refresh_ae2_buses(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<_> = host
             .play
             .iter()
@@ -1222,7 +1222,7 @@ impl Game<'_> {
         }
         Some(items)
     }
-    fn lan_send_ae2_emitter(&mut self,host:&mut LanHost,conn:u32) {
+    fn lan_send_ae2_emitter(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((pos,face,window,edit))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref())
             .map(|s|(s.pos,s.face,s.window,s.emitter_edit.clone())) else{return};
         let Some(data)=self.bus_ui_read(pos,face) else{return};
@@ -1308,7 +1308,7 @@ impl Game<'_> {
     }
     /// The field shows what a step or a new filter left: text being typed
     /// stays as it is, valid or not, until then.
-    fn lan_ae2_emitter_echo(&mut self,host:&mut LanHost,conn:u32) {
+    fn lan_ae2_emitter_echo(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((pos,face,window))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref()).map(|s|(s.pos,s.face,s.window)) else{return};
         let Some(data)=self.bus_ui_read(pos,face) else{return};
         let Ok(state)=super::ae2_emitter::emitter_read(&data) else{return};
@@ -1320,25 +1320,25 @@ impl Game<'_> {
             Self::energy_payload(host,conn,window,token,"set",&text);
         }
     }
-    fn lan_ae2_emitter_click(&mut self,host:&mut LanHost,conn:u32,gi:usize,p:&play::ContainerClick,
+    fn lan_ae2_emitter_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,gi:usize,p:&play::ContainerClick,
         mut session:GuestBus,data:Compound)->bool {
         let Ok(state)=super::ae2_emitter::emitter_read(&data) else {
             host.play.entry(conn).or_default().ae2_bus=Some(session);
             self.lan_ae2_bus_closed(host,conn,None);host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:p.container}));return true;
         };
         let input=super::lan_crafting::input(p.input);let slot=usize::try_from(p.slot).ok();
-        if self.as_guest(host,conn,|game|game.ae2_emitter_config_action(&mut session,data.clone(),slot,i32::from(p.button),input)).unwrap_or(false) {
+        if host.back(self, |g| g.as_guest(conn,|game|game.ae2_emitter_config_action(&mut session,data.clone(),slot,i32::from(p.button),input))).unwrap_or(false) {
             host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_send_ae2_bus(host,conn);return true;
         }
         self.lan_ae2_emitter_physical(host,conn,gi,p,session,data,state)
     }
-    fn lan_ae2_emitter_physical(&mut self,host:&mut LanHost,conn:u32,gi:usize,p:&play::ContainerClick,
+    fn lan_ae2_emitter_physical(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,gi:usize,p:&play::ContainerClick,
         mut session:GuestBus,mut data:Compound,mut state:super::ae2_emitter::EmitterState)->bool {
         let input=super::lan_crafting::input(p.input);let before=host.hub.guests[gi].inventory.clone();let old_upgrades=state.upgrades.clone();
         let armor=host.hub.guests[gi].armor.clone();let offhand=host.hub.guests[gi].offhand.clone();let carried=host.hub.guests[gi].carried.clone();let random=self.world.random.clone();
-        let (result,effects)=self.guest_menu_op_deferred(host,gi,&mut session.menu,|menu,env|{
+        let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env|{
             menu.set_slot(env,36,state.upgrades[0].clone());menu.click(env,i32::from(p.slot),i32::from(p.button),input)?;Ok::<_,&'static str>(menu.slot(36).cloned())
-        });
+        }));
         let mut upgrade_changed=false;
         let committed=result.map_err(str::to_owned).and_then(|after|{
             if after!=state.upgrades[0] {
@@ -1352,7 +1352,7 @@ impl Game<'_> {
             for item in old_upgrades.iter().chain(state.upgrades.iter()).chain(g.inventory.iter()).chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten() {horizon_client::ae2_stack_identity::synchronize_tracked(item);}
             session.menu=emitter_menu();host.play.entry(conn).or_default().ae2_bus=Some(session);host.hub.send_inventory(gi);self.lan_send_ae2_bus(host,conn);return true;
         }
-        self.apply_guest_menu_effects(host,gi,effects);
+        host.back(self, |g| g.apply_guest_menu_effects(gi,effects));
         if upgrade_changed {self.emitter_ui_provider_changed(session.pos,session.face);}
         if input==Input::Swap {host.hub.send_inventory(gi);}
         if emitter_card(&state,"ae2:crafting_card") {session.emitter_edit=None;}
@@ -1382,7 +1382,7 @@ impl Game<'_> {
         }
         Some(items)
     }
-    fn lan_send_ae2_energy_emitter(&mut self,host:&mut LanHost,conn:u32) {
+    fn lan_send_ae2_energy_emitter(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((pos,face,window,edit))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref())
             .map(|s|(s.pos,s.face,s.window,s.emitter_edit.clone())) else{return};
         let Some(data)=self.bus_ui_read(pos,face) else{return};
@@ -1440,28 +1440,28 @@ impl Game<'_> {
         }
         (true,echo)
     }
-    fn lan_ae2_energy_emitter_click(&mut self,host:&mut LanHost,conn:u32,gi:usize,p:&play::ContainerClick,
+    fn lan_ae2_energy_emitter_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,gi:usize,p:&play::ContainerClick,
         mut session:GuestBus,data:Compound)->bool {
         if super::ae2_emitter::energy_emitter_read(&data).is_err() {
             host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_ae2_bus_closed(host,conn,None);
             host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:p.container}));return true;
         }
         let input=super::lan_crafting::input(p.input);let slot=usize::try_from(p.slot).ok();
-        let (handled,echo)=self.as_guest(host,conn,|game|game.ae2_energy_emitter_config_action(&mut session,data,slot,i32::from(p.button),input)).unwrap_or((true,None));
+        let (handled,echo)=host.back(self, |g| g.as_guest(conn,|game|game.ae2_energy_emitter_config_action(&mut session,data,slot,i32::from(p.button),input))).unwrap_or((true,None));
         if !handled {return self.lan_ae2_energy_emitter_player_click(host,conn,gi,p,session);}
         if let Some((token,text))=echo {Self::energy_payload(host,conn,session.window,token,"set",&text);}
         host.play.entry(conn).or_default().ae2_bus=Some(session);self.lan_send_ae2_bus(host,conn);true
     }
-    fn lan_ae2_energy_emitter_player_click(&mut self,host:&mut LanHost,conn:u32,gi:usize,p:&play::ContainerClick,mut session:GuestBus)->bool {
+    fn lan_ae2_energy_emitter_player_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,gi:usize,p:&play::ContainerClick,mut session:GuestBus)->bool {
         let input=super::lan_crafting::input(p.input);let before=host.hub.guests[gi].inventory.clone();
         let armor=host.hub.guests[gi].armor.clone();let offhand=host.hub.guests[gi].offhand.clone();let carried=host.hub.guests[gi].carried.clone();let random=self.world.random.clone();
-        let (result,effects)=self.guest_menu_op_deferred(host,gi,&mut session.menu,|menu,env|menu.click(env,i32::from(p.slot),i32::from(p.button),input));
+        let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env|menu.click(env,i32::from(p.slot),i32::from(p.button),input)));
         if result.is_err() {
             let g=&mut host.hub.guests[gi];g.inventory=before;g.armor=armor;g.offhand=offhand;g.carried=carried;self.world.random=random;
             for item in g.inventory.iter().chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten() {horizon_client::ae2_stack_identity::synchronize_tracked(item);}
             session.menu=Menu::new(Kind::Chest(6));host.play.entry(conn).or_default().ae2_bus=Some(session);host.hub.send_inventory(gi);self.lan_send_ae2_bus(host,conn);return true;
         }
-        self.apply_guest_menu_effects(host,gi,effects);if input==Input::Swap {host.hub.send_inventory(gi);}
+        host.back(self, |g| g.apply_guest_menu_effects(gi,effects));if input==Input::Swap {host.hub.send_inventory(gi);}
         let stage=i32::from(p.button)&3;host.play.entry(conn).or_default().ae2_bus=Some(session);
         if input!=Input::QuickCraft || stage>=2 {self.lan_send_ae2_bus(host,conn);}true
     }
@@ -1498,12 +1498,12 @@ fn reset_energy_edit(session:&mut GuestBus,data:&Compound)->Option<(u64,String)>
     edit.text=text;Some((edit.token,edit.text.clone()))
 }
 impl Game<'_> {
-    fn energy_payload(host:&mut LanHost,conn:u32,window:i32,token:u64,mode:&str,text:&str) {
+    fn energy_payload(host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:i32,token:u64,mode:&str,text:&str) {
         if let Ok(data)=serde_json::to_vec(&serde_json::json!({"window":window,"token":token,"mode":mode,"value":text})) {
             host.hub.send_to(conn,&C::CustomPayload(horizon_protocol::packets::configuration::CustomPayload{channel:"ae2:energy_editor".into(),data}));
         }
     }
-    pub(super) fn lan_ae2_energy_text(&mut self,host:&mut LanHost,conn:u32,value:&str)->bool {
+    pub(super) fn lan_ae2_energy_text(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,value:&str)->bool {
         if !value.starts_with(ENERGY_TEXT_PREFIX){return false;}
         let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn) else{return true};
         let Some(mut session)=host.play.get_mut(&conn).and_then(|p|p.ae2_bus.take()) else{return true};

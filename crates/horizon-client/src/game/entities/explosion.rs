@@ -1853,10 +1853,9 @@ impl Game<'_> {
         }).collect();
         for i in paintings.into_iter().rev(){self.break_painting(i,false);}
         self.ae2_tiny_tnt_hurt_player(center,owner);
-        if let Some(mut host)=self.lan.take() {
+        if let Some(host)=self.lan.as_ref() {
             let guests:Vec<u32>=host.hub.guests.iter().filter(|g|host.hub.here(g)&&g.loaded&&!g.dead).map(|g|g.conn).collect();
-            for conn in guests { self.guest_hit_by(&mut host,conn,|g|g.ae2_tiny_tnt_hurt_player(center,owner)); }
-            self.lan=Some(host);
+            for conn in guests { self.guest_hit_by(conn,|g|g.ae2_tiny_tnt_hurt_player(center,owner)); }
         }
         if horizon_client::ae2_common_config::damage().tiny_tnt {
         let y=center[1]-0.25;

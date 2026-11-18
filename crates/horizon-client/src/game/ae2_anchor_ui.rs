@@ -7,20 +7,20 @@ use horizon_world::nbt::Tag;
 
 pub(super) struct GuestAnchor { window:i32, state:i32, pos:(i32,i32,i32), dim:String, incarnation:u64, refresh:u8 }
 impl Game<'_> {
-    pub(super) fn lan_open_ae2_anchor(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32))->bool {
+    pub(super) fn lan_open_ae2_anchor(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32))->bool {
         if !matches!(self.world.block_entities.get(&pos),Some(BlockEntity::Ae2(m)) if m.kind==MachineKind::SpatialAnchor) {return false;}
         let Some(incarnation)=self.world.block_entities.incarnation(&pos) else{return false;};
         self.lan_ae2_anchor_closed(host,conn,None);
         self.lan_ae2_terminal_closed(host,conn,None);self.lan_ae2_machine_closed(host,conn,None);
         self.lan_ae2_bus_closed(host,conn,None);self.lan_ae2_portable_closed(host,conn,None);
         self.lan_ae2_network_tool_closed(host,conn,None);self.lan_craft_confirm_closed(host,conn,None);
-        self.lan_pattern_access_closed(host,conn,None);self.lan_station_closed(host,conn,None);
-        self.lan_crafting_closed(host,conn,None);self.guest_container_closed(host,conn);
+        self.lan_pattern_access_closed(host,conn,None);host.back(self, |g| g.lan_station_closed(conn,None));
+        host.back(self, |g| g.lan_crafting_closed(conn,None));host.back(self, |g| g.guest_container_closed(conn));
         let Some(window)=host.hub.open_window(conn,"minecraft:generic_9x3",horizon_protocol::text::literal("AE2 Spatial Anchor")) else{return true;};
         host.play.entry(conn).or_default().ae2_anchor=Some(GuestAnchor{window,state:0,pos,dim:self.dim.id().into(),incarnation,refresh:0});
         self.lan_send_ae2_anchor(host,conn);true
     }
-    fn lan_send_ae2_anchor(&mut self,host:&mut LanHost,conn:u32) {
+    fn lan_send_ae2_anchor(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some((pos,window,state))=host.play.get(&conn).and_then(|p|p.ae2_anchor.as_ref()).map(|s|(s.pos,s.window,s.state)) else{return;};
         let snapshot=self.ae2_local_address(pos).and_then(|a|self.ae2_anchor_snapshot(a));
         let view=snapshot.as_ref().map(|s|super::ae2_status_screens::AnchorView{
@@ -42,7 +42,7 @@ impl Game<'_> {
         let items=items.iter().map(|i|host.hub.stack(i)).collect();let carried=host.hub.stack(&carried);
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state,items,carried}));
     }
-    pub(super) fn lan_ae2_anchor_click(&mut self,host:&mut LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    pub(super) fn lan_ae2_anchor_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,p:&play::ContainerClick)->bool {
         let Some((pos,window,dim,incarnation))=host.play.get(&conn).and_then(|p|p.ae2_anchor.as_ref()).map(|s|(s.pos,s.window,s.dim.clone(),s.incarnation)) else{return false;};
         if p.container!=window{return false;}
         let valid=dim==self.dim.id() && self.world.block_entities.incarnation(&pos)==Some(incarnation) && host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g)).is_some_and(|g|!g.spectator() && g.within_block_range([pos.0,pos.1,pos.2],4.0));
@@ -54,11 +54,11 @@ impl Game<'_> {
         }
         self.lan_send_ae2_anchor(host,conn);true
     }
-    pub(super) fn lan_ae2_anchor_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
+    pub(super) fn lan_ae2_anchor_closed(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:Option<i32>)->bool {
         let Some(_)=host.play.get_mut(&conn).and_then(|p|p.ae2_anchor.take_if(|s|window.is_none_or(|w|w==s.window))) else{return false;};
         if let Some(i)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,i);}true
     }
-    pub(super) fn lan_refresh_ae2_anchors(&mut self,host:&mut LanHost) {
+    pub(super) fn lan_refresh_ae2_anchors(&mut self,host:&mut crate::game::lan_host_turn::HostTurn) {
         let viewers:Vec<_>=host.play.iter().filter_map(|(&c,p)|p.ae2_anchor.as_ref().map(|s|(c,s.pos,s.dim.clone(),s.incarnation,s.window))).collect();
         for (conn,pos,dim,incarnation,window) in viewers {
             let Some(g)=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g)) else{continue;};

@@ -283,7 +283,7 @@ impl Game<'_> {
     fn ae2_local_craft_calculating(&self)->bool {
         self.ae2_local_craft.as_ref().is_some_and(|s|s.session.dimension==self.dim.id() && s.session.calculation.is_some())
     }
-    fn ae2_guest_craft_calculations(&self,host:&LanHost)->usize {
+    fn ae2_guest_craft_calculations(&self,host:&crate::game::lan_host_turn::HostTurn)->usize {
         host.play.iter().filter(|(conn,p)|host.hub.guests.iter().any(|g|g.conn==**conn && host.hub.here(g))
             && p.ae2_craft_confirm.as_ref().is_some_and(|s|s.dimension==self.dim.id() && s.calculation.is_some())).count()
     }
@@ -320,17 +320,17 @@ impl Game<'_> {
         }
         self.ae2_local_craft_refresh();
     }
-    pub(super) fn lan_open_monitor_craft(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),face:&str)->bool {
+    pub(super) fn lan_open_monitor_craft(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32),face:&str)->bool {
         let Some(key)=self.ae2_monitor_craft_target(pos,face) else {return false;};
         self.lan_open_craft_confirm(host,conn,pos,key,false,CraftOrigin::Monitor(face.to_owned()))
     }
     pub(super) fn lan_open_terminal_craft_confirm(
-        &mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),key:ItemKey,
+        &mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32),key:ItemKey,
         fluid:bool,part:Option<super::ae2_parts::PartAddress>,wireless:Option<super::ae2_wireless::WirelessContext>,
     )->bool {
         self.lan_open_craft_confirm(host,conn,pos,key,fluid,CraftOrigin::Terminal{part,wireless})
     }
-    pub(super) fn lan_open_cpu_craft_status(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32))->bool {
+    pub(super) fn lan_open_cpu_craft_status(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32))->bool {
         let Some(cpu)=self.ae2_cpu_cluster_owner(pos) else{return false;};
         let Some((dim,core))=self.ae2_address_parts(cpu) else{return false;};
         if dim!=self.dim {return false;}
@@ -349,7 +349,7 @@ impl Game<'_> {
     /// An addon's crafting CPU of many jobs at `pos` (Advanced AE's Quantum
     /// Computer): its status screen, the first job's CPU selected
     /// (`QuantumComputerMenu.broadcastChanges`), else its free block.
-    pub(super) fn lan_open_quantum_craft_status(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32))->bool {
+    pub(super) fn lan_open_quantum_craft_status(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32))->bool {
         let Some(cpus)=self.ae2x_cluster_cpus(pos) else{return false;};
         let Some(clicked_incarnation)=self.world.block_entities.incarnation(&pos) else{return false;};
         let Some(guest)=host.hub.guests.iter().find(|g|g.conn==conn && host.hub.here(g)) else{return false;};
@@ -362,10 +362,10 @@ impl Game<'_> {
         if let Some(session)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.as_mut()) {session.window=window;session.state=0;session.status_mode=true;session.status_cpu=cpu;session.status_job=identity;}
         self.lan_send_craft_confirm(host,conn);true
     }
-    pub(super) fn lan_open_terminal_craft_status(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),cpu:Option<super::ae2_global::GridAddress>,part:Option<super::ae2_parts::PartAddress>,wireless:Option<super::ae2_wireless::WirelessContext>,owner:Option<(super::ae2_parts::PartAddress,(u64,[i32;4]))>)->bool {
+    pub(super) fn lan_open_terminal_craft_status(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32),cpu:Option<super::ae2_global::GridAddress>,part:Option<super::ae2_parts::PartAddress>,wireless:Option<super::ae2_wireless::WirelessContext>,owner:Option<(super::ae2_parts::PartAddress,(u64,[i32;4]))>)->bool {
         let job_id=cpu.and_then(|address|self.ae2_recursive_job_identity(address));
         if cpu.is_some_and(|address|job_id.is_none() && self.ae2_recursive_jobs(pos).iter().any(|job|job.0==address)) {
-            let _=self.as_guest(host,conn,|g|g.system_message(horizon_client::text::Text::literal("Crafting job identity is not ready")));return true;
+            let _=host.back(self, |g| g.as_guest(conn,|g|g.system_message(horizon_client::text::Text::literal("Crafting job identity is not ready"))));return true;
         }
         let key=ItemKey{item_id:"minecraft:air".into(),components:vec![]};
         if !self.lan_open_craft_confirm(host,conn,pos,key,false,CraftOrigin::Terminal{part,wireless}) {return false;}
@@ -373,16 +373,16 @@ impl Game<'_> {
         if let Some(session)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.as_mut()) {session.window=window;session.state=0;session.status_mode=true;session.status_cpu=cpu;session.status_job=job_id;session.status_owner=owner;}
         self.lan_send_craft_confirm(host,conn);true
     }
-    fn lan_open_craft_confirm(&mut self,host:&mut LanHost,conn:u32,pos:(i32,i32,i32),key:ItemKey,fluid:bool,origin:CraftOrigin)->bool {
+    fn lan_open_craft_confirm(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,pos:(i32,i32,i32),key:ItemKey,fluid:bool,origin:CraftOrigin)->bool {
         self.lan_pattern_access_closed(host,conn,None);
         self.lan_ae2_network_tool_closed(host,conn,None);self.lan_ae2_anchor_closed(host,conn,None);
         self.lan_ae2_portable_closed(host,conn,None);
         self.lan_ae2_bus_closed(host,conn,None);
         self.lan_ae2_terminal_closed(host,conn,None);
         self.lan_ae2_machine_closed(host,conn,None);
-        self.lan_station_closed(host,conn,None);
-        self.lan_crafting_closed(host,conn,None);
-        self.guest_container_closed(host,conn);
+        host.back(self, |g| g.lan_station_closed(conn,None));
+        host.back(self, |g| g.lan_crafting_closed(conn,None));
+        host.back(self, |g| g.guest_container_closed(conn));
         let Some(window)=host.hub.open_window(conn,"minecraft:generic_9x3",horizon_protocol::text::literal("AE2 Craft Amount")) else {return true;};
         host.play.entry(conn).or_default().ae2_craft_confirm=Some(GuestCraftConfirm {
             window,state:0,pos,origin,dimension:self.dim.id().to_owned(),key,fluid,amount:if fluid {1000} else {1},craft_missing:false,confirmation:false,cpu:None,report_page:0,calculation:None,snapshot:None,report:None,status_mode:false,status_cpu:None,status_job:None,status_versions:std::collections::VecDeque::new(),status_owner:None,auto_start:false,
@@ -504,7 +504,7 @@ impl Game<'_> {
     }
     /// `returnToMainMenu`: back to the terminal the screen came from; the
     /// window closes for anything else.
-    fn lan_craft_back(&mut self,host:&mut LanHost,conn:u32,s:GuestCraftConfirm) {
+    fn lan_craft_back(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,s:GuestCraftConfirm) {
         use horizon_client::ae2_world::MachineKind;
         let opened=match s.origin {
             CraftOrigin::Terminal{wireless:Some(ctx),..}=>self.lan_open_ae2_wireless_terminal(host,conn,s.pos,ctx),
@@ -520,24 +520,24 @@ impl Game<'_> {
         if !opened {host.hub.send_to(conn,&C::ContainerClose(play::ContainerClose{container:s.window}));}
     }
     /// Starts a finished plan with nothing missing; true once the job runs.
-    fn lan_craft_submit(&mut self,host:&mut LanHost,conn:u32,s:&GuestCraftConfirm)->bool {
+    fn lan_craft_submit(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,s:&GuestCraftConfirm)->bool {
         let (Some(registry),Some(Ok((plan,missing))))=(&s.snapshot,&s.report) else{return false;};
         if plan.simulated || !missing.is_empty() || (plan.steps.is_empty() && plan.emitted.is_empty()) {return false;}
         let power=match &s.origin {CraftOrigin::Terminal{wireless:Some(ctx),..}=>Some(ctx.source),_=>None};
         let owner=host.hub.guests.iter().find(|guest|guest.conn==conn).map(|guest|guest.uuid);
         let result=if let Some(owner)=owner {
-            self.as_guest(host,conn,|game|{
+            host.back(self, |g| g.as_guest(conn,|game|{
                 let old=game.ae2_wireless_power;game.ae2_wireless_power=power;
                 let result=game.ae2_begin_player_craft(s.pos,&s.key,s.fluid,s.amount,s.cpu,owner,registry,plan);
                 game.ae2_wireless_power=old;result
-            }).unwrap_or_else(||Err("player unavailable".into()))
+            })).unwrap_or_else(||Err("player unavailable".into()))
         } else {Err("player unavailable".into())};
         match result {
             Ok(_)=>true,
-            Err(error)=>{let _=self.as_guest(host,conn,|g|g.system_message(horizon_client::text::Text::literal(error)));false},
+            Err(error)=>{let _=host.back(self, |g| g.as_guest(conn,|g|g.system_message(horizon_client::text::Text::literal(error))));false},
         }
     }
-    fn lan_send_craft_confirm(&mut self,host:&mut LanHost,conn:u32) {
+    fn lan_send_craft_confirm(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
         let Some(s)=host.play.get(&conn).and_then(|p|p.ae2_craft_confirm.as_ref()) else{return;};
         let (window,state,status_cpu)=(s.window,s.state,s.status_cpu);
         let (mut items,page)=self.ae2_craft_confirm_items(s);
@@ -564,7 +564,7 @@ impl Game<'_> {
         host.hub.send_to(conn,&C::ContainerSetContent(play::ContainerSetContent{container:window,state:next_state,items:wire_items,carried:wire_carried}));
         host.hub.inventory_told_by(conn,&items);
     }
-    pub(super) fn lan_craft_confirm_amount(&mut self,host:&mut LanHost,conn:u32,value:&str)->bool {
+    pub(super) fn lan_craft_confirm_amount(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,value:&str)->bool {
         let Some(s)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.as_mut()) else{return false;};
         if !s.confirmation {
             // Invalid or empty text cannot silently become an executable job.
@@ -575,7 +575,7 @@ impl Game<'_> {
         }
         true
     }
-    pub(super) fn lan_craft_confirm_click(&mut self,host:&mut LanHost,conn:u32,p:&play::ContainerClick)->bool {
+    pub(super) fn lan_craft_confirm_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,p:&play::ContainerClick)->bool {
         let Some(mut s)=host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.take()) else{return false;};
         if p.container!=s.window {host.play.entry(conn).or_default().ae2_craft_confirm=Some(s);return false;}
         if let CraftOrigin::Terminal{wireless:Some(ctx),..}=&s.origin {
@@ -733,12 +733,12 @@ impl Game<'_> {
         self.lan_send_craft_confirm(host,conn);
         true
     }
-    pub(super) fn lan_craft_confirm_closed(&mut self,host:&mut LanHost,conn:u32,window:Option<i32>)->bool {
+    pub(super) fn lan_craft_confirm_closed(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,window:Option<i32>)->bool {
         if host.play.get_mut(&conn).and_then(|p|p.ae2_craft_confirm.take_if(|s|window.is_none_or(|w|w==s.window))).is_none(){return false;}
         // CraftConfirmMenu's content told the inventory too (AbstractContainerMenu.removed, transferState).
         if let Some(gi)=host.hub.guests.iter().position(|g|g.conn==conn){self.guest_told_window_closed(host,gi);}true
     }
-    pub(super) fn lan_refresh_craft_confirms(&mut self,host:&mut LanHost) {
+    pub(super) fn lan_refresh_craft_confirms(&mut self,host:&mut crate::game::lan_host_turn::HostTurn) {
         let conns:Vec<_>=host.play.iter().filter_map(|(&conn,p)|p.ae2_craft_confirm.as_ref().map(|_|conn)).collect();
         // TickHandler divides the total signed Java-int budget between all
         // calculations for this level, with a minimum one-microsecond slice.

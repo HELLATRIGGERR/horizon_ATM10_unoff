@@ -186,11 +186,11 @@ fn access_point_signal(card: Option<&AccessPointCard>, range: f64, same_level: b
 impl Game<'_> {
     /// The open menu's link: its anchor for the menu code, a position of the
     /// level in place or a node of another level (`ae2_anchor`).
-    pub(super) fn ae2_wireless_nearest(&self, host: &LanHost, conn: u32, ctx: &WirelessContext) -> Option<Pos> {
+    pub(super) fn ae2_wireless_nearest(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &WirelessContext) -> Option<Pos> {
         self.ae2_wireless_link(host, conn, ctx).map(|reach| self.ae2_anchor(reach.node))
     }
     /// The open menu's item, still at its source, and how it reaches its grid.
-    fn ae2_wireless_link(&self, host: &LanHost, conn: u32, ctx: &WirelessContext) -> Option<Reach> {
+    fn ae2_wireless_link(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &WirelessContext) -> Option<Reach> {
         if !self.ae2_wireless_source_valid(host, conn, ctx) {
             return None;
         }
@@ -199,7 +199,7 @@ impl Game<'_> {
     }
     /// `updateConnectedAccessPoint` for a wireless item a guest of the level
     /// in place carries.
-    pub(super) fn ae2_wireless_reach(&self, host: &LanHost, conn: u32, stack: &ItemStack) -> Option<Reach> {
+    pub(super) fn ae2_wireless_reach(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, stack: &ItemStack) -> Option<Reach> {
         let guest = host
             .hub
             .guests
@@ -262,7 +262,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_wireless_source_valid(
         &self,
-        host: &LanHost,
+        host: &crate::game::lan_host_turn::HostTurn,
         conn: u32,
         ctx: &WirelessContext,
     ) -> bool {
@@ -290,7 +290,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_wireless_validate(
         &self,
-        host: &LanHost,
+        host: &crate::game::lan_host_turn::HostTurn,
         conn: u32,
         ctx: &WirelessContext,
     ) -> bool {
@@ -319,7 +319,7 @@ impl Game<'_> {
     /// reaches its grid (linked, in range, and powered unless the guest is
     /// creative or the link costs nothing).
     #[cfg_attr(not(feature = "ae2-ae2wtlib"), allow(dead_code))]
-    pub(super) fn ae2_wireless_item_link(&self, host: &LanHost, conn: u32, stack: &ItemStack) -> Option<Reach> {
+    pub(super) fn ae2_wireless_item_link(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, stack: &ItemStack) -> Option<Reach> {
         let reach = self.ae2_wireless_reach(host, conn, stack)?;
         let free = reach.drain <= 0.0 || host.hub.guests.iter().any(|g| g.conn == conn && g.creative());
         (free || energy(stack).is_ok_and(|(power, _)| power > 0.0)).then_some(reach)
@@ -330,7 +330,7 @@ impl Game<'_> {
     /// AE2WTLib's link recharges the item).
     pub(super) fn ae2_wireless_tick(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         ctx: &mut WirelessContext,
     ) -> bool {
@@ -346,7 +346,7 @@ impl Game<'_> {
     }
     /// `ItemMenuHost.consumeIdlePower(MODULATE)` at `drain` AE a tick: ten
     /// ticks paid at once from the item's battery.
-    fn ae2_wireless_drain(&mut self, host: &mut LanHost, conn: u32, ctx: &mut WirelessContext, drain: f64) -> bool {
+    fn ae2_wireless_drain(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &mut WirelessContext, drain: f64) -> bool {
         if host
             .hub
             .guests
@@ -379,7 +379,7 @@ impl Game<'_> {
 impl Game<'_> {
     pub(super) fn lan_open_ae2_wireless(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         hand: i32,
     ) -> bool {
@@ -400,7 +400,7 @@ impl Game<'_> {
     /// inventory and offhand. Never temporarily change the selected hotbar.
     pub(super) fn lan_open_ae2_wireless_source(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         conn: u32,
         source: usize,
     ) -> bool {
@@ -420,17 +420,17 @@ impl Game<'_> {
         };
         // ItemWUT.use: a universal terminal that holds no terminal says so.
         let Some(terminal) = wireless::terminal(stack) else {
-            self.as_guest(host, conn, |g| {
+            host.back(self, |g| g.as_guest(conn, |g| {
                 g.system_message(horizon_client::text::Text::translate("gui.ae2wtlib.terminal_empty", &[]))
-            });
+            }));
             return true;
         };
         let Some((target_dim, target)) = target(stack) else {
-            self.as_guest(host, conn, |g| {
+            host.back(self, |g| g.as_guest(conn, |g| {
                 g.system_message(horizon_client::text::Text::literal(
                     "Wireless terminal is not linked",
                 ))
-            });
+            }));
             return true;
         };
         let Some(guest) = host.hub.guests.iter_mut().find(|g| g.conn == conn) else { return false; };
@@ -459,11 +459,11 @@ impl Game<'_> {
             self.ae2x_wireless_recharge(host, conn, source, reach.node);
         }
         if !self.ae2_wireless_validate(host, conn, &ctx) {
-            self.as_guest(host, conn, |g| {
+            host.back(self, |g| g.as_guest(conn, |g| {
                 g.system_message(horizon_client::text::Text::literal(
                     "Wireless terminal: network out of range or battery empty",
                 ))
-            });
+            }));
             return true;
         }
         let Some(anchor) = self.ae2_wireless_nearest(host, conn, &ctx) else {
@@ -498,14 +498,14 @@ pub(super) fn universal_view(stack: &ItemStack) -> Option<serde_json::Value> {
     Some(serde_json::json!({"current": current.name, "terminals": terminals}))
 }
 impl Game<'_> {
-    pub(super) fn lan_wireless_universal_view(&self, host: &LanHost, conn: u32, ctx: &WirelessContext) -> Option<serde_json::Value> {
+    pub(super) fn lan_wireless_universal_view(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &WirelessContext) -> Option<serde_json::Value> {
         let g = host.hub.guests.iter().find(|g| g.conn == conn)?;
         universal_view(source_stack(g, ctx.source)?)
     }
     /// The open wireless menu's item slot (an `AEBaseMenu` on an
     /// `ItemMenuHostLocator`): a terminal's, a Pattern Access one's or an
     /// addon's.
-    pub(super) fn lan_wireless_menu_source(&self, host: &LanHost, conn: u32) -> Option<usize> {
+    pub(super) fn lan_wireless_menu_source(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<usize> {
         host.play.get(&conn).and_then(|p| p.ae2_terminal.as_ref()).and_then(|t| t.wireless_source())
             .or_else(|| self.lan_wireless_pattern_access_source(host, conn))
             .or_else(|| self.lan_ae2x_wireless_source(conn))

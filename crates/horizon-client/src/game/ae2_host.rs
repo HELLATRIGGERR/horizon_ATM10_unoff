@@ -317,7 +317,7 @@ impl Game<'_> {
     /// A LAN guest's custom payload on the addon `id`'s channel, which acts on the stack in the
     /// guest's selected slot (`Ae2Addon::lan_main_hand_payload`); the guest's inventory is sent
     /// again when it changed it. False when the addon is not built in.
-    pub(super) fn ae2_addon_lan_main_hand_payload(&self, id: &str, host: &mut LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
+    pub(super) fn ae2_addon_lan_main_hand_payload(&self, id: &str, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, channel: &str, data: &[u8]) -> bool {
         let Some(ext) = self.ae2_ext.get() else { return false };
         let Some(addon) = ext.addon(id) else { return false };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return true };

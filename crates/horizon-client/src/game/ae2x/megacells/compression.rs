@@ -173,7 +173,7 @@ impl Game<'_> {
 
     /// `SyncCompressionChainsPacket` to each client that does not have the
     /// server's current chains: on joining, and after a reload.
-    pub(in crate::game) fn lan_megacells_sync_chains(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_megacells_sync_chains(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let chains = self.megacells_chains();
         let generation = self.ae2x.megacells.compression.built.get();
         let conns: Vec<u32> = host.hub.guests.iter().map(|g| g.conn).collect();

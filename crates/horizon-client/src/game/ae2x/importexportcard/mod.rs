@@ -98,7 +98,7 @@ impl Game<'_> {
     /// inventory, the armour, the off hand) for a guest: each wireless
     /// terminal's cards. A universal terminal ticks once for each terminal it
     /// holds (`ItemWUT.inventoryTick` calls each one's).
-    pub(in crate::game) fn lan_iecard_tick(&mut self, host: &mut LanHost, gi: usize) {
+    pub(in crate::game) fn lan_iecard_tick(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize) {
         if self.remote.is_some() {
             return;
         }
@@ -128,7 +128,7 @@ impl Game<'_> {
 
     /// `tickEquippedTerminal`: a terminal in range of an active access point
     /// of its grid (`getActionableNode`), each of its Import and Export Cards.
-    fn lan_iecard_tick_terminal(&mut self, host: &mut LanHost, gi: usize, source: usize, ticker: &str) -> bool {
+    fn lan_iecard_tick_terminal(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, source: usize, ticker: &str) -> bool {
         let Some(g) = host.hub.guests.get(gi) else { return false };
         let conn = g.conn;
         let Some(stack) = ae2_wireless::source_stack(g, source).filter(|s| wireless::host(s)).cloned() else { return false };
@@ -147,7 +147,7 @@ impl Game<'_> {
     /// `tickUpgradeCard`: the card's filter (18 slots and 9 a Capacity Card),
     /// its Fuzzy and Inverter Cards, over each inventory slot it has on.
     #[allow(clippy::too_many_arguments)]
-    fn lan_iecard_tick_card(&mut self, host: &mut LanHost, gi: usize, source: usize, ticker: &str, address: GridAddress, ty: CardType, card: &ItemStack) -> bool {
+    fn lan_iecard_tick_card(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, source: usize, ticker: &str, address: GridAddress, ty: CardType, card: &ItemStack) -> bool {
         let selected = iec::selected_slots(card);
         let upgrades = iec::card_upgrades(card, ty);
         let filter = iec::filter(card, iec::filter_slot_count(&upgrades));
@@ -173,7 +173,7 @@ impl Game<'_> {
     /// the stack itself (`importItem`), each when the filter passes it, as
     /// much as the network takes on its grid's power.
     #[allow(clippy::too_many_arguments)]
-    fn lan_iecard_import(&mut self, host: &mut LanHost, gi: usize, index: usize, address: GridAddress, filter: &[Option<GenericStack>], fuzzy: bool, invert: bool, mode: FuzzyMode) -> bool {
+    fn lan_iecard_import(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, index: usize, address: GridAddress, filter: &[Option<GenericStack>], fuzzy: bool, invert: bool, mode: FuzzyMode) -> bool {
         let Some(item) = host.hub.guests.get(gi).and_then(|g| slot(g, index)).cloned().flatten().filter(|s| s.count > 0) else { return false };
         // FluidBucketWrapper: a lone bucket drains whole or not at all.
         if let Some(fluid) = bucket_fluid(&item.item).filter(|_| item.count == 1 && crate::game::ae2_fluids::plain_bucket(&item)) {
@@ -212,7 +212,7 @@ impl Game<'_> {
     #[allow(clippy::too_many_arguments)]
     fn lan_iecard_export(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         gi: usize,
         index: usize,
         source: usize,
@@ -267,7 +267,7 @@ impl Game<'_> {
     #[allow(clippy::too_many_arguments)]
     fn lan_iecard_export_item(
         &mut self,
-        host: &mut LanHost,
+        host: &mut crate::game::lan_host_turn::HostTurn,
         gi: usize,
         index: usize,
         ticker: &str,
@@ -324,7 +324,7 @@ impl Game<'_> {
     /// (`FluidBucketWrapper.fill`): a bucket of a fluid that has one, from
     /// what the network has of the 1 (or with the Acceleration Card 64)
     /// buckets asked for. Fluids ask no Crafting Card.
-    fn lan_iecard_export_fluid(&mut self, host: &mut LanHost, gi: usize, index: usize, address: GridAddress, key: &GenericStack, speed: bool) -> bool {
+    fn lan_iecard_export_fluid(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, index: usize, address: GridAddress, key: &GenericStack, speed: bool) -> bool {
         let Some(bucket) = fluid_bucket(&key.key.item_id).filter(|_| key.key.components.is_empty()) else { return false };
         let empty = host.hub.guests.get(gi).and_then(|g| slot(g, index)).cloned().flatten();
         if !empty.is_some_and(|s| s.count == 1 && s.item.as_ref() == "minecraft:bucket" && crate::game::ae2_fluids::plain_bucket(&s)) {
@@ -418,14 +418,14 @@ impl Game<'_> {
 
     /// The open wireless terminal's item slot, for a screen of `MEStorageScreen`
     /// (the ME, crafting and pattern encoding terminals).
-    fn lan_iecard_source(&self, host: &LanHost, conn: u32) -> Option<usize> {
+    fn lan_iecard_source(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<usize> {
         host.play.get(&conn).and_then(|p| p.ae2_terminal.as_ref()).and_then(|t| t.wireless_source())
     }
 
     /// `MEStorageScreenMixin` and `UpgradeHost` as the client reads them: the
     /// Import and Export Cards' filters, selections, cards and fuzzy mode,
     /// and the Block Picker's amount, for the cards the terminal holds.
-    pub(in crate::game) fn lan_iecard_wireless_view(&self, host: &LanHost, conn: u32, ctx: &ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
+    pub(in crate::game) fn lan_iecard_wireless_view(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
         if !matches!(ctx.kind, TerminalKind::Me | TerminalKind::Crafting | TerminalKind::PatternEncoding) {
             return None;
         }
@@ -456,7 +456,7 @@ impl Game<'_> {
     }
 
     /// A card screen's action on the open terminal's card.
-    pub(in crate::game) fn lan_iecard_payload(&mut self, host: &mut LanHost, conn: u32, data: &[u8]) {
+    pub(in crate::game) fn lan_iecard_payload(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, data: &[u8]) {
         let Some(source) = self.lan_iecard_source(host, conn) else { return };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return };
         // SET_BLOCK_PICKER_AMOUNT: the amount (an int).
@@ -512,7 +512,7 @@ impl Game<'_> {
 
     /// The terminal's card of `ty` changed, and its selections past the
     /// active filter slots cleared (`onUpgradesChanged` on the Export Card).
-    fn iecard_edit_card(&mut self, host: &mut LanHost, gi: usize, source: usize, ty: CardType, edit: impl Fn(&mut ItemStack)) -> bool {
+    fn iecard_edit_card(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, source: usize, ty: CardType, edit: impl Fn(&mut ItemStack)) -> bool {
         let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], source).filter(|s| wireless::host(s)) else { return false };
         iec::edit_card(stack, ty.card(), |card| {
             edit(card);
@@ -529,7 +529,7 @@ impl Game<'_> {
     /// The card's own slot `index` pressed (`RestrictedInputSlot` of its
     /// upgrades): an empty cursor takes its card, a card that fits goes in
     /// (an occupied slot swaps).
-    fn lan_iecard_upgrade_slot(&mut self, host: &mut LanHost, gi: usize, source: usize, ty: CardType, index: usize, _right: bool) -> bool {
+    fn lan_iecard_upgrade_slot(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, source: usize, ty: CardType, index: usize, _right: bool) -> bool {
         let Some(card) = ae2_wireless::source_stack(&host.hub.guests[gi], source).and_then(|s| iec::find_card(s, ty.card())) else { return false };
         let mut upgrades = iec::card_upgrades(&card, ty);
         if index >= upgrades.len() {
@@ -569,7 +569,7 @@ impl Game<'_> {
     /// `AEBaseMenu.quickMoveStack` from an inventory slot: into the card's
     /// slots when it is a card they take, else (no destination) into the
     /// first empty filter slot unless the filter has it.
-    fn lan_iecard_quick_move(&mut self, host: &mut LanHost, gi: usize, source: usize, ty: CardType, index: usize) -> bool {
+    fn lan_iecard_quick_move(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, source: usize, ty: CardType, index: usize) -> bool {
         let Some(stack) = host.hub.guests.get(gi).and_then(|g| slot(g, index)).cloned().flatten().filter(|s| s.count > 0) else { return false };
         let Some(card) = ae2_wireless::source_stack(&host.hub.guests[gi], source).and_then(|s| iec::find_card(s, ty.card())) else { return false };
         let mut upgrades = iec::card_upgrades(&card, ty);

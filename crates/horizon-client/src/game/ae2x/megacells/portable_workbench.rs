@@ -107,7 +107,7 @@ impl Game<'_> {
 
     /// `PortableCellWorkbenchItem.use`: on the server, the menu of the
     /// workbench in hand `hand` (0 main, 1 off), whether the player sneaks or not.
-    pub(in crate::game) fn lan_open_portable_workbench(&mut self, host: &mut LanHost, conn: u32, hand: i32) -> bool {
+    pub(in crate::game) fn lan_open_portable_workbench(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         let Some(guest) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return false };
         let source = if hand == 1 { OFFHAND_SLOT } else { guest.selected };
         let Some(snapshot) = self
@@ -124,9 +124,9 @@ impl Game<'_> {
         self.lan_pattern_access_closed(host, conn, None);
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_ae2_machine_closed(host, conn, None);
-        self.lan_station_closed(host, conn, None);
-        self.lan_crafting_closed(host, conn, None);
-        self.guest_container_closed(host, conn);
+        host.back(self, |g| g.lan_station_closed(conn, None));
+        host.back(self, |g| g.lan_crafting_closed(conn, None));
+        host.back(self, |g| g.guest_container_closed(conn));
         self.lan_portable_workbench_closed(host, conn, None);
         // The window has no block: the screen goes by the item.
         host.hub.send_to(conn, &C::CustomPayload(CustomPayload { channel: "ae2:menu_block".into(), data: PORTABLE_CELL_WORKBENCH.as_bytes().to_vec() }));
@@ -141,7 +141,7 @@ impl Game<'_> {
         true
     }
 
-    pub(in crate::game) fn lan_portable_workbench_closed(&mut self, host: &mut LanHost, conn: u32, window: Option<i32>) -> bool {
+    pub(in crate::game) fn lan_portable_workbench_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: Option<i32>) -> bool {
         let open = self.ae2x.megacells.workbenches.get(&conn).is_some_and(|s| window.is_none_or(|w| w == s.window));
         if !open {
             return false;
@@ -155,7 +155,7 @@ impl Game<'_> {
 
     /// Whether the player's window is still this menu's: one who opened
     /// another (or left) has no menu here any more, and loses nothing to it.
-    fn lan_portable_workbench_current(&mut self, host: &LanHost, conn: u32) -> bool {
+    fn lan_portable_workbench_current(&mut self, host: &crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let Some(window) = self.ae2x.megacells.workbenches.get(&conn).map(|s| s.window) else { return false };
         if host.hub.guests.iter().any(|g| g.conn == conn && g.next_window == window) {
             return true;
@@ -166,16 +166,16 @@ impl Game<'_> {
 
     /// `ItemMenuHost.isValid`: the workbench still in its slot, whatever it
     /// holds, and a player who is no spectator.
-    fn lan_portable_workbench_valid(&mut self, host: &mut LanHost, conn: u32) -> Option<ItemStack> {
+    fn lan_portable_workbench_valid(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> Option<ItemStack> {
         let source = self.ae2x.megacells.workbenches.get(&conn).map(|s| s.source)?;
         host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator())?;
-        self.as_guest(host, conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == PORTABLE_CELL_WORKBENCH && s.count == 1).cloned())
+        host.back(self, |g| g.as_guest(conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == PORTABLE_CELL_WORKBENCH && s.count == 1).cloned()))
             .flatten()
     }
 
     /// `AbstractContainerMenu.stillValid` failing: the menu closes, its cursor
     /// goes back to the inventory.
-    fn lan_close_portable_workbench(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_close_portable_workbench(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(window) = self.ae2x.megacells.workbenches.get(&conn).map(|s| s.window) else { return };
         self.lan_portable_workbench_closed(host, conn, None);
         host.hub.send_to(conn, &C::ContainerClose(play::ContainerClose { container: window }));
@@ -184,7 +184,7 @@ impl Game<'_> {
     /// `broadcastChanges`: the menu's slots (the cell, its cards, a page of
     /// filters, the toolbar's entries), what the screen shows of them
     /// (`ae2:workbench_view`) and the player's inventory.
-    fn lan_send_portable_workbench(&mut self, host: &mut LanHost, conn: u32) {
+    fn lan_send_portable_workbench(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         if !self.lan_portable_workbench_current(host, conn) {
             return;
         }
@@ -228,7 +228,7 @@ impl Game<'_> {
 
     /// Each tick: a menu whose workbench left its slot closes; one whose item
     /// changed is sent again.
-    pub(in crate::game) fn lan_refresh_portable_workbenches(&mut self, host: &mut LanHost) {
+    pub(in crate::game) fn lan_refresh_portable_workbenches(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let conns: Vec<u32> = self.ae2x.megacells.workbenches.keys().copied().collect();
         for conn in conns {
             if host.hub.guests.iter().any(|g| g.conn == conn && !host.hub.here(g)) || !self.lan_portable_workbench_current(host, conn) {
@@ -247,7 +247,7 @@ impl Game<'_> {
     /// A click in the menu's window (`AEBaseMenu.clicked` on
     /// `PortableCellWorkbenchMenu`'s slots, `CellWorkbenchScreen`'s filter
     /// presses by index): true when it was this menu's.
-    pub(in crate::game) fn lan_portable_workbench_click(&mut self, host: &mut LanHost, conn: u32, p: &play::ContainerClick) -> bool {
+    pub(in crate::game) fn lan_portable_workbench_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, p: &play::ContainerClick) -> bool {
         let Some((source, page, keep)) =
             self.ae2x.megacells.workbenches.get(&conn).filter(|s| s.window == p.container).map(|s| (s.source, s.page, s.keep))
         else {
@@ -263,7 +263,7 @@ impl Game<'_> {
         // PortableCellWorkbenchMenu.mega$nextCompressionLimit: the held cell's cutoff.
         if p.slot == super::compression::CUTOFF_PLACE {
             let backwards = p.button == 1;
-            let _ = self.as_guest(host, conn, |g| g.portable_workbench_cutoff(source, keep, backwards));
+            let _ = host.back(self, |g| g.as_guest(conn, |g| g.portable_workbench_cutoff(source, keep, backwards)));
             self.lan_send_portable_workbench(host, conn);
             return true;
         }
@@ -310,7 +310,7 @@ impl Game<'_> {
             self.lan_send_portable_workbench(host, conn);
             return true;
         }
-        let next = self.as_guest(host, conn, |g| g.portable_workbench_click(source, keep, &mut page, slot, button, input));
+        let next = host.back(self, |g| g.as_guest(conn, |g| g.portable_workbench_click(source, keep, &mut page, slot, button, input)));
         if let Some(s) = self.ae2x.megacells.workbenches.get_mut(&conn) {
             if !by_index {
                 s.page = page;

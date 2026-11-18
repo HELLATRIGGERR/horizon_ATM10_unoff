@@ -1221,7 +1221,7 @@ impl Game<'_> {
     }
 
     /// A guest uses an addon's block or part: true when an addon opened its menu.
-    pub(super) fn lan_open_ae2x(&mut self, host: &mut super::lan::LanHost, conn: u32, pos: (i32, i32, i32), face: &str) -> bool {
+    pub(super) fn lan_open_ae2x(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, pos: (i32, i32, i32), face: &str) -> bool {
         let _ = (&host, conn, pos, face);
         #[cfg(feature = "ae2-extendedae")]
         if self.lan_open_extendedae_matrix(host, conn, pos) {
@@ -1296,7 +1296,7 @@ impl Game<'_> {
     /// The menu of an addon's wireless terminal (`TerminalKind::Addon`, by
     /// its menu id), over the grid of the access point at `anchor`: ME
     /// Requester's Requester Terminal. True when one opened.
-    pub(super) fn lan_open_ae2x_wireless(&mut self, host: &mut super::lan::LanHost, conn: u32, anchor: (i32, i32, i32), ctx: super::ae2_wireless::WirelessContext, menu: &str) -> bool {
+    pub(super) fn lan_open_ae2x_wireless(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, anchor: (i32, i32, i32), ctx: super::ae2_wireless::WirelessContext, menu: &str) -> bool {
         let _ = (&host, conn, anchor, &ctx, menu);
         #[cfg(feature = "ae2-merequester")]
         if menu == horizon_client::ae2x::merequester::WIRELESS_TERMINAL {
@@ -1316,7 +1316,7 @@ impl Game<'_> {
     }
     /// A link that recharges its item ([`super::ae2_wireless::Reach::recharge`]):
     /// the item at guest `conn`'s `source` slot, from the grid of `node`.
-    pub(super) fn ae2x_wireless_recharge(&mut self, host: &mut super::lan::LanHost, conn: u32, source: usize, node: super::ae2_global::GridAddress) {
+    pub(super) fn ae2x_wireless_recharge(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, source: usize, node: super::ae2_global::GridAddress) {
         let _ = (&host, conn, source, node);
         #[cfg(feature = "ae2-ae2wtlib")]
         self.ae2wtlib_recharge(host, conn, source, node);
@@ -1333,7 +1333,7 @@ impl Game<'_> {
 
     /// A guest uses the item in hand `hand` (0 main, 1 off) in the air
     /// (`Item.use`): true when an addon's item opened its menu.
-    pub(super) fn lan_ae2x_use_item(&mut self, host: &mut super::lan::LanHost, conn: u32, hand: i32) -> bool {
+    pub(super) fn lan_ae2x_use_item(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         let _ = (&host, conn, hand);
         #[cfg(feature = "ae2-megacells")]
         if self.lan_open_portable_workbench(host, conn, hand) {
@@ -1349,14 +1349,14 @@ impl Game<'_> {
         }
         // ItemWirelessConnectTool.use, sneaking.
         #[cfg(feature = "ae2-extendedae")]
-        if self.as_guest(host, conn, |g| g.with_hand(if hand == 1 { super::Hand::Off } else { super::Hand::Main }, |g| g.extendedae_wireless_tool_clear())).unwrap_or(false) {
+        if host.back(self, |g| g.as_guest(conn, |g| g.with_hand(if hand == 1 { super::Hand::Off } else { super::Hand::Main }, |g| g.extendedae_wireless_tool_clear()))).unwrap_or(false) {
             return true;
         }
         false
     }
     /// A press on an addon's menu screen's button (`ContainerButtonClick`):
     /// true when it was an addon's window.
-    pub(super) fn lan_ae2x_button(&mut self, host: &mut super::lan::LanHost, conn: u32, window: i32, id: i32) -> bool {
+    pub(super) fn lan_ae2x_button(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: i32, id: i32) -> bool {
         let _ = (&host, conn, window, id);
         #[cfg(feature = "ae2-extendedae")]
         if self.lan_void_cell_button(host, conn, window, id) || self.lan_matrix_button(host, conn, window, id) || self.lan_extendedae_tool_button(host, conn, window, id) {
@@ -1370,7 +1370,7 @@ impl Game<'_> {
     }
 
     /// A click in an addon's menu window: true when an addon took it.
-    pub(super) fn lan_ae2x_click(&mut self, host: &mut super::lan::LanHost, conn: u32, click: &horizon_protocol::packets::play::ContainerClick) -> bool {
+    pub(super) fn lan_ae2x_click(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, click: &horizon_protocol::packets::play::ContainerClick) -> bool {
         let _ = (&host, conn, click);
         #[cfg(feature = "ae2-megacells")]
         if self.lan_portable_workbench_click(host, conn, click) {
@@ -1395,7 +1395,7 @@ impl Game<'_> {
         false
     }
     /// The client closed window `window`: true when it was an addon's.
-    pub(super) fn lan_ae2x_closed(&mut self, host: &mut super::lan::LanHost, conn: u32, window: i32) -> bool {
+    pub(super) fn lan_ae2x_closed(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, window: i32) -> bool {
         let _ = (&host, conn, window);
         #[cfg(feature = "ae2-megacells")]
         if self.lan_portable_workbench_closed(host, conn, Some(window)) {
@@ -1433,7 +1433,7 @@ impl Game<'_> {
     /// (`Player.aiStep`: `inventory.tick`, then `touch`): AE2 Import Export
     /// Card's cards on its wireless terminals, AE2WTLib's hotbar counts and
     /// magnet, Advanced AE's Quantum Armor.
-    pub(super) fn lan_ae2x_guest_tick(&mut self, host: &mut super::lan::LanHost, gi: usize) {
+    pub(super) fn lan_ae2x_guest_tick(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize) {
         let _ = (&host, gi);
         #[cfg(feature = "ae2-importexportcard")]
         self.lan_iecard_tick(host, gi);
@@ -1445,7 +1445,7 @@ impl Game<'_> {
 
     /// After a guest's packet: what an addon tells the guest at once (the
     /// slots AE2WTLib's restock changed).
-    pub(super) fn lan_ae2x_after_packet(&mut self, host: &mut super::lan::LanHost, conn: u32) {
+    pub(super) fn lan_ae2x_after_packet(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let _ = (&host, conn);
         #[cfg(feature = "ae2-ae2wtlib")]
         if let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) {
@@ -1505,7 +1505,7 @@ impl Game<'_> {
         None
     }
     /// The craft amount menu a pick asked for.
-    pub(super) fn lan_ae2x_pick_craft(&mut self, host: &mut super::lan::LanHost, conn: u32, key: ae2_cell_core::ItemKey) {
+    pub(super) fn lan_ae2x_pick_craft(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, key: ae2_cell_core::ItemKey) {
         let _ = (&host, conn, &key);
         #[cfg(feature = "ae2-ae2wtlib")]
         self.lan_ae2wtlib_pick_craft(host, conn, key);
@@ -1523,7 +1523,7 @@ impl Game<'_> {
     /// `ItemEntityPickupEvent.Pre` for item entity `index` touching a guest:
     /// true when an addon took some of its stack (AE2WTLib's pickup into
     /// the network).
-    pub(super) fn lan_ae2x_item_pickup(&mut self, host: &mut super::lan::LanHost, conn: u32, index: usize) -> bool {
+    pub(super) fn lan_ae2x_item_pickup(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, index: usize) -> bool {
         let _ = (&host, conn, index);
         #[cfg(feature = "ae2-ae2wtlib")]
         if self.lan_ae2wtlib_item_pickup(host, conn, index) {
@@ -1558,7 +1558,7 @@ impl Game<'_> {
     }
     /// An addon's hotkey action for a guest: true when it ran
     /// (`HotkeyAction.run`).
-    pub(super) fn lan_ae2x_hotkey(&mut self, host: &mut super::lan::LanHost, conn: u32, id: &str) -> bool {
+    pub(super) fn lan_ae2x_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, id: &str) -> bool {
         let _ = (&host, conn, id);
         #[cfg(feature = "ae2-ae2wtlib")]
         if self.lan_ae2wtlib_hotkey(host, conn, id) {
@@ -1586,7 +1586,7 @@ impl Game<'_> {
     }
     /// What an addon adds to a wireless terminal's view (AE2WTLib's terminal
     /// settings and magnet mode on the crafting terminal).
-    pub(super) fn lan_ae2x_wireless_view(&self, host: &super::lan::LanHost, conn: u32, ctx: &super::ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
+    pub(super) fn lan_ae2x_wireless_view(&self, host: &crate::game::lan_host_turn::HostTurn, conn: u32, ctx: &super::ae2_wireless::WirelessContext) -> Option<serde_json::Value> {
         let _ = (host, conn, ctx);
         #[cfg(feature = "ae2-ae2wtlib")]
         let view = self.lan_ae2wtlib_wireless_view(host, conn, ctx);
@@ -1605,7 +1605,7 @@ impl Game<'_> {
         view
     }
     /// A custom payload from a guest: true when an addon's channel.
-    pub(super) fn lan_ae2x_payload(&mut self, host: &mut super::lan::LanHost, conn: u32, channel: &str, data: &[u8]) -> bool {
+    pub(super) fn lan_ae2x_payload(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, channel: &str, data: &[u8]) -> bool {
         let _ = (&host, conn, channel, data);
         #[cfg(feature = "ae2-ae2wtlib")]
         if channel.starts_with("ae2wtlib:") {
@@ -1628,7 +1628,7 @@ impl Game<'_> {
         false
     }
     /// The addons' open menus, once a tick (`broadcastChanges`).
-    pub(super) fn lan_refresh_ae2x(&mut self, host: &mut super::lan::LanHost) {
+    pub(super) fn lan_refresh_ae2x(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
         let _ = &host;
         #[cfg(feature = "ae2-megacells")]
         self.lan_refresh_portable_workbenches(host);

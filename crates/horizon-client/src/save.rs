@@ -2889,6 +2889,12 @@ impl SaveDir {
             }
         }
     }
+    /// `try_read_record` for callers that must tell an unreadable record from an absent one with an
+    /// error value (the failure itself is already reported).
+    fn read_record_checked(&self, folder: &str, x: i32, z: i32) -> Result<Option<NamedTag>> {
+        self.try_read_record(folder, x, z)
+            .map_err(|()| "saved record could not be read".into())
+    }
     /// A record brought to the current version (`upgrade_record`).
     fn read_record(&self, folder: &str, x: i32, z: i32) -> Option<NamedTag> {
         self.try_read_record(folder, x, z).ok().flatten()
@@ -2920,6 +2926,25 @@ impl SaveDir {
         else {
             return Ok(None);
         };
+        load_light(&root.tag, &mut chunk, self.shape.sky_light);
+        chunk.entities = horizon_world::chunk::legacy_entities(&root.tag);
+        Ok(Some(chunk))
+    }
+    /// Transactional callers may create a new empty chunk only for `Ok(None)`: unlike `try_load`,
+    /// a saved full chunk that does not decode is an error, not an absent chunk.
+    pub fn load_checked(
+        &self,
+        x: i32,
+        z: i32,
+        registry: &BlockRegistry,
+        biomes: &Biomes,
+    ) -> Result<Option<Chunk>> {
+        let Some(root) = self.read_record_checked("region", x, z)? else {
+            return Ok(None);
+        };
+        let tables = self.tables.get().map(|t| &**t);
+        let mut chunk = decode_with(&root, registry, biomes, tables, self.shape.column())
+            .ok_or("saved full chunk could not be decoded")?;
         load_light(&root.tag, &mut chunk, self.shape.sky_light);
         chunk.entities = horizon_world::chunk::legacy_entities(&root.tag);
         Ok(Some(chunk))

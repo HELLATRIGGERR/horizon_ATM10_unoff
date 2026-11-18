@@ -1665,6 +1665,7 @@ impl Recipes {
         let mut ae2_custom: HashMap<String, Vec<(String, Value)>> = HashMap::new();
         let mut by_type: HashMap<String, Vec<crate::crafting::RecipeSnapshot>> = HashMap::new();
         let mut meta = HashMap::new();
+        let mut unsupported_ae2 = 0usize;
         for (
             ResolvedRecipe {
                 name,
@@ -1674,6 +1675,20 @@ impl Recipes {
             station,
         ) in sources.recipes.iter().zip(sources.station_recipes(items))
         {
+            // AE2WTLib's two crafting-grid types are special crafting
+            // recipes (`Common.category`: equipment).
+            #[cfg(feature = "ae2-ae2wtlib")]
+            if let Some(recipe) = crate::ae2x::ae2wtlib::recipes::parse(json, items) {
+                meta.insert(
+                    name.clone(),
+                    (
+                        crate::ae2x::ae2wtlib::recipes::CATEGORY.to_owned(),
+                        String::new(),
+                    ),
+                );
+                crafting.push((name.clone(), Recipe::Special(Special::Ae2wtlib(recipe))));
+                continue;
+            }
             let mut entry = None;
             if let Some(kind) = json["type"].as_str() {
                 let id = if name.contains(':') {
@@ -1687,7 +1702,13 @@ impl Recipes {
                     json.clone(),
                 ));
             }
-            if custom_type(json).is_some() {
+            // `ae2:quartz_cutting` is a shapeless recipe with a knife (below).
+            if let Some(kind) = custom_type(json).filter(|k| *k != "ae2:quartz_cutting") {
+                // AE2's handlers read their recipes by file name, with the JSON.
+                ae2_custom
+                    .entry(kind.to_owned())
+                    .or_default()
+                    .push((name.clone(), Value::clone(json)));
                 if let Some(recipe) = mod_kinds::decode(name, json)
                     && let Some(entry) = entry
                 {
@@ -1883,7 +1904,10 @@ impl Recipes {
                 "minecraft:stonecutting"
                 | "minecraft:smithing_transform"
                 | "minecraft:smithing_trim" => None,
-                _ => {
+                kind => {
+                    if kind.starts_with("ae2:") {
+                        unsupported_ae2 += 1;
+                    }
                     parsed_by_game = false;
                     None
                 }

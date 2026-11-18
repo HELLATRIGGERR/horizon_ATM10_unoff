@@ -50,7 +50,7 @@ impl Game<'_> {
         }
         for slot in 0..=40 {
             if self.iecard_pick_from(slot, destination, stack) {
-                let target = horizon_client::pick_item::suitable_hotbar_slot(&self.inventory[..9], self.selected);
+                let target = horizon_client::pick_item::suitable_hotbar_slot(&self.inventory[..9], self.selected, &mut |s, _| !s.enchantments().is_empty());
                 self.inventory.swap(target, destination);
                 self.selected = target;
                 return true;

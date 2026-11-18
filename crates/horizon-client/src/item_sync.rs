@@ -949,27 +949,14 @@ fn components_tag(s: &Stack, builtin: &Builtin, synced: &Dynamic) -> Option<Tag>
     let mut patch = Tag::compound(entries);
     if let Tag::Compound(map) = &mut patch {
         for id in &s.removed {
-            // A removed `attribute_modifiers` grants nothing, not its item type's.
-            if matches!(
-                *id,
-                component::MAX_STACK_SIZE
-                    | component::KINETIC_WEAPON
-                    | component::ATTRIBUTE_MODIFIERS
-            ) && let Some(name) = name(*id)
-            {
+            // Every removal the patch carries, by its component's name: a removal the item's
+            // own prototype would otherwise provide (`totem_of_undying[!death_protection]`,
+            // `bundle[!bundle_contents]`, `!max_stack_size`; a removed `attribute_modifiers`
+            // grants nothing, not its item type's) included.
+            if let Some(key) = name(*id) {
+                map.remove(&key.into());
                 map.insert(
-                    format!("!{name}").as_str().into(),
-                    Tag::Compound(Default::default()),
-                );
-            }
-            // A removal the item's own prototype would otherwise provide:
-            // `totem_of_undying[!death_protection]` must not keep protecting,
-            // nor `bundle[!bundle_contents]` act as a bundle.
-            if (*id == component::DEATH_PROTECTION || *id == component::BUNDLE_CONTENTS)
-                && let Some(name) = name(*id)
-            {
-                map.insert(
-                    format!("!{name}").as_str().into(),
+                    format!("!{key}").as_str().into(),
                     Tag::Compound(Default::default()),
                 );
             }

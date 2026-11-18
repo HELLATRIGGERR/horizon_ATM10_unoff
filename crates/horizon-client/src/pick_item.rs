@@ -97,7 +97,7 @@ pub fn apply(
 
 /// `getSuitableHotbarSlot`: from the selected slot on, the first empty one,
 /// else the first `not_replaceable` answers `false` for, else the selected one.
-fn suitable_hotbar_slot(
+pub fn suitable_hotbar_slot(
     items: &[Option<ItemStack>],
     selected: usize,
     not_replaceable: &mut dyn FnMut(&ItemStack, usize) -> bool,

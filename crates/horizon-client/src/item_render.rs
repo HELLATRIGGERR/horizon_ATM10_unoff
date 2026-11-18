@@ -32,7 +32,9 @@ use crate::{
 use glam::{Mat3, Mat4, Vec3};
 use horizon_assets::{
     animation::AnimationMetadata,
-    item_bake::{BakedItemModel, SpriteLookup, SpriteMask, bake_item_model, bake_sprite_layer},
+    item_bake::{
+        BakedItemModel, FluidLook, SpriteLookup, SpriteMask, bake_item_model, bake_sprite_layer,
+    },
     item_model::{
         ClientItem, Context, DisplayContext, FoilType, ItemEnv, ItemModels, LayerContent,
         LevelState, OwnerState, PreparedParts, SpecialModel, StackView,
@@ -724,23 +726,28 @@ fn load_definitions(root: &ResourceSource) -> BTreeMap<String, ClientItem> {
     let mut out = BTreeMap::new();
     for namespace in root.namespaces("assets") {
         let prefix = format!("assets/{namespace}/items/");
-        for name in root.list(&prefix) {
-            let Some(id) = name
-                .strip_prefix(&prefix)
-                .and_then(|name| name.strip_suffix(".json"))
-            else {
-                continue;
-            };
-            let Ok(text) = root.read_to_string(&name) else {
-                continue;
-            };
-            match ClientItem::from_json(&text) {
-                Ok(item) => {
+        let ids: Vec<(String, String)> = root
+            .list(&prefix)
+            .into_iter()
+            .filter_map(|name| {
+                let id = name.strip_prefix(&prefix)?.strip_suffix(".json")?.to_owned();
+                Some((name, id))
+            })
+            .collect();
+        // Parsed on every thread: ATM10 has about 20,000 definitions.
+        let parsed = horizon_client_render::par::par_map(&ids, |(name, _)| {
+            let text = root.read_to_string(name).ok()?;
+            Some(ClientItem::from_json(&text).map_err(|e| e.to_string()))
+        });
+        for ((_, id), item) in ids.into_iter().zip(parsed) {
+            match item {
+                Some(Ok(item)) => {
                     out.insert(format!("{namespace}:{id}"), item);
                 }
-                Err(error) => {
+                Some(Err(error)) => {
                     log::warn!("Horizon: item definition {namespace}:{id} not loaded: {error}")
                 }
+                None => {}
             }
         }
     }

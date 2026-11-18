@@ -203,7 +203,7 @@ impl Game<'_> {
             return Pick::Nothing;
         }
         let Some(address) = self.ae2wtlib_grid(&holder, false) else { return Pick::Nothing };
-        let target = horizon_client::pick_item::suitable_hotbar_slot(&self.inventory[..9], self.selected);
+        let target = horizon_client::pick_item::suitable_hotbar_slot(&self.inventory[..9], self.selected, &mut |s, _| !s.enchantments().is_empty());
         let to_replace = self.inventory[target].clone();
         if let Some(old) = &to_replace
             && self.ae2wtlib_insert(address, old, true) < u64::from(old.count)

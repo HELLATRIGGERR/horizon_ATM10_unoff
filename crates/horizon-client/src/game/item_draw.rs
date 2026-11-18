@@ -499,6 +499,12 @@ impl Game<'_> {
     }
     /// A fluid's still sprite in its tint as a slot's 16x16 square at `(x, y)` (JEI's `FluidTankRenderer`, the
     /// square AE2's terminals draw a fluid key with); false for an unknown fluid.
+    /// The square comes from the AE2 lab's wrapped-fluid model, so a build without it draws none.
+    #[cfg(not(feature = "ae2-lab"))]
+    pub(super) fn draw_fluid_icon(&self, _batch: &mut HudBatch, _fluid: &str, _x: f32, _y: f32) -> bool {
+        false
+    }
+    #[cfg(feature = "ae2-lab")]
     pub(super) fn draw_fluid_icon(&self, batch: &mut HudBatch, fluid: &str, x: f32, y: f32) -> bool {
         let renderer = &self.pack.item_renderer;
         let Some(state) = renderer.ae2_wrapped_fluid(DisplayContext::Gui, fluid) else { return false };

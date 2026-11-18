@@ -861,6 +861,22 @@
     {
       "name": "fluid_icon",
       "target": "horizon_client::game::native_hooks::Game<'_>::native_fluid_icon"
+    },
+    {
+      "name": "panel_ingredients",
+      "target": "horizon_client::game::native_panel::Game<'_>::native_panel_ingredients"
+    },
+    {
+      "name": "fluids",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fluids"
+    },
+    {
+      "name": "register_ingredients",
+      "target": "horizon_client::game::native_panel::Game<'_>::native_register_ingredients"
+    },
+    {
+      "name": "registered_ingredients",
+      "target": "horizon_client::game::native_panel::Game<'_>::native_registered_ingredients"
     }
   ],
   "hooks": [

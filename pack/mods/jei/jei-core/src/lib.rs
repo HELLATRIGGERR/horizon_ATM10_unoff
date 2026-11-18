@@ -124,6 +124,20 @@ pub struct Item {
     pub creative_tabs: Vec<String>,
     /// Its colours' names (`ColorNameConfig`), from its texture.
     pub colors: Vec<String>,
+    /// "" an item; `fluid` a fluid, or a mod's ingredient type (`mekanism:chemical`), as `Stack::kind`.
+    pub kind: String,
+}
+
+/// The class name JEI's `IngredientTypeSortingConfig` sorts an ingredient type by (`getIngredientTypeString`): ""
+/// for the item stack (always first), NeoForge's `FluidStack` for a fluid, Mekanism's `ChemicalStack` for its
+/// chemicals, else the kind itself.
+pub fn type_name(kind: &str) -> &str {
+    match kind {
+        "" => "",
+        "fluid" => "net.neoforged.neoforge.fluids.FluidStack",
+        "mekanism:chemical" => "mekanism.api.chemical.ChemicalStack",
+        other => other,
+    }
 }
 
 /// A mod's name as its jar names it, for the ATM10 mods this port knows; the namespace, capitalised, for the rest.
@@ -167,6 +181,7 @@ struct Entry {
     tooltip: Vec<String>,
     creative_tabs: Vec<String>,
     colors: Vec<String>,
+    kind: String,
 }
 
 /// One search term: `-` excludes, a prefix picks an index.
@@ -234,22 +249,23 @@ pub struct List {
 }
 
 impl List {
-    /// The items in JEI's default order (`MOD_NAME, INGREDIENT_TYPE, CREATIVE_MENU`): Minecraft first, then the mods
-    /// by name; within a mod, the order they came in (the registry's).
+    /// The ingredients in JEI's default order (`MOD_NAME, INGREDIENT_TYPE, CREATIVE_MENU`): Minecraft first, then
+    /// the mods by name; within a mod, the items, then the other types by their class names (`type_name`:
+    /// Mekanism's chemicals, then the fluids); within a type, the order they came in (the registry's).
     pub fn new(items: Vec<Item>) -> List {
-        let mut keyed: Vec<(bool, String, usize, Item)> = items
+        let mut keyed: Vec<(bool, String, String, usize, Item)> = items
             .into_iter()
             .enumerate()
             .map(|(n, item)| {
                 let namespace = item.id.split_once(':').map_or("minecraft", |(ns, _)| ns);
-                (namespace != "minecraft", mod_name(namespace).to_lowercase(), n, item)
+                (namespace != "minecraft", mod_name(namespace).to_lowercase(), type_name(&item.kind).to_owned(), n, item)
             })
             .collect();
-        keyed.sort_by(|a, b| (a.0, &a.1, a.2).cmp(&(b.0, &b.1, b.2)));
+        keyed.sort_by(|a, b| (a.0, &a.1, &a.2, a.3).cmp(&(b.0, &b.1, &b.2, b.3)));
         let lower = |v: &[String]| v.iter().map(|s| s.to_lowercase()).collect::<Vec<_>>();
         let entries = keyed
             .into_iter()
-            .map(|(_, mod_lower, _, item)| {
+            .map(|(_, mod_lower, _, _, item)| {
                 let namespace = item.id.split_once(':').map_or("minecraft", |(ns, _)| ns).to_owned();
                 Entry {
                     name: item.name.to_lowercase(),
@@ -259,6 +275,7 @@ impl List {
                     creative_tabs: lower(&item.creative_tabs),
                     colors: lower(&item.colors),
                     id: item.id,
+                    kind: item.kind,
                 }
             })
             .collect();
@@ -273,6 +290,15 @@ impl List {
     /// The item id at a place of the order.
     pub fn id(&self, index: usize) -> &str {
         &self.entries[index].id
+    }
+    /// The ingredient type at a place of the order: "" an item, `fluid`, a mod's type.
+    pub fn kind(&self, index: usize) -> &str {
+        &self.entries[index].kind
+    }
+    /// What names the ingredient at a place of the order (`Stack::key`): an item's id, `<kind> <id>` for the rest.
+    pub fn key(&self, index: usize) -> String {
+        let e = &self.entries[index];
+        if e.kind.is_empty() { e.id.clone() } else { format!("{} {}", e.kind, e.id) }
     }
     /// The places of the items `query` keeps, in order: one alternative of it must hold, each of its terms
     /// matching (an excluding one not matching). An empty query keeps every item.

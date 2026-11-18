@@ -621,6 +621,40 @@ fn liquification(game: &Game<'_>) -> Vec<NativeCategoryRecipe> {
         .collect()
 }
 
+/// Whether the chemicals are on the viewers' lists (for the world open now).
+static LISTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Each frame on the client: in a world with Mekanism, every chemical of the registry (the empty one aside) goes to
+/// the recipe viewers' ingredient lists once, as Mekanism's JEI plugin registers them
+/// (`MekanismJEI.registerIngredients`, a bucket of each); out of a world they go (`native_register_ingredients`,
+/// API 441).
+pub(super) fn frame(game: &mut Game<'_>) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let in_world = game.native_recipes().is_some();
+    if LISTED.load(Relaxed) == in_world {
+        return;
+    }
+    LISTED.store(in_world, Relaxed);
+    let infos = if in_world && exists(game, "mekanism:crusher") {
+        let registry = mek_chemicals::registry(game);
+        registry
+            .all()
+            .iter()
+            .filter(|c| c.id != "mekanism:empty")
+            .map(|c| NativeIngredientInfo {
+                kind: CHEMICAL.into(),
+                id: c.id.clone(),
+                name: mek_chemicals::name(c),
+                sprite: mek_chemicals::gui_sprite(c),
+                tint: c.tint,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    game.native_register_ingredients(CHEMICAL, infos);
+}
+
 /// `native_recipe_categories`: Mekanism's categories. A category whose machine block this world lacks is left out.
 pub(super) fn categories(game: &Game<'_>, out: &mut Vec<NativeRecipeCategory>) {
     if !exists(game, "mekanism:crusher") {

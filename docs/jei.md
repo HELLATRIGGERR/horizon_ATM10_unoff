@@ -1,6 +1,40 @@
 # JEI (Just Enough Items) port plan
 
-> **Handoff (2026-11-18, `feat/jei-fluids`): fluids and Mekanism chemicals as ingredients of JEI's recipe window, built and tested. Fluids in the ingredient list are left.**
+> **Handoff (2026-11-18, `feat/jei-list-fluids`): fluids and Mekanism chemicals in JEI's ingredient list, built and
+> tested.**
+> **Engine, API 441** (`NATIVE_HOOKS_API = 441`, `//!` line in `native_hooks.rs`, `native-hooks.json` helpers
+> `panel_ingredients`, `fluids`, `register_ingredients`, `registered_ingredients`; `docs/native-mods.md` and
+> `docs/atm10-port.md` list it): `native_panel_items` may send `NativeStack`s of kind `fluid` or a mod's type; the panel
+> (`native_panel.rs`) draws them (`draw_panel_ingredient`: a fluid as `native_fluid_icon`, a type as its sprite in its
+> tint), labels the slot widget with the name, shows the tooltip (`panel_ingredient_tooltip`: name + `lines`), and
+> `Clicked`/`Key` report them as items (`browser_hovered` / `browser_pointed_stack` now carry `Option<ItemStack>`;
+> `browser_stack` returns none for non-items). `NativePanelIngredient {info: NativeIngredientInfo, lines}` (mod_api.rs)
+> via `native_panel_ingredients(mod_id, ..)`; `native_fluids()` (water, lava, `mod_fluids()` sources: JEI's
+> `FluidStackListFactory`); `native_register_ingredients(kind, infos)` / `native_registered_ingredients()` (JEI's
+> `IModIngredientRegistration.register`; a change bumps `native_recipe_categories_version`).
+> **Bundles:** jei-core: `Item::kind`, `type_name` (JEI's `IngredientTypeSortingConfig`: items, then class names, so
+> chemicals before fluids, per mod), `List::{kind, key}`, `Blacklist::hides(kind, id)` (`fluid_stack` uid or class
+> name), typed bookmarks (`fluid_stack` / `mekanism.api.chemical.ChemicalStack`, `amount` 1000; keys `<kind> <id>`),
+> `Stack::of_key`; 3 new units. `jei_world`: `ingredients()` builds the list (items + registered + fluids), sends panel
+> looks and `jei_window::set_list_looks` (names/sprites for bookmarks), rebuilds when the categories version moves;
+> filter by kind; clicks/R/U/A by key (cheat mode gives items only); probe adds `kinds`, `shownTyped`,
+> `blacklist.hides`. `jei_window::stack_at` returns keys; `name()`/`look()` fall back to the list's looks.
+> `jei_bookmarks` draws `Stack::of_key`. Mekanism: `mek_recipe_viewer::frame` (new `frame` injection
+> `hooks/viewer_frame.rs`) registers every registry chemical once per world.
+> **Tests (all green):** `jei/list-fluids` (5 checks: water and lava are the first non-items, after Minecraft's items;
+> search finds them; U and a right click on the list's water show its uses (AE2's item transformation); A bookmarks it and
+> the bookmark list draws it; shots in `atm10-work/jei-work/logs/shots-list-fluids`), Mekanism `jei-chemicals` (4 checks:
+> 93 chemicals and 47 fluids listed, ATM10's 14 slurries in `blacklist.hides` and out of the search, `hydrogen` found and
+> U on it in the list opens the chemical infuser category, 1 recipe; shots in `jeifluid-work/logs/shots/jei-chemicals`) and
+> Mekanism `recipe-viewer` (3), `jei/item-list` (11), `recipes` (9), `bookmarks` (6), `transfer` (4), `transfer-ae2` (4),
+> `config` (4), `list-size` (4, its probe check now reads `blacklist.hides`), `fluids` (3), `jei.sh units` (25),
+> `horizon-mod-api-gen` (19/19: the generator writes `native_fluids` rustfmt-wrapped, so the shipped helper is too),
+> engine `native_panel` (5) and `panel` (6) lib tests. Mekanism's world tests need `mek.sh content` once after a fresh
+> stage (the QIO overlay files) and `JEI_CARRY` + `JEI_DEV=1` exported.
+> **Left:** fluid tags for `#` search, fluid/chemical tooltip extras (`FluidType` lines, radioactivity), cheat-mode
+> giving a bucket. A bookmark's tooltip shows the name only (the list's also shows the mod name line).
+
+> **Handoff (2026-11-18, `feat/jei-fluids`): fluids and Mekanism chemicals as ingredients of JEI's recipe window, built and tested; the ingredient list's fluids and chemicals came with the handoff above.**
 > **API 440** (438 and 439 left to other branches): `NativeStack::kind` ("" item, `"fluid"`, or a mod's type such as
 > `mekanism:chemical`; `count` = amount in mB) with `NativeStack::{item, fluid, typed, is_item, FLUID}`;
 > `NativeIngredientInfo {kind, id, name, sprite, tint}` and `NativeRecipeCategory::ingredients` (how a category's typed
@@ -30,10 +64,7 @@
 > lacks ExtendedAE's and Advanced AE's categories), `jei/item-list` (11), `recipes` (9), `bookmarks` (6), `transfer` (4),
 > `transfer-ae2` (4), `config` (4), `list-size` (4), `jei.sh units` (22), `horizon-mod-api-gen` (19, with the one
 > that fails on main).
-> **Left:** (1) Fluids in the ingredient list: the engine panel (`native_panel.rs` `browser_stack`, `draw_browser_items`,
-> the tooltip) must draw a `kind == "fluid"` stack with `draw_fluid_icon` and report it in events; then `jei_world`
-> appends the fluids after the items (JEI's order, `jei_world::show`/`filter`) and U on one opens its uses. Mekanism's
-> chemicals in the list follow the same way (the blacklist's 14 chemicals then apply to them). (2) Item colours, the
+> **Left:** (1) done, see the handoff above. (2) Item colours, the
 > amount shown in the slot as a bar for a tank, and a fluid's `FluidType` tooltip lines are not done.
 
 

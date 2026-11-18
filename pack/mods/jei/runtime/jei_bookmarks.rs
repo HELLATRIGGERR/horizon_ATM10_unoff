@@ -248,7 +248,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     let mut hover = None;
     for (item, at) in items[first..first + shown].iter().zip(&slots) {
         let r = [at[0], at[1], SLOT, SLOT];
-        jei_window::stack(game, batch, &Stack::of(item), at[0], at[1], cursor);
+        jei_window::stack(game, batch, &Stack::of_key(item), at[0], at[1], cursor);
         if inside(cursor, r) {
             hover = Some(item.clone());
         }

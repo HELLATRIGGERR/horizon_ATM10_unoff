@@ -1,9 +1,12 @@
 /** Mekanism's chemical and fluid slots in JEI's recipe window (needs the bundles `jei` and `mekanism` in one build, hook
  * points API 440; `docs/jei.md`): U on the Electrolytic Separator shows its category, a water slot in and two chemical
  * slots out, drawn as their sprites in their tints; hovering one shows JEI's tooltip (name, amount, mod), U on a chemical
- * slot shows its uses. Needs JEI_CARRY (the JEI textures) and JEI_DEV=1 (its `/jeiclient` probe). Shots in the run folder. */
+ * slot shows its uses. The chemicals in JEI's ingredient list (API 441, `native_register_ingredients`): every chemical
+ * of the registry, after Mekanism's items, ATM10's `blacklist.json` hiding its 14; the search finds one, U on it in the
+ * list shows its uses. Needs JEI_CARRY (the JEI textures) and JEI_DEV=1 (its `/jeiclient` probe). Shots in the run
+ * folder. */
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorldFixture, until } from '../../../../ae2/tests/world/harness';
 import { root } from '../../../../ae2/scripts/common';
@@ -14,9 +17,18 @@ const ato = resolve(process.env.MEK_ATO_CONTENT_DIR ?? join(root, '../.build/con
 const carry = process.env.JEI_CARRY;
 const fixture = new WorldFixture('mekanism-jei-chemicals', 'server-thread', { devMods: [content, genContent, ato, ...(carry && existsSync(join(carry, 'horizon-mod.toml')) ? [carry] : [])] });
 type Recipes = { focus: string; mode: string; category: string; tabs: string[]; recipes: number; history: number; window: { ingredients: string[] } | null };
-type Probe = { loaded: boolean; query: string; recipes: Recipes | null };
+type Probe = {
+  loaded: boolean; query: string; recipes: Recipes | null; kinds: { fluid: number; chemical: number }; shownTyped: string[];
+  blacklist: { entries: number; items: number; hides: string[] };
+};
 type Button = { label: string; x: number; y: number; w: number; h: number };
 const CHEMICAL = 'mekanism:chemical';
+// ATM10's config/jei/blacklist.json: its 14 Mekanism slurries.
+const HIDDEN = ['iron', 'gold', 'osmium', 'copper', 'tin', 'lead', 'uranium'].flatMap(m => [`dirty_${m}`, `clean_${m}`]);
+const jeiDir = join(fixture.game, 'config', 'jei');
+mkdirSync(jeiDir, { recursive: true });
+writeFileSync(join(jeiDir, 'blacklist.json'), `[\n  {"version":2},\n${HIDDEN.map(id =>
+  `  {"hide_mode":"WILDCARD","ingredient":{"ingredient":"mekanism:${id}","type":"mekanism.api.chemical.ChemicalStack"}}`).join(',\n')}\n]\n`);
 
 async function jei(): Promise<Probe> {
   const reply = await fixture.raw('chat /jeiclient');
@@ -47,8 +59,29 @@ async function search(query: string): Promise<void> {
 try {
   await fixture.start();
   await until(() => jei(), p => p.loaded, 'the list loads with the world', 30000);
+  // The chemicals in the list: all of the registry, the blacklist's 14 hidden from it and from its search.
+  const listed = await until(() => jei(), p => p.kinds?.chemical > HIDDEN.length, 'the chemicals join the list', 30000);
+  const hides = listed.blacklist.hides.filter(k => k.startsWith(CHEMICAL)).sort();
+  assert.deepEqual(hides, HIDDEN.map(id => `${CHEMICAL} mekanism:${id}`).sort(), `the blacklist hides: ${listed.blacklist.hides}`);
+  fixture.mark(`${listed.kinds.chemical} chemicals and ${listed.kinds.fluid} fluids in the list; the blacklist hides ${hides.length} chemicals`);
   await fixture.raw('open-inventory');
   await Bun.sleep(500);
+  await search('iron');
+  let p = await jei();
+  assert(!p.shownTyped.some(k => /mekanism:(dirty|clean)_iron$/.test(k)), `hidden slurries stay out of the search: ${p.shownTyped}`);
+  await search('hydrogen');
+  p = await jei();
+  assert(p.shownTyped.includes(`${CHEMICAL} mekanism:hydrogen`), `"hydrogen" finds the chemical: ${p.shownTyped}`);
+  const hydrogenInList = await button(l => l === 'Hydrogen', 'the hydrogen in the list');
+  await hover(hydrogenInList);
+  await Bun.sleep(300);
+  await shot('list-hydrogen-tooltip.png');
+  await key('u');
+  const u = await page('U on the hydrogen in the list shows its uses', r => r.focus === `${CHEMICAL} mekanism:hydrogen` && r.mode === 'uses');
+  assert(u.recipes > 0, `hydrogen's uses: ${JSON.stringify(u)}`);
+  fixture.mark(`U on the hydrogen in the list: ${u.tabs.join(' ')}, ${u.recipes} recipes`);
+  await key('escape');
+  await until(() => jei(), p => p.recipes === null, 'Escape closes the window', 10000);
   await search('electrolytic separator');
   await hover(await button(l => l === 'Electrolytic Separator', 'the separator in the list'));
   await key('u');

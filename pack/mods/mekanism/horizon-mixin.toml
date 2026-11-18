@@ -773,6 +773,16 @@ bindings = [
 ]
 
 [[injection]]
+id = "viewer-frame"
+hook = "frame"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/viewer_frame.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
 id = "recipe-categories"
 hook = "recipe_categories"
 hook_version = 1

@@ -6,6 +6,11 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 441 adds those ingredients to the item panel, as JEI's ingredient list holds them beside the items: the panel
+//! draws a `NativeStack` of kind `"fluid"` or a mod's type that `native_panel_items` sends (a fluid as its icon, a
+//! type as the sprite and tint `native_panel_ingredients` gives, `NativePanelIngredient`, with its tooltip lines),
+//! reports clicks and keys over it as over an item; `native_fluids` lists the source fluids of the registry and
+//! `native_register_ingredients` / `native_registered_ingredients` carry a mod type's ingredients (Mekanism's chemicals) to the lists.
 //! API 440 adds ingredients that are not items to recipe viewers: `NativeStack::kind` (a fluid, a mod's typed
 //! ingredient such as Mekanism's chemicals, in recipe categories' slots; the item panel draws items only), how a category's typed
 //! ingredients look (`NativeRecipeCategory::ingredients`), `native_fluid_icon` and `native_sprite_tinted`.
@@ -1163,7 +1168,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 440;
+pub(crate) const NATIVE_HOOKS_API: u32 = 441;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -11739,6 +11744,18 @@ impl Game<'_> {
         }
         batch.scale_since(start, at[0], at[1], size / 16.0, size / 16.0);
         true
+    }
+    /// The fluids a recipe viewer lists, in the registry's order: those whose
+    /// default state is a source (JEI's `FluidStackListFactory`), water and
+    /// lava, then the content mods' fluids. API 441.
+    pub(super) fn native_fluids(&self) -> Vec<String> {
+        let mut fluids = vec!["minecraft:water".to_owned(), "minecraft:lava".to_owned()];
+        fluids.extend(
+            horizon_world::mod_fluids::mod_fluids()
+                .iter()
+                .map(|f| f.id.clone()),
+        );
+        fluids
     }
     /// Requests vanilla's menu background blur for this frame, with a per-frame guard
     /// so blur is applied at most once per frame. Returns true if blur was newly

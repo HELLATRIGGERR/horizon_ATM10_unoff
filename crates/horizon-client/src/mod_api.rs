@@ -503,6 +503,20 @@ pub struct NativeIngredientInfo {
     pub tint: u32,
 }
 
+/// An ingredient of a mod's item panel that is not an item (API 441,
+/// `native_panel_ingredients`; JEI's ingredient list holds fluids and the
+/// mods' types beside the items): how the panel draws it and what its
+/// tooltip says.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NativePanelIngredient {
+    /// Its kind and id, as the panel's [`NativeStack`]'s; its name, the
+    /// tooltip's first line and the slot widget's label; its sprite in its
+    /// tint. An empty sprite draws a fluid as its fluid icon.
+    pub info: NativeIngredientInfo,
+    /// The tooltip's lines after the name, `§` codes read (`Text::legacy`).
+    pub lines: Vec<String>,
+}
+
 /// One item a loot table can drop and its odds (`native_loot_odds`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NativeLootOdds {

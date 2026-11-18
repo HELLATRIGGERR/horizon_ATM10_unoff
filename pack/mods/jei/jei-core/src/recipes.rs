@@ -20,6 +20,13 @@ impl Stack {
     pub fn of(item: &str) -> Stack {
         Stack { item: item.to_owned(), count: 1, ..Stack::default() }
     }
+    /// The ingredient `key` names (`key()`): an item, else a bucket's worth of a fluid or a mod's type.
+    pub fn of_key(key: &str) -> Stack {
+        match split_key(key) {
+            ("", id) => Stack::of(id),
+            (kind, id) => Stack::typed(kind, id, 1000),
+        }
+    }
     /// A fluid's or a mod's typed ingredient.
     pub fn typed(kind: &str, id: &str, amount: u32) -> Stack {
         Stack { item: id.to_owned(), count: amount, components: String::new(), kind: kind.to_owned() }

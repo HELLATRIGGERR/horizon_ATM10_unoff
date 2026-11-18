@@ -31,7 +31,7 @@ writeFileSync(join(jeiDir, 'blacklist.json'), `[\n  {"version":2},\n  ${['dirty_
 
 type Probe = {
   loaded: boolean; query: string; shown: number; displayed: number; area: [number, number, number, number] | null;
-  blacklist: { entries: number; items: number }; modNameFormat: string; hideUnsearched: boolean;
+  blacklist: { entries: number; items: number; hides: string[] }; modNameFormat: string; hideUnsearched: boolean;
 };
 type Button = { label: string; x: number; y: number; w: number; h: number };
 async function jei(args = ''): Promise<Probe> {
@@ -80,7 +80,8 @@ try {
 
   // blacklist.json: the chemicals are read, bedrock is hidden from the list and its search, until the Cheats page
   // shows hidden ingredients.
-  assert.deepEqual(wide.blacklist, { entries: 5, items: 1 });
+  assert.deepEqual({ entries: wide.blacklist.entries, items: wide.blacklist.items }, { entries: 5, items: 1 });
+  assert.deepEqual(wide.blacklist.hides, ['minecraft:bedrock']);
   const hidden = await search('bedrock');
   assert.equal(hidden.shown, 0, 'bedrock is hidden');
   await jei('set cheating showHiddenIngredients true');

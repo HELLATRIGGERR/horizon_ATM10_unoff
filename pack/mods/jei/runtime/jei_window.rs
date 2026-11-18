@@ -66,6 +66,7 @@ static ACTIONS: Mutex<Vec<Action>> = Mutex::new(Vec::new());
 static NAMES: Mutex<Option<Arc<HashMap<String, String>>>> = Mutex::new(None);
 /// The mods' typed ingredients' sprites and tints by key (`Stack::key`), from their categories.
 static LOOKS: Mutex<Option<Arc<HashMap<String, (String, u32)>>>> = Mutex::new(None);
+static LIST_LOOKS: Mutex<Option<Arc<HashMap<String, (String, String, u32)>>>> = Mutex::new(None);
 
 fn shown() -> std::sync::MutexGuard<'static, Option<Shown>> {
     SHOWN.lock().unwrap_or_else(|e| e.into_inner())
@@ -84,12 +85,23 @@ pub(super) fn set_names(names: Arc<HashMap<String, String>>) {
 pub(super) fn set_looks(looks: Arc<HashMap<String, (String, u32)>>) {
     *LOOKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(looks);
 }
+/// The ingredient list's fluids and mods' types by key: name, sprite ("" for a fluid's icon) and tint (set with the
+/// list), for the bookmarks and the window before or beside the book's own.
+pub(super) fn set_list_looks(looks: Arc<HashMap<String, (String, String, u32)>>) {
+    *LIST_LOOKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(looks);
+}
+fn list_look(key: &str) -> Option<(String, String, u32)> {
+    LIST_LOOKS.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(key).cloned()
+}
 fn look(key: &str) -> Option<(String, u32)> {
-    LOOKS.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(key).cloned()
+    let book = LOOKS.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|l| l.get(key).cloned());
+    book.or_else(|| list_look(key).map(|(_, sprite, tint)| (sprite, tint)).filter(|(sprite, _)| !sprite.is_empty()))
 }
 pub(super) fn name(item: &str) -> String {
     let names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
-    names.as_ref().and_then(|n| n.get(item).cloned()).unwrap_or_else(|| item.to_owned())
+    let named = names.as_ref().and_then(|n| n.get(item).cloned());
+    drop(names);
+    named.or_else(|| list_look(item).map(|(name, _, _)| name)).unwrap_or_else(|| item.to_owned())
 }
 
 /// The page to show, or none to close the window. The same page again keeps its recipe page.
@@ -669,11 +681,11 @@ fn on_list(d: &Drawn, at: [f32; 2]) -> bool {
 pub(super) fn ask_open(item: &str, mode: Mode) {
     ask(Action::Open(item.to_owned(), mode));
 }
-/// The item of the window's stack at `at`, if it is over one (the bookmark key adds it).
+/// The key of the window's stack at `at` (an item's id, a fluid's or a type's `<kind> <id>`), if it is over one (the
+/// bookmark key adds it).
 pub(super) fn stack_at(at: [f32; 2]) -> Option<String> {
     match hit_at(&shown().as_ref()?.drawn, at)? {
-        Hit::Stack(st) if st.is_item() => Some(st.item.clone()),
-        Hit::Stack(_) => None,
+        Hit::Stack(st) => Some(st.key()),
         Hit::Do(_) => None,
     }
 }

@@ -48,6 +48,16 @@ impl Blacklist {
     pub fn hides_item(&self, id: &str) -> bool {
         self.items.contains(id)
     }
+    /// Whether it hides ingredient `id` of type `kind` (`Stack::kind`: "" an item, `fluid`, `mekanism:chemical`):
+    /// the file names a type by JEI's uid (`fluid_stack`) or its class name (`mekanism.api.chemical.ChemicalStack`,
+    /// ATM10's chemicals).
+    pub fn hides(&self, kind: &str, id: &str) -> bool {
+        if kind.is_empty() {
+            return self.hides_item(id);
+        }
+        let uid = if kind == "fluid" { "fluid_stack" } else { kind };
+        [uid, crate::type_name(kind)].into_iter().any(|t| self.others.contains(&(t.to_owned(), id.to_owned())))
+    }
     /// Entries the file holds that it reads (items and others).
     pub fn len(&self) -> usize {
         self.items.len() + self.others.len()

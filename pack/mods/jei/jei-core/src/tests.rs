@@ -302,7 +302,7 @@ mod bookmarks {
         let fluid = r#"{"bookmarkType":"INGREDIENT","type":"fluid_stack","ingredient":{"id":"minecraft:water"}}"#;
         let text = format!("[\n  {{\"version\":2}},\n  {IRON},\n{recipe},\n{sword},\n{fluid}\n]\n");
         let mut b = Bookmarks::parse_json(&text);
-        assert_eq!(b.items(), ["minecraft:iron_ingot", "minecraft:diamond_sword"], "fluids and recipes are not drawn");
+        assert_eq!(b.items(), ["minecraft:iron_ingot", "minecraft:diamond_sword", "fluid minecraft:water"], "recipes are not drawn");
         assert_eq!(b.write_json(), format!("[\n{{\"version\":2}},\n{IRON},\n{recipe},\n{sword},\n{fluid}\n]"));
         b.remove(0);
         assert_eq!(b.write_json(), format!("[\n{{\"version\":2}},\n{recipe},\n{sword},\n{fluid}\n]"));
@@ -405,4 +405,71 @@ fn mod_id_format_reads_chat_formatting_names() {
     assert_eq!(read("[modname]\n\tmodNameFormat = dark_green BOLD nonsense\n").map(|f| codes(&f)).as_deref(), Some("§2§l"));
     assert_eq!(read("[modname]\n\tmodNameFormat = \n").as_deref(), Some(""));
     assert_eq!(read("[other]\n\tmodNameFormat = red\n"), None);
+}
+
+/// JEI's order with other ingredient types: by mod, then the items, Mekanism's chemicals, the fluids
+/// (`IngredientTypeSortingConfig`: the item stack first, the rest by class name); the search finds them by name,
+/// `@mod` and `&id`, and their keys are `<kind> <id>`.
+#[test]
+fn fluids_and_chemicals_sort_after_their_mods_items_and_are_searched() {
+    let typed = |kind: &str, id: &str, name: &str| Item { kind: kind.into(), ..item(id, name, &[]) };
+    let list = List::new(vec![
+        typed("fluid", "minecraft:water", "Water"),
+        typed("mekanism:chemical", "mekanism:hydrogen", "Hydrogen"),
+        item("mekanism:osmium_ingot", "Osmium Ingot", &[]),
+        typed("fluid", "mekanism:heavy_water", "Heavy Water"),
+        item("minecraft:stone", "Stone", &[]),
+        typed("fluid", "minecraft:lava", "Lava"),
+    ]);
+    let keys: Vec<String> = (0..list.len()).map(|n| list.key(n)).collect();
+    assert_eq!(
+        keys,
+        [
+            "minecraft:stone",
+            "fluid minecraft:water",
+            "fluid minecraft:lava",
+            "mekanism:osmium_ingot",
+            "mekanism:chemical mekanism:hydrogen",
+            "fluid mekanism:heavy_water"
+        ]
+    );
+    let modes = Modes::default();
+    let found = |q: &str| list.filter(q, &modes).into_iter().map(|n| list.key(n)).collect::<Vec<_>>();
+    assert_eq!(found("water"), ["fluid minecraft:water", "fluid mekanism:heavy_water"]);
+    assert_eq!(found("@mekanism hydro"), ["mekanism:chemical mekanism:hydrogen"]);
+    assert_eq!(found("lava"), ["fluid minecraft:lava"]);
+    assert_eq!(list.kind(1), "fluid");
+}
+
+/// ATM10's chemical entries hide those chemicals, by the type's class name; a fluid entry by JEI's uid.
+#[test]
+fn blacklist_hides_chemicals_and_fluids_of_their_type() {
+    use crate::blacklist::Blacklist;
+    let list = Blacklist::from_entries([
+        ("WILDCARD", "mekanism.api.chemical.ChemicalStack", "mekanism:dirty_iron"),
+        ("WILDCARD", "fluid_stack", "minecraft:lava"),
+    ]);
+    assert!(list.hides("mekanism:chemical", "mekanism:dirty_iron"));
+    assert!(!list.hides("mekanism:chemical", "mekanism:clean_iron"));
+    assert!(!list.hides("", "mekanism:dirty_iron"));
+    assert!(list.hides("fluid", "minecraft:lava"));
+    assert!(!list.hides("fluid", "minecraft:water"));
+}
+
+/// A fluid and a chemical are bookmarked as `BookmarkCodec` writes them, and read back by their keys.
+#[test]
+fn fluid_and_chemical_bookmarks_round_trip() {
+    use crate::bookmarks::Bookmarks;
+    let mut b = Bookmarks::default();
+    b.toggle("fluid minecraft:water");
+    b.toggle("mekanism:chemical mekanism:hydrogen");
+    b.toggle("minecraft:stone");
+    let json = b.write_json();
+    assert!(json.contains("{\"bookmarkType\":\"INGREDIENT\",\"type\":\"fluid_stack\",\"ingredient\":{\"id\":\"minecraft:water\",\"amount\":1000}}"), "{json}");
+    assert!(json.contains("\"type\":\"mekanism.api.chemical.ChemicalStack\""), "{json}");
+    let read = Bookmarks::parse_json(&json);
+    assert_eq!(read.items(), ["fluid minecraft:water", "mekanism:chemical mekanism:hydrogen", "minecraft:stone"]);
+    let mut read = read;
+    assert!(!read.toggle("fluid minecraft:water"));
+    assert_eq!(read.items().len(), 2);
 }

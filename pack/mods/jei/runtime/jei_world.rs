@@ -5,7 +5,7 @@
 // recipe screen (R, U, Backspace) is `jei_recipes`, its window `jei_window`.
 use super::Game;
 use super::native_hooks::{NativeMod, NativePanelEvent, NativeStack};
-use horizon_client::mod_api::{NativePanelAlign, NativePanelGrid, NativePanelStyle};
+use horizon_client::mod_api::{NativeIngredientInfo, NativePanelAlign, NativePanelGrid, NativePanelIngredient, NativePanelStyle};
 use jei_core::blacklist::Blacklist;
 use jei_core::{Item, List, Mode, Modes, Prefix, mod_id_format};
 use std::sync::Mutex;
@@ -40,6 +40,9 @@ struct State {
     hidden: bool,
     /// `config/jei/blacklist.json`, read with the world.
     blacklist: Blacklist,
+    /// The mods' categories' version the list was made at: the mods' registered ingredients (Mekanism's chemicals)
+    /// move it.
+    version: u64,
 }
 
 static STATE: Mutex<Option<State>> = Mutex::new(None);
@@ -81,9 +84,40 @@ fn hide_unsearched() -> bool {
 fn filter(list: &List, blacklist: &Blacklist, query: &str, game: &Game<'_>) -> Vec<usize> {
     let mut shown = list.filter(query, &modes(game));
     if !super::jei_config::flag("cheating", "showHiddenIngredients") {
-        shown.retain(|&n| !blacklist.hides_item(list.id(n)));
+        shown.retain(|&n| !blacklist.hides(list.kind(n), list.id(n)));
     }
     shown
+}
+/// JEI's ingredient list: the game's items (air left out, JEI's list never holds it), the mods' registered types
+/// (Mekanism's chemicals, `native_registered_ingredients`) and the fluids (`native_fluids`, a bucket each), in JEI's
+/// order; the panel is told how the ones that are not items look and what their tooltips say (the name, the mod
+/// name line), the window their names and sprites (the bookmarks).
+fn ingredients(game: &mut Game<'_>, t: &super::native_hooks::NativeRecipes) -> List {
+    let mut items: Vec<Item> = t
+        .items
+        .iter()
+        .filter(|i| &*i.id != "minecraft:air")
+        .map(|i| Item { id: i.id.clone(), name: i.name.clone(), tags: i.tags.clone(), ..Item::default() })
+        .collect();
+    let fluids = game.native_fluids().into_iter().map(|id| NativeIngredientInfo {
+        kind: NativeStack::FLUID.into(),
+        name: super::jei_recipes::fluid_name(&id),
+        id,
+        ..NativeIngredientInfo::default()
+    });
+    let format = MOD_NAME_FORMAT.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let mut looks = Vec::new();
+    let mut window = std::collections::HashMap::new();
+    for info in game.native_registered_ingredients().into_iter().chain(fluids) {
+        items.push(Item { id: info.id.clone(), name: info.name.clone(), kind: info.kind.clone(), ..Item::default() });
+        let ns = info.id.split_once(':').map_or("minecraft", |(ns, _)| ns);
+        let lines = if format.is_empty() { Vec::new() } else { vec![format!("{format}{}", jei_core::mod_name(ns))] };
+        window.insert(format!("{} {}", info.kind, info.id), (info.name.clone(), info.sprite.clone(), info.tint));
+        looks.push(NativePanelIngredient { info, lines });
+    }
+    game.native_panel_ingredients(ID, looks);
+    super::jei_window::set_list_looks(std::sync::Arc::new(window));
+    List::new(items)
 }
 /// ATM10's `config/jei/blacklist.json` (JEI's hidden ingredients), read only: none when there is no file.
 fn read_blacklist() -> Blacklist {
@@ -165,7 +199,13 @@ fn show(game: &mut Game<'_>, s: &State) {
     let items = if empty(s) {
         Vec::new()
     } else {
-        s.shown.iter().map(|&n| NativeStack::item(s.list.id(n), 1)).collect()
+        s.shown
+            .iter()
+            .map(|&n| match s.list.kind(n) {
+                "" => NativeStack::item(s.list.id(n), 1),
+                kind => NativeStack::typed(kind, s.list.id(n), 1000),
+            })
+            .collect()
     };
     game.native_panel_items(ID, items);
 }
@@ -177,18 +217,28 @@ pub(super) fn frame(game: &mut Game<'_>) {
     match (tables, guard.is_some()) {
         (Some(t), false) => {
             super::jei_config::reload();
-            // Air is no ingredient (JEI's list never holds it).
-            let items = t.items.iter().filter(|i| &*i.id != "minecraft:air").map(|i| Item { id: i.id.clone(), name: i.name.clone(), tags: i.tags.clone(), ..Item::default() });
-            let list = List::new(items.collect());
+            *MOD_NAME_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = read_mod_name_format();
+            let version = game.native_recipe_categories_version();
+            let list = ingredients(game, &t);
             let blacklist = read_blacklist();
             let shown = filter(&list, &blacklist, "", game);
             let hidden = overlay_hidden();
             game.native_panel_style(ID, NativePanelStyle::Viewer);
             grid(game, hidden);
-            *MOD_NAME_FORMAT.lock().unwrap_or_else(|e| e.into_inner()) = read_mod_name_format();
-            let s = State { list, query: String::new(), shown, hidden, blacklist };
+            let s = State { list, query: String::new(), shown, hidden, blacklist, version };
             show(game, &s);
             *guard = Some(s);
+        }
+        // A mod registered its ingredients (Mekanism's chemicals) or changed its categories: the list again.
+        (Some(t), true) if guard.as_ref().is_some_and(|s| s.version != game.native_recipe_categories_version()) => {
+            let version = game.native_recipe_categories_version();
+            let list = ingredients(game, &t);
+            if let Some(s) = guard.as_mut() {
+                s.version = version;
+                s.list = list;
+                s.shown = filter(&s.list, &s.blacklist, &s.query, game);
+                show(game, s);
+            }
         }
         (None, true) => {
             *guard = None;
@@ -228,7 +278,7 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
     if let NativePanelEvent::Key { key, stack } = event
         && *key == game.native_mod_key(ID, KEYS[BOOKMARK][0], KEYS[BOOKMARK][2])
     {
-        super::jei_bookmarks::toggle(&stack.item);
+        super::jei_bookmarks::toggle(&super::jei_recipes::key(stack));
         return;
     }
     let mut guard = state();
@@ -239,7 +289,8 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
             s.shown = filter(&s.list, &s.blacklist, text, game);
             show(game, s);
         }
-        NativePanelEvent::Clicked { index, right } if cheating(game) => {
+        // Cheat mode gives an item; a fluid or a chemical shows its recipes as without it.
+        NativePanelEvent::Clicked { index, right } if cheating(game) && s.shown.get(*index as usize).is_some_and(|&n| s.list.kind(n).is_empty()) => {
             let Some(&n) = s.shown.get(*index as usize) else { return };
             let id = s.list.id(n).to_owned();
             drop(guard);
@@ -250,7 +301,7 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) {
         // Without cheat mode a click shows the item's recipes, a right click its uses.
         NativePanelEvent::Clicked { index, right } => {
             let Some(&n) = s.shown.get(*index as usize) else { return };
-            let id = s.list.id(n).to_owned();
+            let id = s.list.key(n);
             drop(guard);
             let mode = if *right { jei_core::recipes::Mode::Uses } else { jei_core::recipes::Mode::Recipes };
             super::jei_recipes::open(game, &id, mode);
@@ -313,7 +364,7 @@ pub(super) fn recipe_lookup(
         && !*handled
         && *key == game.native_mod_key(ID, KEYS[BOOKMARK][0], KEYS[BOOKMARK][2])
     {
-        super::jei_bookmarks::toggle(&stack.item);
+        super::jei_bookmarks::toggle(&super::jei_recipes::key(stack));
         *handled = true;
         return;
     }
@@ -415,7 +466,16 @@ pub(super) fn client_command(game: &mut Game<'_>, command: &str, ran: &mut bool)
             "total": s.list.len(),
             "shown": s.shown.len(),
             "displayed": if empty(s) { 0 } else { s.shown.len() },
-            "blacklist": { "entries": s.blacklist.len(), "items": s.blacklist.items() },
+            "blacklist": {
+                "entries": s.blacklist.len(),
+                "items": s.blacklist.items(),
+                "hides": (0..s.list.len()).filter(|&n| s.blacklist.hides(s.list.kind(n), s.list.id(n))).map(|n| s.list.key(n)).collect::<Vec<_>>(),
+            },
+            "kinds": {
+                "fluid": (0..s.list.len()).filter(|&n| s.list.kind(n) == NativeStack::FLUID).count(),
+                "chemical": (0..s.list.len()).filter(|&n| s.list.kind(n) == "mekanism:chemical").count(),
+            },
+            "shownTyped": s.shown.iter().filter(|&&n| !s.list.kind(n).is_empty()).take(40).map(|&n| s.list.key(n)).collect::<Vec<_>>(),
             "hideUnsearched": hide_unsearched(),
             "modNameFormat": MOD_NAME_FORMAT.try_lock().map(|f| f.clone()).unwrap_or_default(),
             "area": game.native_panel_area(ID),

@@ -79,9 +79,19 @@ fn split_array(text: &str) -> Option<Vec<&str>> {
     Some(out.into_iter().map(str::trim).filter(|e| !e.is_empty()).collect())
 }
 
-/// The element of an item stack bookmark, as `BookmarkCodec` writes it.
-fn item_element(id: &str) -> String {
-    format!("{{\"bookmarkType\":\"INGREDIENT\",\"type\":\"item_stack\",\"ingredient\":{{\"id\":\"{id}\",\"count\":1}}}}")
+/// The ingredient types a bookmark holds, as `BookmarkCodec` names them (the type's uid) and as `Stack::kind` does.
+const TYPES: [(&str, &str); 3] =
+    [("item_stack", ""), ("fluid_stack", "fluid"), ("mekanism.api.chemical.ChemicalStack", "mekanism:chemical")];
+
+/// The element of a bookmark of `key` (`Stack::key`: an item's id, `<kind> <id>`), as `BookmarkCodec` writes it:
+/// an item stack of one, a fluid or a chemical of a bucket (`FluidStack.CODEC`, `ChemicalStack.CODEC`).
+fn item_element(key: &str) -> String {
+    let (kind, id) = crate::recipes::split_key(key);
+    if kind.is_empty() {
+        return format!("{{\"bookmarkType\":\"INGREDIENT\",\"type\":\"item_stack\",\"ingredient\":{{\"id\":\"{id}\",\"count\":1}}}}");
+    }
+    let uid = TYPES.iter().find(|(_, k)| *k == kind).map_or(kind, |(uid, _)| *uid);
+    format!("{{\"bookmarkType\":\"INGREDIENT\",\"type\":\"{uid}\",\"ingredient\":{{\"id\":\"{id}\",\"amount\":1000}}}}")
 }
 
 impl Bookmarks {
@@ -93,9 +103,14 @@ impl Bookmarks {
             .into_iter()
             .filter(|e| e.contains("bookmarkType") || !e.contains("\"version\""))
             .map(|e| {
-                let item = string_field(e, "bookmarkType") == Some("INGREDIENT") && string_field(e, "type") == Some("item_stack");
-                match item.then(|| string_field(e, "id")).flatten() {
-                    Some(id) => Entry::Item { id: id.to_owned(), json: e.to_owned() },
+                let kind = (string_field(e, "bookmarkType") == Some("INGREDIENT"))
+                    .then(|| string_field(e, "type"))
+                    .flatten()
+                    .and_then(|t| TYPES.iter().find(|(uid, _)| *uid == t))
+                    .map(|(_, kind)| *kind);
+                match kind.zip(string_field(e, "id")) {
+                    Some(("", id)) => Entry::Item { id: id.to_owned(), json: e.to_owned() },
+                    Some((kind, id)) => Entry::Item { id: format!("{kind} {id}"), json: e.to_owned() },
                     None => Entry::Other(e.to_owned()),
                 }
             })
@@ -136,7 +151,8 @@ impl Bookmarks {
             }
         }
     }
-    /// The bookmarked items' ids, in order: what the list shows.
+    /// The bookmarked ingredients' keys (an item's id, a fluid's or a chemical's `<kind> <id>`), in order: what the
+    /// list shows.
     pub fn items(&self) -> Vec<&str> {
         self.entries
             .iter()

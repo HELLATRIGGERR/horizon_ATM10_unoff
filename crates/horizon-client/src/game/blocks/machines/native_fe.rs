@@ -47,7 +47,8 @@ pub(crate) struct NativeEnergy {
     pub(crate) can_extract: bool,
 }
 use crate::game::Dim;
-use mod_api::NativeFeInfo;
+use crate::game::api_values::{TryIntoApi, finish_block_entity_writeback};
+use mod_api::{BlockSide, NativeFeInfo};
 use horizon_client::{
     block_entities::Pos,
     containers::{BlockEntity, ModBlockEntity, ModEnergyBuffer},
@@ -205,9 +206,23 @@ fn declared_move(
     i64::from(moved)
 }
 
-/// The mod block entity at `key`, taken out of `world` for a hook: an empty
-/// id marks its place meanwhile, as during its tick. None for any other
-/// block entity, and for one already out (ticking, or in a call of its own).
+/// The hooks' view of the mod block entity at `key` (upstream's snapshot,
+/// `try_into_api`): it stays in the world while a hook answers. None for any
+/// other block entity and for one out of the world (ticking).
+pub(super) fn snapshot(world: &World, key: Pos) -> Option<mod_api::ModBlockEntity> {
+    let Some(BlockEntity::Mod(m)) = world.block_entities.get(&key) else {
+        return None;
+    };
+    if m.id().is_empty() {
+        return None;
+    }
+    (**m).try_into_api().ok()
+}
+
+/// The mod block entity at `key`, taken out of `world`: an empty id marks its
+/// place meanwhile, as during its tick. None for any other block entity, and
+/// for one already out (ticking).
+#[cfg(test)]
 pub(super) fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
     let Some(BlockEntity::Mod(m)) = world.block_entities.get_mut(&key) else {
         return None;
@@ -221,6 +236,7 @@ pub(super) fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
 /// Puts `taken` back where `take` left its mark; with `changed`, its
 /// `setChanged`: the next save writes its chunk. Whether it went back: a
 /// block entity the call removed or replaced stays gone.
+#[cfg(test)]
 pub(super) fn put_back(world: &mut World, key: Pos, taken: ModBlockEntity, changed: bool) -> bool {
     match world.block_entities.get_mut(&key) {
         Some(BlockEntity::Mod(m)) if m.id().is_empty() => {
@@ -252,6 +268,53 @@ impl Game<'_> {
         }
     }
 
+    /// Asks `hook` about the mod block entity at `pos` in level `dim` on a
+    /// snapshot of it (upstream's `try_into_api`; the entity stays in the
+    /// world), writes back what the hook changed (`finish_block_entity_writeback`,
+    /// reported as `hook_name`), then runs `after` on the entity in the world
+    /// with the hook's answer (a declared buffer's or tanks' rules where no
+    /// hook answered). `after`'s flag, a write-back or moved items mark the
+    /// chunk changed (`setChanged`); moved items also tell the container.
+    /// None where no mod block entity is, and where the call removed or
+    /// replaced it.
+    pub(in crate::game) fn with_mod_entity<A, T>(
+        &mut self,
+        dim: Dim,
+        pos: [i32; 3],
+        hook_name: &'static str,
+        hook: impl FnOnce(&mut Self, &mut mod_api::ModBlockEntity) -> A,
+        after: impl FnOnce(A, &mut ModBlockEntity) -> (T, bool),
+    ) -> Option<T> {
+        let key = (pos[0], pos[1], pos[2]);
+        let mut api = self.fe_world(dim).and_then(|world| snapshot(world, key))?;
+        let before = api.revision();
+        let answer = hook(self, &mut api);
+        let items = world_items!(self);
+        let world = if dim == self.dim {
+            &mut self.world
+        } else {
+            self.levels.parked_world_mut(dim)?
+        };
+        let Some(BlockEntity::Mod(m)) = world.block_entities.get_mut(&key) else {
+            return None;
+        };
+        if m.id() != api.id() {
+            return None;
+        }
+        let old_items = m.items.clone();
+        let written = api.revision() != before;
+        let _ = finish_block_entity_writeback(m, &api, before, items, hook_name, Ok(()));
+        let (out, changed) = after(answer, m);
+        let items_moved = m.items != old_items;
+        if changed || written || items_moved {
+            world.modified.insert((key.0 >> 4, key.2 >> 4));
+        }
+        if items_moved && dim == self.dim {
+            self.container_changed(key);
+        }
+        Some(out)
+    }
+
     /// The FE readback of the block at `pos` in level `dim` through `face`:
     /// a mod block entity's (`native_fe_storage`), or a machine's of the
     /// game's own. A loop's readback is an empty one.
@@ -273,7 +336,9 @@ impl Game<'_> {
                     return None;
                 }
                 let mut info = None;
-                self.native_fe_storage(dim.id(), pos, face, m, wide, &mut info);
+                if let Ok(api) = (**m).try_into_api() {
+                    self.native_fe_storage(dim.id(), pos, face, &api, wide, &mut info);
+                }
                 // No hook answered: the buffer the block declares, if any.
                 info.or_else(|| declared_info(declared_buffer(world, pos)?, face, m))
             }
@@ -314,87 +379,82 @@ impl Game<'_> {
             }
             None => return 0,
         }
-        let Some(mut taken) = self.fe_world_mut(dim).and_then(|world| take(world, key)) else {
-            return 0;
-        };
-        let items = taken.items.clone();
-        let mut answer = None;
-        if extract {
-            self.native_fe_extract(dim.id(), pos, face, &mut taken, amount, simulate, wide, &mut answer);
-        } else {
-            self.native_fe_receive(dim.id(), pos, face, &mut taken, amount, simulate, wide, &mut answer);
-        }
-        if answer.is_none()
-            && let Some(buffer) = self
-                .fe_world(dim)
-                .and_then(|world| declared_buffer(world, pos))
-                .cloned()
-        {
-            answer = Some(declared_move(&buffer, face, &mut taken, amount, simulate, extract));
-        }
-        let moved = settle(answer, amount);
-        let items_moved = taken.items != items;
-        let changed = (moved > 0 && !simulate) || items_moved;
-        let back = self
-            .fe_world_mut(dim)
-            .is_some_and(|world| put_back(world, key, taken, changed));
-        if back && items_moved && dim == self.dim {
-            self.container_changed(key);
-        }
-        moved
+        let buffer = self
+            .fe_world(dim)
+            .and_then(|world| declared_buffer(world, pos))
+            .cloned();
+        let hook_name = if extract { "fe_extract" } else { "fe_receive" };
+        let moved = self.with_mod_entity(
+            dim,
+            pos,
+            hook_name,
+            |game, entity| {
+                let mut answer = None;
+                let dimension = dim.id();
+                if extract {
+                    game.native_fe_extract(mod_api::__private::FeExtractCall {
+                        dimension,
+                        pos,
+                        face,
+                        entity,
+                        max: amount,
+                        simulate,
+                        wide,
+                        given: &mut answer,
+                    });
+                } else {
+                    game.native_fe_receive(mod_api::__private::FeReceiveCall {
+                        dimension,
+                        pos,
+                        face,
+                        entity,
+                        max: amount,
+                        simulate,
+                        wide,
+                        accepted: &mut answer,
+                    });
+                }
+                answer
+            },
+            |answer, entity| {
+                // No hook answered: the buffer the block declares, if any.
+                let answer = answer.or_else(|| {
+                    let buffer = buffer.as_ref()?;
+                    Some(declared_move(buffer, face, entity, amount, simulate, extract))
+                });
+                let moved = settle(answer, amount);
+                (moved, moved > 0 && !simulate)
+            },
+        );
+        moved.unwrap_or(0)
     }
 }
 
-/// Upstream's energy helpers (`native_energy.rs`) on a block without a
-/// declared buffer: its Forge Energy, in the level in place, as narrow calls.
+/// The fork's Forge Energy under upstream's energy capability
+/// (`native_energy.rs`: `energy_amount`, `energy_capacity`, `energy_insert`,
+/// `energy_extract`): a block with no declared buffer but a Forge Energy
+/// storage of its own, a mod's (`native_fe_storage`) or one of the game's
+/// machines, in the level in place. `IEnergyStorage` has no transactions: the
+/// block entity is journaled before a move, as a buffer's write is.
 impl Game<'_> {
-    /// `native_energy` of a block whose energy is a Forge Energy storage of
-    /// its own. `IEnergyStorage` has no per-call limits: one that receives
-    /// or gives reports `i32::MAX`.
-    pub(in crate::game) fn fe_as_native_energy(
-        &self,
-        dimension: &str,
-        pos: [i32; 3],
-        face: Direction,
-    ) -> Option<NativeEnergy> {
-        if !self.native_simulates() || dimension != self.dim.id() {
+    /// Its Forge Energy through `at`'s side, as `fe_info_at` reads it narrow.
+    pub(super) fn fe_energy_info(&self, at: BlockSide) -> Option<NativeFeInfo> {
+        if !self.level_in_place(at.level) {
             return None;
         }
-        let info = self.fe_info_at(self.dim, pos, Some(face), false)?;
-        let int = |v: i64| v.clamp(0, i64::from(i32::MAX)) as i32;
-        Some(NativeEnergy {
-            amount: int(info.stored),
-            capacity: int(info.capacity),
-            max_insert: if info.can_receive { i32::MAX } else { 0 },
-            max_extract: if info.can_extract { i32::MAX } else { 0 },
-            can_insert: info.can_receive,
-            can_extract: info.can_extract,
-        })
+        self.fe_info_at(self.dim, at.pos, at.side, false)
     }
-    /// `native_energy_transfer` of a block whose energy is a Forge Energy
-    /// storage of its own: `receiveEnergy` (`insert`) or `extractEnergy`.
-    pub(in crate::game) fn fe_as_energy_transfer(
-        &mut self,
-        dimension: &str,
-        pos: [i32; 3],
-        face: Direction,
-        amount: i32,
-        insert: bool,
-        simulate: bool,
-    ) -> i32 {
-        if !self.native_simulates() || dimension != self.dim.id() {
+    /// `receiveEnergy` (`insert`) or `extractEnergy` of up to `amount` FE
+    /// through `at`'s side, for real: what moved.
+    pub(super) fn fe_energy_moved(&mut self, at: BlockSide, amount: u32, insert: bool) -> u32 {
+        if !self.level_in_place(at.level) || self.fe_energy_info(at).is_none() {
             return 0;
         }
-        let moved = self.fe_move_at(
-            self.dim,
-            pos,
-            Some(face),
-            i64::from(amount),
-            simulate,
-            false,
-            !insert,
-        );
-        moved.clamp(0, i64::from(i32::MAX)) as i32
+        let [x, y, z] = at.pos;
+        self.journal_block_entity((x, y, z));
+        let amount = i64::from(amount.min(i32::MAX.unsigned_abs()));
+        let moved = self.fe_move_at(self.dim, at.pos, at.side, amount, false, false, !insert);
+        moved.clamp(0, i64::from(i32::MAX)) as u32
     }
 }
 

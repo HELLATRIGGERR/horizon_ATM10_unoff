@@ -231,20 +231,34 @@ impl Game<'_> {
             if let Some(id) = supported {
                 // A stale file cannot steal another online player's seat.
                 let occupied = self.riding == Some(id) || host.hub.guests.iter().any(|g|g.conn!=conn && g.vehicle==Some(id));
-                host.hub.guests[gi].vehicle_to_restore = None;
-                if !occupied && !host.hub.guests[gi].dead {
-                    host.hub.guests[gi].vehicle = Some(id);
-                    self.guest_boarded(host, conn, None);
-                    host.hub.guests[gi].vehicle_relocated = true;
+                let board = !occupied && !host.hub.guests[gi].dead;
+                if let Some(host) = self.lan.as_mut() {
+                    host.hub.guests.update(gi, |g| {
+                        g.vehicle_to_restore = None;
+                        if board {
+                            g.vehicle = Some(id);
+                        }
+                    });
+                }
+                if board {
+                    self.guest_boarded(conn, None);
+                    if let Some(host) = self.lan.as_mut() {
+                        host.hub.guests.update(gi, |g| g.vehicle_relocated = true);
+                    }
                 }
             } else {
                 let p = host.hub.guests[gi].position;
                 let key = ((p[0].floor() as i32)>>4, (p[2].floor() as i32)>>4);
-                if self.world.chunks.contains_key(&key) && !self.world.loaded_entities.iter().any(|(k,_)| *k == key) {
-                    host.hub.guests[gi].vehicle_to_restore = None;
+                if self.world.chunks.contains_key(&key) && !self.world.loaded_entities.iter().any(|(k,_)| *k == key)
+                    && let Some(host) = self.lan.as_mut()
+                {
+                    host.hub.guests.update(gi, |g| g.vehicle_to_restore = None);
                 }
             }
         }
+        let Some(host) = self.lan.as_ref() else {
+            return;
+        };
         let g = &host.hub.guests[gi];
         let Some(vehicle) = g.vehicle else {
             return;
@@ -269,9 +283,9 @@ impl Game<'_> {
         if dead || (boat.is_none() && !cart && !mount && !cushion && !seat) {
             host.hub.guests.update(gi, |g| {
                 (g.vehicle, g.vehicle_good) = (None, None);
+                g.vehicle_uuid = None;
+                g.vehicle_relocated = false;
             });
-            g.vehicle_uuid = None;
-            g.vehicle_relocated = false;
             return;
         }
         let mut ejected = false;
@@ -362,8 +376,14 @@ impl Game<'_> {
         if before == Some(vehicle) {
             return;
         }
-        host.hub.guests[gi].vehicle_relocated = false;
-        host.hub.guests[gi].vehicle_uuid = Some(self.uuid_for(vehicle));
+        let uuid = self.uuid_for(vehicle);
+        let Some(host) = self.lan.as_mut() else {
+            return;
+        };
+        host.hub.guests.update(gi, |g| {
+            g.vehicle_relocated = false;
+            g.vehicle_uuid = Some(uuid);
+        });
         // The host in the window rides it already.
         if self.riding == Some(vehicle) {
             {
@@ -519,7 +539,7 @@ impl Game<'_> {
         // vehicle back to the source coordinates and out of the new tracker.
         if g.vehicle_relocated && target.distance_squared(old)>100.0 {
             if super::server_travel::trace_spatial(){eprintln!("AE2 passenger rejected stale relocation conn={} dimension={} vehicle={:?} old={:?} target={:?}",conn,self.dim.id(),vehicle,old,target);}
-            back(host,old,yaw);
+            back(self.lan.as_mut().unwrap(),old,yaw);
             return;
         }
         // Moved too quickly: more than 10 blocks past its own motion.

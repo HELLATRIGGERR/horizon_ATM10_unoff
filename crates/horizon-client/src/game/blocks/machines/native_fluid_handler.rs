@@ -20,7 +20,8 @@
 //! inside its own call answers nothing, and so does a chain 16 calls deep
 //! (`native_fe.rs` guards Forge Energy the same way).
 use super::Game;
-use super::native_fe::{dim_of, put_back, take};
+use super::native_fe::dim_of;
+use crate::game::api_values::TryIntoApi;
 use super::native_fluids::{Tank, read_tanks, write_tanks};
 use crate::game::Dim;
 use mod_api::NativeFluidTankInfo;
@@ -92,6 +93,37 @@ fn declared_reach(tanks: &ModFluidTanks, face: Option<Direction>) -> Vec<usize> 
     }
 }
 
+/// The handler's fluid stack (`horizon_world`'s) as the hooks' (`mod_api`'s):
+/// none for the empty stack and a fluid the registry has no key for.
+pub(super) fn api_fluid_stack(stack: &FluidStack) -> Option<mod_api::FluidStack> {
+    if stack.is_empty() {
+        return None;
+    }
+    let key = mod_api::__private::fluid_key(stack.name())?;
+    let mut api = mod_api::FluidStack::new(key, stack.amount().max(0).unsigned_abs());
+    if !stack.components().is_empty() {
+        api.components = Some(Box::new(stack.components().clone().into()));
+    }
+    Some(api)
+}
+
+/// The hooks' fluid stack as the handler's: the empty stack for a fluid with
+/// no world kind.
+pub(super) fn engine_fluid_stack(stack: &mod_api::FluidStack) -> FluidStack {
+    let kind = stack
+        .key()
+        .and_then(mod_api::__private::fluid_id)
+        .and_then(FluidKind::from_name);
+    let Some(kind) = kind else {
+        return FluidStack::EMPTY;
+    };
+    let amount = i32::try_from(stack.amount).unwrap_or(i32::MAX);
+    match stack.components.as_deref() {
+        Some(components) => FluidStack::with_components(kind, amount, components.as_nbt().clone()),
+        None => FluidStack::new(kind, amount),
+    }
+}
+
 /// A saved tank's contents as a stack; a fluid the registry lacks reads as
 /// empty (`FluidStack.parse` fails on it).
 fn tank_stack(tank: &Tank) -> FluidStack {
@@ -120,7 +152,7 @@ fn declared_tanks(
                 let stack = tank_stack(&state[t]);
                 NativeFluidTankInfo {
                     drainable: !stack.is_empty() && tanks.outputs.contains(&t),
-                    stack,
+                    stack: api_fluid_stack(&stack),
                     capacity: tanks.tanks[t],
                 }
             })
@@ -259,7 +291,7 @@ impl Cauldron {
         let stack = FluidStack::new(c.fluid, c.total_amount * self.level / c.max_level.max(1));
         let drainable = !stack.is_empty() && !self.drain(stack.amount()).0.is_empty();
         NativeFluidTankInfo {
-            stack,
+            stack: api_fluid_stack(&stack),
             capacity: c.total_amount,
             drainable,
         }
@@ -379,30 +411,10 @@ impl Game<'_> {
             return None;
         }
         let mut tanks = None;
-        self.native_fluid_handler_tanks(dim.id(), pos, face, m, &mut tanks);
-        tanks.or_else(|| declared_tanks(self.declared_fluid_tanks(dim, pos)?.as_ref(), face, m))
-    }
-
-    /// Takes the mod block entity at `pos` out of level `dim` for `call`,
-    /// puts it back, and marks it changed when it changed for real.
-    fn with_fluid_entity<T>(
-        &mut self,
-        dim: Dim,
-        pos: [i32; 3],
-        call: impl FnOnce(&mut Self, &mut ModBlockEntity) -> (T, bool),
-    ) -> Option<T> {
-        let key = (pos[0], pos[1], pos[2]);
-        let mut taken = self.fe_world_mut(dim).and_then(|world| take(world, key))?;
-        let items = taken.items.clone();
-        let (out, moved) = call(self, &mut taken);
-        let items_moved = taken.items != items;
-        let back = self
-            .fe_world_mut(dim)
-            .is_some_and(|world| put_back(world, key, taken, moved || items_moved));
-        if back && items_moved && dim == self.dim {
-            self.container_changed(key);
+        if let Ok(api) = (**m).try_into_api() {
+            self.native_fluid_handler_tanks(dim.id(), pos, face, &api, &mut tanks);
         }
-        Some(out)
+        tanks.or_else(|| declared_tanks(self.declared_fluid_tanks(dim, pos)?.as_ref(), face, m))
     }
 
     /// `IFluidHandler.fill` of `resource` on the block at `pos` in level
@@ -432,25 +444,36 @@ impl Game<'_> {
             return filled.clamp(0, amount);
         }
         let declared = self.declared_fluid_tanks(dim, pos);
-        self.with_fluid_entity(dim, pos, |game, entity| {
-            let mut answer = None;
-            game.native_fluid_handler_fill(
-                dim.id(),
-                pos,
-                face,
-                entity,
-                resource,
-                simulate,
-                &mut answer,
-            );
-            let filled = match (answer, &declared) {
-                (Some(n), _) => n,
-                (None, Some(tanks)) => declared_fill(tanks, face, entity, resource, simulate),
-                (None, None) => 0,
-            }
-            .clamp(0, amount);
-            (filled, filled > 0 && !simulate)
-        })
+        let api_resource = api_fluid_stack(resource);
+        self.with_mod_entity(
+            dim,
+            pos,
+            "fluid_handler_fill",
+            |game, entity| {
+                let mut answer = None;
+                if let Some(resource) = &api_resource {
+                    game.native_fluid_handler_fill(mod_api::__private::FluidHandlerFillCall {
+                        dimension: dim.id(),
+                        pos,
+                        face,
+                        entity,
+                        resource,
+                        simulate,
+                        filled: &mut answer,
+                    });
+                }
+                answer
+            },
+            |answer, entity| {
+                let filled = match (answer, &declared) {
+                    (Some(n), _) => n,
+                    (None, Some(tanks)) => declared_fill(tanks, face, entity, resource, simulate),
+                    (None, None) => 0,
+                }
+                .clamp(0, amount);
+                (filled, filled > 0 && !simulate)
+            },
+        )
         .unwrap_or(0)
     }
 
@@ -488,31 +511,47 @@ impl Game<'_> {
             return drained;
         }
         let declared = self.declared_fluid_tanks(dim, pos);
-        self.with_fluid_entity(dim, pos, |game, entity| {
-            let mut answer = None;
-            game.native_fluid_handler_drain(
-                dim.id(),
-                pos,
-                face,
-                entity,
-                resource,
-                max,
-                simulate,
-                &mut answer,
-            );
-            let mut drained = match (answer, &declared) {
-                (Some(stack), _) => stack,
-                (None, Some(tanks)) => declared_drain(tanks, face, entity, resource, max, simulate),
-                (None, None) => FluidStack::EMPTY,
-            };
-            // A handler gives no more than was asked, and only the fluid asked for.
-            if resource.is_some_and(|r| !FluidStack::is_same_fluid_same_components(r, &drained)) {
-                drained = FluidStack::EMPTY;
-            }
-            drained.limit_size(limit);
-            let moved = !drained.is_empty() && !simulate;
-            (drained, moved)
-        })
+        let api_resource = resource.map(api_fluid_stack);
+        self.with_mod_entity(
+            dim,
+            pos,
+            "fluid_handler_drain",
+            |game, entity| {
+                let mut answer = None;
+                // A resource the hooks can't name is asked of the declared tanks only.
+                if let Some(resource) = api_resource.as_ref().map_or(Some(None), |r| r.as_ref().map(Some)) {
+                    game.native_fluid_handler_drain(mod_api::__private::FluidHandlerDrainCall {
+                        dimension: dim.id(),
+                        pos,
+                        face,
+                        entity,
+                        resource,
+                        max,
+                        simulate,
+                        drained: &mut answer,
+                    });
+                }
+                answer.map(|stack| engine_fluid_stack(&stack))
+            },
+            |answer, entity| {
+                let mut drained = match (answer, &declared) {
+                    (Some(stack), _) => stack,
+                    (None, Some(tanks)) => {
+                        declared_drain(tanks, face, entity, resource, max, simulate)
+                    }
+                    (None, None) => FluidStack::EMPTY,
+                };
+                // A handler gives no more than was asked, and only the fluid asked for.
+                if resource
+                    .is_some_and(|r| !FluidStack::is_same_fluid_same_components(r, &drained))
+                {
+                    drained = FluidStack::EMPTY;
+                }
+                drained.limit_size(limit);
+                let moved = !drained.is_empty() && !simulate;
+                (drained, moved)
+            },
+        )
         .unwrap_or(FluidStack::EMPTY)
     }
 }

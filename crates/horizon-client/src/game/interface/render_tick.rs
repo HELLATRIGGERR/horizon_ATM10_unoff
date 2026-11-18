@@ -348,8 +348,15 @@ impl Game<'_> {
         let block_overlay = effects
             .block
             .and_then(|state| Self::block_particle_sprite(&self.pack, state));
-        let water = effects
-            .water
+        // In a carried content mod's fluid (the fork's): its type's
+        // `getRenderOverlayTexture` when the GUI atlas holds it, drawn as the water
+        // overlay is (NeoForge's `ScreenEffectRenderer`).
+        let fluid_overlay = camera_mod_fluid(&self.world, self.res.facts(), eye)
+            .and_then(|kind| kind.carried())
+            .and_then(|fluid| fluid.render_overlay.as_deref())
+            .and_then(overlay_sprite)
+            .filter(|_| !self.spectator());
+        let water = (effects.water || fluid_overlay.is_some())
             .then(|| (self.eye_brightness(eye), self.yaw, self.pitch));
         // Hud.extractCameraOverlays; the spyglass scope (and its easing) is
         // drawn on the HUD by draw_spyglass.
@@ -401,6 +408,7 @@ impl Game<'_> {
             partial,
             block_overlay,
             water,
+            fluid_overlay,
             on_fire: effects.on_fire,
             fire_lower: self.pvp_fire_lower(),
             gui_overlays: &gui_overlays,

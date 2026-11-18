@@ -1967,7 +1967,6 @@ impl Game<'_> {
             }
         }
         if remove {
-            self.tnts.retain(|t|!gone(t.position));
             // The trees of the vehicles leaving, found before any of them is removed.
             let tree_ids: Vec<u32> = out
                 .values()

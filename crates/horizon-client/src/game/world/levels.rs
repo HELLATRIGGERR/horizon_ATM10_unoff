@@ -516,6 +516,11 @@ impl Levels {
         self.parked.get(&dim).map(|level| &level.world)
     }
 
+    /// A parked level's world, to change (the fork's FE and fluid handlers).
+    pub(super) fn parked_world_mut(&mut self, dim: Dim) -> Option<&mut World> {
+        self.parked.get_mut(&dim).map(|level| &mut level.world)
+    }
+
     /// The world of the level not in place whose dimension is `dimension`
     /// (`minecraft:the_nether`), found without collecting the parked levels.
     pub(super) fn parked_world_of(&self, dimension: &str) -> Option<&World> {
@@ -743,19 +748,12 @@ impl Game<'_> {
     }
     /// The chunks of `dim` AE2's spatial anchors hold.
     pub(super) fn ae2_anchored_in(&self, dim: Dim) -> impl Iterator<Item = (i32, i32)> + '_ {
-        self.mod_chunk_tickets
-            .get(&dim)
-            .into_iter()
-            .flatten()
-            .filter(|(_, owners)| owners.contains(AE2_ANCHOR_OWNER))
-            .map(|(&key, _)| key)
+        // Upstream's mod tickets under the fork's slot (`fork_compat::FORK_TICKET_SLOT`).
+        self.fork_ticket_chunks(dim, AE2_ANCHOR_OWNER)
     }
     /// Whether a spatial anchor holds chunk `key` of the level in place.
     pub(super) fn ae2_anchored(&self, key: (i32, i32)) -> bool {
-        self.mod_chunk_tickets
-            .get(&self.dim)
-            .and_then(|level| level.get(&key))
-            .is_some_and(|owners| owners.contains(AE2_ANCHOR_OWNER))
+        self.ae2_anchored_in(self.dim).any(|held| held == key)
     }
     /// Whether a spatial anchor holds any chunk of the level in place.
     pub(super) fn ae2_has_anchors(&self) -> bool {

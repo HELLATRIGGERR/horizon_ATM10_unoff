@@ -13,6 +13,7 @@ pub trait Hooks {
     /// your own state, not from the world.
     #[hook(
         side = "server",
+        host = "read",
         contract = "replace",
         out = "info",
         neoforge = "Capabilities.EnergyStorage.BLOCK (IEnergyStorage)"

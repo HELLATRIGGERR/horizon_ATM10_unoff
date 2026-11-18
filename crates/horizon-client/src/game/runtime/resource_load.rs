@@ -773,6 +773,8 @@ pub(super) fn load_resources(
         // A content root's files in one too: its next start opens one file for 600,000.
         let content_root = (root != vanilla_root).then(|| root.clone());
         let vanilla_root = vanilla_root.to_owned();
+        // The rest loader's own copy, for the launch world's late preload.
+        let root = root.clone();
         let entity_models = entity_models.clone();
         let rest_progress = progress.clone();
         let progress = progress.clone();

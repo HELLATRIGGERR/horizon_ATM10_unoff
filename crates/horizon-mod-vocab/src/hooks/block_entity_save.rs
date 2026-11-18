@@ -8,6 +8,7 @@ pub trait Hooks {
     /// `native_block_entity_changed` says so for what's kept outside `nbt`.
     #[hook(
         side = "server",
+        host = "read",
         contract = "collect",
         out = "nbt",
         neoforge = "none (vanilla BlockEntity.saveAdditional)"

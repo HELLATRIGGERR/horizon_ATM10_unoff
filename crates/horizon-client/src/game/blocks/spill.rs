@@ -339,7 +339,9 @@ impl Pending {
         // What a mod's block entity gives its own item (API 64).
         if let BlockEntity::Mod(m) = entity {
             let mut patch = Compound::new();
-            super::Game::native_block_entity_drop(block, m, by_player, &mut patch);
+            if let Ok(api) = crate::game::api_values::TryIntoApi::try_into_api(&**m) {
+                super::Game::native_block_entity_drop(block, &api, by_player, &mut patch);
+            }
             if !patch.is_empty() {
                 self.copied.insert(pos, (block.to_owned(), patch));
             }
@@ -1137,31 +1139,12 @@ impl GameLevel<'_> {
             self.pending.record_saved(at, &tag);
         }
         let dynamic = self.pending.dynamic(at);
-        let drops = match self.items.block_loot_sequence(self.registry, state) {
-            Some(sequence) => {
-                let random = self.rand_sequences.get(&sequence, self.seed);
-                self.items.block_drops_exploded(
-                    self.registry,
-                    state,
-                    tool,
-                    &dynamic,
-                    random,
-                    None,
-                    None,
-                    false,
-                )
-            }
-            None => self.items.block_drops_exploded(
-                self.registry,
-                state,
-                tool,
-                &dynamic,
-                &mut self.world.random,
-                None,
-                None,
-                false,
-            ),
+        let roll = horizon_client::items::BlockLootRoll {
+            held: tool,
+            dynamic: &dynamic,
+            ..Default::default()
         };
+        let drops = self.roll_block_loot(pos, state, None, roll);
         let mut out = Vec::new();
         for mut stack in drops {
             if &*stack.item == "minecraft:air" || stack.count == 0 {

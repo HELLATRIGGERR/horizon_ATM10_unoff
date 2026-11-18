@@ -513,8 +513,7 @@ impl Game<'_> {
         let view = self.native_item_source(dimension, pos)?;
         let c = self.containers();
         Some(
-            view.slots_to_add(Some(face))
-                .into_iter()
+            view.slots_to_add_iter(Some(face))
                 .map(|slot| NativeInsertSlot {
                     slot,
                     stack: c.get(&view, slot).cloned(),

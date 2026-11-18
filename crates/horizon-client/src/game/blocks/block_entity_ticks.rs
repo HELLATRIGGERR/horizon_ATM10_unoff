@@ -380,7 +380,7 @@ impl Game<'_> {
             let energy = this.native_energy_tables();
             this.world.block_entities.set_mod_energy(energy);
         }
-        self.tell_mod_block_entity_changes();
+        this.tell_mod_block_entity_changes();
         // Only lingering cooldowns are dropped; a hopper that ticks checks
         // its own block. Once a second is soon enough for the rest.
         if this.world.game_time % 20 == 0 {

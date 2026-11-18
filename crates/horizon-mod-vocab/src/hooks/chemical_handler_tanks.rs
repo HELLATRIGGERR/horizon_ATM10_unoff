@@ -12,6 +12,7 @@ pub trait Hooks {
     /// answer from your own state, change nothing.
     #[hook(
         side = "server",
+        host = "read",
         contract = "replace",
         out = "tanks",
         neoforge = "none (Mekanism's Capabilities.CHEMICAL.block(), IChemicalHandler)"

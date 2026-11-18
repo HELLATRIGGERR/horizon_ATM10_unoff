@@ -62,7 +62,9 @@ impl Game<'_> {
     /// written into its block entity, saved with its chunk and kept by the transaction.
     fn energy_moved(&mut self, at: BlockSide, amount: u32, insert: bool) -> u32 {
         let Some((buffer, energy)) = self.energy_buffer(at) else {
-            return 0;
+            // A block with a Forge Energy storage of its own: a mod's
+            // (`native_fe_storage`) or one of the game's machines (the fork's).
+            return self.fe_energy_moved(at, amount, insert);
         };
         let faces = match insert {
             true => &buffer.insert_faces,
@@ -97,12 +99,24 @@ impl Game<'_> {
     /// isn't loaded, or the block entity ticking now, or where `at`'s side reaches neither a
     /// fill nor a drain.
     pub(in crate::game) fn energy_amount(&self, at: BlockSide) -> Option<u32> {
-        Some(self.energy_buffer(at)?.1.unsigned_abs())
+        match self.energy_buffer(at) {
+            Some((_, energy)) => Some(energy.unsigned_abs()),
+            // A Forge Energy storage of its own (the fork's, `native_fe.rs`).
+            None => {
+                let info = self.fe_energy_info(at)?;
+                Some(info.stored.clamp(0, i64::from(u32::MAX)) as u32)
+            }
+        }
     }
     /// The capacity of the buffer at `at` (`energy_amount`), 0 where none is.
     pub(in crate::game) fn energy_capacity(&self, at: BlockSide) -> u32 {
-        self.energy_buffer(at)
-            .map_or(0, |(buffer, _)| buffer.capacity.max(0).unsigned_abs())
+        match self.energy_buffer(at) {
+            Some((buffer, _)) => buffer.capacity.max(0).unsigned_abs(),
+            // A Forge Energy storage of its own (the fork's, `native_fe.rs`).
+            None => self
+                .fe_energy_info(at)
+                .map_or(0, |info| info.capacity.clamp(0, i64::from(u32::MAX)) as u32),
+        }
     }
     /// `SimpleEnergyHandler.insert`: puts up to `amount` into the buffer at `at`
     /// (`energy_amount`) through its side, no more than its room and its limit per call,

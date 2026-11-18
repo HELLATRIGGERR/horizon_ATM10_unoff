@@ -12,6 +12,7 @@ pub trait Hooks {
     /// world.
     #[hook(
         side = "server",
+        host = "read",
         contract = "replace",
         out = "tanks",
         neoforge = "Capabilities.FluidHandler.BLOCK (IFluidHandler)"

@@ -8,6 +8,7 @@ pub trait Hooks {
     /// Asked each tick and around each pass that removes entities: keep it short. Server-side.
     #[hook(
         side = "server",
+        host = "read",
         contract = "collect",
         out = "listened",
         neoforge = "none (the fork's gate for entity_join_level and entity_leave_level)"

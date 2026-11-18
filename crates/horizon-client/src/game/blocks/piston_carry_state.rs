@@ -16,6 +16,8 @@ pub(super) struct PositionState<'a> {
     pub(super) hoppers: &'a mut std::collections::HashMap<Pos, super::machines::HopperState>,
 }
 
+// Clone: the fork's AE2 formation transaction copies the spill.
+#[derive(Clone)]
 pub(super) enum PositionChange {
     Carry {
         from: Pos,

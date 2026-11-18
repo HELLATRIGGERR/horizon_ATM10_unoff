@@ -1581,16 +1581,20 @@ impl Game<'_> {
             // A moved vehicle has a new movement-validation baseline. The old
             // level's lastGood coordinates must not become a cross-world delta.
             // Keep riding only when this exact vehicle exists in the destination.
+            let Some(host) = self.lan.as_mut() else {
+                return;
+            };
             let vehicle=host.hub.guests[i].vehicle;
             let vehicle_position=vehicle.and_then(|id|self.boats.iter().find(|b|b.id==id).map(|b|b.position)
                 .or_else(||self.carts.iter().find(|c|c.id==id).map(|c|c.position))
                 .or_else(||self.mobs.iter().find(|m|m.id==id).map(|m|m.position))
                 .or_else(||self.cushions.iter().find(|c|c.id==id).map(|c|c.position)));
-            let g = &mut host.hub.guests[i];
-            if trace_spatial(){eprintln!("AE2 passenger travel conn={} from={} to={} vehicle={:?} old_good={:?} destination={:?}",t.conn,source.id(),t.dim.id(),vehicle,g.vehicle_good,vehicle_position);}
-            g.vehicle_good=vehicle_position.map(|p|[p.x,p.y,p.z]);
-            g.vehicle_relocated=vehicle_position.is_some();
-            if vehicle_position.is_none(){g.vehicle=None;}
+            if trace_spatial(){eprintln!("AE2 passenger travel conn={} from={} to={} vehicle={:?} old_good={:?} destination={:?}",t.conn,source.id(),t.dim.id(),vehicle,host.hub.guests[i].vehicle_good,vehicle_position);}
+            host.hub.guests.update(i, |g| {
+                g.vehicle_good=vehicle_position.map(|p|[p.x,p.y,p.z]);
+                g.vehicle_relocated=vehicle_position.is_some();
+                if vehicle_position.is_none(){g.vehicle=None;}
+            });
             let Some(host) = self.lan.as_mut() else {
                 return;
             };

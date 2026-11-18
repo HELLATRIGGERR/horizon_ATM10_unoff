@@ -157,19 +157,15 @@ impl Game<'_> {
     ) -> Option<i32> {
         self.open_menu(uuid, rows, title, items, mod_api::MenuReplace::CloseFirst)
     }
-    /// `panel_items` from the fork's stacks (ids resolved; an unknown id is left out).
+    /// `panel_items` from the fork's stacks (ids resolved; an unknown item id is left
+    /// out). Fluids and mods' ingredients (`NativeStack::kind`) go into the panel's
+    /// side table beside upstream's stacks (`native_panel::Shown::kinds`).
     pub(in crate::game) fn native_panel_items(&mut self, mod_id: &str, items: Vec<NativeStack>) {
-        let items = items
+        let entries = items
             .into_iter()
-            .filter_map(|s| {
-                Some(mod_api::Stack {
-                    item: mod_api::__private::item_key(&s.item)?,
-                    count: s.count,
-                    components: s.components,
-                })
-            })
+            .filter_map(super::super::native_panel::fork_entry)
             .collect();
-        self.panel_items(mod_id, items);
+        self.panel.show_entries(mod_id, entries);
     }
     /// `panel_style` (upstream's `PanelStyle` is the fork's `NativePanelStyle`).
     pub(in crate::game) fn native_panel_style(&mut self, mod_id: &str, style: mod_api::PanelStyle) {

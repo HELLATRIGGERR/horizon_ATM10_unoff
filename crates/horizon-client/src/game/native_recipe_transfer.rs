@@ -78,7 +78,17 @@ impl Game<'_> {
             let mut pool = transfer_pool(self.inventory.iter().take(36).chain(&self.craft_grid).flatten());
             answer.missing = transfer_missing(&recipe.inputs, &mut pool);
             if run && answer.missing.is_empty() && recipe.book_id >= 0 {
-                self.transfer_viewer_recipe(recipe.book_id, max);
+                // Upstream's book transfer moves one set; a whole stack (`max`) goes by
+                // the recipe's id (`transfer_viewer_recipe_id`).
+                let id = self
+                    .recipe_book_entries()
+                    .into_iter()
+                    .find(|entry| entry.display_id == recipe.book_id)
+                    .map(|entry| entry.id);
+                match id.filter(|_| max) {
+                    Some(id) => self.transfer_viewer_recipe_id(&id, true),
+                    None => self.transfer_viewer_recipe(recipe.book_id),
+                }
                 answer.done = true;
             }
             return answer;
@@ -115,15 +125,15 @@ impl Game<'_> {
         let holds = |s: &ItemStack| need.iter().any(|n| *s.item == *n.item);
         // JEI clears the recipe's slots into the inventory first, then fills them.
         if input.as_ref().is_some_and(|s| !holds(s) || !max) {
-            self.menu_click(Some(FURNACE_INPUT), 0, Input::QuickMove);
+            self.click_open_inventory(Some(FURNACE_INPUT), 0, Input::QuickMove);
         }
         let Some(from) = (0..36).find(|&i| self.inventory.get(i).and_then(Option::as_ref).is_some_and(|s| holds(s))) else {
             return answer;
         };
-        self.menu_click(Some(from), 0, Input::Pickup);
-        self.menu_click(Some(FURNACE_INPUT), if max { 0 } else { 1 }, Input::Pickup);
+        self.click_open_inventory(Some(from), 0, Input::Pickup);
+        self.click_open_inventory(Some(FURNACE_INPUT), if max { 0 } else { 1 }, Input::Pickup);
         if self.carried.is_some() {
-            self.menu_click(Some(from), 0, Input::Pickup);
+            self.click_open_inventory(Some(from), 0, Input::Pickup);
         }
         answer.done = true;
         answer

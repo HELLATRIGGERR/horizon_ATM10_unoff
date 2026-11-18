@@ -854,8 +854,12 @@ impl Game<'_> {
             return true;
         }
         if let Some((index, stack, _)) = self.recipe_catalyst_hovered(layout) {
-            let event = BrowserEvent::Catalyst {
-                index: index as u32,
+            // FORK-TODO(merge): the fork's `PanelEvent::Catalyst { index, stack, right }` is not in
+            // upstream's vocab; until S2 adds it as a fork event, a catalyst click is a slot click
+            // of recipe `u32::MAX` (no recipe has it), its slot the catalyst's index.
+            let event = BrowserEvent::SlotClicked {
+                recipe: u32::MAX,
+                slot: index as u32,
                 stack,
                 right,
             };

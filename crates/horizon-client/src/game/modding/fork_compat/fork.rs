@@ -484,30 +484,25 @@ impl Game<'_> {
         if added.is_empty() && removed.is_empty() {
             return;
         }
+        use crate::game::api_values::TryIntoApi;
         let dimension = self.dim.id();
         for (pos, entity) in removed {
-            self.native_block_entity_unload(dimension, [pos.0, pos.1, pos.2], &entity, true);
+            if let Ok(entity) = (*entity).try_into_api() {
+                self.native_block_entity_unload(dimension, [pos.0, pos.1, pos.2], &entity, true);
+            }
         }
+        // Each on a snapshot (upstream's), written back when the hook changed it:
+        // nothing to save for being looked at.
+        let dim = self.dim;
         for pos in added {
-            let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos) else {
-                continue;
-            };
-            if m.id().is_empty() {
-                continue;
-            }
-            let mut taken = std::mem::take(&mut **m);
-            let before = taken.clone();
-            self.native_block_entity_load(dimension, [pos.0, pos.1, pos.2], &mut taken);
-            if taken == before {
-                // Nothing to save for being looked at.
-                if let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos)
-                    && m.id().is_empty()
-                {
-                    **m = taken;
-                }
-            } else {
-                self.put_back_mod_block_entity(pos, taken, &before.items);
-            }
+            let pos = [pos.0, pos.1, pos.2];
+            let _ = self.with_mod_entity(
+                dim,
+                pos,
+                "block_entity_load",
+                |game, entity| game.native_block_entity_load(dimension, pos, entity),
+                |(), _| ((), false),
+            );
         }
     }
     /// `native_block_entity_unload` of the mod block entities in the chunks
@@ -525,13 +520,16 @@ impl Game<'_> {
                 leaving.push(*p);
             }
         }
+        use crate::game::api_values::TryIntoApi;
         let dimension = self.dim.id();
         for pos in leaving {
-            let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos) else {
+            let Some(BlockEntity::Mod(m)) = self.world.block_entities.get(&pos) else {
                 continue;
             };
-            let entity = std::mem::take(&mut **m);
-            self.native_block_entity_unload(dimension, [pos.0, pos.1, pos.2], &entity, false);
+            // A snapshot: the chunk's block entities are dropped right after.
+            if let Ok(entity) = (**m).try_into_api() {
+                self.native_block_entity_unload(dimension, [pos.0, pos.1, pos.2], &entity, false);
+            }
         }
     }
     /// `native_block_entity_save` of the mod block entities in a save copy.
@@ -691,6 +689,26 @@ impl Game<'_> {
             self.levels.parked_streaming_of_mut(dim.id())
         };
         streaming.is_some_and(|streaming| streaming.set_mod_forced(ticket, hold))
+    }
+
+    /// The chunks of `dim`'s level that the fork's owner string `owner` holds tickets on
+    /// (`native_chunk_ticket`); none for a level that is not open.
+    pub(in crate::game) fn fork_ticket_chunks(
+        &self,
+        dim: Dim,
+        owner: &str,
+    ) -> impl Iterator<Item = (i32, i32)> + '_ {
+        let owner = fork_ticket_owner(owner);
+        let streaming = if dim == self.dim {
+            Some(&self.streaming)
+        } else {
+            self.levels.parked_streaming_of(dim.id())
+        };
+        streaming
+            .into_iter()
+            .flat_map(|streaming| streaming.mod_tickets().of_controller(FORK_TICKET_SLOT))
+            .filter(move |ticket| ticket.owner == owner)
+            .map(|ticket| ticket.chunk)
     }
 
     /// `native_force_chunk`: `owner`'s ticket on `chunk` of the level in place (API 412).

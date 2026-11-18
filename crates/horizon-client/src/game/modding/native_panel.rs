@@ -14,7 +14,10 @@ use horizon_client::{
     items::ItemStack,
     ui::EditBox,
 };
-use mod_api::{PanelStyle, Stack as BrowserStack};
+use mod_api::{
+    NativeIngredientInfo, NativePanelAlign, NativePanelGrid, NativePanelIngredient, NativeStack,
+    PanelStyle, Stack as BrowserStack,
+};
 
 /// One slot of the panel, in GUI pixels.
 const SLOT: f32 = 18.0;
@@ -37,6 +40,8 @@ pub(super) enum BrowserTooltip {
     Text(String),
     Stack(ItemStack),
     Fluid(mod_api::FluidStack),
+    /// A fluid or a mod's ingredient on the fork's panel (API 441).
+    Lines(Vec<(horizon_client::text::Text, u32)>),
 }
 
 /// Whose panel it is: a native mod's id.
@@ -59,7 +64,49 @@ pub(super) struct Shown {
     /// Which change the panel is from, so the game converts it once.
     pub(super) version: u64,
     pub(super) items: Vec<BrowserStack>,
+    /// The fork's side table beside upstream's `items`: entry by entry, the
+    /// fluid or mod ingredient (Mekanism's chemicals) an entry stands for, none
+    /// for an item. Upstream's `Stack` names a registered item only, so such an
+    /// entry's stack is a placeholder (`minecraft:air`, its amount as the
+    /// count) and this says what it is (`native_panel_items`, API 441).
+    pub(super) kinds: Vec<Option<Ingredient>>,
     pub(super) recipes: Option<RecipePage>,
+}
+
+/// A panel entry that is not an item: its kind (`"fluid"`, `mekanism:chemical`)
+/// and id, as the fork's `NativeStack` sent it.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Ingredient {
+    pub(super) kind: String,
+    pub(super) id: String,
+}
+
+impl Shown {
+    /// The fluid or mod ingredient entry `index` stands for; none for an item.
+    fn ingredient_at(&self, index: usize) -> Option<&Ingredient> {
+        self.kinds.get(index)?.as_ref()
+    }
+}
+
+/// The fork's stack as an upstream panel entry: an item by its key, or the
+/// placeholder stack and the side table's entry for a fluid or a mod's
+/// ingredient. None for an item id the game doesn't know.
+pub(super) fn fork_entry(s: NativeStack) -> Option<(BrowserStack, Option<Ingredient>)> {
+    if s.is_item() {
+        let item = mod_api::__private::item_key(&s.item)?;
+        let stack = BrowserStack {
+            item,
+            count: s.count,
+            components: s.components,
+        };
+        return Some((stack, None));
+    }
+    let stack = BrowserStack {
+        item: mod_api::__private::item_key("minecraft:air")?,
+        count: s.count,
+        components: String::new(),
+    };
+    Some((stack, Some(Ingredient { kind: s.kind, id: s.item })))
 }
 
 /// The panel's state in the game.
@@ -109,10 +156,10 @@ impl Panel {
         self.ingredients.insert(mod_id.to_owned(), looks);
     }
     /// How the shown panel's ingredient `s` that is not an item looks; none
-    /// for an item, or one its mod said nothing of (a fluid still draws).
-    fn ingredient(&self, s: &BrowserStack) -> Option<&NativePanelIngredient> {
+    /// for one its mod said nothing of (a fluid still draws).
+    fn ingredient(&self, s: &Ingredient) -> Option<&NativePanelIngredient> {
         let (owner, _) = self.of.as_ref()?;
-        self.ingredients.get(owner.native_id())?.get(&format!("{} {}", s.kind, s.item))
+        self.ingredients.get(owner.native_id())?.get(&format!("{} {}", s.kind, s.id))
     }
     /// `native_panel_grid`.
     pub(super) fn set_grid(&mut self, mod_id: &str, grid: NativePanelGrid) {
@@ -167,15 +214,30 @@ impl Panel {
         let keep = self.keeps_search(mod_id);
         if let Some(shown) = self.native_of(mod_id, !items.is_empty() || keep) {
             shown.items = items;
+            shown.kinds.clear();
             // An empty search result must leave a field to edit the query,
             // as must a mod that keeps its search box.
             self.native_changed(keep || (self.searching && !self.sent.is_empty()));
         }
     }
+    /// The fork's `panel_items`: upstream's entries and, beside them, the
+    /// side table of the fluids and mod ingredients among them.
+    pub(super) fn show_entries(
+        &mut self,
+        mod_id: &str,
+        entries: Vec<(BrowserStack, Option<Ingredient>)>,
+    ) {
+        let (items, mut kinds): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+        self.show_items(mod_id, items);
+        kinds.truncate(ITEMS);
+        if let Some(shown) = self.native.as_mut().filter(|s| s.owner.native_id() == mod_id) {
+            shown.kinds = if kinds.iter().any(Option::is_some) { kinds } else { Vec::new() };
+        }
+    }
     /// `native_panel_recipes`.
     pub(super) fn show_recipes(&mut self, mod_id: &str, page: Option<RecipePage>) {
         let filtering =
-            (mod_id == "recipes" || self.viewer_styled.contains(mod_id)) && !self.sent.is_empty();
+            self.viewer_style(&Owner::Native(mod_id.to_owned())) && !self.sent.is_empty();
         let keep = self.keeps_search(mod_id);
         if let Some(shown) = self.native_of(mod_id, page.is_some()) {
             let returning_to_search = (filtering && shown.recipes.is_some() && page.is_none()) || keep;
@@ -217,6 +279,7 @@ impl Panel {
                 owner: Owner::Native(mod_id.to_owned()),
                 version: 0,
                 items: Vec::new(),
+                kinds: Vec::new(),
                 recipes: None,
             });
         }
@@ -411,6 +474,12 @@ impl Game<'_> {
     /// key over one as `Key`. A new recipe page has none until the mod sets
     /// them again. API @API:panel_catalysts@.
     pub(super) fn native_panel_catalysts(&mut self, mod_id: &str, catalysts: Vec<NativeStack>) {
+        // A catalyst is an item (JEI's catalysts are the machines).
+        let catalysts = catalysts
+            .into_iter()
+            .filter_map(fork_entry)
+            .filter_map(|(stack, kind)| kind.is_none().then_some(stack))
+            .collect();
         self.panel.show_catalysts(mod_id, catalysts);
     }
     /// How big mod `mod_id`'s panel grid may grow and where it sits
@@ -460,22 +529,22 @@ impl Game<'_> {
         self.panel.registered.iter().flat_map(|(_, list)| list.iter().cloned()).collect()
     }
     /// Draws the panel's ingredient `s` that is not an item, 16 px at `(x, y)`.
-    fn draw_panel_ingredient(&self, batch: &mut HudBatch, s: &BrowserStack, x: f32, y: f32) -> bool {
+    fn draw_panel_ingredient(&self, batch: &mut HudBatch, s: &Ingredient, x: f32, y: f32) -> bool {
         let look = self.panel.ingredient(s);
         match look.map(|l| &l.info).filter(|i| !i.sprite.is_empty()) {
             Some(info) => {
                 let Some([w, h]) = self.native_sprite_size(&info.sprite) else { return false };
                 self.native_sprite_tinted(batch, &info.sprite, [0.0, 0.0, w, h.min(w)], [x, y, 16.0, 16.0], info.tint)
             }
-            None if s.kind == NativeStack::FLUID => self.native_fluid_icon(batch, &s.item, [x, y], 16.0),
+            None if s.kind == NativeStack::FLUID => self.native_fluid_icon(batch, &s.id, [x, y], 16.0),
             None => false,
         }
     }
     /// The tooltip of the panel's ingredient `s` that is not an item: its
     /// name (the mod's, else its id) and the mod's lines.
-    fn panel_ingredient_tooltip(&self, s: &BrowserStack) -> Vec<(horizon_client::text::Text, u32)> {
+    fn panel_ingredient_tooltip(&self, s: &Ingredient) -> Vec<(horizon_client::text::Text, u32)> {
         let look = self.panel.ingredient(s);
-        let name = look.map_or(s.item.as_str(), |l| l.info.name.as_str());
+        let name = look.map_or(s.id.as_str(), |l| l.info.name.as_str());
         let mut lines = vec![(horizon_client::text::Text::literal(name), u32::MAX)];
         for line in look.map(|l| l.lines.as_slice()).unwrap_or_default() {
             lines.push((horizon_client::text::Text::legacy(line), u32::MAX));
@@ -523,7 +592,12 @@ impl Game<'_> {
             let stacks = shown
                 .items
                 .iter()
-                .map(|s| browser_stack(items, s))
+                .enumerate()
+                // A fluid or a mod's type is no item, whatever its stack (API 441).
+                .map(|(i, s)| match shown.ingredient_at(i) {
+                    Some(_) => None,
+                    None => browser_stack(items, s),
+                })
                 .collect();
             let shown = shown.recipes.clone();
             self.panel.stacks = stacks;
@@ -550,11 +624,8 @@ impl Game<'_> {
     /// the search box at its foot. None when the screen has no room for it.
     fn browser_layout(&self, batch: &HudBatch) -> Option<Layout> {
         let image = self.container_image(batch);
-        let recipes = self
-            .panel
-            .of
-            .as_ref()
-            .is_some_and(|(owner, _)| owner.native_id() == "recipes");
+        let owner = self.panel.of.as_ref().map(|(owner, _)| owner);
+        let own_recipes = owner.is_some_and(|owner| owner.native_id() == "recipes");
         let window_right = if self.screen == Screen::Creative {
             Self::creative_origin(batch).0 + 198.0
         } else {
@@ -565,12 +636,15 @@ impl Game<'_> {
             .of
             .as_ref()
             .and_then(|(owner, _)| self.panel.classic(owner));
-        if let Some((centred, window_width)) = classic.filter(|_| !recipes) {
+        if let Some((centred, window_width)) = classic.filter(|_| !own_recipes) {
             let (left, top) = (image.left as f32, image.top as f32);
             let window = [left, top, window_right - left, image.height as f32];
             let screen = [batch.width, batch.height];
             return classic_layout(screen, window, f32::from(window_width), centred);
         }
+        // A recipe viewer's panel (the viewer style) takes the screen's right edge, full height.
+        let recipes = owner.is_some_and(|owner| self.panel.viewer_style(owner));
+        let limits = owner.map_or_else(NativePanelGrid::default, |owner| self.panel.grid_of(owner));
         let left = window_right + MARGIN;
         let (width, height) = self.renderer.as_ref().filter(|_| recipes).map_or(
             (batch.width, batch.height),
@@ -653,8 +727,8 @@ impl Game<'_> {
             match self.panel.stacks.get(first + n)?.clone() {
                 Some(stack) => Some((first + n, Some(stack))),
                 None => {
-                    let sent = self.panel_shown()?.items.get(first + n)?;
-                    (!sent.is_item()).then_some((first + n, None))
+                    let shown = self.panel_shown()?;
+                    shown.ingredient_at(first + n).is_some().then_some((first + n, None))
                 }
             }
         })
@@ -784,13 +858,14 @@ impl Game<'_> {
                 }
                 // A fluid or a mod's type (API 441).
                 None => {
-                    let Some(sent) = self.panel_shown().and_then(|s| s.items.get(first + n)).cloned() else {
+                    let Some(sent) = self.panel_shown().and_then(|s| s.ingredient_at(first + n)).cloned()
+                    else {
                         continue;
                     };
-                    if sent.is_item() || !self.draw_panel_ingredient(batch, &sent, x + 1.0, y + 1.0) {
+                    if !self.draw_panel_ingredient(batch, &sent, x + 1.0, y + 1.0) {
                         continue;
                     }
-                    self.panel.ingredient(&sent).map_or_else(|| sent.item.clone(), |l| l.info.name.clone())
+                    self.panel.ingredient(&sent).map_or_else(|| sent.id.clone(), |l| l.info.name.clone())
                 }
             };
             let rect = [x + 1.0, y + 1.0, 16.0, 16.0];
@@ -889,8 +964,14 @@ impl Game<'_> {
         }
         if self.carried.is_some() {
             None
-        } else if let Some(stack) = self.browser_pointed_stack(&layout) {
-            Some(BrowserTooltip::Stack(stack.1))
+        } else if let Some((_, stack)) = self.browser_pointed_stack(&layout) {
+            match stack {
+                Some(stack) => Some(BrowserTooltip::Stack(stack)),
+                None => self
+                    .browser_hovered(&layout)
+                    .and_then(|(index, _)| self.panel_shown()?.ingredient_at(index).cloned())
+                    .map(|ingredient| BrowserTooltip::Lines(self.panel_ingredient_tooltip(&ingredient))),
+            }
         } else {
             self.recipe_fluid_hovered(&layout)
                 .map(BrowserTooltip::Fluid)
@@ -911,6 +992,9 @@ impl Game<'_> {
             }
             BrowserTooltip::Fluid(fluid) => {
                 self.draw_fluid_tooltip(batch, &fluid, self.cursor.0, self.cursor.1);
+            }
+            BrowserTooltip::Lines(lines) => {
+                self.draw_tooltip_lines(batch, &lines, self.cursor.0, self.cursor.1);
             }
         }
     }
@@ -1113,7 +1197,6 @@ impl Game<'_> {
             item: mod_api::__private::item_key(&stack.item)?,
             count: stack.count,
             components: super::native_recipes::components(&stack),
-            kind: String::new(),
         })
     }
     /// A key `key` (`key.keyboard.r`) went down: over an item on a container
@@ -1141,10 +1224,6 @@ pub(super) fn browser_stack(
     items: &horizon_client::items::Items,
     s: &BrowserStack,
 ) -> Option<ItemStack> {
-    // A fluid or a mod's type is no item, whatever its id (API 441).
-    if !s.is_item() {
-        return None;
-    }
     let item = mod_api::__private::item_key_id(s.item)?;
     items.get(item)?;
     let (damage, extra) = if s.components.is_empty() {
@@ -1190,7 +1269,6 @@ mod tests {
             item: mod_api::__private::item_key(item).unwrap(),
             count: 1,
             components: String::new(),
-            kind: String::new(),
         }
     }
     fn fluid(id: &str, amount: u32) -> FluidStack {

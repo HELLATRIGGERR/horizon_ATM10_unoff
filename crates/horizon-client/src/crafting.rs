@@ -151,6 +151,11 @@ impl Ingredient {
     /// A stack of `item` this ingredient takes, as `Ingredient.display` shows it:
     /// with the components a `neoforge:components` ingredient asks for.
     pub fn example(&self, item: &str) -> ItemStack {
+        if let Some((Shape::Compound, kids)) = &self.children
+            && let Some(kid) = kids.iter().find(|k| k.items.contains(item))
+        {
+            return kid.example(item);
+        }
         match &self.custom {
             Some((kind, data)) if kind == "neoforge:components" => components_stack(data, item),
             _ => ItemStack::new(item, 1),
@@ -171,6 +176,18 @@ impl Ingredient {
         };
         match v {
             Value::String(s) => add(s),
+            // 1.21.1's list of ingredients, the pack's data still writes it:
+            // `CompoundIngredient`, any of them matching.
+            Value::Array(a) if a.iter().any(Value::is_object) => {
+                let subs: Vec<Self> = a.iter().map(|s| Self::parse(s, items)).collect::<Option<_>>()?;
+                for item in subs.iter().flat_map(|s| &s.order) {
+                    add(item.as_str());
+                }
+                return (!list.is_empty()).then(|| Self {
+                    children: Some((Shape::Compound, subs)),
+                    ..Self::of(list)
+                });
+            }
             Value::Array(a) => a.iter().filter_map(Value::as_str).for_each(&mut add),
             // AE2's recipes come from its 1.21.1 data, where an ingredient may
             // still be an `{item}` or `{tag}` object.
@@ -2281,6 +2298,27 @@ mod tests {
             "components": {"minecraft:max_stack_size": 64, "minecraft:rarity": "common"}}));
         assert!(bare.test(&ItemStack::new("minecraft:oak_planks", 1)));
         assert!(Ingredient::parse(&serde_json::json!({"type": "neoforge:components", "items": "minecraft:stick"}), &items).is_none(), "components are required");
+    }
+
+    /// 1.21.1's list of ingredients (ATM10's own `allthetweaks/dragon_soul`, ExtendedAE's matrix glass): any of
+    /// them, each matching as itself, a `neoforge:components` one with its components.
+    #[test]
+    #[ignore = "needs the prepared 26.3 resources"]
+    fn a_list_of_ingredient_objects_is_any_of_them() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
+        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
+        let any = Ingredient::parse(&serde_json::json!([
+            {"type": "neoforge:components", "items": "minecraft:stick", "components": {"evilcraft:broom_parts": ["evilcraft:brush_bare"]}},
+            "minecraft:quartz_block", "#minecraft:planks"]), &items).expect("parses");
+        assert_eq!(&any.order[..2], ["minecraft:stick", "minecraft:quartz_block"]);
+        assert!(any.order.contains(&"minecraft:oak_planks".to_owned()));
+        assert!(any.test(&ItemStack::new("minecraft:quartz_block", 1)));
+        assert!(any.test(&ItemStack::new("minecraft:oak_planks", 1)));
+        assert!(!any.test(&ItemStack::new("minecraft:stick", 1)), "the stick only with its components");
+        assert!(any.test(&any.example("minecraft:stick")));
+        assert!(!any.test(&ItemStack::new("minecraft:stone", 1)));
+        let unknown = serde_json::json!([{"type": "nomod:thing"}, "minecraft:stone"]);
+        assert!(Ingredient::parse(&unknown, &items).is_none(), "one child that doesn't parse fails the list");
     }
 
     /// ItemStackTemplate.apply applies the result patch after the input patch.

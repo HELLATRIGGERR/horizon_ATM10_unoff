@@ -48,6 +48,18 @@ pub(super) fn bob_offset(position: Vec3, drawn: f32, still: bool) -> f32 {
     drawn * std::f32::consts::PI * 2.0
 }
 
+/// `Entity.fireImmune()` over `can_be_hurt_by` while `immune`: no fire or lava
+/// hurts the item (MEGA Cells keeps the ingredients of a lava transformation alive).
+fn fire_immune_if(
+    immune: bool,
+    can_be_hurt_by: impl Fn(&ItemStack, &str) -> bool,
+) -> impl Fn(&ItemStack, &str) -> bool {
+    move |stack, damage| {
+        !(immune
+            && matches!(damage, "minecraft:in_fire" | "minecraft:on_fire" | "minecraft:lava"))
+            && can_be_hurt_by(stack, damage)
+    }
+}
 impl Game<'_> {
     pub(super) fn tick_items(&mut self) {
         let mut round = self.item_update_round();
@@ -118,6 +130,13 @@ impl Game<'_> {
                 continue;
             }
             self.tick_saved_invulnerable_time(items[i].id);
+            // MEGA Cells: the ingredients of a lava transformation do not burn.
+            #[cfg(feature = "ae2-megacells")]
+            let lava_immune = mega_lava
+                .as_ref()
+                .is_some_and(|lava| self.megacells_lava_immune(lava, &items, i));
+            #[cfg(not(feature = "ae2-megacells"))]
+            let lava_immune = false;
             let item = &mut items[i];
             // `Entity.baseTick` reads the fluid the item starts the tick in,
             // before `ItemEntity.tick` moves it.
@@ -174,9 +193,12 @@ impl Game<'_> {
                 .map(|damage| self.saved_refuses_damage(item_id, damage, false));
             let burning = item.burning_tick_with_hook(
                 start_in_lava,
-                &native_components::item_damage_resolver(
-                    &self.pack.item_renderer.models,
-                    &self.health_resources.damage,
+                &fire_immune_if(
+                    lava_immune,
+                    native_components::item_damage_resolver(
+                        &self.pack.item_renderer.models,
+                        &self.health_resources.damage,
+                    ),
                 ),
                 |damage| item_refuses!(self, item_id, saved, &mut self.world, damage),
             );
@@ -237,9 +259,12 @@ impl Game<'_> {
                     &mut self.world,
                     self.res.facts(),
                     self.pack.assets.registry,
-                    &native_components::item_damage_resolver(
-                        &self.pack.item_renderer.models,
-                        &self.health_resources.damage,
+                    &fire_immune_if(
+                        lava_immune,
+                        native_components::item_damage_resolver(
+                            &self.pack.item_renderer.models,
+                            &self.health_resources.damage,
+                        ),
                     ),
                     |world, damage| item_refuses!(self, item_id, saved, world, damage),
                 );
@@ -284,13 +309,6 @@ impl Game<'_> {
                     &max_stack,
                 );
             }
-            // MEGA Cells: the ingredients of a lava transformation do not burn.
-            #[cfg(feature = "ae2-megacells")]
-            let lava_immune = mega_lava
-                .as_ref()
-                .is_some_and(|lava| self.megacells_lava_immune(lava, &items, i));
-            #[cfg(not(feature = "ae2-megacells"))]
-            let lava_immune = false;
             let item = &mut items[i];
             let mut alive = alive || (item.age < 6000 && item.position.y >= void);
             if merging && !removed[i] && item.age >= 6000 && item.position.y >= void {
@@ -865,7 +883,14 @@ impl Game<'_> {
     /// A guest's drop key. A drop the held item's Part refused sends the
     /// inventory back, undoing the removal the client predicted.
     pub(in crate::game) fn guest_drop_held(&mut self, gi: usize, conn: u32, all: bool) {
-        let kept = self.as_guest(conn, |g| g.drop_held(all)) == Some(true);
+        let kept = self.as_guest(conn, |g| {
+            let before = g.inventory[g.selected].as_ref().map_or(0, |s| s.count);
+            let kept = g.drop_held(all);
+            #[cfg(feature = "ae2-lab")]
+            g.ae2x_dropped(before);
+            let _ = before;
+            kept
+        }) == Some(true);
         if let Some(host) = self.lan.as_mut() {
             if kept {
                 host.hub.send_inventory(gi);

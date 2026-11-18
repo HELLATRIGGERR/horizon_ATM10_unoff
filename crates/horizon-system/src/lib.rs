@@ -768,12 +768,6 @@ pub fn load_average() -> Option<f64> {
 /// Resident memory of a process, in bytes: its working set on Windows.
 pub fn rss_bytes(pid: u32) -> Option<u64> {
     #[cfg(windows)]
-    return windows_process::rss_bytes(pid);
-    #[cfg(not(windows))]
-    return proc_rss_bytes(pid);
-}
-#[cfg(not(windows))]
-fn proc_rss_bytes(pid: u32) -> Option<u64> {
     {
         windows_process::rss_bytes(pid)
     }
@@ -798,12 +792,6 @@ fn proc_rss_bytes(pid: u32) -> Option<u64> {
 /// CPU time a process has used, user and system, in seconds.
 pub fn cpu_seconds(pid: u32) -> Option<f64> {
     #[cfg(windows)]
-    return windows_process::cpu_seconds(pid);
-    #[cfg(not(windows))]
-    return proc_cpu_seconds(pid);
-}
-#[cfg(not(windows))]
-fn proc_cpu_seconds(pid: u32) -> Option<f64> {
     {
         windows_process::cpu_seconds(pid)
     }
@@ -923,81 +911,6 @@ mod windows_process {
         // SAFETY: a live handle and four FILETIME outputs.
         let ok = unsafe { GetProcessTimes(process.0, creation, exit, kernel, user) } != 0;
         ok.then(|| kernel.seconds() + user.seconds())
-    }
-}
-
-/// [`rss_bytes`] and [`cpu_seconds`] on Windows, which has no `/proc` and no `ps`: kernel32's
-/// `K32GetProcessMemoryInfo` and `GetProcessTimes` on a handle that may only query.
-#[cfg(windows)]
-mod windows_process {
-    use std::ffi::c_void;
-
-    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
-
-    /// `PROCESS_MEMORY_COUNTERS`.
-    #[repr(C)]
-    #[derive(Default)]
-    struct MemoryCounters {
-        cb: u32,
-        page_fault_count: u32,
-        peak_working_set_size: usize,
-        working_set_size: usize,
-        quota_peak_paged_pool_usage: usize,
-        quota_paged_pool_usage: usize,
-        quota_peak_non_paged_pool_usage: usize,
-        quota_non_paged_pool_usage: usize,
-        pagefile_usage: usize,
-        peak_pagefile_usage: usize,
-    }
-
-    #[link(name = "kernel32")]
-    unsafe extern "system" {
-        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> *mut c_void;
-        fn CloseHandle(handle: *mut c_void) -> i32;
-        fn K32GetProcessMemoryInfo(process: *mut c_void, counters: *mut MemoryCounters, cb: u32) -> i32;
-        fn GetProcessTimes(
-            process: *mut c_void,
-            creation: *mut u64,
-            exit: *mut u64,
-            kernel: *mut u64,
-            user: *mut u64,
-        ) -> i32;
-    }
-
-    /// `read` on a query handle of process `pid`, closed afterwards.
-    fn with_process<T>(pid: u32, read: impl FnOnce(*mut c_void) -> Option<T>) -> Option<T> {
-        // SAFETY: OpenProcess takes plain values; a null handle is checked below.
-        let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-        if process.is_null() {
-            return None;
-        }
-        let value = read(process);
-        // SAFETY: the handle OpenProcess returned, closed once.
-        unsafe { CloseHandle(process) };
-        value
-    }
-
-    pub(super) fn rss_bytes(pid: u32) -> Option<u64> {
-        with_process(pid, |process| {
-            let mut counters = MemoryCounters {
-                cb: size_of::<MemoryCounters>() as u32,
-                ..MemoryCounters::default()
-            };
-            // SAFETY: a live query handle and a counters struct whose `cb` is its size.
-            let ok = unsafe { K32GetProcessMemoryInfo(process, &mut counters, counters.cb) };
-            (ok != 0).then_some(counters.working_set_size as u64)
-        })
-    }
-
-    pub(super) fn cpu_seconds(pid: u32) -> Option<f64> {
-        with_process(pid, |process| {
-            let (mut creation, mut exit, mut kernel, mut user) = (0u64, 0u64, 0u64, 0u64);
-            // SAFETY: a live query handle and four FILETIMEs (u64 of 100 ns ticks, same layout).
-            let ok = unsafe {
-                GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user)
-            };
-            (ok != 0).then(|| (kernel + user) as f64 / 1e7)
-        })
     }
 }
 
@@ -1311,8 +1224,6 @@ mod tests {
     fn this_process_is_measured() {
         if cfg!(any(target_os = "macos", target_os = "linux")) {
             assert!(load_average().is_some());
-        }
-        if cfg!(any(target_os = "macos", target_os = "linux", windows)) {
             assert!(rss_bytes(std::process::id()).unwrap() > 1 << 20);
             assert!(cpu_seconds(std::process::id()).unwrap() >= 0.0);
         }

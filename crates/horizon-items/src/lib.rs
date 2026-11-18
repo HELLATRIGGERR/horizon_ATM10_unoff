@@ -7,8 +7,6 @@
 #![forbid(unsafe_code)]
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_stack_identity;
-#[cfg(feature = "ae2-lab")]
-pub use horizon_command::ae2_components;
 pub mod banner_layer;
 pub mod blocks;
 pub mod bundle;

@@ -23,9 +23,9 @@ horizon-ae2x-aeinfinitybooster = { path = "../horizon-ae2x-aeinfinitybooster", o
 horizon-ae2x-appmek = { path = "../horizon-ae2x-appmek", optional = true }
 horizon-ae2x-enderdrives = { path = "../horizon-ae2x-enderdrives", optional = true }
 horizon-ae2x-kits = { path = "../horizon-ae2x-kits", optional = true }
-# The mod API level mark and the allocator, as horizon-client's own program has them.
-horizon-mods = { path = "../horizon-mods", default-features = false }
-horizon-threads = { path = "../horizon-threads" }
+# The game's entry, its identity mark and the main thread's stack, as upstream's horizon-game program has them
+# (the allocator now lives in horizon-client's library).
+horizon-game = { path = "../horizon-game", default-features = false }
 
 [build-dependencies]
 # The build script runs on the host, but embeds resources based on the target OS.
@@ -51,7 +51,7 @@ horizon-extras = ["horizon-client/horizon-extras"]
 friends = ["horizon-client/friends"]
 rng-trace = ["horizon-client/rng-trace"]
 system-allocator = ["horizon-client/system-allocator"]
-alloc-census = ["horizon-client/alloc-census", "horizon-threads/alloc-census"]
+alloc-census = ["horizon-client/alloc-census"]
 windows-mimalloc = ["horizon-client/windows-mimalloc"]
 windows-segment-heap = ["horizon-client/windows-segment-heap"]
 

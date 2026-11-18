@@ -1891,8 +1891,7 @@ dependencies = [
  "horizon-ae2x-enderdrives",
  "horizon-ae2x-kits",
  "horizon-client",
- "horizon-mods",
- "horizon-threads",
+ "horizon-game",
  "winresource",
 ]
 
@@ -2349,7 +2348,6 @@ name = "horizon-items"
 version = "0.1.0"
 dependencies = [
  "horizon-client-core",
- "horizon-command",
  "horizon-core",
  "horizon-mod-package",
  "horizon-mod-vocab",

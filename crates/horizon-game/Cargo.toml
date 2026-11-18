@@ -36,6 +36,19 @@ alloc-census = ["horizon-client/alloc-census"]
 alloc-count = ["horizon-client/alloc-count"]
 windows-mimalloc = ["horizon-client/windows-mimalloc"]
 windows-segment-heap = ["horizon-client/windows-segment-heap"]
+# The fork's AE2 features of the engine (docs/ae2-crates.md). The AE2 crates above horizon-client are installed by
+# horizon-atm10, the fork's game program.
+ae2-lab = ["horizon-client/ae2-lab"]
+ae2-megacells = ["horizon-client/ae2-megacells"]
+ae2-merequester = ["horizon-client/ae2-merequester"]
+ae2-extendedae = ["horizon-client/ae2-extendedae"]
+ae2-ae2wtlib = ["horizon-client/ae2-ae2wtlib"]
+ae2-aeinfinitybooster = ["horizon-client/ae2-aeinfinitybooster"]
+ae2-importexportcard = ["horizon-client/ae2-importexportcard"]
+ae2-appflux = ["horizon-client/ae2-appflux"]
+ae2-appmek = ["horizon-client/ae2-appmek"]
+ae2-enderdrives = ["horizon-client/ae2-enderdrives"]
+ae2-advancedae = ["horizon-client/ae2-advancedae"]
 
 [build-dependencies]
 winresource = "0.1"

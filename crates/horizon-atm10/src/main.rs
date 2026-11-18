@@ -1,21 +1,14 @@
-//! The fork's All the Mods 10 game: horizon-client's program (`crates/horizon-client/src/main.rs`)
+//! The fork's All the Mods 10 game: horizon-game's program (`crates/horizon-game/src/main.rs`)
 //! with the AE2 crates above horizon-client installed before the game starts (docs/ae2-crates.md).
 #![forbid(unsafe_code)]
 
-#[cfg(not(any(feature = "system-allocator", feature = "alloc-census")))]
-#[global_allocator]
-static ALLOCATOR: horizon_threads::Allocator = horizon_threads::ALLOCATOR;
-#[cfg(all(feature = "alloc-census", not(feature = "system-allocator")))]
-#[global_allocator]
-static ALLOCATOR: horizon_threads::CensusAllocator = horizon_threads::CensusAllocator;
-
-/// The mod API level this game serves, kept in the program for the launcher
-/// to read without running it (`horizon_mods::api_level::MARK`). `main`
-/// reads it, so the linker keeps it.
-static MOD_API_LEVEL: [u8; 27] = horizon_mods::api_level::MARK;
+/// Identifies this executable as the game for launcher imports (`horizon_game::GAME_IDENTITY`).
+/// `main` reads it, so the linker keeps it.
+static GAME_IDENTITY: [u8; horizon_game::GAME_IDENTITY.len()] = horizon_game::GAME_IDENTITY;
 
 fn main() {
-    std::hint::black_box(&MOD_API_LEVEL);
+    horizon_game::prepare_main_stack();
+    std::hint::black_box(&GAME_IDENTITY);
     // The addon crates, then AE2, whose extension every game makes from what they added.
     #[cfg(feature = "ae2-aeinfinitybooster")]
     horizon_ae2x_aeinfinitybooster::install();
@@ -27,7 +20,7 @@ fn main() {
     horizon_ae2x_kits::install();
     #[cfg(feature = "ae2-lab")]
     horizon_ae2::install();
-    horizon_client::entry::main();
+    horizon_game::main();
 }
 
 #[cfg(all(test, windows))]

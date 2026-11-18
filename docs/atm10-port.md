@@ -151,6 +151,8 @@ another, each hidden behind the one before (first starts on this PC):
 | run 19 | 7.3 s | 45 s | 69 s | **first world with all carries**: first frame at 275 s |
 | run 21 | 5.6 s | 49 s | 68 s | a first start on the final code: first frame at 249 s, its data file written behind it in 273 s |
 | run 22 | none | none | 6.5 s | a second start: first frame at **73 s** |
+| title screen, first start (`pack-start.ts`) | 8.9 s | 67 s | 89 s | Singleplayer, Create New World: first frame in the world at **213 s**; Save and Quit to Title, then the world from the list: in it 41 s later |
+| title screen, second start | none | none | 19 s | the saved world from the list: first frame at 198 s (no data file: the first launch quit before writing it) |
 
 A world opens with all carries. All of these with the session locked, so no frame rate here compares with Java's (the
 compositor holds the window to 30 fps); memory, tick and load times do. Against Java's 200 s, on the same PC:
@@ -167,6 +169,33 @@ compositor holds the window to 30 fps); memory, tick and load times do. Against 
 | Peak working set | 6.7 GB | 6.9 GB |
 | At spawn: working set, private (with 1.5 GB of GPU memory) | 5.0, 9.4 GB | 6.6, 9.1 GB |
 | Lowest free memory, from 7-8 GB at the start | 0.2 GB | 1.0 GB |
+
+Through the title screen, as a player starts it: `tools/atm10/pack-start.ts` starts every carry (and AE2's addons)
+offscreen with no `--world`, with sound on (the output open, the master volume at 0), and drives the title screen
+through the control socket: Singleplayer, Create New World, in the world, Save and Quit to Title, the world from the
+list, in the world, quit; then a second launch that opens the saved world from the list. `HORIZON_PLAYER_START=1`
+gives that game the player's start (the title shows while the world tables load behind it; a control socket
+otherwise loads everything before the window). It writes `pack-start.json` (each step, the startup trace's marks,
+working set and private bytes once a second). On the 64 GB PC, with other work beside it (`bash run.sh` in the
+`packstart-work` folder holds the full-pack lock):
+
+| Through the title screen | First start | Second start | Java |
+|---|--:|--:|--:|
+| Title shown | 89 s | 19 s | 140 s |
+| Core tables; the game answers its socket (a click before goes to the loading screen's menu) | 111 s; 127 s | 63 s; 96 s | |
+| World tables | 166 s | 111 s | |
+| World prepared, server's world open | 197 s, 201 s | 163 s, 169 s | |
+| First frame in the world | **213 s** | 198 s | 200 s |
+| Save and Quit to Title, the world from the list, first frame | 41 s | | |
+| Peak working set, private | 6.4, 8.7 GB | 5.6, 8.3 GB | 8.3 GB heap |
+| In the world: working set, private | 5.7, 8.1 GB | 5.2, 7.2 GB | |
+
+The pack opens through the title screen, first start and second, and a saved world reopens from the list; no
+fatal error on the way. The first start is at Java's 200 s. The second is not the 73 s of run 22: `horizon-data.bin`
+is written 30 s after the first world shows, and the first launch had quit before then. A start just after a power
+loss (cold disk cache, the machine busy rebuilding) also reached the world, at 1,754 s, and wrote no data file in
+the 20 minutes after it. 46 blockstates of mods name models 26.3 doesn't have (`minecraft:block/oak_sign`...): the
+missing model, a warning.
 
 The server thread's tick, over runs 18-22: 5.0-8.8 ms standing at spawn (peak 7.9-15.6 ms); 7.2-16.6 ms on a 400-block
 flight at 10 blocks a second (peak 15-47 ms, and one 1.08 s spike in run 22 not looked into). 637 chunks, 322-1,911
@@ -495,7 +524,9 @@ What remains, by size:
    opens (2b056e630); a first start now opens with about 1 GB free on 16 GB. Left: recipes held as JSON trees (656 MB),
    lazy GUI/entity textures (640 MB of GPU memory), the 319 placed features that can't run. Frame rate against Java
    was measured on 3 November (891 against about 178 fps at spawn); measure again when mods draw more.
-3. Open a world through the title screen (every run so far used `--world`), with sound on.
+3. ~~Open a world through the title screen, with sound on~~: done, `tools/atm10/pack-start.ts` (above). Left: the
+   second start through the title screen with the data file (why a title-screen start wrote none in 20 minutes), and a
+   click on the loading screen's menu before the game answers its socket (the test clicks only once it does).
 4. Fix the engine defects in the table above.
 5. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`: Ex Inscriber, Charger, Molecular Assembler); Mekanism's
    chemicals and gases, then factories (`pack/mods/mekanism/NOTES.md`); bring `wip/quests` onto the head.

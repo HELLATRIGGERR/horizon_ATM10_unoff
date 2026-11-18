@@ -472,6 +472,28 @@ What remains, by size:
   derived from them out of git. Planning notes that quote pack data stay in the local handoff folder.
 - LGPL mods (AE2, Powah and others) stay in this fork and are never proposed upstream. Upstream's contributing rules forbid
   even reading LGPL code for its pull requests. Flux Networks' GUI art is CC BY-NC-SA: local only.
+- A mod's own source code. This fork's rule differs from rule 4 of `docs/modpacks.md` (upstream's, kept as it is
+  there).
+  - A mod whose code licence allows derivatives may be ported from its source: read its code at the version ATM10
+    ships, translate it to Rust and verify it against the oracle. Take the licence from the source repo at that
+    version, since a jar's `mods.toml` can be stale.
+  - **Permissive** (MIT, Apache, BSD, ISC, zlib, CC0, Unlicense). For example Mekanism, Create's code, Modern
+    Industrialization, Occultism, Apotheosis, Eternal Starlight, Industrial Foregoing, Mystical Agriculture, Refined
+    Storage, Silent Gear, Hostile Neural Networks, Flux Networks, Just Dire Things, Ender IO.
+    - The bundle keeps the mod's copyright notice and licence text in its folder (`LICENSE-<mod>`).
+    - Its README names the mod, the version and the source repo it was ported from.
+  - **Copyleft** (LGPL, GPL, AGPL, MPL). For example AE2's code, Powah, Advanced AE, ExtendedAE, Twilight Forest, the
+    Aether's code, Ars Nouveau, PneumaticCraft, Deeper and Darker.
+    - The bundle is published under the mod's licence with its source, in a repository of its own rather than this
+      fork's MIT tree.
+    - LGPL ports already in this tree (AE2, Powah) keep their licence notes.
+  - **All Rights Reserved, custom, no-derivatives or non-commercial licences, and mods with no stated licence** (FTB's
+    mods, Allthemodium, AllTheOres, Forbidden Arcanus, Iron's Spells, Productive Bees, Sophisticated Backpacks,
+    Cataclysm): behaviour only, as `docs/modpacks.md` rule 4 says.
+  - **Assets.** Whatever the code licence, assets (textures, models, sounds, lang text) are never copied. Create's,
+    Apotheosis' and the Aether's are All Rights Reserved even where their code is open. Assets still come from the
+    player's own jars at run time.
+  - Mods' sources are cloned outside the repo (`atm10-work/mod-sources/`) and never committed.
 - Native mods hook named hook points (`game/native_hooks.rs`, `native-hooks.json`). Hooks are only appended. That file holds
   no `cfg` or macros outside tests. A new hook is added in upstream's style: its `native_*` function with the placeholder
   body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract,

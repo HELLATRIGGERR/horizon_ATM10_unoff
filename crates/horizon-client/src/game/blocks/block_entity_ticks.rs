@@ -61,6 +61,9 @@ pub(crate) enum TickedKind {
     Mod,
     /// `PotentSulfurBlockEntity`.
     PotentSulfur,
+    /// AE2's quantum ring and link, which form the bridge once ready.
+    #[cfg(feature = "ae2-lab")]
+    Ae2Quantum,
 }
 
 impl TickedKind {
@@ -84,6 +87,16 @@ impl TickedKind {
             BlockEntity::Campfire(_) => Self::Campfire,
             BlockEntity::Mod(_) => Self::Mod,
             BlockEntity::PotentSulfur(_) => Self::PotentSulfur,
+            #[cfg(feature = "ae2-lab")]
+            BlockEntity::Ae2(machine)
+                if matches!(
+                    machine.kind,
+                    horizon_client::ae2_world::MachineKind::QuantumRing
+                        | horizon_client::ae2_world::MachineKind::QuantumLink
+                ) =>
+            {
+                Self::Ae2Quantum
+            }
             _ => return None,
         })
     }
@@ -436,9 +449,9 @@ impl Game<'_> {
             horizon_threads::work::set_entity(horizon_threads::work::entity_id(
                 this.world.block_entities.get(&pos).map_or("", ticker_name),
             ));
-                #[cfg(feature="ae2-lab")]
-                Some(BlockEntity::Ae2(machine)) if matches!(machine.kind,horizon_client::ae2_world::MachineKind::QuantumRing|horizon_client::ae2_world::MachineKind::QuantumLink) => self.ae2_quantum_ready_tick(pos),
             match kind {
+                #[cfg(feature = "ae2-lab")]
+                TickedKind::Ae2Quantum => this.ae2_quantum_ready_tick(pos),
                 TickedKind::Hopper => this.tick_hopper(pos),
                 TickedKind::Crafter => this.tick_crafter(pos),
                 TickedKind::Jukebox => this.tick_jukebox(pos),

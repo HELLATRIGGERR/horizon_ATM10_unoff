@@ -897,10 +897,10 @@ impl Game<'_> {
         if let Some(shown) = self.native_screen_slot_count() {
             return inventory + shown;
         }
-            #[cfg(feature = "ae2-lab")]
-            Some(BlockEntity::Ae2(_)) => v.extend((0..self.container_size()).map(|i| 300 + i)),
         let container = match self.container_kind() {
             Some(BlockEntity::Chest(_)) => self.open_container_size(),
+            #[cfg(feature = "ae2-lab")]
+            Some(BlockEntity::Ae2(_)) => self.open_container_size(),
             Some(BlockEntity::Furnace(_)) => 3,
             Some(BlockEntity::Brewing(_)) => 5,
             Some(BlockEntity::Crafter(_)) => 10,
@@ -966,7 +966,9 @@ impl Game<'_> {
             Some(BlockEntity::Brewing(_)) => v.extend(300..305),
             Some(BlockEntity::Crafter(_)) => v.extend(300..310),
             #[cfg(feature = "ae2-lab")]
-            Some(BlockEntity::Ae2(_)) => self.container_size(),
+            Some(BlockEntity::Ae2(_)) => {
+                v.extend((0..self.open_container_size()).map(|i| 300 + i))
+            }
             Some(
                 BlockEntity::Sign(_)
                 | BlockEntity::Jukebox(_)

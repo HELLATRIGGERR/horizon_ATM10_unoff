@@ -446,8 +446,6 @@ impl Game<'_> {
     /// The client level as item models read it: worked out once a frame (a
     /// screen of items read the same level, its sky sampled once).
     pub(super) fn item_level(&self) -> LevelState {
-            #[cfg(feature = "ae2-lab")]
-            Dim::Spatial => "ae2:spatial_storage",
         let dimension = self.dim.id();
         let key = (
             self.frames,

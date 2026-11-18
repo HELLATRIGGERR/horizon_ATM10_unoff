@@ -131,6 +131,7 @@ pub mod projectiles;
 pub mod raid;
 pub mod random_tick_sections;
 pub mod realms;
+pub mod recipe_audit;
 pub mod recipe_book;
 mod recipe_conditions;
 pub mod recipe_book_screen;

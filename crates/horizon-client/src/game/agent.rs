@@ -1266,6 +1266,37 @@ impl Game<'_> {
             return Err(format!("busy with {}; wait for it or send stop", task.name).into());
         }
         match name {
+            // `recipe-audit PATH [THREADS]`: every recipe of vanilla's types in this world's tables run through the
+            // engine's matcher (horizon_client::recipe_audit), the whole report written to PATH; the reply has its
+            // counts. tools/atm10/recipe-audit.ts runs it over the full pack.
+            "recipe-audit" => {
+                self.need_world()?;
+                let path = *a.pos.first().ok_or("recipe-audit PATH [THREADS]")?;
+                let threads = a.pos.get(1).map_or(Ok(4), |t| t.parse::<usize>())?;
+                let started = std::time::Instant::now();
+                let sources =
+                    horizon_client::crafting::Recipes::sources(&self.options.resources, &self.pack_files())
+                        .map_err(|e| format!("the recipe sources: {e}"))?;
+                let report = horizon_client::recipe_audit::audit(
+                    &sources,
+                    self.items(),
+                    self.recipes(),
+                    self.stations(),
+                    threads,
+                );
+                std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+                ok(json!({
+                    "path": path,
+                    "seconds": started.elapsed().as_secs_f64(),
+                    "sources": report["sources"],
+                    "audited": report["audited"],
+                    "by_type": report["by_type"],
+                    "causes": report["causes"].as_object().map(|c| {
+                        c.iter().map(|(k, v)| (k.clone(), v["recipes"].clone())).collect::<serde_json::Map<_, _>>()
+                    }),
+                    "unsupported_types": report["unsupported_types"]["recipes"],
+                }))
+            }
             "state" => ok(self.state_value()),
             "looking-at" | "target" => {
                 self.need_world()?;

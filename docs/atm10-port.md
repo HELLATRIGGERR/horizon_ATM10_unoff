@@ -205,6 +205,66 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 | Minecarts ride vanilla rail ids only | 119 rails | `#minecraft:rails` and `BaseRailBlock`; booster rails on the powered rail | engine (a2dd15acd), *tool* |
 
 
+### Recipes that run
+
+A recipe that loads can still be wrong: an ingredient the matcher never accepts, a result that isn't what the file says.
+The audit puts every recipe of vanilla's types through the engine's own code, in the full pack:
+
+```sh
+ATM10_CARRIES=<the folder final-data wrote, with atm10-pack> bun run tools/atm10/recipe-audit.ts
+bun run tools/atm10/recipe-audit.ts --summary <report.json>      # print an earlier report
+```
+
+It starts one world (AE2, every AE2 addon in `AE2_ADDON_CONTENT_ROOT`, every carry as a `--dev-mod`; about 9 GB, one
+full-pack game at a time) and sends the game's control command `recipe-audit PATH [THREADS]`
+(`crates/horizon-client/src/recipe_audit.rs`). `RECIPE_AUDIT_ONLY` / `RECIPE_AUDIT_WITHOUT` pick carries,
+`RECIPE_AUDIT_OUT` the report's path, `RECIPE_AUDIT_THREADS` the matcher's threads (default 4). A new mod set's first
+start takes 5-10 minutes; the audit itself, under a minute on 4 threads. The report holds every failing recipe, so it
+stays out of Git: only counts are kept here.
+
+Each recipe is checked in four steps: it parsed; every ingredient and the result are registered (tags expanded); it ran
+(the first registered item of each ingredient, with the components the ingredient asks for, goes in a 3x3 grid, a
+furnace, the stonecutter or the smithing slots, and `Recipes::find`, `cook`, `stonecutter` or `smithing_recipe` is
+asked); the result's item and count are what the file says. `recipe_audit.rs` has two `#[ignore]` unit tests (vanilla's
+own recipes all run; the causes are told apart) that need the prepared 26.3 resources.
+
+ATM10 8.4, 83,704 recipes in the world (39,593 of vanilla's audited types), matched of total:
+
+| Type | Matched | Total |
+|---|--:|--:|
+| `crafting_shaped` | 22,433 | 22,940 |
+| `crafting_shapeless` | 10,743 | 11,088 |
+| `smelting` | 744 | 747 |
+| `blasting` | 387 | 389 |
+| `smoking` | 129 | 129 |
+| `campfire_cooking` | 99 | 99 |
+| `stonecutting` | 3,910 | 3,910 |
+| `smithing_transform` | 268 | 268 |
+| `smithing_trim` | 23 | 23 |
+| **all** | **38,736** | **39,593** (97.8%) |
+
+The 857 that don't match, by cause. None failed in the matcher itself: every recipe that parsed and resolved ran.
+
+- Unparsed field, 388: a mod's own ingredient type. Moonlight's `block_type_swap` is 297 (Supplementaries' way signs and
+  cannon boats: it swaps a wood type's child item, so it needs the mod's wood types); then Neovitae 22 (`orb_tier`),
+  Iron Jetpacks 15 (`jetpack_tier`), Silent Gear 12 (`material`), Ender IO 9 (`conduit`), Immersive Engineering 7 and a
+  dozen more mods with a type or two each; some are an empty list.
+- Another recipe first, 341: the recipe matches, but an earlier one takes the same grid. Vanilla's bookshelf comes
+  before Productive Trees' 163 and Oh The Biomes We've Gone's bookshelves (187 in all, through `#minecraft:planks`),
+  then `crafting_table` 21 and Supplementaries' `item_shelf` 19. These are the pack's own conflicts, not the engine's: Java
+  1.21.1 picks by a `HashMap`'s order, which is not reproduced and so not compared.
+- Unknown item, 128: the result or an ingredient isn't registered. Structurize's `sceptergold` is 71 (MineColonies;
+  Structurize isn't carried), Dyenamics and Friends' parked items 36, All the Compressed 7, a few others.
+
+Two parser fixes came out of it: NeoForge's `neoforge:components` ingredient (171 of 189 recipes using it now match) and
+1.21.1's list of ingredient objects as an ingredient (4). Loading the AE2 addons took 43 of 46 addon-item failures.
+
+Not run: 43,764 recipes of mods' own types, in 632 types (Create 4,260, Modern
+Industrialization 2,667, Mekanism 2,407, Botany Pots 1,495). They are counted, not checked: each type is its own
+machine. Another 347 recipes of vanilla's other types are not audited either: brewing 279, `crafting_transmute` 33,
+banner duplication 17, and the special crafting recipes.
+
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

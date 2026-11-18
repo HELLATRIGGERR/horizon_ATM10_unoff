@@ -113,7 +113,7 @@ export class WorldFixture {
     writeFileSync(join(this.game, 'options.txt'), 'renderDistance:4\nsimulationDistance:5\nmaxFps:30\nenableVsync:false\npauseOnLostFocus:false\nfullscreen:false\nonboardAccessibility:false\n');
   }
 
-  async raw(line: string): Promise<any> {
+  async raw(line: string, timeout = 45000): Promise<any> {
     // A use carries neither the look nor the teleport's acknowledgement: like a player, the client
     // looks at the block first, and two of its ticks send what it knows before the use goes out.
     if (line.startsWith('interact ')) {
@@ -126,7 +126,7 @@ export class WorldFixture {
       return this.visible(line);
     }
     if (line.startsWith('look-at block ')) { await this.stand(); return this.visible(line); }
-    return this.send(line);
+    return this.send(line, timeout);
   }
   /** Before it aims, the player stands where the test put it, as a player lands before it uses a block.
    * A test teleports first (its chunks load around the player) and builds the floor after: the client's
@@ -172,7 +172,7 @@ export class WorldFixture {
     if (!at || Math.abs(at[0] - spot.x) > 1e-3 || Math.abs(at[2] - spot.z) > 1e-3 || at[1] > spot.y - 1) return error;
     return new Error(`${String(error).replace(/^Error: /, '')}; the player fell from where \`${spot.command}\` put it to y ${at[1].toFixed(2)}: nothing is under that spot`);
   }
-  private send(line: string): Promise<any> {
+  private send(line: string, timeout = 45000): Promise<any> {
     return new Promise((resolveReply, reject) => {
       let data = '', settled = false;
       // Windows: {"transport":"tcp","port","token"}, and `auth TOKEN` as the first line.
@@ -187,7 +187,7 @@ export class WorldFixture {
         if (settled) return; settled = true; cancel(); socket.destroy();
         if (error) reject(error); else resolveReply(reply);
       };
-      const cancel = awakeTimeout(() => finish(new Error(`Control timeout: ${line}`)), 45000);
+      const cancel = awakeTimeout(() => finish(new Error(`Control timeout: ${line}`)), timeout);
       socket.on('connect', () => socket.write(endpoint ? `auth ${endpoint.token}\n` : line + '\n'));
       socket.on('error', error => finish(error));
       socket.on('close', () => { if (!settled) finish(new Error(`Control closed before reply: ${line}`)); });

@@ -9,12 +9,13 @@
 //!    answers (`Recipes::find`, `Recipes::cook`, `StationRecipes::stonecutter`, `StationRecipes::smithing_recipe`);
 //! 4. *matched*: that answer is the recipe's result (item and count).
 //!
-//! A recipe that fails says why, as one of [`Cause`]. A type of a mod's own is counted, not run.
+//! A recipe that fails says why, as one of [`Cause`]. A type of a mod's own is read through the categories the mod's
+//! machines give recipe viewers (`native_recipe_categories`, see [`machine_audit`]); a type nobody reads is counted.
 use crate::crafting::{Ingredient, Recipe, Recipes, qualified};
 use crate::items::{ItemStack, Items};
 use crate::stations::{Smithing, StationData};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// The types audited: vanilla's crafting, cooking, stonecutting and smithing recipes.
 pub const AUDITED: &[&str] = &[
@@ -336,8 +337,17 @@ impl Counts {
 
 /// The audit of `sources` (`Recipes::sources`' shape: vanilla's by bare name, the rest as `<ns>:<name>`) against the
 /// tables the world built from them, on `threads` threads. The report: counts by type and by namespace, the failures
-/// by cause (with their most common details), every failure, and the types not audited.
-pub fn audit(sources: &[(String, Value)], items: &Items, recipes: &Recipes, stations: &StationData, threads: usize) -> Value {
+/// by cause (with their most common details), every failure, and the types not audited. `categories` are the mods'
+/// recipe viewer categories (`native_recipe_categories`): a mod type they read is audited by [`machine_audit`] and
+/// reported under `machines`, not counted as unsupported.
+pub fn audit(
+    sources: &[(String, Value)],
+    items: &Items,
+    recipes: &Recipes,
+    stations: &StationData,
+    categories: &[Category],
+    threads: usize,
+) -> Value {
     use rayon::prelude::*;
     let ctx = Ctx {
         items,
@@ -358,16 +368,21 @@ pub fn audit(sources: &[(String, Value)], items: &Items, recipes: &Recipes, stat
     let mut other_vanilla: BTreeMap<String, usize> = BTreeMap::new();
     let mut unsupported: BTreeMap<String, usize> = BTreeMap::new();
     let mut audited = Vec::new();
+    let machines = Machines::new(categories, sources);
+    let mut machine_sources = Vec::new();
     for (name, v) in sources {
         let kind = v["type"].as_str().unwrap_or("");
         if AUDITED.contains(&kind) {
             audited.push((name.as_str(), kind, v));
         } else if kind.starts_with("minecraft:") || !kind.contains(':') {
             *other_vanilla.entry(kind.to_owned()).or_default() += 1;
+        } else if machines.reads(kind) {
+            machine_sources.push((name.as_str(), kind, v));
         } else {
             *unsupported.entry(kind.to_owned()).or_default() += 1;
         }
     }
+    let (machine_report, machine_failures) = machine_audit(&machine_sources, items, &machines);
     let run = || audited.par_iter().map(|(name, kind, v)| ctx.audit(name, kind, v)).collect::<Vec<_>>();
     let outcomes = match rayon::ThreadPoolBuilder::new().num_threads(threads.max(1)).build() {
         Ok(pool) => pool.install(run),
@@ -406,8 +421,185 @@ pub fn audit(sources: &[(String, Value)], items: &Items, recipes: &Recipes, stat
         }))).collect::<serde_json::Map<_, _>>(),
         "other_vanilla_types": other_vanilla,
         "unsupported_types": {"recipes": unsupported.values().sum::<usize>(), "types": unsupported.len(), "by_type": unsupported},
-        "failures": failures,
+        "machines": machine_report,
+        "failures": failures.into_iter().chain(machine_failures).collect::<Vec<_>>(),
     })
+}
+
+/// A stack in a [`Listed`] recipe: an item (`kind` empty), a fluid (`"fluid"`) or a mod's own ingredient (`kind`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Stack {
+    pub kind: String,
+    pub id: String,
+}
+impl Stack {
+    pub const FLUID: &'static str = "fluid";
+}
+
+/// A recipe a category lists: the id of the recipe file it was read from (the category's `Recipe: <id>` note), what
+/// each input slot can hold (an empty slot stays empty), and what comes out.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Listed {
+    pub id: String,
+    pub inputs: Vec<Vec<Stack>>,
+    pub outputs: Vec<Stack>,
+}
+
+/// A mod's recipe viewer category (`native_recipe_categories`; `mod_api::NativeRecipeCategory` lives above this
+/// crate, so the game converts them) as the audit reads it: the recipes its machine's reader accepted, and the mod's
+/// own ingredients (kind, id) it lists.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Category {
+    pub id: String,
+    pub ingredients: Vec<(String, String)>,
+    pub recipes: Vec<Listed>,
+}
+
+/// What the mods' categories read.
+pub struct Machines<'a> {
+    /// A recipe's id (as `qualified` writes it) -> the category that lists it and the entry.
+    claimed: HashMap<String, (&'a Category, &'a Listed)>,
+    /// The recipe types some category reads (one that lists a recipe of the type, or has the type's name), with the
+    /// categories that do.
+    types: BTreeMap<String, BTreeSet<&'a str>>,
+}
+impl<'a> Machines<'a> {
+    pub fn new(categories: &'a [Category], sources: &[(String, Value)]) -> Self {
+        let mut claimed = HashMap::new();
+        for c in categories {
+            for r in &c.recipes {
+                claimed.entry(qualified(&r.id)).or_insert((c, r));
+            }
+        }
+        let mut types: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+        for c in categories {
+            types.entry(c.id.clone()).or_default().insert(&c.id);
+        }
+        for (name, v) in sources {
+            if let (Some(kind), Some((c, _))) = (v["type"].as_str(), claimed.get(&qualified(name))) {
+                types.entry(kind.to_owned()).or_default().insert(&c.id);
+            }
+        }
+        Machines { claimed, types }
+    }
+    /// Whether some category reads recipes of type `kind`.
+    pub fn reads(&self, kind: &str) -> bool {
+        self.types.contains_key(kind)
+    }
+}
+
+/// Whether this world has `s`: an item that is registered, a fluid, or a mod's own ingredient the category lists.
+fn stack_known(items: &Items, category: &Category, s: &Stack) -> bool {
+    match s.kind.as_str() {
+        "" => s.id != "minecraft:air" && items.items.contains_key(s.id.as_str()),
+        Stack::FLUID => horizon_world::fluid::FluidKind::from_name(&s.id).is_some(),
+        kind => category.ingredients.iter().any(|(k, id)| k == kind && *id == s.id),
+    }
+}
+
+/// A recipe a category's reader accepted: can each input slot be filled with some stack this world has, and is each
+/// output one it has?
+fn unresolved(items: &Items, category: &Category, r: &Listed) -> Option<Problem> {
+    for slot in r.inputs.iter().filter(|s| !s.is_empty()) {
+        if !slot.iter().any(|s| stack_known(items, category, s)) {
+            return Some((Cause::UnknownItem, format!("{} (input)", slot[0].id)));
+        }
+    }
+    r.outputs.iter().find(|o| !stack_known(items, category, o)).map(|o| (Cause::UnknownItem, format!("{} (output)", o.id)))
+}
+
+/// Why a category's reader left a recipe out, as far as its source says: an item or fluid it names that this world
+/// lacks, a tag no item has, else only that the reader dropped it (a chemical it can't read, a shape).
+fn left_out(items: &Items, v: &Value) -> Problem {
+    fn walk(items: &Items, v: &Value, tag: &mut Option<String>) -> Option<Problem> {
+        match v {
+            Value::Object(o) => {
+                let text = |k: &str| o.get(k).and_then(Value::as_str);
+                if let Some(i) = text("item").filter(|i| i.contains(':') && !items.items.contains_key(*i)) {
+                    return Some((Cause::UnknownItem, i.to_owned()));
+                }
+                if let Some(f) = text("fluid").filter(|f| horizon_world::fluid::FluidKind::from_name(f).is_none()) {
+                    return Some((Cause::UnknownItem, format!("{f} (fluid)")));
+                }
+                // A result with a count is an item; with an amount, a fluid or a chemical (not told apart here).
+                if let Some(i) = text("id").filter(|i| !o.contains_key("amount") && o.contains_key("count") && !items.items.contains_key(*i)) {
+                    return Some((Cause::UnknownItem, format!("{i} (result)")));
+                }
+                if let Some(t) = text("tag").filter(|t| !items.item_tag_order.contains_key(*t)) {
+                    tag.get_or_insert_with(|| t.to_owned());
+                }
+                o.values().find_map(|c| walk(items, c, tag))
+            }
+            Value::Array(list) => list.iter().find_map(|c| walk(items, c, tag)),
+            _ => None,
+        }
+    }
+    let mut tag = None;
+    walk(items, v, &mut tag).unwrap_or_else(|| match tag {
+        Some(t) => (Cause::UnparsedField, format!("left out by the reader (#{t} is no item tag: a fluid or chemical tag, or none)")),
+        None => (Cause::UnparsedField, "left out by the reader (a chemical it can't read, or a shape)".into()),
+    })
+}
+
+/// The audit of the mod types the categories read ([`Machines`]): each recipe of such a type is
+/// 1. *parsed*: a category's reader accepted it (the category lists it);
+/// 2. *resolved*: the entry's input slots and outputs name items and fluids this world registers, and chemicals (a
+///    mod's own ingredient kind) the category lists.
+///
+/// No matcher is run: the machines' matchers take a live block entity. So the deepest level is *resolved*; `matched`
+/// stays 0 and each type says `"checked": "resolved"`. The report has the shape of [`audit`]'s: counts by type (with
+/// the categories that read it) and by namespace, the failures by cause, and every failure (marked `machine`).
+fn machine_audit(sources: &[(&str, &str, &Value)], items: &Items, machines: &Machines<'_>) -> (Value, Vec<Value>) {
+    type Detail = BTreeMap<String, usize>;
+    let mut by_type: BTreeMap<&str, Counts> = BTreeMap::new();
+    let mut by_namespace: BTreeMap<&str, Counts> = BTreeMap::new();
+    let mut causes: BTreeMap<Cause, (usize, Detail, Detail)> = BTreeMap::new();
+    let mut failures = Vec::new();
+    let mut all = Counts::default();
+    for &(name, kind, v) in sources {
+        let mut o = Outcome::default();
+        match machines.claimed.get(&qualified(name)) {
+            None => o.failure = Some(left_out(items, v)),
+            Some((category, entry)) => {
+                o.parsed = true;
+                match unresolved(items, category, entry) {
+                    Some(p) => o.failure = Some(p),
+                    None => o.resolved = true,
+                }
+            }
+        }
+        all.add(&o);
+        by_type.entry(kind).or_default().add(&o);
+        by_namespace.entry(namespace(name)).or_default().add(&o);
+        if let Some((cause, detail)) = &o.failure {
+            let entry = causes.entry(*cause).or_default();
+            entry.0 += 1;
+            *entry.1.entry(detail.clone()).or_default() += 1;
+            *entry.2.entry(kind.to_owned()).or_default() += 1;
+            failures.push(json!({"id": qualified(name), "type": kind, "cause": cause.name(), "detail": detail, "machine": true}));
+        }
+    }
+    let top = |m: &Detail, n: usize| {
+        let mut v: Vec<_> = m.iter().collect();
+        v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+        v.into_iter().take(n).map(|(k, c)| json!([k, c])).collect::<Vec<_>>()
+    };
+    let typed = |kind: &str, c: &Counts| {
+        let mut j = c.json();
+        j["categories"] = json!(machines.types.get(kind));
+        j["checked"] = json!("resolved");
+        j
+    };
+    let report = json!({
+        "audited": all.json(),
+        "by_type": by_type.iter().map(|(k, c)| (k.to_string(), typed(k, c))).collect::<serde_json::Map<_, _>>(),
+        "by_namespace": by_namespace.iter().map(|(k, c)| (k.to_string(), c.json())).collect::<serde_json::Map<_, _>>(),
+        "causes": causes.iter().map(|(cause, (n, details, kinds))| (cause.name().to_owned(), json!({
+            "recipes": n, "details": details.len(), "top_details": top(details, 40), "by_type": top(kinds, 40),
+        }))).collect::<serde_json::Map<_, _>>(),
+        "categories": machines.types.iter().map(|(k, v)| (k.clone(), json!(v))).collect::<serde_json::Map<_, _>>(),
+    });
+    (report, failures)
 }
 
 #[cfg(test)]
@@ -430,7 +622,7 @@ mod tests {
         let recipes = Recipes::load(&root, &items, &PackOverlay::NONE).unwrap();
         let stations = StationData::load(&root, &items, &PackOverlay::NONE);
         let sources = Recipes::sources(&root, &PackOverlay::NONE).unwrap();
-        let report = audit(&sources, &items, &recipes, &stations, 2);
+        let report = audit(&sources, &items, &recipes, &stations, &[], 2);
         let a = &report["audited"];
         assert!(a["total"].as_u64().unwrap() > 1000, "{a}");
         let failed: Vec<_> = report["failures"]
@@ -461,7 +653,7 @@ mod tests {
         .map(|(n, v)| (n.to_owned(), v))
         .collect();
         let recipes = Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
-        let report = audit(&sources, &items, &recipes, &stations, 1);
+        let report = audit(&sources, &items, &recipes, &stations, &[], 1);
         let cause = |id: &str| {
             report["failures"].as_array().unwrap().iter().find(|f| f["id"] == id).map(|f| f["cause"].as_str().unwrap().to_owned())
         };
@@ -472,5 +664,47 @@ mod tests {
         assert_eq!(cause("t:tag").as_deref(), Some("unknown tag"));
         assert_eq!(cause("t:result").as_deref(), Some("unknown item"));
         assert_eq!(report["unsupported_types"]["by_type"]["nomod:grinding"], 1);
+    }
+
+    /// A mod type read through the mods' recipe viewer categories: parsed when a category lists it (its
+    /// `Recipe: <id>` note), resolved when the entry's stacks are registered; the ones the reader left out say why
+    /// from their source. A type no category reads stays counted, not audited.
+    #[test]
+    #[ignore = "needs the prepared 26.3 resources"]
+    fn machine_types_are_read_through_categories() {
+        let root = root();
+        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
+        let stations = StationData::load(&root, &items, &PackOverlay::NONE);
+        let sources: Vec<(String, Value)> = [
+            ("m:ok", json!({"type": "m:grind", "input": "minecraft:stone", "output": {"id": "minecraft:gravel", "count": 1}})),
+            ("m:gone", json!({"type": "m:grind", "input": {"item": "nomod:rock"}, "output": {"id": "minecraft:gravel", "count": 1}})),
+            ("m:out", json!({"type": "m:grind", "input": "minecraft:dirt", "output": {"id": "nomod:dust", "count": 1}})),
+            ("m:left", json!({"type": "m:grind", "input": "minecraft:sand"})),
+            ("m:other", json!({"type": "m:unread"})),
+        ]
+        .into_iter()
+        .map(|(n, v)| (n.to_owned(), v))
+        .collect();
+        let item = |id: &str| Stack { kind: String::new(), id: id.to_owned() };
+        let entry = |id: &str, input: &str, out: &str| Listed { id: id.to_owned(), inputs: vec![vec![item(input)]], outputs: vec![item(out)] };
+        let categories = vec![Category {
+            id: "m:grinding".into(),
+            recipes: vec![entry("m:ok", "minecraft:stone", "minecraft:gravel"), entry("m:out", "minecraft:dirt", "nomod:dust")],
+            ..Default::default()
+        }];
+        let recipes = Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
+        let report = audit(&sources, &items, &recipes, &stations, &categories, 1);
+        let grind = &report["machines"]["by_type"]["m:grind"];
+        assert_eq!((&grind["total"], &grind["parsed"], &grind["resolved"], &grind["matched"]), (&json!(4), &json!(2), &json!(1), &json!(0)), "{report:#}");
+        assert_eq!(grind["categories"], json!(["m:grinding"]));
+        let cause = |id: &str| {
+            report["failures"].as_array().unwrap().iter().find(|f| f["id"] == id).map(|f| f["cause"].as_str().unwrap().to_owned())
+        };
+        assert_eq!(cause("m:ok"), None);
+        assert_eq!(cause("m:gone").as_deref(), Some("unknown item"));
+        assert_eq!(cause("m:out").as_deref(), Some("unknown item"));
+        assert_eq!(cause("m:left").as_deref(), Some("unparsed field"));
+        assert_eq!(report["audited"]["total"], 0);
+        assert_eq!(report["unsupported_types"]["by_type"]["m:unread"], 1);
     }
 }

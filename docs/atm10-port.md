@@ -213,7 +213,8 @@ against Java's facts (`verify-defects.py` in the work folder; numbers for ATM10 
 ### Recipes that run
 
 A recipe that loads can still be wrong: an ingredient the matcher never accepts, a result that isn't what the file says.
-The audit puts every recipe of vanilla's types through the engine's own code, in the full pack:
+The audit puts every recipe of vanilla's types through the engine's own code, in the full pack, and reads the mod types
+whose machines are ported (Mekanism, AE2 and its addons) through those machines' own recipe readers:
 
 ```sh
 ATM10_CARRIES=<the folder final-data wrote, with atm10-pack> bun run tools/atm10/recipe-audit.ts
@@ -223,7 +224,11 @@ bun run tools/atm10/recipe-audit.ts --summary <report.json>      # print an earl
 It starts one world (AE2, every AE2 addon in `AE2_ADDON_CONTENT_ROOT`, every carry as a `--dev-mod`; about 9 GB, one
 full-pack game at a time) and sends the game's control command `recipe-audit PATH [THREADS]`
 (`crates/horizon-client/src/recipe_audit.rs`). `RECIPE_AUDIT_ONLY` / `RECIPE_AUDIT_WITHOUT` pick carries,
-`RECIPE_AUDIT_OUT` the report's path, `RECIPE_AUDIT_THREADS` the matcher's threads (default 4). A new mod set's first
+`RECIPE_AUDIT_OUT` the report's path, `RECIPE_AUDIT_THREADS` the matcher's threads (default 4), `RECIPE_AUDIT_MODS` more `--dev-mod` folders after the carries.
+Mekanism is a native bundle, so its numbers need the game built with it: `pack/scripts/mekanism.ts content` and `stage`,
+then a build of the staged source with the pack's features (`bun -e` over `packFeatures()`), the audit run on that
+binary (`AE2_TEST_BINARY`) with the three content mods it writes (`mekanism`, `mekanismgenerators`, `alltheores`) in
+`RECIPE_AUDIT_MODS` and the same-named carries in `RECIPE_AUDIT_WITHOUT`. A new mod set's first
 start takes 5-10 minutes; the audit itself, under a minute on 4 threads. The report holds every failing recipe, so it
 stays out of Git: only counts are kept here.
 
@@ -233,11 +238,11 @@ furnace, the stonecutter or the smithing slots, and `Recipes::find`, `cook`, `st
 asked); the result's item and count are what the file says. `recipe_audit.rs` has two `#[ignore]` unit tests (vanilla's
 own recipes all run; the causes are told apart) that need the prepared 26.3 resources.
 
-ATM10 8.4, 83,704 recipes in the world (39,593 of vanilla's audited types), matched of total:
+ATM10 8.4, 83,704 recipes in the world (39,603 of vanilla's audited types), matched of total:
 
 | Type | Matched | Total |
 |---|--:|--:|
-| `crafting_shaped` | 22,433 | 22,940 |
+| `crafting_shaped` | 22,443 | 22,950 |
 | `crafting_shapeless` | 10,743 | 11,088 |
 | `smelting` | 744 | 747 |
 | `blasting` | 387 | 389 |
@@ -246,7 +251,10 @@ ATM10 8.4, 83,704 recipes in the world (39,593 of vanilla's audited types), matc
 | `stonecutting` | 3,910 | 3,910 |
 | `smithing_transform` | 268 | 268 |
 | `smithing_trim` | 23 | 23 |
-| **all** | **38,736** | **39,593** (97.8%) |
+| **all** | **38,746** | **39,603** (97.8%) |
+
+(This world has Mekanism's content mods in place of its carries, which is 10 more shaped recipes than the first count of
+38,736 of 39,593; all 10 match, and the failures are the same 857.)
 
 The 857 that don't match, by cause. None failed in the matcher itself: every recipe that parsed and resolved ran.
 
@@ -264,10 +272,63 @@ The 857 that don't match, by cause. None failed in the matcher itself: every rec
 Two parser fixes came out of it: NeoForge's `neoforge:components` ingredient (171 of 189 recipes using it now match) and
 1.21.1's list of ingredient objects as an ingredient (4). Loading the AE2 addons took 43 of 46 addon-item failures.
 
-Not run: 43,764 recipes of mods' own types, in 632 types (Create 4,260, Modern
-Industrialization 2,667, Mekanism 2,407, Botany Pots 1,495). They are counted, not checked: each type is its own
-machine. Another 347 recipes of vanilla's other types are not audited either: brewing 279, `crafting_transmute` 33,
-banner duplication 17, and the special crafting recipes.
+Mod types whose machines are ported are read through the recipe viewer categories the machines give
+(`native_recipe_categories`: Mekanism's, AE2's and its addons'), which list the recipes each machine's reader accepted,
+each with a `Recipe: <id>` note. A recipe is *parsed* when a category lists it, *resolved* when the entry's input slots
+and outputs name items and fluids the world registers (and chemicals the category lists). The machines' matchers take a
+live block entity, so no matcher runs for these: the deepest level checked is resolved, and the count below is that.
+2,542 recipes in 33 types (total / parsed / resolved):
+
+| Type | Total | Parsed | Resolved |
+|---|--:|--:|--:|
+| `mekanism:sawing` | 581 | 581 | 581 |
+| `mekanism:crushing` | 426 | 425 | 425 |
+| `mekanism:enriching` | 400 | 395 | 395 |
+| `mekanism:pigment_extracting` | 178 | 178 | 178 |
+| `mekanism:painting` | 176 | 176 | 176 |
+| `mekanism:injecting` | 135 | 135 | 135 |
+| `mekanism:purifying` | 72 | 72 | 72 |
+| `mekanism:dissolution` | 58 | 41 | 41 |
+| `mekanism:combining` | 54 | 54 | 54 |
+| `mekanism:metallurgic_infusing` | 42 | 42 | 42 |
+| `mekanism:oxidizing` | 31 | 27 | 27 |
+| `mekanism:chemical_conversion` | 26 | 25 | 25 |
+| `mekanism:washing` | 25 | 20 | 20 |
+| `mekanism:rotary` | 22 | 20 | 20 |
+| `mekanism:crystallizing` | 21 | 16 | 16 |
+| `mekanism:nucleosynthesizing` | 21 | 21 | 21 |
+| `mekanism:pigment_mixing` | 16 | 16 | 16 |
+| `mekanism:reaction` | 14 | 14 | 14 |
+| `mekanism:compressing` | 7 | 6 | 6 |
+| `mekanism:chemical_infusing` | 5 | 5 | 5 |
+| `mekanism:separating` | 3 | 3 | 3 |
+| `mekanism:activating`, `centrifuging`, `energy_conversion`, `evaporating` | 8 | 8 | 8 |
+| **Mekanism** | **2,321** | **2,280** | **2,280** |
+| `ae2:inscriber` | 39 | 39 | 39 |
+| `ae2:transform` | 18 | 13 | 13 |
+| `ae2:entropy` | 10 | 10 | 9 |
+| `ae2:charger` | 6 | 6 | 6 |
+| `extendedae:crystal_assembler` | 83 | 78 | 78 |
+| `extendedae:circuit_cutter` | 18 | 15 | 15 |
+| `extendedae:crystal_fixer` | 12 | 12 | 12 |
+| `advanced_ae:reaction` | 35 | 30 | 30 |
+| **AE2 and addons** | **221** | **203** | **202** |
+
+The 60 left out (39 unparsed, 21 with an unknown item), by cause:
+
+- Unparsed, 39: the reader dropped the recipe. Allthemodium's slurry recipes (dissolution 17, washing and crystallizing
+  5 each: a chemical the registry doesn't read; washing's input is the tag `#minecraft:water`), Productive Bees'
+  `ae2:transform` bees 5, oxidizing 4, `mekmm`'s `rotary` paste (`#c:nutritional_paste`).
+- Unknown item, 21: an item the world lacks. `mekmm:uu_matter` 2, Powah's `uraninite_raw` 3, MEGA's `sky_osmium_ingot`
+  3, Advanced AE's `quantum_infusion_source` fluid 2 and `quantum_infused_dust`, ExtendedAE's `ingredient_buffer`,
+  `fishbig` and `mddyue`, `ae2:entropy`'s `minecraft:air` output, Starbunclemania's `sauce:source_fluid`.
+
+Not run: 41,212 recipes of mods' own types, in 599 types (Create 4,260, Modern
+Industrialization 2,667, Botany Pots 1,495). They are counted, not checked: each type is its own machine, and none of
+those machines is ported. That includes the types of the ported mods that no machine reads: AE2's crafting-grid specials
+(`storage_cell_upgrade` 202, `storage_cell_disassembly` 165, `matter_cannon` 23, `crafting_unit_transform` 21, wireless
+terminals' `combine` and `upgrade`) and Mekanism's `mek_data` 74. Another 347 recipes of vanilla's other types are not
+audited either: brewing 279, `crafting_transmute` 33, banner duplication 17, and the special crafting recipes.
 
 
 ## Porting rules

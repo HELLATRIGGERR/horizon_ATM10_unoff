@@ -2,7 +2,9 @@
  * vanilla's types (crafting shaped and shapeless, smelting, blasting, smoking, campfire, stonecutting, smithing) put
  * through the engine's own matcher by the game's `recipe-audit` command (crates/horizon-client/src/recipe_audit.rs):
  * parsed, every ingredient and the result registered (tags expanded), run as the menu runs it, the result matched.
- * Mods' own types are counted, not run.
+ * The mod types the mods' recipe viewer categories read (Mekanism's, AE2's and its addons' machines) are audited
+ * through those categories: parsed (a reader accepted it), resolved (its stacks are registered); no machine matcher runs.
+ * Other mod types are counted.
  *
  *   bun run tools/atm10/recipe-audit.ts
  *
@@ -11,6 +13,8 @@
  * - RECIPE_AUDIT_ONLY / RECIPE_AUDIT_WITHOUT: comma-separated carry folder names to keep / leave out.
  * - RECIPE_AUDIT_OUT: the report's path (default: `recipe-audit.json` in the fixture's run folder, under
  *   .local/world-tests). It holds every failure, so it stays out of Git; `--summary FILE` prints an earlier one.
+ * - RECIPE_AUDIT_MODS: comma-separated folders of more `--dev-mod`s after the carries (the Mekanism build's content mods, which
+ *   take the place of the carries `mekanism`, `mekanismgenerators` and `alltheores`: leave those out with RECIPE_AUDIT_WITHOUT).
  * - RECIPE_AUDIT_THREADS: the matcher's threads (default 4).
  * - AE2_TEST_STARTUP_MS: at least 1800000 here: the full pack's first start takes minutes.
  *
@@ -37,6 +41,19 @@ function summary(report: Report) {
     for (const [detail, n] of c.top_details.slice(0, 8)) console.log(`  ${String(n).padStart(6)}  ${detail}`);
     console.log(`  by namespace: ${c.by_namespace.slice(0, 8).map(([ns, n]) => `${ns} ${n}`).join(', ')}`);
   }
+  const m = report.machines;
+  if (m) {
+    console.log(`\nmod types read through the mods' recipe viewer categories (checked: parsed, resolved)`);
+    console.log(`${'type'.padEnd(40)} ${['total', 'parsed', 'resolved'].map(s => s.padStart(7)).join(' ')}  categories`);
+    for (const [type, c] of Object.entries(m.by_type).sort((a, b) => a[0].localeCompare(b[0]))) {
+      console.log(`${type.padEnd(40)} ${[c.total, c.parsed, c.resolved].map(n => String(n).padStart(7)).join(' ')}  ${c.categories.join(', ')}`);
+    }
+    console.log(`${'all'.padEnd(40)} ${[m.audited.total, m.audited.parsed, m.audited.resolved].map(n => String(n).padStart(7)).join(' ')}`);
+    for (const [cause, c] of Object.entries(m.causes).sort((a, b) => b[1].recipes - a[1].recipes)) {
+      console.log(`\n  ${cause}: ${c.recipes} recipes; by type ${c.by_type.slice(0, 8).map(([t, n]) => `${t} ${n}`).join(', ')}`);
+      for (const [detail, n] of c.top_details.slice(0, 6)) console.log(`    ${String(n).padStart(6)}  ${detail}`);
+    }
+  }
   const worst = Object.entries(report.by_namespace).map(([ns, c]) => [ns, c.total - c.matched, c.total] as const).filter(r => r[1] > 0).sort((a, b) => b[1] - a[1]);
   console.log(`\nnamespaces with failures: ${worst.length}; most: ${worst.slice(0, 12).map(([ns, f, t]) => `${ns} ${f}/${t}`).join(', ')}`);
 }
@@ -54,6 +71,7 @@ if (!process.env.ATM10_CARRIES || !existsSync(join(carries, 'atm10-pack', 'horiz
   throw new Error('ATM10_CARRIES must name the carries folder final-data wrote (with atm10-pack)');
 }
 const list = (name: string) => (process.env[name] ?? '').split(',').map(s => s.trim()).filter(Boolean);
+const extra = list('RECIPE_AUDIT_MODS').map(p => resolve(p));
 const only = list('RECIPE_AUDIT_ONLY'), without = new Set(list('RECIPE_AUDIT_WITHOUT'));
 const mods = readdirSync(carries, { withFileTypes: true })
   .filter(d => d.isDirectory() && existsSync(join(carries, d.name, 'horizon-mod.toml')))
@@ -67,7 +85,7 @@ console.log(`${mods.length} carries from ${carries}`);
 // AE2's addons (MEGA, ExtendedAE, AppFlux...) are part of the pack too: the kubejs recipes name their items.
 const addons = process.env.RECIPE_AUDIT_ADDONS === '0' ? [] : addonContents().filter(a => existsSync(a.path)).map(a => a.id);
 console.log(`AE2 addons: ${addons.join(', ') || 'none'}`);
-const fixture = new WorldFixture('recipe-audit', 'server-thread', { addons, devMods: mods.map(id => join(carries, id)) });
+const fixture = new WorldFixture('recipe-audit', 'server-thread', { addons, devMods: [...mods.map(id => join(carries, id)), ...extra] });
 const out = resolve(process.env.RECIPE_AUDIT_OUT ?? join(fixture.run, 'recipe-audit.json'));
 try {
   const started = Date.now();

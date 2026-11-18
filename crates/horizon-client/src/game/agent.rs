@@ -1268,7 +1268,9 @@ impl Game<'_> {
         match name {
             // `recipe-audit PATH [THREADS]`: every recipe of vanilla's types in this world's tables run through the
             // engine's matcher (horizon_client::recipe_audit), the whole report written to PATH; the reply has its
-            // counts. tools/atm10/recipe-audit.ts runs it over the full pack.
+            // counts. The mod types the mods' recipe viewer categories read (`native_collect_recipe_categories`: Mekanism's,
+            // AE2's and its addons') are audited through them, under `machines`. tools/atm10/recipe-audit.ts runs it over
+            // the full pack.
             "recipe-audit" => {
                 self.need_world()?;
                 let path = *a.pos.first().ok_or("recipe-audit PATH [THREADS]")?;
@@ -1277,11 +1279,13 @@ impl Game<'_> {
                 let sources =
                     horizon_client::crafting::Recipes::sources(&self.options.resources, &self.pack_files())
                         .map_err(|e| format!("the recipe sources: {e}"))?;
+                let categories = audit_categories(&self.native_collect_recipe_categories());
                 let report = horizon_client::recipe_audit::audit(
                     &sources,
                     self.items(),
                     self.recipes(),
                     self.stations(),
+                    &categories,
                     threads,
                 );
                 std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
@@ -1295,6 +1299,8 @@ impl Game<'_> {
                         c.iter().map(|(k, v)| (k.clone(), v["recipes"].clone())).collect::<serde_json::Map<_, _>>()
                     }),
                     "unsupported_types": report["unsupported_types"]["recipes"],
+                    "machines": report["machines"]["audited"],
+                    "machine_by_type": report["machines"]["by_type"],
                 }))
             }
             "state" => ok(self.state_value()),
@@ -2650,4 +2656,29 @@ mod tests {
             ])
         );
     }
+}
+
+/// The mods' recipe viewer categories as the recipe audit reads them (`horizon_client::recipe_audit::Category`): each
+/// recipe a category lists names its recipe file in a `Recipe: <id>` note; a recipe without one isn't from a file.
+fn audit_categories(categories: &[horizon_client::mod_api::NativeRecipeCategory]) -> Vec<horizon_client::recipe_audit::Category> {
+    use horizon_client::{mod_api::NativeStack, recipe_audit::{Category, Listed, Stack}};
+    let stack = |s: &NativeStack| Stack { kind: s.kind.clone(), id: s.item.clone() };
+    categories
+        .iter()
+        .map(|c| Category {
+            id: c.id.clone(),
+            ingredients: c.ingredients.iter().map(|i| (i.kind.clone(), i.id.clone())).collect(),
+            recipes: c
+                .recipes
+                .iter()
+                .filter_map(|r| {
+                    Some(Listed {
+                        id: r.notes.iter().find_map(|n| n.strip_prefix("Recipe: "))?.to_owned(),
+                        inputs: r.inputs.iter().map(|slot| slot.iter().map(stack).collect()).collect(),
+                        outputs: r.outputs.iter().map(|o| stack(&o.stack)).collect(),
+                    })
+                })
+                .collect(),
+        })
+        .collect()
 }

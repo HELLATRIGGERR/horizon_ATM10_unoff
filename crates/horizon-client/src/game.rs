@@ -2519,6 +2519,9 @@ impl Dim {
                 horizon_core::LevelKey::parse(self.id())
                     .unwrap_or(horizon_core::LevelKey::OVERWORLD),
             ),
+            // AE2's spatial storage level runs with the End's level rules.
+            #[cfg(feature = "ae2-lab")]
+            Self::Spatial => LevelDimension::End,
         }
     }
     fn id(self) -> &'static str {
@@ -3317,8 +3320,6 @@ impl Game<'_> {
             .lan_acting
             .is_some()
             .then(|| self.lan_building_boxes.boxes(self.dim));
-            #[cfg(feature = "ae2-lab")]
-            Dim::Spatial => LevelDimension::End,
         let dimension = self.dim.level();
         let rules = self.level_rules();
         let fire_players: Vec<[f64; 3]> = self
@@ -8628,8 +8629,6 @@ impl Game<'_> {
         level.ender_items = self.ender_items.clone();
         level.active_effects = self.potions.effects.saved();
     }
-        #[cfg(feature = "ae2-lab")]
-        self.ae2_compass_refresh();
     /// The saved player's hands, armor, body, saddle and ender chest go in
     /// their fields; the 36 inventory slots come back.
     fn load_saved_inventory(&mut self, level: &Level) -> Vec<Option<ItemStack>> {
@@ -10322,8 +10321,8 @@ impl Game<'_> {
                     // MouseHandler.onScroll: the hotbar (or the spectator
                     // menu) takes the wheel only when no screen is open; a
                     // book, lectern, sign or prompt drawn over gameplay is one.
-                        && !self.native_item_wheel(raw_y as f32)
-                    if self.hotbar_takes_wheel() {
+                    // AE2's held tools (a color applicator) take the wheel first.
+                    if self.hotbar_takes_wheel() && !self.native_item_wheel(raw_y as f32) {
                         let scroll =
                             self.mouse
                                 .on_scroll(raw_x, raw_y, discrete, wheel_sensitivity);

@@ -139,6 +139,8 @@ impl Game<'_> {
         if self.remote.is_some() {
             return Ok(());
         }
+        #[cfg(feature = "ae2-lab")]
+        self.ae2_compass_refresh();
         self.admit_level_save()?;
         // `DedicatedServer.saveAllChunks` tells the management protocol's clients when a save starts and when
         // it ends without failing, for every save: the command, the autosave, the pause.

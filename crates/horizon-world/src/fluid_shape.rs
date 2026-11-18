@@ -31,9 +31,10 @@ impl FluidShapeCache {
         if state.kind() == FluidKind::Empty {
             return Ok(VoxelShape::empty());
         }
-        let index = state.kind().index() * 18
-            + usize::from(state.falling()) * 9
-            + usize::from(state.amount());
+        // tick_id is distinct for every source and flowing registry entry.
+        let row = state.kind().tick_id() as usize;
+        let index = row * 18 + usize::from(state.falling()) * 9 + usize::from(state.amount());
+        self.shapes.resize(self.shapes.len().max(index + 1), None);
         // Vanilla's five fluids fill the first slots; a mod fluid's grow them.
         if index >= self.shapes.len() {
             self.shapes.resize(index + 1, None);

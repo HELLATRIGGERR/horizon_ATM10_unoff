@@ -1,5 +1,6 @@
 //! LivingEntity water/lava travel and fluid escape/buoyancy velocity updates.
 use crate::living_air::{LivingAirWorld, move_relative};
+use crate::move_gate::MoveGate;
 use horizon_core::geometry::Vec3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +62,7 @@ pub fn jump_out_of_fluid<W: LivingFluidWorld>(world: &mut W, old_y: f64) -> Resu
 }
 pub fn travel_in_water<W: LivingFluidWorld>(
     world: &mut W,
+    gate: &mut MoveGate,
     input: Vec3,
     gravity: f64,
     falling: bool,
@@ -84,7 +86,7 @@ pub fn travel_in_water<W: LivingFluidWorld>(
         slowdown = 0.96;
     }
     move_relative(world, input, speed)?;
-    world.move_self(world.velocity())?;
+    world.move_self(gate, world.velocity())?;
     let mut velocity = world.velocity();
     if world.horizontal_collision() && world.on_climbable()? {
         velocity.y = 0.2;
@@ -100,13 +102,14 @@ pub fn travel_in_water<W: LivingFluidWorld>(
 }
 pub fn travel_in_lava<W: LivingFluidWorld>(
     world: &mut W,
+    gate: &mut MoveGate,
     input: Vec3,
     gravity: f64,
     falling: bool,
     old_y: f64,
 ) -> Result<(), W::Error> {
     move_relative(world, input, 0.02)?;
-    world.move_self(world.velocity())?;
+    world.move_self(gate, world.velocity())?;
     let height = world.fluid_height(TravelFluidTag::Lava)?;
     if height <= world.fluid_jump_threshold()? {
         let velocity = world.velocity();
@@ -147,14 +150,18 @@ pub fn float_in_liquid_while_ridden<W: LivingFluidWorld>(
     }
     Ok(())
 }
-pub fn travel_in_fluid<W: LivingFluidWorld>(world: &mut W, input: Vec3) -> Result<(), W::Error> {
+pub fn travel_in_fluid<W: LivingFluidWorld>(
+    world: &mut W,
+    gate: &mut MoveGate,
+    input: Vec3,
+) -> Result<(), W::Error> {
     let falling = world.velocity().y <= 0.0;
     let old_y = world.y();
     let gravity = world.effective_gravity()?;
-    if world.in_water()? || world.in_mod_fluid_type()? {
-        travel_in_water(world, input, gravity, falling, old_y)?;
+    if world.in_water()? {
+        travel_in_water(world, gate, input, gravity, falling, old_y)?;
     } else {
-        travel_in_lava(world, input, gravity, falling, old_y)?;
+        travel_in_lava(world, gate, input, gravity, falling, old_y)?;
     }
     float_in_liquid_while_ridden(world, TravelFluidTag::EntityFloatable)
 }

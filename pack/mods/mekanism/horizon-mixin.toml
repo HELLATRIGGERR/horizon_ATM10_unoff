@@ -4,7 +4,8 @@
 # and Chemical Infuser, the ore chain's Chemical Dissolution Chamber, Chemical
 # Washer and Chemical Crystallizer, the Rotary Condensentrator, the Pressurized
 # Reaction Chamber, the Isotopic Centrifuge and the Solar Neutron Activator, the Pigment Extractor,
-# the Pigment Mixer and the Painting Machine), its Nutritional Liquifier, its Antiprotonic
+# the Pigment Mixer and the Painting Machine), its Nutritional Liquifier, its QIO Drive Array and Dashboard (drives, a
+# frequency, the item viewer), its Antiprotonic
 # Nucleosynthesizer, its Laser, Laser Amplifier and Laser Tractor Beam, its Mechanical Pipes, Fluid Tanks, Logistical Transporters and Configurator, its multiblocks
 # (the Dynamic Tank, the Induction Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the SPS) and
 # its Resistive Heater, Mekanism Generators' Solar, Heat,
@@ -15,7 +16,10 @@
 # are ported from its source in the crate `mekanism-energy`.
 #
 # It hooks only Horizon's named hook points (API 3, 7, 8, 12-21, 23, 26, 31, 38,
-# 42, 45, 47, 60, 71, 416-418, 420, 422 and 435: its blocks' chemical handler for AE2's Applied Mekanistics) and calls the helpers of API 437 (`native_chemical_tanks`,
+# 40, 42, 45, 47, 51, 60, 71, 93, 104, 309, 401, 416-418, 420, 422 and 435: its blocks' chemical handler for AE2's Applied Mekanistics;
+# the QIO screens' cursor, shift-clicks, typing, wheel and mod messages: `menu_button_v2`, `menu_quick_move`,
+# `screen_char_typed_pre`, `screen_key_pressed_pre`, `screen_mouse_scrolled_pre`, `tick`, `net_from_client` and
+# `native_net_send_to_server`, `native_screen_pos`) and calls the helpers of API 437 (`native_chemical_tanks`,
 # `native_chemical_insert`, `native_chemical_extract`: AE2's interfaces and pattern providers as chemical handlers), 419 (`native_biome_climate`,
 # `native_dimension_type`), 421 (`native_cooking_recipes`), 436 (`native_food_table`, `native_food`: the Nutritional
 # Liquifier's recipes), 422 (`FluidStack`, the fluid handler helpers), 423
@@ -188,6 +192,12 @@ id = "liquifier"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_liquifier"
 source = "runtime/mek_liquifier.rs"
+
+[[module]]
+id = "qio"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_qio"
+source = "runtime/mek_qio.rs"
 
 [[module]]
 id = "nucleo"
@@ -819,4 +829,93 @@ bindings = [
   { name = "amount", ty = "i64", value = "amount" },
   { name = "simulate", ty = "bool", value = "simulate" },
   { name = "extracted", ty = "&mut Option<i64>", value = "&mut *extracted" },
+]
+
+[[injection]]
+id = "menu-button-v2"
+hook = "menu_button_v2"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/menu_button_v2.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "id", ty = "i32", value = "id" },
+  { name = "carried", ty = "&mut Option<horizon_client::items::ItemStack>", value = "&mut *carried" },
+]
+
+[[injection]]
+id = "menu-quick-move"
+hook = "menu_quick_move"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/menu_quick_move.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "container_slots", ty = "usize", value = "container_slots" },
+  { name = "slot", ty = "usize", value = "slot" },
+  { name = "stack", ty = "&mut horizon_client::items::ItemStack", value = "&mut *stack" },
+  { name = "handled", ty = "&mut bool", value = "&mut *handled" },
+]
+
+[[injection]]
+id = "screen-char-typed-pre"
+hook = "screen_char_typed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_char_typed_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "c", ty = "char", value = "c" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "screen-key-pressed-pre"
+hook = "screen_key_pressed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_key_pressed_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "key", ty = "&str", value = "key" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "screen-mouse-scrolled-pre"
+hook = "screen_mouse_scrolled_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_scrolled_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "scroll", ty = "[f64; 2]", value = "scroll" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "tick"
+hook = "tick"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/tick.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
+id = "net-from-client"
+hook = "net_from_client"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_client.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "player", ty = "u128", value = "player" },
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
 ]

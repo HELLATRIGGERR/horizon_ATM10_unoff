@@ -89,6 +89,7 @@ pub mod liquifier;
 pub mod reaction;
 pub mod ore;
 pub mod pump;
+pub mod qio;
 pub mod radiation;
 pub mod rotary;
 pub mod separator;

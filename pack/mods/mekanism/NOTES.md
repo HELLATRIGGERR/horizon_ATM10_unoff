@@ -511,6 +511,108 @@ Design and order of work: `.build/mekanism-native-mod-design.md`, section 6 (out
   (the Configurator) and a game-rule read for `waterSourceConversion`;
   other energy items charging machines.
 
+- QIO, slice 1 (branch `feat/mekanism-qio`, no new hook point): drives of all four tiers, the Drive Array, a named
+  frequency and the Dashboard with its item viewer (`mekanism_energy::qio`, runtime `mek_qio`); see "QIO" below. World
+  test `qio`.
+
+## QIO
+
+Quantum Item Orchestration (Mekanism 10.7.19: `mekanism.common.content.qio.*`, `TileEntityQIO*`, `ItemQIODrive`,
+`QIOFrequency`, `GuiQIOItemViewer`; read with `javap` from the ATM10 jar). Branch `feat/mekanism-qio`. No frequency
+system existed in the bundle (the Teleporter and the Quantum Entangloporter aren't ported), so QIO brings its own.
+
+The pieces:
+- **Drives** (`QIODriveTier`): base 16 000 items / 128 types, hyper-dense 128 000 / 256, time-dilating 1 048 000 /
+  1 024, supermassive 16 000 000 000 / 8 192. A drive keeps its items (Mekanism: `mekanism:drive_contents`, a
+  UUID-to-count map over the global `QIOGlobalItemLookup`, and `drive_metadata`); here `custom_data.mekanism.qio`
+  (`token`, `count`, `types`, `items: [{stack, count}]`), since the game takes no mod components.
+- **Drive Array** (`TileEntityQIODriveArray`): 12 drive slots (2 x 6 at 34 + 18 column, 70 + 18 row), no item
+  handler; its drives join its frequency in slot order (`addDrive`) and leave it when taken out, when the array
+  unloads or breaks (`removeDrive`). The block shows each drive's state (ready, near full, full, offline).
+- **Frequency** (`QIOFrequency`, Mekanism's `Frequency`/`FrequencyManager`): named, public, private or trusted, owned,
+  coloured; saved by the server (`mekanism_frequencies`). Its storage is its drives in the order they joined; a type
+  goes to the drives holding it first, then to the others (`QIOItemTypeData.add`), out of them in order (`remove`);
+  none once full (`totalCountCapacity`) nor a new type once at `totalTypeCapacity`.
+- **Dashboard** (`TileEntityQIODashboard`, `GuiQIODashboard`) and the **Portable QIO Dashboard** (an item with its
+  own frequency and crafting windows): the item viewer over the frequency, three 3 x 3 crafting windows.
+- **Importer** and **Exporter** (`TileEntityQIOImporter`, `TileEntityQIOExporter`): filters (item, tag, mod id),
+  import with no filter, export round-robin to the block they face.
+- **Redstone Adapter** (`TileEntityQIORedstoneAdapter`): a signal while the frequency holds at least a count of an
+  item (fuzzy, inverted).
+- **Item viewer** (`GuiQIOItemViewer`, `QIOItemViewerContainer`): slots 8-16 wide and 2-48 high from the client
+  config, the search bar (`SearchQueryParser`: name words, `@mod`, `#tag`, `$tooltip`), sorting (`ListSortType` name,
+  size, mod; ascending or descending), take and put with the cursor (`PacketQIOItemViewerSlotTake`, `SlotPlace`,
+  `SlotShiftTake`), shift-clicks from the inventory into the frequency.
+- **Crafting windows** (`QIOCraftingWindow`): the grid's ingredients refill from the frequency; shift-craft.
+- **JEI transfer** into the dashboard's crafting window (`JeiQIOCraftingTransferHandler`,
+  `PacketQIOFillCraftingWindow`) through the JEI bundle's transfer API (433).
+
+Slices, a few days each at most:
+1. Drives (all tiers), the Drive Array, a frequency (named, public or private, set from the screens' frequency tab
+   or `/mek qio`), the Dashboard with its item viewer (search, sorting, scroll; take and put; shift-clicks both ways),
+   saved and restarted. World test `qio`. **Done and tested** (handoff below).
+2. The frequency system proper: `FrequencyManager`'s saved list (frequencies that outlive their holders), trusted
+   security, colours, deleting, Mekanism's frequency select screen; the array's drive states on its renderer and the
+   blocks' active models; the dashboard's thin shape.
+3. The Importer and the Exporter (filters, round-robin, speeds measured on the oracle) and the Redstone Adapter.
+4. The crafting windows (3 per dashboard, refill from the frequency, shift-craft) and the JEI transfer into them (API
+   433's transfer handler).
+5. The Portable QIO Dashboard (item frequency, its windows on the item) and the viewer's rest: the client config's
+   size, `#tag` and `$tooltip`, translated names in the search, the sort kept in the client config.
+
+### Slice 1 (`runtime/mek_qio.rs`, `mekanism_energy::qio`): the design
+
+- Rules: `mekanism_energy::qio` (`DriveTier`, `Drive`, `Storage`: insert, extract, drives joining and leaving;
+  unit tests `qio::tests`).
+- The server keeps each frequency's drives in memory; an array's tick registers the drives in its slots (a `token`
+  in the drive's data tells a drive put in a slot from the one before) and every change is written back into the
+  drive's stack at once (`flush`; an array out of reach, another dimension's, at its next tick), so the array's saved
+  items are the frequency's and a drive taken out carries them.
+- The dashboard packs its frequency's list (item id, count) into its menu data; the screen filters, sorts and draws
+  it on the client (8 x 4, `native_gui_draw_item_with` and short counts). Its frequency tab lists the frequencies and
+  takes a typed name (Public/Private, Set): the name reaches the server as a mod message (`mekanism:qio`, sent from
+  the client's tick). Typing uses the screen key and character hooks while a field has the focus (the search bar has
+  it as the screen opens, `qioAutoFocusSearchBar`).
+- Hook points used, all existing (no new fork hook): `menu_button_v2` (51, the cursor), `menu_quick_move` (309),
+  `screen_char_typed_pre` and `screen_key_pressed_pre` (104), `screen_mouse_scrolled_pre` (93), `tick`,
+  `net_from_client` and `native_net_send_to_server` (40), `native_screen_pos` (401).
+- `/mek qio x y z freq [name [private]]` sets a frequency; `/mek probe` on a QIO block gives its frequency, totals,
+  items and (the array) its drives.
+- Not like Mekanism yet: frequencies live while a holder names them (no saved list, no trusted mode, no colours);
+  the viewer matches the item id's words and `@mod`, not the translated name, draws items with components as their
+  plain item, and is 8 x 4; the dashboard is a full cube; no drive state lights; a frequency typed on a screen is
+  looked up in the server's default level.
+
+### Slice 1 handoff
+
+- Done and tested: the rules (`mekanism-energy/src/qio.rs`, 5 unit tests in `qio::tests`), the runtime module
+  `runtime/mek_qio.rs` (module `qio` in `horizon-mixin.toml`), its dispatch in `mek_world.rs` and `mek_ui.rs`,
+  `hooks/screen_click.rs` sending QIO clicks first, seven injections on existing hook points (`menu_button_v2`,
+  `menu_quick_move`, `screen_char_typed_pre`, `screen_key_pressed_pre`, `screen_mouse_scrolled_pre`, `tick`,
+  `net_from_client`; no new fork hook, none of 438/439 taken), the block overlays `qio_drive_array.json` and
+  `qio_dashboard.json`, the world test `tests/qio.ts` (the array's drive joins "Test", the dashboard joins it from
+  its frequency tab with a typed name, shift-clicks put three stacks in, the search narrows the viewer, a shift-click
+  and a click take stacks out, a click puts one back, a restart keeps everything on the drive). Bundle units: 243 +
+  19 pass; `electric-machines`, `energy-cube` and `recipe-viewer` pass beside it.
+- The three risks of the first run all held without a workaround: the control socket's `type` reaches
+  `screen_char_typed_pre` on the native screen (the search and the frequency name are typed in the test); a click on
+  the frequency tab left of the panel (x -26..0) reaches `native_screen_click`; `native_net_send_to_server` works in
+  single player and `net_from_client` finds the block in the overworld. The test's one helper of its own: `click-at`
+  takes no shift, so a shift-click holds `key shift` around it.
+- The screenshots (`qio-dashboard.png`, `qio-search.png`, `qio-restart.png`) show the screen as `GuiQIODashboard` lays
+  it out: the title and "Frequency: Test (public)", the search bar and the sort button ("Name+"), the 8 x 4 grid with
+  short counts (64 cobblestone, 5 diamonds, 20 iron), the scroll bar, the "89 / 16K items, 3 / 128 types" line, the
+  inventory below and the frequency tab ("F") left of the panel. Seen different from Mekanism: one sort button where
+  Mekanism has a sort type and a direction button, counts at the font's normal size, the viewer 8 x 4 (not from the
+  client config).
+- Next, slice 2: the frequency system proper (`FrequencyManager`'s saved list so frequencies outlive their holders,
+  trusted security, colours, deleting, Mekanism's frequency select screen), the array's drive states on its renderer
+  and the blocks' active models, the dashboard's thin shape. Start from `mek_qio.rs`' frequency map (`FREQS`, the
+  `mekanism:qio` mod message and the frequency tab) and the "Not like Mekanism yet" list above.
+- Driver: `D:/VSCODE_PROJECTS/DEV_1/atm10-work/mekqio-work/mek.sh [content stage build units world]` (copied from
+  `mekliq-work`, `MEK_JOBS=4`, `AE2_PROFILE=iter`, its own stage and target). Logs in `mekqio-work/logs`, screenshots in
+  `logs/shots/qio`.
+
 ## How to run
 
     source /c/PET/atm10-work/env.sh

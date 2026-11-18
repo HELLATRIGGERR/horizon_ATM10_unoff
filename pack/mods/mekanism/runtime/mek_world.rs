@@ -174,6 +174,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_multiblock::clear();
     super::mek_gen2::clear();
     super::mek_miner::clear();
+    super::mek_qio::clear();
     super::mek_pump::clear();
     super::mek_heater::clear();
     super::mek_lasers::clear();
@@ -300,6 +301,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         *entity = Some(super::mek_miner::new_entity());
         return;
     }
+    if super::mek_qio::is_qio(block) {
+        *entity = Some(super::mek_qio::new_entity(block));
+        return;
+    }
     if let Some(kind) = mek_factories::kind_of(block) {
         *entity = Some(mek_factories::new_entity(kind));
         return;
@@ -339,6 +344,7 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
         || super::mek_heater::is_heater(block)
         || super::mek_lasers::kind_of(block).is_some()
         || super::mek_miner::is_miner(block)
+        || super::mek_qio::is_qio(block)
         || super::mek_tanks::tier_of(block).is_some()
         || super::mek_transmit::ticks(block)
     {
@@ -375,6 +381,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     }
     if super::mek_miner::is_miner(block) {
         *container = Some(super::mek_miner::container());
+        return;
+    }
+    if super::mek_qio::is_qio(block) {
+        *container = Some(super::mek_qio::container(block));
         return;
     }
     if let Some(kind) = mek_factories::kind_of(block) {
@@ -644,6 +654,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     }
     if let Some(kind) = super::mek_lasers::kind_of(&entity.id) {
         super::mek_lasers::tick(game, pos, entity, kind);
+        return;
+    }
+    if super::mek_qio::is_qio(&entity.id) {
+        super::mek_qio::tick(game, pos, entity);
         return;
     }
     if super::mek_miner::is_miner(&entity.id) {
@@ -1032,6 +1046,10 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
 /// Unloading, it takes what its save holds with it (`onChunkUnloaded`); broken,
 /// it takes nothing and the rest of the network keeps the energy.
 pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) {
+    if super::mek_qio::is_qio(&entity.id) {
+        super::mek_qio::unloaded(dimension, pos, &entity.id);
+        return;
+    }
     if removed {
         super::mek_radiation::block_removed(dimension, pos, &entity.id, &entity.nbt);
     }
@@ -2010,6 +2028,10 @@ fn generator_container(kind: GeneratorKind) -> ModContainer {
 /// what burns in a furnace, a lava bucket included (`fuelValue > 0`); a
 /// machine's slots take what they work with (`mek_machines::slot_accepts`).
 pub(super) fn slot_accepts(block: &str, slot: usize, stack: &ItemStack, fuel: bool, accepts: &mut bool) {
+    if super::mek_qio::is_qio(block) {
+        super::mek_qio::slot_accepts(block, slot, stack, accepts);
+        return;
+    }
     if let Some(kind) = mek_factories::kind_of(block) {
         mek_factories::slot_accepts(kind, slot, stack, accepts);
         return;
@@ -2443,6 +2465,16 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             let category = words.next();
             super::mek_recipe_viewer::command(game, category, words.next())
         }
+        // `/mek qio x y z freq [name [private]]`: a QIO block's frequency.
+        Some("qio") => {
+            let p = player.position;
+            let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
+            let rest: Vec<&str> = words.collect();
+            match at {
+                (Some(x), Some(y), Some(z)) => super::mek_qio::command(game, [x, y, z], &rest),
+                _ => serde_json::json!({ "error": "usage: /mek qio <x> <y> <z> freq [name [private]]" }),
+            }
+        }
         // `/mek miner x y z <what> ...`: a digital miner's settings, filters and buttons.
         Some("miner") => {
             let p = player.position;
@@ -2547,6 +2579,9 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     }
     if super::mek_miner::is_miner(&id) {
         return super::mek_miner::probe(game, pos, &nbt, &data, &items);
+    }
+    if super::mek_qio::is_qio(&id) {
+        return super::mek_qio::probe(game, pos, &id, &nbt, &data, &items);
     }
     if super::mek_heater::is_heater(&id) {
         return super::mek_heater::probe(game, pos, &nbt, &data, &items);

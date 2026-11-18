@@ -87,6 +87,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
     if screen.is_some() {
         return;
     }
+    if super::mek_qio::is_qio(block) {
+        *screen = Some(super::mek_qio::screen(block));
+        return;
+    }
     if super::mek_dynamic_tank::is_tank_block(block) {
         *screen = Some(super::mek_dynamic_tank::screen());
         return;
@@ -361,6 +365,10 @@ pub(super) fn side_name(side: RelativeSide) -> &'static str {
 
 /// `native_screen_tooltip`.
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    if super::mek_qio::is_qio(block) {
+        super::mek_qio::tooltip(block, data, at, lines);
+        return;
+    }
     if super::mek_dynamic_tank::is_tank_block(block) {
         super::mek_dynamic_tank::tooltip(data, at, lines);
         return;
@@ -576,6 +584,10 @@ pub(super) fn side_color(t: DataType) -> u32 {
 
 /// `native_screen_draw`.
 pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    if super::mek_qio::is_qio(block) {
+        super::mek_qio::draw(game, block, data, batch, origin);
+        return;
+    }
     if super::mek_dynamic_tank::is_tank_block(block) {
         super::mek_dynamic_tank::draw(game, data, batch, origin);
         return;
@@ -1526,6 +1538,9 @@ fn item_energy(stack: &ItemStack, settings: &EnergyConfig) -> Option<(u64, u64)>
 /// `native_tooltip`: `ItemBlockEnergyCube.appendHoverText`, under the name:
 /// the stored energy (`StorageUtils.addStoredEnergy`) and the tier's capacity.
 pub(super) fn item_tooltip(stack: &ItemStack, lines: &mut Vec<(Text, u32)>) {
+    if super::mek_qio::item_tooltip(stack, lines) {
+        return;
+    }
     if super::mek_tanks::item_tooltip(stack, lines) {
         return;
     }

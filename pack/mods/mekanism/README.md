@@ -1,6 +1,6 @@
 # Mekanism on this fork
 
-Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer, the Pressurized Reaction Chamber, the Isotopic Centrifuge, the Solar Neutron Activator, the Pigment Extractor, the Pigment Mixer, the Painting Machine and the Nutritional Liquifier), its lasers, its chemicals, their tanks and tubes, its Mechanical
+Mekanism's energy blocks, its processing machines and factories (with the Antiprotonic Nucleosynthesizer, the Pressurized Reaction Chamber, the Isotopic Centrifuge, the Solar Neutron Activator, the Pigment Extractor, the Pigment Mixer, the Painting Machine and the Nutritional Liquifier), its QIO Drive Array and Dashboard (drives of all four tiers, a frequency, the item viewer), its lasers, its chemicals, their tanks and tubes, its Mechanical
 Pipes, Fluid Tanks and Logistical Transporters, its Configurator, its multiblocks (the Dynamic Tank, the Induction
 Matrix, the Thermal Evaporation Plant, the Thermoelectric Boiler and the Supercritical Phase Shifter), its Resistive Heater, its Electric Pump and
 Fluidic Plenisher, and Mekanism Generators' Solar,
@@ -464,9 +464,24 @@ assets when `mekanism-content` is given them.
   and factories, and 29 known recipes found by their output (hydrogen chloride, water's hydrogen and oxygen,
   sawdust at its chance, redstone's 10,000 J); the viewer itself, Horizon's Recipes mod, is not in this build, so
   the arrow link has no world test.
+- QIO, slice 1 (`mekanism_energy::qio`, runtime `mek_qio`): the four drive tiers (base 16 000 items / 128 types,
+  hyper-dense 128 000 / 256, time-dilating 1 048 000 / 1 024, supermassive 16 000 000 000 / 8 192) keep their items
+  in the drive's own data; the Drive Array (12 slots) registers the drives in its slots with its frequency and writes
+  every change back into them, so a drive taken out carries its items; the Dashboard shows the frequency's items
+  (8 x 4 cells with short counts, a search bar on names and `@mod`, sorting by name, size or mod, the scroll wheel),
+  takes a stack to the cursor by a click, puts the cursor's stack back by a click on the viewer, and shift-clicks
+  move stacks both ways. A frequency is a name (public or private) set from the screen's frequency tab (a typed
+  name, sent as a `mekanism:qio` message) or `/mek qio x y z freq [name [private]]`; `/mek probe` on a QIO block
+  gives its frequency, totals, items and (the array) its drives. World test `qio`.
 
 ## Differences from Mekanism
 
+- QIO: frequencies live while a block holds them (no saved list of frequencies, no trusted mode, no colours, no
+  select screen); the viewer is 8 x 4 with one sort button, matches the item id's words and `@mod` (not the
+  translated name, `#tag` or `$tooltip`), and draws an item with components as its plain item; the Dashboard is a
+  full cube; the array shows no drive state lights; a frequency typed on a screen is looked up in the server's
+  default level. Not there yet: the Importer, Exporter, Redstone Adapter, crafting windows, JEI transfer and the
+  Portable QIO Dashboard (slices 3 to 5 in `NOTES.md`).
 - Radiation: mobs take no dose (only players do), and the dose isn't sent to the client (no HUD readings, no Geiger
   sounds, no radiation particles). The Dosimeter doesn't read other entities, the MekaSuit's Geiger and Dosimeter
   units and its shielding aren't there, nor Curios' shielding slots. A pressurized tube network's last tube, a

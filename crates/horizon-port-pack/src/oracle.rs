@@ -1906,10 +1906,11 @@ mod tests {
                 "probability": 0.5}]})
         );
         assert_eq!(differences, ["eating gives m:sour, which is not carried"]);
-        // An item placing a block under another id stays an item, as without the oracle.
+        // An item placing a block under another id binds it (`place_block`); `carry` drops a block of another
+        // namespace, whose own test says so.
         let (seed, differences) = facts.item("m:seed", &["m"]).unwrap();
-        assert_eq!(seed, json!({"template": "minecraft:stick"}));
-        assert_eq!(differences[0], "places m:crop, which the template does not");
+        assert_eq!(seed, json!({"template": "minecraft:stick", "place_block": "m:crop"}));
+        assert!(differences.is_empty());
         // A rarity a mod added is no rarity the game knows.
         let (relic, differences) = facts.item("m:relic", &["m"]).unwrap();
         assert_eq!(relic, json!({"template": "minecraft:stick", "max_stack_size": 1}));

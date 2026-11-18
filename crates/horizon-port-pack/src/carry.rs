@@ -3338,6 +3338,14 @@ version = \"1.0\"
         .unwrap();
         zip.write_all(b"license = \"MIT\"\n[[mods]]\nmodId = \"gem\"\nversion = \"1.0\"\n")
             .unwrap();
+        // A block is carried only with a blockstate in its jar, so its seeds are too only with one.
+        zip.start_file(
+            "assets/gem/blockstates/cabbages.json",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        zip.write_all(br#"{"variants": {"": {"model": "gem:block/cabbages"}}}"#)
+            .unwrap();
         zip.finish().unwrap();
         let info = crate::jar::read(&jar).unwrap();
         let block = |class: &str, item: &str| {
@@ -3356,7 +3364,8 @@ version = \"1.0\"
                 "minecraft:oak_planks": block("net.minecraft.world.level.block.Block", "minecraft:oak_planks"),
                 "gem:cabbages": block("gem.Cabbages", "gem:cabbage_seeds"),
             },
-            "items": {"gem:cabbage_seeds": seeds("gem:cabbages"), "gem:lost_seeds": seeds("gem:lost")}
+            "items": {"gem:cabbage_seeds": seeds("gem:cabbages"), "gem:lost_seeds": seeds("gem:lost"),
+                "gem:other_seeds": seeds("other:crop")}
         }))
         .unwrap();
         let pack = Pack {
@@ -3387,6 +3396,17 @@ version = \"1.0\"
             .find(|i| i.id == "gem:cabbage_seeds")
             .unwrap();
         assert_eq!(item.place_block.as_deref(), Some("gem:cabbages"));
+        // Another namespace's block is not bound: the item stays, placing nothing, and says so.
+        let other = content
+            .items
+            .iter()
+            .find(|i| i.id == "gem:other_seeds")
+            .unwrap();
+        assert_eq!(other.place_block, None);
+        assert_eq!(
+            report.differences["other_seeds"],
+            ["places other:crop, which the template does not"]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

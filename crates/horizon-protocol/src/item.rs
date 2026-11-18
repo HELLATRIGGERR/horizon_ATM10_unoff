@@ -1641,6 +1641,9 @@ impl crate::retained::OwnedHeap for Component {
             Self::Stacks(field_0) => {
                 0usize.saturating_add(crate::retained::OwnedHeap::owned_heap_bytes(field_0))
             }
+            Self::Container(field_0) => {
+                0usize.saturating_add(crate::retained::OwnedHeap::owned_heap_bytes(field_0))
+            }
             Self::Fireworks { flight, explosions } => 0usize
                 .saturating_add(crate::retained::OwnedHeap::owned_heap_bytes(flight))
                 .saturating_add(crate::retained::OwnedHeap::owned_heap_bytes(explosions)),

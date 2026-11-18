@@ -72,6 +72,7 @@ pub mod fe;
 pub mod fission;
 pub mod fusion;
 pub mod fluid_tank;
+pub mod frequency;
 pub mod gas;
 pub mod generator;
 pub mod heat;

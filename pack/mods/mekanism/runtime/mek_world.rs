@@ -175,6 +175,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     super::mek_gen2::clear();
     super::mek_miner::clear();
     super::mek_qio::clear();
+    super::mek_frequency::clear();
     super::mek_pump::clear();
     super::mek_heater::clear();
     super::mek_lasers::clear();
@@ -2411,6 +2412,7 @@ pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
     commands.push(NativeCommand::op("mek multiblock <what:word>", 2));
     commands.push(NativeCommand::op("mek heater <pos:block_pos> <usage:word>", 2));
     commands.push(NativeCommand::op("mek radiation <args:text>", 2));
+    commands.push(NativeCommand::op("mek freq <args:text>", 2));
     super::mek_transmit::commands(commands);
 }
 
@@ -2465,14 +2467,19 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             let category = words.next();
             super::mek_recipe_viewer::command(game, category, words.next())
         }
-        // `/mek qio x y z freq [name [private]]`: a QIO block's frequency.
+        // `/mek freq list|trust|untrust ...`: the frequency list (`mek_frequency`).
+        Some("freq") => {
+            let rest: Vec<&str> = words.collect();
+            super::mek_frequency::command(game, player, &rest)
+        }
+        // `/mek qio x y z freq [name [public|private|trusted]]`: a QIO block's frequency.
         Some("qio") => {
             let p = player.position;
             let at = (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2]));
             let rest: Vec<&str> = words.collect();
             match at {
                 (Some(x), Some(y), Some(z)) => super::mek_qio::command(game, [x, y, z], &rest),
-                _ => serde_json::json!({ "error": "usage: /mek qio <x> <y> <z> freq [name [private]]" }),
+                _ => serde_json::json!({ "error": "usage: /mek qio <x> <y> <z> freq [name [public|private|trusted]]" }),
             }
         }
         // `/mek miner x y z <what> ...`: a digital miner's settings, filters and buttons.

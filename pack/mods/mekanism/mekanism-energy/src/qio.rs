@@ -53,6 +53,60 @@ impl DriveTier {
     }
 }
 
+/// `TileEntityQIODriveArray.DriveStatus`: a slot's light, worked out every 10 ticks (`onUpdateServer`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DriveStatus {
+    None,
+    Offline,
+    Ready,
+    NearFull,
+    Full,
+}
+
+impl DriveStatus {
+    pub const ALL: [DriveStatus; 5] = [DriveStatus::None, DriveStatus::Offline, DriveStatus::Ready, DriveStatus::NearFull, DriveStatus::Full];
+
+    /// A slot with no drive is `None`; a drive no frequency holds is `Offline`; a full one `Full`; one at its
+    /// types or at three quarters of its items `NearFull`; else `Ready`.
+    pub fn of<K>(slot_has_drive: bool, online: Option<&Drive<K>>) -> Self {
+        match online {
+            None if slot_has_drive => DriveStatus::Offline,
+            None => DriveStatus::None,
+            Some(d) if d.count == d.tier.max_count() => DriveStatus::Full,
+            Some(d) if d.items.len() == d.tier.max_types() || d.count as f64 >= d.tier.max_count() as f64 * 0.75 => DriveStatus::NearFull,
+            Some(_) => DriveStatus::Ready,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            DriveStatus::None => "none",
+            DriveStatus::Offline => "offline",
+            DriveStatus::Ready => "ready",
+            DriveStatus::NearFull => "near_full",
+            DriveStatus::Full => "full",
+        }
+    }
+
+    /// `DriveStatus.model`: the drive's model in its slot.
+    pub fn model(self) -> Option<&'static str> {
+        match self {
+            DriveStatus::None => None,
+            DriveStatus::Offline => Some("mekanism:block/qio_drive/qio_drive_offline"),
+            DriveStatus::Ready => Some("mekanism:block/qio_drive/qio_drive_empty"),
+            DriveStatus::NearFull => Some("mekanism:block/qio_drive/qio_drive_partial"),
+            DriveStatus::Full => Some("mekanism:block/qio_drive/qio_drive_full"),
+        }
+    }
+}
+
+/// `DriveArrayBakedModel.DRIVE_PLACEMENTS`: each slot's drive moved from the first one's place, in blocks, on the
+/// array's north-facing model (6 to a row, the top row first).
+pub fn drive_placement(slot: usize) -> [f32; 2] {
+    const X: [f32; 6] = [0.0, -0.125, -0.25, -0.4375, -0.5625, -0.6875];
+    [X[slot % 6], if slot < 6 { 0.375 } else { 0.0 }]
+}
+
 /// `QIODriveData`: the types a drive holds, in the order it took them, and their counts.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Drive<K> {
@@ -384,5 +438,16 @@ mod tests {
     #[test]
     fn short_counts() {
         assert_eq!([999, 1_000, 1_250, 16_000, 128_000, 16_000_000_000].map(short_count), ["999", "1K", "1.2K", "16K", "128K", "16G"]);
+    }
+
+    #[test]
+    fn drive_status_follows_fullness() {
+        let d = |n: u64| Drive::new(DriveTier::Base, vec![("stone", n)]);
+        assert_eq!(DriveStatus::of::<&str>(false, None), DriveStatus::None);
+        assert_eq!(DriveStatus::of::<&str>(true, None), DriveStatus::Offline);
+        assert_eq!(DriveStatus::of(true, Some(&d(11_999))), DriveStatus::Ready);
+        assert_eq!(DriveStatus::of(true, Some(&d(12_000))), DriveStatus::NearFull);
+        assert_eq!(DriveStatus::of(true, Some(&d(16_000))), DriveStatus::Full);
+        assert_eq!(drive_placement(9), [-0.4375, 0.0]);
     }
 }

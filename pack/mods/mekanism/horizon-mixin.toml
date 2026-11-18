@@ -200,6 +200,12 @@ name = "mek_qio"
 source = "runtime/mek_qio.rs"
 
 [[module]]
+id = "frequency"
+file = "crates/horizon-client/src/game.rs"
+name = "mek_frequency"
+source = "runtime/mek_frequency.rs"
+
+[[module]]
 id = "nucleo"
 file = "crates/horizon-client/src/game.rs"
 name = "mek_nucleo"
@@ -928,4 +934,50 @@ bindings = [
   { name = "player", ty = "u128", value = "player" },
   { name = "channel", ty = "&str", value = "channel" },
   { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "net-from-server"
+hook = "net_from_server"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/net_from_server.rs"
+bindings = [
+  { name = "channel", ty = "&str", value = "channel" },
+  { name = "data", ty = "&[u8]", value = "data" },
+]
+
+[[injection]]
+id = "screen-mouse-pressed"
+hook = "screen_mouse_button_pressed_pre"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_mouse_button_pressed_pre.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "button", ty = "i32", value = "button" },
+  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
+]
+
+[[injection]]
+id = "screen-render-post"
+hook = "screen_render_post"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/screen_render_post.rs"
+bindings = [
+  { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+]
+
+[[injection]]
+id = "standalone-models"
+hook = "standalone_models"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/standalone_models.rs"
+bindings = [
+  { name = "models", ty = "&mut Vec<String>", value = "&mut *models" },
 ]

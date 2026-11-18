@@ -1,14 +1,16 @@
-// Mekanism's Quantum Item Orchestration, slice 1 (`pack/mods/mekanism/NOTES.md`, "QIO"): the QIO Drives
+// Mekanism's Quantum Item Orchestration, slices 1 and 2 (`pack/mods/mekanism/NOTES.md`, "QIO"): the QIO Drives
 // (`ItemQIODrive`, four tiers, their items in their custom data), the QIO Drive Array (`TileEntityQIODriveArray`,
-// twelve drive slots), QIO frequencies (`QIOFrequency`: named, public or private) and the QIO Dashboard
-// (`TileEntityQIODashboard`) with its item viewer (`GuiQIOItemViewer`: search, sorting, scrolling; taking and
+// twelve drive slots, each drive's light on the block), QIO frequencies (`QIOFrequency` on Mekanism's frequency list,
+// `mek_frequency`: named, public, private or trusted, coloured; picked on `GuiQIOTileFrequencySelect`) and the QIO
+// Dashboard (`TileEntityQIODashboard`) with its item viewer (`GuiQIOItemViewer`: search, sorting, scrolling; taking and
 // putting items with the cursor, shift-clicks both ways). The rules are `mekanism_energy::qio`.
 //
 // The server keeps each frequency's drives in memory (`FREQS`) as Mekanism does; a drive array registers the drives
 // in its slots on its tick, and every change is written back into the drive's stack at once (`flush`), so the
 // array's saved items are the frequency's items and a drive taken out carries them. The dashboard packs its
-// frequency's item list into its menu data (`pack`); its screen filters, sorts and draws it on the client. A
-// frequency typed on a screen reaches the server as a mod message (`mekanism:qio`).
+// frequency's item list into its menu data (`pack`); its screen filters, sorts and draws it on the client. The
+// frequency select screen talks to the server in mod messages (`mekanism:qio`): what it sets, deletes or colours,
+// and the list it shows, which the server answers for that player alone.
 use super::{
     Game,
     mek_ui::{self, Pen, Rect},
@@ -22,7 +24,10 @@ use horizon_client::{
     text::Text,
 };
 use horizon_world::nbt::{Compound, Tag};
-use mekanism_energy::qio::{self, Drive, DriveTier, Storage};
+use mekanism_energy::{
+    frequency::{COLORS, Identity, Security},
+    qio::{self, Drive, DriveStatus, DriveTier, Storage},
+};
 use serde_json::{Value, json};
 use std::{
     cell::{Cell, RefCell},
@@ -33,12 +38,19 @@ pub(super) const DRIVE_ARRAY: &str = "mekanism:qio_drive_array";
 pub(super) const DASHBOARD: &str = "mekanism:qio_dashboard";
 const DRIVE_SLOTS: usize = 12;
 const CHANNEL: &str = "mekanism:qio";
-/// Mekanism's frequency names (`FrequencyManager`'s text field): at most 16 characters.
-const NAME_MAX: usize = 16;
+/// QIO's `FrequencyType` on the frequency list.
+const KIND: &str = "qio";
+use mekanism_energy::frequency::NAME_MAX;
 
-// Menu buttons: a frequency from the list, the viewer's cells ((index + 1) * 4 + mode).
-const FREQ_PICK: i32 = 100;
+// Menu buttons: the viewer's cells ((index + 1) * 4 + mode).
 const VIEWER: i32 = 1_000;
+// Mod messages, client to server: `[op, x, y, z, ...]` (`PacketSetTileFrequency`, `PacketSetFrequencyColor`); the
+// list's answer comes back as `[OP_LIST, mode, ...]`.
+const OP_TYPED: u8 = 1;
+const OP_PICK: u8 = 2;
+const OP_DELETE: u8 = 3;
+const OP_COLOR: u8 = 4;
+const OP_LIST: u8 = 5;
 
 pub(super) fn is_qio(block: &str) -> bool {
     block == DRIVE_ARRAY || block == DASHBOARD
@@ -53,12 +65,8 @@ impl PartialEq for Key {
     }
 }
 
-/// A frequency: its name and, for a private one, its owner (`Frequency.FrequencyIdentity`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct FreqId {
-    name: String,
-    owner: Option<u128>,
-}
+/// A frequency: its name, mode and owner (`Frequency.FrequencyIdentity`), as the list keeps it.
+type FreqId = Identity;
 
 /// A drive in a slot of an array; `token` tells a drive put in its place from the one before.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -84,16 +92,32 @@ thread_local! {
     static PACKED: RefCell<HashMap<(String, [i32; 3]), (u64, u32)>> = RefCell::new(HashMap::new());
     static TOKEN: Cell<i64> = const { Cell::new(0) };
     // The client's screen state.
-    static PAGE: Cell<u8> = const { Cell::new(0) };
     static FOCUS: Cell<u8> = const { Cell::new(0) };
     static SEARCH: RefCell<String> = const { RefCell::new(String::new()) };
     static NAME: RefCell<String> = const { RefCell::new(String::new()) };
-    static PUBLIC: Cell<bool> = const { Cell::new(true) };
+    /// The select screen: shown, its mode, the picked row, the list's scroll, the list the server sent and its age.
+    static SELECT: Cell<bool> = const { Cell::new(false) };
+    static MODE: Cell<u8> = const { Cell::new(0) };
+    static ROW: Cell<Option<usize>> = const { Cell::new(None) };
+    static LIST_SCROLL: Cell<usize> = const { Cell::new(0) };
+    static LIST: RefCell<(u8, Vec<Listed>)> = const { RefCell::new((0, Vec::new())) };
+    static LIST_AGE: Cell<u32> = const { Cell::new(0) };
+    /// The open screen's menu data, for the select screen drawn after it.
+    static LAST_DATA: RefCell<Vec<i32>> = const { RefCell::new(Vec::new()) };
     static SCROLL: Cell<usize> = const { Cell::new(0) };
     static SORT: Cell<u8> = const { Cell::new(0) };
     static DESCENDING: Cell<bool> = const { Cell::new(false) };
     static OPEN: Cell<Option<[i32; 3]>> = const { Cell::new(None) };
     static OUTBOX: RefCell<Vec<Vec<u8>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A frequency the select screen lists.
+#[derive(Clone, Debug, Default)]
+struct Listed {
+    owner: u128,
+    color: u8,
+    name: String,
+    owner_name: String,
 }
 
 /// The world closed: no frequency outlives it.
@@ -138,7 +162,13 @@ fn frequency_of(nbt: &Compound) -> Option<FreqId> {
         Some(Tag::String(s)) => u128::from_str_radix(&s.to_string_lossy(), 16).ok(),
         _ => None,
     };
-    Some(FreqId { name, owner })
+    // Slice 1 wrote no mode: an owner meant private.
+    let security = match c.get(&key("security")) {
+        Some(Tag::String(s)) => Security::parse(&s.to_string_lossy())?,
+        _ if owner.is_some() => Security::Private,
+        _ => Security::Public,
+    };
+    Some(FreqId { name, security, owner: owner.unwrap_or(0) })
 }
 
 fn write_frequency(nbt: &mut Compound, id: Option<&FreqId>) {
@@ -148,9 +178,8 @@ fn write_frequency(nbt: &mut Compound, id: Option<&FreqId>) {
     };
     let mut c = Compound::new();
     c.insert(key("name"), Tag::String(key(&id.name)));
-    if let Some(owner) = id.owner {
-        c.insert(key("owner"), Tag::String(key(&format!("{owner:032x}"))));
-    }
+    c.insert(key("security"), Tag::String(key(id.security.name())));
+    c.insert(key("owner"), Tag::String(key(&format!("{:032x}", id.owner))));
     nbt.insert(key("qio_frequency"), Tag::Compound(c));
 }
 
@@ -301,9 +330,21 @@ fn extract(id: &FreqId, index: usize, amount: u64) -> Option<ItemStack> {
 
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
     let dim = game.native_dimension().to_owned();
-    let freq = frequency_of(&entity.nbt);
+    let mut freq = frequency_of(&entity.nbt);
+    // `TileComponentFrequency`: a deleted frequency leaves its holders.
+    if let Some(f) = &freq
+        && !super::mek_frequency::validate(game, KIND, f)
+    {
+        write_frequency(&mut entity.nbt, None);
+        freq = None;
+    }
     if entity.id == DRIVE_ARRAY {
         tick_array(&dim, pos, entity, freq.as_ref());
+        let lights = drive_lights(&dim, pos, entity);
+        if entity.nbt.get(&key("qio_lights")) != Some(&Tag::String(key(&lights))) {
+            entity.nbt.insert(key("qio_lights"), Tag::String(key(&lights)));
+            game.native_block_entity_sync(pos);
+        }
     } else {
         tick_dashboard(&dim, pos, entity, freq.as_ref());
     }
@@ -357,6 +398,63 @@ fn tick_array(dim: &str, pos: [i32; 3], entity: &mut ModBlockEntity, freq: Optio
     ARRAYS.with(|a| a.borrow_mut().insert((dim.to_owned(), pos), regs));
 }
 
+/// `TileEntityQIODriveArray.onUpdateServer`'s `DriveStatus` of each slot, one digit a slot (`DriveStatus` order).
+fn drive_lights(dim: &str, pos: [i32; 3], entity: &ModBlockEntity) -> String {
+    let regs = ARRAYS.with(|a| a.borrow().get(&(dim.to_owned(), pos)).cloned()).unwrap_or_default();
+    (0..DRIVE_SLOTS)
+        .map(|slot| {
+            let has = entity.items.get(slot).and_then(|s| s.as_ref()).is_some_and(|s| DriveTier::of_item(&s.item).is_some());
+            let online = regs.get(slot).cloned().flatten().and_then(|(f, id)| find_freq(&f, |q| q.storage.drive(&id).cloned()).flatten());
+            let status = DriveStatus::of(has, online.as_ref());
+            char::from(b'0' + DriveStatus::ALL.iter().position(|s| *s == status).unwrap_or(0) as u8)
+        })
+        .collect()
+}
+
+fn lights_of(nbt: &Compound) -> Vec<DriveStatus> {
+    match nbt.get(&key("qio_lights")) {
+        Some(Tag::String(s)) => s.to_string_lossy().bytes().map(|b| DriveStatus::ALL.get(usize::from(b.wrapping_sub(b'0'))).copied().unwrap_or(DriveStatus::None)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// `native_block_entity_update_tag`: the array's lights reach the clients (`getReducedUpdateTag`'s drive status).
+pub(super) fn update_tag(entity: &ModBlockEntity, tag: &mut Option<Compound>) {
+    if entity.id != DRIVE_ARRAY {
+        return;
+    }
+    if let Some(lights) = entity.nbt.get(&key("qio_lights")) {
+        tag.get_or_insert_with(Compound::new).insert(key("qio_lights"), lights.clone());
+    }
+}
+
+/// `native_standalone_models`: the drives `DriveArrayBakedModel` puts in the slots.
+pub(super) fn standalone_models(models: &mut Vec<String>) {
+    models.extend(DriveStatus::ALL.iter().filter_map(|s| s.model()).map(str::to_owned));
+}
+
+/// `native_block_entity_submit`: each slot's drive in its light (`DriveArrayBakedModel`), turned with the block.
+pub(super) fn draw_block(game: &Game<'_>, pos: [i32; 3], block: &str, entity: &ModBlockEntity, draw: &mut super::native_block_entity_draw::BlockEntityDraw) {
+    if block != DRIVE_ARRAY {
+        return;
+    }
+    let turn = match game.native_block_property(pos, "facing").as_deref() {
+        Some("south") => 180.0,
+        Some("east") => 90.0,
+        Some("west") => -90.0,
+        _ => 0.0,
+    };
+    for (slot, status) in lights_of(&entity.nbt).into_iter().enumerate().take(DRIVE_SLOTS) {
+        let Some(model) = status.model() else { continue };
+        let [x, y] = qio::drive_placement(slot);
+        draw.push();
+        draw.rotate_about([0.0, 1.0, 0.0], -turn, [0.5, 0.5, 0.5]);
+        draw.translate([x, y, 0.0]);
+        game.native_draw_model(draw, model, 0xFFFFFF);
+        draw.pop();
+    }
+}
+
 /// `native_block_entity_unload`: an array's drives leave their frequency (`onDeactivate`, `removeDrive`).
 pub(super) fn unloaded(dimension: &str, pos: [i32; 3], id: &str) {
     if id == DRIVE_ARRAY
@@ -373,7 +471,7 @@ pub(super) fn unloaded(dimension: &str, pos: [i32; 3], id: &str) {
 
 fn tick_dashboard(dim: &str, pos: [i32; 3], entity: &mut ModBlockEntity, freq: Option<&FreqId>) {
     let revision = freq.and_then(|f| find_freq(f, |q| q.storage.revision)).unwrap_or(0);
-    let count = FREQS.with(|f| f.borrow().len() as u64);
+    let count = super::mek_frequency::read(|r| r.revision);
     let stamp = revision.wrapping_mul(31).wrapping_add(count);
     let fresh = PACKED.with(|p| {
         let mut p = p.borrow_mut();
@@ -411,17 +509,16 @@ fn pack(freq: Option<&FreqId>) -> Vec<i32> {
     push(&mut d, types, 2);
     push(&mut d, type_cap, 2);
     push_str(&mut d, freq.map_or("", |f| f.name.as_str()));
-    d.push(i32::from(freq.is_some_and(|f| f.owner.is_none())));
+    d.push(freq.map_or(0, |f| i32::from(f.security.index())));
+    let (owner, color) = freq
+        .and_then(|f| super::mek_frequency::read(|r| r.find(KIND, f).map(|q| (q.owner_name.clone(), q.color))))
+        .unwrap_or_default();
+    push_str(&mut d, &owner);
+    d.push(i32::from(color));
     push(&mut d, items.len() as u64, 2);
     for (id, n) in &items {
         push_str(&mut d, id);
         push(&mut d, *n, 4);
-    }
-    let freqs: Vec<(String, bool)> = FREQS.with(|f| f.borrow().iter().map(|q| (q.id.name.clone(), q.id.owner.is_none())).collect());
-    push(&mut d, freqs.len() as u64, 1);
-    for (name, public) in &freqs {
-        push_str(&mut d, name);
-        d.push(i32::from(*public));
     }
     d
 }
@@ -464,9 +561,10 @@ struct View {
     types: u64,
     type_cap: u64,
     name: String,
-    public: bool,
+    security: u8,
+    owner: String,
+    color: u8,
     items: Vec<(String, u64)>,
-    freqs: Vec<(String, bool)>,
 }
 
 fn unpack(data: &[i32]) -> View {
@@ -480,25 +578,21 @@ fn unpack(data: &[i32]) -> View {
     v.types = read(data, &mut at, 2);
     v.type_cap = read(data, &mut at, 2);
     v.name = read_str(data, &mut at);
-    v.public = read(data, &mut at, 1) != 0;
+    v.security = read(data, &mut at, 1) as u8;
+    v.owner = read_str(data, &mut at);
+    v.color = read(data, &mut at, 1) as u8;
     let n = read(data, &mut at, 2) as usize;
     for _ in 0..n.min(data.len()) {
         let id = read_str(data, &mut at);
         let count = read(data, &mut at, 4);
         v.items.push((id, count));
     }
-    let n = read(data, &mut at, 1) as usize;
-    for _ in 0..n.min(data.len()) {
-        let name = read_str(data, &mut at);
-        let public = read(data, &mut at, 1) != 0;
-        v.freqs.push((name, public));
-    }
     v
 }
 
 // ---- server: menu buttons, shift-clicks, messages, commands --------------------------------------------------
 
-/// `native_menu_button_v2`: a frequency picked from the list; a click on the viewer: with a stack on the cursor it
+/// `native_menu_button_v2`: a click on the viewer: with a stack on the cursor it
 /// goes in (all of it, or one on a right click: `PacketQIOItemViewerSlotPlace`), else the cell's type comes out, a
 /// stack (`PacketQIOItemViewerSlotTake`), half of one on a right click, or into the inventory on a shift-click
 /// (`PacketQIOItemViewerSlotShiftTake`).
@@ -507,13 +601,6 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         return;
     }
     let player = game.native_acting_id();
-    if (FREQ_PICK..VIEWER).contains(&id) {
-        let pick = FREQS.with(|f| f.borrow().get((id - FREQ_PICK) as usize).map(|q| q.id.clone()));
-        if let Some(f) = pick.filter(|f| f.owner.is_none_or(|o| o == player)) {
-            write_frequency(&mut entity.nbt, Some(&f));
-        }
-        return;
-    }
     if entity.id != DASHBOARD || id < VIEWER {
         return;
     }
@@ -568,27 +655,71 @@ pub(super) fn quick_move(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlo
     PACKED.with(|p| p.borrow_mut().remove(&(dim, pos)));
 }
 
-/// `native_net_from_client`: a frequency typed on a QIO screen (`PacketGuiSetFrequency`): `[1, x, y, z, public,
-/// name...]`, the coordinates as little-endian ints.
+/// `native_net_from_client`: the frequency select screen (`GuiFrequencySelector`), each message `[op, x, y, z, ...]`
+/// with the coordinates as little-endian ints: a typed name in a mode (`PacketSetTileFrequency` with a new
+/// identity: `[mode, name...]`), a frequency picked from the list (`[mode, owner, name...]`), one deleted (the same;
+/// `PacketSetTileFrequency` with `set` false), the block's frequency's colour stepped (`[next]`,
+/// `PacketSetFrequencyColor`), and the list of a mode (`[mode]`), answered to that player alone.
 pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data: &[u8]) {
-    if channel != CHANNEL || data.len() < 15 || data[0] != 1 {
+    if channel != CHANNEL || data.len() < 14 {
         return;
     }
     let int = |i: usize| i32::from_le_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
     let pos = [int(1), int(5), int(9)];
-    let public = data[13] != 0;
-    let name: String = String::from_utf8_lossy(&data[14..]).chars().take(NAME_MAX).collect();
-    if name.trim().is_empty() {
-        return;
+    let mode = Security::from_index(data[13]);
+    let named = |at: usize| -> Option<FreqId> {
+        let owner = u128::from_le_bytes(data.get(at..at + 16)?.try_into().ok()?);
+        Some(FreqId { name: String::from_utf8_lossy(data.get(at + 16..)?).chars().take(NAME_MAX).collect(), security: mode?, owner })
+    };
+    let name = super::mek_frequency::player_name(game, player);
+    match data[0] {
+        OP_TYPED => {
+            let Some(mode) = mode else { return };
+            let typed = String::from_utf8_lossy(&data[14..]).into_owned();
+            if let Some(id) = super::mek_frequency::with(game, |f| f.get_or_create(KIND, &typed, mode, player, &name)) {
+                set_frequency(game, pos, Some(id));
+            }
+        }
+        OP_PICK => {
+            if let Some(id) = named(14).and_then(|id| super::mek_frequency::with(game, |f| f.select(KIND, &id, player))) {
+                set_frequency(game, pos, Some(id));
+            }
+        }
+        OP_DELETE => {
+            if let Some(id) = named(14) {
+                super::mek_frequency::with(game, |f| f.remove(KIND, &id, player));
+            }
+        }
+        OP_COLOR => {
+            let Some(id) = game.native_with_mod_block_entity(pos, |m| frequency_of(&m.nbt)).flatten() else { return };
+            super::mek_frequency::with(game, |f| f.step_color(KIND, &id, player, data[13] != 0));
+        }
+        OP_LIST => {
+            let Some(mode) = mode else { return };
+            let mut out = vec![OP_LIST, mode.index()];
+            super::mek_frequency::with(game, |_| ());
+            super::mek_frequency::read(|f| {
+                let list = f.visible(KIND, mode, player);
+                out.extend((list.len().min(200) as u16).to_le_bytes());
+                for q in list.into_iter().take(200) {
+                    out.extend(q.owner.to_le_bytes());
+                    out.push(q.color);
+                    for text in [&q.name, &q.owner_name] {
+                        let b = &text.as_bytes()[..text.len().min(64)];
+                        out.push(b.len() as u8);
+                        out.extend(b);
+                    }
+                }
+            });
+            if let Err(e) = game.native_net_send_to_player(player, CHANNEL, &out) {
+                log::warn!("[mekanism] the QIO frequency list wasn't sent: {e}");
+            }
+        }
+        _ => {}
     }
-    let id = FreqId { name, owner: (!public).then_some(player) };
-    set_frequency(game, pos, Some(id));
 }
 
 fn set_frequency(game: &mut Game<'_>, pos: [i32; 3], id: Option<FreqId>) -> bool {
-    if let Some(f) = &id {
-        with_freq(f, |_| ());
-    }
     game.native_with_mod_block_entity(pos, |m| {
         if !is_qio(&m.id) {
             return false;
@@ -599,16 +730,22 @@ fn set_frequency(game: &mut Game<'_>, pos: [i32; 3], id: Option<FreqId>) -> bool
     .unwrap_or(false)
 }
 
-/// `/mek qio x y z freq <name> [private]`, `/mek qio x y z freq` (none).
+/// `/mek qio x y z freq [<name> [public|private|trusted]]`: the acting player's frequency of that name and mode
+/// (made when there is none), or none.
 pub(super) fn command(game: &mut Game<'_>, pos: [i32; 3], words: &[&str]) -> Value {
     match words {
         ["freq"] => json!({ "pos": pos, "set": set_frequency(game, pos, None) }),
         ["freq", name, rest @ ..] => {
-            let owner = (rest.first() == Some(&"private")).then(|| game.native_acting_id());
-            let id = FreqId { name: name.chars().take(NAME_MAX).collect(), owner };
+            let mode = rest.first().map_or(Some(Security::Public), |m| Security::parse(m));
+            let Some(mode) = mode else { return json!({ "error": "mode: public, private or trusted" }) };
+            let player = game.native_acting_id();
+            let owner = super::mek_frequency::player_name(game, player);
+            let Some(id) = super::mek_frequency::with(game, |f| f.get_or_create(KIND, name, mode, player, &owner)) else {
+                return json!({ "error": "no name" });
+            };
             json!({ "pos": pos, "set": set_frequency(game, pos, Some(id)) })
         }
-        _ => json!({ "error": "usage: /mek qio <x> <y> <z> freq [<name> [private]]" }),
+        _ => json!({ "error": "usage: /mek qio <x> <y> <z> freq [<name> [public|private|trusted]]" }),
     }
 }
 
@@ -616,7 +753,9 @@ pub(super) fn command(game: &mut Game<'_>, pos: [i32; 3], words: &[&str]) -> Val
 pub(super) fn probe(game: &mut Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound, data: &[i32], items: &[Option<ItemStack>]) -> Value {
     let freq = frequency_of(nbt);
     let dim = game.native_dimension().to_owned();
-    let mut out = json!({ "pos": pos, "id": id, "frequency": freq.as_ref().map(|f| json!({ "name": f.name, "public": f.owner.is_none() })) });
+    let listed = freq.as_ref().and_then(|f| super::mek_frequency::read(|r| r.find(KIND, f).map(|q| (q.owner_name.clone(), q.color))));
+    let mut out = json!({ "pos": pos, "id": id, "frequency": freq.as_ref().map(|f| json!({ "name": f.name, "public": f.security == Security::Public,
+        "security": f.security.name(), "owner": listed.as_ref().map(|l| l.0.clone()), "color": listed.as_ref().map(|l| COLORS[usize::from(l.1) % COLORS.len()].0) })) });
     if let Some(f) = &freq {
         find_freq(f, |q| {
             out["total"] = json!(q.storage.total);
@@ -641,6 +780,7 @@ pub(super) fn probe(game: &mut Game<'_>, pos: [i32; 3], id: &str, nbt: &Compound
                 .collect(),
         );
         out["registered"] = json!(ARRAYS.with(|a| a.borrow().get(&(dim, pos)).map_or(0, |r| r.iter().flatten().count())));
+        out["lights"] = Value::Array(lights_of(nbt).into_iter().map(|l| json!(l.name())).collect());
     } else {
         let v = unpack(data);
         out["viewer"] = json!({ "has": v.has, "total": v.total, "types": v.items.len(), "words": data.len() });
@@ -674,20 +814,30 @@ const SEARCH_FIELD: Rect = [8.0, 28.0, 124.0, 12.0];
 const SORT_BUTTON: Rect = [134.0, 28.0, 34.0, 12.0];
 const SCROLLBAR: Rect = [156.0, 43.0, 12.0, 72.0];
 const FREQ_TAB: Rect = [-26.0, 6.0, 26.0, 26.0];
-const NAME_FIELD: Rect = [8.0, 30.0, 100.0, 12.0];
-const PUBLIC_BUTTON: Rect = [110.0, 30.0, 34.0, 12.0];
-const SET_BUTTON: Rect = [146.0, 30.0, 22.0, 12.0];
-const LIST_TOP: f32 = 46.0;
 const SORTS: [&str; 3] = ["Name", "Size", "Mod"];
 
-fn list_rows(block: &str) -> usize {
-    if block == DASHBOARD { 7 } else { 2 }
-}
+// `GuiQIOTileFrequencySelect` (176 x 177, `GuiFrequencySelector` from y 17 at x 27): the back button, the public,
+// trusted and private buttons, the list (4 rows of 10), the frequency's name, owner and mode, the name field with its
+// checkmark, Set, Delete and the colour button.
+const SELECT_HEIGHT: f32 = 177.0;
+const BACK: Rect = [6.0, 6.0, 14.0, 14.0];
+const MODE_BUTTONS: [(Security, &str, Rect); 3] = [
+    (Security::Public, "button/public", [27.0, 17.0, 38.0, 20.0]),
+    (Security::Trusted, "button/trusted", [69.0, 17.0, 38.0, 20.0]),
+    (Security::Private, "button/private", [111.0, 17.0, 38.0, 20.0]),
+];
+const LIST_BOX: Rect = [27.0, 39.0, 122.0, 42.0];
+const LIST_ROWS: usize = 4;
+const NAME_FIELD: Rect = [50.0, 116.0, 98.0, 11.0];
+const CHECK: Rect = [137.0, 116.0, 11.0, 11.0];
+const SET_BUTTON: Rect = [27.0, 130.0, 50.0, 18.0];
+const DELETE_BUTTON: Rect = [79.0, 130.0, 50.0, 18.0];
+const COLOR_BUTTON: Rect = [132.0, 131.0, 16.0, 16.0];
 
 /// `native_screen`: the array's drive slots (`QIODriveSlot` at 34 + 18 column, 70 + 18 row) or the dashboard's
 /// viewer over the inventory; the search bar takes the keys at once (`qioAutoFocusSearchBar`).
 pub(super) fn screen(block: &str) -> NativeScreen {
-    PAGE.with(|p| p.set(0));
+    SELECT.with(|s| s.set(false));
     SCROLL.with(|s| s.set(0));
     if block == DRIVE_ARRAY {
         FOCUS.with(|f| f.set(0));
@@ -741,23 +891,12 @@ pub(super) fn click(game: &Game<'_>, block: &str, data: &[i32], at: [f32; 2], ri
     let v = unpack(data);
     FOCUS.with(|f| f.set(0));
     if mek_ui::inside(FREQ_TAB, at) {
-        PAGE.with(|p| p.set(1 - p.get().min(1)));
-        return;
-    }
-    if PAGE.with(Cell::get) == 1 {
-        if mek_ui::inside(NAME_FIELD, at) {
-            FOCUS.with(|f| f.set(2));
-        } else if mek_ui::inside(PUBLIC_BUTTON, at) {
-            PUBLIC.with(|p| p.set(!p.get()));
-        } else if mek_ui::inside(SET_BUTTON, at) {
-            send_name(game);
-        } else {
-            for i in 0..v.freqs.len().min(list_rows(block)) {
-                if mek_ui::inside([8.0, LIST_TOP + 10.0 * i as f32, 160.0, 10.0], at) {
-                    *button = Some(FREQ_PICK + i as i32);
-                }
-            }
-        }
+        // `GuiQIOFrequencyTab`: the select screen, in the frequency's mode.
+        SELECT.with(|s| s.set(true));
+        MODE.with(|m| m.set(if v.has { v.security } else { 0 }));
+        ROW.with(|r| r.set(None));
+        LIST_SCROLL.with(|s| s.set(0));
+        LIST_AGE.with(|a| a.set(u32::MAX));
         return;
     }
     if block != DASHBOARD {
@@ -801,13 +940,40 @@ fn send_name(game: &Game<'_>) {
     for c in pos {
         msg.extend(c.to_le_bytes());
     }
-    msg.push(u8::from(PUBLIC.with(Cell::get)));
+    msg[0] = OP_TYPED;
+    msg.push(MODE.with(Cell::get));
     msg.extend(name.as_bytes());
     OUTBOX.with(|o| o.borrow_mut().push(msg));
+    NAME.with(|n| n.borrow_mut().clear());
+    LIST_AGE.with(|a| a.set(u32::MAX));
 }
 
-/// `native_tick` on the client: the frequencies typed this tick go to the server.
+/// A message to the server about the open screen's block: `[op, x, y, z, rest...]`.
+fn send(game: &Game<'_>, op: u8, rest: &[u8]) {
+    let Some(pos) = game.native_screen_pos() else { return };
+    let mut msg = vec![op];
+    for c in pos {
+        msg.extend(c.to_le_bytes());
+    }
+    msg.extend(rest);
+    OUTBOX.with(|o| o.borrow_mut().push(msg));
+    LIST_AGE.with(|a| a.set(u32::MAX));
+}
+
+/// `native_tick` on the client: the select screen's messages go to the server, and its list is asked for again
+/// every half second while it shows.
 pub(super) fn client_tick(game: &mut Game<'_>) {
+    if SELECT.with(Cell::get) && OPEN.with(Cell::get).is_some() && game.native_screen_pos() == OPEN.with(Cell::get) {
+        let age = LIST_AGE.with(|a| {
+            let n = a.get().saturating_add(1);
+            a.set(n);
+            n
+        });
+        if age >= 10 {
+            LIST_AGE.with(|a| a.set(0));
+            send(game, OP_LIST, &[MODE.with(Cell::get)]);
+        }
+    }
     let out = OUTBOX.with(|o| std::mem::take(&mut *o.borrow_mut()));
     for msg in out {
         if let Err(e) = game.native_net_send_to_server(CHANNEL, &msg) {
@@ -821,7 +987,12 @@ fn typing(game: &Game<'_>) -> u8 {
     if open.is_none() || game.native_screen_pos() != open {
         return 0;
     }
-    FOCUS.with(Cell::get)
+    // The search bar is the viewer's, the name field the select screen's.
+    match (FOCUS.with(Cell::get), SELECT.with(Cell::get)) {
+        (1, false) => 1,
+        (2, true) => 2,
+        _ => 0,
+    }
 }
 
 /// `native_screen_char_typed_pre`: a character for the focused field.
@@ -867,7 +1038,13 @@ pub(super) fn key_pressed(game: &Game<'_>, key_name: &str, canceled: &mut bool) 
 /// `native_screen_mouse_scrolled_pre`: the wheel scrolls the viewer a row a notch.
 pub(super) fn scrolled(game: &Game<'_>, scroll: [f64; 2], canceled: &mut bool) {
     let open = OPEN.with(Cell::get);
-    if open.is_none() || game.native_screen_pos() != open || PAGE.with(Cell::get) != 0 {
+    if open.is_none() || game.native_screen_pos() != open {
+        return;
+    }
+    if SELECT.with(Cell::get) {
+        let max = listed().len().saturating_sub(LIST_ROWS);
+        LIST_SCROLL.with(|s| s.set(if scroll[1] > 0.0 { s.get().saturating_sub(1) } else { (s.get() + 1).min(max) }));
+        *canceled = true;
         return;
     }
     let max = MAX_SCROLL.with(Cell::get);
@@ -892,6 +1069,11 @@ fn field(pen: &mut Pen<'_, '_>, r: Rect, text: &str, focused: bool, hint: &str) 
 
 pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
     OPEN.with(|o| o.set(game.native_screen_pos()));
+    LAST_DATA.with(|d| {
+        let mut d = d.borrow_mut();
+        d.clear();
+        d.extend_from_slice(data);
+    });
     let cursor = game.native_cursor();
     let cursor = [cursor[0] - origin[0], cursor[1] - origin[1]];
     let height = if block == DASHBOARD { DASH_HEIGHT } else { ARRAY_HEIGHT };
@@ -899,7 +1081,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     let v = unpack(data);
     pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, WIDTH, height]);
     pen.holder(FREQ_TAB, true);
-    pen.text("F", [FREQ_TAB[0] + 10.0, FREQ_TAB[1] + 9.0], if PAGE.with(Cell::get) == 1 { 0x2060A0 } else { mek_ui::TITLE });
+    pen.whole("frequency", [18.0, 18.0], [FREQ_TAB[0] + 4.0, FREQ_TAB[1] + 4.0, 18.0, 18.0]);
     let title = game.native_screen_title().unwrap_or_else(|| if block == DASHBOARD { "QIO Dashboard".into() } else { "QIO Drive Array".into() });
     pen.centered(&title, 0.0, WIDTH, 5.0, mek_ui::TITLE);
     pen.text("Inventory", [8.0, height - 93.0], mek_ui::TITLE);
@@ -914,11 +1096,8 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
             pen.slot("normal", None, 33.0 + (i % 6) as f32 * 18.0, 69.0 + (i / 6) as f32 * 18.0);
         }
     }
-    if PAGE.with(Cell::get) == 1 {
-        draw_frequencies(&mut pen, block, &v);
-        return;
-    }
-    let freq_line = if v.has { format!("Frequency: {} ({})", v.name, if v.public { "public" } else { "private" }) } else { "No frequency (tab F)".to_owned() };
+    let mode = Security::from_index(v.security).unwrap_or(Security::Public);
+    let freq_line = if v.has { format!("Frequency: {} ({})", v.name, mode.name()) } else { "No frequency".to_owned() };
     pen.text(&freq_line, [8.0, 17.0], mek_ui::TITLE);
     if block == DRIVE_ARRAY {
         pen.text(&format!("Items: {} / {}", qio::short_count(v.total), qio::short_count(v.cap)), [8.0, 32.0], mek_ui::TITLE);
@@ -956,25 +1135,12 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
 }
 
-fn draw_frequencies(pen: &mut Pen<'_, '_>, block: &str, v: &View) {
-    pen.text(&format!("Frequency: {}", if v.has { v.name.as_str() } else { "none" }), [8.0, 17.0], mek_ui::TITLE);
-    let focus = FOCUS.with(Cell::get) == 2;
-    NAME.with(|n| field(pen, NAME_FIELD, &n.borrow(), focus, "Name"));
-    pen.button(PUBLIC_BUTTON, true);
-    let public = PUBLIC.with(Cell::get);
-    pen.centered(if public { "Public" } else { "Private" }, PUBLIC_BUTTON[0], PUBLIC_BUTTON[2], PUBLIC_BUTTON[1] + 2.0, 0xFFFFFF);
-    pen.button(SET_BUTTON, true);
-    pen.centered("Set", SET_BUTTON[0], SET_BUTTON[2], SET_BUTTON[1] + 2.0, 0xFFFFFF);
-    for (i, (name, public)) in v.freqs.iter().take(list_rows(block)).enumerate() {
-        let current = v.has && *name == v.name && *public == v.public;
-        let line = format!("{}{name} ({})", if current { "> " } else { "" }, if *public { "public" } else { "private" });
-        pen.text(&line, [8.0, LIST_TOP + 10.0 * i as f32 + 1.0], if current { 0x2060A0 } else { mek_ui::TITLE });
-    }
-}
-
 /// The viewer's tooltip: the type under the pointer and how many the frequency holds.
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
-    if block != DASHBOARD || PAGE.with(Cell::get) != 0 {
+    if SELECT.with(Cell::get) {
+        return;
+    }
+    if block != DASHBOARD {
         if mek_ui::inside(FREQ_TAB, at) {
             lines.push("Frequency".into());
         }
@@ -991,5 +1157,157 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         lines.push("Sort: click to change, right-click to reverse".into());
     } else if mek_ui::inside(FREQ_TAB, at) {
         lines.push("Frequency".into());
+    }
+}
+
+// ---- client: the frequency select screen ----------------------------------------------------------------------
+
+/// The list the server sent for the mode shown.
+fn listed() -> Vec<Listed> {
+    let mode = MODE.with(Cell::get);
+    LIST.with(|l| {
+        let l = l.borrow();
+        if l.0 == mode { l.1.clone() } else { Vec::new() }
+    })
+}
+
+/// `native_net_from_server`: the frequencies of a mode this player may see (`SyncableFrequencyList`).
+pub(super) fn from_server(channel: &str, data: &[u8]) {
+    if channel != CHANNEL || data.len() < 4 || data[0] != OP_LIST {
+        return;
+    }
+    let n = usize::from(u16::from_le_bytes([data[2], data[3]]));
+    let mut at = 4;
+    let mut out = Vec::with_capacity(n);
+    let text = |at: &mut usize| -> Option<String> {
+        let len = usize::from(*data.get(*at)?);
+        let s = String::from_utf8_lossy(data.get(*at + 1..*at + 1 + len)?).into_owned();
+        *at += 1 + len;
+        Some(s)
+    };
+    for _ in 0..n {
+        let Some(owner) = data.get(at..at + 16).and_then(|b| b.try_into().ok()).map(u128::from_le_bytes) else { break };
+        let Some(&color) = data.get(at + 16) else { break };
+        at += 17;
+        let (Some(name), Some(owner_name)) = (text(&mut at), text(&mut at)) else { break };
+        out.push(Listed { owner, color, name, owner_name });
+    }
+    LIST.with(|l| *l.borrow_mut() = (data[1], out));
+}
+
+fn select_shown(game: &Game<'_>) -> bool {
+    let open = OPEN.with(Cell::get);
+    SELECT.with(Cell::get) && open.is_some() && game.native_screen_pos() == open
+}
+
+/// `native_screen_mouse_button_pressed_pre`: every press while the select screen shows is its own (nothing under
+/// it is clicked): back, a mode, a row, the name field and its checkmark, Set, Delete, the colour (left on, right
+/// back).
+pub(super) fn select_pressed(game: &Game<'_>, screen: &horizon_client::mod_api::NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+    if !select_shown(game) {
+        return;
+    }
+    *canceled = true;
+    let c = game.native_cursor();
+    let at = [c[0] - screen.rect[0], c[1] - screen.rect[1]];
+    let right = button == 1;
+    FOCUS.with(|f| f.set(0));
+    let list = listed();
+    let picked = ROW.with(Cell::get).and_then(|r| list.get(r).cloned());
+    let mode = MODE.with(Cell::get);
+    let target = |l: &Listed| {
+        let mut rest = vec![mode];
+        rest.extend(l.owner.to_le_bytes());
+        rest.extend(l.name.as_bytes());
+        rest
+    };
+    if mek_ui::inside(BACK, at) {
+        SELECT.with(|s| s.set(false));
+    } else if let Some((m, _, _)) = MODE_BUTTONS.iter().find(|(_, _, r)| mek_ui::inside(*r, at)) {
+        MODE.with(|x| x.set(m.index()));
+        ROW.with(|r| r.set(None));
+        LIST_SCROLL.with(|s| s.set(0));
+        LIST_AGE.with(|a| a.set(u32::MAX));
+    } else if mek_ui::inside(LIST_BOX, at) {
+        let row = ((at[1] - LIST_BOX[1] - 1.0).max(0.0) / 10.0) as usize + LIST_SCROLL.with(Cell::get);
+        ROW.with(|r| r.set((row < list.len()).then_some(row)));
+    } else if mek_ui::inside(CHECK, at) {
+        send_name(game);
+    } else if mek_ui::inside(NAME_FIELD, at) {
+        FOCUS.with(|f| f.set(2));
+    } else if mek_ui::inside(SET_BUTTON, at) {
+        if let Some(l) = &picked {
+            send(game, OP_PICK, &target(l));
+        }
+    } else if mek_ui::inside(DELETE_BUTTON, at) {
+        if let Some(l) = &picked {
+            send(game, OP_DELETE, &target(l));
+            ROW.with(|r| r.set(None));
+        }
+    } else if mek_ui::inside(COLOR_BUTTON, at) {
+        send(game, OP_COLOR, &[u8::from(!right)]);
+    }
+}
+
+/// `native_screen_render_post`: the select screen over its block's screen, which it darkens.
+pub(super) fn draw_select(game: &Game<'_>, batch: &mut HudBatch, screen: &horizon_client::mod_api::NativeScreenView<'_>) {
+    if !select_shown(game) {
+        return;
+    }
+    let origin = [screen.rect[0], screen.rect[1]];
+    let c = game.native_cursor();
+    let mut pen = Pen { game, batch, origin, cursor: [c[0] - origin[0], c[1] - origin[1]] };
+    let v = LAST_DATA.with(|d| unpack(&d.borrow()));
+    pen.fill([-28.0, -2.0, screen.rect[2] + 30.0, screen.rect[3] + 4.0], 0xC0101010);
+    pen.nine("base", [0.0, 0.0, 256.0, 256.0], [4.0, 4.0], [0.0, 0.0, WIDTH, SELECT_HEIGHT]);
+    pen.button(BACK, true);
+    pen.whole("button/back", [14.0, 14.0], BACK);
+    pen.centered("QIO Frequency Select", 0.0, WIDTH, 6.0, mek_ui::TITLE);
+    let mode = MODE.with(Cell::get);
+    for (m, icon, r) in MODE_BUTTONS {
+        pen.button(r, m.index() != mode);
+        pen.whole(icon, [40.0, 16.0], [r[0] - 1.0, r[1] + 2.0, 40.0, 16.0]);
+    }
+    // `GuiTextScrollList`.
+    pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], LIST_BOX);
+    let list = listed();
+    let scroll = LIST_SCROLL.with(|s| {
+        s.set(s.get().min(list.len().saturating_sub(LIST_ROWS)));
+        s.get()
+    });
+    let row = ROW.with(Cell::get);
+    for (i, l) in list.iter().enumerate().skip(scroll).take(LIST_ROWS) {
+        let y = LIST_BOX[1] + 1.0 + 10.0 * (i - scroll) as f32;
+        if row == Some(i) {
+            pen.fill([LIST_BOX[0] + 1.0, y, LIST_BOX[2] - 8.0, 10.0], 0xFF898989);
+        }
+        let shown: String = l.name.chars().take(18).collect();
+        pen.text(&shown, [LIST_BOX[0] + 3.0, y + 1.0], 0xFFFFFF);
+    }
+    if list.len() > LIST_ROWS {
+        let track = LIST_BOX[3] - 2.0;
+        let knob = (track * LIST_ROWS as f32 / list.len() as f32).max(6.0);
+        let y = LIST_BOX[1] + 1.0 + (track - knob) * scroll as f32 / (list.len() - LIST_ROWS) as f32;
+        pen.fill([LIST_BOX[0] + LIST_BOX[2] - 7.0, y, 6.0, knob], 0xFFC6C6C6);
+    }
+    let none = "None";
+    let security = Security::from_index(v.security).unwrap_or(Security::Public);
+    pen.text(&format!("Frequency: {}", if v.has { v.name.as_str() } else { none }), [27.0, 84.0], mek_ui::TITLE);
+    pen.text(&format!("Owner: {}", if v.has && !v.owner.is_empty() { v.owner.as_str() } else { none }), [27.0, 94.0], mek_ui::TITLE);
+    pen.text(&format!("Security: {}", if v.has { security.label() } else { none }), [27.0, 104.0], mek_ui::TITLE);
+    let set_w = game.native_text_width("Set:");
+    pen.text("Set:", [NAME_FIELD[0] - 2.0 - set_w, NAME_FIELD[1] + 2.0], mek_ui::TITLE);
+    let focus = FOCUS.with(Cell::get) == 2;
+    NAME.with(|n| field(&mut pen, [NAME_FIELD[0], NAME_FIELD[1], NAME_FIELD[2] - CHECK[2], NAME_FIELD[3]], &n.borrow(), focus, ""));
+    pen.button(CHECK, true);
+    pen.whole("button/checkmark", [12.0, 12.0], [CHECK[0], CHECK[1] - 0.5, 11.0, 11.0]);
+    let picked = row.is_some_and(|r| r < list.len());
+    pen.button(SET_BUTTON, picked);
+    pen.centered("Set", SET_BUTTON[0], SET_BUTTON[2], SET_BUTTON[1] + 5.0, if picked { 0xFFFFFF } else { 0xA0A0A0 });
+    pen.button(DELETE_BUTTON, picked);
+    pen.centered("Delete", DELETE_BUTTON[0], DELETE_BUTTON[2], DELETE_BUTTON[1] + 5.0, if picked { 0xFFFFFF } else { 0xA0A0A0 });
+    pen.slot("normal", None, COLOR_BUTTON[0] - 1.0, COLOR_BUTTON[1] - 1.0);
+    if v.has {
+        pen.fill(COLOR_BUTTON, 0xFF00_0000 | COLORS[usize::from(v.color) % COLORS.len()].1);
     }
 }

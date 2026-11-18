@@ -553,7 +553,7 @@ Slices, a few days each at most:
    saved and restarted. World test `qio`. **Done and tested** (handoff below).
 2. The frequency system proper: `FrequencyManager`'s saved list (frequencies that outlive their holders), trusted
    security, colours, deleting, Mekanism's frequency select screen; the array's drive states on its renderer and the
-   blocks' active models; the dashboard's thin shape.
+   blocks' active models; the dashboard's thin shape. **Done and tested** (handoff below).
 3. The Importer and the Exporter (filters, round-robin, speeds measured on the oracle) and the Redstone Adapter.
 4. The crafting windows (3 per dashboard, refill from the frequency, shift-craft) and the JEI transfer into them (API
    433's transfer handler).
@@ -578,7 +578,7 @@ Slices, a few days each at most:
   `net_from_client` and `native_net_send_to_server` (40), `native_screen_pos` (401).
 - `/mek qio x y z freq [name [private]]` sets a frequency; `/mek probe` on a QIO block gives its frequency, totals,
   items and (the array) its drives.
-- Not like Mekanism yet: frequencies live while a holder names them (no saved list, no trusted mode, no colours);
+- Not like Mekanism yet (slice 2 replaces the frequency part, see below): frequencies live while a holder names them (no saved list, no trusted mode, no colours);
   the viewer matches the item id's words and `@mod`, not the translated name, draws items with components as their
   plain item, and is 8 x 4; the dashboard is a full cube; no drive state lights; a frequency typed on a screen is
   looked up in the server's default level.
@@ -612,6 +612,88 @@ Slices, a few days each at most:
 - Driver: `D:/VSCODE_PROJECTS/DEV_1/atm10-work/mekqio-work/mek.sh [content stage build units world]` (copied from
   `mekliq-work`, `MEK_JOBS=4`, `AE2_PROFILE=iter`, its own stage and target). Logs in `mekqio-work/logs`, screenshots in
   `logs/shots/qio`.
+
+### Slice 2 (`runtime/mek_frequency.rs`, `mekanism_energy::frequency`): the frequency system
+
+- Rules: `mekanism_energy::frequency` (`Security`, `Identity`, `Frequency`, `Frequencies`; unit tests
+  `frequency::tests`), from `Frequency`, `FrequencyManager(Wrapper)`, `SecurityFrequency` and `SecurityUtils`. Public
+  names are one list for everyone (the public manager, keyed by the name); private and trusted names are each owner's
+  own. A private frequency is its owner's alone; a trusted one its owner's and the players the owner trusts
+  (`SecurityFrequency.trusted`, the Security Desk's list: Mekanism 10.7 uses its own list, not FTB Teams, so the port
+  keeps its own). Only the owner deletes one or steps its colour. Colours are `EnumColor`'s 18 (`color.mekanism.*`
+  names, its RGB), a new QIO frequency `INDIGO` ("Light Blue"); a click steps on, a right click back.
+- Every kind shares the list (`kind`: `qio` now; the Teleporter's `teleporter` and the Entangloporter's `inventory`
+  take the same `mek_frequency::with`/`read`/`validate`). It is saved with the world in `mekanism/frequencies.json`
+  beside `level.dat` (written at each change, through a temporary file), so a frequency outlives its holders. A
+  holder's tick validates its frequency (`validateAndUpdate`): one deleted since the world opened is dropped (the
+  holder goes inactive); one the list lacks (a slice 1 world) is put back.
+- The select screen (`GuiQIOTileFrequencySelect`, 176 x 177, `GuiFrequencySelector` from y 17 at x 27): the back
+  button, the public, trusted and private buttons (the shown mode's greyed), the list (4 rows of 10, the wheel
+  scrolls it), "Frequency:", "Owner:" and "Security:" of the block's frequency, "Set:" and the name field with its
+  checkmark (Enter too), Set and Delete (active with a row picked), the colour button in its slot. It opens from the
+  frequency tab and covers its block's screen, which it darkens: drawn in `screen_render_post` (over the slots'
+  items) and taking every press in `screen_mouse_button_pressed_pre` (nothing under it is clicked), since a native
+  screen's layout is fixed at its opening and Mekanism's select screen is a screen of its own.
+- Messages on `mekanism:qio`, `[op, x, y, z, ...]`: 1 a typed name in a mode (made when there is none, as
+  `getOrCreateFrequency`), 2 a pick from the list (`[mode, owner, name]`, only one the player may use), 3 a delete
+  (the same; the owner's alone), 4 the block's frequency's colour (`[next]`), 5 the list of a mode, which the server
+  answers to that player alone (`native_net_send_to_player`, `net_from_server`): the menu data is the block's and
+  every viewer's, so a private list can't travel in it. The client asks again every half second while it shows.
+- Drive lights: the array's tick works out each slot's `DriveStatus` (none, offline, ready, near full at 3/4 of the
+  items or at the types, full), keeps it in `qio_lights` and sends it in the update tag (`native_block_entity_sync`
+  on a change); the client draws each drive's model (`qio_drive_offline`, `_empty`, `_partial`, `_full`, standalone
+  models) at `DRIVE_PLACEMENTS`, turned with the block (`block_entity_submit`, `native_draw_model`). The blocks'
+  `active` state (their offline models) follows having a frequency, as in slice 1.
+- The dashboard's thin shape: `qio_dashboard.json`'s outline and collision boxes per facing, the model's 14 x 1 x 14
+  plate against the block it was put on.
+- Hook points used, all existing (no new fork hook, API 442 not taken): `net_from_server` (40),
+  `screen_mouse_button_pressed_pre` (80), `screen_render_post`, `standalone_models` (151) beside slice 1's.
+- `/mek freq list <kind> <public|private|trusted> [as <player>]` (what a player's selector lists; a player the server
+  doesn't know is the dev fake player of that name, as FTB Teams' `/ftbteams_add_fake_player`),
+  `/mek freq trust|untrust <player>` (the acting player's trusted list; the Security Desk isn't ported),
+  `/mek qio x y z freq <name> [public|private|trusted]`; `/mek probe` gives a QIO block's frequency's mode, owner and
+  colour and an array's `lights`.
+
+### Slice 2 handoff
+
+- Done and tested: the rules `mekanism-energy/src/frequency.rs` (4 unit tests in `frequency::tests`) and
+  `qio::DriveStatus`/`drive_placement` (1 more in `qio::tests`), the runtime `runtime/mek_frequency.rs` (module
+  `frequency` in `horizon-mixin.toml`), `mek_qio.rs` reworked (identity with a mode, validation, lights, update tag,
+  drive models, the select screen, messages 1-5, `/mek qio ... freq <name> [mode]`, probe fields), four new hook
+  helpers (`net_from_server`, `screen_mouse_button_pressed_pre`, `screen_render_post`, `standalone_models`; injections
+  at the end of `horizon-mixin.toml`), `block_entity_submit` and `block_entity_update_tag` calling `mek_qio` too,
+  `mek_world.rs` dispatching `/mek freq` and clearing the list on world close, the dashboard's boxes in
+  `content/.../qio_dashboard.json`, and `tests/qio.ts` (9 checks: the select screen makes private "Secret", colour
+  Lime / back / Lime, and trusted "Team"; Bob sees neither until `/mek freq trust Bob`; public "Alpha" deleted, "Test"
+  picked; after a restart the list, colour and trust; a second array's lights). Bundle units: 248 + 19 pass;
+  `qio`, `electric-machines` and `recipe-viewer` pass. The first-run risks all held without a workaround: the press
+  hook's `screen.rect` is in the cursor's GUI pixels (every click of the select screen lands), `screen_render_post`
+  draws over the slots' items, the drive models face the front, `data merge` with drive components reaches
+  `read_drive`, the dev player's name comes from `native_profile_by_uuid` ("AE2Fixture" as the owner).
+- The screenshots (`qio-select.png`, `qio-select-trusted.png`, `qio-lights.png`): the select screen as
+  `GuiFrequencySelector` lays it out at 176 x 177: the back arrow, the title, the public, trusted and private buttons
+  (the shown mode's pressed and dim, the icons inside), the list of 4 rows with the picked row greyed, "Frequency:",
+  "Owner:" and "Security:", "Set:" and the name field with its checkmark, Set and Delete (grey with no row picked), the
+  colour button with the frequency's colour (Light Blue, the default). The button under the cursor is green (Set in
+  one, the checkmark in the other). The block's screen shows dimmed round it, with the dashboard's inventory slots
+  visible below the 177 px panel (not compared with Mekanism's own, which may have none). The lights shot looks down
+  at two arrays from the front: the second's first shelf has a yellow (near full), a red (full) and a green (ready)
+  light, the first array's slot 0 has a green one, the drive models sit in the bays on the front face. The test waits
+  12 s before that shot so the chat lines fade (they covered the faces at 1.5 s).
+- No new fork hook: API 442 is not taken.
+- Left after slice 2: the QIO blocks' frequency-colour LEDs (tinted faces of the models), Mekanism's own
+  `qio_frequency_select` screen title translated (it reads "QIO Frequency Select"), the Security Desk (the trusted list
+  is set by `/mek freq trust`).
+- Next, slice 3: the Importer and the Exporter (filters of item, tag and mod id; import with no filter; export
+  round-robin to the block they face; speeds measured on the oracle) and the Redstone Adapter (a signal while the
+  frequency holds a count of an item; fuzzy, inverted). Start from `mek_qio.rs` (`tick` dispatching per block,
+  `with_freq`/`insert`/`extract` on the frequency's items, `pack`/`unpack` for the menu data, `from_client` for the
+  screens' messages) and `mek_frequency::with`/`read`/`validate`: these blocks have the same frequency tab and select
+  screen (`FREQ_TAB`, `SELECT`, `select_pressed`, `draw_select`). None of the three blocks has an overlay yet
+  (`qio_importer.json`, `qio_exporter.json`, `qio_redstone_adapter.json` beside the array's and the dashboard's).
+- Driver: `D:/VSCODE_PROJECTS/DEV_1/atm10-work/mekqio-work/mek.sh [content stage build units world]` (`MEK_JOBS=4`,
+  `AE2_PROFILE=iter`, its own stage and target). `world` says to run `content` first when an overlay file changed.
+  Logs in `mekqio-work/logs`, screenshots in `logs/shots/qio`.
 
 ## How to run
 

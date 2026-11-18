@@ -42,12 +42,6 @@ use horizon_protocol::{
     packets::play::{self, Clientbound as C},
 };
 use horizon_world::block_collision::BlockCollisionRegistry;
-    /// Until the data is read, without taking it up yet.
-    pub(super) fn wait(&self) {
-        while !self.0.is_finished() {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-    }
 use std::{collections::HashMap, sync::Arc, time::Instant};
 
 /// The settings of the open world (WorldOptionsScreen's multiplayer section).

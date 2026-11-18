@@ -1248,6 +1248,34 @@ impl Game<'_> {
     }
 
     fn tick_server_body(&mut self, paused: bool) -> Result<()> {
+        // The fixture barrier stops the whole server iteration, including
+        // parked levels and AE2 callbacks. Vanilla /tick freeze is separate.
+        if self.agent.hold_server { return Ok(()); }
+        #[cfg(feature = "ae2-lab")]
+        {
+            self.ae2_restore_anchor_tickets()?;
+            self.ae2_validate_anchor_owners()?;
+        }
+        // Persistent tickets are stored per dimension, even when no player
+        // has entered that dimension in this server session. Open those levels
+        // before choosing tick passes so their forced chunks can stream in.
+        if !self.levels.forced_levels_initialized {
+            #[allow(unused_mut)]
+            let mut dims = Dim::all();
+            #[cfg(feature = "ae2-lab")]
+            dims.push(Dim::Spatial);
+            for dim in dims {
+                if dim == self.dim || self.levels.parked.contains_key(&dim) {
+                    continue;
+                }
+                let dir = horizon_client::save::dimension_dir(&self.world_root, dim.id());
+                if !SaveDir::new(dir, dim.shape()).load_forced_chunks().is_empty() {
+                    let parked = self.open_level(dim)?;
+                    self.levels.parked.insert(dim, parked);
+                }
+            }
+            self.levels.forced_levels_initialized = true;
+        }
         // `tickRateManager.tick()` once per server tick, before any level
         // (each `ServerLevel.tick` only reads `runsNormally`), and the native
         // `ServerTickStart` before that level work (NeoForge's
@@ -1511,7 +1539,11 @@ impl Game<'_> {
             .lan
             .as_ref()
             .map_or(&[][..], |h| h.hub.guests.as_slice());
-        let mut dims: Vec<Dim> = Dim::all()
+        #[allow(unused_mut)]
+        let mut all = Dim::all();
+        #[cfg(feature = "ae2-lab")]
+        all.push(Dim::Spatial);
+        let mut dims: Vec<Dim> = all
             .into_iter()
             .filter(|d| {
                 // `/forceload`ed chunks, or a native mod's tickets.

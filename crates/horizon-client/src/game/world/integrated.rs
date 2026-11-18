@@ -1400,7 +1400,7 @@ fn serve(
     // them reads what another makes (`integrated_open` takes them up). For a
     // large registry one after the other (`LARGE_REGISTRY`).
     let large = pack.assets.registry.len() >= super::resource_load::LARGE_REGISTRY;
-    let sync = preload_sync_data(&options.resources);
+    let sync = preload_sync_data(&res.core.item_data);
     if large && let Some(sync) = &sync {
         sync.wait();
     }
@@ -1425,10 +1425,10 @@ fn serve(
             flags.upgrade.clone(),
         )
     });
-    let opening = Opening {
-        world,
-        sync: preload_sync_data(&res.core.item_data),
-    };
+    if large && let Ok(world) = &world {
+        world.wait();
+    }
+    let opening = Opening { world, sync };
     let mut server = match startup::time("server.game_new", || {
         server_game(res, pack, options, settings)
     }) {

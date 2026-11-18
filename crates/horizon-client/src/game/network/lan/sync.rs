@@ -407,6 +407,13 @@ pub(in crate::game) fn preload_sync_data(item_data: &Arc<ItemData>) -> Option<Sy
 }
 
 impl SyncPreload {
+    /// Until the data is read, without taking it up yet (a large registry's
+    /// world opening reads one thing at a time).
+    pub(in crate::game) fn wait(&self) {
+        while !self.worker.is_finished() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
     /// The world is open: without packs of its own (`overlay`), what was read
     /// becomes `sync_data`'s; with them, `sync_data` loads them as before.
     pub(in crate::game) fn adopt(self, overlay: &horizon_world::loot::PackOverlay) {

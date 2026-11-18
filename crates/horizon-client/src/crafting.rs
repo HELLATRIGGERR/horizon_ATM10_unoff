@@ -2078,16 +2078,16 @@ impl Recipes {
                     if let Some(center) = input.get(1, 1) {
                         if center.extra.is_none() && self.facade_items.contains(&center.item) {
                             let mut result = ItemStack::new("ae2:facade", 4);
-                            let mut data = horizon_world::nbt::Compound::new();
+                            let mut data = horizon_core::nbt::Compound::new();
                             data.insert(
                                 "ae2:facade_item".into(),
-                                horizon_world::nbt::Tag::String(center.item.as_ref().into()),
+                                horizon_core::nbt::Tag::String(center.item.as_ref().into()),
                             );
                             result.data_mut().set_other(
                                 "minecraft:custom_data",
-                                Some(horizon_world::nbt::Tag::Compound(data)),
+                                Some(horizon_core::nbt::Tag::Compound(data)),
                             );
-                            result.data_mut().set_other("ae2:facade_item",Some(horizon_world::nbt::Tag::String(center.item.as_ref().into())));
+                            result.data_mut().set_other("ae2:facade_item",Some(horizon_core::nbt::Tag::String(center.item.as_ref().into())));
                             return Some((name.as_str(), result));
                         }
                     }
@@ -2447,9 +2447,9 @@ mod tests {
         let (id, result) = book.find(&grid, 3).unwrap();
         assert_eq!(id, "ae2:special/facade");
         assert_eq!(result.count, 4);
-        assert!(matches!(result.data().and_then(|d|d.other("ae2:facade_item")),Some(horizon_world::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone"));
+        assert!(matches!(result.data().and_then(|d|d.other("ae2:facade_item")),Some(horizon_core::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone"));
         assert!(
-            matches!(result.data().and_then(|d|d.other("minecraft:custom_data")).and_then(|t|t.get("ae2:facade_item")),Some(horizon_world::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone")
+            matches!(result.data().and_then(|d|d.other("minecraft:custom_data")).and_then(|t|t.get("ae2:facade_item")),Some(horizon_core::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone")
         );
         grid[4] = Some(ItemStack::new("minecraft:glass_pane", 1));
         assert!(book.find(&grid, 3).is_none());

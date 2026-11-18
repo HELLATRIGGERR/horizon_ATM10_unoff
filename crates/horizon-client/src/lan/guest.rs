@@ -1288,8 +1288,8 @@ pub fn firework_components(
 /// map processing and component-bearing nested stack templates. Vanilla's
 /// persistent codec intentionally omits the former.
 #[cfg(feature = "ae2-lab")]
-fn wire_components(stack: &ItemStack) -> Option<horizon_world::nbt::Tag> {
-    use horizon_world::nbt::Tag;
+fn wire_components(stack: &ItemStack) -> Option<horizon_core::nbt::Tag> {
+    use horizon_core::nbt::Tag;
     let mut patch = match crate::item_data::encode_components(stack) {
         Some(Tag::Compound(patch)) => patch,
         _ => Default::default(),
@@ -1312,7 +1312,7 @@ fn wire_components(stack: &ItemStack) -> Option<horizon_world::nbt::Tag> {
                 .map(|item|wire_template(item,false)).collect()));
         }
         if let Some(sides) = &data.pot_decorations {
-            let mut decorations = horizon_world::nbt::Compound::new();
+            let mut decorations = horizon_core::nbt::Compound::new();
             for (name,item) in ["back","left","right","front"].iter().zip(sides.iter()) {
                 if let Some(item) = item { decorations.insert((*name).into(),wire_template(item,true)); }
             }
@@ -1322,9 +1322,9 @@ fn wire_components(stack: &ItemStack) -> Option<horizon_world::nbt::Tag> {
     (!patch.is_empty()).then_some(Tag::Compound(patch))
 }
 #[cfg(feature = "ae2-lab")]
-fn wire_template(stack: &ItemStack, omit_single_count: bool) -> horizon_world::nbt::Tag {
-    use horizon_world::nbt::Tag;
-    let mut item = horizon_world::nbt::Compound::new();
+fn wire_template(stack: &ItemStack, omit_single_count: bool) -> horizon_core::nbt::Tag {
+    use horizon_core::nbt::Tag;
+    let mut item = horizon_core::nbt::Compound::new();
     item.insert("id".into(),Tag::String(stack.item.as_ref().into()));
     if !omit_single_count || stack.count != 1 { item.insert("count".into(),Tag::Int(stack.count as i32)); }
     if let Some(components) = wire_components(stack) { item.insert("components".into(),components); }
@@ -2114,7 +2114,7 @@ pub(super) fn network_stack(
         // second copy of large storage-cell payloads.
         #[cfg(feature = "ae2-lab")]
         {
-            use horizon_world::nbt::Tag;
+            use horizon_core::nbt::Tag;
             let mut patch = match wire_components(s) {
                 Some(Tag::Compound(patch)) => patch,
                 _ => Default::default(),
@@ -2130,7 +2130,7 @@ pub(super) fn network_stack(
                     _ => Default::default(),
                 };
                 let previous = outer.remove(&key.into());
-                let mut wrapped = horizon_world::nbt::Compound::new();
+                let mut wrapped = horizon_core::nbt::Compound::new();
                 wrapped.insert("version".into(), Tag::Byte(2));
                 wrapped.insert("had_custom_data".into(), Tag::Byte(i8::from(had_custom_data)));
                 wrapped.insert("components".into(), Tag::Compound(patch));
@@ -2149,7 +2149,7 @@ pub(super) fn network_stack(
                 custom_data = Some(Tag::Compound(outer));
             }
         }
-        if let Some(tag @ horizon_world::nbt::Tag::Compound(_)) = custom_data {
+        if let Some(tag @ horizon_core::nbt::Tag::Compound(_)) = custom_data {
             stack.added.push((
                 horizon_protocol::item::component::CUSTOM_DATA,
                 horizon_protocol::item::Component::Nbt(tag),

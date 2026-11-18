@@ -2287,9 +2287,8 @@ impl Hub {
     /// `Guest::inventory_told_by` for the guest `conn`: the content of the
     /// menu it has open, sent to it, ends with its inventory.
     pub fn inventory_told_by(&mut self, conn: u32, content: &[Option<ItemStack>]) {
-        if let Some(g) = self.guests.iter_mut().find(|g| g.conn == conn) {
-            g.inventory_told_by(content);
-        }
+        self.guests
+            .update_connection(conn, |g| g.inventory_told_by(content));
     }
 
     // ---- per tick ------------------------------------------------------

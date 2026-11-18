@@ -76,7 +76,7 @@ impl MobWorld<'_> {
                                 out.in_lava = true;
                             }
                             // A mod's fluid is in neither tag: no entity swims in it.
-                            Fluid::None | Fluid::Modded => {}
+                            Fluid::None | Fluid::Modded | Fluid::Mod(_) => {}
                         }
                     }
                 }
@@ -91,7 +91,7 @@ impl MobWorld<'_> {
             let eyes = match fluid {
                 Fluid::Water => &mut out.eye_in_water,
                 Fluid::Lava => &mut out.eye_in_lava,
-                Fluid::None | Fluid::Modded => continue,
+                Fluid::None | Fluid::Modded | Fluid::Mod(_) => continue,
             };
             if f64::from(y) + h < lo.y || eye_y < f64::from(y) {
                 continue;

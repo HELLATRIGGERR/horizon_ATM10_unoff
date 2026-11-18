@@ -9,7 +9,16 @@ use std::path::Path;
 /// The mods a `neoforge:mod_loaded` can name: `minecraft`, always, and the
 /// content mods in this root.
 pub(crate) fn loaded_mods(root: &Path) -> Vec<String> {
-    let mut mods = horizon_items::content_namespaces::mod_ids(root);
+    // The content mods enabled in this root, either side (upstream's `EnabledMods` marker took
+    // over the fork's mod id list).
+    let enabled = horizon_mod_package::enabled::EnabledMods::read(root).unwrap_or_default();
+    let mut mods: Vec<String> = enabled
+        .client_ids()
+        .chain(enabled.server_ids())
+        .map(str::to_owned)
+        .collect();
+    mods.sort();
+    mods.dedup();
     if !mods.iter().any(|m| m == "minecraft") {
         mods.push("minecraft".to_owned());
     }

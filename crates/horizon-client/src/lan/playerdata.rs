@@ -273,7 +273,7 @@ pub fn apply(guest: &mut Guest, level: &Level) {
     guest.respawn_elsewhere = level.respawn_elsewhere.clone();
     guest.saved = level.player_extra.clone();
     guest.vehicle_to_restore = level.player_extra.as_ref().and_then(|tag| match tag.get("horizon:vehicle_uuid") {
-        Some(horizon_world::nbt::Tag::IntArray(v)) if v.len() == 4 => Some([v[0],v[1],v[2],v[3]]),
+        Some(horizon_core::nbt::Tag::IntArray(v)) if v.len() == 4 => Some([v[0],v[1],v[2],v[3]]),
         _ => None,
     });
     let attachments = match attachment_compound(

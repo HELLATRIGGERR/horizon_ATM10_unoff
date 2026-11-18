@@ -168,7 +168,7 @@ mod ae2_recipe_viewer;
 /// Without the AE2 lab there are no AE2 categories to add (`ae2_recipe_viewer.rs`; native_hooks.rs holds no `cfg`).
 #[cfg(not(feature = "ae2-lab"))]
 impl Game<'_> {
-    fn ae2_recipe_categories(&self, _: &mut Vec<horizon_client::mod_api::NativeRecipeCategory>) {}
+    fn ae2_recipe_categories(&self, _: &mut Vec<mod_api::NativeRecipeCategory>) {}
 }
 #[cfg(feature = "ae2-lab")]
 mod ae2_guide_host;

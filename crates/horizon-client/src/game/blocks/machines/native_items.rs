@@ -127,6 +127,16 @@ impl Game<'_> {
     pub(in crate::game) fn native_simulates(&self) -> bool {
         self.is_logical_server()
     }
+    /// The container at `pos` in the level in place, `dimension`, if this
+    /// level simulates and holds items there. A composter's bone meal is for
+    /// hoppers: it empties the block, and a refused move would lose it.
+    fn native_item_source(&self, dimension: &str, pos: [i32; 3]) -> Option<View> {
+        if !self.native_simulates() || dimension != self.dim.id() {
+            return None;
+        }
+        let view = self.containers().view((pos[0], pos[1], pos[2]), false)?;
+        (!matches!(view.kind, Kind::Composter(_)) && view.len() > 0).then_some(view)
+    }
     /// The level in place, as a handle: where the game's capability lookups (a hopper's) are.
     /// None where no world is simulated.
     pub(super) fn native_level_here(&self) -> Option<LevelRef> {

@@ -1027,7 +1027,8 @@ impl Facts {
                 + same_set * 10
                 + (block.wood_type.is_some() && block.wood_type == v.wood_type) as i64 * 20
                 + (td.hardness == ours.hardness) as i64 * 5
-                + (td.map_color_id == ours.map_color_id) as i64;
+                + (td.map_color_id == ours.map_color_id) as i64
+                - rail_kind(id, name) * 3;
             if best.is_none_or(|(s, n, _)| score > s || (score == s && name < n)) {
                 best = Some((score, name, v));
             }

@@ -292,7 +292,7 @@ fn tag_dir(registry: &str) -> String {
 
 fn split_id(id: &str) -> Option<(&str, &str)> {
     let (ns, path) = id.split_once(':')?;
-    horizon_mods::content::check_path(&format!("data/{ns}/{path}")).ok()?;
+    horizon_mod_package::content::check_path(&format!("data/{ns}/{path}")).ok()?;
     Some((ns, path))
 }
 
@@ -329,9 +329,9 @@ fn declared_items(carry: &Path, id: &str, out: &mut HashSet<String>) {
     }
 }
 
-fn manifest_of(dir: &Path) -> Option<horizon_mods::Manifest> {
-    let text = fs::read_to_string(dir.join(horizon_mods::manifest::MANIFEST)).ok()?;
-    horizon_mods::Manifest::parse(&text).ok()
+fn manifest_of(dir: &Path) -> Option<horizon_mod_package::Manifest> {
+    let text = fs::read_to_string(dir.join(horizon_mod_package::manifest::MANIFEST)).ok()?;
+    horizon_mod_package::Manifest::parse(&text).ok()
 }
 
 /// A mod's recipes, and its tags of the registries the dump holds: the dump's replace them. Function tags (`load`,
@@ -518,7 +518,7 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
                         continue;
                     };
                     let rel = format!("assets/{}", rel.replace('\\', "/"));
-                    if horizon_mods::content::check_path(&rel).is_err() {
+                    if horizon_mod_package::content::check_path(&rel).is_err() {
                         continue;
                     }
                     let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -653,7 +653,7 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         namespaces.join(", "),
         if s.milk_fluid { "milk_fluid = true\n" } else { "" }
     );
-    sink.write(&pack.join(horizon_mods::manifest::MANIFEST), manifest.as_bytes())?;
+    sink.write(&pack.join(horizon_mod_package::manifest::MANIFEST), manifest.as_bytes())?;
     Ok(s)
 }
 
@@ -1113,11 +1113,11 @@ mod tests {
         // The game's own reader takes both, side by side.
         let manifest_pack = manifest_of(&pack).unwrap();
         assert_eq!(manifest_pack.id, "kubejs");
-        let content = horizon_mods::Content::read(&pack, &manifest_pack).unwrap();
+        let content = horizon_mod_package::Content::read(&pack, &manifest_pack).unwrap();
         let carry_manifest = manifest_of(&m).unwrap();
-        let own = horizon_mods::Content::read(&m, &carry_manifest).unwrap();
+        let own = horizon_mod_package::Content::read(&m, &carry_manifest).unwrap();
         assert!(
-            horizon_mods::content::clash(("kubejs", &content.namespaces), ("m", &own.namespaces)).is_none()
+            horizon_mod_package::content::clash(("kubejs", &content.namespaces), ("m", &own.namespaces)).is_none()
         );
         fs::remove_dir_all(&dir).unwrap();
     }

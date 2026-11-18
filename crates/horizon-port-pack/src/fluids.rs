@@ -1,7 +1,7 @@
 //! A pack's fluids from the NeoForge oracle (docs/mod-fluids.md, slice 2): what the server's run writes of each fluid
 //! and fluid type (`FluidFacts`, in each batch's facts) and what the client's run writes of them
 //! (`ClientFactsExporter`, `client-facts.json`), and the content mod declaration
-//! (`data/<ns>/horizon/fluid/<path>.json`, `horizon_mods::content::CarriedFluid`) made from both: Java's own numbers,
+//! (`data/<ns>/horizon/fluid/<path>.json`, `horizon_mod_package::content::CarriedFluid`) made from both: Java's own numbers,
 //! textures, tint and render layer, none guessed.
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -165,7 +165,7 @@ const NEOFORGE_OWN: [(usize, &str); 2] = [
     (1, "net.neoforged.neoforge.fluids.FluidInteractionRegistry"),
 ];
 
-/// The content declarations of the run's interactions (`horizon_mods::content::FluidInteractions`): one file a
+/// The content declarations of the run's interactions (`horizon_mod_package::content::FluidInteractions`): one file a
 /// type, `<ns>/<path>` of the fluid the run put at `currentPos`, its interactions in the registry's order, each the
 /// rule its grid matched (a block below, when one counted, and the fluids or blocks beside) with the blocks the
 /// interaction left for a source and a flowing fluid. NeoForge's own two for lava are the engine's and left out;
@@ -540,7 +540,7 @@ pub fn declaration(
             .iter()
             .all(|k| m.get(*k).is_some_and(Value::is_f64))
     {
-        let default = horizon_mods::content::FluidItemMovement::default();
+        let default = horizon_mod_package::content::FluidItemMovement::default();
         let n = |k: &str| m[k].as_f64().unwrap_or(0.0);
         if (n("horizontal"), n("below"), n("above"))
             != (default.horizontal, default.below, default.above)
@@ -678,7 +678,7 @@ mod tests {
         )
         .unwrap();
         // The file slice 1 wrote by hand from Mekanism's source, now from the two runs.
-        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(heavy.clone()).unwrap();
+        let file: horizon_mod_package::content::CarriedFluid = serde_json::from_value(heavy.clone()).unwrap();
         assert_eq!(file.tint, 0xFF0D_1455);
         assert!(file.translucent);
         assert_eq!(file.flowing, "mekanism:flowing_heavy_water");
@@ -694,7 +694,7 @@ mod tests {
         );
         assert_eq!(file.description, "block.mekanism.heavy_water");
         // Its type's entity facts and its client extension's overlay and fog (Mekanism's: its tint, 24 blocks).
-        assert_eq!(file.entity, horizon_mods::content::FluidEntity::default());
+        assert_eq!(file.entity, horizon_mod_package::content::FluidEntity::default());
         assert_eq!(
             file.render_overlay.as_deref(),
             Some("minecraft:textures/misc/underwater.png")
@@ -711,11 +711,11 @@ mod tests {
             &yes,
         )
         .unwrap();
-        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(latex).unwrap();
+        let file: horizon_mod_package::content::CarriedFluid = serde_json::from_value(latex).unwrap();
         assert_eq!(file.flowing, "industrialforegoing:latex_flowing");
         assert_eq!((file.tint, file.translucent), (0xFFFF_FFFF, false));
         assert_eq!(file.overlay_texture, None);
-        assert_eq!(file.sounds, horizon_mods::content::FluidSounds::default());
+        assert_eq!(file.sounds, horizon_mod_package::content::FluidSounds::default());
         // A type that is no water to an entity (the facts are the oracle's, whatever they say).
         assert!(!file.entity.can_swim && !file.entity.can_drown);
         assert_eq!(file.entity.motion_scale, 0.002335);
@@ -748,7 +748,7 @@ mod tests {
         // A fluid that doesn't flow (Modern Industrialization's `MIFluid`): no flowing fluid, no liquid block.
         let virtual_ =
             declaration(&fluids, &types, world(), &client, "test:virtual", &yes).unwrap();
-        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(virtual_).unwrap();
+        let file: horizon_mod_package::content::CarriedFluid = serde_json::from_value(virtual_).unwrap();
         assert!(!file.flows);
         assert_eq!(
             (file.flowing.as_str(), file.block.as_str()),
@@ -907,7 +907,7 @@ mod tests {
             "{why:?}"
         );
         // What the files are is what a content mod declares.
-        let file: horizon_mods::content::FluidInteractions =
+        let file: horizon_mod_package::content::FluidInteractions =
             serde_json::from_value(files[1].1.clone()).unwrap();
         assert!(file.interactions[0].fizz);
     }
@@ -995,10 +995,10 @@ mod tests {
             json!({"block": "create_dragons_plus:dragon_breath_cauldron", "total_amount": 1000, "max_level": 4,
                 "level_property": "level"})
         );
-        let file: horizon_mods::content::CarriedFluid = serde_json::from_value(breath).unwrap();
+        let file: horizon_mod_package::content::CarriedFluid = serde_json::from_value(breath).unwrap();
         assert_eq!(
             file.vaporizes,
-            horizon_mods::content::FluidVaporizes::Ultrawarm
+            horizon_mod_package::content::FluidVaporizes::Ultrawarm
         );
         assert_eq!(file.cauldron.unwrap().max_level, 4);
         let (exp, portal) = (

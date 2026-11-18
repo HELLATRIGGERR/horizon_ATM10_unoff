@@ -3313,8 +3313,8 @@ version = \"1.0\"
         assert_eq!((oil["flows"].clone(), oil["block"].clone()), (json!(false), json!("minecraft:air")));
         assert!(report.fluids_unknown["tar"].contains("not one of this mod's"), "{:?}", report.fluids_unknown);
 
-        let package = horizon_mods::Package::read(&carried).unwrap();
-        let content = horizon_mods::Content::read(&carried, &package.manifest).unwrap();
+        let package = horizon_mod_package::Package::read(&carried).unwrap();
+        let content = horizon_mod_package::Content::read(&carried, &package.manifest).unwrap();
         let [oil, sludge] = content.carried_fluids.as_slice() else {
             panic!("{:?}", content.carried_fluids)
         };

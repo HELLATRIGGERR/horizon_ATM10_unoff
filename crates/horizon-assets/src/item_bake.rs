@@ -1058,6 +1058,7 @@ mod tests {
             [1.0, 1.0, 7.5 / 16.0],
             [[0, 0], [0, 16], [16, 16], [16, 0]],
         );
+    }
 
     /// A NeoForge bucket: `neoforge:item/bucket`'s base and fluid mask, the
     /// leaf naming its fluid. The base is a 4x4 opaque square; the mask's

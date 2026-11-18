@@ -2,7 +2,10 @@
 use crate::Result;
 use horizon_world::loot::PackOverlay;
 use serde_json::Value;
-use std::path::Path;
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+};
 
 /// A recipe's whole id from its name in the tables: vanilla's are kept bare
 /// (`oak_planks`), everyone else's whole (`mymod:crusher/iron`). The book,
@@ -21,6 +24,19 @@ pub fn qualified(id: &str) -> String {
 /// over them (`overlay`), parsed, and only those whose load conditions
 /// hold. A server sends some of them to its clients (`recipe_content`).
 pub fn sources(root: &Path, overlay: &PackOverlay) -> Result<Vec<(String, Value)>> {
+    sources_tagged(root, overlay, None)
+}
+
+/// [`sources`], with the item tags a load condition may ask about at hand:
+/// `neoforge:tag_empty`, which AE2's recipe data asks at data-load time against
+/// the resolved item tags. Without them, the root's and packs' item tags are
+/// read the first time a recipe asks.
+pub fn sources_tagged(
+    root: &Path,
+    overlay: &PackOverlay,
+    tags: Option<&HashMap<String, HashSet<String>>>,
+) -> Result<Vec<(String, Value)>> {
+    let mut read_tags = None;
     // Vanilla's recipes by bare name, then content mods' as `<ns>:<name>`.
     let mut sources: Vec<(String, Vec<u8>)> = Vec::new();
     // Load conditions: `mod_loaded` asks which mods' data is
@@ -75,7 +91,22 @@ pub fn sources(root: &Path, overlay: &PackOverlay) -> Result<Vec<(String, Value)
             }
         };
         // A file whose load conditions don't hold is silently absent.
-        if !conditions.allows_id(&v, "recipe", &qualified(&name)) {
+        let holds = if asks_tag_empty(&v) {
+            let tags = match tags {
+                Some(tags) => tags,
+                None => read_tags.get_or_insert_with(|| {
+                    crate::items::load_tags(root, "item", overlay).unwrap_or_default()
+                }),
+            };
+            horizon_world::conditions::conditions_hold_with_tags(
+                &v,
+                &|id: &str| conditions.mod_loaded(id),
+                &|tag: &str| tags.get(tag).is_none_or(HashSet::is_empty),
+            )
+        } else {
+            conditions.allows_id(&v, "recipe", &qualified(&name))
+        };
+        if !holds {
             continue;
         }
         // The data's recipe filters, over the final set.
@@ -86,4 +117,19 @@ pub fn sources(root: &Path, overlay: &PackOverlay) -> Result<Vec<(String, Value)
     }
     conditions.check_resource_errors("recipe")?;
     Ok(parsed)
+}
+
+/// Whether a file's load conditions name `neoforge:tag_empty` anywhere.
+fn asks_tag_empty(file: &Value) -> bool {
+    fn names(v: &Value) -> bool {
+        match v {
+            Value::Object(o) => {
+                o.get("type").and_then(Value::as_str) == Some("neoforge:tag_empty")
+                    || o.values().any(names)
+            }
+            Value::Array(a) => a.iter().any(names),
+            _ => false,
+        }
+    }
+    file.get("neoforge:conditions").is_some_and(names)
 }

@@ -810,6 +810,9 @@ impl Game<'_> {
         let new_mode = self.mode_id();
         let turn_previous = std::mem::replace(&mut self.previous_mode, outer_previous);
         let turn_abilities = std::mem::replace(&mut self.acting_abilities, outer_abilities);
+        // The vehicle's UUID, for the save of a guest who logs out riding (the fork's
+        // `horizon:vehicle_uuid`).
+        let guest_vehicle_uuid = guest_vehicle.map(|id| self.uuid_for(id));
         let Some(host) = self.lan.as_mut() else {
             unreachable!("LanHost dropped inside a guest turn; closes are deferred");
         };
@@ -827,8 +830,10 @@ impl Game<'_> {
             let left_vehicle = g.vehicle.filter(|_| guest_vehicle.is_none());
             if guest_vehicle.is_none() {
                 g.vehicle_good = None;
+                g.vehicle_relocated = false;
             }
             g.vehicle = guest_vehicle;
+            g.vehicle_uuid = guest_vehicle_uuid;
             let fell_asleep = bed.is_some() && g.bed.is_none();
             (g.bed, g.sleep_timer, g.spawn) = (bed, guest_sleep_timer, guest_spawn);
             g.respawn_elsewhere = guest_respawn.map(|c| c.saved());
@@ -932,7 +937,8 @@ impl Game<'_> {
                 let moved: f64 = (0..3).map(|k| (at[k] - g.position[k]).powi(2)).sum();
                 g.motion = Some(Box::new(m));
                 // The pearl and the bed took the rider out of its vehicle at their
-                // source (`stop_riding`), so `left_vehicle` already says so.
+                // source (`stop_riding`), so `left_vehicle` already says so (and
+                // `vehicle_uuid` went with `vehicle` above).
                 // ServerPlayer.dismountTo: the client hears it is out of the
                 // vehicle before the teleport beside it. A rider sits where its
                 // vehicle puts it (lan_vehicles.rs), with no teleport.
@@ -1032,6 +1038,15 @@ impl Game<'_> {
         {
             // Nothing the guest can use opened: its lid closes again.
             self.container_openers_changed(pos, false);
+        }
+        // A station, lectern, table or mount window replaces an AE2 menu the guest had open.
+        #[cfg(feature = "ae2-lab")]
+        if opened_station.is_some()
+            || guest_lectern.is_some()
+            || opened_table.is_some()
+            || guest_mount.is_some()
+        {
+            self.lan_ae2_menus_closed(conn);
         }
         if let Some(station) = opened_station {
             self.lan_station_opened(conn, station);

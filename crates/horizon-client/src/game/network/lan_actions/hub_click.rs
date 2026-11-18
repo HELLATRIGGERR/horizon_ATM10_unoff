@@ -32,10 +32,28 @@ impl Game<'_> {
             // The game is lent to the click as the mods' `menu_slot_rules` (their read-only `Host`).
             // `self.lan` is `None` meanwhile: what a hook reads of the LAN host answers as if none
             // were open.
+            // The fork's `block_entity_slot_accepts`: a mod container's block may refuse a slot.
+            let mod_block = host
+                .hub
+                .guest(conn)
+                .and_then(|g| g.menu.as_ref())
+                .filter(|m| m.window == p.container)
+                .and_then(|m| match m.slots {
+                    Slots::Block(key) => Some(key),
+                    _ => None,
+                })
+                .and_then(|key| {
+                    let state = game.world.block(key.0, key.1, key.2);
+                    game.world
+                        .block_entities
+                        .mod_container(state.0)
+                        .map(|_| game.res.facts().get(state).name.to_string())
+                });
             let rules = ItemRules(
                 world_items!(game),
                 &world_stations!(game).enchantments,
                 Some(&*game),
+                mod_block,
             );
             let Some(mut prepared) = host.hub.prepare_click(conn, p, &game.world) else {
                 return Vec::new();

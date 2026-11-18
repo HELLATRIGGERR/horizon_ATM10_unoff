@@ -7,13 +7,11 @@ impl Game<'_> {
         let Some(host) = self.lan.as_ref() else {
             return;
         };
-        let (conn, mode, position, id, uuid) = {
+        let (mode, position, uuid) = {
             let g = &host.hub.guests[gi];
             (
-                g.conn,
                 g.game_mode,
                 g.position,
-                g.entity_id,
                 horizon_client::lan::playerdata::uuid_ints(g.uuid),
             )
         };
@@ -50,8 +48,28 @@ impl Game<'_> {
             })
             .map(|d| d.id)
             .collect();
+        self.guest_touch_items_in(gi, near);
+    }
+
+    /// `ItemEntity.playerTouch` of the item entities `items` (by id, the last first) for guest
+    /// `gi`: what touches them, and an addon's magnet (the fork's AE2 addons call it through
+    /// `guest_touch_items`).
+    pub(in crate::game) fn guest_touch_items_in(&mut self, gi: usize, items: Vec<u32>) {
+        let Some(host) = self.lan.as_ref() else {
+            return;
+        };
+        let (conn, position, id, uuid) = {
+            let g = &host.hub.guests[gi];
+            (
+                g.conn,
+                g.position,
+                g.entity_id,
+                horizon_client::lan::playerdata::uuid_ints(g.uuid),
+            )
+        };
+        let listens = mod_api::__private::listened(mod_api::HookId::ItemPickedUp);
         let mut taken = Vec::new();
-        for item_id in near.into_iter().rev() {
+        for item_id in items.into_iter().rev() {
             let Some(mut i) = self.dropped.iter().position(|d| d.id == item_id) else {
                 continue;
             };
@@ -70,6 +88,18 @@ impl Game<'_> {
             };
             let d = &mut self.dropped[i];
             if !Self::pickup_decision(&mut d.pickup_delay, d.target, uuid, answer) {
+                continue;
+            }
+            // `ItemEntityPickupEvent.Pre` at the lowest priority: an addon may take some or all
+            // of it first (AE2WTLib's pickup into the network); an emptied stack leaves with no
+            // take.
+            #[cfg(feature = "ae2-lab")]
+            if self
+                .with_lan_host(|g, host| g.lan_ae2x_item_pickup(host, conn, i))
+                .unwrap_or(false)
+                && self.dropped[i].stack.count == 0
+            {
+                self.remove_dropped(i);
                 continue;
             }
             let stack = self.dropped[i].stack.clone();

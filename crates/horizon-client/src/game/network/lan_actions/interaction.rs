@@ -289,6 +289,11 @@ impl Game<'_> {
             self.lan_log_event(horizon_client::lan::hub::HostEvent::Warn(line));
             return Err(ActionRefused::OutOfReach);
         }
+        // AE2's block uses: its tools, parts, cables and menus (ae2_actions.rs).
+        #[cfg(feature = "ae2-lab")]
+        if self.lan_ae2_use_item_on(conn, gi, hit.pos, hit.face, hand) {
+            return Ok(true);
+        }
         let spectator = self
             .lan
             .as_ref()
@@ -325,17 +330,32 @@ impl Game<'_> {
             let used = self
                 .as_guest_at(gi, conn, |g| {
                     let attempt = g.was_block_placement_attempt(hand);
+                    // ServerPlayerGameMode.useItemOn: NeoForge's RightClickBlock as it starts
+                    // (an addon's restock).
+                    #[cfg(feature = "ae2-lab")]
+                    let before = g.with_hand(hand, |g| {
+                        let slot = g.held_slot();
+                        g.ae2x_restock_slot(slot);
+                        g.stack_in(slot).cloned()
+                    });
                     let saved = (g.forced_hit, g.guest_use);
                     g.forced_hit = Some(hit);
                     g.guest_use = Some(GuestUse::OnBlock(hand));
                     let swings = g.swings_started;
                     let predicted = g.predicted_swings;
-                    let consumed = g.with_block_use_original(hand, |g| {
-                        let consumed = matches!(g.use_item(), Ok(Some(_)));
+                    let (consumed, passed) = g.with_block_use_original(hand, |g| {
+                        let result = g.use_item();
+                        let consumed = matches!(result, Ok(Some(_)));
                         if consumed && !g.use_failed {
                             g.finish_block_use(hit.pos, hand);
                         }
-                        consumed
+                        (consumed, matches!(result, Ok(None)))
+                    });
+                    // useItemOn returns (an addon's restock).
+                    #[cfg(feature = "ae2-lab")]
+                    g.with_hand(hand, |g| {
+                        let slot = g.held_slot();
+                        g.ae2x_use_on_returned(slot, before.as_ref());
                     });
                     (g.forced_hit, g.guest_use) = saved;
                     reset_use_attack_strength(&mut g.attack_ticks, swings, g.swings_started);
@@ -343,6 +363,7 @@ impl Game<'_> {
                         g.swings_started != swings && g.predicted_swings == predicted,
                         consumed,
                         attempt,
+                        passed,
                     )
                 })
                 .ok();
@@ -350,11 +371,22 @@ impl Game<'_> {
             let swung = used.map(|u| u.0);
             self.lan_swing_back(conn, swung);
             self.guest_use_sounds(conn, logged, heard);
+            // A use that passed on the block goes on to the held item: AE2's quartz knife.
+            #[cfg(feature = "ae2-lab")]
+            if used.is_some_and(|u| u.3)
+                && self
+                    .with_lan_host(|g, host| {
+                        g.lan_open_quartz_knife(host, conn, i32::from(hand == Hand::Off))
+                    })
+                    .unwrap_or(false)
+            {
+                return Ok(true);
+            }
             // A placement that did nothing at the top or bottom of the
             // world says why. Vanilla asks twice for the top (once
             // before the swing, once in the check that also has the
             // bottom), so a player there is told twice.
-            if let Some((_, false, true)) = used {
+            if let Some((_, false, true, _)) = used {
                 if face == [0, 1, 0] && hit.pos[1] >= max_y {
                     self.build_limit_message(conn, true, max_y);
                     self.build_limit_message(conn, true, max_y);
@@ -396,6 +428,11 @@ impl Game<'_> {
         // ServerPlayerGameMode.useItem: a spectator's use passes.
         if host.hub.guests[gi].spectator() {
             return Ok(false);
+        }
+        // AE2's item uses in the air: its tools, cells and menus (ae2_actions.rs).
+        #[cfg(feature = "ae2-lab")]
+        if self.lan_ae2_use_item(conn, gi, hand, rotation) {
+            return Ok(true);
         }
         // handleUseItem: the client's rotation (absSnapRotationTo, which
         // sends nothing back), then the item alone. What it looked at a
@@ -499,6 +536,12 @@ impl Game<'_> {
             .as_guest_at(gi, conn, |g| {
                 let saved = g.guest_use;
                 let failed = std::mem::replace(&mut g.use_failed, false);
+                // NeoForge's EntityInteractSpecific (an addon's restock).
+                #[cfg(feature = "ae2-lab")]
+                g.with_hand(hand, |g| {
+                    let slot = g.held_slot();
+                    g.ae2x_restock_slot(slot);
+                });
                 g.guest_use = Some(GuestUse::Entity(hand, target));
                 let swings = g.swings_started;
                 let consumed = matches!(g.use_item(), Ok(Some(_))) && !g.use_failed;

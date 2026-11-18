@@ -130,6 +130,20 @@ impl Game<'_> {
 
     /// A packet from a guest that the hub does not handle itself.
     pub(in crate::game) fn lan_guest_packet(&mut self, conn: u32, packet: S) {
+        // AE2's spatial formation sees the guests while the packet is handled.
+        #[cfg(feature = "ae2-lab")]
+        let formation_guests = self.with_lan_host(|g, host| g.ae2_formation_guest_scope(host));
+        self.lan_guest_packet_inner(conn, packet);
+        // What an addon changed in the guest's turn, told at once (AE2WTLib's
+        // UpdateRestockPacket).
+        #[cfg(feature = "ae2-lab")]
+        {
+            drop(formation_guests);
+            self.with_lan_host(|g, host| g.lan_ae2x_after_packet(host, conn));
+        }
+    }
+
+    fn lan_guest_packet_inner(&mut self, conn: u32, packet: S) {
         // A crossing the hub's move check passed; a dead player's is refused, not dropped.
         if let S::CustomPayload(p) = &packet
             && p.channel == horizon_protocol::passage_sync::CROSS_CHANNEL
@@ -186,6 +200,15 @@ impl Game<'_> {
                     if spectator {
                         return;
                     }
+                    // AE2's left clicks: a monitor's craft or take, a facade's cycle.
+                    #[cfg(feature = "ae2-lab")]
+                    if self.lan_ae2_dig_start(conn, gi, a.pos, a.direction) {
+                        return;
+                    }
+                    #[cfg(feature = "ae2-lab")]
+                    let Some(host) = self.lan.as_mut() else {
+                        return;
+                    };
                     if !host.hub.guests.update(gi, |g| g.may_reach_block(a.pos)) {
                         return;
                     }
@@ -633,6 +656,9 @@ impl Game<'_> {
             }
             // AbstractContainerMenu.quickMoveStack of a mod container: the mods first.
             S::ContainerClick(p) if self.lan_mod_quick_move(conn, &p) => {}
+            // AE2's and its addons' menus (ae2_actions.rs).
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClick(p) if self.lan_ae2_container_click(conn, &p) => {}
             S::ContainerClick(p) if self.lan_merchant_click(conn, &p) => {}
             S::ContainerClick(p) if self.lan_inventory_click(conn, &p) => {}
             S::ContainerClick(p) if self.lan_crafting_click(conn, &p) => {}
@@ -688,6 +714,9 @@ impl Game<'_> {
             S::ContainerButtonClick(p) => {
                 self.lan_station_button(conn, p.container, p.button);
             }
+            // AE2's text fields (priority, energy, searches, craft amount).
+            #[cfg(feature = "ae2-lab")]
+            S::RenameItem(p) if self.lan_ae2_rename(conn, &p.name) => {}
             S::RenameItem(p) => self.lan_station_rename(conn, &p.name),
             S::SignUpdate(p) => self.lan_sign_update(conn, p),
             S::SetCommandBlock(p) => self.lan_set_command_block(conn, p),
@@ -703,6 +732,8 @@ impl Game<'_> {
             }
             S::SetBeacon(p) => self.lan_station_beacon(conn, p.primary, p.secondary),
             S::SelectTrade(p) => self.lan_select_trade(conn, p.item),
+            #[cfg(feature = "ae2-lab")]
+            S::ContainerClose(p) if self.lan_ae2_container_close(conn, p.container) => {}
             S::ContainerClose(p) if self.lan_merchant_closed(conn, Some(p.container)) => {
                 self.guest_carried_back(gi);
             }
@@ -802,6 +833,10 @@ impl Game<'_> {
                 }
             }
             S::ChatCommand(c) => self.guest_chat_command(conn, &c.command),
+            // AE2's and its addons' channels (`ae2:`, `ae2wtlib:`, `merequester:`,
+            // `ae2importexportcard:`): no mod declares them, so they arrive here.
+            #[cfg(feature = "ae2-lab")]
+            S::CustomPayload(p) if self.lan_ae2_payload(conn, &p.channel, &p.data) => {}
             S::CustomPayload(p) if p.channel == horizon_protocol::quiet::CHANNEL => {
                 self.guest_quiet_commands(conn, &p.data)
             }
@@ -1160,6 +1195,8 @@ impl Game<'_> {
         else {
             return;
         };
+        #[cfg(feature = "ae2-lab")]
+        let mut craft = None;
         let picked = self.as_guest(conn, |g| {
             let stack = stack(g)?;
             let infinite = g.creative;
@@ -1168,9 +1205,26 @@ impl Game<'_> {
             if cancel {
                 return None;
             }
-            g.pick_into_inventory(&stack, infinite);
+            let found = g.pick_into_inventory(&stack, infinite);
+            // AE2WTLib's MinecraftMixin.pickBlock, where 26.3's server picks.
+            #[cfg(feature = "ae2-lab")]
+            if !found && !infinite {
+                return match g.ae2x_pick_from_network(&stack, from_entity) {
+                    Some(crate::game::ae2x::NetworkPick::Craft(key)) => {
+                        craft = Some(key);
+                        None
+                    }
+                    Some(crate::game::ae2x::NetworkPick::Picked) | None => Some(()),
+                };
+            }
+            let _ = found;
             Some(())
         });
+        #[cfg(feature = "ae2-lab")]
+        if let Some(key) = craft {
+            self.with_lan_host(|g, host| g.lan_ae2x_pick_craft(host, conn, key));
+            return;
+        }
         if picked.flatten().is_some()
             && let Some(host) = self.lan.as_ref()
             && let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn)

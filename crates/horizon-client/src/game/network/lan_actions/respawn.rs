@@ -321,6 +321,13 @@ impl Game<'_> {
             return;
         };
         if host.hub.guests[gi].health <= 0.0 && !host.hub.guests[gi].dead {
+            #[cfg(feature = "ae2-lab")]
+            self.with_lan_host(|g, host| {
+                g.lan_ae2_network_tool_closed(host, conn, None);
+                g.lan_ae2_anchor_closed(host, conn, None);
+                g.lan_craft_confirm_closed(host, conn, None);
+                g.lan_pattern_access_closed(host, conn, None);
+            });
             self.guest_forget_digging(conn);
             // FishingHook.shouldStopFishing: its owner is dead.
             if let Some(play) = self.lan.as_mut().and_then(|host| host.play.get_mut(&conn)) {

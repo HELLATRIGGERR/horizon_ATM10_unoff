@@ -3,6 +3,11 @@ use super::*;
 impl Game<'_> {
     /// Per tick, for every guest: dig, use items, pick up drops, die.
     pub(in crate::game) fn tick_guests(&mut self) {
+        // AE2's spatial formation sees the guests for the whole tick.
+        #[cfg(feature = "ae2-lab")]
+        let _formation_guests = self.with_lan_host(|g, host| g.ae2_formation_guest_scope(host));
+        #[cfg(feature = "ae2-lab")]
+        self.with_lan_host(|g, host| g.ae2_flush_advancements(host));
         building_cache(self.lan.as_ref());
         self.tick_guests_inner();
         building_cache(None);
@@ -19,6 +24,8 @@ impl Game<'_> {
         self.lan_mod_crafting_tick();
         self.lan_menu_links_tick();
         self.lan_containers_tick();
+        #[cfg(feature = "ae2-lab")]
+        self.lan_ae2_menus_tick();
         self.tick_lan_mount_menus();
         self.native_players_equipment();
         self.announce_guest_advancements();
@@ -243,6 +250,10 @@ impl Game<'_> {
                 .as_ref()
                 .is_some_and(|host| host.hub.guests[gi].handover.is_none())
             {
+                // Player.aiStep: the carried items' tick (an addon's magnet), then what the
+                // player touches.
+                #[cfg(feature = "ae2-lab")]
+                self.with_lan_host(|g, host| g.lan_ae2x_guest_tick(host, gi));
                 self.guest_pickups(gi);
                 self.guest_arrows(gi);
                 self.guest_orbs(gi);

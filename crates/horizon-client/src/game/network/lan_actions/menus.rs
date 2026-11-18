@@ -32,6 +32,11 @@ impl Game<'_> {
     /// Hand a container the guest opened over (ServerPlayer.openMenu);
     /// false when it is not one a guest can open.
     pub(in crate::game) fn lan_open_container(&mut self, conn: u32, pos: (i32, i32, i32)) -> bool {
+        // AE2's terminals, machines and sky stone chests (ae2_actions.rs).
+        #[cfg(feature = "ae2-lab")]
+        if let Some(opened) = self.lan_ae2_open_container(conn, pos) {
+            return opened;
+        }
         if pos.1 == crate::game::minecarts::CART_KEY_Y {
             return self.lan_open_vehicle_container(conn, pos);
         }
@@ -130,6 +135,9 @@ impl Game<'_> {
             }
             // Opened by a mod (`open_menu`), never here.
             Slots::Native => return MenuOpen::Refused,
+            // AE2's sky stone chests open through their own path.
+            #[cfg(feature = "ae2-lab")]
+            Slots::Ae2SkyChest(..) => return MenuOpen::Refused,
         };
         let Some(host) = self.lan.as_ref() else {
             return MenuOpen::Refused;

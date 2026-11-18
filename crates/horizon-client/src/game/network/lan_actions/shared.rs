@@ -63,6 +63,27 @@ pub(super) struct GuestPlay {
     pub(super) mount_window: Option<super::lan_mount_menu::GuestMount>,
     /// The lectern the guest reads (game/network/lan_stations.rs).
     pub(super) lectern: Option<super::lan_stations::GuestLectern>,
+    /// The AE2 menus the guest has open (ae2_actions.rs opens and closes them).
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_terminal: Option<super::ae2_terminal::GuestTerminal>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_machine: Option<super::ae2_terminal::GuestMachine>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_anchor: Option<super::ae2_anchor_ui::GuestAnchor>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_portable: Option<super::ae2_portable_ui::GuestPortable>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_network_tool: Option<super::ae2_network_tool_ui::GuestNetworkTool>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_craft_confirm: Option<super::ae2_craft_confirm::GuestCraftConfirm>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_pattern_access: Option<super::ae2_pattern_access::GuestPatternAccess>,
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_bus: Option<super::ae2_bus_ui::GuestBus>,
+    /// The keys the guest's terminals pin: AE2's `PinnedKeys` lives on the
+    /// client for the whole game, so a reopened terminal lays them out at once.
+    #[cfg(feature = "ae2-lab")]
+    pub(super) ae2_pins: Vec<ae2_cell_core::ItemKey>,
     /// The equipment the mods last heard this guest wear (`native_players_equipment`), by
     /// `EquipmentSlot`: main hand, off hand, feet, legs, chest, head.
     pub(super) equipment_heard: Option<Box<[Option<crate::items::ItemStack>; 6]>>,
@@ -276,12 +297,24 @@ impl GuestPlay {
     }
 }
 
+/// The game's items and enchantments, the mods' slot rules, and the block of the open menu when
+/// a mod's container holds its slots (the fork's `block_entity_slot_accepts` hook asks it).
 struct ItemRules<'a>(
     &'a horizon_client::items::Items,
     &'a horizon_client::enchant::Enchantments,
     Option<&'a dyn horizon_client::menu::SlotRules>,
+    Option<String>,
 );
 impl Rules for ItemRules<'_> {
+    fn slot_accepts(&self, slot: usize, stack: &ItemStack) -> bool {
+        let Some(block) = &self.3 else {
+            return true;
+        };
+        let mut accepts = true;
+        let fuel = self.0.get(&stack.item).is_some_and(|i| i.fuel.is_some());
+        Game::native_block_entity_slot_accepts(block, slot, stack, fuel, &mut accepts);
+        accepts
+    }
     fn items(&self) -> &horizon_client::items::Items {
         self.0
     }

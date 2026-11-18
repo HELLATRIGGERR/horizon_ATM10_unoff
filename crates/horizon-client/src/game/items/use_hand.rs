@@ -577,7 +577,7 @@ impl Game<'_> {
         let spawn_egg = stack.item.ends_with("_spawn_egg");
         use horizon_client::first_person::UseResult;
         let swings = self.swings_started;
-        match self.use_tool(&stack, block_hit.is_some(),host)? {
+        match self.use_tool(&stack, block_hit.is_some())? {
             UseResult::Success { swing } => {
                 if (UseResult::Success { swing }).should_swing(swings, self.swings_started) {
                     self.swing_arm();
@@ -749,12 +749,62 @@ impl Game<'_> {
             item: stack.item.to_string(),
             can_use_game_master_blocks: self.can_use_game_master_blocks(),
         };
-        let outcome = if self.player_place_canceled(&ctx) {
-            PlaceOutcome::Failed
-        } else {
-            self.with_level(|b, level, ticks| b.place_block(level, ticks, &ctx))
+        // The block entity goes in between the block's placement and its neighbours' updates
+        // (`begin_block_placement`, `finish_block_placement`), inside AE2's formation transaction.
+        let place = |game: &mut Self| -> std::result::Result<Option<(BlockPos, BlockStateId)>, String> {
+            let pending =
+                game.with_level(|b, level, ticks| b.begin_block_placement(level, ticks, &ctx));
+            let Some(pending) = pending else {
+                return Ok(None);
+            };
+            let pos = pending.pos;
+            let target = [pos.x, pos.y, pos.z];
+            let game_master = game.can_use_game_master_blocks();
+            let state = game
+                .lectern_placed(target, pending.state, &stack, game_master)
+                .map_err(|e| e.to_string())?;
+            #[cfg(feature = "ae2-lab")]
+            let state = game.ae2_apply_item_block_state(target, state, &stack);
+            #[cfg(not(feature = "ae2-lab"))]
+            let state = game
+                .apply_item_block_state(target, state, &stack)
+                .map_err(|e| e.to_string())?;
+            let key = (pos.x, pos.y, pos.z);
+            if !game.world.block_entities.stateful_entity(state.0)
+                && let Some(entity) = game.new_block_entity_for_state(state)
+            {
+                game.world.block_entities.insert(key, entity);
+            }
+            if game.world.block_entities.get(&key).is_some() {
+                game.apply_placed_item(target, &stack, game_master);
+                #[cfg(feature = "ae2-lab")]
+                {
+                    if let Some(error) = game.ae2_formation_import_error.take() {
+                        return Err(error);
+                    }
+                    game.ae2_record_node_owner(target);
+                    if game.world.block_entities.refresh_pending_placed_ae2(key, None) == Some(false) {
+                        return Err("placed AE2 owner escaped before import".into());
+                    }
+                }
+            }
+            let outcome =
+                game.with_level(|b, level, ticks| b.finish_block_placement(level, ticks, pending));
+            Ok(match outcome {
+                PlaceOutcome::Placed { pos, state } => Some((pos, state)),
+                _ => None,
+            })
         };
-        let PlaceOutcome::Placed { pos, state } = outcome else {
+        let placed = if self.player_place_canceled(&ctx) {
+            None
+        } else {
+            #[cfg(feature = "ae2-lab")]
+            let placed = self.ae2_with_placement_transaction(place)?;
+            #[cfg(not(feature = "ae2-lab"))]
+            let placed = place(self)?;
+            placed
+        };
+        let Some((pos, state)) = placed else {
             self.process_level_events()?;
             // BlockItem.useOn: a consumable that could not be placed is used,
             // which ItemStack.useOn counts as a use of the item.

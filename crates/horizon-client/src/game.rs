@@ -7666,13 +7666,13 @@ impl Game<'_> {
         &mut self,
         stack: &ItemStack,
         allow_block_actions: bool,
-        _host:Option<&mut lan::LanHost>,
     ) -> Result<horizon_client::first_person::UseResult> {
         use horizon_client::first_person::UseResult;
         #[cfg(feature="ae2-lab")]
         if stack.item.as_ref()=="ae2:entropy_manipulator" {return self.ae2_use_entropy(stack).map_err(Into::into);}
         #[cfg(feature="ae2-lab")]
-        if stack.item.as_ref()=="ae2:matter_cannon" {return self.ae2_use_cannon(stack,_host).map_err(Into::into);}
+        // The LAN host is `self.lan` in a guest's turn too (upstream's model).
+        if stack.item.as_ref()=="ae2:matter_cannon" {return self.ae2_use_cannon(stack,None).map_err(Into::into);}
         #[cfg(feature="ae2-lab")]
         if stack.item.as_ref()=="ae2:color_applicator" {return self.ae2_use_applicator(stack,allow_block_actions).map_err(Into::into);}
         let item = stack.item.trim_start_matches("minecraft:").to_owned();

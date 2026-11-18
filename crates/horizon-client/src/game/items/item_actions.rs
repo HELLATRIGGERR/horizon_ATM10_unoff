@@ -6,18 +6,11 @@ use super::*;
 impl Game<'_> {
     /// The hand whose use ended the click, if any.
     pub(super) fn use_item(&mut self) -> Result<Option<Hand>> {
-        self.with_player_actor(|game| game.use_item_as_player(None))
-    }
-    /// `use_item` with the LAN host at hand, for a guest's use (`lan_actions`).
-    pub(super) fn use_item_with_host(&mut self, host: &mut lan::LanHost) -> Result<Option<Hand>> {
-        self.with_player_actor(|game| game.use_item_as_player(Some(host)))
+        self.with_player_actor(|game| game.use_item_as_player())
     }
 
     /// `Minecraft.startUseItem`: the main hand, then the off hand.
-    pub(super) fn use_item_as_player(
-        &mut self,
-        mut host: Option<&mut lan::LanHost>,
-    ) -> Result<Option<Hand>> {
+    pub(super) fn use_item_as_player(&mut self) -> Result<Option<Hand>> {
         // Spectators only look (MultiPlayerGameMode.useItemOn/useItem pass),
         // but on a server a spectator's use on a block opens the block's
         // menu (ServerPlayerGameMode.useItemOn).

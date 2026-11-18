@@ -772,7 +772,6 @@ impl Game<'_> {
             false,
             horizon_client::widgets::Kind::Button,
         );
-                    kind: String::new(),
     }
 
     /// The tabs, on slots; the selected one framed.

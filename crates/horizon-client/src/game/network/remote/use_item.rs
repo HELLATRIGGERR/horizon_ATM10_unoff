@@ -11,6 +11,8 @@ impl Game<'_> {
         let Some(held) = self.with_hand(hand, |g| g.held().cloned()) else {
             return false;
         };
+        #[cfg(feature = "ae2-lab")]
+        if self.with_hand(hand, |g|g.ae2_try_guide_use(&held)){return true;}
         // Client-owned input items use mod_use_start instead of server item use.
         if self.native_input.claimant(&held.item).is_some() {
             return false;
@@ -22,6 +24,17 @@ impl Game<'_> {
             yaw: self.yaw,
             pitch: self.pitch,
         }));
+        // An addon's own use of its item on this client (Ender Drives' frequency screen).
+        #[cfg(feature = "ae2-lab")]
+        if let Some(ends) = self.with_hand(hand, |g| g.ae2_addon_item_use("enderdrives", &held)) {return ends;}
+        #[cfg(feature = "ae2-lab")]
+        if super::ae2_item_consumes_use(&held.item) {return true;}
+        #[cfg(feature = "ae2-lab")]
+        if held.item.as_ref() == "ae2:memory_card" && self.remote_shift_down() { return false; }
+        #[cfg(feature = "ae2-lab")]
+        if matches!(held.item.as_ref(), "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife") {
+            return true;
+        }
         let Some(info) = self.items().get(&held.item).cloned() else {
             return false;
         };

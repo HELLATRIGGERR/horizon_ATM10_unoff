@@ -8408,6 +8408,31 @@ impl Game<'_> {
         stack: &ItemStack,
         hit: &super::Hit,
     ) -> bool {
+        #[cfg(feature = "ae2-lab")]
+        if matches!(stack.item.as_ref(), "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife") {
+            // The block's interaction has already passed. Knife useOn opens
+            // its menu and consumes this hand before air/offhand fallback.
+            return true;
+        }
+        #[cfg(feature = "ae2-lab")]
+        if stack.item.as_ref()==horizon_client::ae2_network_tool::TOOL && !self.remote_shift_down() {
+            // NetworkToolItem.onItemUseFirst consumes this hand on ordinary
+            // blocks. Do not send the offhand air-use after its block-use.
+            let face=match hit.face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
+            if !self.ae2_network_tool_monitor_face((hit.pos[0],hit.pos[1],hit.pos[2]),face) {return true;}
+        }
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:color_applicator" {
+            // Source useOn consumes or fails on blocks; neither falls
+            // through to the separate air-use color-cycle behavior.
+            return true;
+        }
+        #[cfg(feature="ae2-lab")]
+        if stack.item.as_ref()=="ae2:entropy_manipulator" {
+            // Source useOn returns client SUCCESS before the server checks
+            // the effect. Suppress a second UseItem for the same solid click.
+            return horizon_client::ae2_powered_items::can_use(stack,1600.0);
+        }
         // FireworkRocketItem.useOn: SUCCESS unless gliding, when Item.use
         // boosts instead. The phase's cooldown/adventure gates already ran.
         if &*stack.item == "minecraft:firework_rocket" {
@@ -8868,19 +8893,6 @@ impl Game<'_> {
         })
     }
 
-        #[cfg(feature = "ae2-lab")]
-        if self.with_hand(hand, |g|g.ae2_try_guide_use(&held)){return true;}
-        // An addon's own use of its item on this client (Ender Drives' frequency screen).
-        #[cfg(feature = "ae2-lab")]
-        if let Some(ends) = self.with_hand(hand, |g| g.ae2_addon_item_use("enderdrives", &held)) {return ends;}
-        #[cfg(feature = "ae2-lab")]
-        if ae2_item_consumes_use(&held.item) {return true;}
-        #[cfg(feature = "ae2-lab")]
-        if held.item.as_ref() == "ae2:memory_card" && self.remote_shift_down() { return false; }
-        #[cfg(feature = "ae2-lab")]
-        if matches!(held.item.as_ref(), "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife") {
-            return true;
-        }
     /// Whether `held`'s `Item.use` needs a target this client sees none of
     /// (not SUCCESS): BucketItem.use (a fluid source or powder snow to pick
     /// up through `ClipContext.Fluid.SOURCE_ONLY`, a block to empty a full

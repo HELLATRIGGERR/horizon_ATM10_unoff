@@ -80,31 +80,6 @@ impl Game<'_> {
         }
         false
     }
-        #[cfg(feature = "ae2-lab")]
-        if matches!(stack.item.as_ref(), "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife") {
-            // The block's interaction has already passed. Knife useOn opens
-            // its menu and consumes this hand before air/offhand fallback.
-            return true;
-        }
-        #[cfg(feature = "ae2-lab")]
-        if stack.item.as_ref()==horizon_client::ae2_network_tool::TOOL && !self.remote_shift_down() {
-            // NetworkToolItem.onItemUseFirst consumes this hand on ordinary
-            // blocks. Do not send the offhand air-use after its block-use.
-            let face=match hit.face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",_=>"east"};
-            if !self.ae2_network_tool_monitor_face((hit.pos[0],hit.pos[1],hit.pos[2]),face) {return true;}
-        }
-        #[cfg(feature="ae2-lab")]
-        if stack.item.as_ref()=="ae2:color_applicator" {
-            // Source useOn consumes or fails on blocks; neither falls
-            // through to the separate air-use color-cycle behavior.
-            return true;
-        }
-        #[cfg(feature="ae2-lab")]
-        if stack.item.as_ref()=="ae2:entropy_manipulator" {
-            // Source useOn returns client SUCCESS before the server checks
-            // the effect. Suppress a second UseItem for the same solid click.
-            return horizon_client::ae2_powered_items::can_use(stack,1600.0);
-        }
 }
 
 #[cfg(test)]

@@ -63,6 +63,8 @@ pub fn damage_type(kind: DamageKind, caused: bool) -> &'static str {
         K::Arrow => "minecraft:arrow",
         K::Thrown => "minecraft:thrown",
         K::Fireball => "minecraft:fireball",
+        #[cfg(feature = "ae2-lab")]
+        K::MatterCannon => "ae2:matter_cannon",
         K::Explosion if caused => "minecraft:player_explosion",
         K::Explosion => "minecraft:explosion",
         K::Fall => "minecraft:fall",

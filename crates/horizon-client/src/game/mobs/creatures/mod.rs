@@ -8597,8 +8597,6 @@ fn bucketable(species: Species) -> Option<(&'static str, &'static str)> {
         _ => return None,
     })
 }
-        #[cfg(feature="ae2-lab")]
-        K::MatterCannon => "ae2:matter_cannon",
 pub(super) use horizon_client::health::{damage_type, melee, source_damage_type};
 /// A Horizon item stack as a loot stack (id, count, damage, enchantments,
 /// and its custom data as SNBT for `minecraft:custom_data` predicates).

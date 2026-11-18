@@ -5882,8 +5882,6 @@ mod merchant_packet_tests {
                 &[],
                 &[],
             );
-            #[cfg(feature = "ae2-lab")]
-            ae2_visual_sent: Default::default(),
             let config = horizon_client::lan::hub::HubConfig {
                 default_game_mode: 0,
                 guest_commands: false,
@@ -5932,6 +5930,8 @@ mod merchant_packet_tests {
             ));
             hub.guests.push(guest);
             game.lan = Some(super::LanHost {
+                #[cfg(feature = "ae2-lab")]
+                ae2_visual_sent: Default::default(),
                 hub,
                 players_told_left: false,
                 settings: super::LanSettings {

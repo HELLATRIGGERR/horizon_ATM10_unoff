@@ -11749,7 +11749,7 @@ impl Game<'_> {
     /// default state is a source (JEI's `FluidStackListFactory`), water and
     /// lava, then the content mods' fluids. API 441.
     pub(super) fn native_fluids(&self) -> Vec<String> {
-        let mut fluids = vec!["minecraft:water".to_owned(), "minecraft:lava".to_owned()];
+        let mut fluids = Vec::from(["minecraft:water".to_owned(), "minecraft:lava".to_owned()]);
         fluids.extend(
             horizon_world::mod_fluids::mod_fluids()
                 .iter()

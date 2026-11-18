@@ -29,7 +29,18 @@ impl Game<'_> {
         }
         self.craft_size = 2;
         self.container = None;
-        self.station = Some(Station::new_kind(kind, pos));
+        #[allow(unused_mut)]
+        let mut station=Station::new_kind(kind,pos);
+        #[cfg(feature = "ae2-lab")]
+        {
+            station.quartz_knife=quartz_knife;
+            // QuartzKnifeScreen's name box takes text without an input item,
+            // unlike AnvilScreen's (`anvil::rename_box`), which only `slotChanged` opens.
+            station.rename.editable|=quartz_knife;
+        }
+        #[cfg(not(feature = "ae2-lab"))]
+        let _ = quartz_knife;
+        self.station = Some(station);
         self.set_screen(Screen::Inventory);
         self.capture(false);
     }

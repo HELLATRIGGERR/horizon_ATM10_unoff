@@ -741,7 +741,8 @@ impl Game<'_> {
                 border,
                 blocks,
             );
-            t.fuse > 0
+            // AE2's tiny TNT explodes once its fuse is below zero.
+            if t.tiny { t.fuse >= 0 } else { t.fuse > 0 }
         });
         // PrimedTnt.tick: while the fuse is still lit, a client adds one SMOKE
         // particle at (x, y + 0.5, z) (AE2's tiny TNT at its feet). The

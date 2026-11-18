@@ -9616,7 +9616,7 @@ impl Game<'_> {
         else {
             return;
         };
-        let batch = HudBatch::new(size, self.settings.gui_scale_inputs());
+        let batch = self.screen_batch(size);
         let Some(internal) = self.slot_at(&batch, self.cursor.0, self.cursor.1) else {
             return;
         };

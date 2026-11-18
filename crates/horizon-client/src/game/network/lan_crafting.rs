@@ -49,9 +49,13 @@ pub(super) struct GuestMenuEffects {
     dropped: Vec<ItemStack>,
     equipped: Vec<(&'static str, Option<ItemStack>)>,
     brewed: Vec<ItemStack>,
+    /// The potions taken from a brewing stand, for `native_player_brewed_potion`.
+    brewed_potion_takes: Vec<ItemStack>,
+    /// `Stats.ITEM_CRAFTED` counts, awarded before the recipe the take used.
+    crafted_counts: Vec<(std::sync::Arc<str>, i32)>,
     crafted: Vec<(String, Vec<Option<ItemStack>>)>,
-    /// What the click crafted, for `native_item_crafted`.
-    item_crafted: Vec<(String, ItemStack)>,
+    /// What the click crafted, with its inputs, for `native_item_crafted`.
+    item_crafted: Vec<(String, ItemStack, Vec<Option<ItemStack>>)>,
 }
 
 impl GuestMenuEffects {
@@ -59,6 +63,8 @@ impl GuestMenuEffects {
         self.dropped.extend(other.dropped);
         self.equipped.extend(other.equipped);
         self.brewed.extend(other.brewed);
+        self.brewed_potion_takes.extend(other.brewed_potion_takes);
+        self.crafted_counts.extend(other.crafted_counts);
         self.crafted.extend(other.crafted);
         self.item_crafted.extend(other.item_crafted);
     }
@@ -201,21 +207,20 @@ impl Game<'_> {
         menu: &mut Menu,
         op: impl FnOnce(&mut Menu, &Env) -> R,
     ) -> Option<R> {
-        self.lan.as_ref()?;
-        let (result, effects) = self.guest_menu_op_deferred(host, gi, menu, op);
-        self.apply_guest_menu_effects(host, gi, effects);
-        result
+        let (result, effects) = self.guest_menu_op_deferred(gi, menu, op)?;
+        self.apply_guest_menu_effects(gi, effects);
+        Some(result)
     }
 
     /// Run the menu and copy player state back, but leave world-visible effects
     /// to the caller after its own physical inventory transaction commits.
     pub(super) fn guest_menu_op_deferred<R>(
         &mut self,
-        host: &mut LanHost,
         gi: usize,
         menu: &mut Menu,
         op: impl FnOnce(&mut Menu, &Env) -> R,
-    ) -> (R, GuestMenuEffects) {
+    ) -> Option<(R, GuestMenuEffects)> {
+        self.lan.as_ref()?;
         // Crafting and cartography read and derive this level's saved maps.
         let maps = matches!(
             menu.kind(),
@@ -287,16 +292,34 @@ impl Game<'_> {
             },
             equipped: std::mem::take(&mut menu.equipped),
             brewed: std::mem::take(&mut menu.brewed),
+            brewed_potion_takes: std::mem::take(&mut menu.brewed_potion_takes),
+            crafted_counts: std::mem::take(&mut menu.crafted_counts),
             crafted: std::mem::take(&mut menu.crafted),
             item_crafted: std::mem::take(&mut menu.item_crafted),
         };
-        let brewed_potion_takes = std::mem::take(&mut menu.brewed_potion_takes);
-        let crafted_counts = std::mem::take(&mut menu.crafted_counts);
         menu.drops.clear();
         let host = self.lan.as_mut()?;
         host.hub
             .guests
             .update(gi, |guest| store_player(menu, guest));
+        Some((result, effects))
+    }
+
+    /// What `guest_menu_op_deferred` left for after the caller's commit: the
+    /// guest's statistics, triggers and hooks, their equipment, what dropped.
+    pub(super) fn apply_guest_menu_effects(&mut self, gi: usize, effects: GuestMenuEffects) {
+        let GuestMenuEffects {
+            dropped,
+            equipped,
+            brewed,
+            brewed_potion_takes,
+            crafted_counts,
+            crafted,
+            item_crafted,
+        } = effects;
+        let Some(host) = self.lan.as_ref() else {
+            return;
+        };
         let guest = &host.hub.guests[gi];
         let (conn, uuid, entity_id) = (guest.conn, guest.uuid, guest.entity_id);
         // `ItemStack.onCraftedBy`'s `Stats.ITEM_CRAFTED` count, before the
@@ -343,7 +366,6 @@ impl Game<'_> {
             });
         }
         self.drop_guest_items(gi, dropped);
-        Some(result)
     }
 
     /// `InventoryMenu.slotsChanged` for guest `uuid`'s crafting grid written outside a click

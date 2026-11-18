@@ -24,6 +24,11 @@ impl<'w> DryLevel<'w> {
 impl horizon_world::level::BlockEntityNeighbors for DryLevel<'_> {}
 
 impl horizon_world::level::LevelAccess for DryLevel<'_> {
+    fn custom_crank(&self, state: BlockStateId) -> bool { self.base.custom_crank(state) }
+    fn custom_crankable(&self, pos: horizon_core::position::BlockPos, side: horizon_core::geometry::Direction) -> bool { self.base.custom_crankable(pos, side) }
+    fn custom_center_fixture(&self, state: BlockStateId) -> bool {
+        self.base.custom_center_fixture(state)
+    }
     fn cake_can_eat(&self, vanilla: bool) -> bool {
         self.base.cake_can_eat(vanilla)
     }

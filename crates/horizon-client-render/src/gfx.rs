@@ -2499,7 +2499,6 @@ impl Renderer {
             count: None,
         };
         let vf = wgpu::ShaderStages::VERTEX_FRAGMENT;
-        let sprite_arrays = layers.div_ceil(split).max(1);
         if sprite_arrays > 1 {
             log::info!("Horizon: {layers} block textures in {sprite_arrays} arrays");
         }
@@ -2507,9 +2506,23 @@ impl Renderer {
             ("SPRITE_ARRAYS", f64::from(sprite_arrays)),
             ("SPRITE_SPLIT", f64::from(split)),
         ];
+        // A pack past the arrays terrain.wgsl declares binds the rest from 13 on
+        // (`terrain_shader_with`).
+        let sprite_array = wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2Array,
+            multisampled: false,
+        };
+        let terrain_entries: Vec<_> = native_material::terrain_entries()
+            .into_iter()
+            .chain(
+                (SPRITE_ARRAYS..sprite_arrays)
+                    .map(|i| entry(13 + i - SPRITE_ARRAYS, vf, sprite_array)),
+            )
+            .collect();
         let bindings = kept.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Horizon terrain bindings"),
-            entries: &native_material::terrain_entries(),
+            entries: &terrain_entries,
         });
         let layout = kept.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Horizon terrain layout"),

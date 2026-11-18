@@ -1196,7 +1196,12 @@ impl HudAtlas {
                     .filter(|p| seen.insert(p.clone())),
             );
         }
-        // Native and content resources may use any namespace in the resolved pack.
+        // Native and content resources may use any namespace in the resolved pack. Of a mod's
+        // entity textures only the equipment layers and its mobs' own (`entity-types.json`'s
+        // `texture`) are sure to be drawn: the rest, like its GUI textures, only a native mod's
+        // code draws, so they are `optional`, the GUI ones first.
+        let mob_textures = mod_mob_textures(root);
+        let (mut optional, mut optional_entity) = (Vec::new(), Vec::new());
         for namespace in root
             .namespaces("assets")
             .into_iter()
@@ -1207,15 +1212,28 @@ impl HudAtlas {
                     || (folder == "particle" && folders.contains(&"particle"))
                     || (folder == "gui" && full)
                 {
-                    walk(
-                        root,
-                        &format!("assets/{namespace}/textures/{folder}"),
-                        &mut files,
-                    );
+                    let dir = format!("assets/{namespace}/textures/{folder}");
+                    match folder {
+                        "entity" => {
+                            let mut walked = Vec::new();
+                            walk(root, &dir, &mut walked);
+                            let equipment = format!("{dir}/equipment/");
+                            let (sure, rest): (Vec<String>, Vec<String>) =
+                                walked.into_iter().partition(|p| {
+                                    p.starts_with(&equipment) || mob_textures.contains(p)
+                                });
+                            files.extend(sure);
+                            optional_entity.extend(rest);
+                        }
+                        "gui" => walk(root, &dir, &mut optional),
+                        _ => walk(root, &dir, &mut files),
+                    }
                 }
             }
         }
+        optional.extend(optional_entity);
         files.retain(|p| !menu_pictures::menu_picture_only(p));
+        optional.retain(|p| !menu_pictures::menu_picture_only(p));
         // OptiFine random entity variants, under the names their scan gives them (those
         // outside `textures/` are `<ns>:optifine/random/...`).
         let random_textures = if folders.contains(&"entity") {
@@ -1279,7 +1297,7 @@ impl HudAtlas {
                 .collect();
             files.retain(|p| (!named.contains_key(p) || kept.contains(p)) && !orphans.contains(p));
             // Those beside their texture are walked already.
-            let walked: HashSet<&String> = files.iter().collect();
+            let walked: HashSet<&String> = files.iter().chain(&optional).collect();
             let mut extra: Vec<String> = kept
                 .iter()
                 .filter(|p| !walked.contains(p))
@@ -1398,7 +1416,7 @@ impl HudAtlas {
             .then_some(((name, w, h, pixels), flags, gui_size, animated, maps))
         };
         let threads = std::thread::available_parallelism().map_or(2, |n| n.get());
-        let decode_all = |files: &[PathBuf]| -> Vec<Decoded> {
+        let decode_all = |files: &[String]| -> Vec<Decoded> {
             let chunk = files.len().div_ceil(threads).max(1);
             std::thread::scope(|scope| {
                 let handles: Vec<_> = files
@@ -1601,14 +1619,14 @@ impl HudAtlas {
         // The optional textures, GUI ones before entity ones and the small before the large of each: when not all
         // fit, most of what a native mod's screen may draw stays. By their headers alone: ATM10 has 12,446, and
         // decoding the ones left out cost more memory than the atlas.
-        let headers = crate::par::par_map(&optional, |p| png_size(p));
-        let mut sized: Vec<(PathBuf, (u32, u32))> = optional
+        let headers = crate::par::par_map(&optional, |p| png_size(root, p));
+        let mut sized: Vec<(String, (u32, u32))> = optional
             .into_iter()
             .zip(headers)
             .filter_map(|(p, size)| Some((p, size?)))
             .collect();
         let area = |(w, h): (u32, u32)| u64::from(w) * u64::from(h);
-        let is_entity = |p: &Path| p.to_string_lossy().replace('\\', "/").contains("/textures/entity/");
+        let is_entity = |p: &str| p.contains("/textures/entity/");
         sized.sort_by_key(|(p, size)| (is_entity(p), area(*size)));
         let budget = crate::sprites::texture_budget() / 4;
         let required: Vec<(u32, u32)> = images.iter().map(|i| (i.1, i.2)).collect();
@@ -1626,7 +1644,7 @@ impl HudAtlas {
             );
         }
         sized.truncate(kept);
-        let chosen: Vec<PathBuf> = sized.into_iter().map(|(p, _)| p).collect();
+        let chosen: Vec<String> = sized.into_iter().map(|(p, _)| p).collect();
         for d in decode_all(&chosen) {
             keep(d, &mut maps, &mut flags, &mut gui_sizes, &mut animated, &mut images);
         }
@@ -3320,10 +3338,10 @@ impl HudRenderer {
 mod coverage_tests;
 
 /// The textures content mods' mob types are drawn with: each `texture`
-/// (`ns:entity/ghoul`) of a mod's row in the root's `entity-types.json`, as the
-/// file's path under `root` with `/` separators.
-fn mod_mob_textures(root: &Path) -> std::collections::HashSet<String> {
-    let Ok(bytes) = fs::read(root.join("entity-types.json")) else {
+/// (`ns:entity/ghoul`) of a mod's row in the root's `entity-types.json`, as its
+/// resource name (`assets/ns/textures/entity/ghoul.png`).
+fn mod_mob_textures(root: &ResourceSource) -> std::collections::HashSet<String> {
+    let Ok(bytes) = root.read("entity-types.json") else {
         return Default::default();
     };
     let Ok(serde_json::Value::Object(rows)) = serde_json::from_slice(&bytes) else {
@@ -3331,11 +3349,7 @@ fn mod_mob_textures(root: &Path) -> std::collections::HashSet<String> {
     };
     rows.values()
         .filter_map(|row| row.get("texture")?.as_str()?.split_once(':'))
-        .map(|(namespace, path)| {
-            root.join(format!("assets/{namespace}/textures/{path}.png"))
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
+        .map(|(namespace, path)| format!("assets/{namespace}/textures/{path}.png"))
         .collect()
 }
 

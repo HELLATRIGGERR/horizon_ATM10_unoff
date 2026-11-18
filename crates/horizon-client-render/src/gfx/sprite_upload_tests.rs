@@ -171,22 +171,46 @@ fn mip_chains_match_one_thread_making_every_layer() {
 #[test]
 fn sprite_split_follows_the_adapters_layer_limit() {
     // The Discord report: 512 layers per array, 1291 block textures (3 arrays).
-    assert_eq!(layer_split(512, false, None, 1291), Ok(512));
-    assert_eq!(layer_split(512, true, None, 1291), Ok(512));
-    assert_eq!(layer_split(2048, false, None, 1291), Ok(SPRITE_SPLIT));
-    assert_eq!(layer_split(8192, false, None, 1291), Ok(SPRITE_SPLIT));
+    assert_eq!(layer_split(512, false, None, 1291, SPRITE_ARRAYS), Ok(512));
+    assert_eq!(layer_split(512, true, None, 1291, SPRITE_ARRAYS), Ok(512));
+    assert_eq!(layer_split(2048, false, None, 1291, SPRITE_ARRAYS), Ok(SPRITE_SPLIT));
+    assert_eq!(layer_split(8192, false, None, 1291, SPRITE_ARRAYS), Ok(SPRITE_SPLIT));
     // HORIZON_SPRITE_SPLIT only lowers it.
-    assert_eq!(layer_split(2048, false, Some(512), 1291), Ok(512));
-    assert_eq!(layer_split(256, false, Some(512), 1291), Ok(256));
+    assert_eq!(layer_split(2048, false, Some(512), 1291, SPRITE_ARRAYS), Ok(512));
+    assert_eq!(layer_split(256, false, Some(512), 1291, SPRITE_ARRAYS), Ok(256));
     // OpenGL pads a multiple of 6 by a layer: a full array must still fit.
-    assert_eq!(layer_split(600, true, None, 1291), Ok(599));
-    assert_eq!(layer_split(600, false, None, 1291), Ok(600));
+    assert_eq!(layer_split(600, true, None, 1291, SPRITE_ARRAYS), Ok(599));
+    assert_eq!(layer_split(600, false, None, 1291, SPRITE_ARRAYS), Ok(600));
     assert_eq!(array_layers(599, true), 599);
     // Past the arrays terrain.wgsl binds.
-    assert_eq!(layer_split(256, false, None, 256 * SPRITE_ARRAYS), Ok(256));
-    let err = layer_split(128, false, None, 1291).unwrap_err();
+    assert_eq!(layer_split(256, false, None, 256 * SPRITE_ARRAYS, SPRITE_ARRAYS), Ok(256));
+    let err = layer_split(128, false, None, 1291, SPRITE_ARRAYS).unwrap_err();
     assert!(err.contains("128 texture layers per array"), "{err}");
-    assert!(layer_split(512, false, None, 512 * SPRITE_ARRAYS + 1).is_err());
+    assert!(layer_split(512, false, None, 512 * SPRITE_ARRAYS + 1, SPRITE_ARRAYS).is_err());
+    // A full modpack's sprites, on a GPU that binds the most arrays.
+    assert!(layer_split(2048, false, None, 36446, SPRITE_ARRAYS).is_err());
+    assert_eq!(layer_split(2048, false, None, 36446, MOST_SPRITE_ARRAYS), Ok(2048));
+}
+
+#[test]
+fn the_terrain_shader_grows_to_the_arrays_a_pack_needs() {
+    assert_eq!(terrain_shader_with(SPRITE_ARRAYS), terrain_shader());
+    for arrays in [SPRITE_ARRAYS + 1, 18, MOST_SPRITE_ARRAYS] {
+        let text = terrain_shader_with(arrays);
+        let last = arrays - 1;
+        assert!(text.contains(&format!("var sprites_{last}: ")), "{arrays}");
+        for call in ["textureSampleGrad", "textureSampleLevel"] {
+            assert!(text.contains(&format!("default: {{ return {call}(sprites_{last},")));
+            assert!(text.contains(&format!("case 7u: {{ return {call}(sprites_7,")));
+        }
+        let module = naga::front::wgsl::parse_str(&text).unwrap();
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap();
+    }
 }
 
 #[test]

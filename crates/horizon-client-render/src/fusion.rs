@@ -247,7 +247,7 @@ impl FusionTextures {
         let mut by_name: HashMap<String, Option<usize>> = HashMap::new();
         let mut rules: Vec<(usize, Connection)> = Vec::new();
         // A large pack's models wait to bake: the ones these sheets show bake now.
-        catalog.bake_showing(root, sprites, &shown);
+        catalog.bake_showing(sprites, &shown);
         for (variant, model) in catalog.models_mut() {
             if !model.faces.iter().any(|f| shown.contains(&f.layer)) {
                 continue;

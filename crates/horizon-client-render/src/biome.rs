@@ -15,35 +15,6 @@ use std::{
 /// The missing saved biomes already warned about in the open world: each dimension's table
 /// keeps its own placeholders, but a name is reported once per world.
 static WARNED_MISSING: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
-/// The biome files of every namespace but vanilla's (`data/<ns>/worldgen/biome`, its
-/// subfolders too), by id: what content mods add. They come after vanilla's, as the
-/// synchronized registry orders them: appending a mod must not renumber vanilla biomes.
-fn mod_biome_files(root: &Path) -> Result<Vec<(String, PathBuf)>> {
-    let Ok(entries) = fs::read_dir(root.join("data")) else {
-        return Ok(Vec::new());
-    };
-    let mut namespaces = entries
-        .collect::<std::io::Result<Vec<_>>>()?
-        .into_iter()
-        .filter(|e| e.path().is_dir())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|ns| ns != "minecraft")
-        .collect::<Vec<_>>();
-    namespaces.sort();
-    let mut files = Vec::new();
-    for namespace in namespaces {
-        let dir = root.join("data").join(&namespace).join("worldgen/biome");
-        if !dir.is_dir() {
-            continue;
-        }
-        for (name, path) in horizon_world::json_folder::list(&dir)? {
-            files.push((format!("{namespace}:{name}"), path));
-        }
-    }
-    files.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(files)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GrassModifier {
     None,
@@ -386,11 +357,6 @@ impl Biomes {
         for (name, v) in mod_biome_files(root.prepared()) {
             list.push(BiomeInfo::from_json(name.clone(), &v, &maps));
             files_by_name.insert(name, v);
-        }
-        // Then the content mods' biomes (AE2's spatial storage), by id.
-        for (name, path) in mod_biome_files(root)? {
-            let v: Value = serde_json::from_slice(&fs::read(&path)?)?;
-            list.push(BiomeInfo::from_json(name, &v, &maps));
         }
         let index = list
             .iter()

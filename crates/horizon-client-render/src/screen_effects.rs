@@ -257,7 +257,7 @@ impl ScreenEffects {
                 uv,
                 rect,
                 [brightness, brightness, brightness, 0.1],
-                texture_sampling("misc/underwater"),
+                texture_sampling(overlay),
             ));
         }
         out.extend_from_slice(input.custom[2]);
@@ -532,6 +532,7 @@ mod tests {
             partial: 0.0,
             block_overlay: Some("block/stone".to_owned()),
             water: None,
+            fluid_overlay: None,
             on_fire: true,
             fire_lower: 0.0,
             gui_overlays: &[],

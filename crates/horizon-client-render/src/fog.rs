@@ -199,7 +199,8 @@ fn camera_fog_type(
 /// (Bumblezone's sugar water is in `minecraft:water`, so its camera fog is water's).
 fn in_tag(f: Fluid, tag: &str) -> bool {
     match f {
-        Fluid::None => false,
+        // Upstream's mod world fluid: neither water nor lava to the camera.
+        Fluid::None | Fluid::Modded => false,
         Fluid::Water => tag == "minecraft:water",
         Fluid::Lava => tag == "minecraft:lava",
         Fluid::Mod(k) => horizon_world::fluid_stack::fluid_in_tag(k, tag),
@@ -239,7 +240,7 @@ pub fn camera_mod_fluid(
 /// 24 ahead), as the NeoForge oracle read them; the fog's own where the
 /// extension keeps it.
 pub fn apply_mod_fluid_fog(fog: &mut FogData, fluid: horizon_world::fluid::FluidKind) {
-    let Some(m) = fluid.mod_fluid() else {
+    let Some(m) = fluid.carried() else {
         return;
     };
     if let Some([r, g, b]) = m.fog_color {

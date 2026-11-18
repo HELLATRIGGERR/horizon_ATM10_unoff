@@ -93,10 +93,10 @@ pub enum Ae2ProviderSnapshot {
     /// Current typed block slots encoded without interpreting their contents.
     /// The generic world loader may already have normalized malformed input;
     /// that upstream boundary requires a separate losslessness audit.
-    Block { slot_count: usize, raw_slots: horizon_world::nbt::Tag, raw_priority: Option<horizon_world::nbt::Tag> },
+    Block { slot_count: usize, raw_slots: horizon_core::nbt::Tag, raw_priority: Option<horizon_core::nbt::Tag> },
     /// Preserve the entire part machine tag, including absent or malformed
     /// inventory/configuration, rather than decoding it at capture time.
-    Part { raw_machine: Option<horizon_world::nbt::Tag> },
+    Part { raw_machine: Option<horizon_core::nbt::Tag> },
 }
 /// AE2's priority setter remounts its existing decoded patterns; a pattern
 /// inventory callback rebuilds them first. These are not interchangeable.
@@ -109,7 +109,7 @@ pub enum Ae2ProviderRefreshCause { PrioritySetter, PatternsChanged }
 #[derive(Clone, Debug)]
 pub enum Ae2ProviderInitialInventory {
     Constructed,
-    Saved(Option<horizon_world::nbt::Tag>),
+    Saved(Option<horizon_core::nbt::Tag>),
     Unavailable,
 }
 /// The source CPU core flag at construction, before formation mutates it.
@@ -117,7 +117,7 @@ pub enum Ae2ProviderInitialInventory {
 #[derive(Clone, Debug)]
 pub enum Ae2CpuInitialCore {
     Constructed,
-    Saved(Option<horizon_world::nbt::Tag>),
+    Saved(Option<horizon_core::nbt::Tag>),
     Unavailable,
 }
 #[cfg(feature = "ae2-lab")]
@@ -130,10 +130,10 @@ pub enum Ae2MutationKind {
     /// Bulk removals retain the host's observed callback sequence; this does
     /// not claim that a different engine iterates its maps in the same order.
     EntityRemoved { incarnation: u64, entity: BlockEntity, bulk_unload: bool },
-    PartAdded { incarnation: u64, part: horizon_world::nbt::Tag },
-    PartRemoved { incarnation: u64, part: horizon_world::nbt::Tag },
-    PartChanged { incarnation: u64, before: horizon_world::nbt::Tag, after: horizon_world::nbt::Tag },
-    CenterChanged { incarnation: u64, before: Option<horizon_world::nbt::Tag>, after: Option<horizon_world::nbt::Tag> },
+    PartAdded { incarnation: u64, part: horizon_core::nbt::Tag },
+    PartRemoved { incarnation: u64, part: horizon_core::nbt::Tag },
+    PartChanged { incarnation: u64, before: horizon_core::nbt::Tag, after: horizon_core::nbt::Tag },
+    CenterChanged { incarnation: u64, before: Option<horizon_core::nbt::Tag>, after: Option<horizon_core::nbt::Tag> },
     ForcedMode { node: ae2_network_core::NodeIdentity, mode: Option<ae2_network_core::ChannelMode> },
     MeLink { a: ae2_network_core::NodeIdentity, b: ae2_network_core::NodeIdentity, added: bool },
     QuantumFaces { incarnation: u64, faces: u8 },
@@ -143,7 +143,7 @@ pub enum Ae2MutationKind {
     ProviderRefresh { node: ae2_network_core::NodeIdentity, face: Option<u8>, cause: Ae2ProviderRefreshCause, snapshot: Ae2ProviderSnapshot },
     /// A Level Emitter's committed face state at `configureWatchers`, which
     /// synchronously refreshes its crafting-provider registration.
-    EmitterProviderRefresh { node: ae2_network_core::NodeIdentity, face: u8, snapshot: horizon_world::nbt::Tag },
+    EmitterProviderRefresh { node: ae2_network_core::NodeIdentity, face: u8, snapshot: horizon_core::nbt::Tag },
     /// In-place NBT read updates physical data and current priority without
     /// invoking the provider's pattern or priority refresh callbacks.
     ProviderRawRead { node: ae2_network_core::NodeIdentity, snapshot: Ae2ProviderSnapshot },
@@ -173,9 +173,9 @@ pub struct BlockEntities {
     /// Raw vanilla components retained only for the incarnation that received
     /// them. Position-keyed chunk tags can otherwise belong to a removed BE.
     #[cfg(feature = "ae2-lab")]
-    vanilla_metadata: FxHashMap<Pos,(u64,horizon_world::nbt::Tag)>,
+    vanilla_metadata: FxHashMap<Pos,(u64,horizon_core::nbt::Tag)>,
     #[cfg(feature = "ae2-lab")]
-    vanilla_loaded_metadata: FxHashMap<Pos,horizon_world::nbt::Tag>,
+    vanilla_loaded_metadata: FxHashMap<Pos,horizon_core::nbt::Tag>,
     #[cfg(feature = "ae2-lab")]
     ae2_journal: std::sync::Mutex<Ae2Journal>,
     #[cfg(feature = "ae2-lab")]
@@ -519,6 +519,16 @@ impl BlockEntities {
             stateful_entities: self.stateful_entities.clone(),
             asleep: self.asleep.clone(),
             sign_editors: self.sign_editors.clone(),
+            generations: self.generations.clone(),
+            on_load: self.on_load.clone(),
+            on_load_enabled: self.on_load_enabled,
+            attachment_observer: self.attachment_observer.clone(),
+            retiring: self.retiring.clone(),
+            // In-flight state of the live world (piston-carried entities, a break's pending
+            // drops event, client copies): a shadow starts without it.
+            carried: Default::default(),
+            broken: None,
+            client_snapshots: Default::default(),
             #[cfg(feature="ae2-lab")]
             vanilla_metadata: self.vanilla_metadata.clone(),
             #[cfg(feature="ae2-lab")]
@@ -567,7 +577,7 @@ impl BlockEntities {
         Ok(std::mem::take(&mut journal.entries))
     }
     #[cfg(feature = "ae2-lab")]
-    pub fn record_ae2_part(&mut self, pos: Pos, part: horizon_world::nbt::Tag, added: bool) {
+    pub fn record_ae2_part(&mut self, pos: Pos, part: horizon_core::nbt::Tag, added: bool) {
         let Some(incarnation) = self.incarnation(&pos) else { return };
         let kind = if added { Ae2MutationKind::PartAdded { incarnation, part } }
             else { Ae2MutationKind::PartRemoved { incarnation, part } };
@@ -606,7 +616,7 @@ impl BlockEntities {
     /// Preserve the exact committed emitter face, tied to the same host and
     /// part incarnations that received the source callback.
     #[cfg(feature = "ae2-lab")]
-    pub fn record_ae2_emitter_provider_refresh(&self, pos: Pos, node: ae2_network_core::NodeIdentity, face: u8, snapshot: horizon_world::nbt::Tag) -> Result<(), &'static str> {
+    pub fn record_ae2_emitter_provider_refresh(&self, pos: Pos, node: ae2_network_core::NodeIdentity, face: u8, snapshot: horizon_core::nbt::Tag) -> Result<(), &'static str> {
         if !self.ae2_journal_enabled() { return Err("AE2 mutation journal is disabled"); }
         if self.incarnation(&pos) != Some(node.host) || node.outer || node.part.is_none() || face > 5 {
             return Err("emitter provider refresh identity mismatch");
@@ -672,13 +682,13 @@ impl BlockEntities {
     #[cfg(feature = "ae2-lab")]
     pub fn ae2_journal_enabled(&self) -> bool { self.ae2_journal_active.load(std::sync::atomic::Ordering::Acquire) }
     #[cfg(feature = "ae2-lab")]
-    pub fn record_ae2_part_change(&mut self, pos: Pos, before: horizon_world::nbt::Tag, after: horizon_world::nbt::Tag) {
+    pub fn record_ae2_part_change(&mut self, pos: Pos, before: horizon_core::nbt::Tag, after: horizon_core::nbt::Tag) {
         if before == after { return; }
         let Some(incarnation) = self.incarnation(&pos) else { return };
         self.record_ae2(pos, Ae2MutationKind::PartChanged { incarnation, before, after });
     }
     #[cfg(feature = "ae2-lab")]
-    pub fn record_ae2_center_change(&mut self, pos: Pos, before: Option<horizon_world::nbt::Tag>, after: Option<horizon_world::nbt::Tag>) {
+    pub fn record_ae2_center_change(&mut self, pos: Pos, before: Option<horizon_core::nbt::Tag>, after: Option<horizon_core::nbt::Tag>) {
         if before == after { return; }
         let Some(incarnation) = self.incarnation(&pos) else { return };
         self.record_ae2(pos, Ae2MutationKind::CenterChanged { incarnation, before, after });
@@ -704,7 +714,7 @@ impl BlockEntities {
     /// Bind decoded raw data to the actual live container, never its address
     /// alone. Temporary `take`/`put` preserves its incarnation.
     #[cfg(feature = "ae2-lab")]
-    pub fn remember_vanilla_metadata(&mut self,pos:Pos,raw:&horizon_world::nbt::Tag) {
+    pub fn remember_vanilla_metadata(&mut self,pos:Pos,raw:&horizon_core::nbt::Tag) {
         if !self.map.get(&pos).is_some_and(vanilla_metadata_entity) {return}
         if let Some(incarnation)=self.incarnation(&pos) {
             self.vanilla_metadata.insert(pos,(incarnation,raw.clone()));
@@ -715,7 +725,7 @@ impl BlockEntities {
         self.map.get(pos).is_some_and(vanilla_metadata_entity)
     }
     #[cfg(feature = "ae2-lab")]
-    pub fn vanilla_metadata(&self,pos:&Pos)->Option<&horizon_world::nbt::Tag> {
+    pub fn vanilla_metadata(&self,pos:&Pos)->Option<&horizon_core::nbt::Tag> {
         let (owner,raw)=self.vanilla_metadata.get(pos)?;
         (self.incarnation(pos)==Some(*owner)).then_some(raw)
     }
@@ -1174,7 +1184,7 @@ impl BlockEntities {
     /// result means the Added record has already escaped or overflowed and the
     /// caller must not continue relying on the ordered observer as authoritative.
     #[cfg(feature = "ae2-lab")]
-    pub fn refresh_pending_placed_ae2(&self, pos: Pos, raw: Option<&horizon_world::nbt::Tag>) -> Option<bool> {
+    pub fn refresh_pending_placed_ae2(&self, pos: Pos, raw: Option<&horizon_core::nbt::Tag>) -> Option<bool> {
         if !self.ae2_journal_enabled() {return None;}
         let BlockEntity::Ae2(machine)=self.map.get(&pos)? else {return None};
         let incarnation=match self.incarnation(&pos) {Some(id)=>id,None=>return Some(false)};
@@ -1198,7 +1208,7 @@ impl BlockEntities {
     /// unlike a freshly constructed entity. Keep the replacement's remove/add
     /// callbacks and original raw snapshot in the same journal transaction.
     #[cfg(feature = "ae2-lab")]
-    pub fn replace_from_data(&mut self, pos: Pos, entity: BlockEntity, raw: &horizon_world::nbt::Tag) -> Option<BlockEntity> {
+    pub fn replace_from_data(&mut self, pos: Pos, entity: BlockEntity, raw: &horizon_core::nbt::Tag) -> Option<BlockEntity> {
         let previous_incarnation = self.incarnation(&pos);
         let old = self.map.insert(pos, entity);
         self.new_incarnation(pos);
@@ -1295,6 +1305,12 @@ impl BlockEntities {
         let entity = self.map.remove(pos)?;
         let token = next_token();
         self.out.insert(*pos, token);
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_journal_enabled()
+            && let (Some(incarnation), BlockEntity::Ae2(_)) = (self.incarnation(pos), &entity)
+        {
+            self.ae2_taken.insert(*pos, (incarnation, entity.clone()));
+        }
         let generation = self.generations[pos];
         Some((
             BlockEntityLease {
@@ -1325,12 +1341,6 @@ impl BlockEntities {
             || self.generation(&pos) != Some(lease.generation)
         {
             return false;
-            #[cfg(feature = "ae2-lab")]
-            if self.ae2_journal_enabled() {
-                if let (Some(incarnation), Some(entity @ BlockEntity::Ae2(_))) = (self.incarnation(pos), taken.as_ref()) {
-                    self.ae2_taken.insert(*pos, (incarnation, entity.clone()));
-                }
-            }
         }
         self.out.remove(&pos);
         self.asleep.remove(&pos);
@@ -1339,7 +1349,8 @@ impl BlockEntities {
         if matches!(entity, BlockEntity::Mod(_)) {
             self.mods.entry(chunk_of(pos)).or_default().insert(pos);
         }
-        if !was_out || !self.incarnations.contains_key(&pos) {
+        // A taken entity keeps its incarnation; one whose slot lost it is a new one.
+        if !self.incarnations.contains_key(&pos) {
             self.new_incarnation(pos);
             #[cfg(feature = "ae2-lab")]
             if self.ae2_journal_enabled() && matches!(entity, BlockEntity::Ae2(_)) {
@@ -1349,11 +1360,10 @@ impl BlockEntities {
         }
         self.note_box(pos, Some(&entity));
         self.note_sign_editor(pos, &entity);
-        let old = self.map.insert(pos, entity);
-        if !was_out {
-            self.note_mod_change(pos, old.as_ref());
-        }
-        if old.is_none() && !self.live.contains_key(&pos) && !self.pending.contains_key(&pos) {
+        if self.map.insert(pos, entity).is_none()
+            && !self.live.contains_key(&pos)
+            && !self.pending.contains_key(&pos)
+        {
             self.add(pos);
         }
         true
@@ -1362,6 +1372,16 @@ impl BlockEntities {
         let mut out = std::mem::take(&mut self.out);
         out.retain(|pos, _| {
             if gone(pos) {
+                // A taken AE2 entity that never came back left the world: AE2 hears of it.
+                #[cfg(feature = "ae2-lab")]
+                if !self.map.contains_key(pos)
+                    && let Some((incarnation, entity)) = self.ae2_taken.remove(pos)
+                {
+                    self.record_ae2(
+                        *pos,
+                        Ae2MutationKind::EntityRemoved { incarnation, entity, bulk_unload: false },
+                    );
+                }
                 self.remove(pos);
                 false
             } else {
@@ -1642,7 +1662,7 @@ mod mod_lifecycle_tests {
     fn cable(energy: i32) -> BlockEntity {
         let mut m = ModBlockEntity::default();
         m.id = "mod:cable".into();
-        m.nbt.insert(horizon_world::nbt::JavaString::from("energy"), horizon_world::nbt::Tag::Int(energy));
+        m.nbt.insert(horizon_core::nbt::JavaString::from("energy"), horizon_core::nbt::Tag::Int(energy));
         BlockEntity::Mod(Box::new(m))
     }
 
@@ -1661,8 +1681,8 @@ mod mod_lifecycle_tests {
         assert!(added.is_empty());
         assert_eq!(removed.len(), 1);
         assert_eq!(removed[0].0, p);
-        let energy = horizon_world::nbt::JavaString::from("energy");
-        assert_eq!(removed[0].1.nbt.get(&energy), Some(&horizon_world::nbt::Tag::Int(1)), "as it was");
+        let energy = horizon_core::nbt::JavaString::from("energy");
+        assert_eq!(removed[0].1.nbt.get(&energy), Some(&horizon_core::nbt::Tag::Int(1)), "as it was");
     }
 
     #[test]
@@ -1709,7 +1729,7 @@ mod tests {
     #[cfg(feature = "ae2-lab")]
     #[test]
     fn vanilla_metadata_follows_loaded_incarnation_and_never_a_replacement() {
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         use std::sync::Arc;
         let p=(2,64,3);
         let raw=Tag::compound([
@@ -2027,7 +2047,7 @@ mod tests {
     #[test]
     fn opt_in_ae2_journal_records_ordered_state_entity_and_part_mutations() {
         use crate::ae2_world::{Machine, MachineKind};
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut b = level(); let p = (2,64,3);
         b.start_ae2_journal();
         b.state_changed(p, 0, 17);
@@ -2063,7 +2083,7 @@ mod tests {
     #[test]
     fn ae2_raw_replacement_records_loaded_state_without_losing_lifecycle() {
         use crate::ae2_world::{Machine,MachineKind};
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut entities=level(); let p=(1,64,2);
         entities.start_ae2_journal();
         entities.insert(p,BlockEntity::Ae2(Box::new(Machine::new(MachineKind::PatternProvider))));
@@ -2081,7 +2101,7 @@ mod tests {
     fn placed_item_import_keeps_incarnation_and_updates_pending_ready_data() {
         use crate::ae2_world::{Machine,MachineKind};
         use crate::items::ItemStack;
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut entities=level();entities.start_ae2_journal();
         let provider=(1,64,2);let cpu=(2,64,2);let energy=(3,64,2);
         for (pos,kind) in [(provider,MachineKind::PatternProvider),(cpu,MachineKind::CraftingStorage1k),(energy,MachineKind::EnergyCell)] {
@@ -2119,7 +2139,7 @@ mod tests {
     fn provider_refresh_snapshots_preserve_raw_data_and_reject_stale_owners() {
         use crate::ae2_world::{Machine, MachineKind};
         use ae2_network_core::NodeIdentity;
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let mut b=level();let pos=(3,64,2);b.start_ae2_journal();
         b.insert(pos,BlockEntity::Ae2(Box::new(Machine::new(MachineKind::PatternProvider))));
         let block=NodeIdentity{host:b.incarnation(&pos).unwrap(),part:None,outer:false};

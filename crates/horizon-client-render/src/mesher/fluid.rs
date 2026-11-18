@@ -271,7 +271,7 @@ pub(super) fn tesselate(
         None if water => water_color & 0xFF_FFFF,
         None => 0xFF_FFFF,
     };
-    let emission = if water || modded.is_some() {
+    let emission = if water {
         0
     } else {
         crate::mesher::hdr_tier("lava", 15)
@@ -352,10 +352,12 @@ pub(super) fn tesselate(
             tables.water_still,
             tables.water_flow,
             Some(tables.water_overlay),
-        ),
-        None => (tables.lava_still, tables.lava_flow, None),
+        )
+    } else {
+        (tables.lava_still, tables.lava_flow, None)
     };
-    let (target, target_looks, sprite_layers) = if water {
+    // Water's layer, or a mod fluid's: a carried fluid's own (solid unless translucent).
+    let (target, target_looks, sprite_layers) = if model.map_or(water, |model| model.translucent) {
         (
             &mut out.translucent,
             &mut out.translucent_looks,

@@ -1,6 +1,6 @@
 //! Experimental persistent AE2 machine state. Simulation belongs to the game.
 use crate::items::ItemStack;
-use horizon_world::nbt::Compound;
+use horizon_core::nbt::Compound;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MachineKind {
@@ -574,18 +574,18 @@ impl Machine {
             if !key.to_string_lossy().starts_with(ASSEMBLER_THREAD_PREFIX) {
                 continue;
             }
-            if let Some(horizon_world::nbt::Tag::List(entries)) = thread.get("slots") {
+            if let Some(horizon_core::nbt::Tag::List(entries)) = thread.get("slots") {
                 out.extend(entries.iter().take(10).filter_map(horizon_items::item_nbt::item_from_nbt));
             }
         }
         if self.kind.is_crafting() {
-            if let Some(horizon_world::nbt::Tag::List(entries)) =
+            if let Some(horizon_core::nbt::Tag::List(entries)) =
                 self.config.get(&"ae2_cpu_escrow".into())
             {
                 for entry in entries {
                     // Decoder's compatibility repairs are unsafe for escrow:
                     // require a positive saved count before decoding.
-                    if matches!(entry.get("count"),Some(horizon_world::nbt::Tag::Int(n)) if *n>0) {
+                    if matches!(entry.get("count"),Some(horizon_core::nbt::Tag::Int(n)) if *n>0) {
                         if let Some(stack) = horizon_items::item_nbt::item_from_nbt(entry) {
                             out.push(stack);
                         }
@@ -594,11 +594,11 @@ impl Machine {
             }
         }
         if self.kind == MachineKind::PatternProvider {
-            if let Some(horizon_world::nbt::Tag::List(entries)) =
+            if let Some(horizon_core::nbt::Tag::List(entries)) =
                 self.config.get(&"ae2_provider_return_items".into())
             {
                 for entry in entries.iter().take(9) {
-                    if matches!(entry.get("count"),Some(horizon_world::nbt::Tag::Int(n)) if *n>0) {
+                    if matches!(entry.get("count"),Some(horizon_core::nbt::Tag::Int(n)) if *n>0) {
                         if let Some(stack) = horizon_items::item_nbt::item_from_nbt(entry) {
                             out.push(stack);
                         }
@@ -609,10 +609,10 @@ impl Machine {
                 if let Ok(entries)=crate::ae2_provider_queue::read(&self.config) {
                     if let Ok(items)=crate::ae2_provider_queue::physical_items(&entries) {out.extend(items);}
                 }
-            } else if let Some(horizon_world::nbt::Tag::List(entries)) = self.config.get(&"ae2_provider_send_items".into()) {
+            } else if let Some(horizon_core::nbt::Tag::List(entries)) = self.config.get(&"ae2_provider_send_items".into()) {
                 if entries.len() <= 8192 {
                     for entry in entries {
-                        if matches!(entry.get("count"),Some(horizon_world::nbt::Tag::Int(n)) if *n>0) {
+                        if matches!(entry.get("count"),Some(horizon_core::nbt::Tag::Int(n)) if *n>0) {
                             if let Some(stack)=horizon_items::item_nbt::item_from_nbt(entry) {out.push(stack);}
                         }
                     }

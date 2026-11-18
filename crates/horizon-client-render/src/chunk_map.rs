@@ -161,7 +161,13 @@ impl ChunkMap {
             min_valid_revision: revision,
             recent_deltas: VecDeque::new(),
             fresh: self.fresh.clone(),
+            attachment_observer: self.attachment_observer.clone(),
             near: self.near.clone(),
+            // Another map: a consumer's touch cursor of this one reads it all again.
+            identity: next_revision(),
+            touched: VecDeque::new(),
+            touched_base: 0,
+            touched_all: 0,
         }
     }
 

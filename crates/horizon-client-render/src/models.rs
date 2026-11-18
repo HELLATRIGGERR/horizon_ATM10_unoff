@@ -186,7 +186,9 @@ pub(crate) fn prepare_with_models(
     models: &crate::model_library::ParsedModels,
     lazy: bool,
 ) -> Result<PreparedModels> {
-    let facts: std::collections::BTreeMap<String, Value> =
+    // Each block's entry stays text until its block is reached: a large pack's file is 70 MB,
+    // ten times that as a tree.
+    let facts: std::collections::BTreeMap<String, Box<serde_json::value::RawValue>> =
         horizon_world::json_file::read(&root.prepared().join("model-states.json"))?;
     let blocks: Vec<&str> = facts
         .keys()
@@ -202,6 +204,7 @@ pub(crate) fn prepare_with_models(
             sprites,
             &facts,
             models,
+            lazy,
         )?
     };
     {

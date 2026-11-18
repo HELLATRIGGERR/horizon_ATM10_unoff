@@ -8,7 +8,7 @@
 use crate::items::ItemStack;
 use horizon_items::item_nbt as save;
 use ae2_cell_core::ItemKey;
-use horizon_world::nbt::{Compound,Tag};
+use horizon_core::nbt::{Compound,Tag};
 
 pub const QUEUE:&str="ae2_provider_send_queue";
 const OLD_ITEMS:&str="ae2_provider_send_items";
@@ -143,8 +143,8 @@ mod tests {
         let entries=vec![Entry::Fluid{key:water.clone(),amount:1000},Entry::Item{prototype:prototype.clone(),amount:999_999},Entry::Fluid{key:water,amount:500}];
         let mut config=Compound::default();write(&mut config,&entries).unwrap();
         assert_eq!(read(&config).unwrap(),entries);
-        let encoded=horizon_world::nbt::write_network(&Tag::Compound(config.clone()),Default::default()).unwrap();
-        let (Tag::Compound(restored),used)=horizon_world::nbt::read_network(&encoded,Default::default()).unwrap() else{panic!("invalid roundtrip")};
+        let encoded=horizon_core::nbt::write_network(&Tag::Compound(config.clone()),Default::default()).unwrap();
+        let (Tag::Compound(restored),used)=horizon_core::nbt::read_network(&encoded,Default::default()).unwrap() else{panic!("invalid roundtrip")};
         assert_eq!(used,encoded.len());assert_eq!(read(&restored).unwrap(),entries);
         assert_eq!(entries[1].amount(),999_999);assert_eq!(prototype.count,1);
         let physical=physical_items(&entries).unwrap();assert_eq!(physical.len(),1);assert_eq!(physical[0].count,999_999);

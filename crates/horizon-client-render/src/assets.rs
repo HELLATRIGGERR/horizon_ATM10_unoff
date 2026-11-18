@@ -433,7 +433,7 @@ impl RenderAssets {
                 .chain([fluid.overlay_texture.as_ref()])
                 .flatten()
             {
-                sprites.insert(root, name)?;
+                sprites.insert(name)?;
             }
         }
         for stage in 0..10 {

@@ -23,7 +23,7 @@ use serde_json::Value;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     fs,
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 /// `prepareQuadShape`: the quad's bounds, whether it is partial (smaller than
@@ -189,18 +189,17 @@ impl LazyBake {
 /// The sprites `bake_resolved` places for `model`, in its order (the particle, then each face's),
 /// without keeping the bake: the layers its faces draw, and the first face's layer on each side.
 fn place_sprites(
-    root: &Path,
     sprites: &mut Sprites,
     model: &horizon_assets::resolve::ResolvedCuboidModel,
     turns: [u8; 3],
     lock: bool,
 ) -> Result<(Box<[u32]>, Sides)> {
     if let Some(material) = model.material("particle")? {
-        sprites.insert(root, &material.sprite)?;
+        sprites.insert(&material.sprite)?;
     }
     let (mut layers, mut sides) = (Vec::new(), [None; 6]);
     for quad in bake_block_model(model, BlockModelTransform::new(turns, lock))? {
-        let layer = sprites.insert(root, &quad.material.sprite)?;
+        let layer = sprites.insert(&quad.material.sprite)?;
         let side = &mut sides[side_index(quad.facing)];
         side.get_or_insert(layer);
         layers.push(layer);
@@ -594,7 +593,16 @@ impl StateModels {
         let mut variant_sides = Vec::new();
         let mut index = BTreeMap::new();
         for ((name, turns, lock), model) in variants.into_iter().zip(resolved) {
-            let model = bake_resolved(sprites, &model?, turns, lock)?;
+            let model = model?;
+            let model = if lazy {
+                // Its sprites placed as the bake would, so the layers come out the same.
+                let (layers, sides) = place_sprites(sprites, &model, turns, lock)?;
+                variant_layers.push(layers);
+                variant_sides.push(sides);
+                OnceLock::new()
+            } else {
+                OnceLock::from(bake_resolved(sprites, &model, turns, lock)?)
+            };
             index.insert((name.clone(), turns, lock), baked.len() as u32);
             let variant = Variant {
                 model: name,
@@ -677,7 +685,7 @@ impl StateModels {
     /// A lazy load bakes now, with their sprite names, the models whose faces draw one of
     /// `layers`: Fusion matches their faces by sprite name ([`crate::fusion`]). The others have
     /// none of its rules, and bake when drawn.
-    pub(crate) fn bake_showing(&mut self, root: &Path, sprites: &mut Sprites, layers: &HashSet<u32>) {
+    pub(crate) fn bake_showing(&mut self, sprites: &mut Sprites, layers: &HashSet<u32>) {
         let Some(library) = self.library.clone() else {
             return;
         };
@@ -696,7 +704,7 @@ impl StateModels {
                 .resolve(&variant.model)
                 .map_err(Into::into)
                 .and_then(|model| {
-                    bake_resolved(root, sprites, &model, variant.rotations, variant.uv_lock)
+                    bake_resolved(sprites, &model, variant.rotations, variant.uv_lock)
                 });
             match baked {
                 Ok(model) => {
@@ -786,7 +794,7 @@ impl StateModels {
                             rotations: [0; 3],
                             uv_lock: false,
                         },
-                        model,
+                        OnceLock::from(model),
                     ));
                 }
                 Err(error) => log::warn!(
@@ -841,7 +849,8 @@ impl StateModels {
     }
     /// Geometry in this catalog's existing baked store.
     pub fn model_by_slot(&self, slot: u32) -> Option<&BakedModel> {
-        self.baked.get(slot as usize).map(|(_, model)| model)
+        let slot = slot as usize;
+        (slot < self.baked.len()).then(|| self.model(slot).1)
     }
     pub fn collect(
         &self,

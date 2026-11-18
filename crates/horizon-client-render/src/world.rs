@@ -340,7 +340,17 @@ impl World {
             block_entities: self.block_entities.placement_snapshot(),
             attachments: self.attachments.clone(),
             attachment_syncs: self.attachment_syncs.clone(),
-            // Derived cache; a shadow edit must not invalidate the live cache.
+            attachment_landings: self.attachment_landings.clone(),
+            // In-flight state of the live world (capability generations, locked carriers, water
+            // tickets): a shadow starts without it.
+            capability_generations: Default::default(),
+            carrier_fences: Default::default(),
+            carrier_data_existed_at_open: self.carrier_data_existed_at_open,
+            infiniburn: self.infiniburn.clone(),
+            light_checks: self.light_checks.clone(),
+            water_tickets: Default::default(),
+            // Derived caches; a shadow edit must not invalidate the live ones.
+            path_type_cache: OnceLock::new(),
             pois: Default::default(),
         }
     }

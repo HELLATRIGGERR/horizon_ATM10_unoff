@@ -836,8 +836,6 @@ pub struct MeshTables {
     lava_flow: u16,
     /// Each mod fluid's sprites, in registration order; none draws it as water.
     mod_fluids: Vec<Option<ModFluidLayers>>,
-    /// The content mods' fluids, in registry order.
-    mod_fluids: Vec<ModFluidRender>,
     animated_layers: Vec<bool>,
     /// The layers of the states mods colour (`register_block_tint_sources`).
     mod_tints: mod_tint::ModTints,
@@ -855,17 +853,10 @@ struct ModFluidLayers {
     overlay: Option<u16>,
     /// `0xRRGGBB`, or none for the biome's water colour.
     tint: Option<u32>,
-}
-/// A content mod's fluid as the fluid renderer draws it (its client
-/// extension's textures and tint, its render layer).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct ModFluidRender {
-    pub still: u16,
-    pub flow: u16,
-    pub overlay: Option<u16>,
-    /// RGB of `getTintColor`.
-    pub tint: u32,
-    pub translucent: bool,
+    /// Drawn in the translucent layer, as water is. A carried fluid's is its
+    /// own (NeoForge 1.21.1's render layer by fluid, solid unless the mod
+    /// registers translucent).
+    translucent: bool,
 }
 /// Vanilla's four biome colour functions (`BiomeColors`) with what the packs replace them by:
 /// `biome_colors` (a colormap or a flat colour), else the colormap a block modifier gives
@@ -1008,7 +999,20 @@ impl MeshTables {
         let fluid_models = crate::fluid_models::resolved();
         let mod_fluids = horizon_world::fluid::mod_fluids()
             .into_iter()
-            .map(|(_, fluid)| {
+            .map(|(handle, fluid)| {
+                // A carried fluid: its client extension's textures, tint and layer.
+                if let Some(m) = FluidKind::Mod(handle).carried() {
+                    return Some(ModFluidLayers {
+                        still: layer(&m.still_texture).ok()?,
+                        flow: layer(&m.flowing_texture).ok()?,
+                        overlay: match m.overlay_texture.as_deref() {
+                            Some(overlay) => Some(layer(overlay).ok()?),
+                            None => None,
+                        },
+                        tint: Some(m.tint & 0xFF_FFFF),
+                        translucent: m.translucent,
+                    });
+                }
                 let model = fluid_models.iter().find(|model| model.fluid == fluid.id)?;
                 Some(ModFluidLayers {
                     still: layer(&model.still).ok()?,
@@ -1018,6 +1022,7 @@ impl MeshTables {
                         crate::fluid_models::FluidTint::Biome => None,
                         crate::fluid_models::FluidTint::Fixed(tint) => Some(tint),
                     },
+                    translucent: true,
                 })
             })
             .collect();
@@ -1151,24 +1156,6 @@ impl MeshTables {
             lava_still: layer("minecraft:block/lava_still")?,
             lava_flow: layer("minecraft:block/lava_flow")?,
             mod_fluids,
-            // The assets stitched every registered mod fluid's sprites. One registered after
-            // that (a test's shared test fluids, from another thread) has none: it and those
-            // after it stay out, and `mod_fluid` draws them as vanilla's.
-            mod_fluids: horizon_world::mod_fluids::mod_fluids()
-                .iter()
-                .map_while(|m| {
-                    Some(ModFluidRender {
-                        still: layer(&m.still_texture).ok()?,
-                        flow: layer(&m.flowing_texture).ok()?,
-                        overlay: match m.overlay_texture.as_deref() {
-                            Some(overlay) => Some(layer(overlay).ok()?),
-                            None => None,
-                        },
-                        tint: m.tint & 0xFF_FFFF,
-                        translucent: m.translucent,
-                    })
-                })
-                .collect(),
             animated_layers,
             colormaps: Vec::new(),
             water_colormap: None,
@@ -1182,11 +1169,6 @@ impl MeshTables {
                 Some(mod_tint_values.ok_or("section geometry needs game-prepared metadata")?);
         }
         Ok(tables)
-    }
-    /// How a content mod's fluid is drawn; None for vanilla's.
-    pub(crate) fn mod_fluid(&self, kind: FluidKind) -> Option<&ModFluidRender> {
-        let index = usize::from(kind.id().checked_sub(5)?) / 2;
-        self.mod_fluids.get(index)
     }
     /// These tables with the colormaps of the Polytone block and fluid modifiers of the packs
     /// merged at `pack_root` (wiki "Colormaps"): a tinted block they target takes its colour

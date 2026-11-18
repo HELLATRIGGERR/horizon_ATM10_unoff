@@ -1355,7 +1355,12 @@ impl Streaming {
     #[doc(hidden)]
     pub fn test_receive(&mut self, x: i32, z: i32, chunk: Option<Chunk>, world: &mut World) {
         match chunk {
-            Some(chunk) => self.receive_generated(chunk, world),
+            Some(chunk) => {
+                // A dropped fresh column is saved, as the planner's save step does.
+                if let Some(chunk) = self.receive_generated(chunk, world) {
+                    self.save_finished(chunk);
+                }
+            }
             None => self.receive_proto(x, z, Box::new(()), false, world),
         }
     }
@@ -1583,7 +1588,7 @@ impl Streaming {
         if self.superseded_generation.remove(&key) || world.chunks.contains_key(&key) {
             // A synchronous authoritative install owns this coordinate, even
             // if it unloaded again before this old worker result arrived.
-            return;
+            return None;
         }
         self.decorated.insert(key);
         // A column that finished after the player moved away is dropped
@@ -1599,7 +1604,8 @@ impl Streaming {
             }
             return None;
         }
-        self.install_generated(chunk,world);
+        self.install_generated(chunk, world);
+        None
     }
     fn install_generated(&mut self, mut chunk: Chunk, world: &mut World) {
         let key=(chunk.x,chunk.z);
@@ -1644,7 +1650,6 @@ impl Streaming {
                 }
             }
         }
-        None
     }
     /// Finish a generated column's deferred save after its snapshot callback.
     pub fn save_finished(&self, chunk: Chunk) {
@@ -2554,10 +2559,10 @@ impl Streaming {
     }
     /// Every chunk a `/forceload` or a native mod's ticket holds, once each.
     pub fn forced_chunks(&self) -> impl Iterator<Item = &(i32, i32)> {
-        self.forced.union(&self.mod_forced)
+        self.forced.iter()
     }
     pub fn has_forced_chunks(&self) -> bool {
-        !self.forced.is_empty() || !self.mod_forced.is_empty()
+        !self.forced.is_empty()
     }
     fn ranges(&self) -> Ranges<'_> {
         Ranges {

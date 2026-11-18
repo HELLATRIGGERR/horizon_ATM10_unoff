@@ -13,6 +13,10 @@ impl Game<'_> {
         if self.ae2_guide_active() && key != KeyCode::Escape && self.ae2_guide_key(key) {
             return Ok(());
         }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_addon_screen_active() && key != KeyCode::Escape && self.ae2_addon_screen_key(key) {
+            return Ok(());
+        }
         self.direct_craft_stop();
         if self.screen == Screen::Playing && self.replay.playing() {
             self.studio_key(key);
@@ -99,6 +103,8 @@ impl Game<'_> {
                 Screen::Win => self.close_win_screen()?,
                 #[cfg(feature = "ae2-lab")]
                 Screen::Ae2Guide => self.ae2_guide_close(),
+                #[cfg(feature = "ae2-lab")]
+                Screen::Ae2Addon => self.ae2_addon_screen_close(),
                 Screen::DebugOptions => self.close_debug_options(),
                 Screen::Mod => self.close_mod_screen(),
                 Screen::Studio => self.close_studio_screen(),

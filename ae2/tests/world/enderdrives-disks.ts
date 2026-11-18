@@ -3,7 +3,8 @@
  * private disk is another storage; an input-only disk gives nothing, an output-only one takes nothing; a 1k disk holds
  * one type; a disk the server config turns off is FULL and works not; a second disk of one storage in the same network
  * sleeps (FULL, no drain, its items not counted twice); a disk drains 100 + 0.015 * items^0.8 AE/t; the storage
- * comes back after a restart. Needs content/enderdrives (ae2/scripts/prepare-addon.ts enderdrives) and a client built
+ * comes back after a restart. Slice 2: the frequency screen on a disk's use (its arrows, box and buttons, the packet
+ * on its close, screenshots), a disabled disk's message, shift-use disassembly. Needs content/enderdrives (ae2/scripts/prepare-addon.ts enderdrives) and a client built
  * with ae2-enderdrives. */
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -130,6 +131,50 @@ try {
   await until(() => leds(driveA), s => s[1] === 2, 'the second disk wakes', 30000);
   assert.equal(count(await status(driveA), 'minecraft:cobblestone'), 60);
   fixture.mark('a second disk of one storage on a network sleeps (FULL, no drain, not counted twice) and wakes when the first goes');
+
+  // Slice 2. A disk's use opens the frequency screen: three dye selectors (the hex digits), their arrows, the box, the
+  // transfer mode and scope buttons; its close sends UpdateFrequencyPacket for the main hand's disk.
+  await fixture.command('clear @s');
+  await fixture.replace('hotbar.0', disk('4k', 'ender_freq:291')); await fixture.select(0, 'enderdrives:ender_disk_4k');
+  await fixture.raw('use-item');
+  const ui = async (what: string, test: (u: any) => boolean) =>
+    (await until(() => fixture.raw('screen'), v => v.screen === 'ae2-addon' && !!v.addon_screen && test(v.addon_screen), what, 15000)).addon_screen;
+  let freq = await ui('the frequency screen', u => u.addon === 'enderdrives');
+  assert.deepEqual([freq.frequency, freq.dyes, freq.field, freq.scope, freq.mode], [291, [1, 2, 3], '291', 'global', 0]);
+  await Bun.sleep(1500); // the particles fly in
+  await fixture.raw(`screenshot ${join(fixture.run, 'enderdrives-frequency-screen.png')}`);
+  const centre = (r: number[]) => `${freq.origin[0] + r[0] + r[2] / 2} ${freq.origin[1] + r[1] + r[3] / 2}`;
+  await fixture.raw(`click-at ${centre(freq.arrows_up[0])}`);
+  await fixture.raw(`click-at ${centre(freq.arrows_down[2])}`);
+  freq = await ui('+256 and -1: 546', u => u.frequency === 546);
+  assert.deepEqual([freq.dyes, freq.field], [[2, 2, 2], '546']);
+  await fixture.raw(`click-at ${centre(freq.field_rect)}`);
+  await fixture.raw('type \\b'); await fixture.raw('type \\b'); await fixture.raw('type 7');
+  freq = await ui('the box typed: 57', u => u.field === '57');
+  assert.deepEqual([freq.frequency, freq.dyes, freq.focused], [57, [0, 3, 9], true]);
+  for (let i = 0; i < 2; i++) await fixture.raw(`click-at ${centre(freq.mode_button)}`);
+  await fixture.raw(`click-at ${centre(freq.scope_button)}`);
+  freq = await ui('output only, private', u => u.mode === 2 && u.scope === 'private');
+  await fixture.raw(`screenshot ${join(fixture.run, 'enderdrives-frequency-screen-set.png')}`);
+  await fixture.raw('key escape tap');
+  await until(() => fixture.raw('screen'), v => v.screen === 'playing', 'the screen closes', 15000);
+  const selected = async () => (await fixture.command('data get entity @s SelectedItem')).chat.join('\n');
+  await until(selected, t => /ender_freq: ?57\b/.test(t) && /ender_scope: ?1\b/.test(t) && /ender_transfer_mode: ?2\b/.test(t) && t.includes(owner), 'the disk set as the screen closed', 15000);
+  fixture.mark('a disk\'s use opens the frequency screen: its arrows step the dyes (291 +256 -1 = 546), its box reads 57, its buttons cycle the mode and the scope, and its close sets the held disk (57, private, output only)');
+  // A disk the config turns off says so over the hotbar and opens nothing.
+  await fixture.replace('hotbar.0', disk('64k')); await fixture.select(0, 'enderdrives:ender_disk_64k');
+  await fixture.raw('use-item');
+  await until(() => fixture.raw('messages 5'), v => /disabled on the server/.test(String(v.actionbar ?? '')), 'the disabled message', 15000);
+  assert.equal((await fixture.raw('screen')).screen, 'playing');
+  fixture.mark('a disk the server config turns off opens no screen; the action bar says it is disabled');
+  // Shift-use disassembles a disk into its housing and component (AE2's disassembly recipe); its storage stays.
+  await fixture.replace('hotbar.0', disk('16k', 'ender_freq:57')); await fixture.select(0, 'enderdrives:ender_disk_16k');
+  await fixture.sneakUseItem();
+  const inventory = await until(async () => JSON.stringify(await fixture.raw('inventory')), t => t.includes('enderdrives:ender_storage_component_16k'), 'the disk taken apart', 15000);
+  assert(inventory.includes('enderdrives:ender_item_housing') && !inventory.includes('enderdrives:ender_disk_16k'), 'a housing and a component, no disk');
+  assert.equal((await fixture.raw('screen')).screen, 'playing', 'a sneaking use opens no screen');
+  assert.deepEqual((await store('global', 0)).items, [{ item: 'minecraft:cobblestone', count: 60 }]);
+  fixture.mark('a sneaking use takes a disk apart into the Ender Item Housing and its 16k component; the storage stays');
 
   // The storage is the world's: it comes back after a restart.
   await fixture.restart();

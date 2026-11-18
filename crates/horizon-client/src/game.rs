@@ -897,6 +897,9 @@ enum Screen {
     /// AE2's Guide (game/ae2_guide.rs).
     #[cfg(feature = "ae2-lab")]
     Ae2Guide,
+    /// An AE2 addon's own screen with no menu (game/ae2_host.rs, `Ae2Host::open_addon_screen`).
+    #[cfg(feature = "ae2-lab")]
+    Ae2Addon,
     /// DebugOptionsScreen, F3+F6 (game/debug_options.rs).
     DebugOptions,
     /// A screen of a native mod's own (`native_mod_screen_open`): it draws and
@@ -938,6 +941,8 @@ impl Screen {
             Screen::Mod => "mod",
             #[cfg(feature = "ae2-lab")]
             Screen::Ae2Guide => "ae2_guide",
+            #[cfg(feature = "ae2-lab")]
+            Screen::Ae2Addon => "ae2_addon",
             Screen::HudEditor => "hud_editor",
             Screen::Studio => "studio",
         }
@@ -6848,6 +6853,8 @@ impl Game<'_> {
                     self.ae2_guide_draw(&mut batch);
                 }
             }
+            #[cfg(feature = "ae2-lab")]
+            Screen::Ae2Addon => self.ae2_addon_screen_draw(&mut batch),
             Screen::Paused if self.pause_menu => self.draw_pause_menu(&mut batch),
             // PauseScreen(false): only its title, at the top.
             Screen::Paused => {
@@ -11538,6 +11545,10 @@ impl Game<'_> {
                             }
                             if pressed && self.ae2_guide_active() {self.ae2_guide_click(button);}
                         },
+                        #[cfg(feature = "ae2-lab")]
+                        Screen::Ae2Addon if pressed && matches!(button, MouseButton::Left | MouseButton::Right) => {
+                            self.ae2_addon_screen_press(button == MouseButton::Right);
+                        }
                         Screen::GameModeSwitcher if !pressed => self.switcher_release(button),
                         _ => {}
                     }

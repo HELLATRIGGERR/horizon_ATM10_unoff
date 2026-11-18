@@ -92,6 +92,10 @@ impl Game<'_> {
         let Some(stack) = self.held().filter(|s| codec::is_cell(&s.item)).cloned() else {
             return false;
         };
+        // An addon's own use of its cell (Ender Drives' frequency screen).
+        if let Some(ends) = self.ae2_addon_item_use("enderdrives", &stack) {
+            return ends;
+        }
         // A cell of an addon's own handler disassembles when its item does
         // (Applied Flux's FE cells); one with no `use` passes (MEGA's
         // BulkCellItem, an AEBaseItem).

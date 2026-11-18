@@ -21,7 +21,7 @@ use ae2_cell_core::{Action, ItemKey};
 use horizon_client::{
     ae2_world::MachineKind,
     containers::BlockEntity,
-    game::ae2_ext::{Ae2Addon, Ae2Host, Ae2Snapshot, GridAddress, HandlerCell, PartAddress, Visual},
+    game::ae2_ext::{AddonRules, Ae2Addon, Ae2AddonScreen, Ae2Host, Ae2Snapshot, GridAddress, HandlerCell, PartAddress, Visual},
     items::ItemStack,
     text::{Text, format_translation},
 };
@@ -56,6 +56,21 @@ struct EnderDrives {
     /// also while the tick that sets it is running (the grid it builds asks
     /// the idle drain), so it is only borrowed for a read or a write.
     sleeping: RefCell<HashSet<(GridAddress, usize)>>,
+    /// The frequency screen, while it is open on this client.
+    screen: crate::screen::FrequencyScreen,
+}
+
+/// What the game asks of the addon with no game at hand (`horizon_client::ae2x::rules`).
+pub(crate) struct Rules;
+pub(crate) static RULES: Rules = Rules;
+impl AddonRules for Rules {
+    fn id(&self) -> &'static str {
+        crate::defs::NAMESPACE
+    }
+    /// A disk's use opens the frequency screen (`use` answers `sidedSuccess` on the client).
+    fn item_opens_menu(&self, id: &str) -> bool {
+        rows::is_disk(id)
+    }
 }
 
 /// A game's addon, for `horizon_ae2::add_addon`.
@@ -175,7 +190,7 @@ fn parse_update_frequency(data: &[u8]) -> Option<(i32, i32, i32)> {
 /// `UpdateFrequencyPacket.handle` on the main hand's disk: its frequency,
 /// scope (`FrequencyScope.fromId`) and mode; a private disk is the sender's.
 /// False when the stack is no ender item disk.
-fn apply_update_frequency(stack: &mut ItemStack, frequency: i32, scope: i32, mode: i32, player: &str, config: &Config) -> bool {
+pub(crate) fn apply_update_frequency(stack: &mut ItemStack, frequency: i32, scope: i32, mode: i32, player: &str, config: &Config) -> bool {
     if !rows::is_disk(&stack.item) {
         return false;
     }
@@ -515,8 +530,41 @@ impl Ae2Addon for EnderDrives {
         Some(self.run_command(host, words))
     }
 
-    /// A guest's `enderdrives:update_frequency`: its main hand's disk set as
-    /// the packet says.
+    /// `AbstractEnderDiskItem.use`. Sneaking, the disassembly: AE2's cell use, with every disk
+    /// empty enough ([`Ae2Addon::handler_cell_disassembly`]); this client only consumes. Else a
+    /// disk the config turns off says so over the hotbar and fails; another opens the frequency
+    /// screen on the client (the server only resolves the team, which the port has not).
+    fn item_use(&self, host: &mut dyn Ae2Host, stack: &ItemStack, client: bool) -> Option<bool> {
+        if !rows::is_disk(&stack.item) {
+            return None;
+        }
+        if host.shift_down() {
+            return host.is_remote().then_some(true);
+        }
+        if Config::get().disabled(&stack.item) {
+            if client {
+                host.action_bar(Text::translate("tooltip.enderdrives.enderdisk.disabled", &[]));
+            }
+            return Some(false);
+        }
+        if client {
+            self.screen.open(stack);
+            host.open_addon_screen(crate::defs::NAMESPACE);
+        }
+        Some(true)
+    }
+
+    /// `StorageCellDisassemblyRecipe.getDisassemblyResult` with no content check: the storage is
+    /// the world's, not the disk's.
+    fn handler_cell_disassembly(&self, _host: &dyn Ae2Host, stack: &ItemStack) -> Option<bool> {
+        rows::is_disk(&stack.item).then_some(true)
+    }
+
+    fn screen(&self) -> Option<&dyn Ae2AddonScreen> {
+        Some(&self.screen)
+    }
+
+    /// A guest's `enderdrives:update_frequency`: its main hand's disk set as the packet says.
     fn lan_main_hand_payload(&self, channel: &str, data: &[u8], player: &str, stack: &mut ItemStack) -> bool {
         if channel != rows::UPDATE_FREQUENCY {
             return false;

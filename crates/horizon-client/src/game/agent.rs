@@ -489,6 +489,8 @@ impl Game<'_> {
             Screen::Playing => "playing",
             #[cfg(feature = "ae2-lab")]
             Screen::Ae2Guide => "ae2-guide",
+            #[cfg(feature = "ae2-lab")]
+            Screen::Ae2Addon => "ae2-addon",
             Screen::GameModeSwitcher => "gamemode-switcher",
             Screen::EmoteWheel => "emote-wheel",
             Screen::Paused => "paused",
@@ -880,6 +882,10 @@ impl Game<'_> {
             "screen": self.screen_label(),
             "buttons": buttons,
         });
+        #[cfg(feature = "ae2-lab")]
+        if let Some(addon) = self.ae2_addon_screen_agent() {
+            v["addon_screen"] = addon;
+        }
         if let Some(chat) = &self.ui.chat_screen {
             v["chat_input"] = json!(chat.input.value);
             v["chat_suggestions"] = json!(chat.suggestions_visible());

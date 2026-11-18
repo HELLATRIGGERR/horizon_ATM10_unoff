@@ -28,9 +28,21 @@ global scope by default and all three scopes on, frequencies 0 to 4095.
 | `AbstractEnderDiskItem.appendHoverText`: off on the server, else the types used of the limit (coloured by use), the frequency, the mode, the scope (the owner's name when it is the player, else the UUID; the team's name), the partition's size | the same lines, the mod's language keys; on a client of a remote server the types read 0 (the mod asks the server, slice 2) |
 | `UpdateFrequencyPacket` (`enderdrives:update_frequency`: frequency, scope, mode as VarInts): the main hand's disk set, a private one owned by the sender | a guest's payload does the same; `/ae2 enderdrives set <frequency> [global\|private\|team] [bidirectional\|input\|output]` does it for the acting player (in the screen's range), `info` and `store <prefix> <frequency>` show a storage |
 
+## Slice 2: the frequency screen and disassembly
+
+| Ender Drives 1.5.23 | Port |
+|---|---|
+| `AbstractEnderDiskItem.use`, not sneaking: a disk the config turns off says `tooltip.enderdrives.enderdisk.disabled` over the hotbar and fails; else the client opens `EnderDiskFrequencyScreen` (`ClientItemHooks.openFrequencyScreen`) and answers `sidedSuccess` | `horizon-ae2x-enderdrives` `Ae2Addon::item_use`, called before AE2's cell use (`ae2_cell_item_use`) and on a remote client after its `UseItem` (`remote_use_item`); the static rule `item_opens_menu` stops the click at that hand |
+| `use`, sneaking: `StorageCellDisassemblyRecipe.getDisassemblyResult` for the disk, the selected slot emptied, the results placed back; no content check (the storage is the world's); the client only consumes | AE2's own cell disassembly (`ae2_cell_disassembly.rs`) with `Ae2Addon::handler_cell_disassembly` answering "empty" for every disk; the recipes are the jar's `cell_upgrade/ender_disk_*.json` |
+| `EnderDiskFrequencyScreen` (176 x 105, the alt theme): the particles flying at the window from the screen's edges (`Particle2D`), the three dye selectors (`fillRoundedRect` in `DyeColor.getTextColor`), the end portal under `ender_disk_mask_alt`, the title, the arrows' highlights, the borderless box (four characters, its label while empty), the transfer mode (`CustomImageCycleButton`) and scope (`CustomImageButton`) buttons, the tooltips | `screen.rs`, an addon screen of its own (`Screen::Ae2Addon`, `Ae2Host::open_addon_screen`); its textures through content.json's `own_gui_textures` (`ae2:enderdrives/gui/*`) |
+| `mouseClicked`: an arrow steps its dye by one (mod 16) and `updateFrequency` (the dyes' value clamped to the config's range, written to the box); the box's responder reads a frequency in range; `cycleScope` skips Team without FTB Teams; `TransferMode.next` | the same (`Open::update`, `set_field`, `cycle_scope`) |
+| `onClose`: `UpdateFrequencyPacket` (the frequency clamped, the scope, the mode) | to the server the game plays on (`Ae2Host::send_to_server`; the integrated server's guest payload of slice 1 applies it), or straight to the main hand's disk in a world of the game's own |
+
 Differences, known:
 
-- No frequency screen yet: the disk's use in the air does nothing (slice 2). `/ae2 enderdrives set` stands in.
+- The end portal behind the mask is a field of drifting specks in the portal's colours: the port draws no portal
+  shader in a screen. The particles use the port's own random numbers.
+- The box takes typed characters at its end and Backspace; no cursor movement or selection.
 - The storage is saved with the world, not on its own every few seconds, and in the port's format: Java's
   `enderdrives.bin` (1.21.1 item NBT) is not read. A world of the mod's does not come to 26.3 anyway.
 - Which disks sleep is decided each grid tick for the drain and the LEDs (the listing and storage ask at once).
@@ -39,13 +51,12 @@ Differences, known:
 
 Tests: `horizon-client-lib` (the config, the disks' data and prefixes, the storage's limits, undo and save, the
 registry rows) and `horizon-client` (two disks sharing a storage, modes, partitions, limits, a failed transaction, the
-frequency packet), and the world test `enderdrives-disks`.
+frequency packet, the screen's dyes, box, scope cycle and packet), and the world test `enderdrives-disks` (slice 2:
+the screen's arrows, box, buttons and close, a disabled disk's message, disassembly; two screenshots).
 
 ## Later
 
-- Slice 2: the frequency screen (`EnderDiskFrequencyScreen`, its scope and mode buttons) on the disk's use; shift-use
-  disassembly into housing and component (`StorageCellDisassemblyRecipe`, which the port's disassembly skips for
-  handler cells); the item models' `enderdrives:status` and the LED tint (`ClientModEvents`); the IO Port mixins
+- Slice 2b: the item models' `enderdrives:status` and the LED tint (`ClientModEvents`); the IO Port mixins
   (`IOPortBlockEntityMixin`, `TileExIOPortMixin`) and the IO Port's fullness check for these cells; the type counts a
   client of a remote server asks for (`RequestDiskTypeCountPacket`); the duplicate-sleep flag and line.
 - Slice 3: the Ender Fluid Storage Cells and the Ender Fluid Housing (`EnderFluidDBManager`), which need fluid keys in

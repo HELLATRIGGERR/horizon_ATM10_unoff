@@ -1,11 +1,12 @@
 {
   "namespace": "enderdrives",
   "name": "Ender Drives",
-  "description": "Ender Drives 1.5.23 for the AE2 port: the Ender Item Storage Cells, sharing a storage by scope and frequency (slice 1).",
+  "description": "Ender Drives 1.5.23 for the AE2 port: the Ender Item Storage Cells, sharing a storage by scope and frequency (slices 1 and 2).",
   "authors": ["STS15 (Ender Drives)"],
   "slices": [
     "1: the Ender Item Storage Cells, their components and housing: one storage of the world per scope and frequency on AE2 networks, the duplicate guard, the save, the tooltip, /ae2 enderdrives",
-    "2 (planned): the frequency screen, shift-use disassembly, the disks' status models and LED colours, the IO Port mixin, type counts for clients of a remote server, the sleeping-duplicate flag",
+    "2: the frequency screen on a disk's use, shift-use disassembly",
+    "2b (planned): the disks' status models and LED colours, the IO Port mixin, type counts for clients of a remote server, the sleeping-duplicate flag",
     "3 (planned): the Ender Fluid Storage Cells and the Ender Fluid Housing",
     "4 (planned): the Tape Disk",
     "5 (planned): the mod's commands, the FTB Teams scope"
@@ -24,5 +25,12 @@
     "ender_storage_component_256k": {},
     "ender_item_housing": {}
   },
-  "blocks": {}
+  "blocks": {},
+  "own_gui_textures": [
+    "gui/ender_disk_mask_alt.png", "gui/up_arrow_highlight_alt.png", "gui/down_arrow_highlight_alt.png",
+    "gui/scope_button_alt.png", "gui/scope_button_hover_alt.png",
+    "gui/transport_bidirectional_alt.png", "gui/transport_bidirectional_hover_alt.png",
+    "gui/transport_input_alt.png", "gui/transport_input_hover_alt.png",
+    "gui/transport_output_alt.png", "gui/transport_output_hover_alt.png"
+  ]
 }

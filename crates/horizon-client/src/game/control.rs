@@ -308,6 +308,11 @@ impl Game<'_> {
                     return Ok(());
                 }
                 #[cfg(feature = "ae2-lab")]
+                Screen::Ae2Addon if self.ae2_addon_screen_active() => {
+                    self.ae2_addon_screen_key(KeyCode::Backspace);
+                    return Ok(());
+                }
+                #[cfg(feature = "ae2-lab")]
                 Screen::Inventory if self.ae2_search_focused() => {
                     self.ae2_search_input(None, Some(KeyCode::Backspace));
                     return Ok(());
@@ -357,6 +362,8 @@ impl Game<'_> {
         match self.screen {
             #[cfg(feature = "ae2-lab")]
             Screen::Ae2Guide if self.ae2_guide_active() => self.ae2_guide_text(text),
+            #[cfg(feature = "ae2-lab")]
+            Screen::Ae2Addon if self.ae2_addon_screen_active() => self.ae2_addon_screen_text(text),
             Screen::Chat => self.chat_type(text),
             Screen::CommandBlock => self.command_block_type(text),
             Screen::Social => self.social_type(text),
@@ -1529,6 +1536,8 @@ impl Game<'_> {
             Screen::Playing => "playing",
             #[cfg(feature = "ae2-lab")]
             Screen::Ae2Guide => "ae2-guide",
+            #[cfg(feature = "ae2-lab")]
+            Screen::Ae2Addon => "ae2-addon",
             Screen::GameModeSwitcher => "gamemode-switcher",
             Screen::EmoteWheel => "emote-wheel",
             Screen::Paused => "paused",

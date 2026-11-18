@@ -1,7 +1,7 @@
 //! `Game` as the host of the AE2 crates above horizon-client (`ae2_ext::Ae2Host`): the one place
 //! they reach the game, and the game's calls into them.
 use super::{
-    Game,
+    Game, Screen,
     ae2_ext::{Ae2Host, Ae2Snapshot, GridAddress, HandlerCell, PartAddress, Visual},
     lan::LanHost,
 };
@@ -185,6 +185,52 @@ impl Ae2Host for Game<'_> {
     fn provider_patterns_changed_local(&self, pos: (i32, i32, i32), face: Option<u8>) {
         self.ae2_provider_patterns_changed_local(pos, face);
     }
+
+    fn hud_atlas(&self) -> &horizon_client::hud::HudAtlas {
+        &self.gui.atlas
+    }
+
+    fn gui_cursor(&self) -> [f32; 2] {
+        [self.cursor.0, self.cursor.1]
+    }
+
+    fn translate(&self, key: &str) -> Option<String> {
+        self.pack.names.display_get(key)
+    }
+
+    fn draw_tooltip(&self, batch: &mut horizon_client::hud::HudBatch, lines: &[Text], at: [f32; 2]) {
+        let lines: Vec<(Text, u32)> = lines.iter().map(|line| (line.clone(), u32::MAX)).collect();
+        self.draw_tooltip_lines(batch, &lines, at[0], at[1]);
+    }
+
+    fn open_addon_screen(&mut self, id: &'static str) {
+        self.ae2x.screen = Some(id);
+        self.screen = Screen::Ae2Addon;
+        self.capture(false);
+    }
+
+    fn close_addon_screen(&mut self) {
+        self.ae2x.screen = None;
+        if self.screen == Screen::Ae2Addon {
+            self.screen = Screen::Playing;
+            if self.player.is_some() {
+                self.capture(true);
+            }
+        }
+    }
+
+    fn send_to_server(&mut self, channel: &str, data: &[u8]) -> bool {
+        if self.remote.is_none() {
+            return false;
+        }
+        use horizon_protocol::packets::{configuration::CustomPayload, play::Serverbound};
+        self.send(Serverbound::CustomPayload(CustomPayload { channel: channel.into(), data: data.to_vec() }));
+        true
+    }
+
+    fn action_bar(&mut self, text: Text) {
+        self.native_client_action_bar(text, false);
+    }
 }
 
 /// The game's calls into the addons built above it. Each asks for one addon by its id and does
@@ -283,5 +329,84 @@ impl Game<'_> {
             host.hub.send_inventory(gi);
         }
         true
+    }
+}
+
+/// The addons' item use and own screens (`Screen::Ae2Addon`).
+impl Game<'_> {
+    /// `Item.use` of the held `stack` by the addons built above, before AE2's cell use
+    /// (`Ae2Addon::item_use`): whether the use ends there; None when no addon takes it.
+    pub(super) fn ae2_addon_item_use(&mut self, id: &str, stack: &ItemStack) -> Option<bool> {
+        let ext = self.ae2_ext.get()?;
+        let client = self.serving.is_none() && self.lan_acting.is_none();
+        ext.addon(id)?.item_use(self, stack, client)
+    }
+    /// `Ae2Addon::handler_cell_disassembly` of the addon `id`.
+    pub(super) fn ae2_addon_handler_cell_disassembly(&self, id: &str, stack: &ItemStack) -> Option<bool> {
+        let ext = self.ae2_ext.get()?;
+        ext.addon(id)?.handler_cell_disassembly(self, stack)
+    }
+    /// The addon screen open now, when `Screen::Ae2Addon` is.
+    fn ae2_addon_screen_id(&self) -> Option<&'static str> {
+        self.ae2x.screen.filter(|_| self.screen == Screen::Ae2Addon)
+    }
+    pub(super) fn ae2_addon_screen_active(&self) -> bool {
+        self.ae2_addon_screen_id().is_some()
+    }
+    /// Draws the open addon screen, centred, then its tooltip.
+    pub(super) fn ae2_addon_screen_draw(&self, batch: &mut horizon_client::hud::HudBatch) {
+        let (Some(id), Some(ext)) = (self.ae2_addon_screen_id(), self.ae2_ext.get()) else { return };
+        let Some(screen) = ext.addon(id).and_then(|addon| addon.screen()) else { return };
+        let Some((w, h)) = screen.size(self) else { return };
+        let (ox, oy) = batch.centered_origin(w, h);
+        screen.draw(self, batch, ox, oy);
+        screen.tooltip(self, batch);
+    }
+    /// A mouse press on the open addon screen, at the cursor.
+    pub(super) fn ae2_addon_screen_press(&mut self, right: bool) {
+        let (Some(id), Some(ext)) = (self.ae2_addon_screen_id(), self.ae2_ext.get()) else { return };
+        let Some(screen) = ext.addon(id).and_then(|addon| addon.screen()) else { return };
+        let Some((w, h)) = screen.size(self) else { return };
+        let Some(size) = self.renderer.as_ref().map(|r| [r.config.width, r.config.height]) else { return };
+        let (ox, oy) = self.screen_batch(size).centered_origin(w, h);
+        let at = [self.cursor.0 - ox, self.cursor.1 - oy];
+        screen.press(self, at, right);
+    }
+    /// A key on the open addon screen: whether it took it.
+    pub(super) fn ae2_addon_screen_key(&mut self, key: winit::keyboard::KeyCode) -> bool {
+        let (Some(id), Some(ext)) = (self.ae2_addon_screen_id(), self.ae2_ext.get()) else { return false };
+        let Some(screen) = ext.addon(id).and_then(|addon| addon.screen()) else { return false };
+        screen.key(self, &format!("{key:?}"))
+    }
+    /// Text typed on the open addon screen.
+    pub(super) fn ae2_addon_screen_text(&mut self, text: &str) {
+        let (Some(id), Some(ext)) = (self.ae2_addon_screen_id(), self.ae2_ext.get()) else { return };
+        if let Some(screen) = ext.addon(id).and_then(|addon| addon.screen()) {
+            screen.text(self, text);
+        }
+    }
+    /// Escape on the open addon screen: it closes (`Screen.onClose`).
+    pub(super) fn ae2_addon_screen_close(&mut self) {
+        let id = self.ae2x.screen;
+        Ae2Host::close_addon_screen(self);
+        let (Some(id), Some(ext)) = (id, self.ae2_ext.get()) else { return };
+        if let Some(screen) = ext.addon(id).and_then(|addon| addon.screen()) {
+            screen.closed(self);
+        }
+    }
+    /// What `horizon-ctl state` reports of the open addon screen.
+    pub(super) fn ae2_addon_screen_agent(&self) -> Option<serde_json::Value> {
+        let ext = self.ae2_ext.get()?;
+        let id = self.ae2_addon_screen_id()?;
+        let screen = ext.addon(id)?.screen()?;
+        let mut value = screen.agent(self).unwrap_or_else(|| serde_json::json!({}));
+        if let Some((w, h)) = screen.size(self)
+            && let Some(r) = self.renderer.as_ref()
+        {
+            let (ox, oy) = self.screen_batch([r.config.width, r.config.height]).centered_origin(w, h);
+            value["origin"] = serde_json::json!([ox, oy]);
+        }
+        value["addon"] = serde_json::json!(id);
+        Some(value)
     }
 }

@@ -9285,6 +9285,9 @@ impl Game<'_> {
             yaw: self.yaw,
             pitch: self.pitch,
         }));
+        // An addon's own use of its item on this client (Ender Drives' frequency screen).
+        #[cfg(feature = "ae2-lab")]
+        if let Some(ends) = self.with_hand(hand, |g| g.ae2_addon_item_use("enderdrives", &held)) {return ends;}
         #[cfg(feature = "ae2-lab")]
         if ae2_item_consumes_use(&held.item) {return true;}
         #[cfg(feature = "ae2-lab")]

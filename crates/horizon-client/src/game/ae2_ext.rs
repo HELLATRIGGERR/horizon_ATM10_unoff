@@ -111,6 +111,23 @@ pub trait Ae2Host {
     /// Extracts up to `amount` of `chemical` from there, or simulates it
     /// (`native_chemical_handler_extract`): what left.
     fn chemical_extract(&mut self, at: GridAddress, face: u8, chemical: &str, amount: u64, simulate: bool) -> u64;
+    /// The GUI atlas the screens draw from.
+    fn hud_atlas(&self) -> &horizon_client::hud::HudAtlas;
+    /// The cursor, in GUI units.
+    fn gui_cursor(&self) -> [f32; 2];
+    /// The game's text of the translation key `key`, when its languages have one.
+    fn translate(&self, key: &str) -> Option<String>;
+    /// Draws `lines` as a tooltip at `at` (GUI units).
+    fn draw_tooltip(&self, batch: &mut HudBatch, lines: &[Text], at: [f32; 2]);
+    /// Opens the addon `id`'s own screen: its [`Ae2AddonScreen`] drawn as a screen of its own, with
+    /// no menu (`Minecraft.setScreen` of a plain `Screen`), the mouse let go.
+    fn open_addon_screen(&mut self, id: &'static str);
+    /// Closes it, back to the game.
+    fn close_addon_screen(&mut self);
+    /// Sends a custom payload to the server this game plays on; false when it plays its own world.
+    fn send_to_server(&mut self, channel: &str, data: &[u8]) -> bool;
+    /// Shows `text` over the hotbar (`Player.displayClientMessage(text, true)`).
+    fn action_bar(&mut self, text: Text);
 }
 
 /// What an addon's own storage was when AE2's blocks were snapshot (`ae2_snapshot_blocks`):
@@ -163,6 +180,17 @@ pub trait Ae2Addon {
     /// selected slot for the player `player` (a UUID string): whether it changed the stack.
     fn lan_main_hand_payload(&self, _channel: &str, _data: &[u8], _player: &str, _stack: &mut ItemStack) -> bool {
         false
+    }
+    /// The use of its item `stack` in hand (`Item.use`), before AE2's cell use: whether the use
+    /// ends there, None when the stack is not its own or it leaves the use to AE2. `client`: this
+    /// game is the player's own client (a screen may open); false while it acts for a LAN guest.
+    fn item_use(&self, _host: &mut dyn Ae2Host, _stack: &ItemStack, _client: bool) -> Option<bool> {
+        None
+    }
+    /// A cell of its own handler that a sneaking use disassembles (`ae2x_handler_cell_disassembly`):
+    /// whether it is empty enough to; None when the stack is not its own.
+    fn handler_cell_disassembly(&self, _host: &dyn Ae2Host, _stack: &ItemStack) -> Option<bool> {
+        None
     }
     /// Its own window ([`Ae2AddonScreen`]); none when it has none.
     fn screen(&self) -> Option<&dyn Ae2AddonScreen> {
@@ -227,6 +255,17 @@ pub trait Ae2AddonScreen {
     fn agent(&self, _host: &dyn Ae2Host) -> Option<serde_json::Value> {
         None
     }
+    /// Text typed while it is open as a screen of its own ([`Ae2Host::open_addon_screen`]).
+    fn text(&self, _host: &mut dyn Ae2Host, _text: &str) -> bool {
+        false
+    }
+    /// A key pressed while it is open as a screen of its own, by winit's `KeyCode` name
+    /// (`Backspace`, `Enter`...): whether it took it. Escape closes the screen first.
+    fn key(&self, _host: &mut dyn Ae2Host, _key: &str) -> bool {
+        false
+    }
+    /// Its screen of its own closed (`Screen.onClose`).
+    fn closed(&self, _host: &mut dyn Ae2Host) {}
 }
 
 /// An addon's buttons on AE2's terminals and the sub-screens they open (AE2 Import Export Card's

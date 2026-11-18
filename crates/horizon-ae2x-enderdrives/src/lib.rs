@@ -5,6 +5,7 @@
 #![forbid(unsafe_code)]
 pub mod defs;
 mod game;
+mod screen;
 
 /// Installs the addon: its rows, where the registry had them, and its game behaviour. The program
 /// calls it once, before the game starts.
@@ -15,4 +16,5 @@ pub fn install() {
 
 fn install_rows() {
     horizon_client::ae2x::defs::install_addon_rows(defs::NAMESPACE, defs::register);
+    horizon_client::ae2x::rules::install_rules(&game::RULES);
 }

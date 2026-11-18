@@ -662,7 +662,10 @@ pub(super) fn item_opens_menu(id: &str) -> bool {
     if id == horizon_client::ae2x::megacells::PORTABLE_CELL_WORKBENCH {
         return true;
     }
-    let _ = id;
+    // Ender Drives' disks (horizon-ae2x-enderdrives): the frequency screen.
+    if super::ae2_ext::rules("enderdrives").is_some_and(|rules| rules.item_opens_menu(id)) {
+        return true;
+    }
     false
 }
 
@@ -670,6 +673,8 @@ pub(super) fn item_opens_menu(id: &str) -> bool {
 /// game (`horizon-ae2x-<id>`) keeps is its own, behind AE2's extension (`ae2_ext`).
 #[derive(Default)]
 pub(super) struct State {
+    /// The addon whose own screen is open (`Screen::Ae2Addon`, `Ae2Host::open_addon_screen`).
+    pub(super) screen: Option<&'static str>,
     #[cfg(feature = "ae2-megacells")]
     pub(super) megacells: megacells::State,
     #[cfg(feature = "ae2-merequester")]
@@ -896,8 +901,8 @@ impl Game<'_> {
         if horizon_client::ae2x::appflux::cell_bytes(&stack.item).is_some() {
             return Some(self.appflux_fe_cell(stack).is_ok_and(|mut cell| cell.available_stacks().is_empty()));
         }
-        let _ = stack;
-        None
+        // Ender Drives' disks (horizon-ae2x-enderdrives).
+        self.ae2_addon_handler_cell_disassembly("enderdrives", stack)
     }
     /// The tooltip image of a cell of an addon's own handler
     /// (`getTooltipImage`): its upgrades and its content.

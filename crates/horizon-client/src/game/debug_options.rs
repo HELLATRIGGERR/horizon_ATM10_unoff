@@ -530,7 +530,7 @@ fn debug_options_interrupts(screen: Screen, playing_overlay: bool) -> bool {
         | Screen::DialogWarning
         | Screen::Mod => true,
         #[cfg(feature = "ae2-lab")]
-        Screen::Ae2Guide => true,
+        Screen::Ae2Guide | Screen::Ae2Addon => true,
         Screen::Chat
         | Screen::Options
         | Screen::WorldOptions

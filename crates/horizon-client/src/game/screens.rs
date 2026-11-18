@@ -67,7 +67,7 @@ impl Screen {
             | Self::Win => false,
             // AE2's guide keeps the game running.
             #[cfg(feature = "ae2-lab")]
-            Self::Ae2Guide => false,
+            Self::Ae2Guide | Self::Ae2Addon => false,
             // Every other screen, and the game-master block editors
             // (StructureBlockEditScreen and its siblings), inherit Screen's
             // true.
@@ -119,7 +119,7 @@ impl Screen {
             Self::Win => false,
             // AE2's Guide draws its own background.
             #[cfg(feature = "ae2-lab")]
-            Self::Ae2Guide => false,
+            Self::Ae2Guide | Self::Ae2Addon => false,
         }
     }
 }

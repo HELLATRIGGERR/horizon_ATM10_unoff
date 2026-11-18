@@ -5,11 +5,11 @@ use horizon_protocol::packets::play::Serverbound as S;
 /// Whether a guest's plugin channel message is for one of Horizon's own handlers in
 /// `lan_guest_packet` (its `CustomPayload` arms), not for the mods.
 pub(super) fn horizon_channel(channel: &str) -> bool {
-    // The fork's built-in AE2 and its addons (ae2:terminal_action, ae2wtlib:..., ...) have their
+    // The fork's built-in AE2 and its addons (ae2:terminal_action, ae2wtlib:..., enderdrives:update_frequency, ...) have their
     // arms in `lan_guest_packet` too: handed to the mods, a terminal's buttons never reached the host.
     let ae2 = cfg!(feature = "ae2-lab")
         && channel.split_once(':').is_some_and(|(namespace, _)| {
-            matches!(namespace, "ae2" | "ae2wtlib" | "merequester" | "ae2importexportcard")
+            matches!(namespace, "ae2" | "ae2wtlib" | "merequester" | "ae2importexportcard" | "enderdrives")
         });
     ae2 || [
         horizon_protocol::quiet::CHANNEL,

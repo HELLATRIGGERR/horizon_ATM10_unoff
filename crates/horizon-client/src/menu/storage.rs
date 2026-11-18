@@ -96,6 +96,29 @@ pub struct Snapshot(State);
 /// callers cannot mutate the identity or reset a revision.
 #[derive(Clone)]
 pub struct State {
+    // The fork's AE2 menu state, in the state so a transaction's snapshot keeps it.
+    /// A server-authoritative quartz knife name-press menu using the anvil wire layout.
+    #[cfg(feature = "ae2-lab")]
+    pub quartz_knife_slot: Option<usize>,
+    /// Held Network Tool's player inventory index; its nine main slots accept cards.
+    #[cfg(feature = "ae2-lab")]
+    pub network_tool_slot: Option<usize>,
+    /// Optional prefix of MAIN that is the tool's card-only inventory.
+    /// None retains the standalone Network Tool menu's all-MAIN behavior.
+    #[cfg(feature = "ae2-lab")]
+    pub network_tool_main_limit: Option<usize>,
+    /// Standalone NetworkToolMenu source ordering, independent of wire layout.
+    #[cfg(feature = "ae2-lab")]
+    pub network_tool_source_order: bool,
+    /// One physical emitter upgrade slot within the server menu.
+    #[cfg(feature = "ae2-lab")]
+    pub emitter_upgrade_slot: Option<usize>,
+    #[cfg(feature = "ae2-lab")]
+    pub quartz_knife_used: bool,
+    /// Authoritative crafting operations temporarily carry the world's RNG;
+    /// client prediction and planner previews leave it absent.
+    #[cfg(feature = "ae2-lab")]
+    pub recipe_durability_rng: Option<horizon_core::random::LegacyRandom>,
     pub(super) kind: Kind,
     pub(super) registry_id: Option<Box<str>>,
     /// The block whose menu this is, for `menu_slot_rules`; None with no block.

@@ -2,6 +2,8 @@
 //! AE2 19.2.18 MeteoriteStructure/StructurePiece/Placer, LGPL-3.0-or-later.
 use crate::ae2_meteorite::{self as source, Crater, Fallout, MeteorRandom, Meteorite};
 use horizon_core::{
+    bounding_box::BoundingBox,
+    nbt::{Compound, Tag},
     position::{BlockPos, ChunkPos},
     random::{LegacyRandom, RandomSource, WorldgenRandom},
 };
@@ -9,7 +11,6 @@ use horizon_world::{
     block_properties::{BlockProperty, BoundBlockProperty},
     fluid::{FluidKind, FluidStateTable},
     heightmap::HeightmapType,
-    nbt::{Compound, Tag},
     registry::{BlockRegistry, BlockStateId},
     worldgen::{
         biome::BiomeId,
@@ -17,7 +18,6 @@ use horizon_world::{
         generator::GeneratorData,
         placement::PlacementQueryError,
         structure::{
-            BoundingBox,
             extension::{GeneratedPieces, StructureExtension},
             legacy::{LegacyPiece, PieceContext, PieceRandom, PieceWorld, piece_tag},
             start::StartContext,

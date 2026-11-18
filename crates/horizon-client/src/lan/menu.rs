@@ -131,6 +131,8 @@ impl Menu {
     pub fn still_valid(&self, context: &LoopContext, world: &World, guest: &Guest) -> bool {
         let block = match self.slots {
             Slots::Block(k) | Slots::Double(k, _) => Some(k),
+            #[cfg(feature = "ae2-lab")]
+            Slots::Ae2SkyChest(k, _, _) => Some(k),
             Slots::Ender => self.pos,
             Slots::Native => None,
         };
@@ -264,6 +266,10 @@ impl Slots {
                     (n < shown(world, b)?.len()).then_some(SlotBacking::Block(b, n))
                 }
             }
+            // FORK-TODO(merge): a sky stone chest's 36 slots live in its AE2 machine
+            // (`BlockEntity::Ae2`); check that upstream's block backing reaches them.
+            #[cfg(feature = "ae2-lab")]
+            Slots::Ae2SkyChest(pos, _, _) => (n < 36).then_some(SlotBacking::Block(pos, n)),
             Slots::Ender => Some(SlotBacking::Ender(n)),
             Slots::Native => Some(SlotBacking::Native(n)),
         }

@@ -440,28 +440,6 @@ const CONTAINER_MAX: u32 = 99;
 const OFFHAND: usize = 40;
 
 pub struct Menu {
-    /// A server-authoritative quartz knife name-press menu using the anvil wire layout.
-    #[cfg(feature = "ae2-lab")]
-    pub quartz_knife_slot: Option<usize>,
-    /// Held Network Tool's player inventory index; its nine main slots accept cards.
-    #[cfg(feature = "ae2-lab")]
-    pub network_tool_slot: Option<usize>,
-    /// Optional prefix of MAIN that is the tool's card-only inventory.
-    /// None retains the standalone Network Tool menu's all-MAIN behavior.
-    #[cfg(feature = "ae2-lab")]
-    pub network_tool_main_limit: Option<usize>,
-    /// Standalone NetworkToolMenu source ordering, independent of wire layout.
-    #[cfg(feature = "ae2-lab")]
-    pub network_tool_source_order: bool,
-    /// One physical emitter upgrade slot within the server menu.
-    #[cfg(feature = "ae2-lab")]
-    pub emitter_upgrade_slot: Option<usize>,
-    #[cfg(feature = "ae2-lab")]
-    pub quartz_knife_used: bool,
-    /// Authoritative crafting operations temporarily carry the world's RNG;
-    /// client prediction and planner previews leave it absent.
-    #[cfg(feature = "ae2-lab")]
-    pub recipe_durability_rng: Option<horizon_core::random::LegacyRandom>,
     state: storage::State,
     stamp: storage::MutationStamp,
 }
@@ -870,22 +848,22 @@ impl Menu {
         containers[GRID] = vec![None; grid_size * grid_size];
         containers[RESULT] = vec![None; 1];
         Self {
-            #[cfg(feature = "ae2-lab")]
-            quartz_knife_slot: None,
-            #[cfg(feature = "ae2-lab")]
-            network_tool_slot: None,
-            #[cfg(feature = "ae2-lab")]
-            network_tool_main_limit: None,
-            #[cfg(feature = "ae2-lab")]
-            network_tool_source_order: false,
-            #[cfg(feature = "ae2-lab")]
-            emitter_upgrade_slot: None,
-            #[cfg(feature = "ae2-lab")]
-            quartz_knife_used: false,
-            #[cfg(feature = "ae2-lab")]
-            recipe_durability_rng: None,
             stamp: storage::MutationStamp::fresh(),
             state: storage::State {
+                #[cfg(feature = "ae2-lab")]
+                quartz_knife_slot: None,
+                #[cfg(feature = "ae2-lab")]
+                network_tool_slot: None,
+                #[cfg(feature = "ae2-lab")]
+                network_tool_main_limit: None,
+                #[cfg(feature = "ae2-lab")]
+                network_tool_source_order: false,
+                #[cfg(feature = "ae2-lab")]
+                emitter_upgrade_slot: None,
+                #[cfg(feature = "ae2-lab")]
+                quartz_knife_used: false,
+                #[cfg(feature = "ae2-lab")]
+                recipe_durability_rng: None,
                 kind,
                 registry_id: match kind {
                     Kind::Mod(kind) => Some(kind.id.into()),

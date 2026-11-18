@@ -39,10 +39,30 @@ use std::{
 
 /// Apply the same data-driven durability enchantment effects used for held
 /// tools, using an authoritative caller-provided world RNG.
-pub fn committed_durability_loss(enchantments:&crate::enchant::Enchantments,items:&Items,stack:&ItemStack,random:&mut horizon_core::random::LegacyRandom,amount:u32)->u32 {
-    if !enchantments.has_component(stack,"minecraft:item_damage"){return amount;}
-    let context=crate::enchant::EffectContext{tool:Some(&stack.item),items:Some(items),..Default::default()};
-    enchantments.modify_value(Some(stack),"minecraft:item_damage",&context,random,amount as f32).max(0.0) as u32
+pub fn committed_durability_loss(
+    enchantments: &crate::enchant::Enchantments,
+    items: &Items,
+    stack: &ItemStack,
+    random: &mut horizon_core::random::LegacyRandom,
+    amount: u32,
+) -> u32 {
+    if !enchantments.has_component(stack, "minecraft:item_damage") {
+        return amount;
+    }
+    let context = crate::enchant::EffectContext {
+        tool: Some(&stack.item),
+        items: Some(items),
+        ..Default::default()
+    };
+    enchantments
+        .modify_value(
+            Some(stack),
+            "minecraft:item_damage",
+            &context,
+            random,
+            amount as f32,
+        )
+        .max(0.0) as u32
 }
 
 /// `PlacementInfo`: the ingredients to find and, per recipe slot, the index
@@ -625,7 +645,7 @@ impl<'a> Input<'a> {
     }
 }
 /// What recipes need to know about an item.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 struct Facts {
     /// Index into the dye colours when the item has the `dye` component.
     dye: Option<usize>,
@@ -1285,7 +1305,7 @@ pub struct Recipes {
     /// Typed mod handlers can consume their own recipe schemas directly;
     /// they must never be treated as ordinary player crafting recipes.
     pub ae2_custom: HashMap<String, Vec<(String, Value)>>,
-    pub fluid_tags: HashMap<String,HashSet<String>>,
+    pub fluid_tags: HashMap<String, HashSet<String>>,
     facade_items: HashSet<Arc<str>>,
     /// Every effective recipe's file, by recipe type (`minecraft:smelting`,
     /// `mymod:crusher`), in file order: data packs merged, load conditions held.
@@ -1780,7 +1800,9 @@ impl Recipes {
                             result,
                             quartz_knife: if v["type"].as_str() == Some("ae2:quartz_cutting") {
                                 Ingredient::parse(&Value::String("#ae2:knife".into()), items)
-                            } else { None },
+                            } else {
+                                None
+                            },
                         }),
                         _ => None,
                     }
@@ -1926,6 +1948,7 @@ impl Recipes {
                         Some(Recipe::Shapeless {
                             ingredients,
                             result,
+                            ..
                         }),
                         _,
                     ) => {
@@ -1996,7 +2019,7 @@ impl Recipes {
                 .map(|(kind, files)| (kind, files.into()))
                 .collect(),
             ae2_custom,
-            fluid_tags:crate::items::load_tags(root,"fluid",overlay)?,
+            fluid_tags: crate::items::load_tags(root, "fluid", overlay)?,
             facade_items: items.facade_items.clone(),
             meta,
             facts,
@@ -2025,31 +2048,53 @@ impl Recipes {
     }
     /// Assemble a specific saved recipe even when another matching recipe is
     /// earlier in the manager. AE2 patterns persist their recipe identity.
-    pub fn assemble_named(&self, id: &str, grid: &[Option<ItemStack>], size: usize) -> Option<ItemStack> {
+    pub fn assemble_named(
+        &self,
+        context: &LoopContext,
+        id: &str,
+        grid: &[Option<ItemStack>],
+        size: usize,
+    ) -> Option<ItemStack> {
         let name = id.strip_prefix("minecraft:").unwrap_or(id);
         if let Some((_, recipe)) = self.crafting.iter().find(|(n, _)| n == name) {
             let input = Input::of(grid, size)?;
-            let context = Context { recipes: self, map_scale: &|_| None };
+            let context = Context {
+                recipes: self,
+                context,
+                map_scale: &|_| None,
+            };
             return Self::assemble_if_matches(&context, &input, recipe).flatten();
         }
         // Dynamic recipes are handled separately by find; accept only its
         // exact identity, never a different matching recipe.
-        let (found, result) = self.find(grid, size)?;
+        let (found, result) = self.find(context, grid, size)?;
         (found.strip_prefix("minecraft:").unwrap_or(found) == name).then_some(result)
     }
     /// Assemble a named modeled special recipe without first calling matches.
     /// AE2's substituted `AECraftingPattern.assemble` uses this source path.
     /// Custom mod recipes handled outside `crafting` retain their existing
     /// conservative matching adapter until they expose direct assembly.
-    pub fn assemble_named_special_unchecked(&self, id:&str, grid:&[Option<ItemStack>], size:usize)->Option<ItemStack> {
-        let name=id.strip_prefix("minecraft:").unwrap_or(id);
-        if let Some((_,recipe))=self.crafting.iter().find(|(n,_)|n==name) {
-            let Recipe::Special(special)=recipe else{return None;};
-            let input=Input::of(grid,size)?;
-            let context=Context{recipes:self,map_scale:&|_|None};
-            return special.assemble(&context,&input);
+    pub fn assemble_named_special_unchecked(
+        &self,
+        context: &LoopContext,
+        id: &str,
+        grid: &[Option<ItemStack>],
+        size: usize,
+    ) -> Option<ItemStack> {
+        let name = id.strip_prefix("minecraft:").unwrap_or(id);
+        if let Some((_, recipe)) = self.crafting.iter().find(|(n, _)| n == name) {
+            let Recipe::Special(special) = recipe else {
+                return None;
+            };
+            let input = Input::of(grid, size)?;
+            let ctx = Context {
+                recipes: self,
+                context,
+                map_scale: &|_| None,
+            };
+            return special.assemble(&ctx, &input);
         }
-        self.assemble_named(id,grid,size)
+        self.assemble_named(context, id, grid, size)
     }
     /// `RecipeManager.getRecipeFor(CRAFTING, ...)` with a lookup for the scale
     /// of a filled map (map extending reads the map's saved data).
@@ -2061,10 +2106,15 @@ impl Recipes {
         map_scale: &dyn Fn(i32) -> Option<u8>,
     ) -> Option<(&str, ItemStack)> {
         #[cfg(feature = "ae2-lab")]
-        if let Some(result)=ae2::find(self,grid){return Some(result);}
+        if let Some(result) = ae2::find(self, grid) {
+            return Some(result);
+        }
         // AE2 FacadeRecipe: four anchors around one eligible block item.
         // This dynamic recipe exists only when supplied by the active pack.
-        if input.width == 3 && input.height == 3 {
+        if let Some(input) = Input::of(grid, size)
+            && input.width == 3
+            && input.height == 3
+        {
             if let Some((name, _)) = self.ae2_custom.get("ae2:facade").and_then(|v| v.first()) {
                 let corners = [(0, 0), (2, 0), (0, 2), (2, 2)];
                 let sides = [(1, 0), (0, 1), (2, 1), (1, 2)];
@@ -2087,7 +2137,10 @@ impl Recipes {
                                 "minecraft:custom_data",
                                 Some(horizon_core::nbt::Tag::Compound(data)),
                             );
-                            result.data_mut().set_other("ae2:facade_item",Some(horizon_core::nbt::Tag::String(center.item.as_ref().into())));
+                            result.data_mut().set_other(
+                                "ae2:facade_item",
+                                Some(horizon_core::nbt::Tag::String(center.item.as_ref().into())),
+                            );
                             return Some((name.as_str(), result));
                         }
                     }
@@ -2372,18 +2425,25 @@ mod tests {
             "c:gems/fluix".into(),
             HashSet::from(["ae2:fluix_crystal".into()]),
         )]));
-        let recipes = Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let recipes =
+            Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
         let mut grid = vec![None; 9];
         grid[0] = Some(ItemStack::new("ae2:fluix_crystal", 1));
-        let (id, out) = recipes.find(&grid, 3).unwrap();
+        let (id, out) = recipes.find(lc(), &grid, 3).unwrap();
         assert_eq!(id, "ae2:network/blocks/shared");
         assert_eq!(&*out.item, "ae2:drive");
-        let selected=recipes.assemble_named("ae2:network/blocks/zzz_alternate",&grid,3).unwrap();
-        assert_eq!((&*selected.item,selected.count),("ae2:other",2));
-        assert!(recipes.assemble_named("ae2:network/blocks/no_such_recipe",&grid,3).is_none());
+        let selected = recipes
+            .assemble_named(lc(), "ae2:network/blocks/zzz_alternate", &grid, 3)
+            .unwrap();
+        assert_eq!((&*selected.item, selected.count), ("ae2:other", 2));
+        assert!(
+            recipes
+                .assemble_named(lc(), "ae2:network/blocks/no_such_recipe", &grid, 3)
+                .is_none()
+        );
         grid[0] = Some(ItemStack::new("minecraft:stone", 1));
         grid[1] = Some(ItemStack::new("minecraft:redstone", 1));
-        let (id, out) = recipes.find(&grid, 3).unwrap();
+        let (id, out) = recipes.find(lc(), &grid, 3).unwrap();
         assert_eq!(id, "ae2:tools/shared");
         assert_eq!(&*out.item, "ae2:other");
         assert_eq!(recipes.crafting.len(), 3);
@@ -2391,41 +2451,89 @@ mod tests {
     }
     #[test]
     fn quartz_cutting_loads_source_recipe_and_returns_only_one_damaged_knife() {
-        let root=std::env::temp_dir().join(format!("quartz-cutting-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        let dir=root.join("data/ae2/recipe/network/parts");fs::create_dir_all(&dir).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "quartz-cutting-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let dir = root.join("data/ae2/recipe/network/parts");
+        fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(root.join("data/minecraft/recipe")).unwrap();
-        fs::write(root.join("horizon-mod-content.json"),br#"["ae2"]"#).unwrap();
+        fs::write(root.join("horizon-mod-content.json"), br#"["ae2"]"#).unwrap();
         fs::write(dir.join("cable_anchor.json"),br#"{"type":"ae2:quartz_cutting","ingredients":[{"tag":"ae2:knife"},{"tag":"ae2:metal_ingots"}],"result":{"id":"ae2:cable_anchor","count":4}}"#).unwrap();
-        let items=Items::for_tests(HashMap::from([("ae2:knife".into(),HashSet::from(["ae2:certus_quartz_cutting_knife".into()])),("ae2:metal_ingots".into(),HashSet::from(["minecraft:iron_ingot".into()]))]));
-        let mut recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
-        recipes.facts.insert(Arc::from("ae2:certus_quartz_cutting_knife"),Facts{max_damage:50,..Default::default()});
-        let mut knife=ItemStack::new("ae2:certus_quartz_cutting_knife",1);knife.damage=48;
-        let mut grid=vec![None;9];grid[4]=Some(knife);grid[5]=Some(ItemStack::new("minecraft:iron_ingot",1));
-        let (id,result)=recipes.find(&grid,3).unwrap();assert_eq!(id,"ae2:network/parts/cable_anchor");assert_eq!((&*result.item,result.count),("ae2:cable_anchor",4));
-        let remaining=recipes.remainders(&id,&grid,3);assert_eq!(remaining[4].as_ref().unwrap().damage,49);assert!(remaining[5].is_none());
-        grid[4]=remaining[4].clone();assert!(recipes.remainders(&id,&grid,3)[4].is_none());
-        let preserved=recipes.remainders_with_durability(&id,&grid,3,Some(&mut |_,_|0));
-        assert_eq!(preserved[4].as_ref().unwrap().damage,49);
-        let broken=recipes.remainders_with_durability(&id,&grid,3,Some(&mut |_,_|1));assert!(broken[4].is_none());
+        let items = Items::for_tests(HashMap::from([
+            (
+                "ae2:knife".into(),
+                HashSet::from(["ae2:certus_quartz_cutting_knife".into()]),
+            ),
+            (
+                "ae2:metal_ingots".into(),
+                HashSet::from(["minecraft:iron_ingot".into()]),
+            ),
+        ]));
+        let mut recipes =
+            Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        recipes.facts.insert(
+            Arc::from("ae2:certus_quartz_cutting_knife"),
+            Facts {
+                info: crate::items::ItemInfo {
+                    max_damage: 50,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let mut knife = ItemStack::new("ae2:certus_quartz_cutting_knife", 1);
+        knife.damage = 48;
+        let mut grid = vec![None; 9];
+        grid[4] = Some(knife);
+        grid[5] = Some(ItemStack::new("minecraft:iron_ingot", 1));
+        let (id, result) = recipes.find(lc(), &grid, 3).unwrap();
+        assert_eq!(id, "ae2:network/parts/cable_anchor");
+        assert_eq!((&*result.item, result.count), ("ae2:cable_anchor", 4));
+        let remaining = recipes.remainders(&id, &grid, 3);
+        assert_eq!(remaining[4].as_ref().unwrap().damage, 49);
+        assert!(remaining[5].is_none());
+        grid[4] = remaining[4].clone();
+        assert!(recipes.remainders(&id, &grid, 3)[4].is_none());
+        let preserved = recipes.remainders_with_durability(&id, &grid, 3, Some(&mut |_, _| 0));
+        assert_eq!(preserved[4].as_ref().unwrap().damage, 49);
+        let broken = recipes.remainders_with_durability(&id, &grid, 3, Some(&mut |_, _| 1));
+        assert!(broken[4].is_none());
         // Preview never consumes world RNG; actual committed remainders use
         // the vanilla data-driven Unbreaking effect and retain the real stack.
         use horizon_core::random::{LegacyRandom, RandomSource};
-        grid[4].as_mut().unwrap().enchant("minecraft:unbreaking",3);
-        let enchantments=crate::enchant::tests::sample();
-        let mut random=LegacyRandom::new(42);
-        let mut control=random.clone();
-        let _=recipes.remainders(&id,&grid,3);
-        assert_eq!(random.next_long(),control.next_long());
-        let mut preserved_count=0;
-        let mut broken_count=0;
+        grid[4].as_mut().unwrap().enchant("minecraft:unbreaking", 3);
+        let enchantments = crate::enchant::tests::sample();
+        let mut random = LegacyRandom::new(42);
+        let mut control = random.clone();
+        let _ = recipes.remainders(&id, &grid, 3);
+        assert_eq!(random.next_long(), control.next_long());
+        let mut preserved_count = 0;
+        let mut broken_count = 0;
         for _ in 0..32 {
-            let mut loss=|stack:&ItemStack,amount:u32|committed_durability_loss(&enchantments,&items,stack,&mut random,amount);
-            match &recipes.remainders_with_durability(&id,&grid,3,Some(&mut loss))[4] {
-                Some(stack)=>{assert_eq!(stack.damage,49);assert_eq!(stack.enchantments(),grid[4].as_ref().unwrap().enchantments());preserved_count+=1;},
-                None=>broken_count+=1,
+            let mut loss = |stack: &ItemStack, amount: u32| {
+                committed_durability_loss(&enchantments, &items, stack, &mut random, amount)
+            };
+            match &recipes.remainders_with_durability(&id, &grid, 3, Some(&mut loss))[4] {
+                Some(stack) => {
+                    assert_eq!(stack.damage, 49);
+                    assert_eq!(
+                        stack.enchantments(),
+                        grid[4].as_ref().unwrap().enchantments()
+                    );
+                    preserved_count += 1;
+                }
+                None => broken_count += 1,
             }
         }
-        assert!(preserved_count>0 && broken_count>0,"seeded Unbreaking outcomes: preserved={preserved_count}, broken={broken_count}");
+        assert!(
+            preserved_count > 0 && broken_count > 0,
+            "seeded Unbreaking outcomes: preserved={preserved_count}, broken={broken_count}"
+        );
         fs::remove_dir_all(root).unwrap();
     }
     #[test]
@@ -2447,7 +2555,9 @@ mod tests {
         let (id, result) = book.find(&grid, 3).unwrap();
         assert_eq!(id, "ae2:special/facade");
         assert_eq!(result.count, 4);
-        assert!(matches!(result.data().and_then(|d|d.other("ae2:facade_item")),Some(horizon_core::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone"));
+        assert!(
+            matches!(result.data().and_then(|d|d.other("ae2:facade_item")),Some(horizon_core::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone")
+        );
         assert!(
             matches!(result.data().and_then(|d|d.other("minecraft:custom_data")).and_then(|t|t.get("ae2:facade_item")),Some(horizon_core::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone")
         );
@@ -2986,7 +3096,7 @@ mod tests {
             cooking,
             by_type: HashMap::new(),
             ae2_custom: HashMap::new(),
-            fluid_tags:HashMap::new(),
+            fluid_tags: HashMap::new(),
             facade_items: HashSet::new(),
             meta: HashMap::new(),
             facts: HashMap::new(),
@@ -2997,16 +3107,32 @@ mod tests {
     }
     #[test]
     fn named_special_assembly_does_not_require_recipe_matches() {
-        let mut recipes=cooking_book();
-        recipes.crafting.push(("rocket".into(),Recipe::Special(Special::FireworkRocket {
-            shell:ingredient(&["minecraft:paper"]),fuel:ingredient(&["minecraft:gunpowder"]),
-            star:ingredient(&["minecraft:firework_star"]),
-            result:Template::parse(&serde_json::json!({"id":"minecraft:firework_rocket","count":3})).unwrap(),
-        })));
-        let mut grid=vec![None;9];grid[0]=Some(ItemStack::new("minecraft:gunpowder",1));grid[1]=Some(ItemStack::new("minecraft:dirt",1));
-        assert!(recipes.assemble_named("minecraft:rocket",&grid,3).is_none());
-        let result=recipes.assemble_named_special_unchecked("minecraft:rocket",&grid,3).unwrap();
-        assert_eq!(result.item.as_ref(),"minecraft:firework_rocket");assert_eq!(result.count,3);
+        let mut recipes = cooking_book();
+        recipes.crafting.push((
+            "rocket".into(),
+            Recipe::Special(Special::FireworkRocket {
+                shell: ingredient(&["minecraft:paper"]),
+                fuel: ingredient(&["minecraft:gunpowder"]),
+                star: ingredient(&["minecraft:firework_star"]),
+                result: Template::parse(
+                    &serde_json::json!({"id":"minecraft:firework_rocket","count":3}),
+                )
+                .unwrap(),
+            }),
+        ));
+        let mut grid = vec![None; 9];
+        grid[0] = Some(ItemStack::new("minecraft:gunpowder", 1));
+        grid[1] = Some(ItemStack::new("minecraft:dirt", 1));
+        assert!(
+            recipes
+                .assemble_named(lc(), "minecraft:rocket", &grid, 3)
+                .is_none()
+        );
+        let result = recipes
+            .assemble_named_special_unchecked(lc(), "minecraft:rocket", &grid, 3)
+            .unwrap();
+        assert_eq!(result.item.as_ref(), "minecraft:firework_rocket");
+        assert_eq!(result.count, 3);
     }
     #[test]
     fn only_types_outside_minecraft_are_custom() {
@@ -3451,7 +3577,7 @@ mod tests {
             cooking: Vec::new(),
             by_type: HashMap::new(),
             ae2_custom: HashMap::new(),
-            fluid_tags:HashMap::new(),
+            fluid_tags: HashMap::new(),
             facade_items: HashSet::new(),
             meta: HashMap::new(),
             facts: HashMap::new(),

@@ -58,7 +58,7 @@ impl Recipes {
                 damaged_knife = true;
                 let mut remaining = (*s).clone();
                 remaining.count = 1;
-                let max = self.facts.get(&s.item).map_or(0, |f| f.max_damage);
+                let max = self.facts.get(&s.item).map_or(0, |f| f.info.max_damage);
                 if max > 0 {
                     let loss = durability.as_mut().map_or(1, |apply| apply(s, 1));
                     remaining.damage = remaining.damage.saturating_add(loss);

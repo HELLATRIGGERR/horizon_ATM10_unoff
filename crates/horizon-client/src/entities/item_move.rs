@@ -61,13 +61,26 @@ impl ItemEntity {
             self.pickup_delay -= 1;
         }
         let prior_fall = self.fall_distance;
+        let immersed: EntityFluids = heights.into();
+        let (water_height, lava_height) = (immersed.water, immersed.lava);
         let old_velocity = self.velocity;
         // Entity.updateInWaterStateAndDoFluidPushing: touching water resets the fall.
         if water_height > 0.0 {
             self.fall_distance = 0.0;
         }
         let in_water = water_height > f64::from(0.1f32);
-        if in_water {
+        // NeoForge's `ItemEntity.tick`: the highest fluid type, when a content mod's
+        // (`!isVanilla()`) and over 0.1F, moves the item by its `setItemMovement`.
+        if let Some(m) = immersed
+            .max_mod
+            .filter(|(_, height)| *height > f64::from(0.1f32))
+            .and_then(|(kind, _)| kind.carried())
+        {
+            let [x, y, z] =
+                m.item_movement
+                    .apply([self.velocity.x, self.velocity.y, self.velocity.z]);
+            self.velocity = Vec3::new(x, y, z);
+        } else if in_water {
             // ItemEntity.setUnderwaterMovement: 0.99F, 5.0E-4F, 0.06F.
             self.set_fluid_movement(0.99_f32);
         } else if lava_height > f64::from(0.1f32) {

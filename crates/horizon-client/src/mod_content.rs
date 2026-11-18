@@ -21,8 +21,8 @@ use horizon_core::{
     nbt::{Compound, JavaString, Limits, Tag},
 };
 use horizon_mod_package::content::{
-    Block, BlockEntityType, BlockShapes, Content, CreativeTab, EntityType, FluidLook, MenuType,
-    MobEffect, Rarity, StateProperty, StateValues,
+    Block, BlockEntityType, BlockShapes, CarriedFluid, Content, CreativeTab, EntityType, FluidLook,
+    MenuType, MobEffect, Rarity, StateProperty, StateValues,
 };
 use horizon_mod_package::manifest::{
     JarInputsError, JarRef, collect_jar_requirements, missing_jars,
@@ -177,8 +177,10 @@ pub fn fluid_look(id: &str) -> Option<FluidLook> {
 pub fn carried_fluids(mods: &[ContentMod]) -> Vec<&CarriedFluid> {
     static MILK: std::sync::LazyLock<CarriedFluid> =
         std::sync::LazyLock::new(CarriedFluid::neoforge_milk);
-    let mut fluids: Vec<&CarriedFluid> =
-        mods.iter().flat_map(|m| &m.content.carried_fluids).collect();
+    let mut fluids: Vec<&CarriedFluid> = mods
+        .iter()
+        .flat_map(|m| &m.content.carried_fluids)
+        .collect();
     if mods.iter().any(|m| m.content.milk_fluid) {
         fluids.push(&MILK);
     }
@@ -192,7 +194,7 @@ pub fn mod_fluid(
     decl: &CarriedFluid,
     tags: &BTreeMap<String, Vec<String>>,
 ) -> horizon_world::mod_fluids::ModFluid {
-    use horizon_mods::content::FluidVaporizes;
+    use horizon_mod_package::content::FluidVaporizes;
     use horizon_world::mod_fluids::Vaporizes;
     let tags_of = |id: &str| tags.get(id).cloned().unwrap_or_default();
     horizon_world::mod_fluids::ModFluid {
@@ -239,17 +241,23 @@ pub fn mod_fluid(
             FluidVaporizes::Never => Vaporizes::Never,
             FluidVaporizes::Always => Vaporizes::Always,
         },
-        cauldron: decl.cauldron.as_ref().map(|c| horizon_world::mod_fluids::ModCauldron {
-            block: c.block.clone(),
-            total_amount: c.total_amount,
-            max_level: c.max_level,
-            level_property: c.level_property.clone(),
-        }),
-        drip: decl.drip.as_ref().map(|d| horizon_world::mod_fluids::ModDrip {
-            chance: d.chance,
-            particle: d.particle.clone(),
-            cauldron: d.cauldron.clone(),
-        }),
+        cauldron: decl
+            .cauldron
+            .as_ref()
+            .map(|c| horizon_world::mod_fluids::ModCauldron {
+                block: c.block.clone(),
+                total_amount: c.total_amount,
+                max_level: c.max_level,
+                level_property: c.level_property.clone(),
+            }),
+        drip: decl
+            .drip
+            .as_ref()
+            .map(|d| horizon_world::mod_fluids::ModDrip {
+                chance: d.chance,
+                particle: d.particle.clone(),
+                cauldron: d.cauldron.clone(),
+            }),
         cauldron_drip_sound: decl.sounds.cauldron_drip.clone(),
         item_movement: decl.item_movement.map_or_else(Default::default, |m| {
             horizon_world::mod_fluids::ItemMovement {
@@ -264,7 +272,9 @@ pub fn mod_fluid(
 /// The mods' fluid interactions (`fluid_interaction` files), in the mods'
 /// order and each mod's path order: `FluidInteractionRegistry`'s lists keep
 /// the order the mods registered them in.
-pub fn fluid_interactions(mods: &[ContentMod]) -> Vec<&horizon_mods::content::FluidInteractions> {
+pub fn fluid_interactions(
+    mods: &[ContentMod],
+) -> Vec<&horizon_mod_package::content::FluidInteractions> {
     mods.iter()
         .flat_map(|m| &m.content.fluid_interactions)
         .collect()
@@ -272,7 +282,9 @@ pub fn fluid_interactions(mods: &[ContentMod]) -> Vec<&horizon_mods::content::Fl
 
 /// Registers the interactions of a root [`load_root`] gave, after its fluids
 /// ([`register_mod_fluids`]): once per process. False when they already were.
-pub fn register_fluid_interactions(files: &[horizon_mods::content::FluidInteractions]) -> bool {
+pub fn register_fluid_interactions(
+    files: &[horizon_mod_package::content::FluidInteractions],
+) -> bool {
     horizon_world::fluid_interactions::register_interactions(files.iter().flat_map(|file| {
         file.interactions.iter().map(|rule| {
             horizon_world::fluid_interactions::DeclaredInteraction {
@@ -296,7 +308,11 @@ pub fn register_mod_fluids(root: &Path, fluids: &[CarriedFluid]) -> bool {
     let known: BTreeSet<&str> = fluids
         .iter()
         .flat_map(|f| [f.id.as_str(), f.flowing.as_str()])
-        .chain(horizon_world::fluid::FluidKind::ALL.iter().map(|k| k.name()))
+        .chain(
+            horizon_world::fluid::FluidKind::ALL
+                .iter()
+                .map(|k| k.name()),
+        )
         .collect();
     let lists = horizon_world::mod_fluids::fluid_tag_lists_in(root, &|id| known.contains(id))
         .unwrap_or_else(|e| {
@@ -1003,12 +1019,13 @@ impl NewBlock<'_> {
             .then(|| &self.combo_maps[self.order[index].1 as usize])
     }
     fn collision_box(&self, index: usize) -> Option<[f64; 6]> {
-        self.selected_box(index,&self.decl.collision_boxes)
+        self.selected_box(index, &self.decl.collision_boxes)
     }
-    fn outline_box(&self,index:usize)->Option<[f64;6]> {
-        self.selected_box(index,&self.decl.outline_boxes).or_else(||self.collision_box(index))
+    fn outline_box(&self, index: usize) -> Option<[f64; 6]> {
+        self.selected_box(index, &self.decl.outline_boxes)
+            .or_else(|| self.collision_box(index))
     }
-    fn selected_box(&self,index:usize,boxes:&BTreeMap<String,[f64;6]>)->Option<[f64;6]> {
+    fn selected_box(&self, index: usize, boxes: &BTreeMap<String, [f64; 6]>) -> Option<[f64; 6]> {
         let state = self.declared(index);
         boxes
             .iter()
@@ -1032,9 +1049,10 @@ impl NewBlock<'_> {
     fn emission(&self, index: usize) -> Option<u8> {
         self.selected_light(index, &self.decl.light_emission)
     }
-    fn selected_light(&self, index: usize, values: &BTreeMap<String,u8>) -> Option<u8> {
+    fn selected_light(&self, index: usize, values: &BTreeMap<String, u8>) -> Option<u8> {
         let state = self.declared(index);
-        values.iter()
+        values
+            .iter()
             .filter_map(|(selector, light)| {
                 if selector == "*" {
                     return Some((0, *light));
@@ -1074,7 +1092,11 @@ impl NewBlock<'_> {
             };
             *value = dirs[next].into();
         }
-        let turned = self.combo_maps.iter().position(|s| *s == props).unwrap_or(combo) as u32;
+        let turned = self
+            .combo_maps
+            .iter()
+            .position(|s| *s == props)
+            .unwrap_or(combo) as u32;
         self.rename.first + self.rename.row(at, turned)
     }
 }
@@ -1575,10 +1597,7 @@ impl<'a> Plan<'a> {
                 }
                 let combos = combinations(&decl.state_properties, &decl.default_state)
                     .map_err(|e| format!("{}: {e}", decl.id))?;
-                let combo_maps = combos
-                    .iter()
-                    .map(|c| c.iter().cloned().collect())
-                    .collect();
+                let combo_maps = combos.iter().map(|c| c.iter().cloned().collect()).collect();
                 // A `default_state` key the block itself declares is its own,
                 // and `combinations` already checks that value against the
                 // property. Only a key the template already has narrows which
@@ -1853,8 +1872,9 @@ impl<'a> Plan<'a> {
                 if let Ok(map) = serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                     // A mod's text is mostly not its items' and blocks' names.
                     lang.extend(
-                        map.into_iter()
-                            .filter(|(key, _)| key.starts_with("item.") || key.starts_with("block.")),
+                        map.into_iter().filter(|(key, _)| {
+                            key.starts_with("item.") || key.starts_with("block.")
+                        }),
                     );
                 }
             }
@@ -1965,9 +1985,7 @@ impl<'a> Plan<'a> {
                             parts[3] = J::Num((if water { 8 } else { 0 }).into());
                             parts[4] = J::Bool(false);
                         }
-                        "worldgen/block_flags.json" if parts.len() > 1 => {
-                            parts[1] = J::Bool(water)
-                        }
+                        "worldgen/block_flags.json" if parts.len() > 1 => parts[1] = J::Bool(water),
                         _ => {}
                     }
                 }
@@ -2061,11 +2079,12 @@ impl<'a> Plan<'a> {
             if let Some(light) = b.emission(i) {
                 row.set("emission", J::Num(light.into()));
             }
-            if let Some(light) = b.selected_light(i,&b.decl.light_dampening_states) {
+            if let Some(light) = b.selected_light(i, &b.decl.light_dampening_states) {
                 row.set("dampening", J::Num(light.into()));
             }
-            if b.decl.properties.outline_empty==Some(true) {
-                row.set("outline",J::Arr(vec![]));row.set("outline_edges",J::Arr(vec![]));
+            if b.decl.properties.outline_empty == Some(true) {
+                row.set("outline", J::Arr(vec![]));
+                row.set("outline_edges", J::Arr(vec![]));
             } else if let Some(bounds) = b.outline_box(i) {
                 row.set(
                     "outline",
@@ -2084,30 +2103,60 @@ impl<'a> Plan<'a> {
                             to[other[0]] = from[other[0]];
                             from[other[1]] = bounds[other[1] + 3 * c];
                             to[other[1]] = from[other[1]];
-                            edges.push(J::Arr(
-                                from.into_iter().chain(to).map(J::f64).collect(),
-                            ));
+                            edges.push(J::Arr(from.into_iter().chain(to).map(J::f64).collect()));
                         }
                     }
                 }
                 row.set("outline_edges", J::Arr(edges));
             }
-            if b.decl.properties.no_collision==Some(true) || b.collision_box(i).is_some() {row.set("full_collision",J::Bool(false));}
-            if b.decl.properties.no_occlusion==Some(true) || b.collision_box(i).is_some() {
-                row.set("can_occlude",J::Bool(false));row.set("solid_render",J::Bool(false));
+            if b.decl.properties.no_collision == Some(true) || b.collision_box(i).is_some() {
+                row.set("full_collision", J::Bool(false));
+            }
+            if b.decl.properties.no_occlusion == Some(true) || b.collision_box(i).is_some() {
+                row.set("can_occlude", J::Bool(false));
+                row.set("solid_render", J::Bool(false));
             }
             // Collision geometry and Java's canOcclude property are
             // independent (e.g. a certus bud has a partial shape but
             // does not call noOcclusion).
-            if let Some(v)=b.decl.properties.can_occlude { row.set("can_occlude",J::Bool(v)); }
+            if let Some(v) = b.decl.properties.can_occlude {
+                row.set("can_occlude", J::Bool(v));
+            }
         }
-        if table=="block-behaviours.json" && let J::Arr(parts)=&mut row && parts.len()>1 && let J::Num(n)=&parts[1] && let Some(mut flags)=n.as_u64() {
-            if b.decl.properties.no_collision==Some(true){flags|=1<<5;}
-            if b.decl.properties.no_support==Some(true) {parts[0]=J::Num(0u8.into());}
-            if let Some(conductor)=b.decl.properties.redstone_conductor {if conductor {flags|=1<<2;}else {flags&=!(1<<2);}}
-            if let Some(solid)=b.decl.properties.solid {if solid {flags|=1;} else {flags&=!1;}}
-            if let Some(suffocating)=b.decl.properties.suffocating {if suffocating {flags|=1<<6;} else {flags&=!(1<<6);}}
-            parts[1]=J::Num(flags.into());
+        if table == "block-behaviours.json"
+            && let J::Arr(parts) = &mut row
+            && parts.len() > 1
+            && let J::Num(n) = &parts[1]
+            && let Some(mut flags) = n.as_u64()
+        {
+            if b.decl.properties.no_collision == Some(true) {
+                flags |= 1 << 5;
+            }
+            if b.decl.properties.no_support == Some(true) {
+                parts[0] = J::Num(0u8.into());
+            }
+            if let Some(conductor) = b.decl.properties.redstone_conductor {
+                if conductor {
+                    flags |= 1 << 2;
+                } else {
+                    flags &= !(1 << 2);
+                }
+            }
+            if let Some(solid) = b.decl.properties.solid {
+                if solid {
+                    flags |= 1;
+                } else {
+                    flags &= !1;
+                }
+            }
+            if let Some(suffocating) = b.decl.properties.suffocating {
+                if suffocating {
+                    flags |= 1 << 6;
+                } else {
+                    flags &= !(1 << 6);
+                }
+            }
+            parts[1] = J::Num(flags.into());
         }
         Ok(row)
     }
@@ -2140,25 +2189,33 @@ impl<'a> Plan<'a> {
         }
         let mut comma = !list.is_empty();
         for batch in chunks.chunks(ROW_THREADS) {
-            let encoded = par_map(batch, ROW_THREADS, |range| -> std::result::Result<Vec<u8>, String> {
-                let mut bytes = Vec::new();
-                for b in &self.blocks[range.clone()] {
-                    let renames = self.renames(b);
-                    let defaults = Self::turned_defaults(b, table);
-                    for (i, state) in b.state_combinations().enumerate() {
-                        let mut row = self
-                            .state_row(b, &renames, i, state, list, table)
-                            .map_err(|e| e.to_string())?;
-                        Self::turn_declared(b, i, &mut row, table, defaults.as_ref());
-                        bytes.push(b',');
-                        serde_json::to_writer(&mut bytes, &row).map_err(|e| e.to_string())?;
+            let encoded = par_map(
+                batch,
+                ROW_THREADS,
+                |range| -> std::result::Result<Vec<u8>, String> {
+                    let mut bytes = Vec::new();
+                    for b in &self.blocks[range.clone()] {
+                        let renames = self.renames(b);
+                        let defaults = Self::turned_defaults(b, table);
+                        for (i, state) in b.state_combinations().enumerate() {
+                            let mut row = self
+                                .state_row(b, &renames, i, state, list, table)
+                                .map_err(|e| e.to_string())?;
+                            Self::turn_declared(b, i, &mut row, table, defaults.as_ref());
+                            bytes.push(b',');
+                            serde_json::to_writer(&mut bytes, &row).map_err(|e| e.to_string())?;
+                        }
                     }
-                }
-                Ok(bytes)
-            });
+                    Ok(bytes)
+                },
+            );
             for bytes in encoded {
                 let bytes = bytes?;
-                let bytes = if comma { &bytes[..] } else { bytes.get(1..).unwrap_or_default() };
+                let bytes = if comma {
+                    &bytes[..]
+                } else {
+                    bytes.get(1..).unwrap_or_default()
+                };
                 comma |= !bytes.is_empty();
                 out.write_all(bytes)?;
             }
@@ -2227,10 +2284,15 @@ impl<'a> Plan<'a> {
             row.set("skylight_down", J::Bool(false));
         }
         let p = &b.decl.properties;
-        if let Some(v)=p.replaceable {row.set("replaceable",J::Bool(v));}
-        if let Some(v)=p.skylight_down {row.set("skylight_down",J::Bool(v));}
-        if let Some(v)=p.light_dampening {row.set("dampening",J::Num(v.into()));}
-        if let Some(v)=&p.push_reaction {row.set("push",J::Str(v.clone()));}
+        if let Some(v) = p.replaceable {
+            row.set("replaceable", J::Bool(v));
+        }
+        if let Some(v) = p.skylight_down {
+            row.set("skylight_down", J::Bool(v));
+        }
+        if let Some(v) = p.light_dampening {
+            row.set("dampening", J::Num(v.into()));
+        }
         if let Some(ticks) = &p.random_ticks {
             row.set("random_ticks", J::Bool(ticks.applies(combo)));
         }
@@ -2333,7 +2395,10 @@ impl<'a> Plan<'a> {
             }
             if components {
                 #[cfg(feature = "ae2-lab")]
-                if matches!(i.rename.to.as_str(), "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife") {
+                if matches!(
+                    i.rename.to.as_str(),
+                    "ae2:certus_quartz_cutting_knife" | "ae2:nether_quartz_cutting_knife"
+                ) {
                     v.set("minecraft:max_stack_size", J::Num(1u8.into()));
                     v.set("minecraft:max_damage", J::Num(50u8.into()));
                     v.set("minecraft:damage", J::Num(0u8.into()));
@@ -2342,13 +2407,24 @@ impl<'a> Plan<'a> {
                 // 1.2x speed and +0.4 attack damage. Write actual components
                 // so networked clients observe the same defaults as the host.
                 #[cfg(feature = "ae2-lab")]
-                if matches!(i.rename.to.as_str(), "ae2:fluix_axe" | "ae2:fluix_hoe" | "ae2:fluix_pickaxe" | "ae2:fluix_shovel" | "ae2:fluix_sword") {
+                if matches!(
+                    i.rename.to.as_str(),
+                    "ae2:fluix_axe"
+                        | "ae2:fluix_hoe"
+                        | "ae2:fluix_pickaxe"
+                        | "ae2:fluix_shovel"
+                        | "ae2:fluix_sword"
+                ) {
                     v.set("minecraft:max_damage", J::Num(750u32.into()));
                     if let Some(J::Arr(modifiers)) = v.get_mut("minecraft:attribute_modifiers") {
                         for modifier in modifiers {
-                            if modifier.get("type") == Some(&J::Str("minecraft:attack_damage".into())) {
+                            if modifier.get("type")
+                                == Some(&J::Str("minecraft:attack_damage".into()))
+                            {
                                 if let Some(J::Num(amount)) = modifier.get("amount") {
-                                    if let Some(amount) = amount.as_f64() { modifier.set("amount", J::f64(amount + 0.4)); }
+                                    if let Some(amount) = amount.as_f64() {
+                                        modifier.set("amount", J::f64(amount + 0.4));
+                                    }
                                 }
                             }
                         }
@@ -2356,7 +2432,9 @@ impl<'a> Plan<'a> {
                     if let Some(J::Arr(rules)) = v.at("minecraft:tool/rules") {
                         for rule in rules {
                             if let Some(J::Num(speed)) = rule.get("speed") {
-                                if speed.as_f64().is_some_and(|n| (n - 6.0).abs() < 0.001) { rule.set("speed", J::f64(7.2)); }
+                                if speed.as_f64().is_some_and(|n| (n - 6.0).abs() < 0.001) {
+                                    rule.set("speed", J::f64(7.2));
+                                }
                             }
                         }
                     }
@@ -3011,7 +3089,9 @@ impl<'a> Plan<'a> {
                         // no collision or declares a box for it.
                         let copy = (0..b.state_count())
                             .map(|i| {
-                                if b.decl.properties.no_collision==Some(true) {return a[self.defaults["minecraft:air"] as usize];}
+                                if b.decl.properties.no_collision == Some(true) {
+                                    return a[self.defaults["minecraft:air"] as usize];
+                                }
                                 explicit
                                     .get(&(b.rename.first, i))
                                     .copied()
@@ -3611,6 +3691,7 @@ impl Overlay<'_> {
             base,
             out,
             written: Default::default(),
+            real: Default::default(),
         };
         overlay.link_children(Path::new(""))?;
         Ok(overlay)
@@ -3661,12 +3742,18 @@ impl Overlay<'_> {
     /// A new file at `rel`, where a link to the base's may be. The link goes
     /// first: writing through it would change the base's file.
     fn create(&self, rel: &str) -> Result<fs::File> {
+        self.mark_written(rel);
         let rel = Path::new(rel);
         if let Some(parent) = rel.parent() {
             self.dir(parent)?;
         }
         let path = self.out.join(rel);
-        let open = || fs::OpenOptions::new().write(true).create_new(true).open(&path);
+        let open = || {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+        };
         Ok(match open() {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 fs::remove_file(&path)?;
@@ -3676,14 +3763,21 @@ impl Overlay<'_> {
         })
     }
     fn write(&self, rel: &str, bytes: &[u8]) -> Result<()> {
-        let name = rel;
         self.create(rel)?.write_all(bytes)?;
         Ok(())
+    }
+    /// Records `rel` as written into the overlay (upstream's `written`).
+    fn mark_written(&self, rel: &str) {
+        self.written
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(rel.to_owned());
     }
     /// A link at `rel` to the file `target`, where a link to the base's may be.
     /// What is there goes first: [`link`] falls back to a copy, and a copy onto
     /// a hard link would change the base's file.
     fn link_file(&self, target: &Path, rel: &str) -> Result<()> {
+        let name = rel;
         let rel = Path::new(rel);
         if let Some(parent) = rel.parent() {
             self.dir(parent)?;
@@ -3694,10 +3788,7 @@ impl Overlay<'_> {
             _ => {}
         }
         link(target, &path)?;
-        self.written
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(name.to_owned());
+        self.mark_written(name);
         Ok(())
     }
 }
@@ -3843,42 +3934,6 @@ impl Known {
 /// would mostly add memory.
 const TABLE_THREADS: usize = 3;
 
-/// Rewrites the base's per-state tables for the mods' states into the overlay,
-/// one table at a time: each holds vanilla's rows as a tree while its new rows
-/// go straight to its file. [`build`] runs it on a thread of its own while the
-/// mods' files are written: the tables need only the plan, and no mod file goes
-/// where they do.
-fn tables(base: &Path, plan: &Plan, overlay: &Overlay<'_>) -> Result<()> {
-    for name in JSON_TABLES.iter().chain(&NBT_TABLES) {
-        let path = base.join(name);
-        if !path.exists() {
-            continue;
-        }
-        let mut out = std::io::BufWriter::with_capacity(1 << 20, overlay.create(name)?);
-        if *name == "entity-types.json" {
-            let bytes = plan
-                .entity_types_json(&fs::read(&path)?)
-                .map_err(|e| format!("{name}: {e}"))?;
-            out.write_all(&bytes)?;
-        } else if JSON_TABLES.contains(name) {
-            let mut doc = read_json(&path)?;
-            plan.write_json(name, &mut doc, &mut out)
-                .map_err(|e| format!("{name}: {e}"))?;
-        } else {
-            let (mut named, _) = nbt::read_named(&fs::read(&path)?, Limits::tables())
-                .map_err(|e| format!("{name}: {e}"))?;
-            plan.nbt_table(&mut named.tag, name.ends_with("cached-collision.nbt"));
-            if *name == "cached-collision.nbt" || *name == "worldgen/blocks/cached-collision.nbt" {
-                plan.collision_shapes(&mut named.tag)?;
-            }
-            nbt::write_named_to(&named, Limits::tables(), &mut out, "states", plan)
-                .map_err(|e| format!("{name}: {e}"))?;
-        }
-        out.flush()?;
-    }
-    Ok(())
-}
-
 /// What one mod's files add to the root besides themselves.
 #[derive(Default)]
 struct ModFiles {
@@ -3935,8 +3990,7 @@ fn write_mod_files(m: &ContentMod, overlay: &Overlay<'_>) -> Result<ModFiles> {
             gathered.atlases.push((file.clone(), sources.clone()));
             continue;
         }
-        if file.starts_with(&declarations)
-            || whole_dir(file).is_some_and(|dir| whole.contains(dir))
+        if file.starts_with(&declarations) || whole_dir(file).is_some_and(|dir| whole.contains(dir))
         {
             continue;
         }
@@ -4020,7 +4074,12 @@ fn link_whole_dirs<'f>(
     folder: &Path,
     overlay: &Overlay<'_>,
 ) -> Result<HashSet<&'f str>> {
-    let mut dirs: HashSet<&str> = m.content.files.iter().filter_map(|f| whole_dir(f)).collect();
+    let mut dirs: HashSet<&str> = m
+        .content
+        .files
+        .iter()
+        .filter_map(|f| whole_dir(f))
+        .collect();
     let taken_in = |f: &&String| {
         is_tag_file(f)
             || is_atlas_file(f)
@@ -4064,20 +4123,25 @@ fn table_jobs(base: &Path, overlay: &Overlay<'_>) -> Result<Vec<(&'static str, u
 /// the mods' states into the overlay. They are independent:
 /// [`TABLE_THREADS`] threads take them, the largest first.
 fn tables(base: &Path, plan: &Plan, overlay: &Overlay<'_>, jobs: &[(&str, u64)]) -> Result<()> {
+    // Each table holds vanilla's rows as a tree while its new rows go straight to its file
+    // (this fork's streaming writes: `Plan::write_json`, `Plan::nbt_table` and the `states`
+    // list extension), on upstream's table threads.
     let table = |name: &str| -> Result<()> {
         let path = base.join(name);
-        let bytes = if name == "entity-types.json" {
-            plan.entity_types_json(&fs::read(&path)?)
-                .map_err(|e| format!("{name}: {e}"))?
+        let mut out = std::io::BufWriter::with_capacity(1 << 20, overlay.create(name)?);
+        if name == "entity-types.json" {
+            let bytes = plan
+                .entity_types_json(&fs::read(&path)?)
+                .map_err(|e| format!("{name}: {e}"))?;
+            out.write_all(&bytes)?;
         } else if JSON_TABLES.contains(&name) {
             let mut doc = read_json(&path)?;
-            plan.json(name, &mut doc)
+            plan.write_json(name, &mut doc, &mut out)
                 .map_err(|e| format!("{name}: {e}"))?;
-            serde_json::to_vec(&doc)?
         } else {
             let (mut named, _) = nbt::read_named(&fs::read(&path)?, Limits::tables())
                 .map_err(|e| format!("{name}: {e}"))?;
-            plan.nbt(&mut named.tag);
+            plan.nbt_table(&mut named.tag, name.ends_with("cached-collision.nbt"));
             if name == "cached-collision.nbt" || name == "worldgen/blocks/cached-collision.nbt" {
                 plan.declared_shapes(&mut named.tag, true)?;
             } else if name == "occlusion.nbt" {
@@ -4089,9 +4153,11 @@ fn tables(base: &Path, plan: &Plan, overlay: &Overlay<'_>, jobs: &[(&str, u64)])
                     .ok_or("block properties have no occlusion")?;
                 plan.declared_shapes(occlusion, false)?;
             }
-            nbt::write_named(&named, Limits::tables()).map_err(|e| format!("{name}: {e}"))?
-        };
-        overlay.write(name, &bytes)
+            nbt::write_named_to(&named, Limits::tables(), &mut out, "states", plan)
+                .map_err(|e| format!("{name}: {e}"))?;
+        }
+        out.flush()?;
+        Ok(())
     };
     let next = std::sync::atomic::AtomicUsize::new(0);
     let threads = horizon_threads::worker_count();
@@ -4293,7 +4359,7 @@ pub fn resolved_resources(
 /// A mod that wants its content in the root.
 pub struct Candidate {
     pub path: PathBuf,
-    pub manifest: horizon_mods::Manifest,
+    pub manifest: horizon_mod_package::Manifest,
 }
 
 /// The root [`load_root`] found or built.
@@ -4310,7 +4376,7 @@ pub struct LoadedRoot {
     /// Their carried fluids, in registry order ([`carried_fluids`]).
     pub fluids: Vec<CarriedFluid>,
     /// Their fluid interactions, in order ([`fluid_interactions`]).
-    pub fluid_interactions: Vec<horizon_mods::content::FluidInteractions>,
+    pub fluid_interactions: Vec<horizon_mod_package::content::FluidInteractions>,
 }
 
 /// What a built root's start needs to know without reading the mods again.
@@ -4331,7 +4397,7 @@ struct Summary {
     /// (id, file) of the fluid interactions; none in a summary from before
     /// them, which is built again.
     #[serde(default)]
-    fluid_interactions: Option<Vec<(String, horizon_mods::content::FluidInteractions)>>,
+    fluid_interactions: Option<Vec<(String, horizon_mod_package::content::FluidInteractions)>>,
 }
 
 /// In a root built by [`load_root`]: its [`Summary`].
@@ -4342,9 +4408,11 @@ const SUMMARY: &str = "horizon-mod-content-summary.json";
 /// files at all. A mod whose content is refused is left out and logged.
 pub fn load_root(
     base: &Path,
+    jar_store: &Path,
+    inventory: &horizon_mod_package::enabled::EnabledMods,
     candidates: &[Candidate],
-    blocks: &[horizon_mods::content::Block],
-    items: &[horizon_mods::content::Item],
+    blocks: &[horizon_mod_package::content::Block],
+    items: &[horizon_mod_package::content::Item],
     cache: &Path,
 ) -> Result<LoadedRoot> {
     let base_root = |accepted: Vec<String>| LoadedRoot {
@@ -4362,15 +4430,16 @@ pub fn load_root(
     }
     let started = std::time::Instant::now();
     let stamps = par_map(candidates, FILE_THREADS, |c| {
-        horizon_mods::content::source_stamp(&c.path).unwrap_or_default()
+        horizon_mod_package::content::source_stamp(&c.path).unwrap_or_default()
     });
-    let stamp = stamp(
+    let stamp = candidates_stamp(
         base,
         candidates
             .iter()
             .zip(stamps)
             .map(|(c, files)| (c.manifest.id.as_str(), c.path.as_path(), files)),
         &format!("{blocks:?} {items:?}"),
+        inventory,
     )?;
     // One root per mod set, as [`resource_root`]'s.
     let roots = cache.join("mod-content");
@@ -4405,7 +4474,7 @@ pub fn load_root(
             fluids: fluids.map(|(id, f)| CarriedFluid { id, ..f }).collect(),
             fluid_interactions: interactions
                 .into_iter()
-                .map(|(id, f)| horizon_mods::content::FluidInteractions { id, ..f })
+                .map(|(id, f)| horizon_mod_package::content::FluidInteractions { id, ..f })
                 .collect(),
         });
     }
@@ -4413,10 +4482,13 @@ pub fn load_root(
         // The items its native code declares may be a file item's crafting remainder.
         let declared: Vec<String> = items
             .iter()
-            .filter(|i| i.id.split_once(':').is_some_and(|(ns, _)| ns == c.manifest.id))
+            .filter(|i| {
+                i.id.split_once(':')
+                    .is_some_and(|(ns, _)| ns == c.manifest.id)
+            })
             .map(|i| i.id.clone())
             .collect();
-        horizon_mods::Content::read_declaring(&c.path, &c.manifest, &declared)
+        horizon_mod_package::Content::read_declaring(&c.path, &c.manifest, &declared)
     });
     log::info!(
         "Horizon: read the content of {} mod(s) in {:.1} s",
@@ -4435,6 +4507,7 @@ pub fn load_root(
                 ContentMod {
                     id: id.clone(),
                     content,
+                    jars: c.manifest.jar.clone(),
                 },
                 &known,
             )
@@ -4447,7 +4520,7 @@ pub fn load_root(
         }
     }
     if !blocks.is_empty() || !items.is_empty() {
-        for e in accept_declared(&mut mods, blocks, items, &known) {
+        for e in accept_declared(&mut mods, blocks, items, &[], &known) {
             log::warn!("Horizon: {e}");
         }
         // A file item's remainder named a code-declared item that was refused: that mod alone
@@ -4467,10 +4540,10 @@ pub fn load_root(
     let types: Vec<EntityType> = entity_types(&mods).into_iter().cloned().collect();
     let menus: Vec<MenuType> = menu_types(&mods).into_iter().cloned().collect();
     let mod_fluids: Vec<CarriedFluid> = carried_fluids(&mods).into_iter().cloned().collect();
-    let interactions: Vec<horizon_mods::content::FluidInteractions> =
+    let interactions: Vec<horizon_mod_package::content::FluidInteractions> =
         fluid_interactions(&mods).into_iter().cloned().collect();
     let started = std::time::Instant::now();
-    for warning in build(base, &mods, &out)? {
+    for warning in build(base, jar_store, &mods, &out, inventory)? {
         log::warn!("Horizon: {warning}");
     }
     log::info!(
@@ -4484,7 +4557,10 @@ pub fn load_root(
         effects: effects.iter().map(|e| (e.id.clone(), e.clone())).collect(),
         entity_types: types.iter().map(|t| (t.id.clone(), t.clone())).collect(),
         menu_types: menus.iter().map(|m| (m.id.clone(), m.clone())).collect(),
-        fluids: mod_fluids.iter().map(|f| (f.id.clone(), f.clone())).collect(),
+        fluids: mod_fluids
+            .iter()
+            .map(|f| (f.id.clone(), f.clone()))
+            .collect(),
         fluid_interactions: Some(
             interactions
                 .iter()
@@ -4586,29 +4662,6 @@ pub fn live_switch(content: &Content) -> std::result::Result<(), &'static str> {
     Ok(())
 }
 
-/// [`resource_root`]'s [`stamp`] of `mods`: their files' stamps, and what each declares, so
-/// blocks and items from code count too.
-fn content_stamp(base: &Path, mods: &[ContentMod]) -> Result<String> {
-    let stamps = mods
-        .iter()
-        .map(|m| {
-            let source = m.content.source();
-            // Declared in code only: nothing to read.
-            let files = match m.content.files.is_empty() {
-                true => 0,
-                false => horizon_mods::content::source_stamp(source)?,
-            };
-            Ok((m.id.as_str(), source, files))
-        })
-        .collect::<std::result::Result<Vec<_>, String>>()?;
-    // What each declares, so blocks and items from code count too.
-    let declared: String = mods
-        .iter()
-        .map(|m| format!("{:?} {:?}", m.content.blocks, m.content.items))
-        .collect();
-    stamp(base, stamps, &declared)
-}
-
 /// In a root built by [`build`]: its warnings, one per line.
 const WARNINGS: &str = "horizon-mod-content-warnings.txt";
 
@@ -4702,6 +4755,58 @@ fn stamp(
         } else {
             parts.push(meta(source)?);
         }
+    }
+    let mut hasher = Sha256::new();
+    for part in &parts {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part.as_bytes());
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// [`load_root`]'s stamp, taken before any mod is read: the base, this build, each candidate's
+/// files' stamp, what native code declares and the enabled inventory.
+fn candidates_stamp<'a>(
+    base: &Path,
+    mods: impl IntoIterator<Item = (&'a str, &'a Path, u64)>,
+    declared: &str,
+    inventory: &horizon_mod_package::enabled::EnabledMods,
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+    let meta = |path: &Path| -> Result<String> {
+        let m = fs::metadata(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let modified = m
+            .modified()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        Ok(format!(
+            "{} {} {}",
+            path.display(),
+            m.len(),
+            modified.as_nanos()
+        ))
+    };
+    let mut parts = vec![
+        "horizon mod content candidates 6".to_owned(),
+        serde_json::to_string(inventory)?,
+    ];
+    parts.push(meta(&std::env::current_exe()?)?);
+    let base = std::path::absolute(base)?;
+    parts.push(
+        String::from_utf8_lossy(&fs::read(base.join("horizon-resources.json"))?).into_owned(),
+    );
+    for name in JSON_TABLES.iter().chain(&NBT_TABLES).chain(&TAG_BUNDLES) {
+        if base.join(name).exists() {
+            parts.push(meta(&base.join(name))?);
+        }
+    }
+    for (id, path, files) in mods {
+        // A mod declared in code only is nowhere.
+        let place = match path.as_os_str().is_empty() {
+            true => PathBuf::new(),
+            false => std::path::absolute(path)?,
+        };
+        parts.push(format!("{id} {} {files}", place.display()));
     }
     // What native code declares (the mods' files have their own stamps above).
     parts.push(declared.to_owned());

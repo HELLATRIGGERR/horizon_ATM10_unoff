@@ -342,9 +342,13 @@ pub fn hover_name(names: &crate::creative::Names, stack: &ItemStack) -> String {
     if let Some(name) = stack.item_name() {
         return name;
     }
-    #[cfg(feature="ae2-lab")]
-    if let Some(id)=crate::item_tooltip::ae2_facade_texture(stack) {
-        return format!("{} - {}",names.display_item(&stack.item),names.display_item(&id));
+    #[cfg(feature = "ae2-lab")]
+    if let Some(id) = crate::item_tooltip::ae2_facade_texture(stack) {
+        return format!(
+            "{} - {}",
+            names.display_item(&stack.item),
+            names.display_item(&id)
+        );
     }
     if stack
         .data()
@@ -952,18 +956,29 @@ impl StationRecipes {
         base: Option<&ItemStack>,
         addition: Option<&ItemStack>,
     ) -> Option<(&str, ItemStack)> {
-        self.smithing_recipe_result_selected(e, template, base, addition, None)
+        self.smithing_recipe_result_selected(context, e, template, base, addition, None)
     }
     /// Return the physical result and its stable namespaced recipe ID.
     pub fn smithing_recipe_result(
-        &self,e:&Enchantments,template:Option<&ItemStack>,base:Option<&ItemStack>,addition:Option<&ItemStack>,
-    )->Option<(&str,ItemStack)> {
-        self.smithing_recipe(e,template,base,addition)
+        &self,
+        context: &LoopContext,
+        e: &Enchantments,
+        template: Option<&ItemStack>,
+        base: Option<&ItemStack>,
+        addition: Option<&ItemStack>,
+    ) -> Option<(&str, ItemStack)> {
+        self.smithing_recipe(context, e, template, base, addition)
     }
     /// [`Self::smithing_recipe`] limited to the recipe `selected` names, when given.
     pub fn smithing_recipe_result_selected(
-        &self,e:&Enchantments,template:Option<&ItemStack>,base:Option<&ItemStack>,addition:Option<&ItemStack>,selected:Option<&str>,
-    )->Option<(&str,ItemStack)> {
+        &self,
+        context: &LoopContext,
+        e: &Enchantments,
+        template: Option<&ItemStack>,
+        base: Option<&ItemStack>,
+        addition: Option<&ItemStack>,
+        selected: Option<&str>,
+    ) -> Option<(&str, ItemStack)> {
         let nonempty = |stack: &ItemStack| stack.count > 0 && &*stack.item != "minecraft:air";
         let base = base.filter(|s| nonempty(s))?;
         let optional_matches = |ingredient: &Option<Ingredient>, stack: Option<&ItemStack>| match (
@@ -2618,18 +2633,39 @@ mod special_pattern_recipe_tests {
     use super::*;
     #[test]
     fn nested_station_recipes_keep_namespace_and_full_ids() {
-        let root=std::env::temp_dir().join(format!("ae2-special-recipes-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-        let nested=root.join("data/example/recipe/nested/stations");std::fs::create_dir_all(&nested).unwrap();
-        std::fs::write(root.join("horizon-mod-content.json"),br#"["example"]"#).unwrap();
+        let root = std::env::temp_dir().join(format!(
+            "ae2-special-recipes-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let nested = root.join("data/example/recipe/nested/stations");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(root.join("horizon-mod-content.json"), br#"["example"]"#).unwrap();
         // Upstream's recipe results are templates over the item's prototype: the results' defaults.
         std::fs::write(root.join("items.json"),br#"{"minecraft:golden_sword":{"minecraft:max_stack_size":1,"minecraft:max_damage":32},"minecraft:stone_slab":{"minecraft:max_stack_size":64}}"#).unwrap();
         std::fs::write(nested.join("upgrade.json"),br#"{"type":"minecraft:smithing_transform","template":"minecraft:paper","base":"minecraft:iron_sword","addition":"minecraft:gold_ingot","result":{"id":"minecraft:golden_sword"}}"#).unwrap();
         std::fs::write(nested.join("cut.json"),br#"{"type":"minecraft:stonecutting","ingredient":"minecraft:stone","result":{"id":"minecraft:stone_slab","count":2}}"#).unwrap();
-        let items=Items::for_tests(Default::default());let recipes=StationRecipes::load(&root,&items,&horizon_world::loot::PackOverlay::NONE);
-        let enchantments=crate::enchant::tests::sample();let base=ItemStack::new("minecraft:iron_sword",1);
-        let (id,result)=recipes.smithing_recipe_result(&enchantments,Some(&ItemStack::new("minecraft:paper",1)),Some(&base),Some(&ItemStack::new("minecraft:gold_ingot",1))).unwrap();
-        assert_eq!(id,"example:nested/stations/upgrade");assert_eq!(&*result.item,"minecraft:golden_sword");
-        let stone=recipes.stonecutter(&ItemStack::new("minecraft:stone",1));assert_eq!(stone.len(),1);assert_eq!(stone[0].id,"example:nested/stations/cut");assert_eq!(stone[0].result.count,2);
+        let items = Items::for_tests(Default::default());
+        let recipes = StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let enchantments = crate::enchant::tests::sample();
+        let base = ItemStack::new("minecraft:iron_sword", 1);
+        let (id, result) = recipes
+            .smithing_recipe_result(
+                &enchantments,
+                Some(&ItemStack::new("minecraft:paper", 1)),
+                Some(&base),
+                Some(&ItemStack::new("minecraft:gold_ingot", 1)),
+            )
+            .unwrap();
+        assert_eq!(id, "example:nested/stations/upgrade");
+        assert_eq!(&*result.item, "minecraft:golden_sword");
+        let stone = recipes.stonecutter(&ItemStack::new("minecraft:stone", 1));
+        assert_eq!(stone.len(), 1);
+        assert_eq!(stone[0].id, "example:nested/stations/cut");
+        assert_eq!(stone[0].result.count, 2);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

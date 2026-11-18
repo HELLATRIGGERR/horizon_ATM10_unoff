@@ -867,7 +867,13 @@ impl Game<'_> {
         // AE2WTLib's restock).
         #[cfg(feature = "ae2-lab")]
         {
-            v["hotbar_counts"] = json!((0..9).map(|i| self.inventory[i].as_ref().and_then(|s| self.ae2x_hotbar_count(s))).collect::<Vec<_>>());
+            v["hotbar_counts"] = json!(
+                (0..9)
+                    .map(|i| self.inventory[i]
+                        .as_ref()
+                        .and_then(|s| self.ae2x_hotbar_count(s)))
+                    .collect::<Vec<_>>()
+            );
         }
         v
     }
@@ -920,7 +926,9 @@ impl Game<'_> {
                 v["title"] = json!([{ "text": if self.ae2_local_provider_priority_open() { "Priority" } else { "ME Pattern Provider" } }]);
             }
             #[cfg(feature = "ae2-lab")]
-            if self.ae2_local_machine_open() {v["title"]=json!([{ "text": self.ae2_local_machine_title() }]);}
+            if self.ae2_local_machine_open() {
+                v["title"] = json!([{ "text": self.ae2_local_machine_title() }]);
+            }
             #[cfg(feature = "ae2-lab")]
             if let Some(renderer) = self.renderer.as_ref() {
                 let batch = self.screen_batch([renderer.config.width, renderer.config.height]);
@@ -948,15 +956,19 @@ impl Game<'_> {
                 }
             }
             #[cfg(feature = "ae2-lab")]
-            if self.ae2_local_bus_open() {v["title"]=json!([{ "text": self.ae2_local_bus_title() }]);}
+            if self.ae2_local_bus_open() {
+                v["title"] = json!([{ "text": self.ae2_local_bus_title() }]);
+            }
             #[cfg(feature = "ae2-lab")]
-            if self.ae2_local_pattern_access_open() {v["title"]=json!([{ "text": "AE2 Pattern Access" }]);}
+            if self.ae2_local_pattern_access_open() {
+                v["title"] = json!([{ "text": "AE2 Pattern Access" }]);
+            }
             #[cfg(feature = "ae2-lab")]
             if self.ae2_terminal_open() {
                 v["title"] = json!([{ "text": if self.ae2_local_crafting_terminal_open() {"AE2 Crafting Terminal"} else {"AE2 ME Terminal"} }]);
             }
             #[cfg(feature = "ae2-lab")]
-            if self.ae2_local_craft_screen()!=0 {
+            if self.ae2_local_craft_screen() != 0 {
                 v["title"] = json!([{ "text": match self.ae2_local_craft_screen() {1=>"AE2 Craft Amount",3=>"AE2 Crafting Status",_=>"AE2 Craft Confirm"} }]);
             }
             // The recipe book's buttons (GUI pixels): the book button, then
@@ -973,7 +985,9 @@ impl Game<'_> {
             }
             #[cfg(feature = "ae2-lab")]
             if self.ae2_pattern_access_screen() {
-                v["pattern_layout"]=self.ae2_pattern_access_layout().unwrap_or(serde_json::Value::Null);
+                v["pattern_layout"] = self
+                    .ae2_pattern_access_layout()
+                    .unwrap_or(serde_json::Value::Null);
             }
             #[cfg(feature = "ae2-lab")]
             if let Some(addon) = self.ae2x_agent_value() {
@@ -986,23 +1000,28 @@ impl Game<'_> {
         if self.screen == Screen::Creative && self.title.is_none() {
             let items = self.creative_screen.items(&self.pack.names);
             let first = self.creative_screen.first_row(&self.pack.names) * 9;
-            let mut slots=(0..45).map(|i|self.slot_value(900+i,&items.get(first+i).cloned())).collect::<Vec<_>>();
-            slots.extend((0..9).map(|i|self.slot_value(i,&self.inventory[i])));
-            v["slots"]=json!(slots);
-            v["carried"]=json!(self.carried.as_ref().map(|s|self.stack_value(s)));
-            v["creative_tab"]=json!(self.creative_screen.tab().id);
-            v["creative_search"]=json!(self.creative_screen.search.value);
-            v["creative_item_count"]=json!(items.len());
-            if let Some(renderer)=self.renderer.as_ref() {
-                let batch=super::HudBatch::new([renderer.config.width,renderer.config.height],self.settings.gui_scale_inputs());
-                let (ox,oy)=Self::creative_origin(&batch);
-                v["origin"]=json!([ox,oy]);
+            let mut slots = (0..45)
+                .map(|i| self.slot_value(900 + i, &items.get(first + i).cloned()))
+                .collect::<Vec<_>>();
+            slots.extend((0..9).map(|i| self.slot_value(i, &self.inventory[i])));
+            v["slots"] = json!(slots);
+            v["carried"] = json!(self.carried.as_ref().map(|s| self.stack_value(s)));
+            v["creative_tab"] = json!(self.creative_screen.tab().id);
+            v["creative_search"] = json!(self.creative_screen.search.value);
+            v["creative_item_count"] = json!(items.len());
+            if let Some(renderer) = self.renderer.as_ref() {
+                let batch = super::HudBatch::new(
+                    [renderer.config.width, renderer.config.height],
+                    self.settings.gui_scale_inputs(),
+                );
+                let (ox, oy) = Self::creative_origin(&batch);
+                v["origin"] = json!([ox, oy]);
                 v["creative_tabs"]=json!(self.creative_screen.tabs.iter().map(|t| {
                     let (x,y)=horizon_client::creative::Creative::tab_position(t);
                     json!({"id":t.id,"title":self.creative_tab_title(t),"rect":[ox+x,oy+y,26.0,32.0],"items":t.items.len(),"page":t.page,"shown":self.creative_screen.on_page(t)})
                 }).collect::<Vec<_>>());
-                v["creative_page"]=json!(self.creative_screen.page);
-                v["creative_pages"]=json!(self.creative_screen.pages());
+                v["creative_page"] = json!(self.creative_screen.page);
+                v["creative_pages"] = json!(self.creative_screen.pages());
             }
         }
         v
@@ -1275,11 +1294,14 @@ impl Game<'_> {
                 let path = *a.pos.first().ok_or("recipe-audit PATH [THREADS]")?;
                 let threads = a.pos.get(1).map_or(Ok(4), |t| t.parse::<usize>())?;
                 let started = std::time::Instant::now();
-                let sources =
-                    horizon_client::crafting::Recipes::sources(&self.options.resources, &self.pack_files())
-                        .map_err(|e| format!("the recipe sources: {e}"))?;
+                let sources = horizon_client::crafting::Recipes::sources(
+                    &self.options.resources,
+                    &self.pack_files(),
+                )
+                .map_err(|e| format!("the recipe sources: {e}"))?;
                 let categories = audit_categories(&self.native_collect_recipe_categories());
                 let report = horizon_client::recipe_audit::audit(
+                    &self.loop_context,
                     &sources,
                     self.items(),
                     self.recipes(),
@@ -1789,7 +1811,9 @@ impl Game<'_> {
                 }
                 let stage = a.get(0, "start, add or end")?;
                 let mode = a.get(1, "MODE")?.parse::<i32>()?;
-                if !(0..=2).contains(&mode) { return Err("drag mode must be 0, 1 or 2".into()); }
+                if !(0..=2).contains(&mode) {
+                    return Err("drag mode must be 0, 1 or 2".into());
+                }
                 let (slot, header) = match stage {
                     "start" => (None, 0),
                     "add" => {
@@ -1799,7 +1823,11 @@ impl Game<'_> {
                     "end" => (None, 2),
                     _ => return Err("expected start, add or end".into()),
                 };
-                if !self.remote_menu_ops(&[(slot, (mode << 2) | header, horizon_client::menu::Input::QuickCraft)]) {
+                if !self.remote_menu_ops(&[(
+                    slot,
+                    (mode << 2) | header,
+                    horizon_client::menu::Input::QuickCraft,
+                )]) {
                     return Err("drag packet slot unavailable".into());
                 }
                 ok(json!({ "ok": true, "stage": stage }))
@@ -2698,21 +2726,41 @@ mod tests {
 
 /// The mods' recipe viewer categories as the recipe audit reads them (`horizon_client::recipe_audit::Category`): each
 /// recipe a category lists names its recipe file in a `Recipe: <id>` note; a recipe without one isn't from a file.
-fn audit_categories(categories: &[horizon_client::mod_api::NativeRecipeCategory]) -> Vec<horizon_client::recipe_audit::Category> {
-    use horizon_client::{mod_api::NativeStack, recipe_audit::{Category, Listed, Stack}};
-    let stack = |s: &NativeStack| Stack { kind: s.kind.clone(), id: s.item.clone() };
+fn audit_categories(
+    categories: &[horizon_client::mod_api::NativeRecipeCategory],
+) -> Vec<horizon_client::recipe_audit::Category> {
+    use horizon_client::{
+        mod_api::NativeStack,
+        recipe_audit::{Category, Listed, Stack},
+    };
+    let stack = |s: &NativeStack| Stack {
+        kind: s.kind.clone(),
+        id: s.item.clone(),
+    };
     categories
         .iter()
         .map(|c| Category {
             id: c.id.clone(),
-            ingredients: c.ingredients.iter().map(|i| (i.kind.clone(), i.id.clone())).collect(),
+            ingredients: c
+                .ingredients
+                .iter()
+                .map(|i| (i.kind.clone(), i.id.clone()))
+                .collect(),
             recipes: c
                 .recipes
                 .iter()
                 .filter_map(|r| {
                     Some(Listed {
-                        id: r.notes.iter().find_map(|n| n.strip_prefix("Recipe: "))?.to_owned(),
-                        inputs: r.inputs.iter().map(|slot| slot.iter().map(stack).collect()).collect(),
+                        id: r
+                            .notes
+                            .iter()
+                            .find_map(|n| n.strip_prefix("Recipe: "))?
+                            .to_owned(),
+                        inputs: r
+                            .inputs
+                            .iter()
+                            .map(|slot| slot.iter().map(stack).collect())
+                            .collect(),
                         outputs: r.outputs.iter().map(|o| stack(&o.stack)).collect(),
                     })
                 })

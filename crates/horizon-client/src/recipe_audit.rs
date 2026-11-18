@@ -14,6 +14,7 @@
 use crate::crafting::{Ingredient, Recipe, Recipes, qualified};
 use crate::items::{ItemStack, Items};
 use crate::stations::{Smithing, StationData};
+use horizon_world::native_load_context::LoopContext;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -69,6 +70,7 @@ pub struct Outcome {
 }
 
 struct Ctx<'a> {
+    context: &'a LoopContext,
     items: &'a Items,
     recipes: &'a Recipes,
     stations: &'a StationData,
@@ -95,18 +97,30 @@ impl Ctx<'_> {
                 },
                 None => (!self.registered(s)).then(|| (Cause::UnknownItem, s.clone())),
             },
-            Value::Array(list) if list.is_empty() => Some((Cause::UnparsedField, format!("{field}: empty list"))),
+            Value::Array(list) if list.is_empty() => {
+                Some((Cause::UnparsedField, format!("{field}: empty list")))
+            }
             // A list of items is one `HolderSet`: every one must exist.
             Value::Array(list) => list.iter().find_map(|e| self.ingredient(field, e)),
             Value::Object(o) => match Ingredient::parse(v, self.items) {
                 Some(i) if i.order.iter().any(|i| self.registered(i)) => None,
-                Some(i) => Some((Cause::UnknownItem, i.order.first().cloned().unwrap_or_default())),
-                None if o.contains_key("item") || o.contains_key("tag") => {
-                    Some((Cause::UnparsedField, format!("{field}: {{item}}/{{tag}} object")))
-                }
+                Some(i) => Some((
+                    Cause::UnknownItem,
+                    i.order.first().cloned().unwrap_or_default(),
+                )),
+                None if o.contains_key("item") || o.contains_key("tag") => Some((
+                    Cause::UnparsedField,
+                    format!("{field}: {{item}}/{{tag}} object"),
+                )),
                 None => {
-                    let kind = o.get("neoforge:ingredient_type").or_else(|| o.get("type")).and_then(Value::as_str);
-                    Some((Cause::UnparsedField, format!("{field}: ingredient type {}", kind.unwrap_or("none"))))
+                    let kind = o
+                        .get("neoforge:ingredient_type")
+                        .or_else(|| o.get("type"))
+                        .and_then(Value::as_str);
+                    Some((
+                        Cause::UnparsedField,
+                        format!("{field}: ingredient type {}", kind.unwrap_or("none")),
+                    ))
                 }
             },
             Value::Null => Some((Cause::UnparsedField, format!("{field}: missing"))),
@@ -120,7 +134,9 @@ impl Ctx<'_> {
             Some(_) if crate::crafting::template_count(r).is_none() => {
                 Some((Cause::UnparsedField, "result: count outside 1..99".into()))
             }
-            Some(id) if !self.registered(id) => Some((Cause::UnknownItem, format!("{id} (result)"))),
+            Some(id) if !self.registered(id) => {
+                Some((Cause::UnknownItem, format!("{id} (result)")))
+            }
             Some(_) => None,
         }
     }
@@ -129,7 +145,12 @@ impl Ctx<'_> {
         let mut fields: Vec<(String, &Value)> = Vec::new();
         match kind {
             "minecraft:crafting_shaped" => {
-                let rows: Vec<&str> = v["pattern"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                let rows: Vec<&str> = v["pattern"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .collect();
                 if rows.is_empty() {
                     return Some((Cause::UnparsedField, "pattern: missing".into()));
                 }
@@ -143,7 +164,10 @@ impl Ctx<'_> {
             "minecraft:crafting_shapeless" => match v["ingredients"].as_array() {
                 None => return Some((Cause::UnparsedField, "ingredients: missing".into())),
                 Some(list) if list.is_empty() || list.len() > 9 => {
-                    return Some((Cause::UnparsedField, format!("ingredients: {} of them", list.len())));
+                    return Some((
+                        Cause::UnparsedField,
+                        format!("ingredients: {} of them", list.len()),
+                    ));
                 }
                 Some(list) => fields.extend(list.iter().map(|i| ("ingredients[]".to_owned(), i))),
             },
@@ -165,11 +189,18 @@ impl Ctx<'_> {
         fields
             .iter()
             .find_map(|(field, i)| self.ingredient(field, i))
-            .or_else(|| (kind != "minecraft:smithing_trim").then(|| self.result(v)).flatten())
+            .or_else(|| {
+                (kind != "minecraft:smithing_trim")
+                    .then(|| self.result(v))
+                    .flatten()
+            })
     }
     /// The stack the test puts in a slot for an ingredient: its first registered item, with the components it asks for.
     fn probe(&self, i: &Ingredient) -> Option<ItemStack> {
-        i.order.iter().find(|id| self.registered(id)).map(|id| i.example(id))
+        i.order
+            .iter()
+            .find(|id| self.registered(id))
+            .map(|id| i.example(id))
     }
     fn audit(&self, name: &str, kind: &str, v: &Value) -> Outcome {
         let mut out = Outcome::default();
@@ -181,126 +212,264 @@ impl Ctx<'_> {
         // 26.3's trim recipe names its pattern; 1.21.1's took it from the template.
         let unparsed = || {
             problem.clone().unwrap_or_else(|| match kind {
-                "minecraft:smithing_trim" if v.get("pattern").is_none() => (Cause::UnparsedField, "pattern: missing".into()),
+                "minecraft:smithing_trim" if v.get("pattern").is_none() => {
+                    (Cause::UnparsedField, "pattern: missing".into())
+                }
                 _ => (Cause::UnparsedField, "not in the tables".into()),
             })
         };
         let id = qualified(name);
-        let same = |got: &ItemStack, want: &ItemStack| got.item == want.item && got.count == want.count;
+        let same =
+            |got: &ItemStack, want: &ItemStack| got.item == want.item && got.count == want.count;
         match kind {
             "minecraft:crafting_shaped" | "minecraft:crafting_shapeless" => {
-                let Some(recipe) = self.crafting.get(name) else { return fail(out, unparsed()) };
-                out.parsed = true;
-                if let Some(p) = problem {
-                    return fail(out, p);
-                }
-                let mut grid: Vec<Option<ItemStack>> = vec![None; 9];
-                let want = match recipe {
-                    Recipe::Shaped { width, height, cells, result } => {
-                        if *width > 3 || *height > 3 {
-                            return fail(out, (Cause::UnparsedField, "pattern: larger than 3x3".into()));
-                        }
-                        for y in 0..*height {
-                            for x in 0..*width {
-                                if let Some(i) = &cells[y * width + x] {
-                                    let Some(s) = self.probe(i) else { return fail(out, (Cause::UnknownItem, "ingredient".into())) };
-                                    grid[y * 3 + x] = Some(s);
-                                }
-                            }
-                        }
-                        result.create()
-                    }
-                    Recipe::Shapeless { ingredients, result, .. } => {
-                        if ingredients.len() > 9 {
-                            return fail(out, (Cause::UnparsedField, format!("ingredients: {} of them", ingredients.len())));
-                        }
-                        for (slot, i) in ingredients.iter().enumerate() {
-                            let Some(s) = self.probe(i) else { return fail(out, (Cause::UnknownItem, "ingredient".into())) };
-                            grid[slot] = Some(s);
-                        }
-                        result.create()
-                    }
-                    Recipe::Special(_) => return fail(out, (Cause::UnparsedField, "read as a special recipe".into())),
-                };
-                out.resolved = true;
-                out.ran = true;
-                match self.recipes.find(&grid, 3) {
-                    Some((_, got)) if same(&got, &want) => out.matched = true,
-                    Some((other, got)) if other != name && self.recipes.recipe_matches(&id, &grid, 3) => {
-                        return fail(out, (Cause::AnotherRecipeFirst, format!("{} gives {} x{}", qualified(other), got.item, got.count)));
-                    }
-                    Some((_, got)) => return fail(out, (Cause::MatcherMismatch, format!("gave {} x{}", got.item, got.count))),
-                    None => return fail(out, (Cause::MatcherMismatch, "no result".into())),
-                }
-            }
-            "minecraft:smelting" | "minecraft:blasting" | "minecraft:smoking" | "minecraft:campfire_cooking" => {
-                let Some(recipe) = self.cooking.get(name) else { return fail(out, unparsed()) };
-                out.parsed = true;
-                if let Some(p) = problem {
-                    return fail(out, p);
-                }
-                let Some(input) = self.probe(&recipe.ingredient) else { return fail(out, (Cause::UnknownItem, "ingredient".into())) };
-                out.resolved = true;
-                out.ran = true;
-                match self.recipes.cook(kind, &input) {
-                    Some(c) if same(&c.result, &recipe.result) => out.matched = true,
-                    Some(c) if c.id != recipe.id && recipe.ingredient.test(&input) => {
-                        return fail(out, (Cause::AnotherRecipeFirst, format!("{} gives {}", qualified(&c.id), c.result.item)));
-                    }
-                    Some(c) => return fail(out, (Cause::MatcherMismatch, format!("gave {}", c.result.item))),
-                    None => return fail(out, (Cause::MatcherMismatch, "no result".into())),
-                }
-            }
-            "minecraft:stonecutting" => {
-                let Some(recipe) = self.stonecutting.get(&id).filter(|r| !r.input.order.is_empty()) else {
+                let Some(recipe) = self.crafting.get(name) else {
                     return fail(out, unparsed());
                 };
                 out.parsed = true;
                 if let Some(p) = problem {
                     return fail(out, p);
                 }
-                let Some(input) = self.probe(&recipe.input) else { return fail(out, (Cause::UnknownItem, "ingredient".into())) };
+                let mut grid: Vec<Option<ItemStack>> = vec![None; 9];
+                let want = match recipe {
+                    Recipe::Shaped {
+                        width,
+                        height,
+                        cells,
+                        result,
+                    } => {
+                        if *width > 3 || *height > 3 {
+                            return fail(
+                                out,
+                                (Cause::UnparsedField, "pattern: larger than 3x3".into()),
+                            );
+                        }
+                        for y in 0..*height {
+                            for x in 0..*width {
+                                if let Some(i) = &cells[y * width + x] {
+                                    let Some(s) = self.probe(i) else {
+                                        return fail(out, (Cause::UnknownItem, "ingredient".into()));
+                                    };
+                                    grid[y * 3 + x] = Some(s);
+                                }
+                            }
+                        }
+                        result.create()
+                    }
+                    Recipe::Shapeless {
+                        ingredients,
+                        result,
+                        ..
+                    } => {
+                        if ingredients.len() > 9 {
+                            return fail(
+                                out,
+                                (
+                                    Cause::UnparsedField,
+                                    format!("ingredients: {} of them", ingredients.len()),
+                                ),
+                            );
+                        }
+                        for (slot, i) in ingredients.iter().enumerate() {
+                            let Some(s) = self.probe(i) else {
+                                return fail(out, (Cause::UnknownItem, "ingredient".into()));
+                            };
+                            grid[slot] = Some(s);
+                        }
+                        result.create()
+                    }
+                    Recipe::Special(_) => {
+                        return fail(
+                            out,
+                            (Cause::UnparsedField, "read as a special recipe".into()),
+                        );
+                    }
+                    Recipe::Mod(_) => {
+                        return fail(
+                            out,
+                            (Cause::UnparsedField, "read as a mod recipe kind".into()),
+                        );
+                    }
+                };
                 out.resolved = true;
                 out.ran = true;
-                let listed = self.stations.recipes.stonecutter(&input);
+                match self.recipes.find(self.context, &grid, 3) {
+                    Some((_, got)) if same(&got, &want) => out.matched = true,
+                    Some((other, got))
+                        if other != name
+                            && self.recipes.recipe_matches(self.context, &id, &grid, 3) =>
+                    {
+                        return fail(
+                            out,
+                            (
+                                Cause::AnotherRecipeFirst,
+                                format!("{} gives {} x{}", qualified(other), got.item, got.count),
+                            ),
+                        );
+                    }
+                    Some((_, got)) => {
+                        return fail(
+                            out,
+                            (
+                                Cause::MatcherMismatch,
+                                format!("gave {} x{}", got.item, got.count),
+                            ),
+                        );
+                    }
+                    None => return fail(out, (Cause::MatcherMismatch, "no result".into())),
+                }
+            }
+            "minecraft:smelting"
+            | "minecraft:blasting"
+            | "minecraft:smoking"
+            | "minecraft:campfire_cooking" => {
+                let Some(recipe) = self.cooking.get(name) else {
+                    return fail(out, unparsed());
+                };
+                out.parsed = true;
+                if let Some(p) = problem {
+                    return fail(out, p);
+                }
+                let Some(input) = self.probe(&recipe.ingredient) else {
+                    return fail(out, (Cause::UnknownItem, "ingredient".into()));
+                };
+                out.resolved = true;
+                out.ran = true;
+                match self.recipes.cook(self.context, kind, &input) {
+                    Some(c) if same(&c.result, &recipe.result) => out.matched = true,
+                    Some(c)
+                        if c.id != recipe.id && recipe.ingredient.test_in(self.context, &input) =>
+                    {
+                        return fail(
+                            out,
+                            (
+                                Cause::AnotherRecipeFirst,
+                                format!("{} gives {}", qualified(&c.id), c.result.item),
+                            ),
+                        );
+                    }
+                    Some(c) => {
+                        return fail(
+                            out,
+                            (Cause::MatcherMismatch, format!("gave {}", c.result.item)),
+                        );
+                    }
+                    None => return fail(out, (Cause::MatcherMismatch, "no result".into())),
+                }
+            }
+            "minecraft:stonecutting" => {
+                let Some(recipe) = self
+                    .stonecutting
+                    .get(&id)
+                    .filter(|r| !r.input.order.is_empty())
+                else {
+                    return fail(out, unparsed());
+                };
+                out.parsed = true;
+                if let Some(p) = problem {
+                    return fail(out, p);
+                }
+                let Some(input) = self.probe(&recipe.input) else {
+                    return fail(out, (Cause::UnknownItem, "ingredient".into()));
+                };
+                out.resolved = true;
+                out.ran = true;
+                let listed = self.stations.recipes.stonecutter(self.context, &input);
                 match listed.iter().find(|r| r.id == id) {
                     Some(r) if same(&r.result, &recipe.result) => out.matched = true,
-                    Some(r) => return fail(out, (Cause::MatcherMismatch, format!("gave {}", r.result.item))),
-                    None => return fail(out, (Cause::MatcherMismatch, format!("not listed ({} others)", listed.len()))),
+                    Some(r) => {
+                        return fail(
+                            out,
+                            (Cause::MatcherMismatch, format!("gave {}", r.result.item)),
+                        );
+                    }
+                    None => {
+                        return fail(
+                            out,
+                            (
+                                Cause::MatcherMismatch,
+                                format!("not listed ({} others)", listed.len()),
+                            ),
+                        );
+                    }
                 }
             }
             _ => {
-                let Some(recipe) = self.smithing.get(&id) else { return fail(out, unparsed()) };
+                let Some(recipe) = self.smithing.get(&id) else {
+                    return fail(out, unparsed());
+                };
                 out.parsed = true;
                 if let Some(p) = problem {
                     return fail(out, p);
                 }
                 let slot = |i: Option<&Ingredient>| match i {
                     None => Ok(None),
-                    Some(i) => self.probe(i).map(Some).ok_or((Cause::UnknownItem, "ingredient".to_owned())),
+                    Some(i) => self
+                        .probe(i)
+                        .map(Some)
+                        .ok_or((Cause::UnknownItem, "ingredient".to_owned())),
                 };
                 let (slots, want) = match recipe {
-                    Smithing::Transform { template, base, addition, .. } => (
-                        [slot(template.as_ref()), slot(Some(base)), slot(addition.as_ref())],
+                    Smithing::Transform {
+                        template,
+                        base,
+                        addition,
+                        ..
+                    } => (
+                        [
+                            slot(template.as_ref()),
+                            slot(Some(base)),
+                            slot(addition.as_ref()),
+                        ],
                         horizon_world::loot::recipe_result_id(&v["result"]).map(str::to_owned),
                     ),
-                    Smithing::Trim { template, base, addition, .. } => {
-                        ([slot(Some(template)), slot(Some(base)), slot(Some(addition))], None)
-                    }
+                    Smithing::Trim {
+                        template,
+                        base,
+                        addition,
+                        ..
+                    } => (
+                        [slot(Some(template)), slot(Some(base)), slot(Some(addition))],
+                        None,
+                    ),
                 };
                 let [t, b, a] = match slots {
                     [Ok(t), Ok(b), Ok(a)] => [t, b, a],
-                    [t, b, a] => return fail(out, [t, b, a].into_iter().find_map(Result::err).unwrap_or((Cause::UnknownItem, String::new()))),
+                    [t, b, a] => {
+                        return fail(
+                            out,
+                            [t, b, a]
+                                .into_iter()
+                                .find_map(Result::err)
+                                .unwrap_or((Cause::UnknownItem, String::new())),
+                        );
+                    }
                 };
                 out.resolved = true;
                 out.ran = true;
-                let want = want.or_else(|| b.as_ref().map(|b| b.item.to_string())).unwrap_or_default();
-                match self.stations.recipes.smithing_recipe(&self.stations.enchantments, t.as_ref(), b.as_ref(), a.as_ref()) {
+                let want = want
+                    .or_else(|| b.as_ref().map(|b| b.item.to_string()))
+                    .unwrap_or_default();
+                match self.stations.recipes.smithing_recipe(
+                    self.context,
+                    &self.stations.enchantments,
+                    t.as_ref(),
+                    b.as_ref(),
+                    a.as_ref(),
+                ) {
                     Some((_, got)) if *got.item == *want => out.matched = true,
                     Some((other, got)) if other != id => {
-                        return fail(out, (Cause::AnotherRecipeFirst, format!("{other} gives {}", got.item)));
+                        return fail(
+                            out,
+                            (
+                                Cause::AnotherRecipeFirst,
+                                format!("{other} gives {}", got.item),
+                            ),
+                        );
                     }
-                    Some((_, got)) => return fail(out, (Cause::MatcherMismatch, format!("gave {}", got.item))),
+                    Some((_, got)) => {
+                        return fail(out, (Cause::MatcherMismatch, format!("gave {}", got.item)));
+                    }
                     None => return fail(out, (Cause::MatcherMismatch, "no result".into())),
                 }
             }
@@ -341,6 +510,7 @@ impl Counts {
 /// recipe viewer categories (`native_recipe_categories`): a mod type they read is audited by [`machine_audit`] and
 /// reported under `machines`, not counted as unsupported.
 pub fn audit(
+    context: &LoopContext,
     sources: &[(String, Value)],
     items: &Items,
     recipes: &Recipes,
@@ -350,12 +520,22 @@ pub fn audit(
 ) -> Value {
     use rayon::prelude::*;
     let ctx = Ctx {
+        context,
         items,
         recipes,
         stations,
-        crafting: recipes.crafting.iter().map(|(n, r)| (n.as_str(), r)).collect(),
+        crafting: recipes
+            .crafting
+            .iter()
+            .map(|(n, r)| (n.as_str(), r))
+            .collect(),
         cooking: recipes.cooking.iter().map(|c| (c.id.as_str(), c)).collect(),
-        stonecutting: stations.recipes.stonecutting.iter().map(|r| (qualified(&r.id), r)).collect(),
+        stonecutting: stations
+            .recipes
+            .stonecutting
+            .iter()
+            .map(|r| (qualified(&r.id), r))
+            .collect(),
         smithing: stations
             .recipes
             .smithing
@@ -383,14 +563,23 @@ pub fn audit(
         }
     }
     let (machine_report, machine_failures) = machine_audit(&machine_sources, items, &machines);
-    let run = || audited.par_iter().map(|(name, kind, v)| ctx.audit(name, kind, v)).collect::<Vec<_>>();
-    let outcomes = match rayon::ThreadPoolBuilder::new().num_threads(threads.max(1)).build() {
+    let run = || {
+        audited
+            .par_iter()
+            .map(|(name, kind, v)| ctx.audit(name, kind, v))
+            .collect::<Vec<_>>()
+    };
+    let outcomes = match rayon::ThreadPoolBuilder::new()
+        .num_threads(threads.max(1))
+        .build()
+    {
         Ok(pool) => pool.install(run),
         Err(_) => run(),
     };
     let mut by_type: BTreeMap<&str, Counts> = BTreeMap::new();
     let mut by_namespace: BTreeMap<&str, Counts> = BTreeMap::new();
-    let mut causes: BTreeMap<Cause, (usize, BTreeMap<String, usize>, BTreeMap<String, usize>)> = BTreeMap::new();
+    let mut causes: BTreeMap<Cause, (usize, BTreeMap<String, usize>, BTreeMap<String, usize>)> =
+        BTreeMap::new();
     let mut failures = Vec::new();
     let mut all = Counts::default();
     for ((name, kind, _), o) in audited.iter().zip(&outcomes) {
@@ -409,7 +598,10 @@ pub fn audit(
     let top = |m: &BTreeMap<String, usize>, n: usize| {
         let mut v: Vec<_> = m.iter().collect();
         v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-        v.into_iter().take(n).map(|(k, c)| json!([k, c])).collect::<Vec<_>>()
+        v.into_iter()
+            .take(n)
+            .map(|(k, c)| json!([k, c]))
+            .collect::<Vec<_>>()
     };
     json!({
         "sources": sources.len(),
@@ -476,7 +668,8 @@ impl<'a> Machines<'a> {
             types.entry(c.id.clone()).or_default().insert(&c.id);
         }
         for (name, v) in sources {
-            if let (Some(kind), Some((c, _))) = (v["type"].as_str(), claimed.get(&qualified(name))) {
+            if let (Some(kind), Some((c, _))) = (v["type"].as_str(), claimed.get(&qualified(name)))
+            {
                 types.entry(kind.to_owned()).or_default().insert(&c.id);
             }
         }
@@ -493,7 +686,10 @@ fn stack_known(items: &Items, category: &Category, s: &Stack) -> bool {
     match s.kind.as_str() {
         "" => s.id != "minecraft:air" && items.items.contains_key(s.id.as_str()),
         Stack::FLUID => horizon_world::fluid::FluidKind::from_name(&s.id).is_some(),
-        kind => category.ingredients.iter().any(|(k, id)| k == kind && *id == s.id),
+        kind => category
+            .ingredients
+            .iter()
+            .any(|(k, id)| k == kind && *id == s.id),
     }
 }
 
@@ -505,7 +701,10 @@ fn unresolved(items: &Items, category: &Category, r: &Listed) -> Option<Problem>
             return Some((Cause::UnknownItem, format!("{} (input)", slot[0].id)));
         }
     }
-    r.outputs.iter().find(|o| !stack_known(items, category, o)).map(|o| (Cause::UnknownItem, format!("{} (output)", o.id)))
+    r.outputs
+        .iter()
+        .find(|o| !stack_known(items, category, o))
+        .map(|o| (Cause::UnknownItem, format!("{} (output)", o.id)))
 }
 
 /// Why a category's reader left a recipe out, as far as its source says: an item or fluid it names that this world
@@ -515,14 +714,22 @@ fn left_out(items: &Items, v: &Value) -> Problem {
         match v {
             Value::Object(o) => {
                 let text = |k: &str| o.get(k).and_then(Value::as_str);
-                if let Some(i) = text("item").filter(|i| i.contains(':') && !items.items.contains_key(*i)) {
+                if let Some(i) =
+                    text("item").filter(|i| i.contains(':') && !items.items.contains_key(*i))
+                {
                     return Some((Cause::UnknownItem, i.to_owned()));
                 }
-                if let Some(f) = text("fluid").filter(|f| horizon_world::fluid::FluidKind::from_name(f).is_none()) {
+                if let Some(f) = text("fluid")
+                    .filter(|f| horizon_world::fluid::FluidKind::from_name(f).is_none())
+                {
                     return Some((Cause::UnknownItem, format!("{f} (fluid)")));
                 }
                 // A result with a count is an item; with an amount, a fluid or a chemical (not told apart here).
-                if let Some(i) = text("id").filter(|i| !o.contains_key("amount") && o.contains_key("count") && !items.items.contains_key(*i)) {
+                if let Some(i) = text("id").filter(|i| {
+                    !o.contains_key("amount")
+                        && o.contains_key("count")
+                        && !items.items.contains_key(*i)
+                }) {
                     return Some((Cause::UnknownItem, format!("{i} (result)")));
                 }
                 if let Some(t) = text("tag").filter(|t| !items.item_tag_order.contains_key(*t)) {
@@ -536,8 +743,16 @@ fn left_out(items: &Items, v: &Value) -> Problem {
     }
     let mut tag = None;
     walk(items, v, &mut tag).unwrap_or_else(|| match tag {
-        Some(t) => (Cause::UnparsedField, format!("left out by the reader (#{t} is no item tag: a fluid or chemical tag, or none)")),
-        None => (Cause::UnparsedField, "left out by the reader (a chemical it can't read, or a shape)".into()),
+        Some(t) => (
+            Cause::UnparsedField,
+            format!(
+                "left out by the reader (#{t} is no item tag: a fluid or chemical tag, or none)"
+            ),
+        ),
+        None => (
+            Cause::UnparsedField,
+            "left out by the reader (a chemical it can't read, or a shape)".into(),
+        ),
     })
 }
 
@@ -549,7 +764,11 @@ fn left_out(items: &Items, v: &Value) -> Problem {
 /// No matcher is run: the machines' matchers take a live block entity. So the deepest level is *resolved*; `matched`
 /// stays 0 and each type says `"checked": "resolved"`. The report has the shape of [`audit`]'s: counts by type (with
 /// the categories that read it) and by namespace, the failures by cause, and every failure (marked `machine`).
-fn machine_audit(sources: &[(&str, &str, &Value)], items: &Items, machines: &Machines<'_>) -> (Value, Vec<Value>) {
+fn machine_audit(
+    sources: &[(&str, &str, &Value)],
+    items: &Items,
+    machines: &Machines<'_>,
+) -> (Value, Vec<Value>) {
     type Detail = BTreeMap<String, usize>;
     let mut by_type: BTreeMap<&str, Counts> = BTreeMap::new();
     let mut by_namespace: BTreeMap<&str, Counts> = BTreeMap::new();
@@ -582,7 +801,10 @@ fn machine_audit(sources: &[(&str, &str, &Value)], items: &Items, machines: &Mac
     let top = |m: &Detail, n: usize| {
         let mut v: Vec<_> = m.iter().collect();
         v.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
-        v.into_iter().take(n).map(|(k, c)| json!([k, c])).collect::<Vec<_>>()
+        v.into_iter()
+            .take(n)
+            .map(|(k, c)| json!([k, c]))
+            .collect::<Vec<_>>()
     };
     let typed = |kind: &str, c: &Counts| {
         let mut j = c.json();
@@ -652,10 +874,16 @@ mod tests {
         .into_iter()
         .map(|(n, v)| (n.to_owned(), v))
         .collect();
-        let recipes = Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
+        let recipes =
+            Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
         let report = audit(&sources, &items, &recipes, &stations, &[], 1);
         let cause = |id: &str| {
-            report["failures"].as_array().unwrap().iter().find(|f| f["id"] == id).map(|f| f["cause"].as_str().unwrap().to_owned())
+            report["failures"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["id"] == id)
+                .map(|f| f["cause"].as_str().unwrap().to_owned())
         };
         assert_eq!(report["audited"]["total"], 4);
         assert_eq!(report["audited"]["matched"], 1, "{report:#}");
@@ -685,20 +913,45 @@ mod tests {
         .into_iter()
         .map(|(n, v)| (n.to_owned(), v))
         .collect();
-        let item = |id: &str| Stack { kind: String::new(), id: id.to_owned() };
-        let entry = |id: &str, input: &str, out: &str| Listed { id: id.to_owned(), inputs: vec![vec![item(input)]], outputs: vec![item(out)] };
+        let item = |id: &str| Stack {
+            kind: String::new(),
+            id: id.to_owned(),
+        };
+        let entry = |id: &str, input: &str, out: &str| Listed {
+            id: id.to_owned(),
+            inputs: vec![vec![item(input)]],
+            outputs: vec![item(out)],
+        };
         let categories = vec![Category {
             id: "m:grinding".into(),
-            recipes: vec![entry("m:ok", "minecraft:stone", "minecraft:gravel"), entry("m:out", "minecraft:dirt", "nomod:dust")],
+            recipes: vec![
+                entry("m:ok", "minecraft:stone", "minecraft:gravel"),
+                entry("m:out", "minecraft:dirt", "nomod:dust"),
+            ],
             ..Default::default()
         }];
-        let recipes = Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
+        let recipes =
+            Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
         let report = audit(&sources, &items, &recipes, &stations, &categories, 1);
         let grind = &report["machines"]["by_type"]["m:grind"];
-        assert_eq!((&grind["total"], &grind["parsed"], &grind["resolved"], &grind["matched"]), (&json!(4), &json!(2), &json!(1), &json!(0)), "{report:#}");
+        assert_eq!(
+            (
+                &grind["total"],
+                &grind["parsed"],
+                &grind["resolved"],
+                &grind["matched"]
+            ),
+            (&json!(4), &json!(2), &json!(1), &json!(0)),
+            "{report:#}"
+        );
         assert_eq!(grind["categories"], json!(["m:grinding"]));
         let cause = |id: &str| {
-            report["failures"].as_array().unwrap().iter().find(|f| f["id"] == id).map(|f| f["cause"].as_str().unwrap().to_owned())
+            report["failures"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["id"] == id)
+                .map(|f| f["cause"].as_str().unwrap().to_owned())
         };
         assert_eq!(cause("m:ok"), None);
         assert_eq!(cause("m:gone").as_deref(), Some("unknown item"));

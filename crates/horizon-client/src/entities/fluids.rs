@@ -99,7 +99,7 @@ pub fn update_entity_fluids(
     fluids: &FluidResources,
     context: &LoopContext,
 ) -> (f64, f64, bool) {
-    let f = entity_fluids(bounds, position, eye_y, velocity, world, fluids);
+    let f = entity_fluids(bounds, position, eye_y, velocity, world, fluids, context);
     (f.water, f.lava, f.eye_in_water)
 }
 /// What [`entity_fluids`] measured: water's and lava's heights, whether the
@@ -135,6 +135,7 @@ pub fn entity_fluids(
     velocity: &mut Vec3,
     world: &World,
     fluids: &FluidResources,
+    context: &LoopContext,
 ) -> EntityFluids {
     let mut interaction = EntityFluidInteraction::new([WATER, LAVA]);
     let mut scene = EntityFluidWorld {
@@ -185,7 +186,12 @@ pub fn entity_fluids(
             0.0023333333333333335
         },
     );
-    (water_height, lava_height, eye_in_water)
+    EntityFluids {
+        water: water_height,
+        lava: lava_height,
+        eye_in_water,
+        max_mod: max.filter(|(k, _)| k.carried().is_some()),
+    }
 }
 impl ItemEntity {
     /// `Entity.getEyeY` of an item (eye height 0.2125), where
@@ -196,9 +202,14 @@ impl ItemEntity {
     /// `Entity.updateFluidHeightAndDoFluidPushing` with NeoForge's fluid
     /// types: what the item's tick needs to move in a content mod's fluid by
     /// its `setItemMovement` ([`ItemEntity::tick_move`] takes it).
-    pub fn update_fluid_types(&mut self, world: &World, fluids: &FluidResources) -> EntityFluids {
+    pub fn update_fluid_types(
+        &mut self,
+        world: &World,
+        fluids: &FluidResources,
+        context: &LoopContext,
+    ) -> EntityFluids {
         let (bounds, at, eye) = (self.bounds(), self.position, self.fluid_eye_y());
-        entity_fluids(bounds, at, eye, &mut self.velocity, world, fluids)
+        entity_fluids(bounds, at, eye, &mut self.velocity, world, fluids, context)
     }
     /// The fluid push as the game runs it, for the unit tests.
     #[cfg(test)]

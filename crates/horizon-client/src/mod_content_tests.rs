@@ -2761,7 +2761,10 @@ fn a_mod_growing_plant_names_its_template_for_world_generation() {
         &fs::read(root.join("worldgen/blocks/survival-extra-definitions.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(extra["growing_plants"]["example:roots"], "minecraft:cave_vines");
+    assert_eq!(
+        extra["growing_plants"]["example:roots"],
+        "minecraft:cave_vines"
+    );
     assert_eq!(
         extra["growing_plants"]["example:roots_plant"],
         "minecraft:cave_vines_plant"
@@ -2834,7 +2837,10 @@ fn listed_namespaces_join_the_root() {
 
 #[test]
 fn whole_dirs_leave_out_what_the_build_writes_or_reads() {
-    assert_eq!(whole_dir("assets/a/models/block/x.json"), Some("assets/a/models"));
+    assert_eq!(
+        whole_dir("assets/a/models/block/x.json"),
+        Some("assets/a/models")
+    );
     assert_eq!(whole_dir("data/a/recipe/x.json"), Some("data/a/recipe"));
     // Directly in a namespace: nothing to link as one.
     assert_eq!(whole_dir("assets/a/sounds.json"), None);
@@ -2929,7 +2935,11 @@ fn a_moved_mod_changes_the_stamp() {
 fn a_link_over_a_base_file_leaves_the_base_alone() {
     let scratch = std::env::temp_dir().join(format!("horizon-mod-overlay-{}", std::process::id()));
     let _ = fs::remove_dir_all(&scratch);
-    let (base, out, source) = (scratch.join("base"), scratch.join("out"), scratch.join("mod"));
+    let (base, out, source) = (
+        scratch.join("base"),
+        scratch.join("out"),
+        scratch.join("mod"),
+    );
     fs::create_dir_all(base.join("dir")).unwrap();
     fs::create_dir_all(&source).unwrap();
     fs::write(base.join("dir/file.txt"), "base").unwrap();
@@ -3043,7 +3053,10 @@ fn a_packed_mod_builds_the_root_a_folder_does() {
         build(&base, &[packed], &from_package).unwrap()
     );
     for dir in ["assets/ruby", "data/ruby", "worldgen/structure/ruby"] {
-        let (a, b) = (files_under(&from_folder.join(dir)), files_under(&from_package.join(dir)));
+        let (a, b) = (
+            files_under(&from_folder.join(dir)),
+            files_under(&from_package.join(dir)),
+        );
         assert!(!a.is_empty(), "{dir}");
         assert_eq!(
             a.keys().collect::<Vec<_>>(),
@@ -3072,7 +3085,11 @@ fn a_packed_mod_builds_the_root_a_folder_does() {
     }
     // What each way has to get right, not just alike.
     let features = biome_features(&from_folder);
-    assert!(features["minecraft:plains"].to_string().contains("ruby:ore"));
+    assert!(
+        features["minecraft:plains"]
+            .to_string()
+            .contains("ruby:ore")
+    );
     let files = files_under(&from_folder.join("data/ruby"));
     assert!(files.contains_key("neoforge/loot_modifiers/global.json"));
     assert!(!files.keys().any(|f| f.starts_with("horizon/")));
@@ -3140,14 +3157,32 @@ fn a_reused_root_registers_what_the_build_did() {
         candidate("second", "\"example\"", &[]),
     ];
     let cache = scratch.join("cache");
-    let built = load_root(&base, &candidates, &[], &[], &cache).unwrap();
+    let built = load_root(
+        &base,
+        &cache.join("jars"),
+        &Default::default(),
+        &candidates,
+        &[],
+        &[],
+        &cache,
+    )
+    .unwrap();
     assert_eq!(built.mods, 1);
     assert_ne!(built.root, base);
     let ids = |root: &LoadedRoot| {
         (
-            root.effects.iter().map(|e| e.id.clone()).collect::<Vec<_>>(),
-            root.entity_types.iter().map(|t| t.id.clone()).collect::<Vec<_>>(),
-            root.menu_types.iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+            root.effects
+                .iter()
+                .map(|e| e.id.clone())
+                .collect::<Vec<_>>(),
+            root.entity_types
+                .iter()
+                .map(|t| t.id.clone())
+                .collect::<Vec<_>>(),
+            root.menu_types
+                .iter()
+                .map(|m| m.id.clone())
+                .collect::<Vec<_>>(),
         )
     };
     assert_eq!(
@@ -3161,8 +3196,20 @@ fn a_reused_root_registers_what_the_build_did() {
     // A rebuild starts from an empty folder: this file tells them apart.
     let sentinel = built.root.join("sentinel");
     fs::write(&sentinel, b"").unwrap();
-    let reused = load_root(&base, &candidates, &[], &[], &cache).unwrap();
-    assert!(sentinel.exists(), "an unchanged set of mods rebuilt the root");
+    let reused = load_root(
+        &base,
+        &cache.join("jars"),
+        &Default::default(),
+        &candidates,
+        &[],
+        &[],
+        &cache,
+    )
+    .unwrap();
+    assert!(
+        sentinel.exists(),
+        "an unchanged set of mods rebuilt the root"
+    );
     assert_eq!(reused.root, built.root);
     assert_eq!(reused.mods, built.mods);
     assert_eq!(reused.effects, built.effects);
@@ -3199,6 +3246,8 @@ fn a_reused_root_registers_what_the_build_did() {
     );
     let declared = load_root(
         &base,
+        &cache.join("jars"),
+        &Default::default(),
         std::slice::from_ref(&with_remainder),
         std::slice::from_ref(&shaft),
         &[remainder.clone(), wrench],
@@ -3206,7 +3255,10 @@ fn a_reused_root_registers_what_the_build_did() {
     )
     .unwrap();
     // Upstream's roots are one per stamp: a new declaration is another root.
-    assert_ne!(declared.root, built.root, "what code declares is part of the root's stamp");
+    assert_ne!(
+        declared.root, built.root,
+        "what code declares is part of the root's stamp"
+    );
     assert_eq!(declared.mods, 2);
     assert_eq!(declared.accepted, ["example", "tools"]);
     let registry = Assets::load(&declared.root).unwrap().registry;
@@ -3221,6 +3273,8 @@ fn a_reused_root_registers_what_the_build_did() {
     };
     let left = load_root(
         &base,
+        &cache.join("jars"),
+        &Default::default(),
         std::slice::from_ref(&candidate(
             "other",
             "",
@@ -3503,24 +3557,64 @@ fn ae2_machine_overlay_sets_world_block_entity_flag() {
 #[cfg(feature = "ae2-lab")]
 #[test]
 fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
-    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
-    if !base.join("items.json").exists(){return;}
-    let scratch=std::env::temp_dir().join(format!("horizon-fluix-overlay-{}",std::process::id()));
-    let _=fs::remove_dir_all(&scratch);
-    let m=folder_mod(&scratch.join("mod"),&[
-        ("horizon-mod.toml","id = \"ae2\"\nname = \"AE2\"\nversion = \"0.1.0\"\napi = \"0.2\"\ncapabilities = [\"registries\"]\n"),
-        ("data/ae2/horizon/item/fluix_pickaxe.json",r#"{"template":"minecraft:iron_pickaxe"}"#),
-    ]);
-    let root=resource_root(&base,&[m],&scratch.join("cache")).unwrap();
-    let doc:serde_json::Value=serde_json::from_slice(&fs::read(root.join("items.json")).unwrap()).unwrap();
-    let component=&doc["ae2:fluix_pickaxe"];
-    assert_eq!(component["minecraft:max_damage"],750);
-    assert!((component["minecraft:tool"]["rules"][1]["speed"].as_f64().unwrap()-7.2).abs()<0.00001);
-    assert!((component["minecraft:attribute_modifiers"][0]["amount"].as_f64().unwrap()-3.4).abs()<0.00001);
-    let assets=Assets::load(&root).unwrap();let facts=BlockFacts::load(&root,assets.registry).unwrap();
-    let items=Items::load(&root,assets.registry,&facts,&horizon_world::loot::PackOverlay::NONE).unwrap();let pick=items.get("ae2:fluix_pickaxe").unwrap();
-    assert_eq!(pick.max_damage,750);assert!((pick.attack_damage-3.4).abs()<0.00001);
-    assert!(pick.tool.iter().any(|r|r.speed.is_some_and(|s|(s-7.2).abs()<0.00001)));
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
+    if !base.join("items.json").exists() {
+        return;
+    }
+    let scratch =
+        std::env::temp_dir().join(format!("horizon-fluix-overlay-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let m = folder_mod(
+        &scratch.join("mod"),
+        &[
+            (
+                "horizon-mod.toml",
+                "id = \"ae2\"\nname = \"AE2\"\nversion = \"0.1.0\"\napi = \"0.2\"\ncapabilities = [\"registries\"]\n",
+            ),
+            (
+                "data/ae2/horizon/item/fluix_pickaxe.json",
+                r#"{"template":"minecraft:iron_pickaxe"}"#,
+            ),
+        ],
+    );
+    let root = resource_root(&base, &[m], &scratch.join("cache")).unwrap();
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("items.json")).unwrap()).unwrap();
+    let component = &doc["ae2:fluix_pickaxe"];
+    assert_eq!(component["minecraft:max_damage"], 750);
+    assert!(
+        (component["minecraft:tool"]["rules"][1]["speed"]
+            .as_f64()
+            .unwrap()
+            - 7.2)
+            .abs()
+            < 0.00001
+    );
+    assert!(
+        (component["minecraft:attribute_modifiers"][0]["amount"]
+            .as_f64()
+            .unwrap()
+            - 3.4)
+            .abs()
+            < 0.00001
+    );
+    let assets = Assets::load(&root).unwrap();
+    let facts = BlockFacts::load(&root, assets.registry).unwrap();
+    let items = Items::load(
+        &root,
+        assets.registry,
+        &facts,
+        &horizon_world::loot::PackOverlay::NONE,
+    )
+    .unwrap();
+    let pick = items.get("ae2:fluix_pickaxe").unwrap();
+    assert_eq!(pick.max_damage, 750);
+    assert!((pick.attack_damage - 3.4).abs() < 0.00001);
+    assert!(
+        pick.tool
+            .iter()
+            .any(|r| r.speed.is_some_and(|s| (s - 7.2).abs() < 0.00001))
+    );
     fs::remove_dir_all(scratch).unwrap();
 }
 
@@ -3607,15 +3701,27 @@ fn declared_custom_states_survive_registry_and_resource_tables() {
     assert_eq!(facts.get(rotated).fluid, crate::blocks::Fluid::None);
     let collision = crate::collisions::load(&root, assets.registry)
         .expect("custom state collision table matches registry");
-    let fixture=assets.registry.default_state("ruby:fixture").unwrap();
-    let gameplay:serde_json::Value=serde_json::from_slice(&fs::read(root.join("gameplay-facts.json")).unwrap()).unwrap();
-    assert_eq!(gameplay["states"][fixture.0 as usize]["push"],"POPPED");
-    assert_eq!(&*facts.get(fixture).outline,&[[0.3,0.0,0.3,0.7,0.4,0.7]]);
+    let fixture = assets.registry.default_state("ruby:fixture").unwrap();
+    let gameplay: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("gameplay-facts.json")).unwrap()).unwrap();
+    assert_eq!(gameplay["states"][fixture.0 as usize]["push"], "POPPED");
+    assert_eq!(
+        &*facts.get(fixture).outline,
+        &[[0.3, 0.0, 0.3, 0.7, 0.4, 0.7]]
+    );
     assert!(!facts.get(fixture).can_occlude && !facts.get(fixture).full_collision);
-    let fixture_flags=behavior["states"][fixture.0 as usize][1].as_u64().unwrap();
-    assert_ne!(fixture_flags & (1<<5),0);assert_eq!(fixture_flags & (1<<2),0);
-    assert_eq!(fixture_flags & 1,0);assert_eq!(fixture_flags & (1<<6),0);
-    assert!(collision.cached_shapes().cached_shape(fixture).unwrap().is_none_or(|s|s.is_empty()));
+    let fixture_flags = behavior["states"][fixture.0 as usize][1].as_u64().unwrap();
+    assert_ne!(fixture_flags & (1 << 5), 0);
+    assert_eq!(fixture_flags & (1 << 2), 0);
+    assert_eq!(fixture_flags & 1, 0);
+    assert_eq!(fixture_flags & (1 << 6), 0);
+    assert!(
+        collision
+            .cached_shapes()
+            .cached_shape(fixture)
+            .unwrap()
+            .is_none_or(|s| s.is_empty())
+    );
     let bounds = collision
         .cached_shapes()
         .cached_shape(rotated)
@@ -3680,87 +3786,298 @@ fn declared_custom_states_survive_registry_and_resource_tables() {
 /// Opt-in integration test for the actual generated AE2 content candidate.
 #[test]
 fn ae2_physical_candidate_loads_real_runtime_facts_and_shapes() {
-    let Some(candidate)=std::env::var_os("AE2_PHYSICAL_CANDIDATE") else{return};
-    let base=Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
+    let Some(candidate) = std::env::var_os("AE2_PHYSICAL_CANDIDATE") else {
+        return;
+    };
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
     assert!(base.join("facts.json").exists());
-    let candidate=PathBuf::from(candidate);
-    let package=horizon_mods::Package::read(&candidate).unwrap();
-    let content=Content::read(&candidate,&package.manifest).unwrap();
-    let m=ContentMod{id:package.manifest.id.clone(),content};
-    let scratch=std::env::temp_dir().join(format!("ae2-physical-facts-{}",std::process::id()));
-    let _=fs::remove_dir_all(&scratch);
-    let root=resource_root(&base,&[m],&scratch).unwrap();
-    let assets=Assets::load(&root).unwrap();let facts=BlockFacts::load(&root,assets.registry).unwrap();
-    let get=|id:&str|facts.get(assets.registry.default_state(id).unwrap());
-    let cube=get("ae2:mysterious_cube");assert_eq!((cube.hardness,cube.explosion_resistance,cube.requires_tool),(10.,1000.,false));
-    let sky=get("ae2:sky_stone_block");assert_eq!((sky.hardness,sky.explosion_resistance,sky.requires_tool),(50.,150.,true));
-    let glass=get("ae2:quartz_vibrant_glass");assert_eq!((glass.hardness,glass.explosion_resistance,glass.emission),(2.2,11.,15));assert!(!glass.can_occlude);
-    let fixture=get("ae2:quartz_fixture");assert_eq!((fixture.emission,fixture.dampening,fixture.skylight_down),(15,0,true));assert!(!fixture.outline.is_empty());assert!(!fixture.full_collision);
-    let detector=get("ae2:light_detector");assert_eq!((detector.emission,detector.dampening,detector.skylight_down),(0,0,true));
-    let inscriber=get("ae2:inscriber");assert_eq!(inscriber.dampening,2);assert!(!inscriber.can_occlude);
+    let candidate = PathBuf::from(candidate);
+    let package = horizon_mods::Package::read(&candidate).unwrap();
+    let content = Content::read(&candidate, &package.manifest).unwrap();
+    let m = ContentMod {
+        id: package.manifest.id.clone(),
+        content,
+    };
+    let scratch = std::env::temp_dir().join(format!("ae2-physical-facts-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&scratch);
+    let root = resource_root(&base, &[m], &scratch).unwrap();
+    let assets = Assets::load(&root).unwrap();
+    let facts = BlockFacts::load(&root, assets.registry).unwrap();
+    let get = |id: &str| facts.get(assets.registry.default_state(id).unwrap());
+    let cube = get("ae2:mysterious_cube");
+    assert_eq!(
+        (cube.hardness, cube.explosion_resistance, cube.requires_tool),
+        (10., 1000., false)
+    );
+    let sky = get("ae2:sky_stone_block");
+    assert_eq!(
+        (sky.hardness, sky.explosion_resistance, sky.requires_tool),
+        (50., 150., true)
+    );
+    let glass = get("ae2:quartz_vibrant_glass");
+    assert_eq!(
+        (glass.hardness, glass.explosion_resistance, glass.emission),
+        (2.2, 11., 15)
+    );
+    assert!(!glass.can_occlude);
+    let fixture = get("ae2:quartz_fixture");
+    assert_eq!(
+        (fixture.emission, fixture.dampening, fixture.skylight_down),
+        (15, 0, true)
+    );
+    assert!(!fixture.outline.is_empty());
+    assert!(!fixture.full_collision);
+    let detector = get("ae2:light_detector");
+    assert_eq!(
+        (
+            detector.emission,
+            detector.dampening,
+            detector.skylight_down
+        ),
+        (0, 0, true)
+    );
+    let inscriber = get("ae2:inscriber");
+    assert_eq!(inscriber.dampening, 2);
+    assert!(!inscriber.can_occlude);
     // These checks use inherited merged runtime facts, not declaration JSON.
-    let charger=get("ae2:charger");assert_eq!((charger.dampening,charger.skylight_down),(2,true));
-    let wap=get("ae2:wireless_access_point");assert_eq!((wap.dampening,wap.skylight_down),(0,true));
-    let tank=get("ae2:sky_stone_tank");assert_eq!((tank.dampening,tank.skylight_down),(1,false));
-    let paint=get("ae2:paint");assert_eq!((paint.hardness,paint.explosion_resistance,paint.replaceable),(2.2,11.,false));assert!(facts.is_air(assets.registry.default_state("ae2:paint").unwrap()));
-    let resonance=get("ae2:crystal_resonance_generator");assert_eq!((resonance.dampening,resonance.skylight_down,resonance.can_occlude),(0,true,false));
-    let sky_chest=get("ae2:sky_stone_chest");assert_eq!((sky_chest.dampening,sky_chest.skylight_down),(0,true));
-    let assembler=get("ae2:molecular_assembler");assert_eq!((assembler.dampening,assembler.skylight_down),(1,false));
-    let debug=get("ae2:debug_energy_gen");assert_eq!((debug.hardness,debug.explosion_resistance,debug.requires_tool),(2.2,11.,false));
+    let charger = get("ae2:charger");
+    assert_eq!((charger.dampening, charger.skylight_down), (2, true));
+    let wap = get("ae2:wireless_access_point");
+    assert_eq!((wap.dampening, wap.skylight_down), (0, true));
+    let tank = get("ae2:sky_stone_tank");
+    assert_eq!((tank.dampening, tank.skylight_down), (1, false));
+    let paint = get("ae2:paint");
+    assert_eq!(
+        (
+            paint.hardness,
+            paint.explosion_resistance,
+            paint.replaceable
+        ),
+        (2.2, 11., false)
+    );
+    assert!(facts.is_air(assets.registry.default_state("ae2:paint").unwrap()));
+    let resonance = get("ae2:crystal_resonance_generator");
+    assert_eq!(
+        (
+            resonance.dampening,
+            resonance.skylight_down,
+            resonance.can_occlude
+        ),
+        (0, true, false)
+    );
+    let sky_chest = get("ae2:sky_stone_chest");
+    assert_eq!((sky_chest.dampening, sky_chest.skylight_down), (0, true));
+    let assembler = get("ae2:molecular_assembler");
+    assert_eq!((assembler.dampening, assembler.skylight_down), (1, false));
+    let debug = get("ae2:debug_energy_gen");
+    assert_eq!(
+        (
+            debug.hardness,
+            debug.explosion_resistance,
+            debug.requires_tool
+        ),
+        (2.2, 11., false)
+    );
     assert!(get("ae2:small_quartz_bud").can_occlude);
-    let ring=get("ae2:quantum_ring");assert!(ring.can_occlude);assert_eq!((ring.dampening,ring.skylight_down),(0,true));
-    let mut ring_wet=assets.registry.state(assets.registry.default_state("ae2:quantum_ring").unwrap()).unwrap().clone();ring_wet.properties.insert("waterlogged".into(),"true".into());
-    let ring_wet=facts.get(assets.registry.resolve(&ring_wet).unwrap());assert_eq!((ring_wet.dampening,ring_wet.skylight_down),(1,false));
-    for name in ["ae2:quartz_block","ae2:cut_quartz_stairs","ae2:quartz_pillar_wall"] {assert!(get(name).random_ticks,"{name}");}
-    if let Some(path)=std::env::var_os("AE2_FACTS_EXPORT") {
-        let path=PathBuf::from(path);fs::create_dir_all(&path).unwrap();
-        for file in ["facts.json","gameplay-facts.json","block-behaviours.json"] {fs::copy(root.join(file),path.join(file)).unwrap();}
+    let ring = get("ae2:quantum_ring");
+    assert!(ring.can_occlude);
+    assert_eq!((ring.dampening, ring.skylight_down), (0, true));
+    let mut ring_wet = assets
+        .registry
+        .state(assets.registry.default_state("ae2:quantum_ring").unwrap())
+        .unwrap()
+        .clone();
+    ring_wet
+        .properties
+        .insert("waterlogged".into(), "true".into());
+    let ring_wet = facts.get(assets.registry.resolve(&ring_wet).unwrap());
+    assert_eq!((ring_wet.dampening, ring_wet.skylight_down), (1, false));
+    for name in [
+        "ae2:quartz_block",
+        "ae2:cut_quartz_stairs",
+        "ae2:quartz_pillar_wall",
+    ] {
+        assert!(get(name).random_ticks, "{name}");
     }
-    let growth=assets.registry.default_state("ae2:growth_accelerator").unwrap();
-    let mut orient=assets.registry.state(growth).unwrap().clone();orient.properties.insert("facing".into(),"east".into());orient.properties.insert("powered".into(),"true".into());
+    if let Some(path) = std::env::var_os("AE2_FACTS_EXPORT") {
+        let path = PathBuf::from(path);
+        fs::create_dir_all(&path).unwrap();
+        for file in ["facts.json", "gameplay-facts.json", "block-behaviours.json"] {
+            fs::copy(root.join(file), path.join(file)).unwrap();
+        }
+    }
+    let growth = assets
+        .registry
+        .default_state("ae2:growth_accelerator")
+        .unwrap();
+    let mut orient = assets.registry.state(growth).unwrap().clone();
+    orient.properties.insert("facing".into(), "east".into());
+    orient.properties.insert("powered".into(), "true".into());
     assert!(assets.registry.resolve(&orient).is_ok());
-    let cell=assets.registry.default_state("ae2:energy_cell").unwrap();let mut full=assets.registry.state(cell).unwrap().clone();full.properties.insert("fullness".into(),"4".into());assert!(assets.registry.resolve(&full).is_ok());
-    for (name,flag) in [("ae2:vibration_chamber",Some("active")),("ae2:io_port",Some("powered")),("ae2:spatial_io_port",Some("powered")),("ae2:cell_workbench",None)] {
-        let id=assets.registry.default_state(name).unwrap();let mut s=assets.registry.state(id).unwrap().clone();s.properties.insert("facing".into(),"east".into());s.properties.insert("spin".into(),"2".into());if let Some(flag)=flag{s.properties.insert(flag.into(),"true".into());}assert!(assets.registry.resolve(&s).is_ok(),"{name}");
+    let cell = assets.registry.default_state("ae2:energy_cell").unwrap();
+    let mut full = assets.registry.state(cell).unwrap().clone();
+    full.properties.insert("fullness".into(), "4".into());
+    assert!(assets.registry.resolve(&full).is_ok());
+    for (name, flag) in [
+        ("ae2:vibration_chamber", Some("active")),
+        ("ae2:io_port", Some("powered")),
+        ("ae2:spatial_io_port", Some("powered")),
+        ("ae2:cell_workbench", None),
+    ] {
+        let id = assets.registry.default_state(name).unwrap();
+        let mut s = assets.registry.state(id).unwrap().clone();
+        s.properties.insert("facing".into(), "east".into());
+        s.properties.insert("spin".into(), "2".into());
+        if let Some(flag) = flag {
+            s.properties.insert(flag.into(), "true".into());
+        }
+        assert!(assets.registry.resolve(&s).is_ok(), "{name}");
     }
-    for (name,changes) in [("ae2:chest",vec![("facing","east"),("spin","1"),("lights_on","true")]),("ae2:spatial_anchor",vec![("facing","up"),("powered","true")]),("ae2:pattern_provider",vec![("push_direction","west")]),("ae2:1k_crafting_storage",vec![("formed","true"),("powered","true")])] {
-        let id=assets.registry.default_state(name).unwrap();let mut s=assets.registry.state(id).unwrap().clone();for (k,v) in changes{s.properties.insert(k.into(),v.into());}assert!(assets.registry.resolve(&s).is_ok(),"{name}");
+    for (name, changes) in [
+        (
+            "ae2:chest",
+            vec![("facing", "east"), ("spin", "1"), ("lights_on", "true")],
+        ),
+        (
+            "ae2:spatial_anchor",
+            vec![("facing", "up"), ("powered", "true")],
+        ),
+        ("ae2:pattern_provider", vec![("push_direction", "west")]),
+        (
+            "ae2:1k_crafting_storage",
+            vec![("formed", "true"), ("powered", "true")],
+        ),
+    ] {
+        let id = assets.registry.default_state(name).unwrap();
+        let mut s = assets.registry.state(id).unwrap().clone();
+        for (k, v) in changes {
+            s.properties.insert(k.into(), v.into());
+        }
+        assert!(assets.registry.resolve(&s).is_ok(), "{name}");
     }
-    let mut wet=assets.registry.state(assets.registry.default_state("ae2:quartz_fixture").unwrap()).unwrap().clone();wet.properties.insert("waterlogged".into(),"true".into());
-    let wet=facts.get(assets.registry.resolve(&wet).unwrap());assert_eq!((wet.emission,wet.dampening,wet.skylight_down),(15,1,false));
-    for name in ["ae2:sky_stone_chest","ae2:crystal_resonance_generator"] {
-        let mut wet=assets.registry.state(assets.registry.default_state(name).unwrap()).unwrap().clone();wet.properties.insert("waterlogged".into(),"true".into());
-        let wet=facts.get(assets.registry.resolve(&wet).unwrap());assert_eq!((wet.dampening,wet.skylight_down),(0,true),"{name}");
+    let mut wet = assets
+        .registry
+        .state(assets.registry.default_state("ae2:quartz_fixture").unwrap())
+        .unwrap()
+        .clone();
+    wet.properties.insert("waterlogged".into(), "true".into());
+    let wet = facts.get(assets.registry.resolve(&wet).unwrap());
+    assert_eq!(
+        (wet.emission, wet.dampening, wet.skylight_down),
+        (15, 1, false)
+    );
+    for name in ["ae2:sky_stone_chest", "ae2:crystal_resonance_generator"] {
+        let mut wet = assets
+            .registry
+            .state(assets.registry.default_state(name).unwrap())
+            .unwrap()
+            .clone();
+        wet.properties.insert("waterlogged".into(), "true".into());
+        let wet = facts.get(assets.registry.resolve(&wet).unwrap());
+        assert_eq!((wet.dampening, wet.skylight_down), (0, true), "{name}");
     }
-    let collisions=crate::collisions::load(&root,assets.registry).unwrap();
-    if let Some(path)=std::env::var_os("AE2_FACTS_EXPORT") {
+    let collisions = crate::collisions::load(&root, assets.registry).unwrap();
+    if let Some(path) = std::env::var_os("AE2_FACTS_EXPORT") {
         use horizon_core::geometry::Axis;
         use horizon_world::registry::BlockStateId;
-        let mut rows=Vec::new();
+        let mut rows = Vec::new();
         for index in 0..assets.registry.len() {
-            let id=BlockStateId(index as u32); let Some(state)=assets.registry.state(id) else {continue};
-            if !state.name.starts_with("ae2:") {continue;}
-            let boxes=collisions.cached_shapes().cached_shape(id).unwrap().map(|shape|shape.boxes().iter().map(|b|[b.min(Axis::X),b.min(Axis::Y),b.min(Axis::Z),b.max(Axis::X),b.max(Axis::Y),b.max(Axis::Z)]).collect::<Vec<_>>());
+            let id = BlockStateId(index as u32);
+            let Some(state) = assets.registry.state(id) else {
+                continue;
+            };
+            if !state.name.starts_with("ae2:") {
+                continue;
+            }
+            let boxes = collisions
+                .cached_shapes()
+                .cached_shape(id)
+                .unwrap()
+                .map(|shape| {
+                    shape
+                        .boxes()
+                        .iter()
+                        .map(|b| {
+                            [
+                                b.min(Axis::X),
+                                b.min(Axis::Y),
+                                b.min(Axis::Z),
+                                b.max(Axis::X),
+                                b.max(Axis::Y),
+                                b.max(Axis::Z),
+                            ]
+                        })
+                        .collect::<Vec<_>>()
+                });
             rows.push(serde_json::json!({"id":state.name,"properties":state.properties,"collision":boxes}));
         }
-        fs::write(PathBuf::from(path).join("ae2-collision-shapes.json"),serde_json::to_vec(&rows).unwrap()).unwrap();
+        fs::write(
+            PathBuf::from(path).join("ae2-collision-shapes.json"),
+            serde_json::to_vec(&rows).unwrap(),
+        )
+        .unwrap();
     }
-    let state=assets.registry.default_state("ae2:quartz_fixture").unwrap();
-    assert!(collisions.cached_shapes().cached_shape(state).unwrap().is_none_or(|s|s.is_empty()));
-    let slab=assets.registry.default_state("ae2:quartz_slab").unwrap();
-    assert!(!collisions.cached_shapes().cached_shape(slab).unwrap().unwrap().is_block());
-    let pillar=assets.registry.default_state("ae2:quartz_pillar").unwrap();
-    let mut sideways=assets.registry.state(pillar).unwrap().clone();sideways.properties.insert("axis".into(),"x".into());
+    let state = assets.registry.default_state("ae2:quartz_fixture").unwrap();
+    assert!(
+        collisions
+            .cached_shapes()
+            .cached_shape(state)
+            .unwrap()
+            .is_none_or(|s| s.is_empty())
+    );
+    let slab = assets.registry.default_state("ae2:quartz_slab").unwrap();
+    assert!(
+        !collisions
+            .cached_shapes()
+            .cached_shape(slab)
+            .unwrap()
+            .unwrap()
+            .is_block()
+    );
+    let pillar = assets.registry.default_state("ae2:quartz_pillar").unwrap();
+    let mut sideways = assets.registry.state(pillar).unwrap().clone();
+    sideways.properties.insert("axis".into(), "x".into());
     assert!(assets.registry.resolve(&sideways).is_ok());
-    let matrix=assets.registry.default_state("ae2:matrix_frame").unwrap();
+    let matrix = assets.registry.default_state("ae2:matrix_frame").unwrap();
     assert!(facts.get(matrix).outline.is_empty() && !facts.get(matrix).can_occlude);
-    assert!(collisions.cached_shapes().cached_shape(matrix).unwrap().unwrap().is_block());
-    let pylon=assets.registry.default_state("ae2:spatial_pylon").unwrap();
-    let mut on=assets.registry.state(pylon).unwrap().clone();on.properties.insert("powered_on".into(),"true".into());
-    assert_eq!(facts.get(assets.registry.resolve(&on).unwrap()).emission,8);
-    let behaviour:serde_json::Value=serde_json::from_slice(&fs::read(root.join("block-behaviours.json")).unwrap()).unwrap();
-    for name in ["ae2:paint","ae2:quartz_fixture","ae2:sky_stone_chest","ae2:wireless_access_point"] {assert_eq!(behaviour["states"][assets.registry.default_state(name).unwrap().0 as usize][0].as_u64(),Some(0),"{name}");}
-    assert_eq!(behaviour["states"][assets.registry.default_state("ae2:mysterious_cube").unwrap().0 as usize][1].as_u64().unwrap() & (1<<2),0);
+    assert!(
+        collisions
+            .cached_shapes()
+            .cached_shape(matrix)
+            .unwrap()
+            .unwrap()
+            .is_block()
+    );
+    let pylon = assets.registry.default_state("ae2:spatial_pylon").unwrap();
+    let mut on = assets.registry.state(pylon).unwrap().clone();
+    on.properties.insert("powered_on".into(), "true".into());
+    assert_eq!(facts.get(assets.registry.resolve(&on).unwrap()).emission, 8);
+    let behaviour: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("block-behaviours.json")).unwrap()).unwrap();
+    for name in [
+        "ae2:paint",
+        "ae2:quartz_fixture",
+        "ae2:sky_stone_chest",
+        "ae2:wireless_access_point",
+    ] {
+        assert_eq!(
+            behaviour["states"][assets.registry.default_state(name).unwrap().0 as usize][0]
+                .as_u64(),
+            Some(0),
+            "{name}"
+        );
+    }
+    assert_eq!(
+        behaviour["states"][assets
+            .registry
+            .default_state("ae2:mysterious_cube")
+            .unwrap()
+            .0 as usize][1]
+            .as_u64()
+            .unwrap()
+            & (1 << 2),
+        0
+    );
     fs::remove_dir_all(scratch).unwrap();
 }
 /// `StructureCheck.onStructureLoad`: the references a chunk saved for its start
@@ -7494,13 +7811,20 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     // another test registered first).
     horizon_world::mod_fluids::register_test_fluids();
     // The interaction files in the mod's path order, the same rules as the test set's.
-    let files: Vec<horizon_mods::content::FluidInteractions> = fluid_interactions(std::slice::from_ref(&m))
-        .into_iter()
-        .cloned()
-        .collect();
+    let files: Vec<horizon_mods::content::FluidInteractions> =
+        fluid_interactions(std::slice::from_ref(&m))
+            .into_iter()
+            .cloned()
+            .collect();
     assert_eq!(
         files.iter().map(|f| f.fluid.as_str()).collect::<Vec<_>>(),
-        ["minecraft:lava", "minecraft:water", "test:brine", "test:missing", "test:sludge"]
+        [
+            "minecraft:lava",
+            "minecraft:water",
+            "test:brine",
+            "test:missing",
+            "test:sludge"
+        ]
     );
     register_fluid_interactions(&files);
     horizon_world::fluid_interactions::register_test_interactions();
@@ -7511,7 +7835,10 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     let registry = assets.registry;
     let b = Behaviours::load(registry, &root).unwrap();
     let water_mask = FluidKind::Water.mask() | FluidKind::FlowingWater.mask();
-    assert_eq!(b.fluid_tags.water, water_mask, "minecraft:water keeps water");
+    assert_eq!(
+        b.fluid_tags.water, water_mask,
+        "minecraft:water keeps water"
+    );
     struct Level {
         blocks: HashMap<BlockPos, BlockStateId>,
         air: BlockStateId,
@@ -7641,7 +7968,10 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     // (a source) or cobblestone (flowing), and fizzes; beside water, NeoForge's own rule.
     let state = |name: &str| registry.default_state(name).unwrap();
     let with = |name: &str, props: &[(&str, &str)]| {
-        let mut d = horizon_world::chunk::BlockState { name: name.into(), properties: Default::default() };
+        let mut d = horizon_world::chunk::BlockState {
+            name: name.into(),
+            properties: Default::default(),
+        };
         for (k, v) in props {
             d.properties.insert((*k).into(), (*v).into());
         }
@@ -7651,28 +7981,62 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     let place = |level: &mut Level, ticks: &mut Ticks, pos: BlockPos, s: BlockStateId| {
         b.set_block(level, ticks, pos, s, 3);
     };
-    let name_at = |level: &Level, pos: BlockPos| registry.state(level.block_state(pos)).unwrap().name.clone();
+    let name_at =
+        |level: &Level, pos: BlockPos| registry.state(level.block_state(pos)).unwrap().name.clone();
     // On the floor, each fluid placed just before the lava (no tick between: what spreads after
     // meets only what was decided).
     let spot = |x: i32| BlockPos::new(x, 64, 12);
     for (x, lava, neighbour, result) in [
         (-12, "0", liquid("test:brine", "0"), "minecraft:obsidian"),
         (-8, "2", liquid("test:brine", "3"), "minecraft:cobblestone"),
-        (-4, "0", liquid("minecraft:water", "0"), "minecraft:obsidian"),
+        (
+            -4,
+            "0",
+            liquid("minecraft:water", "0"),
+            "minecraft:obsidian",
+        ),
         (0, "0", state("minecraft:stone"), "minecraft:lava"),
     ] {
         place(&mut level, &mut ticks, spot(x).offset(0, 0, -1), neighbour);
-        place(&mut level, &mut ticks, spot(x), liquid("minecraft:lava", lava));
-        assert_eq!(name_at(&level, spot(x)), result, "lava at level {lava} beside {}", name_at(&level, spot(x).offset(0, 0, -1)));
+        place(
+            &mut level,
+            &mut ticks,
+            spot(x),
+            liquid("minecraft:lava", lava),
+        );
+        assert_eq!(
+            name_at(&level, spot(x)),
+            result,
+            "lava at level {lava} beside {}",
+            name_at(&level, spot(x).offset(0, 0, -1))
+        );
     }
     // Brine meets water (packed ice); sludge over soul soil beside blue ice turns to prismarine,
     // over stone it stays.
-    place(&mut level, &mut ticks, spot(4).offset(0, 0, -1), liquid("minecraft:water", "0"));
+    place(
+        &mut level,
+        &mut ticks,
+        spot(4).offset(0, 0, -1),
+        liquid("minecraft:water", "0"),
+    );
     place(&mut level, &mut ticks, spot(4), liquid("test:brine", "0"));
     assert_eq!(name_at(&level, spot(4)), "minecraft:packed_ice");
-    for (x, below, result) in [(8, "minecraft:soul_soil", "minecraft:prismarine"), (12, "minecraft:stone", "test:sludge")] {
-        place(&mut level, &mut ticks, spot(x).offset(0, -1, 0), state(below));
-        place(&mut level, &mut ticks, spot(x).offset(1, 0, 0), state("minecraft:blue_ice"));
+    for (x, below, result) in [
+        (8, "minecraft:soul_soil", "minecraft:prismarine"),
+        (12, "minecraft:stone", "test:sludge"),
+    ] {
+        place(
+            &mut level,
+            &mut ticks,
+            spot(x).offset(0, -1, 0),
+            state(below),
+        );
+        place(
+            &mut level,
+            &mut ticks,
+            spot(x).offset(1, 0, 0),
+            state("minecraft:blue_ice"),
+        );
         place(&mut level, &mut ticks, spot(x), liquid("test:sludge", "0"));
         assert_eq!(name_at(&level, spot(x)), result, "sludge over {below}");
     }
@@ -7681,11 +8045,25 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     // sludge it dries.
     for (x, fluid, moist) in [(-10, "test:brine", "7"), (6, "test:sludge", "6")] {
         let farm = BlockPos::new(x, 64, 30);
-        place(&mut level, &mut ticks, farm, with("minecraft:farmland", &[("moisture", "7")]));
-        place(&mut level, &mut ticks, farm.offset(3, 0, 0), liquid(fluid, "0"));
+        place(
+            &mut level,
+            &mut ticks,
+            farm,
+            with("minecraft:farmland", &[("moisture", "7")]),
+        );
+        place(
+            &mut level,
+            &mut ticks,
+            farm.offset(3, 0, 0),
+            liquid(fluid, "0"),
+        );
         b.random_tick(&mut level, &mut ticks, farm);
         let after = registry.state(level.block_state(farm)).unwrap();
-        assert_eq!(after.properties.get("moisture").map(String::as_str), Some(moist), "farmland beside {fluid}");
+        assert_eq!(
+            after.properties.get("moisture").map(String::as_str),
+            Some(moist),
+            "farmland beside {fluid}"
+        );
     }
 
     // The dripstone hook (`getDripInfo`): sludge over a stalactite's root drips into the empty
@@ -7693,16 +8071,39 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     let root_at = BlockPos::new(30, 80, 0);
     // Its chunk takes scheduled ticks too (the cauldron's).
     ticks.add_empty_chunk(ChunkPos::new(1, 0)).unwrap();
-    for wall in [root_at.offset(0, 1, 0).offset(0, 0, -1), root_at.offset(0, 1, 0).offset(0, 0, 1), root_at.offset(0, 1, 0).offset(1, 0, 0), root_at.offset(0, 1, 0).offset(-1, 0, 0)] {
+    for wall in [
+        root_at.offset(0, 1, 0).offset(0, 0, -1),
+        root_at.offset(0, 1, 0).offset(0, 0, 1),
+        root_at.offset(0, 1, 0).offset(1, 0, 0),
+        root_at.offset(0, 1, 0).offset(-1, 0, 0),
+    ] {
         place(&mut level, &mut ticks, wall, state("minecraft:stone"));
     }
-    place(&mut level, &mut ticks, root_at.offset(0, 1, 0), liquid("test:sludge", "0"));
-    place(&mut level, &mut ticks, root_at, state("minecraft:dripstone_block"));
+    place(
+        &mut level,
+        &mut ticks,
+        root_at.offset(0, 1, 0),
+        liquid("test:sludge", "0"),
+    );
+    place(
+        &mut level,
+        &mut ticks,
+        root_at,
+        state("minecraft:dripstone_block"),
+    );
     let tip = root_at.offset(0, -1, 0);
-    let pointed = with("minecraft:pointed_dripstone", &[("vertical_direction", "down"), ("thickness", "tip")]);
+    let pointed = with(
+        "minecraft:pointed_dripstone",
+        &[("vertical_direction", "down"), ("thickness", "tip")],
+    );
     level.set_raw(tip, pointed);
     let cauldron = BlockPos::new(30, 75, 0);
-    place(&mut level, &mut ticks, cauldron, state("minecraft:cauldron"));
+    place(
+        &mut level,
+        &mut ticks,
+        cauldron,
+        state("minecraft:cauldron"),
+    );
     for _ in 0..2000 {
         b.random_tick(&mut level, &mut ticks, tip);
         let t = level.time + 120;
@@ -7711,7 +8112,11 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
             break;
         }
     }
-    assert_eq!(name_at(&level, cauldron), "test:sludge_cauldron", "a drip of sludge fills the cauldron");
+    assert_eq!(
+        name_at(&level, cauldron),
+        "test:sludge_cauldron",
+        "a drip of sludge fills the cauldron"
+    );
     fs::remove_dir_all(&scratch).unwrap();
 }
 
@@ -7723,18 +8128,36 @@ fn a_mod_turning_milk_on_adds_neoforges_milk() {
     let mut on = Content::declared("cow");
     on.milk_fluid = true;
     let mods = vec![
-        ContentMod { id: "plain".into(), content: Content::declared("plain") },
-        ContentMod { id: "cow".into(), content: on },
+        ContentMod {
+            id: "plain".into(),
+            content: Content::declared("plain"),
+        },
+        ContentMod {
+            id: "cow".into(),
+            content: on,
+        },
     ];
-    assert!(carried_fluids(&mods[..1]).is_empty(), "no milk unless a mod asks");
+    assert!(
+        carried_fluids(&mods[..1]).is_empty(),
+        "no milk unless a mod asks"
+    );
     let decls = carried_fluids(&mods);
     let ids: Vec<&str> = decls.iter().map(|f| f.id.as_str()).collect();
     assert_eq!(ids, ["minecraft:milk"]);
     let milk = mod_fluid(decls[0], &BTreeMap::new());
-    assert_eq!((milk.flowing.as_str(), milk.block.as_str()), ("minecraft:flowing_milk", "minecraft:air"));
+    assert_eq!(
+        (milk.flowing.as_str(), milk.block.as_str()),
+        ("minecraft:flowing_milk", "minecraft:air")
+    );
     assert_eq!(milk.bucket.as_deref(), Some("minecraft:milk_bucket"));
-    assert_eq!(milk.fill_sound.as_deref(), Some("minecraft:item.bucket.fill_milk"));
-    assert!(!milk.is_vaporized_on_placement(true), "milk is in no water tag");
+    assert_eq!(
+        milk.fill_sound.as_deref(),
+        Some("minecraft:item.bucket.fill_milk")
+    );
+    assert!(
+        !milk.is_vaporized_on_placement(true),
+        "milk is in no water tag"
+    );
     // NeoForge's own c:milk (data/c/tags/fluid/milk.json) resolves once milk is known.
     let root = std::env::temp_dir().join(format!("horizon-milk-tags-{}", std::process::id()));
     let _ = fs::remove_dir_all(&root);
@@ -7744,11 +8167,18 @@ fn a_mod_turning_milk_on_adds_neoforges_milk() {
         r##"{"values": [{"id": "minecraft:milk", "required": false}, {"id": "minecraft:flowing_milk", "required": false}, {"id": "#forge:milk", "required": false}]}"##,
     )
     .unwrap();
-    let known: BTreeSet<&str> = decls.iter().flat_map(|f| [f.id.as_str(), f.flowing.as_str()]).collect();
-    let tags = horizon_world::mod_fluids::fluid_tag_lists_in(&root, &|id| known.contains(id)).unwrap();
+    let known: BTreeSet<&str> = decls
+        .iter()
+        .flat_map(|f| [f.id.as_str(), f.flowing.as_str()])
+        .collect();
+    let tags =
+        horizon_world::mod_fluids::fluid_tag_lists_in(&root, &|id| known.contains(id)).unwrap();
     assert_eq!(tags["c:milk"], ["minecraft:milk", "minecraft:flowing_milk"]);
     let none = horizon_world::mod_fluids::fluid_tag_lists_in(&root, &|_| false).unwrap();
-    assert!(none["c:milk"].is_empty(), "without milk c:milk names nothing");
+    assert!(
+        none["c:milk"].is_empty(),
+        "without milk c:milk names nothing"
+    );
     fs::remove_dir_all(&root).unwrap();
 }
 

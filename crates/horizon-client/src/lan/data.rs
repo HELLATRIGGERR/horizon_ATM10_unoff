@@ -606,7 +606,11 @@ impl SyncData {
             namespaces.sort();
             for namespace in namespaces {
                 let mut found = BTreeMap::new();
-                walk(&resources.join("data").join(&namespace).join(path), &mut found);
+                walk(
+                    &resources.join("data").join(&namespace).join(path),
+                    &mut found,
+                    *key == "minecraft:enchantment",
+                );
                 let mut extra: Vec<_> = found
                     .into_iter()
                     .map(|(p, v)| ((namespace.clone(), p), json_to_nbt(&v), false))

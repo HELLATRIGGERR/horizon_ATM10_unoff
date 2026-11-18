@@ -592,7 +592,10 @@ impl VanillaTerrain {
         out
     }
     /// Scope saved structure reads to this world/dimension before workers start.
-    pub fn set_saved_start_source(&self, source: Arc<dyn horizon_world::worldgen::structure::extension::SavedStartSource>) {
+    pub fn set_saved_start_source(
+        &self,
+        source: Arc<dyn horizon_world::worldgen::structure::extension::SavedStartSource>,
+    ) {
         self.generator.set_saved_start_source(source);
     }
     /// The structure starts owned by a chunk (cached by the generator).
@@ -1010,9 +1013,18 @@ impl ChunkGenerator for VanillaTerrain {
         }
     }
     fn proto_checked(&self, worker: &mut GeneratorWorker, x: i32, z: i32) -> Result<Proto, String> {
-        self.last_proto.store(self.elapsed_ms().max(1), std::sync::atomic::Ordering::Relaxed);
-        worker.generate_proto(ChunkPos::new(x,z))
-            .map(|chunk| Box::new(VanillaProto::Ready(Box::new(chunk))) as Proto)
+        self.last_proto.store(
+            self.elapsed_ms().max(1),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        worker
+            .generate_proto(ChunkPos::new(x, z))
+            .map(|chunk| {
+                Box::new(VanillaProto::Ready(Box::new(ResidentProto {
+                    terrain_chunk: chunk,
+                    saved_biomes: None,
+                }))) as Proto
+            })
             .map_err(|error| error.to_string())
     }
     fn decorates(&self) -> bool {

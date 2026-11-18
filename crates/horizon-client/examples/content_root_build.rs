@@ -37,7 +37,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let packages = par_map(&paths, 8, |path| Package::read(path));
     let mut candidates = Vec::new();
     for (path, package) in paths.into_iter().zip(packages) {
-        let manifest = package.map_err(|e| format!("{}: {e}", path.display()))?.manifest;
+        let manifest = package
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .manifest;
         if manifest.capabilities.contains(&Capability::Registries) {
             candidates.push(Candidate { path, manifest });
         }
@@ -48,7 +50,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         started.elapsed().as_secs_f64()
     );
     let started = Instant::now();
-    let loaded = load_root(&base, &candidates, &[], &[], &cache)?;
+    let loaded = load_root(
+        &base,
+        &cache.join("jars"),
+        &Default::default(),
+        &candidates,
+        &[],
+        &[],
+        &cache,
+    )?;
     println!(
         "root: {} mods, {} effects, {} fluids, {:.1} s, {}",
         loaded.mods,

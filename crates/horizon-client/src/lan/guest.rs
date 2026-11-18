@@ -1296,27 +1296,60 @@ fn wire_components(stack: &ItemStack) -> Option<horizon_core::nbt::Tag> {
     };
     if let Some(data) = stack.data() {
         if let Some(mode) = data.map_post_processing {
-            patch.insert("minecraft:map_post_processing".into(), Tag::Int(i32::from(mode)));
+            patch.insert(
+                "minecraft:map_post_processing".into(),
+                Tag::Int(i32::from(mode)),
+            );
         }
         if !data.container.is_empty() {
-            patch.insert("minecraft:container".into(), Tag::List(data.container.iter().map(|(slot,item)|
-                Tag::compound([("slot",Tag::Int(i32::from(*slot))), ("item",wire_template(item,true))])
-            ).collect()));
+            patch.insert(
+                "minecraft:container".into(),
+                Tag::List(
+                    data.container
+                        .iter()
+                        .map(|(slot, item)| {
+                            Tag::compound([
+                                ("slot", Tag::Int(i32::from(*slot))),
+                                ("item", wire_template(item, true)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            );
         }
         if !data.bundle_contents.is_empty() {
-            patch.insert("minecraft:bundle_contents".into(),Tag::List(data.bundle_contents.iter()
-                .map(|item|wire_template(item,true)).collect()));
+            patch.insert(
+                "minecraft:bundle_contents".into(),
+                Tag::List(
+                    data.bundle_contents
+                        .iter()
+                        .map(|item| wire_template(item, true))
+                        .collect(),
+                ),
+            );
         }
         if !data.charged.is_empty() {
-            patch.insert("minecraft:charged_projectiles".into(),Tag::List(data.charged.iter()
-                .map(|item|wire_template(item,false)).collect()));
+            patch.insert(
+                "minecraft:charged_projectiles".into(),
+                Tag::List(
+                    data.charged
+                        .iter()
+                        .map(|item| wire_template(item, false))
+                        .collect(),
+                ),
+            );
         }
         if let Some(sides) = &data.pot_decorations {
             let mut decorations = horizon_core::nbt::Compound::new();
-            for (name,item) in ["back","left","right","front"].iter().zip(sides.iter()) {
-                if let Some(item) = item { decorations.insert((*name).into(),wire_template(item,true)); }
+            for (name, item) in ["back", "left", "right", "front"].iter().zip(sides.iter()) {
+                if let Some(item) = item {
+                    decorations.insert((*name).into(), wire_template(item, true));
+                }
             }
-            patch.insert("minecraft:pot_decorations".into(),Tag::Compound(decorations));
+            patch.insert(
+                "minecraft:pot_decorations".into(),
+                Tag::Compound(decorations),
+            );
         }
     }
     (!patch.is_empty()).then_some(Tag::Compound(patch))
@@ -1325,9 +1358,13 @@ fn wire_components(stack: &ItemStack) -> Option<horizon_core::nbt::Tag> {
 fn wire_template(stack: &ItemStack, omit_single_count: bool) -> horizon_core::nbt::Tag {
     use horizon_core::nbt::Tag;
     let mut item = horizon_core::nbt::Compound::new();
-    item.insert("id".into(),Tag::String(stack.item.as_ref().into()));
-    if !omit_single_count || stack.count != 1 { item.insert("count".into(),Tag::Int(stack.count as i32)); }
-    if let Some(components) = wire_components(stack) { item.insert("components".into(),components); }
+    item.insert("id".into(), Tag::String(stack.item.as_ref().into()));
+    if !omit_single_count || stack.count != 1 {
+        item.insert("count".into(), Tag::Int(stack.count as i32));
+    }
+    if let Some(components) = wire_components(stack) {
+        item.insert("components".into(), components);
+    }
     Tag::Compound(item)
 }
 /// `DyeColor.getId` of a dye's name.
@@ -2121,8 +2158,11 @@ pub(super) fn network_stack(
             };
             patch.remove(&"minecraft:custom_data".into());
             let key = "horizon:wire_ae2_components";
-            let occupied = matches!(&custom_data, Some(Tag::Compound(map)) if map.contains_key(&key.into()));
-            let noncompound = custom_data.as_ref().is_some_and(|v| !matches!(v, Tag::Compound(_)));
+            let occupied =
+                matches!(&custom_data, Some(Tag::Compound(map)) if map.contains_key(&key.into()));
+            let noncompound = custom_data
+                .as_ref()
+                .is_some_and(|v| !matches!(v, Tag::Compound(_)));
             if !patch.is_empty() || occupied || noncompound {
                 let had_custom_data = matches!(&custom_data, Some(Tag::Compound(_)));
                 let mut outer = match custom_data.take() {
@@ -2132,9 +2172,14 @@ pub(super) fn network_stack(
                 let previous = outer.remove(&key.into());
                 let mut wrapped = horizon_core::nbt::Compound::new();
                 wrapped.insert("version".into(), Tag::Byte(2));
-                wrapped.insert("had_custom_data".into(), Tag::Byte(i8::from(had_custom_data)));
+                wrapped.insert(
+                    "had_custom_data".into(),
+                    Tag::Byte(i8::from(had_custom_data)),
+                );
                 wrapped.insert("components".into(), Tag::Compound(patch));
-                if let Some(previous) = previous { wrapped.insert("previous".into(), previous); }
+                if let Some(previous) = previous {
+                    wrapped.insert("previous".into(), previous);
+                }
                 if noncompound {
                     if let Some(value) = d.other("minecraft:custom_data").cloned() {
                         wrapped.insert("noncompound_custom_data".into(), value);
@@ -2512,10 +2557,12 @@ pub(super) fn network_stack(
         if let Some(last) = d.container.iter().map(|(slot, _)| *slot).max() {
             let mut contents = vec![None; usize::from(last) + 1];
             for (slot, item) in &d.container {
-                contents[usize::from(*slot)] = network_stack(item_id, synced_id, &Some(item.clone()));
+                contents[usize::from(*slot)] = Some(network_stack(item_id, synced_id, item));
             }
-            stack.added.push((horizon_protocol::item::component::CONTAINER,
-                horizon_protocol::item::Component::Container(contents)));
+            stack.added.push((
+                horizon_protocol::item::component::CONTAINER,
+                horizon_protocol::item::Component::Container(contents),
+            ));
         }
         // The books a lectern shows and a guest reads.
         if !d.writable_pages.is_empty() {
@@ -3265,22 +3312,37 @@ mod tests {
         g.inventory[0] = Some(ItemStack::new("ae2:crafting_pattern", 1));
         g.inventory[8] = Some(ItemStack::new("minecraft:stick", 1));
         g.inventory_told();
-        let unsent = |g: &Guest| (0..46).filter(|&s| g.menu_slot(s) != g.menu_sent[s]).collect::<Vec<_>>();
+        let unsent = |g: &Guest| {
+            (0..46)
+                .filter(|&s| g.menu_slot(s) != g.menu_sent[s])
+                .collect::<Vec<_>>()
+        };
         // A quick move out of a 27-slot menu: the server's stack lands in
         // hotbar slot 3, where the client may have predicted another slot.
         g.inventory[3] = Some(ItemStack::new("minecraft:iron_ingot", 5));
-        assert_eq!(unsent(&g), [39], "on its own the sync sends only the server's slot");
+        assert_eq!(
+            unsent(&g),
+            [39],
+            "on its own the sync sends only the server's slot"
+        );
         let mut content = vec![None; 27];
         content.extend((9..36).chain(0..9).map(|i| g.inventory[i].clone()));
         g.inventory_told_by(&content);
-        assert!(unsent(&g).is_empty(), "the menu content told every inventory slot");
+        assert!(
+            unsent(&g).is_empty(),
+            "the menu content told every inventory slot"
+        );
         // The told stacks are compared, not the current ones: a change the
         // content did not show still goes out.
         g.inventory[20] = Some(ItemStack::new("minecraft:diamond", 7));
         g.inventory_told_by(&content);
         assert_eq!(unsent(&g), [20]);
         g.inventory_told_by(&content[..35]);
-        assert_eq!(unsent(&g), [20], "content without the inventory tells nothing");
+        assert_eq!(
+            unsent(&g),
+            [20],
+            "content without the inventory tells nothing"
+        );
     }
 
     #[test]

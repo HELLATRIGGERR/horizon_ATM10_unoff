@@ -2609,17 +2609,6 @@ fn content_root_with_only_an_item_checks_its_identity() {
     fs::remove_dir_all(&scratch).unwrap();
 }
 
-        texture: None,
-    // its own texture, drawn on the template's model, goes in the row.
-    let textured = EntityType {
-        texture: Some("ruby:entity/ghoul".into()),
-        ..ghoul(&[])
-    };
-    let written: serde_json::Value =
-        serde_json::from_slice(&mod_entity_row(&row, &textured).unwrap()).unwrap();
-    assert_eq!(written["texture"], "ruby:entity/ghoul");
-/// a living mod type's row in `entity-types.json` is its template's with `template`,
-/// attribute bases and passenger attachments; other values keep the template's text.
 /// a mod's thrown entity type gets the network id after vanilla's last, the
 /// commands accept it, and it changes the content identity.
 #[test]

@@ -3700,10 +3700,6 @@ impl Overlay<'_> {
             .insert(name.to_owned());
         Ok(())
     }
-    ///
-    /// The fork links a folder mod's files instead ([`write_mod_files`]): this is
-    /// upstream's way, kept for its tests.
-    #[cfg_attr(not(test), allow(dead_code))]
 }
 
 fn out_path(overlay: &Overlay<'_>, rel: &str) -> PathBuf {

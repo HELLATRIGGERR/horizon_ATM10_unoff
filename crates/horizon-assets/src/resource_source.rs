@@ -581,6 +581,25 @@ impl ResourceSource {
         }
         match self.0.as_ref() {
             Storage::Directory(root) => {
+                // From the prepared file when it has this folder: a large pack's namespaces and
+                // files, listed and stat-ed one by one, took 20 s at each world's opening.
+                if let Some(files) = horizon_core::prepared_files::files_under(&root.join(top)) {
+                    let mut out: Vec<String> = files
+                        .into_iter()
+                        .filter(|file| {
+                            file.split_once('/').is_some_and(|(_, rest)| {
+                                kinds.iter().any(|kind| {
+                                    rest.strip_prefix(kind)
+                                        .is_some_and(|tail| tail.starts_with('/'))
+                                })
+                            })
+                        })
+                        .map(|file| format!("{top}/{file}"))
+                        .filter(|name| stays_inside(name))
+                        .collect();
+                    out.sort();
+                    return out;
+                }
                 let Ok(entries) = fs::read_dir(root.join(top)) else {
                     return Vec::new();
                 };

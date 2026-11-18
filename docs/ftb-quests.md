@@ -1,5 +1,27 @@
 # FTB Quests on this fork
 
+> **Handoff (slice 1 landed; next is slice 2; remove this block when it lands).**
+> - **State:** slice 1 is built and passes in a world on ATM10's own book: 67 chapters and 4,892 quests counted
+>   against a scan of the instance's files, the book item and `/ftbquests open_book`, an item task completed from
+>   the inventory, its item reward claimed from the quest view, a checkmark ticked, all of it after a restart from
+>   `<world>/ftbquests/<team uuid>.snbt`; bundle units 6 (quests) + 17 (teams); `ftbteams/teams` world test; `check-text`
+>   10 fallbacks, 0 equal to FTB Quests' lines.
+> - **Slice 2** (see Slices): xp and xp_levels (1,966 + 949 in ATM10), `random`/`loot`/`choice` and the reward tables
+>   (1,046 + 262 + 95; 61 tables), `command` with `permission_level` (7), `toast` (1), claim all minus
+>   `exclude_from_claim_all`, auto-claim, completion toasts and chat notices, `rewards_blocked`. Start in
+>   `ftbquests-core/src/file.rs` (`RewardKind::Other` carries the kinds not yet read) and `runtime/ftbquests_book.rs`
+>   (the quest view's reward rows draw `RewardKind::Other` as "(kind: not in the port yet)"), claims go through
+>   `runtime/ftbquests_world.rs`. Extend `tests/quests.ts` (its probe `pick` finds the quests to play; add an xp and a
+>   command pick the same way) and the units.
+> - **Driver:** `bash D:/VSCODE_PROJECTS/DEV_1/atm10-work/ftbquests-work/ftbq.sh stage build world` with
+>   `AE2_PROFILE=iter FTBQ_LIST=ftbquests/quests` (also `units`, `check-text`, `content`); logs in
+>   `ftbquests-work/logs/` (`world-quests.log`, screenshots in `shots-quests/`, failures in `fail-quests/`). Do not edit
+>   sources while `stage` runs. A rebuild takes about 75 s; the world test waits for the shared render lease, so on a busy
+>   PC it can sit at its first log line for 20 minutes or more: that is the queue, not a hang.
+> - **Seen in the screenshots, for slice 4:** quests whose item is from a mod the fork does not have draw a grey
+>   square (the icon is by item id); chapter icons likewise; quest sizes are drawn, quest shapes are not (slice 4);
+>   the toasts in the corner of the shots are the world test's own (recipe book, movement hints).
+
 The plan for porting FTB Quests 2101.1.37 (`ftb-quests-neoforge-2101.1.37.jar`, with `ftbquestslangsplitter`
 1.0.7) as the `pack/mods/ftbquests` bundle. ATM10's quest book is worth 6 of the 50 play-system points of the
 coverage method.
@@ -68,4 +90,7 @@ Counted from the instance's `config/ftbquests/quests/` by a script (the counts m
 - The quest file comes from `<config>/ftbquests/quests/` beside the game (ATM10's, copied from the instance by
   the player; the world test copies it into its own game folder). The book item is in the content mod that
   `pack/scripts/ftbquests.ts content` carries from the player's jar into the work folder, never committed.
+- `pack/mods/ftbquests/tests/quests.ts`: the world test on ATM10's own book (copied from the instance into the test's game
+  folder): counts, the book item, `/ftbquests open_book`, an item task, a claim, a checkmark, a restart; three
+  screenshots (chapter list, the quest view, the chapter after the restart).
 - Not yet: item tasks with components (counted by id only), consuming item tasks, the client's locale (en_us).

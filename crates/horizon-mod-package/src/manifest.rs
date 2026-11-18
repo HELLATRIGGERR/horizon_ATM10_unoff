@@ -114,6 +114,13 @@ pub struct Manifest {
     /// Free-form values other mods read through `PackageInfo::property`.
     #[serde(default)]
     pub properties: std::collections::BTreeMap<String, Property>,
+    /// Turns on NeoForge's milk fluid, as a mod calling
+    /// `NeoForgeMod.enableMilkFluid()` does: `minecraft:milk` and
+    /// `minecraft:flowing_milk` join the fluid registry
+    /// (`content::Fluid::neoforge_milk`), vanilla's milk bucket their bucket.
+    /// One content mod on that asks is enough.
+    #[serde(default)]
+    pub milk_fluid: bool,
 }
 
 /// The most `[properties]` keys a manifest may declare.
@@ -203,13 +210,6 @@ pub struct RuleDetails {
 
 fn both_sides() -> Side {
     Side::Both
-    /// Turns on NeoForge's milk fluid, as a mod calling
-    /// `NeoForgeMod.enableMilkFluid()` does: `minecraft:milk` and
-    /// `minecraft:flowing_milk` join the fluid registry
-    /// (`content::Fluid::neoforge_milk`), vanilla's milk bucket their bucket.
-    /// One content mod on that asks is enough.
-    #[serde(default)]
-    pub milk_fluid: bool,
 }
 
 fn any_version() -> semver::VersionReq {

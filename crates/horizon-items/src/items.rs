@@ -1251,7 +1251,6 @@ impl Items {
         }
         self.instruments.get(&instrument_id(stack)?).cloned()
     }
-        let item_tag_order = load_tag_lists(root, "item", overlay)?;
     /// A table with nothing in it: the tags a client was sent go in with `set_tags`.
     pub fn empty() -> Self {
         Self {
@@ -2400,9 +2399,7 @@ impl<R: RandomSource> LootContext<'_, R> {
                 .collect(),
             _ => Vec::new(),
         }
-    /// `LootPool.addRandomItem`: one of the entries of positive weight, by
-    /// weight, made into its stacks with the entry's modifiers.
-        visited: &mut Vec<*const Value>,
+    }
     fn choose(&self, entries: &[Value], random: &mut R, produced: &mut Vec<(ItemStack, bool)>) {
         let mut candidates = Vec::new();
         for e in entries {

@@ -1275,17 +1275,58 @@ impl Game<'_> {
                     // The block's custom name (upstream's, which covers AE2's
                     // vanilla-metadata blocks too).
                     self.load_block_name(key, &new, &tag);
-                    if let (Some(BlockEntity::Mod(current)), BlockEntity::Mod(loaded)) =
-                        (self.world.block_entities.get_mut(&key), &mut new)
-                        && current.id() == loaded.id()
-                    {
-                        // BlockDataAccessor.setData loads the existing entity.
-                        // Replace its saved fields, preserving runtime data and
-                        // identity; DerefMut still invalidates content caches.
-                        current.nbt = std::mem::take(&mut loaded.nbt);
-                        current.items = std::mem::take(&mut loaded.items);
-                    } else {
-                        self.world.block_entities.insert(key, new);
+                    // AE2 loads a pattern provider in place when its node data is
+                    // unchanged, and replaces an AE2 entity with its lifecycle;
+                    // what is left loads as upstream's (a mod entity in place).
+                    #[cfg(feature = "ae2-lab")]
+                    let new = {
+                        use horizon_client::ae2_world::MachineKind;
+                        let current = self.world.block_entities.get(&key);
+                        let provider = match (current, &new) {
+                            (Some(BlockEntity::Ae2(old)), BlockEntity::Ae2(next))
+                                if old.kind == MachineKind::PatternProvider && next.kind == MachineKind::PatternProvider =>
+                                Some((super::super::ae2_provider_registry::provider_node_data_unchanged(
+                                    old.config.get(&"gn".into()), next.config.get(&"gn".into())), old.slots.clone())),
+                            _ => None,
+                        };
+                        let touches_ae2 = matches!(current, Some(BlockEntity::Ae2(_))) || matches!(&new, BlockEntity::Ae2(_));
+                        if let Some((true, previous_slots)) = provider {
+                            // AE2 loads this block entity in place. The managed
+                            // node remains live when its saved data is equal.
+                            let BlockEntity::Ae2(mut replacement) = new else { unreachable!() };
+                            replacement.slots = super::super::ae2_provider_registry::provider_merge_raw_slots(&previous_slots, tag.get("Items"));
+                            let Some(BlockEntity::Ae2(target)) = self.world.block_entities.get_mut(&key) else { unreachable!() };
+                            **target = *replacement;
+                            self.world.modified.insert((p[0] >> 4, p[2] >> 4));
+                            self.ae2_provider_raw_read_local(key, tag.get("Items").cloned());
+                            None
+                        } else if touches_ae2 {
+                            // This native /data branch replaces the entity.
+                            // Deliver its actual lifecycle rather than
+                            // permanently poisoning unrelated providers.
+                            self.world.block_entities.replace_from_data(key, new, &tag);
+                            let state = self.world.block(p[0], p[1], p[2]);
+                            self.world.block_entities.record_ae2_loaded_state(key, state.0);
+                            None
+                        } else {
+                            Some(new)
+                        }
+                    };
+                    #[cfg(not(feature = "ae2-lab"))]
+                    let new = Some(new);
+                    if let Some(mut new) = new {
+                        if let (Some(BlockEntity::Mod(current)), BlockEntity::Mod(loaded)) =
+                            (self.world.block_entities.get_mut(&key), &mut new)
+                            && current.id() == loaded.id()
+                        {
+                            // BlockDataAccessor.setData loads the existing entity.
+                            // Replace its saved fields, preserving runtime data and
+                            // identity; DerefMut still invalidates content caches.
+                            current.nbt = std::mem::take(&mut loaded.nbt);
+                            current.items = std::mem::take(&mut loaded.items);
+                        } else {
+                            self.world.block_entities.insert(key, new);
+                        }
                     }
                     #[cfg(feature = "ae2-lab")]
                     self.world.block_entities.remember_vanilla_metadata(key, &tag);

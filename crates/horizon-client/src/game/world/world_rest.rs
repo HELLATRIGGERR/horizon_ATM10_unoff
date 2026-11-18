@@ -17,8 +17,12 @@ pub(super) fn load_world_rest(
     let root = resource_root.prepared();
     let facts = resources.facts();
     let biomes = resources.biomes();
-    let threads = resources.threads();
     let registry = assets.registry;
+    // A full modpack's tables load one at a time (`LARGE_REGISTRY`).
+    let threads = match registry.len() >= resource_load::LARGE_REGISTRY {
+        true => 1,
+        false => resources.threads(),
+    };
     let content = horizon_client::datapack::DataPack::from_source(
         "horizon-content".into(),
         resource_root.data_changes().clone(),

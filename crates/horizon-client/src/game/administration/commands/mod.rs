@@ -3173,19 +3173,6 @@ impl Game<'_> {
                     {
                         continue;
                     }
-                    let key=(x,y,z);
-                    #[cfg(feature = "ae2-lab")]
-                    let metadata=self.world.block_entities.vanilla_metadata(&key).cloned();
-                    #[cfg(not(feature = "ae2-lab"))]
-                    let metadata:Option<horizon_world::nbt::Tag>=None;
-                    #[cfg(feature = "ae2-lab")]
-                    let rolled={
-                        let table=metadata.as_ref().and_then(|tag|horizon_client::save::text(tag.get("LootTable")));
-                        self.world.chunks.get(&(x>>4,z>>4)).and_then(|chunk|chunk.saved.as_deref())
-                            .and_then(|saved|saved.rolled_loot.iter().find(|roll|roll.pos==key && table.as_deref()==Some(roll.table.as_str()))).cloned()
-                    };
-                    #[cfg(not(feature = "ae2-lab"))]
-                    let rolled:Option<horizon_client::save::RolledLoot>=None;
                     copies.push((
                         [x, y, z],
                         [

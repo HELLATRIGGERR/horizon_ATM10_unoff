@@ -196,7 +196,7 @@ impl Game<'_> {
     /// The batch a screen draws in: AE2's tall terminals step the GUI scale down where they
     /// wouldn't fit, as AE2's `AEBaseScreen` does.
     pub(super) fn screen_batch(&self, size: [u32; 2]) -> HudBatch {
-        let mut batch = HudBatch::new(size);
+        let mut batch = HudBatch::new(size, self.settings.gui_scale_inputs());
         #[cfg(feature="ae2-lab")]
         if ((self.ae2_crafting_terminal_screen() && self.ae2_term_kind().is_none()) || self.ae2_pattern_access_screen()) && batch.height < 251.0 && batch.scale > 1.0 {
             batch.scale -= 1.0;
@@ -761,6 +761,8 @@ impl Game<'_> {
                     | BlockEntity::TestInstanceBlock(_),
                 ) => self
                     .draw_screen_phase(batch, horizon_client::screen_draw::RenderPhase::Background),
+                #[cfg(feature = "ae2-lab")]
+                None if self.ae2_portable_open() => self.draw_chest_screen(batch, ox, oy),
                 None if self.mount_active() => self.draw_mount_background(batch, ox, oy),
                 None => {
                     let texture = if self.craft_size == 3 {

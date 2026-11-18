@@ -320,7 +320,7 @@ impl Game<'_> {
                         }
                     }
                     let text=monitor_amount(job.amount,false,job.fluid);let atlas=&self.gui.atlas;
-                    let mut batch=horizon_client::hud::HudBatch::new([1,1]);
+                    let mut batch=horizon_client::hud::HudBatch::new([1,1],horizon_client::hud::GuiScale{requested:1,unicode:false});
                     batch.text(atlas,&text,-atlas.font.width(&text)/2.,0.,text_color,false);
                     let matrix=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,-0.16,-0.525))*glam::Mat4::from_scale(glam::Vec3::new(1./124.,-1./124.,1./124.));
                     for quad in batch.vertices.as_chunks::<6>().0 {for i in [0,1,2,5] {let v=quad[i];let p=matrix.transform_point3(glam::Vec3::new(v.pos[0],v.pos[1],v.depth));out.push(Vertex{glint_uv:[0.0,0.0],pos:p.to_array(),uv:v.uv,color:v.color,light:0xF0F0,layer:0,normal:[0;4]});}}
@@ -572,7 +572,7 @@ impl Game<'_> {
                     }
                     let atlas=&self.gui.atlas;
                     let line=|text:&str,at:f32,color:u32,out:&mut Vec<Vertex>| {
-                        let mut batch=horizon_client::hud::HudBatch::new([1,1]);
+                        let mut batch=horizon_client::hud::HudBatch::new([1,1],horizon_client::hud::GuiScale{requested:1,unicode:false});
                         let width=atlas.font.width(text);
                         batch.text(atlas,text,-width/2.,0.,color,false);
                         let matrix=pose*glam::Mat4::from_translation(glam::Vec3::new(0.,at,-0.52))

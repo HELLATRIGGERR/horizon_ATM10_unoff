@@ -2601,6 +2601,15 @@ impl Dim {
             Self::Extra(key) => key,
         }
     }
+    /// `Level.getMinY`.
+    fn min_y(self) -> i32 {
+        self.shape().min_y
+    }
+    /// `Level.getMaxY`: the minimum y plus the height, less one.
+    fn max_y(self) -> i32 {
+        let shape = self.shape();
+        shape.min_y + shape.height - 1
+    }
     /// The level's shape in a world of vanilla's dimension types.
     fn shape(self) -> horizon_client::save::LevelShape {
         use horizon_client::save::LevelShape;
@@ -4590,7 +4599,7 @@ impl Game<'_> {
         if let Some((entity, _)) = &live {
             let name = self.world.block_names.get(&key).cloned();
             self.pending
-                .record_from(&self.world, pos, entity, &facts.name);
+                .record_by_player(pos, entity, &facts.name, name, self.world.block_lock(key));
         } else if let Some(tag) = spill::saved_entity(&self.world, pos) {
             self.pending.record_saved(pos, &tag);
         }
@@ -4633,7 +4642,14 @@ impl Game<'_> {
                 if let Some(p) = self.player.as_mut() {
                     p.cause_food_exhaustion(0.005);
                 }
-                let stacks = self.block_loot_at(pos, state, held.as_ref(), loot_entity);
+                #[allow(unused_mut)]
+                let mut stacks = self.block_loot_at(pos, state, held.as_ref(), loot_entity);
+                #[cfg(feature = "ae2-lab")]
+                if let Some(energy) = cell_energy
+                    && let Some(block) = stacks.iter_mut().find(|d| d.item.as_ref() == facts.name.as_ref())
+                {
+                    block.data_mut().set_other("ae2:stored_energy", Some(horizon_world::nbt::Tag::Double(energy.to_bits())));
+                }
                 let silk = held
                     .as_ref()
                     .is_some_and(|h| h.enchantment_level("minecraft:silk_touch") > 0);
@@ -5418,7 +5434,7 @@ impl Game<'_> {
     }
     fn hud_layers(&mut self, size: [u32; 2]) -> HudBatch {
         self.input_hud_begin();
-        let mut batch = HudBatch::new(size, self.settings.gui_scale_inputs());
+        let mut batch = self.screen_batch(size);
         batch.glint_colour = self.pvp_glint_texel();
         // GlobalSettingsUniform's GameTime, for a resource pack's text shader.
         batch.game_time = ((self.world.game_time.rem_euclid(24000)) as f32
@@ -9474,7 +9490,7 @@ impl Game<'_> {
         let shadow_only = std::mem::take(self.shadow_only_vertices.get_mut());
         let skin = std::mem::take(self.skin_frame.get_mut());
         // The frame's fog, kept for `horizon-ctl state`.
-        self.fog.last_frame = Some(self.frame_fog(camera, &sky, biome, water_fog));
+        self.fog.last_frame = Some(fog);
         let frame = Frame {
             weather: &weather,
             weather_time: horizon_client::weather::Time::new(self.world.game_time, alpha as f32),
@@ -10157,10 +10173,7 @@ impl Game<'_> {
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     if let Some(r) = &self.renderer {
-                        let b = HudBatch::new(
-                            [r.config.width, r.config.height],
-                            self.settings.gui_scale_inputs(),
-                        );
+                        let b = self.screen_batch([r.config.width, r.config.height]);
                         let previous = self.cursor;
                         self.cursor = (position.x as f32 / b.scale, position.y as f32 / b.scale);
                         #[cfg(feature = "ae2-lab")]

@@ -375,7 +375,7 @@ impl Game<'_> {
         let Some(BlockEntity::Mod(m)) = world.block_entities.get(&key) else {
             return None;
         };
-        if m.id.is_empty() {
+        if m.id().is_empty() {
             return None;
         }
         let mut tanks = None;

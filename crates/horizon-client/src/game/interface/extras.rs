@@ -69,6 +69,7 @@ impl Game<'_> {
         // For mods (`render.frame-stats`, `native_frame_rate`).
         let now = self.extras_now();
         self.extras.fps.record(now, elapsed.as_secs_f32() * 1000.0);
+        self.recipe_lookups_now();
         let (world_partial_tick, partial_tick) = self.frame_partial_ticks();
         self.extras.frame_partial_ticks = Some((world_partial_tick, partial_tick));
         self.native_render_frame_pre(elapsed, world_partial_tick, partial_tick);

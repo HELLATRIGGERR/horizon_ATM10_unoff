@@ -38,8 +38,6 @@ impl Game<'_> {
             // unlike AnvilScreen's (`anvil::rename_box`), which only `slotChanged` opens.
             station.rename.editable|=quartz_knife;
         }
-        #[cfg(not(feature = "ae2-lab"))]
-        let _ = quartz_knife;
         self.station = Some(station);
         self.set_screen(Screen::Inventory);
         self.capture(false);

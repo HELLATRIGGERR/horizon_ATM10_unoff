@@ -212,7 +212,7 @@ pub(super) fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
     let Some(BlockEntity::Mod(m)) = world.block_entities.get_mut(&key) else {
         return None;
     };
-    if m.id.is_empty() {
+    if m.id().is_empty() {
         return None;
     }
     Some(std::mem::take(&mut **m))
@@ -223,7 +223,7 @@ pub(super) fn take(world: &mut World, key: Pos) -> Option<ModBlockEntity> {
 /// block entity the call removed or replaced stays gone.
 pub(super) fn put_back(world: &mut World, key: Pos, taken: ModBlockEntity, changed: bool) -> bool {
     match world.block_entities.get_mut(&key) {
-        Some(BlockEntity::Mod(m)) if m.id.is_empty() => {
+        Some(BlockEntity::Mod(m)) if m.id().is_empty() => {
             **m = taken;
             if changed {
                 world.modified.insert((key.0 >> 4, key.2 >> 4));
@@ -269,7 +269,7 @@ impl Game<'_> {
         let world = self.fe_world(dim)?;
         let info = match world.block_entities.get(&key)? {
             BlockEntity::Mod(m) => {
-                if m.id.is_empty() {
+                if m.id().is_empty() {
                     return None;
                 }
                 let mut info = None;

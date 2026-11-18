@@ -1294,7 +1294,7 @@ impl Game<'_> {
                 let path = *a.pos.first().ok_or("recipe-audit PATH [THREADS]")?;
                 let threads = a.pos.get(1).map_or(Ok(4), |t| t.parse::<usize>())?;
                 let started = std::time::Instant::now();
-                let sources = horizon_client::crafting::Recipes::sources(
+                let sources = horizon_items::recipe_sources::sources(
                     &self.options.resources,
                     &self.pack_files(),
                 )
@@ -2729,10 +2729,8 @@ mod tests {
 fn audit_categories(
     categories: &[mod_api::NativeRecipeCategory],
 ) -> Vec<horizon_client::recipe_audit::Category> {
-    use horizon_client::{
-        mod_api::NativeStack,
-        recipe_audit::{Category, Listed, Stack},
-    };
+    use horizon_client::recipe_audit::{Category, Listed, Stack};
+    use mod_api::NativeStack;
     let stack = |s: &NativeStack| Stack {
         kind: s.kind.clone(),
         id: s.item.clone(),

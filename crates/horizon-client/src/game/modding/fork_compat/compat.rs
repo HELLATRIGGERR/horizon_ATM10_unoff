@@ -185,7 +185,7 @@ impl Game<'_> {
         let Some(source) = self.level_block_state(level, pos) else {
             return false;
         };
-        self.level_update_neighbors(level, pos, source, mod_api::NeighbourUpdate::default())
+        self.level_update_neighbors(level, pos, source, mod_api::NeighbourUpdate::Neighbours)
             .unwrap_or(false)
     }
 
@@ -286,6 +286,7 @@ impl Game<'_> {
                     level,
                     progress,
                     total,
+                    score: game.experience.score,
                 };
             }
             if let Some(health) = health {

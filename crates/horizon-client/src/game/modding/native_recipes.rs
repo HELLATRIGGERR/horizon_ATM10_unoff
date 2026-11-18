@@ -50,6 +50,31 @@ pub(super) struct RecipeTables {
     /// The types that came before the player did: the mods hear of them
     /// once the helpers can answer (`recipes_received_now`).
     received: Option<Vec<String>>,
+    /// The stacks mods asked the recipe viewer to show
+    /// (`native_show_recipes`), heard next frame (`native_recipe_lookup`).
+    pub(in crate::game) lookups:
+        std::sync::Mutex<Vec<(mod_api::NativeStack, mod_api::NativeRecipeLookup)>>,
+    /// Bumped each time a mod's recipe categories change
+    /// (`native_recipe_categories_changed`).
+    pub(in crate::game) categories_version: std::sync::atomic::AtomicU64,
+}
+
+impl Game<'_> {
+    /// The recipe lookups mods asked for since the last frame
+    /// (`native_show_recipes`), heard by the recipe viewers.
+    pub(in crate::game) fn recipe_lookups_now(&mut self) {
+        let lookups = std::mem::take(
+            &mut *self
+                .recipe_tables
+                .lookups
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()),
+        );
+        for (stack, lookup) in lookups {
+            let mut handled = false;
+            self.native_recipe_lookup(&stack, &lookup, &mut handled);
+        }
+    }
 }
 
 #[cfg(test)]

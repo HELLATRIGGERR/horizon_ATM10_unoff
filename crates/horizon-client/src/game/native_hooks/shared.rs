@@ -2307,7 +2307,7 @@ impl Game<'_> {
     /// No world is open: a client without a player (the title screen). A
     /// server's `Game` (the server thread, a dedicated server, a LAN host)
     /// has no player of its own, and is always in its world.
-    fn outside_world(&self) -> bool {
+    pub(in crate::game) fn outside_world(&self) -> bool {
         self.player.is_none() && self.options.execution_role.is_client()
     }
     /// Every item and recipe the game knows, made once (the same for every

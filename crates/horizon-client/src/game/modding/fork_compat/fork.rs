@@ -6,7 +6,7 @@
 //! `native_fluid_handler.rs`, `native_chemical.rs`, `native_items.rs`, the panel files) stay
 //! there.
 use super::*;
-use mod_api::ParticleOptions;
+use horizon_client::particles::ParticleOptions;
 use std::fs;
 use std::result::Result;
 
@@ -197,7 +197,7 @@ impl Game<'_> {
     pub(in crate::game) fn native_block_entity_changed(&mut self, pos: [i32; 3]) -> bool {
         let key = (pos[0], pos[1], pos[2]);
         match self.world.block_entities.get(&key) {
-            Some(BlockEntity::Mod(m)) if !m.id.is_empty() => {
+            Some(BlockEntity::Mod(m)) if !m.id().is_empty() => {
                 self.world.modified.insert((key.0 >> 4, key.2 >> 4));
                 true
             }
@@ -492,7 +492,7 @@ impl Game<'_> {
             let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos) else {
                 continue;
             };
-            if m.id.is_empty() {
+            if m.id().is_empty() {
                 continue;
             }
             let mut taken = std::mem::take(&mut **m);
@@ -501,7 +501,7 @@ impl Game<'_> {
             if taken == before {
                 // Nothing to save for being looked at.
                 if let Some(BlockEntity::Mod(m)) = self.world.block_entities.get_mut(&pos)
-                    && m.id.is_empty()
+                    && m.id().is_empty()
                 {
                     **m = taken;
                 }
@@ -519,7 +519,7 @@ impl Game<'_> {
         let mut leaving: Vec<Pos> = Vec::new();
         for (p, e) in self.world.block_entities.iter() {
             if let BlockEntity::Mod(m) = e
-                && !m.id.is_empty()
+                && !m.id().is_empty()
                 && gone.contains(&(p.0 >> 4, p.2 >> 4))
             {
                 leaving.push(*p);
@@ -539,15 +539,11 @@ impl Game<'_> {
         let dimension = self.dim.id();
         for (p, e) in &mut chunk.block_entities {
             if let BlockEntity::Mod(m) = e
-                && !m.id.is_empty()
+                && !m.id().is_empty()
             {
+                let id = m.id().to_owned();
                 let fields: &mut horizon_client::containers::ModBlockEntityFields = &mut **m;
-                self.native_block_entity_save(
-                    dimension,
-                    [p.0, p.1, p.2],
-                    &fields.id,
-                    &mut fields.nbt,
-                );
+                self.native_block_entity_save(dimension, [p.0, p.1, p.2], &id, &mut fields.nbt);
             }
         }
     }

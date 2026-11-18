@@ -1637,11 +1637,13 @@ impl Game<'_> {
                 None,
                 None,
             );
-        } else if &*name == "minecraft:tnt" {
-            if self
-                .ui
-                .rules
-                .bool_at(horizon_client::gamerules::vanilla::TNT_EXPLODES)
+        } else if &*name == "minecraft:tnt" || (cfg!(feature = "ae2-lab") && &*name == "ae2:tiny_tnt") {
+            // AE2's tiny TNT ignores the tntExplodes rule.
+            if (&*name == "ae2:tiny_tnt"
+                || self
+                    .ui
+                    .rules
+                    .bool_at(horizon_client::gamerules::vanilla::TNT_EXPLODES))
                 && self.tnt_prime_allowed(target_pos)
             {
                 self.spawn_primed_tnt(target_pos, false, None, None);

@@ -86,12 +86,6 @@ fn side_tanks(tanks: &ModFluidTanks, side: Option<Direction>) -> impl Iterator<I
     })
 }
 
-/// Whether `name` is a fluid of the registry other than the empty one.
-pub(super) fn registered_fluid(name: &str) -> bool {
-    horizon_world::fluid::FluidKind::from_name(name)
-        .is_some_and(|f| f != horizon_world::fluid::FluidKind::Empty)
-}
-
 /// Whether the tanks at `at` take `fluid`. A mod block's saved tanks keep an id and an amount,
 /// so they take vanilla's fluids and a mod's own, without components. A cauldron takes only
 /// the fluids that have a content (water, lava, and the mods'), discarding their components:

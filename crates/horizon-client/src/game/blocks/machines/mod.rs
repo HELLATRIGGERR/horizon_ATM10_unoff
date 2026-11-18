@@ -298,16 +298,7 @@ impl Containers<'_> {
     }
     /// `ItemStack.getMaxStackSize`: its component, else the item's.
     pub(super) fn max_stack(&self, stack: &ItemStack) -> u32 {
-        if let Some(horizon_core::nbt::Tag::Int(n)) = stack
-            .data()
-            .and_then(|d| d.other("minecraft:max_stack_size"))
-        {
-            return (*n).clamp(1, 99) as u32;
-        }
-        self.items
-            .get(&stack.item)
-            .map_or(64, |i| i.max_stack)
-            .max(1)
+        self.items.stack_max(stack)
     }
     /// `Container.getMaxStackSize(stack)` of a container: the container's own
     /// limit, at most the item's. `ComposterBlock.InputContainer` (levels 0 to
@@ -1026,7 +1017,14 @@ impl Game<'_> {
         self.unpack_inventory_slot(view, slot);
         let was_empty = self.inventory_is_empty(view);
         let c = self.containers();
-        let vanilla_max = c.max_stack(&stack);
+        let vanilla_max = {
+            #[cfg(feature = "ae2-lab")]
+            if let Some((_, max)) = c.ae2_slot(view, slot).and_then(|(kind, index)| ae2_capabilities::ae2_slot_insert(kind, index, &stack)) {
+                max
+            } else { c.max_stack(&stack) }
+            #[cfg(not(feature = "ae2-lab"))]
+            { c.max_stack(&stack) }
+        };
         let override_limit = view
             .locate(slot)
             .and_then(|(pos, _)| c.world.container_stack_limit(pos));

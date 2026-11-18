@@ -79,6 +79,11 @@ ATM10_DIR=... bun run pack/scripts/powah.ts carry content units stage build worl
 ATM10_DIR=... bun run pack/scripts/fluxnetworks.ts content units stage build world  # see pack/mods/fluxnetworks/NOTES.md
 ```
 
+Local bundles that can't be published (their licences) are staged from a local directory: `HORIZON_LOCAL_BUNDLES`
+lists directories (`;` between them), each a bundle or a folder of bundles, and every pack script's `stage` step adds
+them beside its own (`pack/scripts/local-bundles.ts`; their `tests/`, `.git` and build output are left out). Unset,
+the scripts stage what they always did.
+
 Also run `cargo test -p horizon-client --no-default-features --features ae2-lab --bin horizon-client` and `--lib`,
 `cargo test -p horizon-client-lib --no-default-features --features ae2-lab --lib` (upstream split the client's library:
 the game is in `horizon-client`'s, the rest, with AE2's library modules, in `horizon-client-lib`, which has the same

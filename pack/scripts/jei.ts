@@ -23,6 +23,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
+import { addLocalBundles } from './local-bundles';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -95,6 +96,7 @@ const steps: Record<string, () => Promise<void>> = {
     const mods = `${stage}-mods`;
     rmSync(mods, { recursive: true, force: true });
     for (const name of BUNDLES) cpSync(join(root, 'pack/mods', name), join(mods, name), { recursive: true, filter: path => !path.includes(`${join('tests', '')}`) });
+    addLocalBundles(mods);
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });

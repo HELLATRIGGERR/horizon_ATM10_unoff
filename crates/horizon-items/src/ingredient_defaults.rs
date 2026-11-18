@@ -8,6 +8,10 @@ impl Items {
         let enchantments = Arc::new(crate::enchant::Enchantments::load_with(
             root, overlay, defaults,
         )?);
+        // Each kind's files read once; the sets are the ordered lists' members.
+        let item_tag_order = load_tag_lists(root, "item", overlay)?;
+        let block_tag_order = load_tag_lists(root, "block", overlay)?;
+        let fluid_tag_order = load_tag_lists(root, "fluid", overlay)?;
         let mut items = Self {
             items: HashMap::new(),
             block_items: Default::default(),
@@ -20,12 +24,13 @@ impl Items {
             mob_visibility: HashMap::new(),
             order: Vec::new(),
             registry_order: Vec::new(),
-            block_tags: load_tags(root, "block", overlay)?,
-            item_tags: load_tags(root, "item", overlay)?,
-            fluid_tags: load_tags(root, "fluid", overlay)?,
-            item_tag_order: load_tag_lists(root, "item", overlay)?,
-            block_tag_order: load_tag_lists(root, "block", overlay)?,
-            fluid_tag_order: load_tag_lists(root, "fluid", overlay)?,
+            block_tags: tag_sets(&block_tag_order),
+            item_tags: tag_sets(&item_tag_order),
+            fluid_tags: tag_sets(&fluid_tag_order),
+            facade_items: HashSet::new(),
+            item_tag_order,
+            block_tag_order,
+            fluid_tag_order,
             loot: Default::default(),
             predicates: Default::default(),
             songs: HashMap::new(),

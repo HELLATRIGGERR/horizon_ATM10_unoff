@@ -655,7 +655,7 @@ pub fn load_tags(
     Ok(tag_sets(&load_tag_lists(root, kind, overlay)?))
 }
 /// [`load_tags`] from lists already loaded.
-fn tag_sets(lists: &HashMap<String, Vec<String>>) -> HashMap<String, HashSet<String>> {
+pub(crate) fn tag_sets(lists: &HashMap<String, Vec<String>>) -> HashMap<String, HashSet<String>> {
     lists
         .iter()
         .map(|(k, v)| (k.clone(), v.iter().cloned().collect()))
@@ -715,19 +715,33 @@ pub(crate) fn load_tag_lists(
             raw.entry(id.to_owned()).or_default().push(&v);
         }
     }
-    fn resolve(name: &str, raw: &HashMap<String, TagLayers>, depth: u32) -> Vec<String> {
-        match raw.get(name) {
-            Some(layers) if depth <= 32 => layers.build(|tag| resolve(tag, raw, depth + 1)),
-            _ => Vec::new(),
+    // Each tag built once (`done`): a tag a thousand others name was walked a thousand times.
+    // A tag naming itself through others gets what was built when the loop closed.
+    fn resolve<'a>(
+        name: &str,
+        raw: &'a HashMap<String, TagLayers>,
+        done: &mut HashMap<&'a str, Vec<String>>,
+        open: &mut HashSet<&'a str>,
+        depth: u32,
+    ) -> Vec<String> {
+        let Some((name, layers)) = raw.get_key_value(name) else {
+            return Vec::new();
+        };
+        if let Some(list) = done.get(name.as_str()) {
+            return list.clone();
         }
-        open.remove(name);
+        if depth > 32 || !open.insert(name) {
+            return Vec::new();
+        }
+        let list = layers.build(|tag| resolve(tag, raw, done, open, depth + 1));
+        open.remove(name.as_str());
         done.insert(name, list.clone());
         list
     }
     let (mut done, mut open) = (HashMap::new(), HashSet::new());
     Ok(raw
         .keys()
-        .map(|k| (k.clone(), resolve(k, &raw, 0)))
+        .map(|k| (k.clone(), resolve(k, &raw, &mut done, &mut open, 0)))
         .collect())
 }
 /// An entity type id or `#tag` as the set of entity type ids it names.
@@ -742,7 +756,7 @@ fn entity_spec(tags: &HashMap<String, HashSet<String>>, spec: &str) -> HashSet<S
 /// clamped to 1..99 until the host applies component codec validation.
 /// AE2 logical counters must not use this cap until materializing a stack.
 pub fn stack_max_with_default(stack:&ItemStack,item_default:u32)->u32 {
-    use horizon_world::nbt::Tag;
+    use horizon_core::nbt::Tag;
     // An absent patch uses the item prototype. A removed component leaves no
     // value in the resolved map; ItemStack.getMaxStackSize falls back to one.
     if stack.data().is_some_and(|data|data.other("!minecraft:max_stack_size").is_some()) {return 1;}
@@ -886,6 +900,18 @@ impl Items {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(format!("{}: {e}", path.display()).into()),
         }
+        let whitelist = items.block_tags.get("ae2:whitelisted/facades");
+        let mut facades = HashSet::new();
+        for (item, id) in &block_for_item {
+            let state = &facts.states[id.0 as usize];
+            let allowed = whitelist.is_some_and(|tags| tags.contains(state.name.as_ref()));
+            if state.render_shape == crate::blocks::RenderShape::Model
+                && (allowed || (state.full_collision && !state.block_entity))
+            {
+                facades.insert(Arc::from(*item));
+            }
+        }
+        items.facade_items = facades;
         Ok(items)
     }
     /// Every item's defaults, tags and block-to-item identities, without
@@ -1178,7 +1204,10 @@ impl Items {
         let loot = horizon_world::loot::shared_tables(root, overlay)?;
         let predicates = horizon_world::loot::load_predicates(root, overlay)?;
         let registry_order = registry_order(root, &order);
+        // Each kind's files read once; the sets are the ordered lists' members.
         let item_tag_order = load_tag_lists(root, "item", overlay)?;
+        let block_tag_order = load_tag_lists(root, "block", overlay)?;
+        let fluid_tag_order = load_tag_lists(root, "fluid", overlay)?;
         let enchantments = Arc::new(crate::enchant::Enchantments::load_with(
             root, overlay, defaults,
         )?);
@@ -1194,13 +1223,13 @@ impl Items {
             mob_visibility,
             order,
             registry_order,
-            block_tags: load_tags(root, "block", overlay)?,
-            fluid_tags: load_tags(root, "fluid", overlay)?,
+            block_tags: tag_sets(&block_tag_order),
+            fluid_tags: tag_sets(&fluid_tag_order),
             item_tags: tag_sets(&item_tag_order),
             facade_items: HashSet::new(),
             item_tag_order,
-            block_tag_order: load_tag_lists(root, "block", overlay)?,
-            fluid_tag_order: load_tag_lists(root, "fluid", overlay)?,
+            block_tag_order,
+            fluid_tag_order,
             loot,
             predicates: Arc::new(predicates),
             songs: load_songs(root, overlay),
@@ -1264,6 +1293,7 @@ impl Items {
             block_tags: HashMap::new(),
             item_tags: HashMap::new(),
             fluid_tags: HashMap::new(),
+            facade_items: HashSet::new(),
             item_tag_order: HashMap::new(),
             block_tag_order: HashMap::new(),
             fluid_tag_order: HashMap::new(),
@@ -1777,11 +1807,9 @@ impl Items {
             location: None,
             keep_empty,
         };
-        // LootTable.getRandomItemsRaw visits the table itself first.
-        NESTED_ROLLS.with(|v| v.borrow_mut().push(id.to_owned()));
+        // LootTable.getRandomItemsRaw visits the table itself first (`table_raw`).
         let out = ctx.evaluate(table, random);
         ctx.query.finish(Some(id));
-        NESTED_ROLLS.with(|v| v.borrow_mut().pop());
         Some(out)
     }
     /// The server random sequence a loot table draws from (`random_sequence`):
@@ -1990,7 +2018,7 @@ impl<R: RandomSource> LootContext<'_, R> {
     }
     /// `LootTable.getRandomItemsRaw`; a table already being rolled (one that
     /// nests itself) gives nothing, as vanilla's loop check has it.
-    fn table_raw<R: RandomSource>(
+    fn table_raw(
         &self,
         table: &Value,
         random: &mut R,
@@ -2293,10 +2321,9 @@ impl<R: RandomSource> LootContext<'_, R> {
             _ => false,
         }
     }
-    /// Expand entries; returns whether an entry succeeded (for alternatives).
-    /// The last candidate field distinguishes emitted items from empty/deferred
-    /// placeholders, without changing existing selection/modifier draws.
-    fn expand(
+    /// `LootPoolEntryContainer.expand`: the entries that can be chosen, with
+    /// their weights; whether it succeeded (for alternatives and sequences).
+    fn expand<'v>(
         &self,
         e: &'v Value,
         random: &mut R,
@@ -2345,19 +2372,10 @@ impl<R: RandomSource> LootContext<'_, R> {
             }
             "sequence" => children().all(|child| self.expand(child, random, out)),
             // DynamicLoot: what the block entity adds (a cracked decorated
-            // pot's sherds), filled in by `block_drops`.
-            "minecraft:dynamic" => {
-                out.push((
-                    e["weight"].as_i64().unwrap_or(1) as i32,
-                    ItemStack {
-                        item: Arc::from(format!("{DYNAMIC}{}", e["name"].as_str().unwrap_or(""))),
-                        count: 1,
-                        damage: 0,
-                        extra: None,
-                    },
-                    Value::Null,
-                    false,
-                ));
+            // pot's sherds), filled in by `block_drops_with`.
+            "dynamic" => {
+                let name = e["name"].as_str().unwrap_or("");
+                out.push((weight, ItemStack::new(&format!("{DYNAMIC}{name}"), 1), e));
                 true
             }
             "empty" => {
@@ -2400,7 +2418,15 @@ impl<R: RandomSource> LootContext<'_, R> {
             _ => Vec::new(),
         }
     }
-    fn choose(&self, entries: &[Value], random: &mut R, produced: &mut Vec<(ItemStack, bool)>) {
+    /// `LootPool.addRandomItem`: one of the entries of positive weight, by
+    /// weight, made into its stacks with the entry's modifiers.
+    fn choose(
+        &self,
+        entries: &[Value],
+        random: &mut R,
+        produced: &mut Vec<(ItemStack, bool)>,
+        visited: &mut Vec<*const Value>,
+    ) {
         let mut candidates = Vec::new();
         for e in entries {
             self.expand(e, random, &mut candidates);
@@ -2431,29 +2457,8 @@ impl<R: RandomSource> LootContext<'_, R> {
             // not a stack the entry emitted.
             produced.push((stack, false));
             return;
-        }
-        self.modifiers(&modifiers, &mut stack, random);
-        produced.push((stack, emitted));
-    }
-    /// `NestedLootTable.createItemStack`: the entry's table rolls in full
-    /// (its pools and its own functions), then the entry's functions apply to
-    /// each stack. A table already rolling further out adds nothing.
-    fn nested(&self, entry: &Value, random: &mut R, produced: &mut Vec<(ItemStack, bool)>) {
-        let (name, table) = match &entry["value"] {
-            Value::String(name) => (name.as_str(), self.items.loot.get(name.as_str())),
-            inline @ Value::Object(_) => ("<inline>", Some(inline)),
-            _ => return,
-        };
-        let Some(table) = table else { return };
-        let entered = NESTED_ROLLS.with(|v| {
-            let mut v = v.borrow_mut();
-            let fresh = !v.iter().any(|n| n == name);
-            if fresh {
-                v.push(name.to_owned());
-            }
-            fresh
-        });
-        if !entered {
+        } else if stack.count == 0 {
+            // EmptyLootItem makes nothing.
             return;
         } else if &*stack.item == LOOT_TAG {
             self.tag_items(entry)
@@ -4297,7 +4302,7 @@ mod tests {
 
     #[test]
     fn physical_stack_max_reads_numeric_component_and_catalog_default() {
-        use horizon_world::nbt::Tag;
+        use horizon_core::nbt::Tag;
         let items=Items::for_tests(Default::default());let mut stack=ItemStack::new("minecraft:stone",1);
         assert_eq!(items.stack_max(&stack),64);assert_eq!(stack_max_with_default(&stack,16),16);
         for (tag,expected) in [(Tag::Byte(9),9),(Tag::Short(12),12),(Tag::Int(16),16),

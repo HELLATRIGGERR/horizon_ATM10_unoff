@@ -670,10 +670,25 @@ impl ItemStack {
     /// after the mods' `get_enchantment_level` (0 when absent).
     pub fn enchantment_level(&self, id: &str) -> u32 {
         let own = self.enchantments();
-        match crate::native_enchantment_hooks::get_enchantment_level(self, Some(id), own) {
+        let level = match crate::native_enchantment_hooks::get_enchantment_level(self, Some(id), own) {
             Some(levels) => level_in(&levels, id),
             None => level_in(own, id),
+        };
+        // AE2's fluix tools carry Fortune / Looting I of their own.
+        #[cfg(feature = "ae2-lab")]
+        if level == 0 {
+            let intrinsic = match self.item.as_ref() {
+                "ae2:fluix_axe" | "ae2:fluix_hoe" | "ae2:fluix_pickaxe" | "ae2:fluix_shovel" => {
+                    "minecraft:fortune"
+                }
+                "ae2:fluix_sword" => "minecraft:looting",
+                _ => "",
+            };
+            if id == intrinsic && !intrinsic.is_empty() {
+                return 1;
+            }
         }
+        level
     }
     /// `EnchantmentHelper.getTagEnchantmentLevel`: the level in the stack's
     /// own `minecraft:enchantments`, without the mods (0 when absent).
@@ -1206,7 +1221,7 @@ fn normalize_filterable(tag: &Tag, text: bool) -> Tag {
             _=>v.clone(),
         }
     } else {v.clone()};
-    let mut result=horizon_world::nbt::Compound::new();
+    let mut result=horizon_core::nbt::Compound::new();
     result.insert("raw".into(),normalize_text(tag.get("raw").unwrap_or(tag)));
     if let Some(filtered)=tag.get("filtered") {result.insert("filtered".into(),normalize_text(filtered));}
     Tag::Compound(result)
@@ -1360,8 +1375,43 @@ fn parse_stack_tag(snbt: &str) -> Result<Option<Tag>, String> {
     if snbt == "-" {
         return Ok(None);
     }
-    let (tag, _) = horizon_core::nbt::parse_snbt(snbt)?;
-    Ok(crate::item_nbt::item_from_nbt(&tag))
+    let parsed = horizon_core::nbt::parse_snbt(snbt);
+    // Before namespaced compound keys were quoted, persisted AE2 job keys
+    // contained invalid SNBT such as {components:{minecraft:damage:5}}.
+    // Canonical strings quote every string value, making the last colon in a
+    // bare key/value run unambiguous. Bound the legacy-only repair.
+    let (tag, _) = match parsed {
+        Ok(value) => value,
+        Err(original) => {
+            let repaired = repair_legacy_stack_keys(snbt).ok_or(original)?;
+            horizon_core::nbt::parse_snbt(&repaired)?
+        }
+    };
+    Ok(Some(tag))
+}
+fn repair_legacy_stack_keys(input: &str) -> Option<String> {
+    if input.len() > 1_048_576 { return None; }
+    let bytes=input.as_bytes(); let mut out=String::with_capacity(input.len());
+    let mut stack:Vec<(u8,bool)>=Vec::new(); let mut i=0; let mut changed=false;
+    while i<bytes.len() {
+        if stack.last().is_some_and(|(kind,key)|*kind==b'{' && *key) && (bytes[i].is_ascii_alphanumeric() || b"._+-".contains(&bytes[i])) {
+            let start=i;while i<bytes.len() && (bytes[i].is_ascii_alphanumeric() || b"._+-:".contains(&bytes[i])) {i+=1;}
+            let run=&input[start..i];let colon=run.rfind(':')?;let key=&run[..colon];
+            if key.contains(':') {out.push('"');out.push_str(key);out.push('"');changed=true;} else {out.push_str(key);}
+            out.push(':'); i=start+colon+1;stack.last_mut()?.1=false;continue;
+        }
+        let c=bytes[i];
+        if c==b'"' || c==b'\'' {
+            let start=i;i+=1;let mut escaped=false;
+            while i<bytes.len() {let b=bytes[i];i+=1;if escaped {escaped=false;} else if b==b'\\' {escaped=true;} else if b==c {break;}}
+            if bytes.get(i.wrapping_sub(1))!=Some(&c) {return None;}out.push_str(&input[start..i]);
+            if stack.last().is_some_and(|(kind,key)|*kind==b'{' && *key) {stack.last_mut()?.1=false;}
+            continue;
+        }
+        match c {b'{'=>stack.push((c,true)),b'['=>stack.push((c,false)),b'}'|b']'=>{stack.pop()?;},b','=>{if let Some((kind,key))=stack.last_mut() {if *kind==b'{' {*key=true;}}},_=>{}}
+        out.push(c as char);i+=1;
+    }
+    (changed && stack.is_empty()).then_some(out)
 }
 /// `MapDecorations.Entry.CODEC`: a bare type ID uses the default resource namespace.
 /// Keep preserved entry keys and numeric tags intact; this is not registry validation.

@@ -96,6 +96,23 @@ impl Ingredient {
         }
     }
 
+    /// A stack of `item` this ingredient takes, as its display shows it: with
+    /// the components a `neoforge:components` ingredient asks for (the recipe
+    /// audit's probe of a slot).
+    pub fn example(&self, item: &str) -> ItemStack {
+        if let Some((Shape::Compound, kids)) = &self.children
+            && let Some(kid) = kids.iter().find(|k| k.items.contains(item))
+        {
+            return kid.example(item);
+        }
+        self.shown
+            .iter()
+            .flatten()
+            .find(|s| &*s.item == item)
+            .cloned()
+            .unwrap_or_else(|| ItemStack::new(item, 1))
+    }
+
     /// Resolve a stored slot display at the owning resource boundary.
     pub fn resolve_display(
         display: &horizon_core::nbt::Compound,

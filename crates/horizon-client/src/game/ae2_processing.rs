@@ -1899,7 +1899,7 @@ impl Game<'_> {
             let mut remaining = if let Some(recipe)=recipe.as_deref() {
                 let items=self.res.items();let enchantments=&self.res.stations().enchantments;let random=&mut self.world.random;
                 let mut loss=|stack:&ItemStack,amount:u32|horizon_client::crafting::committed_durability_loss(enchantments,items,stack,random,amount);
-                self.res.recipes().remainders_with_durability(recipe,&recipe_grid,3,Some(&mut loss))
+                self.res.recipes().remainders_with_durability(recipe,&recipe_grid,3,&|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(items,s),Some(&mut loss))
             } else {vec![None;9]};
             for slot in fluid_slots {
                 remaining[slot] = None;

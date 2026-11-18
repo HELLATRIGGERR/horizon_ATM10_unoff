@@ -45,105 +45,6 @@ pub fn committed_durability_loss(enchantments:&crate::enchant::Enchantments,item
     enchantments.modify_value(Some(stack),"minecraft:item_damage",&context,random,amount as f32).max(0.0) as u32
 }
 
-/// A component value a stack of the item has without asking: an empty list or
-/// object (`lore`, `enchantments: {levels: {}}`, `attribute_modifiers:
-/// {modifiers: []}`), zero (`repair_cost`), `common` rarity, the item's own
-/// stack size. `PatchedDataComponentMap` keeps no patch entry for those.
-fn default_component(key: &str, v: &Value, max_stack: Option<u32>) -> bool {
-    fn empty(v: &Value) -> bool {
-        match v {
-            Value::Null | Value::Bool(false) => true,
-            Value::Number(n) => n.as_f64() == Some(0.0),
-            Value::Array(a) => a.is_empty(),
-            Value::Object(o) => o.values().all(empty),
-            Value::String(_) | Value::Bool(true) => false,
-        }
-    }
-    empty(v)
-        || (key == "minecraft:rarity" && v == "common")
-        || (key == "minecraft:max_stack_size" && v.as_u64().is_some() && v.as_u64() == max_stack.map(u64::from))
-}
-/// A stack of `item` with a `neoforge:components` ingredient's components.
-fn components_stack(data: &serde_json::Map<String, Value>, item: &str) -> ItemStack {
-    let tag = json_tag(data.get("components").unwrap_or(&Value::Null));
-    let (damage, extra) = crate::item_data::decode_components(Some(&tag).filter(|t| matches!(t, Tag::Compound(_))));
-    ItemStack { item: Arc::from(item), count: 1, damage, extra }
-}
-/// `DataComponentIngredient.test` past the item check: the stack carries every
-/// component asked for with the same value; `strict`, and no other either
-/// (`ItemStack.isSameItemSameComponents`).
-fn components_match(data: &serde_json::Map<String, Value>, stack: &ItemStack) -> bool {
-    // No components at all and an empty compound are the same patch.
-    let encode = |s: &ItemStack| {
-        crate::item_data::encode_components(s).filter(|t| !matches!(t, Tag::Compound(c) if c.is_empty()))
-    };
-    let (want, have) = (encode(&components_stack(data, &stack.item)), encode(stack));
-    if data.get("strict").and_then(Value::as_bool) == Some(true) {
-        return want == have;
-    }
-    match (&want, &have) {
-        (None, _) => true,
-        (Some(Tag::Compound(w)), Some(Tag::Compound(h))) => w.iter().all(|(k, v)| h.get(k) == Some(v)),
-        _ => false,
-    }
-}
-
-    /// A stack of `item` this ingredient takes, as `Ingredient.display` shows it:
-    /// with the components a `neoforge:components` ingredient asks for.
-    pub fn example(&self, item: &str) -> ItemStack {
-        if let Some((Shape::Compound, kids)) = &self.children
-            && let Some(kid) = kids.iter().find(|k| k.items.contains(item))
-        {
-            return kid.example(item);
-        }
-        match &self.custom {
-            Some((kind, data)) if kind == "neoforge:components" => components_stack(data, item),
-            _ => ItemStack::new(item, 1),
-        }
-    }
-            // 1.21.1's list of ingredients, the pack's data still writes it:
-            // `CompoundIngredient`, any of them matching.
-            Value::Array(a) if a.iter().any(Value::is_object) => {
-                let subs: Vec<Self> = a.iter().map(|s| Self::parse(s, items)).collect::<Option<_>>()?;
-                for item in subs.iter().flat_map(|s| &s.order) {
-                    add(item.as_str());
-                }
-                return (!list.is_empty()).then(|| Self {
-                    children: Some((Shape::Compound, subs)),
-                    ..Self::of(list)
-                });
-            }
-            // AE2's recipes come from its 1.21.1 data, where an ingredient may
-            // still be an `{item}` or `{tag}` object.
-            #[cfg(feature = "ae2-lab")]
-            Value::Object(o) if o.contains_key("item") || o.contains_key("tag") => {
-                if let Some(s) = o.get("item").and_then(Value::as_str) {
-                    add(s);
-                }
-                if let Some(t) = o.get("tag").and_then(Value::as_str) {
-                    add(&format!("#{t}"));
-                }
-            }
-            // `DataComponentIngredient`: `items` (a `HolderSet`) whose
-            // stacks carry `components`, all of them (`strict`: nothing
-            // else either). The components a default stack has anyway are
-            // left out here, so a stack lacking them still matches.
-            "neoforge:components" => {
-                let base = Self::parse(o.get("items")?, items)?;
-                let wanted = o.get("components")?.as_object()?;
-                let max_stack = base.order.first().and_then(|i| items.items.get(i.as_str())).map(|i| i.max_stack);
-                let kept: serde_json::Map<String, Value> = wanted
-                    .iter()
-                    .filter(|(k, v)| !default_component(k, v, max_stack))
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect();
-                let mut data = o.clone();
-                data.insert("components".into(), Value::Object(kept));
-                return Some(Self { custom: Some((kind.to_owned(), data)), ..base });
-            }
-                    if kind == "neoforge:components" {
-                        return components_match(data, stack);
-                    }
 /// `PlacementInfo`: the ingredients to find and, per recipe slot, the index
 /// of its ingredient (`slotsToIngredientIndex`, -1 for an empty slot). Empty
 /// when the recipe is impossible to place.
@@ -2289,35 +2190,6 @@ impl Recipes {
             Recipe::Special(_) | Recipe::Mod(_) => Placement::default(),
         })
     }
-        self.remainders_with_durability(recipe,grid,size,None)
-    }
-    /// Actual committed crafting may supply server-side enchantment/RNG
-    /// durability processing. Planning and preview use `remainders` and do
-    /// not consume randomness.
-    pub fn remainders_with_durability(
-        &self,
-        recipe: &str,
-        grid: &[Option<ItemStack>],
-        size: usize,
-        mut durability: Option<&mut dyn FnMut(&ItemStack,u32)->u32>,
-    ) -> Vec<Option<ItemStack>> {
-        #[cfg(feature = "ae2-lab")]
-        if let Some(result)=ae2::remainders(self,recipe,grid,size){return result;}
-        let mut damaged_knife = false;
-            if let Some(Recipe::Shapeless { quartz_knife: Some(knife), .. }) = kind {
-                if !damaged_knife && knife.test(s) {
-                    damaged_knife = true;
-                    let mut remaining = (*s).clone();
-                    remaining.count = 1;
-                    let max = self.facts.get(&s.item).map_or(0, |f| f.max_damage);
-                    if max > 0 {
-                        let loss=durability.as_mut().map_or(1,|apply|apply(s,1));
-                        remaining.damage=remaining.damage.saturating_add(loss);
-                    }
-                    if max == 0 || remaining.damage < max { out[at] = Some(remaining); }
-                    continue;
-                }
-            }
     /// The `experience` of the cooking recipe with this file name, and 0 for one this data
     /// pack does not have (a save from another pack can name it).
     /// `id` with or without the `minecraft:` namespace (a furnace keeps the full id).
@@ -2383,60 +2255,6 @@ mod tests {
     use super::*;
     use crate::banner::BannerLayer;
     use std::fs;
-
-    /// NeoForge's `DataComponentIngredient` (`neoforge:components`), as Iron Jetpacks' and EvilCraft's recipes in
-    /// ATM10 write it: its items, then the components; `strict` wants no other, and the components a plain stack
-    /// has anyway (stack size, common rarity, empty lore) don't count.
-    #[test]
-    #[ignore = "needs the prepared 26.3 resources"]
-    fn data_component_ingredients_match_their_components() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
-        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
-        let parse = |v: Value| Ingredient::parse(&v, &items).expect("parses");
-        let with = |c: Value| components_stack(c.as_object().unwrap(), "minecraft:stick");
-        let parts = serde_json::json!({"components": {"evilcraft:broom_parts": ["evilcraft:brush_bare"]}});
-        let loose = parse(serde_json::json!({"type": "neoforge:components", "items": "minecraft:stick",
-            "components": {"evilcraft:broom_parts": ["evilcraft:brush_bare"]}}));
-        assert_eq!(loose.order, ["minecraft:stick"]);
-        assert!(!loose.test(&ItemStack::new("minecraft:stick", 1)), "the component is wanted");
-        assert!(loose.test(&loose.example("minecraft:stick")));
-        assert!(!loose.test(&ItemStack::new("minecraft:stone", 1)));
-        let more = with(serde_json::json!({"components": {"evilcraft:broom_parts": ["evilcraft:brush_bare"], "minecraft:repair_cost": 3}}));
-        assert!(loose.test(&more), "not strict: other components may be there");
-        let other = with(serde_json::json!({"components": {"evilcraft:broom_parts": ["evilcraft:brush_feather"]}}));
-        assert!(!loose.test(&other), "another value");
-
-        let strict = parse(serde_json::json!({"type": "neoforge:components", "items": ["minecraft:stick"], "strict": true,
-            "components": {"evilcraft:broom_parts": ["evilcraft:brush_bare"], "minecraft:max_stack_size": 64,
-                "minecraft:rarity": "common", "minecraft:lore": [], "minecraft:enchantments": {"levels": {}}, "minecraft:repair_cost": 0}}));
-        assert!(strict.test(&with(parts)), "the defaults are what a stack has anyway");
-        assert!(!strict.test(&more), "strict: no other component");
-        let bare = parse(serde_json::json!({"type": "neoforge:components", "items": "#minecraft:planks", "strict": true,
-            "components": {"minecraft:max_stack_size": 64, "minecraft:rarity": "common"}}));
-        assert!(bare.test(&ItemStack::new("minecraft:oak_planks", 1)));
-        assert!(Ingredient::parse(&serde_json::json!({"type": "neoforge:components", "items": "minecraft:stick"}), &items).is_none(), "components are required");
-    }
-
-    /// 1.21.1's list of ingredients (ATM10's own `allthetweaks/dragon_soul`, ExtendedAE's matrix glass): any of
-    /// them, each matching as itself, a `neoforge:components` one with its components.
-    #[test]
-    #[ignore = "needs the prepared 26.3 resources"]
-    fn a_list_of_ingredient_objects_is_any_of_them() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
-        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
-        let any = Ingredient::parse(&serde_json::json!([
-            {"type": "neoforge:components", "items": "minecraft:stick", "components": {"evilcraft:broom_parts": ["evilcraft:brush_bare"]}},
-            "minecraft:quartz_block", "#minecraft:planks"]), &items).expect("parses");
-        assert_eq!(&any.order[..2], ["minecraft:stick", "minecraft:quartz_block"]);
-        assert!(any.order.contains(&"minecraft:oak_planks".to_owned()));
-        assert!(any.test(&ItemStack::new("minecraft:quartz_block", 1)));
-        assert!(any.test(&ItemStack::new("minecraft:oak_planks", 1)));
-        assert!(!any.test(&ItemStack::new("minecraft:stick", 1)), "the stick only with its components");
-        assert!(any.test(&any.example("minecraft:stick")));
-        assert!(!any.test(&ItemStack::new("minecraft:stone", 1)));
-        let unknown = serde_json::json!([{"type": "nomod:thing"}, "minecraft:stone"]);
-        assert!(Ingredient::parse(&unknown, &items).is_none(), "one child that doesn't parse fails the list");
-    }
 
     /// ItemStackTemplate.apply applies the result patch after the input patch.
     #[test]

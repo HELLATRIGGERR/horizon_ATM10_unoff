@@ -1618,7 +1618,7 @@ mod recursive {
                     if source_recipe.is_none() && actual != encoded_output { continue; }
                     if self.res.items().get(&actual.item).is_none() {continue;}
                     let expected=actual.clone();
-                    let base_remainders=self.res.recipes().remainders(name,&grid,3);
+                    let base_remainders=self.res.recipes().remainders(name,&grid,3,&|s| self.crafting_remainder(s));
                     let mut outputs = Inventory::new();
                     output_add(&mut outputs, &actual)?;
                     for s in base_remainders.iter().flatten() {output_add(&mut outputs,s)?;}
@@ -1654,7 +1654,7 @@ mod recursive {
                                 if candidate_name != name || candidate_result != actual {
                                     continue;
                                 }
-                                let candidate_remainders=self.res.recipes().remainders(candidate_name,&trial,3);
+                                let candidate_remainders=self.res.recipes().remainders(candidate_name,&trial,3,&|s| self.crafting_remainder(s));
                                 // AECraftingPattern.isItemValid compares the
                                 // matching recipe's assembled result, not its
                                 // remaining containers. Track each candidate's
@@ -2715,7 +2715,7 @@ mod recursive {
                 if output_add(&mut output, &result).is_err() {
                     return false;
                 }
-                for (index, remainder) in recipes.remainders(name, grid, 3).iter().enumerate() {
+                for (index, remainder) in recipes.remainders(name, grid, 3, &|s| self.crafting_remainder(s)).iter().enumerate() {
                     if !active_fluids.contains_key(&index)
                         && remainder
                             .as_ref()

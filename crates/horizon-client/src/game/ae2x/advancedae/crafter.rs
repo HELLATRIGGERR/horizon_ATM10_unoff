@@ -685,7 +685,8 @@ impl Game<'_> {
             }
         };
         let fluids = crate::game::ae2_processing::ae2_crafting_pattern_options(pattern).is_some_and(|o| o.1);
-        Some(Job::new(&grid, &result, &recipes.remainders(&name, &grid, 3), fluids))
+        let remainders = recipes.remainders(&name, &grid, 3, &|s| self.crafting_remainder(s));
+        Some(Job::new(&grid, &result, &remainders, fluids))
     }
     fn advancedae_crafter_sync(&self, m: &mut Machine, ctx: &mut Ctx) -> Vec<Option<(Job, Limits)>> {
         sync_jobs(m, ctx, &|p| self.advancedae_crafter_job(p))

@@ -138,7 +138,13 @@ impl Game<'_> {
             let mut loss = |stack: &horizon_client::items::ItemStack, amount: u32| {
                 horizon_client::crafting::committed_durability_loss(enchantments, items, stack, random, amount)
             };
-            recipes.remainders_with_durability(&recipe, &grid, 3, Some(&mut loss))
+            recipes.remainders_with_durability(
+                &recipe,
+                &grid,
+                3,
+                &|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(items, s),
+                Some(&mut loss),
+            )
         };
         #[cfg(not(feature = "ae2-lab"))]
         let remainders = self

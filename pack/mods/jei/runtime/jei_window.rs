@@ -64,6 +64,8 @@ struct Shown {
 static SHOWN: Mutex<Option<Shown>> = Mutex::new(None);
 static ACTIONS: Mutex<Vec<Action>> = Mutex::new(Vec::new());
 static NAMES: Mutex<Option<Arc<HashMap<String, String>>>> = Mutex::new(None);
+/// The mods' typed ingredients' sprites and tints by key (`Stack::key`), from their categories.
+static LOOKS: Mutex<Option<Arc<HashMap<String, (String, u32)>>>> = Mutex::new(None);
 
 fn shown() -> std::sync::MutexGuard<'static, Option<Shown>> {
     SHOWN.lock().unwrap_or_else(|e| e.into_inner())
@@ -77,6 +79,13 @@ pub(super) fn take_actions() -> Vec<Action> {
 /// The items' names, for the labels and tooltips (set with each new book).
 pub(super) fn set_names(names: Arc<HashMap<String, String>>) {
     *NAMES.lock().unwrap_or_else(|e| e.into_inner()) = Some(names);
+}
+/// How the mods' typed ingredients look (set with each new book).
+pub(super) fn set_looks(looks: Arc<HashMap<String, (String, u32)>>) {
+    *LOOKS.lock().unwrap_or_else(|e| e.into_inner()) = Some(looks);
+}
+fn look(key: &str) -> Option<(String, u32)> {
+    LOOKS.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(key).cloned()
 }
 pub(super) fn name(item: &str) -> String {
     let names = NAMES.lock().unwrap_or_else(|e| e.into_inner());
@@ -105,7 +114,12 @@ pub(super) fn set(page: Option<Page>, sources: Vec<(String, i32)>) {
 /// recipe's 3x3 grid; `width` x `height` the cells it uses), the result then the other outputs.
 fn transfer_of(v: &View, source: Option<&(String, i32)>) -> NativeRecipeTransfer {
     let n = jei_core::window::inputs(v.shape, v.width, v.height).min(v.slots.len());
-    let native = |s: &Stack| NativeStack { item: s.item.clone(), count: s.count, components: s.components.clone() };
+    let native = |s: &Stack| NativeStack {
+        item: s.item.clone(),
+        count: s.count,
+        components: s.components.clone(),
+        kind: s.kind.clone(),
+    };
     let inputs: Vec<Vec<NativeStack>> = v.slots[..n].iter().map(|l| l.iter().map(native).collect()).collect();
     let cols = v.width.max(1) as usize;
     let used: Vec<usize> = (0..n).filter(|&i| !v.slots[i].is_empty()).collect();
@@ -355,7 +369,9 @@ fn slot(game: &Game<'_>, batch: &mut HudBatch, x: f32, y: f32, output: bool) {
 }
 /// A stack in an 18 px slot at `(x, y)`, with its count; the white hover over it.
 pub(super) fn stack(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y: f32, cursor: [f32; 2]) {
-    if game.native_item_stack(batch, &item_stack(s), [x + 1.0, y + 1.0], 16.0) && s.count > 1 {
+    if !s.is_item() {
+        ingredient(game, batch, s, x + 1.0, y + 1.0);
+    } else if game.native_item_stack(batch, &item_stack(s), [x + 1.0, y + 1.0], 16.0) && s.count > 1 {
         let count = s.count.to_string();
         let w = game.native_text_width(&count);
         game.native_text(batch, &count, [x + 18.0 - w, y + 10.0], 0xFFFFFF, true);
@@ -363,6 +379,26 @@ pub(super) fn stack(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y:
     if inside(cursor, [x, y, SLOT, SLOT]) {
         game.native_fill(batch, [x + 1.0, y + 1.0, 16.0, 16.0], 0x80FFFFFF);
     }
+}
+/// A fluid as its still sprite in its tint (`FluidTankRenderer` in a 16 px slot), a mod's typed ingredient as its
+/// sprite in its tint (Mekanism's `ChemicalStackRenderer`), 16 px at `(x, y)`; no count, as JEI draws them.
+pub(super) fn ingredient(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y: f32) -> bool {
+    if s.kind == NativeStack::FLUID {
+        return game.native_fluid_icon(batch, &s.item, [x, y], 16.0);
+    }
+    let Some((sprite, tint)) = look(&s.key()) else { return false };
+    let Some([w, h]) = game.native_sprite_size(&sprite) else { return false };
+    game.native_sprite_tinted(batch, &sprite, [0.0, 0.0, w, h.min(w)], [x, y, 16.0, 16.0], tint)
+}
+/// JEI's tooltip of a fluid or a typed ingredient in a recipe (`FluidTankRenderer.getTooltip` with
+/// `TooltipMode.SHOW_AMOUNT`, Mekanism's `ChemicalStackRenderer`): its name, its amount in mB, its mod's name.
+pub(super) fn ingredient_tooltip(s: &Stack, amount: bool) -> Vec<Text> {
+    let mut lines = vec![Text::literal(name(&s.key()))];
+    if amount {
+        lines.push(Text::legacy(&format!("\u{a7}7{} mB", jei_core::recipes::thousands(u64::from(s.count)))));
+    }
+    lines.extend(super::jei_world::mod_name_line(s.item.split(':').next().unwrap_or("minecraft")));
+    lines
 }
 /// JEI's small arrow button (13 px, `RecipesGui.smallButtonWidth`): its `button_*_v2` and `arrow_*_v2`, else the
 /// engine's copy of them.
@@ -543,7 +579,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
                 hover = Some(st.clone());
             }
             hits.push((r, Hit::Stack(st.clone())));
-            horizon_client::widgets::record(&format!("{} {i}:{k}", name(&st.item)), [sx + 1.0, sy + 1.0, 16.0, 16.0], true);
+            horizon_client::widgets::record(&format!("{} {i}:{k}", name(&st.key())), [sx + 1.0, sy + 1.0, 16.0, 16.0], true);
         }
         if let Some((xp, time)) = &n.corner {
             let right = x + p.size[0];
@@ -601,7 +637,11 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     if let Some(lines) = button_tip {
         game.native_gui_tooltip(batch, &lines, cursor);
     } else if let Some(st) = hover {
-        game.native_gui_tooltip(batch, &[Text::literal(name(&st.item))], cursor);
+        if st.is_item() {
+            game.native_gui_tooltip(batch, &[Text::literal(name(&st.item))], cursor);
+        } else {
+            game.native_gui_tooltip(batch, &ingredient_tooltip(&st, true), cursor);
+        }
     }
     s.drawn = Drawn { window: w, pages: starts.len(), hits, panel, shown: first..end };
 }
@@ -632,7 +672,8 @@ pub(super) fn ask_open(item: &str, mode: Mode) {
 /// The item of the window's stack at `at`, if it is over one (the bookmark key adds it).
 pub(super) fn stack_at(at: [f32; 2]) -> Option<String> {
     match hit_at(&shown().as_ref()?.drawn, at)? {
-        Hit::Stack(st) => Some(st.item.clone()),
+        Hit::Stack(st) if st.is_item() => Some(st.item.clone()),
+        Hit::Stack(_) => None,
         Hit::Do(_) => None,
     }
 }
@@ -648,7 +689,7 @@ pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut
     *canceled = true;
     match hit_at(&s.drawn, screen.mouse) {
         Some(Hit::Stack(st)) if button == 0 || button == 1 => {
-            ask(Action::Open(st.item.clone(), if button == 1 { Mode::Uses } else { Mode::Recipes }))
+            ask(Action::Open(st.key(), if button == 1 { Mode::Uses } else { Mode::Recipes }))
         }
         Some(Hit::Do(action)) if button == 0 => ask(action.clone()),
         _ => {}
@@ -685,7 +726,7 @@ pub(super) fn key(key: &str, mode: Option<Mode>, at: [f32; 2]) -> bool {
         "key.keyboard.page.up" => Action::Page(-1),
         "key.keyboard.page.down" => Action::Page(1),
         _ => match (mode, hit_at(&s.drawn, at)) {
-            (Some(mode), Some(Hit::Stack(st))) => Action::Open(st.item.clone(), mode),
+            (Some(mode), Some(Hit::Stack(st))) => Action::Open(st.key(), mode),
             // Not over the window's stacks: the list's own keys.
             _ => return on_window(&s.drawn, at) && mode.is_some(),
         },
@@ -704,6 +745,11 @@ pub(super) fn probe() -> serde_json::Value {
         "area": s.drawn.window.area,
         "list": s.drawn.panel,
         "shown": [s.drawn.shown.start, s.drawn.shown.end],
+        // The fluids and typed ingredients on the screen (the recipes' slots, tabs, catalysts), by key.
+        "ingredients": s.drawn.hits.iter().filter_map(|(_, h)| match h {
+            Hit::Stack(st) if !st.is_item() => Some(st.key()),
+            _ => None,
+        }).collect::<Vec<_>>(),
         "transfers": s.answers.iter().map(|(i, a)| serde_json::json!({
             "recipe": i,
             "handler": a.handler.map(|h| format!("{h:?}")),

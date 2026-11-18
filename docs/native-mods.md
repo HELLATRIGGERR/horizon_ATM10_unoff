@@ -1881,6 +1881,8 @@ API 436 adds the helpers `native_food_table()` and `native_food(stack)`: the foo
 
 API 437 adds the helpers `native_chemical_tanks(dimension, pos, face)`, `native_chemical_insert(dimension, pos, face, chemical, amount, simulate)` and `native_chemical_extract(dimension, pos, face, chemical, amount, simulate)` (server): the engine's own blocks as Mekanism's chemical handler, the other way from API 435, so a mod's machines and pipes push chemicals into them and pull them out. AE2's generic inventories answer, as Applied Mekanistics 1.6.3's `GenericStackChemicalStorage` does: an ME Interface's storage slots and a Pattern Provider's return slots (blocks, and parts on that side of a cable bus), one tank a slot (`NativeChemicalTankInfo`: the slot's chemical or empty, the type's slot capacity, whether it gives it back; a provider's slots take and give nothing back, and return what they take to the grid; an interface's tick hands what no config asks for to its grid). The key type whose keys are chemicals is the one an addon registers with `ae2_key_types::register_chemical_type` (Applied Mekanistics' `appmek:chemical`); without it, AE2 or such a block, the tanks are none and nothing moves. Call them where your own handler lookup finds nothing (Mekanism's `with_handler` falls through to them). Bundles need "hooks": 437.
 
+API 440 adds ingredients that are not items to recipe viewers: `NativeStack::kind` ("" an item, `"fluid"` a fluid, any other a mod's own ingredient type such as Mekanism's `mekanism:chemical`; `item` is the ingredient's id and `count` its amount in millibuckets for the two kinds), with the constructors `NativeStack::item(id, count)`, `fluid(id, amount)`, `typed(kind, id, amount)` and `is_item()`; `NativeIngredientInfo` (`kind`, `id`, `name`, `sprite`, `tint` `0xAARRGGBB`) and `NativeRecipeCategory::ingredients`, how a category's typed ingredients look (name in the player's language and the GUI sprite with its tint, as JEI's `IIngredientRenderer` of the type draws it; fluids need none); and the helpers `native_fluid_icon(batch, fluid, at, size)` (a fluid's still sprite in its tint, as JEI's `FluidTankRenderer` and AE2's terminals draw one; false for an unknown fluid) and `native_sprite_tinted(batch, name, src, dst, argb)` (`native_sprite` in a tint). A category's slots hold any of the kinds (`NativeCategoryRecipe::inputs`, `NativeChanceOutput::stack`), so a viewer matches by `(kind, id)`; a viewer that only draws items shows what it does not know as nothing. AE2's item transformation shows its water as `NativeStack::fluid("minecraft:water", 1000)`; Mekanism's categories give their chemicals and fluids as slots (JEI draws them with the amount in mB in the tooltip, R and U on them open the ingredient's recipes and uses). The helpers' bundles need "hooks": 440.
+
 ## What the launcher does
 
 **Developing a mod?** Run `horizon-launcher settings native-profile dev` once, or pick "Dev build" in the Mods page's
@@ -5080,6 +5082,15 @@ stack, the chance it comes each time, the count range, notes) with notes of its 
 it with `native_recipe_categories_changed()`, as when its server's data reaches it. The categories come from the
 client, so a mod whose data the server owns (loot tables a data pack may change) works them out on the server and sends
 them to its client half with its own messages, on join and after `/reload`.
+
+A slot is not only items (API 440): a `NativeStack` has a `kind`, `"fluid"` for a fluid (`item` its id, `count` its
+amount in mB) or a mod's own ingredient type (`mekanism:chemical`, `item` its id, `count` its amount), as JEI's
+ingredient types. A category lists how its typed ingredients look in `NativeRecipeCategory::ingredients`
+(`NativeIngredientInfo`: kind, id, name, GUI sprite and tint), and a viewer draws a fluid with
+`native_fluid_icon(batch, fluid, at, size)` and a typed one with `native_sprite_tinted` of that sprite. JEI's window
+shows each as a 16x16 slot with JEI's tooltip (the name, the amount in mB in grey, the mod's name), and R, U and a click
+on it open that ingredient's recipes and uses; the focus is the key `<kind> <id>` (`fluid minecraft:water`), an item's
+its id. Its list shows items only for now.
 
 ### Menu links
 

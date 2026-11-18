@@ -1205,7 +1205,7 @@ pub(super) fn recipe_link(game: &Game<'_>, block: &str, at: [f32; 2], button: &O
     if button.is_some() || PAGE.with(Cell::get) != 0 || !kind.progresses() || kind.nucleosynthesizes() || !inside(machine_progress(kind), at) {
         return false;
     }
-    let stack = horizon_client::mod_api::NativeStack { item: block.to_owned(), count: 1, components: String::new() };
+    let stack = horizon_client::mod_api::NativeStack::item(block, 1);
     game.native_show_recipes(stack, horizon_client::mod_api::NativeRecipeLookup::Uses);
     true
 }

@@ -149,6 +149,13 @@ pub(super) fn tooltip(game: &Game<'_>, stack: &horizon_client::items::ItemStack,
     lines.push((horizon_client::text::Text::legacy(&format!("{format}{name}")), u32::MAX));
 }
 
+/// The mod name line JEI puts last in an ingredient's tooltip (`jei-mod-id-format.ini`), for namespace `ns`; none
+/// when the format is empty.
+pub(super) fn mod_name_line(ns: &str) -> Option<horizon_client::text::Text> {
+    let format = MOD_NAME_FORMAT.try_lock().ok()?.clone();
+    (!format.is_empty()).then(|| horizon_client::text::Text::legacy(&format!("{format}{}", jei_core::mod_name(ns))))
+}
+
 /// Whether the panel shows no items: Ctrl+O hid it, or it hides until a search and there is none.
 fn empty(s: &State) -> bool {
     s.hidden || (hide_unsearched() && s.query.trim().is_empty())
@@ -158,7 +165,7 @@ fn show(game: &mut Game<'_>, s: &State) {
     let items = if empty(s) {
         Vec::new()
     } else {
-        s.shown.iter().map(|&n| NativeStack { item: s.list.id(n).to_owned(), count: 1, components: String::new() }).collect()
+        s.shown.iter().map(|&n| NativeStack::item(s.list.id(n), 1)).collect()
     };
     game.native_panel_items(ID, items);
 }

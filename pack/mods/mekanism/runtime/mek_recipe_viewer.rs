@@ -1,16 +1,17 @@
-// Mekanism's recipe viewer categories, as its JEI plugin (`mekanism.client.recipe_viewer.jei.MekanismJEI`,
+// Mekani"inputs": r.inputs.iter().map(|slot| slot.iter().take(4).map(|s| format!("{}x{}", s.count, if s.is_item() { s.item.clone() } else { format!("{} {}", s.kind, s.item) }))m's recipe viewer categories, as its JEI plugin (`mekanism.client.recipe_viewer.jei.MekanismJEI`,
 // `RecipeViewerRecipeType`, and Mekanism Generators' `GeneratorsJEI`) registers them, for whatever viewer reads
 // `native_recipe_categories`: one category per machine of this port, its catalysts the machine's blocks (and the
 // factories that run the same recipes), its recipes read from the world's tables as the machines read them.
 //
-// A viewer's slots hold items, so a fluid shows as the bucket that holds it (with the amount in a note) and a
-// chemical, which has no item, only as a note on the recipe ("Hydrogen 1 mB"). Energy is a note in Joules.
+// Fluids and chemicals are ingredients of their own (hook points API 440: `NativeStack::fluid`, `NativeStack::typed`
+// of kind `mekanism:chemical`, each category listing its chemicals' sprites and tints), as Mekanism's JEI plugin
+// registers its chemical ingredient type; energy is a note in Joules.
 // The recipes are the window's own content (the `mekanism` content mod's), the same on a server's client.
 use super::{Game, mek_chemicals, mek_machines};
 use horizon_client::mod_api::{
-    NativeCategoryRecipe, NativeChanceOutput, NativeRecipeCategory, NativeStack,
+    NativeCategoryRecipe, NativeChanceOutput, NativeIngredientInfo, NativeRecipeCategory, NativeStack,
 };
-use horizon_world::{fluid::FluidKind, fluid_ingredient::SizedFluidIngredient, fluid_stack};
+use horizon_world::{fluid::FluidKind, fluid_ingredient::SizedFluidIngredient};
 use mekanism_energy::{
     chemical::{ChemicalRegistry, ChemicalStack, ChemicalStackIngredient},
     factory::{FactoryTier, FactoryType},
@@ -321,6 +322,7 @@ fn stack(item: &str, count: u32) -> NativeStack {
         item: item.to_owned(),
         count: count.max(1),
         components: String::new(),
+        kind: String::new(),
     }
 }
 
@@ -353,74 +355,68 @@ fn catalysts(c: &Catalysts) -> Vec<NativeStack> {
     }
 }
 
-fn chemical_name(registry: &ChemicalRegistry, id: &str) -> String {
-    registry
-        .get(id)
-        .map_or_else(|| id.to_owned(), mek_chemicals::name)
+/// The ingredient type Mekanism's JEI plugin registers for its chemicals (`MekanismJEI.TYPE_CHEMICAL`).
+pub(super) const CHEMICAL: &str = "mekanism:chemical";
+
+fn amount(n: i64) -> u32 {
+    n.clamp(1, i64::from(u32::MAX)) as u32
 }
 
-/// A chemical ingredient's line: its chemicals' names (a tag's first few) and its amount.
-fn chemical_in(registry: &ChemicalRegistry, v: &Value) -> Option<String> {
+/// A chemical ingredient's slot: each chemical it takes (a tag's all), with its amount.
+fn chemical_in(registry: &ChemicalRegistry, v: &Value) -> Option<Vec<NativeStack>> {
     let ingredient = ChemicalStackIngredient::from_json(v, registry).ok()?;
-    let names: Vec<String> = ingredient
+    let slot: Vec<NativeStack> = ingredient
         .ingredient
         .chemicals(registry)
         .into_iter()
-        .map(mek_chemicals::name)
+        .map(|c| NativeStack::typed(CHEMICAL, &c.id, amount(ingredient.amount)))
         .collect();
-    let shown = match names.len() {
-        0 => return None,
-        1..=3 => names.join(" / "),
-        n => format!("{} / ... ({n})", names[..2].join(" / ")),
-    };
-    Some(format!("{shown} {} mB", ingredient.amount))
+    (!slot.is_empty()).then_some(slot)
 }
 
-fn chemical_out(registry: &ChemicalRegistry, v: &Value) -> Option<String> {
+fn chemical_out(registry: &ChemicalRegistry, v: &Value) -> Option<NativeStack> {
     let out = ChemicalStack::from_json(v, registry).ok()?;
-    Some(format!(
-        "{} {} mB",
-        chemical_name(registry, out.id()?),
-        out.amount()
-    ))
+    Some(NativeStack::typed(CHEMICAL, out.id()?, amount(out.amount())))
 }
 
-/// A fluid's display name from its id (`minecraft:water` -> `Water`).
-fn fluid_name(fluid: FluidKind) -> String {
-    let path = fluid.name().rsplit(':').next().unwrap_or_default();
-    path.split('_')
-        .map(|w| {
-            let mut c = w.chars();
-            c.next()
-                .map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// A fluid ingredient's buckets (one slot) and its line.
-fn fluid_in(v: &Value) -> Option<(Vec<NativeStack>, String)> {
-    let ingredient = SizedFluidIngredient::parse_flat(v).ok()?;
-    let fluids = ingredient.fluids();
-    let mut buckets: Vec<NativeStack> = Vec::new();
-    for f in &fluids {
-        if let Some(b) = fluid_stack::filled_bucket(f.fluid())
-            && !buckets.iter().any(|s| s.item == b)
-        {
-            buckets.push(stack(b, 1));
+/// How the chemicals `recipes` use look: their names, icons and tints (`ChemicalStackRenderer`).
+fn chemical_infos(registry: &ChemicalRegistry, recipes: &[NativeCategoryRecipe]) -> Vec<NativeIngredientInfo> {
+    let mut infos: Vec<NativeIngredientInfo> = Vec::new();
+    let outputs = recipes.iter().flat_map(|r| r.outputs.iter().map(|o| &o.stack));
+    for s in recipes.iter().flat_map(|r| r.inputs.iter().flatten()).chain(outputs) {
+        if s.kind != CHEMICAL || infos.iter().any(|i| i.id == s.item) {
+            continue;
+        }
+        if let Some(c) = registry.get(&s.item) {
+            infos.push(NativeIngredientInfo {
+                kind: CHEMICAL.into(),
+                id: c.id.clone(),
+                name: mek_chemicals::name(c),
+                sprite: mek_chemicals::gui_sprite(c),
+                tint: c.tint,
+            });
         }
     }
-    let name = fluids.first().map(|f| fluid_name(f.fluid()))?;
-    Some((buckets, format!("{name} {} mB", ingredient.amount)))
+    infos
 }
 
-fn fluid_out(v: &Value) -> Option<(Option<NativeStack>, String)> {
+/// A fluid ingredient's slot: each fluid it takes, with its amount.
+fn fluid_in(v: &Value) -> Option<Vec<NativeStack>> {
+    let ingredient = SizedFluidIngredient::parse_flat(v).ok()?;
+    let mut slot: Vec<NativeStack> = Vec::new();
+    for f in ingredient.fluids() {
+        let id = f.fluid().source().name();
+        if !slot.iter().any(|s| s.item == id) {
+            slot.push(NativeStack::fluid(id, amount(i64::from(ingredient.amount))));
+        }
+    }
+    (!slot.is_empty()).then_some(slot)
+}
+
+fn fluid_out(v: &Value) -> Option<NativeStack> {
     let fluid = FluidKind::from_name(v.get("id")?.as_str()?)?;
     let amount = v.get("amount").and_then(Value::as_i64).unwrap_or(1000);
-    Some((
-        fluid_stack::filled_bucket(fluid).map(|b| stack(b, 1)),
-        format!("{} {amount} mB", fluid_name(fluid)),
-    ))
+    Some(NativeStack::fluid(fluid.name(), self::amount(amount)))
 }
 
 fn item_slot(game: &Game<'_>, v: &Value) -> Option<Vec<NativeStack>> {
@@ -443,16 +439,8 @@ fn recipe(
     for part in spec.inputs {
         match *part {
             Item(field) => r.inputs.push(item_slot(game, &j[field])?),
-            Chemical(field) => r
-                .notes
-                .push(format!("In: {}", chemical_in(registry, &j[field])?)),
-            Fluid(field) => {
-                let (buckets, line) = fluid_in(&j[field])?;
-                if !buckets.is_empty() {
-                    r.inputs.push(buckets);
-                }
-                r.notes.push(format!("In: {line}"));
-            }
+            Chemical(field) => r.inputs.push(chemical_in(registry, &j[field])?),
+            Fluid(field) => r.inputs.push(fluid_in(&j[field])?),
             Energy(_) | Chance(..) | MaybeChemical(_) => {}
         }
     }
@@ -474,21 +462,13 @@ fn recipe(
                         .push(output(stack(&out.item, out.count), chance, Vec::new()));
                 }
             }
-            Chemical(field) => r
-                .notes
-                .push(format!("Out: {}", chemical_out(registry, &j[field])?)),
+            Chemical(field) => r.outputs.push(output(chemical_out(registry, &j[field])?, 1.0, Vec::new())),
             MaybeChemical(field) => {
                 if let Some(v) = j.get(field) {
-                    r.notes.push(format!("Out: {}", chemical_out(registry, v)?));
+                    r.outputs.push(output(chemical_out(registry, v)?, 1.0, Vec::new()));
                 }
             }
-            Fluid(field) => {
-                let (bucket, line) = fluid_out(&j[field])?;
-                if let Some(bucket) = bucket {
-                    r.outputs.push(output(bucket, 1.0, vec![line.clone()]));
-                }
-                r.notes.push(format!("Out: {line}"));
-            }
+            Fluid(field) => r.outputs.push(output(fluid_out(&j[field])?, 1.0, Vec::new())),
             Energy(field) => {
                 let joules = j[field]
                     .as_f64()
@@ -530,7 +510,7 @@ fn made_up(game: &Game<'_>) -> Vec<NativeRecipeCategory> {
         outputs: Vec::new(),
         notes: lines.iter().map(|l| (*l).to_owned()).collect(),
     };
-    let water = vec![stack("minecraft:water_bucket", 1)];
+    let water = vec![NativeStack::fluid("minecraft:water", 1000)];
     let sps = super::mek_sps::settings().input_per_antimatter;
     let made = [
         (
@@ -613,6 +593,7 @@ fn made_up(game: &Game<'_>) -> Vec<NativeRecipeCategory> {
                 .filter(|s| exists(game, &s.item))
                 .collect(),
             recipes,
+            ingredients: Vec::new(),
         })
         .collect()
 }
@@ -625,18 +606,16 @@ fn liquification(game: &Game<'_>) -> Vec<NativeCategoryRecipe> {
     let Some(paste) = FluidKind::from_name(liquifier::PASTE) else {
         return Vec::new();
     };
-    let bucket = fluid_stack::filled_bucket(paste).map(|b| stack(b, 1));
     game.native_food_table()
         .into_iter()
         .filter_map(|food| {
             let r = liquifier::liquify(food.nutrition, food.remainder.as_deref())?;
-            let line = format!("{} {} mB", fluid_name(paste), r.paste);
-            let mut outputs: Vec<NativeChanceOutput> = bucket.iter().map(|b| output(b.clone(), 1.0, vec![line.clone()])).collect();
+            let mut outputs = vec![output(NativeStack::fluid(paste.name(), amount(i64::from(r.paste))), 1.0, Vec::new())];
             outputs.extend(r.remainder.as_deref().map(|rest| output(stack(rest, 1), 1.0, Vec::new())));
             Some(NativeCategoryRecipe {
                 inputs: vec![vec![stack(&food.item, 1)]],
                 outputs,
-                notes: vec![format!("Out: {line}"), format!("{} ticks", liquifier::TICKS), format!("Recipe: {}", liquifier::recipe_id(&food.item))],
+                notes: vec![format!("{} ticks", liquifier::TICKS), format!("Recipe: {}", liquifier::recipe_id(&food.item))],
             })
         })
         .collect()
@@ -686,6 +665,7 @@ pub(super) fn categories(game: &Game<'_>, out: &mut Vec<NativeRecipeCategory>) {
                 .filter_map(|r| recipe(game, &registry, spec, &r.id, &r.json))
                 .collect()
         };
+        let ingredients = chemical_infos(&registry, &recipes);
         out.push(NativeRecipeCategory {
             id: spec.id.into(),
             title: spec.title.into(),
@@ -693,6 +673,7 @@ pub(super) fn categories(game: &Game<'_>, out: &mut Vec<NativeRecipeCategory>) {
             icon,
             catalysts,
             recipes,
+            ingredients,
         });
     }
     out.extend(made_up(game));
@@ -719,8 +700,8 @@ pub(super) fn command(game: &mut Game<'_>, category: Option<&str>, item: Option<
         .take(8)
         .map(|r| {
             json!({
-                "inputs": r.inputs.iter().map(|slot| slot.iter().take(4).map(|s| format!("{}x{}", s.count, s.item)).collect::<Vec<_>>()).collect::<Vec<_>>(),
-                "outputs": r.outputs.iter().map(|o| json!({ "item": o.stack.item, "count": o.stack.count, "chance": o.chance })).collect::<Vec<_>>(),
+                "inputs": r.inputs.iter().map(|slot| slot.iter().take(4).map(|s| format!("{}x{}", s.count, if s.is_item() { s.item.clone() } else { format!("{} {}", s.kind, s.item) })).collect::<Vec<_>>()).collect::<Vec<_>>(),
+                "outputs": r.outputs.iter().map(|o| json!({ "item": o.stack.item, "kind": o.stack.kind, "count": o.stack.count, "chance": o.chance })).collect::<Vec<_>>(),
                 "notes": r.notes,
             })
         })

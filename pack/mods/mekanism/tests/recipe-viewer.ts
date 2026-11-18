@@ -1,7 +1,7 @@
 /** Mekanism's recipe viewer categories (`native_recipe_categories`), as a viewer collects them
  * (`native_collect_recipe_categories`, read with `/mek recipes`): the categories Mekanism's JEI plugin registers for
  * the machines this port has, their catalysts (the machine and its factories), and known recipes of each, taken from
- * the content mod's own recipe files: an item output shows as the stack, a chemical or fluid as a note. The Nutritional
+ * the content mod's own recipe files: an item, a fluid or a chemical output shows as a stack of its kind (API 440). The Nutritional
  * Liquifier's are made from the food table, one for each food (`RecipeViewerUtils.getLiquificationRecipes`). */
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -14,7 +14,8 @@ const genContent = resolve(process.env.MEKGEN_CONTENT_DIR ?? join(root, '../.bui
 // All the Ores' content too: ATM10's clumps, shards and dirty dusts are its items, so the purifier's and the injector's recipes need it.
 const ato = resolve(process.env.MEK_ATO_CONTENT_DIR ?? join(root, '../.build/content/alltheores'));
 const fixture = new WorldFixture('mekanism-recipe-viewer', 'server-thread', { devMods: [content, genContent, ato] });
-type Recipe = { inputs: string[][]; outputs: { item: string; count: number; chance: number }[]; notes: string[] };
+type Recipe = { inputs: string[][]; outputs: { item: string; kind: string; count: number; chance: number }[]; notes: string[] };
+const CHEMICAL = 'mekanism:chemical';
 
 /** The content mod's recipe files by type. */
 function files(dir: string, out = new Map<string, any[]>()): Map<string, any[]> {
@@ -91,9 +92,9 @@ try {
   const liq = byId.get('mekanism:nutritional_liquifier');
   assert(liq && liq.recipes > 40 && liq.catalysts.includes('mekanism:nutritional_liquifier'), JSON.stringify(liq));
   const stew = ((await mek('recipes mekanism:nutritional_liquifier minecraft:mushroom_stew')).recipes as Recipe[]);
-  assert(stew.some(r => r.notes.includes('Out: Nutritional Paste 300 mB') && r.outputs.some(o => o.item === 'minecraft:bowl')), JSON.stringify(stew));
+  assert(stew.some(r => r.outputs.some(o => o.kind === 'fluid' && o.item.endsWith('nutritional_paste') && o.count === 300) && r.outputs.some(o => o.item === 'minecraft:bowl')), JSON.stringify(stew));
   const apple = ((await mek('recipes mekanism:nutritional_liquifier minecraft:apple')).recipes as Recipe[]);
-  assert(apple.some(r => r.notes.includes('Out: Nutritional Paste 200 mB') && r.notes.includes('Recipe: mekanism:/liquification/minecraft_apple')), JSON.stringify(apple));
+  assert(apple.some(r => r.outputs.some(o => o.kind === 'fluid' && o.item.endsWith('nutritional_paste') && o.count === 200) && r.notes.includes('Recipe: mekanism:/liquification/minecraft_apple')), JSON.stringify(apple));
   const stone = ((await mek('recipes mekanism:nutritional_liquifier minecraft:stone')).recipes as Recipe[]);
   assert.equal(stone.length, 0, 'stone is no food');
   fixture.mark(`the Nutritional Liquifier's ${liq.recipes} foods: a mushroom stew makes 300 mB of paste and its bowl, an apple 200 mB`);
@@ -117,16 +118,16 @@ try {
       const item = r[field].id;
       const found = ((await mek(`recipes ${category} ${item}`)).recipes as Recipe[]).filter(x => x.outputs.some(o => o.item === item));
       assert(found.some(x => x.outputs.some(o => o.item === item && o.count === (r[field].count ?? 1))), `${category} making ${item}: ${JSON.stringify(found)}`);
-      if (r.chemical_input) assert(found.some(x => x.notes.some(n => n.startsWith('In: ') && n.endsWith(' mB'))), `${category} ${item}: no chemical note`);
+      if (r.chemical_input) assert(found.some(x => x.inputs.some(slot => slot.some(i => i.includes(`x${CHEMICAL} `)))), `${category} ${item}: no chemical slot`);
       checked++;
     }
   }
   const salt = ((await mek('recipes mekanism:oxidizing')).recipes as Recipe[]);
-  assert(salt.every(r => r.inputs.length === 1 && r.outputs.length === 0 && r.notes.some(n => n.startsWith('Out: '))), JSON.stringify(salt));
+  assert(salt.every(r => r.inputs.length === 1 && r.outputs.length === 1 && r.outputs[0].kind === CHEMICAL), JSON.stringify(salt));
   const hcl = ((await mek('recipes mekanism:chemical_infusing')).recipes as Recipe[]);
-  assert(hcl.some(r => r.notes.includes('In: Hydrogen 1 mB') && r.notes.includes('In: Chlorine 1 mB') && r.notes.includes('Out: Hydrogen Chloride 1 mB')), JSON.stringify(hcl));
-  const water = ((await mek('recipes mekanism:separating minecraft:water_bucket')).recipes as Recipe[]);
-  assert(water.some(r => r.notes.includes('Out: Hydrogen 2 mB') && r.notes.includes('Out: Oxygen 1 mB')), JSON.stringify(water));
+  assert(hcl.some(r => r.inputs.some(s => s.includes(`1x${CHEMICAL} mekanism:hydrogen`)) && r.inputs.some(s => s.includes(`1x${CHEMICAL} mekanism:chlorine`)) && r.outputs.some(o => o.kind === CHEMICAL && o.item === 'mekanism:hydrogen_chloride' && o.count === 1)), JSON.stringify(hcl));
+  const water = ((await mek('recipes mekanism:separating mekanism:hydrogen')).recipes as Recipe[]);
+  assert(water.some(r => r.inputs.some(s => s.some(i => i.endsWith('xfluid minecraft:water'))) && r.outputs.some(o => o.kind === CHEMICAL && o.item === 'mekanism:hydrogen' && o.count === 2) && r.outputs.some(o => o.kind === CHEMICAL && o.item === 'mekanism:oxygen' && o.count === 1)), JSON.stringify(water));
   const sawdust = ((await mek('recipes mekanism:sawing mekanism:sawdust')).recipes as Recipe[]);
   assert(sawdust.some(r => r.outputs.some(o => o.item === 'mekanism:sawdust' && o.chance > 0 && o.chance < 1)), JSON.stringify(sawdust));
   const redstone = ((await mek('recipes mekanism:energy_conversion minecraft:redstone')).recipes as Recipe[]);

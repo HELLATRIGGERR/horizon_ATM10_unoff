@@ -925,6 +925,7 @@ impl Game<'_> {
                     item: fuel.item.to_string(),
                     count: 1,
                     components: String::new(),
+                    kind: String::new(),
                 },
                 right,
             };

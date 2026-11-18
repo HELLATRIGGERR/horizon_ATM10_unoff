@@ -9,7 +9,9 @@ use super::native_hooks::{
     NativePanelEvent, NativeRecipe, NativeRecipeCategory, NativeRecipeKind, NativeRecipeLookup, NativeRecipeStack,
     NativeRecipes, NativeStack,
 };
+use horizon_client::mod_api::NativeIngredientInfo;
 use jei_core::recipes::{Book, Category, Focus, Mode, Output, Recipe, Shape, Stack, Viewer, cooking_note};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -58,13 +60,32 @@ fn state() -> std::sync::MutexGuard<'static, Option<State>> {
 }
 
 fn stack(s: NativeStack) -> Stack {
-    Stack { item: s.item, count: s.count.max(1), components: s.components }
+    Stack { item: s.item, count: s.count.max(1), components: s.components, kind: s.kind }
+}
+/// What a focus names a stack of the game's by (`Stack::key`): an item's id, a fluid's `fluid <id>`.
+pub(super) fn key(s: &NativeStack) -> String {
+    stack(s.clone()).key()
+}
+/// A fluid's name (`fluid_type.<ns>.<path>`, else its block's, else its path in title case), as JEI's
+/// `FluidIngredientHelper.getDisplayName` gives `FluidType.getDescription`.
+pub(super) fn fluid_name(id: &str) -> String {
+    let (ns, path) = id.split_once(':').unwrap_or(("minecraft", id));
+    let fallback: String = path
+        .split('_')
+        .map(|w| {
+            let mut c = w.chars();
+            c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let block = horizon_client::lang::get_or(&format!("block.{ns}.{path}"), &fallback).to_string();
+    horizon_client::lang::get_or(&format!("fluid_type.{ns}.{path}"), &block).to_string()
 }
 fn slot(t: &NativeRecipes, list: &[NativeRecipeStack]) -> Vec<Stack> {
     list.iter()
         .filter_map(|s| {
             let item = t.items.get(s.item as usize)?;
-            Some(Stack { item: item.id.clone(), count: s.count.max(1), components: s.components.clone() })
+            Some(Stack { item: item.id.clone(), count: s.count.max(1), components: s.components.clone(), kind: String::new() })
         })
         .collect()
 }
@@ -86,7 +107,10 @@ fn vanilla_recipe(t: &NativeRecipes, r: &NativeRecipe) -> Recipe {
     Recipe { shape, width: 1, height: 1, inputs: cells, outputs: vec![results.into_iter().map(Output::always).collect()], notes }
 }
 
-fn mod_category(c: NativeRecipeCategory) -> Category {
+fn mod_category(c: NativeRecipeCategory, looks: &mut HashMap<String, NativeIngredientInfo>) -> Category {
+    for info in c.ingredients {
+        looks.insert(format!("{} {}", info.kind, info.id), info);
+    }
     let catalysts: Vec<Stack> = c.catalysts.into_iter().map(stack).collect();
     let icon = if c.icon.item.is_empty() { catalysts.first().cloned().unwrap_or_default() } else { stack(c.icon) };
     let recipes = c
@@ -122,8 +146,21 @@ fn book(t: &NativeRecipes, mods: Vec<NativeRecipeCategory>) -> (Book, Vec<Vec<us
         categories[vanilla_index(r.kind)].recipes.push(vanilla_recipe(t, r));
         native[vanilla_index(r.kind)].push(n);
     }
-    categories.extend(mods.into_iter().filter(|c| !c.recipes.is_empty()).map(mod_category));
-    let names = t.items.iter().map(|i| (i.id.clone(), i.name.clone())).collect();
+    let mut looks = HashMap::new();
+    categories.extend(mods.into_iter().filter(|c| !c.recipes.is_empty()).map(|c| mod_category(c, &mut looks)));
+    let mut names: HashMap<String, String> = t.items.iter().map(|i| (i.id.clone(), i.name.clone())).collect();
+    // The fluids' and the mods' typed ingredients' names, by their keys.
+    for c in &categories {
+        let outputs = c.recipes.iter().flat_map(|r| r.outputs.iter().flatten().map(|o| &o.stack));
+        for s in c.recipes.iter().flat_map(|r| r.inputs.iter().flatten()).chain(outputs).filter(|s| !s.is_item()) {
+            names.entry(s.key()).or_insert_with_key(|k| match looks.get(k) {
+                Some(info) => info.name.clone(),
+                None if s.kind == NativeStack::FLUID => fluid_name(&s.item),
+                None => s.item.clone(),
+            });
+        }
+    }
+    jei_window::set_looks(Arc::new(looks.into_iter().map(|(k, i)| (k, (i.sprite, i.tint))).collect()));
     (Book { categories, names }, native)
 }
 
@@ -190,13 +227,13 @@ pub(super) fn event(game: &mut Game<'_>, event: &NativePanelEvent) -> bool {
     let (item, mode) = match event {
         // A key over the window is the window's (`jei_window::key`), not the slot of the screen under it.
         NativePanelEvent::Key { .. } if jei_window::covers(game.native_cursor()) => return true,
-        NativePanelEvent::Key { key, stack } => match key_mode(game, key) {
-            Some(mode) => (stack.item.clone(), mode),
+        NativePanelEvent::Key { key: pressed, stack } => match key_mode(game, pressed) {
+            Some(mode) => (key(stack), mode),
             None => return false,
         },
         // JEI: a left click on an ingredient in a recipe shows its recipes, a right click its uses.
         NativePanelEvent::SlotClicked { stack, right, .. } | NativePanelEvent::Catalyst { stack, right, .. } => {
-            (stack.item.clone(), if *right { Mode::Uses } else { Mode::Recipes })
+            (key(stack), if *right { Mode::Uses } else { Mode::Recipes })
         }
         NativePanelEvent::Tab(tab) => {
             if let Some(s) = state().as_mut() {
@@ -229,7 +266,7 @@ pub(super) fn lookup(game: &mut Game<'_>, stack: &NativeStack, lookup: &NativeRe
         },
         _ => return,
     };
-    open(game, &stack.item, mode);
+    open(game, &key(stack), mode);
     *handled = true;
 }
 

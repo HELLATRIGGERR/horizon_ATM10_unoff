@@ -1,5 +1,42 @@
 # JEI (Just Enough Items) port plan
 
+> **Handoff (2026-11-18, `feat/jei-fluids`): fluids and Mekanism chemicals as ingredients of JEI's recipe window, built and tested. Fluids in the ingredient list are left.**
+> **API 440** (438 and 439 left to other branches): `NativeStack::kind` ("" item, `"fluid"`, or a mod's type such as
+> `mekanism:chemical`; `count` = amount in mB) with `NativeStack::{item, fluid, typed, is_item, FLUID}`;
+> `NativeIngredientInfo {kind, id, name, sprite, tint}` and `NativeRecipeCategory::ingredients` (how a category's typed
+> ingredients look); helpers `native_fluid_icon(batch, fluid, at, size)` (still sprite in its tint, through
+> `ItemRenderer::ae2_wrapped_fluid` / `Game::draw_fluid_icon` in `item_draw.rs`) and `native_sprite_tinted`
+> (`native_hooks.rs`, `native-hooks.json`); `NATIVE_HOOKS_API = 440`, `//!` line in `native_hooks.rs`; `docs/native-mods.md`
+> and `docs/atm10-port.md` list it.
+> **As built:** jei-core `Stack::kind`, `key()` (`<kind> <id>` for non-items), `is()`, `split_key`, `thousands`; focuses,
+> `makes`/`takes`/catalysts and the focus lock match by key. `jei_recipes`: kind carried, `key()` for panel events and
+> `recipe_lookup`, `fluid_name` (lang `fluid_type.`/`block.`), names of non-items by key, looks to
+> `jei_window::set_looks`. `jei_window`: `ingredient()` draws a fluid/typed slot (no count, as JEI), `ingredient_tooltip`
+> (name, grey `1,000 mB`, mod name line from `jei_world::mod_name_line`), R/U/clicks open by key, the slot widget is
+> `Water i:k` (name of the key), the bookmark key skips non-items; the probe `/jeiclient` `recipes.window.ingredients`
+> lists the keys of the fluid and typed slots drawn. Mekanism (`mek_recipe_viewer.rs`): chemical and fluid
+> inputs/outputs are slots (`CHEMICAL` kind, `chemical_infos` per category from the registry: `mek_chemicals::name`,
+> `gui_sprite`, `tint`); the boiler's water and the liquifier's paste are fluids; the In/Out notes are gone. AE2's item
+> transformation shows its water as `NativeStack::fluid("minecraft:water", 1000)` (`fluid_slot`'s buckets stay for
+> ExtendedAE/AAE).
+> **Tests (all green):** `jei/fluids` (3 checks: R on Fluix Crystal draws a water slot, U on it opens the item
+> transformation category, a right click shows its uses; shots `jei-work/logs/shots-fluids`), Mekanism `jei-chemicals`
+> (2 checks: the electrolytic separator's category shows brine, heavy water and water in and chlorine, sodium,
+> deuterium, oxygen, hydrogen out as tinted sprites; hover = "Hydrogen / 2 mB / Mekanism"; U on hydrogen = the chemical
+> infuser, 1 recipe) with `mek.sh` (needs `JEI_CARRY` and `JEI_DEV=1` exported; the bundles `jei` and `mekanism` are in
+> the same stage since `horizon-mixins apply --mods pack/mods` takes all of them), Mekanism `recipe-viewer` (3
+> checks, outputs and inputs as stacks of their kind), AE2 `recipe-viewer` (needs the binary with the pack's features:
+> `bun run ae2/scripts/build.ts` into its own target; the jei and mek stages build `ae2-lab`/`ae2-appmek` only, which
+> lacks ExtendedAE's and Advanced AE's categories), `jei/item-list` (11), `recipes` (9), `bookmarks` (6), `transfer` (4),
+> `transfer-ae2` (4), `config` (4), `list-size` (4), `jei.sh units` (22), `horizon-mod-api-gen` (19, with the one
+> that fails on main).
+> **Left:** (1) Fluids in the ingredient list: the engine panel (`native_panel.rs` `browser_stack`, `draw_browser_items`,
+> the tooltip) must draw a `kind == "fluid"` stack with `draw_fluid_icon` and report it in events; then `jei_world`
+> appends the fluids after the items (JEI's order, `jei_world::show`/`filter`) and U on one opens its uses. Mekanism's
+> chemicals in the list follow the same way (the blacklist's 14 chemicals then apply to them). (2) Item colours, the
+> amount shown in the slot as a bar for a tank, and a fluid's `FluidType` tooltip lines are not done.
+
+
 > **Handoff (2026-11-17): slice 6 ("the list's size, mod names and blacklist from ATM10's config") done and tested.**
 > **Slice 6 as built:**
 > - Engine helper `native_panel_grid(mod_id, NativePanelGrid)`, **API 434** (`native_panel.rs`; types `NativePanelGrid
@@ -46,8 +83,8 @@
 >   fails on main (`new_hook_placeholder_is_reported_then_filled`). The bookmark shots show the list at the left edge.
 > **Gaps left:** `ingredientList.buttonNavigationVisibility` and `drawBackground`, the `lookups`/`tooltips` options and
 >   the rest of `OPTS` still change nothing; a JEI-window recipe page doesn't narrow the list (JEI lays its list out
->   right of the recipe GUI); creative tabs' contents, fluids/chemicals as ingredients (the blacklist's chemicals wait
->   for them) and item colours still wait for the game (see API gaps below).
+>   right of the recipe GUI); creative tabs' contents, fluids/chemicals in the ingredient list (the blacklist's chemicals wait
+>   for them; they are recipe slots since API 440) and item colours still wait for the game (see API gaps below).
 
 > **Handoff (2026-11-17): slice 5 ("JEI's config screen") done and tested; the ini-driven list layout, mod-name format,
 > blacklist and hide-until-search are next.**
@@ -346,7 +383,8 @@ the carry (`pack/scripts/jei.ts carry`: `horizon-port-pack carry <work> jei`, a 
   which JEI leaves out of it anyway; no creative tabs' contents (`%`, and JEI's subtypes: potions, enchanted books,
   filled tanks) and no item colours (`^` needs the texture's colours). The crate takes them once the game gives them.
 - No mod display names: `@` and the sort use a table of ATM10's mods in the crate, with the namespace for the rest.
-- Fluids and chemicals are not ingredients the panel can list (JEI lists fluids after items).
+- Fluids and chemicals are ingredients of a recipe's slots (API 440) but not of the panel's list (JEI lists fluids
+  after items); the engine's panel draws items only.
 - The recipe window's textures arrive with the carry of the player's jar (`jei.ts carry`); a game without it draws
   the window with fills. The nine-slice borders are read from JEI's `.mcmeta` once (javap and the jar's files) and
   kept in `jei_window.rs`: the engine reads `.mcmeta` only for vanilla's GUI sprites.

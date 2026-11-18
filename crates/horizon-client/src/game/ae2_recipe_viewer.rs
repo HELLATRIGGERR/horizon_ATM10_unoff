@@ -16,6 +16,7 @@ pub(in crate::game) fn stack(item: &str, count: u32) -> NativeStack {
         item: item.to_owned(),
         count: count.max(1),
         components: String::new(),
+        kind: String::new(),
     }
 }
 
@@ -93,6 +94,21 @@ pub(in crate::game) fn fluid_slot(v: &Value) -> Option<(Vec<NativeStack>, String
     Some((buckets, name))
 }
 
+/// A `FluidIngredient` as a slot of fluids (`amount` mB each, as JEI draws a fluid ingredient) and the first
+/// one's name; API 440. Source forms only, each once.
+pub(in crate::game) fn fluid_stacks(v: &Value, amount: u32) -> Option<(Vec<NativeStack>, String)> {
+    let fluids = FluidIngredient::parse(v).ok()?.stacks();
+    let mut out: Vec<NativeStack> = Vec::new();
+    for f in &fluids {
+        let id = f.fluid().source().name();
+        if !out.iter().any(|s| s.item == id) {
+            out.push(NativeStack::fluid(id, amount));
+        }
+    }
+    let name = fluids.first().map(|f| fluid_name(f.fluid().source()))?;
+    Some((out, name))
+}
+
 fn exists(game: &Game<'_>, item: &str) -> bool {
     game.items().get(item).is_some()
 }
@@ -118,6 +134,7 @@ pub(in crate::game) fn category(
         icon: catalysts.first()?.clone(),
         catalysts,
         recipes,
+        ingredients: Vec::new(),
     })
 }
 
@@ -214,10 +231,10 @@ fn transform(game: &Game<'_>) -> Vec<NativeCategoryRecipe> {
                 }
                 _ => {
                     let tag = circumstance["tag"].as_str().unwrap_or("minecraft:water");
-                    let (buckets, name) = fluid_slot(&json!({ "tag": tag })).unwrap_or_else(|| {
-                        (vec![stack("minecraft:water_bucket", 1)], "Water".into())
+                    let (fluids, name) = fluid_stacks(&json!({ "tag": tag }), 1000).unwrap_or_else(|| {
+                        (vec![NativeStack::fluid("minecraft:water", 1000)], "Water".into())
                     });
-                    inputs.push(buckets);
+                    inputs.push(fluids);
                     format!("Thrown into {name}")
                 }
             };

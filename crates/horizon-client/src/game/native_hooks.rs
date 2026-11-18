@@ -6,6 +6,9 @@
 //! Horizon's own HUD extras do, and keep a mod's settings where the
 //! WebAssembly mod of the same id kept them.
 //!
+//! API 440 adds ingredients that are not items to recipe viewers: `NativeStack::kind` (a fluid, a mod's typed
+//! ingredient such as Mekanism's chemicals, in recipe categories' slots; the item panel draws items only), how a category's typed
+//! ingredients look (`NativeRecipeCategory::ingredients`), `native_fluid_icon` and `native_sprite_tinted`.
 //! API 437 adds the engine's own blocks as a chemical handler, the other way from API 435
 //! (`native_chemical_tanks`, `native_chemical_insert`, `native_chemical_extract`): AE2's ME Interface and
 //! Pattern Provider (Applied Mekanistics' `GenericStackChemicalStorage`), so Mekanism's machines push into them.
@@ -1160,7 +1163,7 @@ pub(super) use horizon_world::level::flags;
 
 /// The hook points' API version. The launcher reads this line from the
 /// source it builds; keep its form.
-pub(crate) const NATIVE_HOOKS_API: u32 = 437;
+pub(crate) const NATIVE_HOOKS_API: u32 = 440;
 
 impl GameLevel<'_> {
     /// A crop, stem, cactus, sugar cane, bamboo, mushroom or vine on an
@@ -11694,6 +11697,47 @@ impl Game<'_> {
         r.u1 = r.u0 + src[2] * du;
         r.v1 = r.v0 + src[3] * dv;
         batch.rect_uv(dst[0], dst[1], dst[2], dst[3], r, u32::MAX);
+        true
+    }
+    /// `native_sprite` in a tint (`0xAARRGGBB`): a mod's ingredient drawn
+    /// as its sprite in its colour, as Mekanism's `ChemicalStackRenderer`
+    /// draws a chemical. False when there is no such sprite. API 440.
+    pub(super) fn native_sprite_tinted(
+        &self,
+        batch: &mut HudBatch,
+        name: &str,
+        src: [f32; 4],
+        dst: [f32; 4],
+        argb: u32,
+    ) -> bool {
+        let Some(mut r) = self.gui.atlas.sprites.get(name).copied() else {
+            return false;
+        };
+        let (du, dv) = ((r.u1 - r.u0) / r.w as f32, (r.v1 - r.v0) / r.h as f32);
+        r.u0 += src[0] * du;
+        r.v0 += src[1] * dv;
+        r.u1 = r.u0 + src[2] * du;
+        r.v1 = r.v0 + src[3] * dv;
+        let [a, red, g, b] = argb.to_be_bytes();
+        batch.rect_uv(dst[0], dst[1], dst[2], dst[3], r, rgba(red, g, b, a));
+        true
+    }
+    /// Fluid `fluid`'s icon (`minecraft:water`, a content mod's fluid): its
+    /// still sprite in its tint, as JEI's `FluidTankRenderer` and AE2's
+    /// terminals draw a fluid in a slot, with its top left at `at`, `size`
+    /// GUI pixels square. False for an unknown fluid. API 440.
+    pub(super) fn native_fluid_icon(
+        &self,
+        batch: &mut HudBatch,
+        fluid: &str,
+        at: [f32; 2],
+        size: f32,
+    ) -> bool {
+        let start = batch.vertices.len();
+        if !self.draw_fluid_icon(batch, fluid, at[0], at[1]) {
+            return false;
+        }
+        batch.scale_since(start, at[0], at[1], size / 16.0, size / 16.0);
         true
     }
     /// Requests vanilla's menu background blur for this frame, with a per-frame guard

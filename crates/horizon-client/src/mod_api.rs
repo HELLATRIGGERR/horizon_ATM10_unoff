@@ -450,11 +450,57 @@ pub struct NativeMod {
 /// An item the panel shows (`native_panel_items`): its id
 /// (`minecraft:diamond`), a count (1 draws none) and its components beyond
 /// the item's own, in vanilla's item syntax, or "".
+///
+/// API 440: `kind` makes it an ingredient that is not an item, as JEI's
+/// ingredient types: `"fluid"` a fluid (`item` its id, `minecraft:water`;
+/// `count` its amount in mB), any other a mod's own type (`mekanism:chemical`:
+/// `item` the chemical's id, `count` its amount), drawn as the recipe
+/// category's [`NativeIngredientInfo`] says. "" (the default) is an item.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NativeStack {
     pub item: String,
     pub count: u32,
     pub components: String,
+    /// "" an item, `"fluid"` a fluid, else a mod's ingredient type. API 440.
+    pub kind: String,
+}
+
+impl NativeStack {
+    /// The kind of a fluid. API 440.
+    pub const FLUID: &'static str = "fluid";
+    /// An item stack. API 440.
+    pub fn item(id: &str, count: u32) -> NativeStack {
+        NativeStack { item: id.to_owned(), count, ..NativeStack::default() }
+    }
+    /// `amount` mB of fluid `id`. API 440.
+    pub fn fluid(id: &str, amount: u32) -> NativeStack {
+        NativeStack::typed(Self::FLUID, id, amount)
+    }
+    /// `amount` of ingredient `id` of a mod's type `kind` (`mekanism:chemical`). API 440.
+    pub fn typed(kind: &str, id: &str, amount: u32) -> NativeStack {
+        NativeStack { item: id.to_owned(), count: amount, components: String::new(), kind: kind.to_owned() }
+    }
+    /// Whether it is an item, not a fluid or a mod's type. API 440.
+    pub fn is_item(&self) -> bool {
+        self.kind.is_empty()
+    }
+}
+
+/// How a mod's own ingredient type's ingredient looks in a recipe viewer
+/// (API 440; JEI's `IIngredientRenderer` and `IIngredientHelper` of the
+/// type): a recipe category lists those its recipes use.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NativeIngredientInfo {
+    /// Its type (`mekanism:chemical`), as the stacks' `kind`.
+    pub kind: String,
+    /// Its id (`mekanism:hydrogen`).
+    pub id: String,
+    /// Its name in the player's language.
+    pub name: String,
+    /// The GUI sprite it is drawn with (`mekanism:gui/chemical/mekanism/liquid/liquid`).
+    pub sprite: String,
+    /// The sprite's tint, `0xAARRGGBB`.
+    pub tint: u32,
 }
 
 /// One item a loot table can drop and its odds (`native_loot_odds`).
@@ -555,13 +601,17 @@ pub struct NativeRecipeCategory {
     /// The items and blocks that do it (a rod, a sieve), as JEI's catalysts.
     pub catalysts: Vec<NativeStack>,
     pub recipes: Vec<NativeCategoryRecipe>,
+    /// How the mod's own ingredient types its recipes use look (API 440):
+    /// Mekanism's chemicals. Items and fluids need none.
+    pub ingredients: Vec<NativeIngredientInfo>,
 }
 
 /// One recipe of a [`NativeRecipeCategory`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NativeCategoryRecipe {
     /// Its input slots, each with the stacks it takes; none for a recipe
-    /// with no input (a catch).
+    /// with no input (a catch). A slot may hold fluids or a mod's typed
+    /// ingredients (`NativeStack::kind`, API 440) as well as items.
     pub inputs: Vec<Vec<NativeStack>>,
     pub outputs: Vec<NativeChanceOutput>,
     /// Lines about the whole recipe.

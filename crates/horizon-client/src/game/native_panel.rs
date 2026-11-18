@@ -834,6 +834,7 @@ impl Game<'_> {
             item: stack.item.to_string(),
             count: stack.count,
             components: super::native_recipes::components(&stack),
+            kind: String::new(),
         })
     }
     /// A key `key` (`key.keyboard.r`) went down: over an item on a container
@@ -930,6 +931,7 @@ mod tests {
             item: item.into(),
             count: 1,
             components: String::new(),
+            kind: String::new(),
         }
     }
     fn view() -> NativeRecipeView {

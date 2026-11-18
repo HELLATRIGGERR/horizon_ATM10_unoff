@@ -853,6 +853,14 @@
     {
       "name": "chemical_extract",
       "target": "horizon_client::game::machines::native_chemical::Game<'_>::native_chemical_extract"
+    },
+    {
+      "name": "sprite_tinted",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_sprite_tinted"
+    },
+    {
+      "name": "fluid_icon",
+      "target": "horizon_client::game::native_hooks::Game<'_>::native_fluid_icon"
     }
   ],
   "hooks": [

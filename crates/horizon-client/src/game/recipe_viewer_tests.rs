@@ -42,6 +42,7 @@ fn stack(item: &str) -> NativeStack {
         item: item.into(),
         count: 1,
         components: String::new(),
+        kind: String::new(),
     }
 }
 

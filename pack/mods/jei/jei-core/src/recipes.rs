@@ -6,18 +6,43 @@
 
 use std::collections::HashMap;
 
-/// A stack as the game names it.
+/// A stack as the game names it: an item, or (JEI's other ingredient types) a fluid or a mod's typed ingredient,
+/// `kind` saying which (`"fluid"`, `mekanism:chemical`; "" an item) and `count` its amount in mB.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Stack {
     pub item: String,
     pub count: u32,
     pub components: String,
+    pub kind: String,
 }
 
 impl Stack {
     pub fn of(item: &str) -> Stack {
-        Stack { item: item.to_owned(), count: 1, components: String::new() }
+        Stack { item: item.to_owned(), count: 1, ..Stack::default() }
     }
+    /// A fluid's or a mod's typed ingredient.
+    pub fn typed(kind: &str, id: &str, amount: u32) -> Stack {
+        Stack { item: id.to_owned(), count: amount, components: String::new(), kind: kind.to_owned() }
+    }
+    pub fn is_item(&self) -> bool {
+        self.kind.is_empty()
+    }
+    /// What a focus names it by: an item's id, else `<kind> <id>` (no id has a space).
+    pub fn key(&self) -> String {
+        if self.is_item() { self.item.clone() } else { format!("{} {}", self.kind, self.item) }
+    }
+    /// Whether `key` (a focus's) names this ingredient.
+    pub fn is(&self, key: &str) -> bool {
+        if self.is_item() {
+            return self.item == key;
+        }
+        key.strip_prefix(self.kind.as_str()).and_then(|k| k.strip_prefix(' ')) == Some(self.item.as_str())
+    }
+}
+
+/// A focus key's kind and id (`fluid minecraft:water` -> `("fluid", "minecraft:water")`; an item's kind is "").
+pub fn split_key(key: &str) -> (&str, &str) {
+    key.split_once(' ').unwrap_or(("", key))
 }
 
 /// How a recipe is laid out, as the panel draws it.
@@ -103,10 +128,10 @@ impl Recipe {
         Recipe { shape, width, height, inputs, outputs, notes }
     }
     fn makes(&self, item: &str) -> bool {
-        self.outputs.iter().flatten().any(|o| o.stack.item == item)
+        self.outputs.iter().flatten().any(|o| o.stack.is(item))
     }
     fn takes(&self, item: &str) -> bool {
-        self.inputs.iter().flatten().any(|s| s.item == item)
+        self.inputs.iter().flatten().any(|s| s.is(item))
     }
 }
 
@@ -184,7 +209,7 @@ impl Book {
         let mut catalyst = Vec::new();
         let mut rest = Vec::new();
         for (c, cat) in self.categories.iter().enumerate() {
-            if focus.mode == Mode::Uses && cat.catalysts.iter().any(|s| s.item == item) {
+            if focus.mode == Mode::Uses && cat.catalysts.iter().any(|s| s.is(item)) {
                 catalyst.push(Found { category: c, recipes: (0..cat.recipes.len()).collect() });
                 continue;
             }
@@ -314,7 +339,7 @@ impl Viewer {
     /// tooltips).
     fn view(&self, r: &Recipe, focus: &Focus) -> View {
         let lock = |stacks: Vec<Stack>| {
-            let hit: Vec<Stack> = stacks.iter().filter(|s| s.item == focus.item).cloned().collect();
+            let hit: Vec<Stack> = stacks.iter().filter(|s| s.is(&focus.item)).cloned().collect();
             if hit.is_empty() { stacks } else { hit }
         };
         let inputs = r.inputs.iter().cloned().map(|s| if focus.mode == Mode::Uses { lock(s) } else { s });
@@ -330,7 +355,8 @@ impl Viewer {
         slots.extend(outputs.iter().skip(1).cloned());
         let mut lines: Vec<String> = Vec::new();
         for o in r.outputs.iter().filter_map(|o| o.first()) {
-            let name = self.book.name(&o.stack.item);
+            let key = o.stack.key();
+            let name = self.book.name(&key);
             if o.chance < 1.0 {
                 lines.push(format!("{name}: {}%", percent(o.chance)));
             }
@@ -357,6 +383,19 @@ impl Viewer {
 pub fn percent(chance: f32) -> String {
     let p = chance * 100.0;
     if p >= 1.0 || p == 0.0 { format!("{}", p.round() as u32) } else { format!("{:.1}", p) }
+}
+
+/// An amount with its thousands grouped, as JEI's `NumberFormat` words a fluid's mB (`1,000`).
+pub fn thousands(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// A line cut at spaces into lines of at most `max` characters.

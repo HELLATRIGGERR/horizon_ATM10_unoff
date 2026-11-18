@@ -43,7 +43,7 @@ try {
     && r.notes.includes('Uses up the top and bottom items'), 'the two printed circuits pressed around redstone');
   await making('ae2:charger', 'ae2:charged_certus_quartz_crystal', r => has(r, 0, 'ae2:certus_quartz_crystal'), 'a certus crystal');
   await making('ae2:item_transformation', 'ae2:fluix_crystal', r => r.notes.some(n => n.startsWith('Thrown into Water'))
-    && r.inputs.some(s => s.some(i => i.endsWith('xminecraft:water_bucket'))), 'charged certus, redstone and quartz in water');
+    && r.inputs.some(s => s.some(i => i.endsWith('xminecraft:water'))), 'charged certus, redstone and quartz in water');
   await making('ae2:condenser', 'ae2:singularity', r => r.notes[0].startsWith('256,000'), '256 000 per singularity');
   await making('ae2:entropy', 'minecraft:obsidian', r => r.notes.some(n => n.startsWith('Cool')), 'lava cooled');
   await making('ae2:attunement', 'ae2:fluid_p2p_tunnel', r => has(r, 0, 'ae2:me_p2p_tunnel') && r.inputs[1].length > 0, 'its tag');

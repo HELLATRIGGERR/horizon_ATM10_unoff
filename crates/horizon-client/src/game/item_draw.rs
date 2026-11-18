@@ -497,6 +497,25 @@ impl Game<'_> {
         }
         state
     }
+    /// A fluid's still sprite in its tint as a slot's 16x16 square at `(x, y)` (JEI's `FluidTankRenderer`, the
+    /// square AE2's terminals draw a fluid key with); false for an unknown fluid.
+    pub(super) fn draw_fluid_icon(&self, batch: &mut HudBatch, fluid: &str, x: f32, y: f32) -> bool {
+        let renderer = &self.pack.item_renderer;
+        let Some(state) = renderer.ae2_wrapped_fluid(DisplayContext::Gui, fluid) else { return false };
+        item_render::gui::draw(
+            &state,
+            renderer,
+            &self.gui.atlas.sprites,
+            &self.item_host(),
+            batch,
+            x,
+            y,
+            self.glint_frame.millis / 1000.0,
+            self.glint_frame.speed,
+            self.glint_frame.alpha,
+        );
+        true
+    }
     /// `GuiGraphics.renderItem(player, level, stack, x, y, 0)`.
     pub(super) fn draw_item_model(&self, batch: &mut HudBatch, stack: &ItemStack, x: f32, y: f32) {
         let owner = self.player_owner(Some(stack));

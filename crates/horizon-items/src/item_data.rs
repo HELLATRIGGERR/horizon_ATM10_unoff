@@ -2075,7 +2075,10 @@ pub fn command_components(text: &str) -> Result<Tag, String> {
                 format!("minecraft:{key}")
             };
             #[cfg(feature = "ae2-lab")]
-            let tag = if crate::ae2_components::is_known(&id) { crate::ae2_components::normalize(&id, tag)? } else { tag };
+            let tag = match crate::AE2_COMPONENTS.get() {
+                Some((known, normalize)) if known(&id) => normalize(&id, tag)?,
+                _ => tag,
+            };
             entries.insert(JavaString::from(id.as_str()), tag);
             rest = &value[used..];
         } else if let Some(key) = key.strip_prefix('!') {

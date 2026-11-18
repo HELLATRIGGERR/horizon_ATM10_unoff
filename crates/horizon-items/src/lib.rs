@@ -5,6 +5,16 @@
 //! horizon-client re-exports each module under its old path
 //! (`horizon_client::items`, ...).
 #![forbid(unsafe_code)]
+
+/// AE2's item component codecs (`horizon_command::ae2_components`: whether it knows an id, and
+/// its normalizer), for the component text the items parse (`item_data::command_components`).
+/// horizon-command depends on horizon-items, so it installs them here when AE2 starts
+/// (`install_key_types`) or its commands register; the first install holds.
+#[allow(clippy::type_complexity)]
+pub static AE2_COMPONENTS: std::sync::OnceLock<(
+    fn(&str) -> bool,
+    fn(&str, horizon_core::nbt::Tag) -> std::result::Result<horizon_core::nbt::Tag, String>,
+)> = std::sync::OnceLock::new();
 #[cfg(feature = "ae2-lab")]
 pub mod ae2_stack_identity;
 pub mod banner_layer;

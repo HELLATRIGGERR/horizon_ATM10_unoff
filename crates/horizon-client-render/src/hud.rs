@@ -1472,39 +1472,44 @@ impl HudAtlas {
             // resolve to the same atlas on every content-pack reload.
             #[cfg(feature = "ae2-lab")]
             {
-                let guide = root.join("assets/ae2/ae2guide");
-                let mut files = Vec::new();
-                walk(&guide, &mut files);
-                files.sort();
-                for path in files {
-                    let Ok(relative) = path.strip_prefix(&guide) else { continue; };
-                    let name = relative.with_extension("").to_string_lossy().replace('\\', "/");
-                    match decode(&path) {
-                        Ok((w,h,pixels)) => images.push((format!("ae2:guide/{name}"),w,h,pixels)),
-                        Err(error) => log::warn!("AE2 Guide image {}: {error}", path.display()),
+                // The pack's files through its resource source (a folder or an archive).
+                let image = |name: &str| -> Option<(u32, u32, Vec<u8>)> {
+                    let bytes = root
+                        .read(name)
+                        .map_err(|error| log::warn!("AE2 texture {name}: {error}"))
+                        .ok()?;
+                    decode_bytes(&bytes)
+                        .map_err(|error| log::warn!("AE2 texture {name}: {error}"))
+                        .ok()
+                };
+                let png = |name: &str| name.ends_with(".png");
+                // Guide artwork is outside the normal Minecraft texture tree.
+                // Keep the real pixels and relative paths so document image nodes
+                // resolve to the same atlas on every content-pack reload.
+                const GUIDE: &str = "assets/ae2/ae2guide/";
+                for name in root.list(GUIDE).into_iter().filter(|name| png(name)) {
+                    let relative = &name[GUIDE.len()..name.len() - ".png".len()];
+                    if let Some((w, h, pixels)) = image(&name) {
+                        images.push((format!("ae2:guide/{relative}"), w, h, pixels));
                     }
                 }
-            }
-            // AE2's screens draw from its GUI textures (`textures/guis/*.png`,
-            // named `ae2:guis/<name>`): backgrounds, toolbar icons, panels.
-            #[cfg(feature = "ae2-lab")]
-            {
-                let guis = root.join("assets/ae2/textures/guis");
-                let mut files: Vec<_> = std::fs::read_dir(&guis)
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().is_some_and(|e| e == "png"))
-                    .collect();
-                files.sort();
-                for path in files {
-                    let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
-                        continue;
-                    };
-                    match decode(&path) {
-                        Ok((w, h, pixels)) => images.push((format!("ae2:guis/{name}"), w, h, pixels)),
-                        Err(error) => log::warn!("AE2 GUI texture {}: {error}", path.display()),
+                // AE2's screens draw from its GUI textures (`textures/guis/*.png`,
+                // named `ae2:guis/<name>`): backgrounds, toolbar icons, panels.
+                // Its own GUI sprites (`AE2Button`'s, VerticalButtonBar's
+                // backdrop), named `ae2:gui/<name>` and drawn in slices.
+                for (folder, named) in [
+                    ("assets/ae2/textures/guis/", "ae2:guis/"),
+                    ("assets/ae2/textures/gui/sprites/", "ae2:gui/"),
+                ] {
+                    for name in root.list(folder) {
+                        let stem = &name[folder.len()..];
+                        if stem.contains('/') || !png(stem) {
+                            continue;
+                        }
+                        let stem = &stem[..stem.len() - ".png".len()];
+                        if let Some((w, h, pixels)) = image(&name) {
+                            images.push((format!("{named}{stem}"), w, h, pixels));
+                        }
                     }
                 }
                 // Addons' textures of AE2's namespace, carried under their
@@ -1512,53 +1517,16 @@ impl HudAtlas {
                 // MEGA's `guis/megacells/mega_interface.png` is
                 // `ae2:guis/megacells/mega_interface`, AE2WTLib's
                 // `wtlib/guis/magnet.png` `ae2:wtlib/guis/magnet`.
-                let mut addons: Vec<_> = std::fs::read_dir(root.join("assets"))
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .map(|e| e.path().join("ae2/textures"))
-                    .filter(|p| p.is_dir())
-                    .collect();
-                addons.sort();
-                for guis in addons {
-                    let mut files = Vec::new();
-                    let mut folders = vec![guis.clone()];
-                    while let Some(folder) = folders.pop() {
-                        for path in std::fs::read_dir(&folder).into_iter().flatten().flatten().map(|e| e.path()) {
-                            if path.is_dir() {
-                                folders.push(path);
-                            } else if path.extension().is_some_and(|e| e == "png") {
-                                files.push(path);
-                            }
-                        }
-                    }
-                    files.sort();
-                    for path in files {
-                        let Ok(relative) = path.strip_prefix(&guis) else { continue };
-                        let name = relative.with_extension("").to_string_lossy().replace('\\', "/");
-                        match decode(&path) {
-                            Ok((w, h, pixels)) => images.push((format!("ae2:{name}"), w, h, pixels)),
-                            Err(error) => log::warn!("AE2 addon GUI texture {}: {error}", path.display()),
-                        }
-                    }
-                }
-                // Its own GUI sprites (`AE2Button`'s, VerticalButtonBar's
-                // backdrop), named `ae2:gui/<name>` and drawn in slices.
-                let sprites = root.join("assets/ae2/textures/gui/sprites");
-                let mut files: Vec<_> = std::fs::read_dir(&sprites)
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .map(|e| e.path())
-                    .filter(|p| p.extension().is_some_and(|e| e == "png"))
-                    .collect();
-                files.sort();
-                for path in files {
-                    let Some(name) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+                for name in root.list_under("assets", &["ae2"]) {
+                    let Some((_, relative)) = name.split_once("/ae2/textures/") else {
                         continue;
                     };
-                    if let Ok((w, h, pixels)) = decode(&path) {
-                        images.push((format!("ae2:gui/{name}"), w, h, pixels));
+                    if !png(relative) {
+                        continue;
+                    }
+                    let relative = &relative[..relative.len() - ".png".len()];
+                    if let Some((w, h, pixels)) = image(&name) {
+                        images.push((format!("ae2:{relative}"), w, h, pixels));
                     }
                 }
             }

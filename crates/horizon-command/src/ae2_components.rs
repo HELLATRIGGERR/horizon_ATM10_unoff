@@ -176,6 +176,7 @@ pub fn is_known(id: &str) -> bool {
 use horizon_core::nbt::{Compound, Tag};
 
 pub fn register(reg: &mut crate::args::Registries) {
+    install_item_codecs();
     reg.persistent_components
         .extend(PERSISTENT_IDS.iter().map(|id| (*id).to_owned()));
     reg.persistent_components.sort();
@@ -379,6 +380,12 @@ static KEY_TYPES: std::sync::OnceLock<fn(&str) -> bool> = std::sync::OnceLock::n
 /// Installs the key type lookup; the first install holds.
 pub fn install_key_types(registered: fn(&str) -> bool) {
     let _ = KEY_TYPES.set(registered);
+    install_item_codecs();
+}
+/// Lends `is_known` and `normalize` to horizon-items' component parsing
+/// (`horizon_items::AE2_COMPONENTS`), which can't depend on this crate.
+pub fn install_item_codecs() {
+    let _ = horizon_items::AE2_COMPONENTS.set((is_known, normalize));
 }
 /// `AEKeyType.CODEC`: the id of a registered key type (`ae2:keytypes`).
 fn key_type(t: Tag) -> Result<Tag, String> {

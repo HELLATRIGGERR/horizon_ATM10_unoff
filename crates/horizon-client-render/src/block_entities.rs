@@ -757,8 +757,8 @@ impl BlockEntities {
         let saved=Arc::make_mut(chunk.saved.get_or_insert_with(||Arc::new(crate::chunk::ChunkExtras::default())));
         saved.block_entity_sources.retain(|(pos,_)|!positions.contains(pos));
         saved.block_entity_sources.extend(owned);
-        saved.rolled_loot.retain(|roll|!positions.contains(&roll.pos) || self.vanilla_metadata(&roll.pos)
-            .and_then(|tag|horizon_client_core::nbt_value::text(tag.get("LootTable"))).as_deref()==Some(roll.table.as_str()));
+        // Upstream keeps a container's unrolled loot in its block entity's own tag (`LootTable`),
+        // now the source above: the chunk has no separate rolled-loot list to prune.
     }
     /// Whether the ticking table has been built.
     pub fn has_states(&self) -> bool {

@@ -921,6 +921,10 @@ impl Environment {
             frame: Arc::new(RwLock::new(Frame::default())),
             biomes: HashMap::new(),
             post: HashMap::new(),
+            // Built in code, not read from a pack: nothing to reload from.
+            source: ResourceSource::default(),
+            dimension: "ae2:spatial_storage".to_owned(),
+            packs: PackModifiers::default(),
         }
     }
     pub fn load(root: &ResourceSource) -> Result<Self> {

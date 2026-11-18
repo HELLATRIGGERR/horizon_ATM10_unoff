@@ -1185,9 +1185,9 @@ impl Items {
                         }
                     }
                     info.attack_damage += 0.4;
-                    for (kind, _, amount, operation, _) in &mut info.modifiers {
-                        if kind == "minecraft:attack_damage" && operation == "add_value" {
-                            *amount += 0.4;
+                    for row in &mut info.modifiers {
+                        if row.attribute == "minecraft:attack_damage" && row.operation == "add_value" {
+                            row.amount += 0.4;
                         }
                     }
                 }

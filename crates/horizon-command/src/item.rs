@@ -277,14 +277,17 @@ fn decode_component_in(id: &str, t: &Tag, reg: Option<&Registries>) -> Result<()
     if crate::ae2_components::is_known(id) {
         return crate::ae2_components::validate(id, t);
     }
+    // A component the registries decide, checked only when there are registries
+    // (`decode_component_shape` has none).
+    let with_reg = |check: &dyn Fn(&Registries) -> Result<(), String>| reg.map_or(Ok(()), check);
     match id {
         "minecraft:container_loot" => container_loot(t).map(|_| ()),
         "minecraft:lodestone_tracker" => lodestone_tracker(t).map(|_| ()),
         "minecraft:recipes" => recipes(t).map(|_| ()),
-        "minecraft:mob_visibility" => {
+        "minecraft:mob_visibility" => with_reg(&|reg| {
             horizon_items::item_data::ingredient_components::decode_mob_visibility(t, reg)
                 .map(|_| ())
-        }
+        }),
         "minecraft:custom_model_data" => horizon_items::item_data::custom_model_data::valid(t)
             .then_some(())
             .ok_or_else(|| "Expected custom model data record".into()),
@@ -470,14 +473,16 @@ fn decode_component_in(id: &str, t: &Tag, reg: Option<&Registries>) -> Result<()
         ),
         "minecraft:base_color" => dye_color(t).map(|_| ()),
         "minecraft:enchantments" | "minecraft:stored_enchantments" => enchantment_map(t, reg),
-        "minecraft:tooltip_display" => tooltip_display(t, reg).map(|_| ()),
+        "minecraft:tooltip_display" => with_reg(&|reg| tooltip_display(t, reg).map(|_| ())),
         // DataComponents.ENCHANTMENT_GLINT_OVERRIDE: Codec.BOOL through NbtOps.
         "minecraft:enchantment_glint_override" => horizon_items::item_data::component_bool(t)
             .map(|_| ())
             .ok_or_else(|| "Not a number".into()),
         "minecraft:custom_name" | "minecraft:item_name" => super::component::decode(t),
         "minecraft:item_model" | "minecraft:tooltip_style" => identifier_value(t).map(|_| ()),
-        "minecraft:damage_resistant" => component_values::damage_resistant(t, reg).map(|_| ()),
+        "minecraft:damage_resistant" => {
+            with_reg(&|reg| component_values::damage_resistant(t, reg).map(|_| ()))
+        }
         "minecraft:use_effects" => horizon_items::item_data::ingredient_components::use_effects(t)
             .map(|_| ())
             .map_err(str::to_owned),

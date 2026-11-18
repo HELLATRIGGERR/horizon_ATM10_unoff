@@ -185,7 +185,7 @@ impl Game<'_> {
             return;
         };
         let range = Self::status_range(self.ae2_status_view().map_or(0, |v| v.groups.len()));
-        let Some((_, oy)) = self.gui_scale().map(|b| self.inventory_origin(&b)) else {
+        let Some((_, oy)) = self.gui_batch().map(|b| self.inventory_origin(&b)) else {
             return;
         };
         let y = self.cursor.1 - oy;

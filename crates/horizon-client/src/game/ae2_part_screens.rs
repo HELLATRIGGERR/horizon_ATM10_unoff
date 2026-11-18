@@ -527,7 +527,7 @@ impl Game<'_> {
         let Some(style) = self.ae2_part_style() else {
             return;
         };
-        let Some((ox, oy)) = self.gui_scale().map(|b| self.inventory_origin(&b)) else {
+        let Some((ox, oy)) = self.gui_batch().map(|b| self.inventory_origin(&b)) else {
             return;
         };
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];

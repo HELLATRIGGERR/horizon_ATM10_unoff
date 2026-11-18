@@ -834,7 +834,12 @@ impl Game<'_> {
         else {
             return;
         };
-        let batch = HudBatch::new(size, self.settings.gui_scale_inputs());
+        let batch = self.screen_batch(size);
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_priority_open() || self.ae2_local_machine_editor_open() || self.ae2_local_energy.is_some() || self.ae2_local_pattern_access_open() || self.ae2_local_craft_screen()==1 || self.ae2_terminal_open() {
+            let (ox,oy)=self.inventory_origin(&batch);
+            if self.ae2_search_click(ox,oy,right) {return;}
+        }
         let Some(slot) = self.slot_at(&batch, self.cursor.0, self.cursor.1) else {
             return;
         };

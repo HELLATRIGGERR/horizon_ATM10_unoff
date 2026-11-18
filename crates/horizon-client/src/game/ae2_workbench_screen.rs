@@ -180,7 +180,7 @@ impl Game<'_> {
         let (Some(style), Some(enabled), Some((ox, oy))) = (
             self.ae2_workbench_style(),
             self.ae2_workbench_view().map(|v| v.enabled),
-            self.gui_scale().map(|b| self.inventory_origin(&b)),
+            self.gui_batch().map(|b| self.inventory_origin(&b)),
         ) else {
             return;
         };

@@ -27,7 +27,7 @@ impl Game<'_> {
         else {
             return false;
         };
-        let batch = HudBatch::new(size, self.settings.gui_scale_inputs());
+        let batch = self.screen_batch(size);
         let hover = match self.slot_at(&batch, self.cursor.0, self.cursor.1) {
             None => Hover::Nothing,
             Some(slot) if slot >= Creative::DISPLAY => {
@@ -55,7 +55,7 @@ impl Game<'_> {
         else {
             return false;
         };
-        let batch = HudBatch::new(size, self.settings.gui_scale_inputs());
+        let batch = self.screen_batch(size);
         let Some(slot) = self.slot_at(&batch, self.cursor.0, self.cursor.1) else {
             return false;
         };
@@ -324,10 +324,17 @@ impl Game<'_> {
         let Some(r) = self.renderer.as_ref() else {
             return;
         };
-        let batch = HudBatch::new(
-            [r.config.width, r.config.height],
-            self.settings.gui_scale_inputs(),
-        );
+        let batch = self.screen_batch([r.config.width, r.config.height]);
+        #[cfg(feature="ae2-lab")]
+        if let Some(slot)=self.slot_at(&batch,self.cursor.0,self.cursor.1) {
+            if self.carried.is_some() && self.ae2_is_fake_slot(slot) {
+                if !self.ae2_fake_drag.contains(&slot) {self.ae2_fake_drag.push(slot);}
+                if self.ae2_fake_drag.len()>1 {
+                    for target in self.ae2_fake_drag.clone() {self.ae2_fake_drag_action(target,ty!=0);}
+                }
+                return;
+            }
+        }
         if let Some(slot) = self.slot_at(&batch, self.cursor.0, self.cursor.1)
             && slot != 200
             && slot < Creative::DISPLAY
@@ -355,10 +362,7 @@ impl Game<'_> {
         let Some(r) = self.renderer.as_ref() else {
             return (None, false);
         };
-        let batch = HudBatch::new(
-            [r.config.width, r.config.height],
-            self.settings.gui_scale_inputs(),
-        );
+        let batch = self.screen_batch([r.config.width, r.config.height]);
         (
             self.slot_at(&batch, self.cursor.0, self.cursor.1),
             self.clicked_outside(&batch),

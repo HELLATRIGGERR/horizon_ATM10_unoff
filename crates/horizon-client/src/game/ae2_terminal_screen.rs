@@ -516,7 +516,7 @@ impl Game<'_> {
         }?;
         let term = style.terminal.as_ref()?;
         let state = self.ae2_term()?;
-        let height = self.gui_scale().map_or(240.0, |b| b.height) as i32;
+        let height = self.gui_batch().map_or(240.0, |b| b.height) as i32;
         let possible = term.possible_rows(height - 2 * state.margin);
         let multiplier = i32::from(state.style.min(3)) + 1;
         let mut layout = Layout { kind, style, term, rows: MIN_ROWS, w: term.width(), h: 0 };
@@ -1181,7 +1181,7 @@ impl Game<'_> {
         let Some(l) = self.ae2_term_layout() else {
             return;
         };
-        let Some(oy) = self.gui_scale().map(|b| self.inventory_origin(&b).1) else {
+        let Some(oy) = self.gui_batch().map(|b| self.inventory_origin(&b).1) else {
             return;
         };
         let track = l.scrollbar();
@@ -1209,7 +1209,7 @@ impl Game<'_> {
             return true;
         }
         if self.has_shift_down() {
-            let Some((ox, oy)) = self.gui_scale().map(|b| self.inventory_origin(&b)) else {
+            let Some((ox, oy)) = self.gui_batch().map(|b| self.inventory_origin(&b)) else {
                 return false;
             };
             let Some(index) = l.entry_at([self.cursor.0 - ox, self.cursor.1 - oy]) else {

@@ -466,7 +466,7 @@ impl Game<'_> {
         let Some(style) = self.ae2_craft_style() else {
             return;
         };
-        let Some(oy) = self.gui_scale().map(|b| self.inventory_origin(&b).1) else {
+        let Some(oy) = self.gui_batch().map(|b| self.inventory_origin(&b).1) else {
             return;
         };
         let y = self.cursor.1 - oy;
@@ -491,7 +491,7 @@ impl Game<'_> {
         let Some(style) = self.ae2_craft_style() else {
             return false;
         };
-        let Some((ox, oy)) = self.gui_scale().map(|b| self.inventory_origin(&b)) else {
+        let Some((ox, oy)) = self.gui_batch().map(|b| self.inventory_origin(&b)) else {
             return false;
         };
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];

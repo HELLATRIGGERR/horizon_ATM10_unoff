@@ -603,11 +603,12 @@ impl View<'_> {
             let player = "minecraft:player";
             return equippable_in_slot(rules.items(), tags, stack, ARMOR_SLOTS[i - 5], player);
         }
-        !(self.shulker
-            && self.container.as_ref().is_some_and(|c| i < c.len())
+        // The container's own slot rule (a machine's or a mod block's slot).
         if self.container.as_ref().is_some_and(|c| i < c.len()) && !rules.slot_accepts(i, stack) {
             return false;
         }
+        !(self.shulker
+            && self.container.as_ref().is_some_and(|c| i < c.len())
             && !crate::menu::fits_inside_container_items(self.loop_context, stack))
     }
     fn slot_rules(&self, i: usize, stack: &ItemStack, rules: &dyn Rules) -> (bool, u32) {

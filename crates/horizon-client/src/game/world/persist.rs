@@ -1007,9 +1007,6 @@ impl Game<'_> {
     /// `PrimedTnt.readAdditionalSaveData`: its numeric short fuse (80 when absent) and motion.
     // Its Passengers ride it (EntityType.loadEntityRecursive forces them on).
     pub(super) fn load_tnt(&mut self, tag: Tag, uuid: Option<[i32; 4]>) {
-                tiny: false,
-                saved_uuid: uuid,
-                tiny_owner: None,
         self.load_tnt_transferred(tag, uuid, None);
     }
 

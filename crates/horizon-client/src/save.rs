@@ -655,19 +655,6 @@ pub fn block_entity_id<'a>(e: &'a crate::containers::BlockEntity, block: &'a str
             | "minecraft:ender_chest",
         ) => block,
         (crate::containers::BlockEntity::Chest(_), b) if b.ends_with("shulker_box") => {
-        #[cfg(feature = "ae2-lab")]
-        BlockEntity::Ae2(m) => {
-            entries.push(("Items", encode_items(if m.kind == crate::ae2_world::MachineKind::DebugItemGenerator { &[] } else { &m.slots })));
-            entries.push(("ae2_lab_upgrades", encode_items(&m.upgrades)));
-            entries.push(("ae2_lab_energy", Tag::Double(m.energy.to_bits())));
-            entries.push((
-                "ae2_lab_burn_remaining",
-                Tag::Double(m.burn_remaining.to_bits()),
-            ));
-            entries.push(("ae2_lab_burn_rate", Tag::Double(m.burn_rate.to_bits())));
-            entries.push(("ae2_lab_progress", Tag::Double((if m.kind == crate::ae2_world::MachineKind::DebugItemGenerator { 0.0 } else { m.progress }).to_bits())));
-            entries.push(("ae2_lab_config", Tag::Compound(m.config.clone())));
-        }
             "minecraft:shulker_box"
         }
         _ => e.id(),

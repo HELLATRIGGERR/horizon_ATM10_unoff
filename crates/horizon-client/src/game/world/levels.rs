@@ -1527,10 +1527,6 @@ impl Game<'_> {
         None
     }
 
-        #[cfg(feature = "ae2-lab")]
-        if id == Dim::Spatial.id() {
-            return Some(Dim::Spatial);
-        }
     /// The levels this server tick runs, in `MinecraftServer.levels` order
     /// (the Overworld, the Nether, the End): every level with a player in
     /// it, forced chunks or a `/pregen` task, or the Overworld while idle.

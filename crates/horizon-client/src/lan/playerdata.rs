@@ -315,8 +315,6 @@ pub fn apply(guest: &mut Guest, level: &Level) {
     });
     guest.saved_vehicle = level.root_vehicle;
     guest.recipe_book = level.recipe_book.clone();
-        #[cfg(feature = "ae2-lab")]
-        "ae2:spatial_storage" => "ae2:spatial_storage".to_owned(),
     guest.dimension = level.dimension.clone();
     if level.ender_items.len() == 27 {
         guest.ender_items = level.ender_items.clone();

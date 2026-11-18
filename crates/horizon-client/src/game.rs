@@ -2571,6 +2571,11 @@ impl Dim {
     }
     /// Whether the open world has the dimension `id`.
     fn exists(id: &str) -> bool {
+        // AE2's spatial storage level is the fork's own (`known_level` before).
+        #[cfg(feature = "ae2-lab")]
+        if id == Self::Spatial.id() {
+            return true;
+        }
         Self::is_vanilla(id) || Self::extra(id).is_some()
     }
     /// The open world's dimensions, in the order its server ticks them.

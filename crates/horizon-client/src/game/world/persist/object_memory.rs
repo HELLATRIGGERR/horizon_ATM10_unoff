@@ -363,6 +363,9 @@ impl Game<'_> {
                 block_state: tag
                     .get("block_state")
                     .and_then(|v| entity_nbt::state_from_nbt(self.pack.assets.registry, v)),
+                tiny: false,
+                saved_uuid: uuid,
+                tiny_owner: None,
             });
             // `Entity.load`: the `PortalCooldown` of one that just came through.
             if let Some(state) = transferred {

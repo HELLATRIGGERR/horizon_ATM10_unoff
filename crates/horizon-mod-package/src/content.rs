@@ -11,7 +11,7 @@
 //! share a namespace ([`clash`]).
 use crate::manifest::Manifest;
 pub use horizon_core::arm_pose::ArmPose;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::Read,
@@ -124,8 +124,6 @@ pub struct BlockProperties {
     pub redstone_conductor: Option<bool>,
     pub solid: Option<bool>,
     pub suffocating: Option<bool>,
-    /// Native piston reaction, independently of the template block.
-    pub push_reaction: Option<String>,
     /// Destroy time in seconds of hand mining (-1: unbreakable).
     pub hardness: Option<f32>,
     pub explosion_resistance: Option<f32>,
@@ -857,38 +855,107 @@ pub const DYE_COLORS: [&str; 16] = [
     "black",
 ];
 
-/// the vanilla entity types a mod's type may copy: thrown item
-/// projectiles (`ThrowableItemProjectile`), then living mobs
-/// ([`LIVING_TEMPLATES`]).
-pub const ENTITY_TEMPLATES: [&str; 7] = [
-    "minecraft:snowball",
-    "minecraft:cat",
-    "minecraft:parrot",
-    "minecraft:villager",
-    "minecraft:wandering_trader",
-    "minecraft:wolf",
-    "minecraft:zombie",
-];
+/// the vanilla entity types a mod's thrown type may copy: thrown item
+/// projectiles (`ThrowableItemProjectile`).
+pub const THROWN_TEMPLATES: [&str; 1] = ["minecraft:snowball"];
 
 /// the vanilla mobs a mod's living type may copy: a type copying one is a mob
 /// of its template's class (NeoForge's `EntityType.Builder.of(Zombie::new,
-/// ...)`), with its own default attributes (`EntityAttributeCreationEvent`).
-/// The wandering trader is the neutral one whose behaviour is all goals,
-/// which a native mod can replace (`register_goals`); a villager's is its
-/// brain. The cat, the parrot and the wolf are the tameable ones
-/// (`TamableAnimal`): a type copying one tames, sits and follows its owner.
-pub const LIVING_TEMPLATES: [&str; 6] = [
+/// ...)`, or a mod's class extending `Zombie`), with its own default
+/// attributes (`EntityAttributeCreationEvent`). The wandering trader is the
+/// neutral one whose behaviour is all goals, which a native mod can replace
+/// (`register_goals`); a villager's is its brain. The cat, the parrot and the
+/// wolf are the tameable ones (`TamableAnimal`): a type copying one tames, sits
+/// and follows its owner. These are the 1.21.1 mobs a mod's class can extend.
+pub const LIVING_TEMPLATES: [&str; 81] = [
+    "minecraft:allay",
+    "minecraft:armadillo",
+    "minecraft:axolotl",
+    "minecraft:bat",
+    "minecraft:bee",
+    "minecraft:blaze",
+    "minecraft:bogged",
+    "minecraft:breeze",
+    "minecraft:camel",
     "minecraft:cat",
+    "minecraft:cave_spider",
+    "minecraft:chicken",
+    "minecraft:cod",
+    "minecraft:cow",
+    "minecraft:creeper",
+    "minecraft:dolphin",
+    "minecraft:donkey",
+    "minecraft:drowned",
+    "minecraft:elder_guardian",
+    "minecraft:enderman",
+    "minecraft:endermite",
+    "minecraft:evoker",
+    "minecraft:fox",
+    "minecraft:frog",
+    "minecraft:ghast",
+    "minecraft:giant",
+    "minecraft:glow_squid",
+    "minecraft:goat",
+    "minecraft:guardian",
+    "minecraft:hoglin",
+    "minecraft:horse",
+    "minecraft:husk",
+    "minecraft:illusioner",
+    "minecraft:iron_golem",
+    "minecraft:llama",
+    "minecraft:magma_cube",
+    "minecraft:mooshroom",
+    "minecraft:mule",
+    "minecraft:ocelot",
+    "minecraft:panda",
     "minecraft:parrot",
+    "minecraft:phantom",
+    "minecraft:pig",
+    "minecraft:piglin",
+    "minecraft:piglin_brute",
+    "minecraft:pillager",
+    "minecraft:polar_bear",
+    "minecraft:pufferfish",
+    "minecraft:rabbit",
+    "minecraft:ravager",
+    "minecraft:salmon",
+    "minecraft:sheep",
+    "minecraft:shulker",
+    "minecraft:silverfish",
+    "minecraft:skeleton",
+    "minecraft:skeleton_horse",
+    "minecraft:slime",
+    "minecraft:sniffer",
+    "minecraft:snow_golem",
+    "minecraft:spider",
+    "minecraft:squid",
+    "minecraft:stray",
+    "minecraft:strider",
+    "minecraft:tadpole",
+    "minecraft:trader_llama",
+    "minecraft:tropical_fish",
+    "minecraft:turtle",
+    "minecraft:vex",
     "minecraft:villager",
     "minecraft:vindicator",
     "minecraft:wandering_trader",
+    "minecraft:warden",
+    "minecraft:witch",
+    "minecraft:wither",
+    "minecraft:wither_skeleton",
     "minecraft:wolf",
+    "minecraft:zoglin",
     "minecraft:zombie",
     "minecraft:zombie_horse",
     "minecraft:zombie_villager",
     "minecraft:zombified_piglin",
 ];
+
+/// whether a mod's entity type may copy `template`: one of
+/// [`THROWN_TEMPLATES`] or [`LIVING_TEMPLATES`].
+pub fn is_entity_template(template: &str) -> bool {
+    THROWN_TEMPLATES.contains(&template) || LIVING_TEMPLATES.contains(&template)
+}
 
 pub mod entity_sounds;
 mod entity_type;
@@ -1152,7 +1219,7 @@ impl Default for FluidEntity {
     }
 }
 
-/// A carried fluid (`data/<id>/horizon/fluid/<path>.json` without a `template`: what a
+/// A carried fluid (`data/<id>/horizon/fluid/<path>.json` with a `still_texture`: what a
 /// modpack's jar declares, carried with the NeoForge oracle's numbers), as
 /// NeoForge's `FluidType` and `BaseFlowingFluid` make one: its source fluid
 /// is `<id>:<path>`, its flowing fluid `flowing`, and its `LiquidBlock`
@@ -1445,15 +1512,16 @@ impl Content {
         manifest: &Manifest,
         declared: &[String],
     ) -> Result<Content, String> {
-        let (source, sized) = if path.is_dir() {
-            (Source::Dir(path.to_owned()), folder_files(path)?)
+        // One reader for the listing and every declaration: an archive is opened once.
+        let (source, sized, mut reader) = if path.is_dir() {
+            (Source::Dir(path.to_owned()), folder_files(path)?, FileReader::Dir(path))
         } else {
             #[cfg(target_arch = "wasm32")]
             return Err("archive I/O is unavailable on wasm32".into());
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let mut zip = open_zip(path)?;
-                let mut out = Vec::new();
+                let mut out = Vec::with_capacity(zip.len());
                 for i in 0..zip.len() {
                     let entry = zip.by_index_raw(i).map_err(|e| e.to_string())?;
                     let name = entry.name().map_err(|e| e.to_string())?.into_owned();
@@ -1462,7 +1530,8 @@ impl Content {
                         out.push((name.to_owned(), entry.size()));
                     }
                 }
-                (Source::Zip(path.to_owned()), out)
+                let reader = FileReader::Zip(Box::new(zip));
+                (Source::Zip(path.to_owned()), out, reader)
             }
         };
         let mut files = Vec::with_capacity(sized.len());
@@ -1713,7 +1782,7 @@ impl Content {
                 interactions.push((file, name.clone()));
             } else {
                 return Err(format!(
-                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/, creative_tab/, fluid/, entity_type/ and menu/*.json only"
+                    "{name}: data/{id}/horizon/ holds block/, item/, mob_effect/, creative_tab/, fluid/, entity_type/, menu/ and fluid_interaction/*.json only"
                 ));
             }
         }
@@ -1850,9 +1919,16 @@ impl Content {
                 items: file.items,
             });
         }
+        let mut carried = Vec::new();
         for (fluid, name) in fluids {
+            let bytes = reader.read(&name)?;
+            // A carried fluid (NeoForge's `FluidType` whole) is read after the menus.
+            if is_carried_fluid(&bytes) {
+                carried.push((fluid, name, bytes));
+                continue;
+            }
             let file: FluidFile =
-                serde_json::from_slice(&self.file(&name)?).map_err(|e| format!("{name}: {e}"))?;
+                serde_json::from_slice(&bytes).map_err(|e| format!("{name}: {e}"))?;
             if file.sprite.as_deref().is_some_and(|s| !namespaced_id(s)) {
                 return Err(format!(
                     "{name}: sprite is an atlas sprite id (namespace:path)"
@@ -2197,14 +2273,14 @@ impl Content {
     }
 }
 
-/// Whether a fluid file names a `template` ([`Fluid`]); a carried fluid
-/// ([`CarriedFluid`]) has none.
-fn names_template(bytes: &[u8]) -> bool {
+/// Whether a fluid file is a carried fluid ([`CarriedFluid`], which names its
+/// `still_texture`) rather than a fluid's look ([`FluidLook`]).
+fn is_carried_fluid(bytes: &[u8]) -> bool {
     #[derive(Deserialize)]
     struct Probe {
-        template: Option<serde::de::IgnoredAny>,
+        still_texture: Option<serde::de::IgnoredAny>,
     }
-    serde_json::from_slice::<Probe>(bytes).is_ok_and(|probe| probe.template.is_some())
+    serde_json::from_slice::<Probe>(bytes).is_ok_and(|probe| probe.still_texture.is_some())
 }
 
 /// A `fluid_interaction` file: its fluid, and each interaction's ids
@@ -2385,9 +2461,6 @@ fn check_block(file: &Block) -> Result<(), String> {
     }
     let p = &file.properties;
     if p.light_dampening.is_some_and(|v| v > 15) { return Err("light_dampening must be 0..15".into()); }
-    if p.push_reaction.as_deref().is_some_and(|v| !matches!(v,"PUSH_PULL"|"PUSH"|"POPPED"|"IMMOVEABLE"|"IGNORE_ENTITY")) {
-        return Err("invalid push_reaction".into());
-    }
     if let Some(RandomTicks::States { property, values }) = &p.random_ticks {
         let declared = file
             .state_properties
@@ -2622,17 +2695,37 @@ fn open_zip(path: &Path) -> Result<zip::ZipArchive<std::fs::File>, String> {
     zip::ZipArchive::new(file).map_err(|e| e.to_string())
 }
 
-/// Files under `dir`, relative to `root` with `/` separators. Symbolic links
-/// are not followed: a mod folder holds its own files.
-pub(crate) fn folder_files(root: &Path) -> Result<Vec<(String, u64)>, String> {
+/// A file of a mod folder, from its directory entry.
+struct Listed {
+    /// Relative to the folder, with `/` separators.
+    name: String,
+    size: u64,
+    modified: u128,
+}
+
+/// A mod folder's content files, sorted by name.
+fn walk_mod(root: &Path) -> Result<Vec<Listed>, String> {
     let mut out = Vec::new();
     for top in ["assets", "data"] {
         walk(root, &root.join(top), &mut out)?;
     }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, u64)>) -> Result<(), String> {
+/// A mod folder's content files and their sizes, relative to `root` with `/`
+/// separators, sorted by name.
+pub(crate) fn folder_files(root: &Path) -> Result<Vec<(String, u64)>, String> {
+    Ok(walk_mod(root)?
+        .into_iter()
+        .map(|file| (file.name, file.size))
+        .collect())
+}
+
+/// Files under `dir`. Symbolic links are not followed: a mod folder holds its
+/// own files. Sizes and times come from the directory entries, which Windows
+/// returns with the listing; a metadata call per file opens each one.
+fn walk(root: &Path, dir: &Path, out: &mut Vec<Listed>) -> Result<(), String> {
     match std::fs::symlink_metadata(dir) {
         Ok(m) if !m.is_dir() => {
             return Err(format!(
@@ -2646,8 +2739,10 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, u64)>) -> Result<(), Str
     }
     let read = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for entry in read {
-        let path = entry.map_err(|e| e.to_string())?.path();
-        let meta = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        // The entry's own metadata: a symbolic link is neither a file nor a directory here.
+        let meta = entry.metadata().map_err(|e| e.to_string())?;
         if meta.is_dir() {
             walk(root, &path, out)?;
         } else if meta.is_file() {
@@ -4228,6 +4323,8 @@ capabilities = ["registries"]
         ] {
             assert!(block(bad).unwrap_err().contains("base_block"));
         }
+    }
+
     /// Declared properties follow a placement rule: the one the file names,
     /// else the one Java's blocks give their name and values; a rule that
     /// sets a value the property lacks, or names no declared property, is

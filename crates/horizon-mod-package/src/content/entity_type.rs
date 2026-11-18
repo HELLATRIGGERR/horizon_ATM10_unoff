@@ -1,18 +1,18 @@
 use super::LIVING_TEMPLATES;
 use super::entity_sounds::EntitySounds;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// an entity type the mod adds: a copy of a vanilla template's. A thrown one
 /// is thrown from `item` and drawn as it; a living one is its template's mob
 /// with other `attributes`.
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct EntityType {
     /// `<mod id>:<path>`.
     #[serde(skip)]
     pub id: String,
-    /// one of [`super::ENTITY_TEMPLATES`].
+    /// one of [`super::THROWN_TEMPLATES`] or [`LIVING_TEMPLATES`].
     pub template: String,
     /// Renderer shadow overrides; omitted values inherit the template.
     #[serde(default, deserialize_with = "deserialize_shadow")]
@@ -38,6 +38,12 @@ pub struct EntityType {
     /// Omitted slots inherit the template selection.
     #[serde(default)]
     pub sounds: EntitySounds,
+    /// a living type's own texture on its template's model, as a texture id
+    /// (`ruby:entity/ghoul` for `assets/ruby/textures/entity/ghoul.png`):
+    /// what its renderer's `getTextureLocation` gives. None draws the
+    /// template's.
+    #[serde(default)]
+    pub texture: Option<String>,
 }
 
 fn deserialize_passenger_attachments<'de, D: serde::Deserializer<'de>>(

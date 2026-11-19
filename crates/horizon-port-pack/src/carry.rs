@@ -1344,6 +1344,9 @@ pub fn carry(
     };
     if let Some(facts) = facts {
         report.oracle = true;
+        // What the block classes and their block entities' say of a click on them (cooking, a menu): a template
+        // is the engine's only way to a furnace's menu.
+        let hierarchy = crate::classes::Hierarchy::read(&mut zip, &names);
         let prefix = format!("{id}:");
         let mut declared = BTreeSet::new();
         // The mod's liquid blocks: Java draws them with the fluid renderer, not a model (`LiquidBlock`'s render
@@ -1373,9 +1376,14 @@ pub fn carry(
                 .and_then(|state| block_template(b, state))
                 .filter(|t| allowed(t));
             let modelled = blockstates.get(b).map(properties).unwrap_or_default();
+            let behaviour = block
+                .class
+                .first()
+                .map(|class| hierarchy.behaviour(class))
+                .unwrap_or_default();
             let choice = facts
                 .template(full, allowed)
-                .or_else(|| facts.extended(full, guess, Some(&modelled), allowed))
+                .or_else(|| facts.extended_with(full, guess, Some(&modelled), behaviour, allowed))
                 .or_else(|| facts.guessed(full, guess?, allowed));
             let Some(choice) = choice else {
                 let props: Vec<&str> = block.properties.keys().map(String::as_str).collect();

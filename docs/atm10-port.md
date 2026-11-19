@@ -119,6 +119,24 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
 5. `tools/atm10/load-check` reads them as the game does; `tools/atm10/play-atm10.ts` passes each carry to the game as a
    `--dev-mod` (`measure-load.ps1` measures a start).
 
+A carry gives each block a vanilla template, and the engine reads a click on it through the template. A bundle's
+`native_right_click_block` hooks (API 21 and v2) hear every click on every block, whatever the template, before the
+block's own use. A menu opens only through a template whose class opens one (`use_without_item`: furnaces, chests,
+barrels, hoppers...), with the block entity's container (hook 417) behind it; and an item's click reaches
+`native_use_item_on` (424) only when the template's own use passed, so a template that opens a menu answers it first.
+So the carry reads each block's class and its block entity's from the jar (`classes::Hierarchy`: names, superclasses
+and interfaces, never a method body) and chooses by what Java does on a click. A block that cooks (it extends
+`AbstractFurnaceBlock`, or its block entity extends `AbstractFurnaceBlockEntity` or implements `RecipeCraftingHolder`)
+and has the furnace's `facing` and `lit` takes `minecraft:furnace` (a smoker's or blast furnace's own class keeps that
+template); its other properties are declared. A block that opens a menu without cooking (`MenuProvider`) keeps the
+template it would have, one that opens nothing, and `carry-report.json` says Java opens a menu. Any other block keeps its
+template. Iron Furnaces' thirteen furnaces are on `minecraft:furnace` in a carry made so (the heater stays on
+`iron_block`), and the bundle's `furnace` world test passes on that carry as it is. Powah's furnators are not cookers
+and their block entity is not a `MenuProvider` (it implements `IInventoryHolder`), so they stay on the carved pumpkin.
+Only a menu-opening template opens a mod block entity's container on a click, so a machine that opens a menu without
+cooking (Powah's furnators; a mod's own `MenuProvider`s) gets its screen from a bundle's content step, which moves it to
+one, until the engine opens a mod container from the click itself.
+
 What ATM10 8.4 gives (2 November 2026): 287 carries, 40,557 blocks with 873,394 states (plus vanilla's and AE2's,
 about 910,000 of `MAX_STATES`' 1,048,576), 14,218 items; the load check has 289 mods on and none refused. A block
 whose jar has no blockstate for it is left out: the pack's run sees what other mods register in a namespace for their
@@ -470,8 +488,11 @@ What remains, by size:
 `pack/mods/ironfurnaces` ports Iron Furnaces 4.3.2 from its source: Qelifern/IronFurnacesNeoForge, branch `4.3.2`
 (commit 41fde020), Apache-2.0 (`LICENSE-ironfurnaces`, `NOTICE-ironfurnaces`). The older Qelifern/IronFurnaces repository
 holds the 1.20.1 versions under GPL-3.0 and was not used. The blocks, items, models and recipes are the mod's carry,
-whose furnaces sit on a template with no right-click: `pack/scripts/ironfurnaces.ts content` copies the carry
-(`IRONFURNACES_CARRY`) to a content mod with each furnace on `minecraft:furnace`, as Powah's furnators are. The script's
+whose furnaces are on `minecraft:furnace` (its block entity cooks: see the carries above), which opens the menu the
+bundle fills. `IRONFURNACES_CONTENT_DIR` can be the carry as it is. The script's `content` step, which copies a carry to
+a content mod with each furnace moved to that template, is for carries made before port-pack chose it: the full pack's
+carries have to be made again before it can go, and it stays until then. Powah's `content` step stays: its furnators
+are on the carved pumpkin. The script's
 steps `units content stage build world` build and test the bundle. It uses hooks on main and no new one: the world's cooking recipes (421, as Mekanism's smelter reads them), a
 mod container and its menu (417), an item used on a block (424), and the screen hooks.
 

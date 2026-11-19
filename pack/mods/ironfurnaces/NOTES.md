@@ -10,8 +10,8 @@ bun run pack/scripts/ironfurnaces.ts units content stage build world
 ```
 
 `content` makes the content mod from the carry (`IRONFURNACES_CARRY`, default `atm10-work/fullpack/carries/ironfurnaces`):
-the carry's furnaces are on the carved pumpkin template, which has no right-click, so each goes on `minecraft:furnace`
-(its block entity, menu and `facing`; `lit` is the template's). `world` wants that content mod (`IRONFURNACES_CONTENT_DIR`), `ATM10_DIR`,
+a carry made before port-pack read block classes has its furnaces on the carved pumpkin template, so each goes on `minecraft:furnace`
+(its block entity, menu and `facing`; `lit` is the template's). A carry made since has them there (the `world` step takes it as it is). `world` wants that content mod or such a carry (`IRONFURNACES_CONTENT_DIR`), `ATM10_DIR`,
 `AE2_CONTENT_DIR`, `AE2_RESOURCES` and `AE2_TEST_STARTUP_MS=600000`.
 
 ## Differences from Java

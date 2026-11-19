@@ -570,6 +570,127 @@ pub fn census<'a>(classes: impl IntoIterator<Item = &'a [u8]>) -> Code {
     code
 }
 
+/// The game's own classes a block's click is read from.
+const FURNACE_BLOCK: &str = "net/minecraft/world/level/block/AbstractFurnaceBlock";
+const FURNACE_ENTITY: &str = "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity";
+/// What a furnace's block entity holds to cook: its recipe and the items counted for it.
+const COOKING_HOLDER: &str = "net/minecraft/world/inventory/RecipeCraftingHolder";
+const MENU_PROVIDER: &str = "net/minecraft/world/MenuProvider";
+/// Implements `MenuProvider`: the game's chests, furnaces and hoppers are its subclasses.
+const MENU_CONTAINER: &str = "net/minecraft/world/level/block/entity/BaseContainerBlockEntity";
+const BLOCK_ENTITY_PACKAGE: &str = "net/minecraft/world/level/block/entity/";
+
+/// What the classes behind a block say of how a click on it goes in Java.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Behaviour {
+    /// Cooks like a furnace: the block extends `AbstractFurnaceBlock`, or its block entity extends
+    /// `AbstractFurnaceBlockEntity` or implements `RecipeCraftingHolder`. A furnace's own template brings
+    /// the menu, `facing` and `lit` such a block has.
+    pub furnace: bool,
+    /// Opens a menu: the block or its block entity implements `MenuProvider`.
+    pub menu: bool,
+}
+
+/// What one class is, from what is above it: its superclasses and interfaces.
+#[derive(Debug, Default, Clone, Copy)]
+struct Kind {
+    block_entity: bool,
+    furnace: bool,
+    menu: bool,
+}
+
+/// A mod jar's classes by binary name (`a/b/C`): their superclasses, interfaces and the classes their constant
+/// pools name, never what a method does. A block names its block entity (`newBlockEntity`, the casts that read
+/// it), and the block entity's class says whether it is a `MenuProvider` or cooks.
+#[derive(Debug, Default)]
+pub struct Hierarchy {
+    classes: HashMap<String, Class>,
+    kinds: HashMap<String, Kind>,
+}
+
+impl Hierarchy {
+    /// The jar's classes, as [`parse`] read them.
+    pub fn from_classes(files: impl IntoIterator<Item = Class>) -> Self {
+        let classes: HashMap<String, Class> =
+            files.into_iter().map(|c| (c.name.clone(), c)).collect();
+        let mut h = Self {
+            classes,
+            kinds: HashMap::new(),
+        };
+        let kinds = h.classes.keys().map(|n| (n.clone(), h.kind_of(n))).collect();
+        h.kinds = kinds;
+        h
+    }
+
+    /// The class files of a jar, each under the per-class cap and all under the archive's ceiling.
+    pub fn read<R: std::io::Read + std::io::Seek>(
+        zip: &mut zip::ZipArchive<R>,
+        names: &[String],
+    ) -> Self {
+        let mut budget = crate::entry::Budget::archive();
+        let mut files = Vec::new();
+        for n in names.iter().filter(|n| n.ends_with(".class")) {
+            let Ok(e) = zip.by_name(n) else { continue };
+            let declared = e.size();
+            match budget.read(e, declared, (1 << 24) - 1) {
+                Ok(bytes) => files.extend(parse(&bytes)),
+                Err(e) if crate::entry::is_too_big(&e) && declared < 1 << 24 => break,
+                Err(_) => {}
+            }
+        }
+        Self::from_classes(files)
+    }
+
+    /// `name` and every class and interface above it: the mod's own followed through the jar, the game's named.
+    fn above(&self, name: &str) -> BTreeSet<String> {
+        let mut seen = BTreeSet::new();
+        let mut todo = vec![name.to_owned()];
+        while let Some(n) = todo.pop() {
+            if n.is_empty() || !seen.insert(n.clone()) {
+                continue;
+            }
+            if let Some(c) = self.classes.get(&n) {
+                todo.push(c.superclass.clone());
+                todo.extend(c.interfaces.iter().cloned());
+            }
+        }
+        seen
+    }
+
+    fn kind_of(&self, name: &str) -> Kind {
+        let above = self.above(name);
+        Kind {
+            block_entity: above
+                .iter()
+                .any(|a| a.starts_with(BLOCK_ENTITY_PACKAGE) && a.ends_with("BlockEntity")),
+            furnace: above.contains(FURNACE_ENTITY) || above.contains(COOKING_HOLDER),
+            menu: above.contains(MENU_PROVIDER) || above.contains(MENU_CONTAINER),
+        }
+    }
+
+    /// How a click on the block of class `block` (`a.b.C` or `a/b/C`) goes: from the block's own classes, and
+    /// from the mod's block entity classes they name.
+    pub fn behaviour(&self, block: &str) -> Behaviour {
+        let own = self.above(&block.replace('.', "/"));
+        let mut out = Behaviour {
+            furnace: own.contains(FURNACE_BLOCK),
+            menu: own.contains(MENU_PROVIDER),
+        };
+        for class in own.iter().filter_map(|n| self.classes.get(n)) {
+            for kind in class
+                .refs
+                .iter()
+                .filter_map(|r| self.kinds.get(r))
+                .filter(|k| k.block_entity)
+            {
+                out.furnace |= kind.furnace;
+                out.menu |= kind.menu;
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests_support {
     /// A class file with `name` extending `superclass`, declaring `methods`
@@ -577,6 +698,18 @@ pub(crate) mod tests_support {
     pub fn class_with(
         name: &str,
         superclass: &str,
+        methods: &[&str],
+        refs: &[&str],
+        mixin: bool,
+    ) -> Vec<u8> {
+        class_implementing(name, superclass, &[], methods, refs, mixin)
+    }
+
+    /// [`class_with`] implementing `interfaces`.
+    pub fn class_implementing(
+        name: &str,
+        superclass: &str,
+        interfaces: &[&str],
         methods: &[&str],
         refs: &[&str],
         mixin: bool,
@@ -598,6 +731,7 @@ pub(crate) mod tests_support {
         };
         let this = class(&mut pool, name);
         let sup = class(&mut pool, superclass);
+        let implemented: Vec<u16> = interfaces.iter().map(|i| class(&mut pool, i)).collect();
         for r in refs {
             class(&mut pool, r);
         }
@@ -617,7 +751,10 @@ pub(crate) mod tests_support {
         out.extend([0, 0x21]);
         out.extend(this.to_be_bytes());
         out.extend(sup.to_be_bytes());
-        out.extend([0, 0]); // interfaces
+        out.extend((implemented.len() as u16).to_be_bytes());
+        for i in implemented {
+            out.extend(i.to_be_bytes());
+        }
         out.extend([0, 0]); // fields
         out.extend((names.len() as u16).to_be_bytes());
         for n in names {
@@ -757,5 +894,112 @@ mod tests {
             None
         );
         assert_eq!(one_event("(Lcom/example/MyEvent;)V"), None);
+    }
+
+    const BLOCK: &str = "net/minecraft/world/level/block/Block";
+    const ENTITY_BLOCK: &str = "net/minecraft/world/level/block/EntityBlock";
+    const BLOCK_ENTITY: &str = "net/minecraft/world/level/block/entity/BlockEntity";
+
+    fn hierarchy(files: &[Vec<u8>]) -> Hierarchy {
+        Hierarchy::from_classes(files.iter().filter_map(|f| parse(f)))
+    }
+
+    #[test]
+    fn a_block_whose_block_entity_cooks_and_opens_a_menu() {
+        // Iron Furnaces: a plain `Block` that names its block entity, whose base class and interfaces say the rest.
+        let files = [
+            implementing("m/Furnace", BLOCK, &[ENTITY_BLOCK], &["m/FurnaceTile"]),
+            implementing("m/Iron", "m/Furnace", &[], &[]),
+            implementing("m/FurnaceTile", "m/Tile", &[COOKING], &[]),
+            implementing("m/Tile", BLOCK_ENTITY, &[MENU], &[]),
+        ];
+        let h = hierarchy(&files);
+        let both = Behaviour { furnace: true, menu: true };
+        assert_eq!(h.behaviour("m.Iron"), both);
+        assert_eq!(h.behaviour("m/Furnace"), both);
+    }
+
+    #[test]
+    fn a_machine_that_opens_a_menu_does_not_cook() {
+        let files = [
+            implementing("m/Machine", BLOCK, &[ENTITY_BLOCK], &["m/MachineTile"]),
+            implementing("m/MachineTile", "m/Tile", &[], &[]),
+            implementing("m/Tile", BLOCK_ENTITY, &[MENU], &[]),
+            // The game's containers are menu providers, through `BaseContainerBlockEntity`.
+            implementing("m/Chest", BLOCK, &[], &["m/ChestTile"]),
+            implementing(
+                "m/ChestTile",
+                "net/minecraft/world/level/block/entity/BaseContainerBlockEntity",
+                &[],
+                &[],
+            ),
+        ];
+        let h = hierarchy(&files);
+        assert_eq!(h.behaviour("m.Machine"), Behaviour { furnace: false, menu: true });
+        assert_eq!(h.behaviour("m.Chest"), Behaviour { furnace: false, menu: true });
+    }
+
+    #[test]
+    fn a_block_extending_the_games_furnace_block_cooks() {
+        let files = [implementing(
+            "m/Kiln",
+            "net/minecraft/world/level/block/AbstractFurnaceBlock",
+            &[],
+            &[],
+        )];
+        assert!(hierarchy(&files).behaviour("m.Kiln").furnace);
+    }
+
+    #[test]
+    fn a_block_entity_extending_the_games_furnace_cooks() {
+        let files = [
+            implementing("m/Smelter", BLOCK, &[ENTITY_BLOCK], &["m/SmelterTile"]),
+            implementing(
+                "m/SmelterTile",
+                "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity",
+                &[],
+                &[],
+            ),
+        ];
+        assert!(hierarchy(&files).behaviour("m.Smelter").furnace);
+    }
+
+    #[test]
+    fn game_classes_a_block_only_names_do_not_make_it_a_cooker() {
+        // A block that reads the game's furnace fuel table names its block entity class, but is not one.
+        let files = [
+            implementing(
+                "m/Burner",
+                BLOCK,
+                &[],
+                &[
+                    "net/minecraft/world/level/block/entity/AbstractFurnaceBlockEntity",
+                    "net/minecraft/world/MenuProvider",
+                ],
+            ),
+            // Nor is a class that holds a recipe and is no block entity: a menu.
+            implementing("m/Panel", BLOCK, &[], &["m/PanelMenu"]),
+            implementing("m/PanelMenu", "java/lang/Object", &[COOKING, MENU], &[]),
+        ];
+        let h = hierarchy(&files);
+        assert_eq!(h.behaviour("m.Burner"), Behaviour::default());
+        assert_eq!(h.behaviour("m.Panel"), Behaviour::default());
+        assert_eq!(h.behaviour("m.NotInTheJar"), Behaviour::default());
+    }
+
+    #[test]
+    fn a_block_implementing_menu_provider_opens_a_menu() {
+        let files = [implementing("m/Altar", BLOCK, &[MENU], &[])];
+        assert_eq!(
+            hierarchy(&files).behaviour("m.Altar"),
+            Behaviour { furnace: false, menu: true }
+        );
+    }
+
+    const COOKING: &str = "net/minecraft/world/inventory/RecipeCraftingHolder";
+    const MENU: &str = "net/minecraft/world/MenuProvider";
+
+    fn implementing(name: &str, superclass: &str, interfaces: &[&str], refs: &[&str]) -> Vec<u8> {
+        super::tests_support::class_implementing(name, superclass, interfaces, &[], refs, false)
     }
 }

@@ -682,7 +682,7 @@ pub fn live_vanilla_block_entity(
     name:Option<&Tag>,
     original:Option<&Tag>,
 ) -> Tag {
-    let mut current=encode_block_entity(pos,entity,block);
+    let mut current=block_entity_encode::encode(pos,entity,block);
     let original=original.filter(|tag|crate::block_entity_nbt::id(tag)==crate::block_entity_nbt::id(&current));
     if let (Some(name),Tag::Compound(map))=(name,&mut current) {
         map.insert("CustomName".into(),name.clone());
@@ -690,7 +690,7 @@ pub fn live_vanilla_block_entity(
     let Some(original)=original else{return current};
     let loaded=decode_block_entity(original).map_or_else(
         ||current.clone(),
-        |(saved_pos,saved)|encode_block_entity(saved_pos,&saved,block),
+        |(saved_pos,saved)|block_entity_encode::encode(saved_pos,&saved,block),
     );
     let mut merged=merge_block_entity(original,&loaded,&current);
     if name.is_none() && let Tag::Compound(map)=&mut merged {

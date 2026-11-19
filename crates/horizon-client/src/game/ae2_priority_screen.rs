@@ -260,7 +260,7 @@ impl Game<'_> {
             }
         }
         if let Some(rect) = self.ae2_stock_save(style) {
-            let label = self.translate("gui.ae2.Set", "Set");
+            let label = self.translate_with_fallback("gui.ae2.Set", "Set");
             self.ae2_draw_button(batch, ox, oy, rect, &label, self.ae2_priority_field_valid(), mouse);
             let what = self.container_kind().and_then(|e| e.slots().get(STOCK_WHAT).cloned().flatten());
             if let (Some(what), Some((x, y))) = (what, style.slot("MACHINE_OUTPUT", 0)) {
@@ -285,7 +285,7 @@ impl Game<'_> {
             && let Some(block) = self.ae2_priority_owner()
         {
             let key = format!("{}.{}", if self.ae2_part_kind().is_some() { "item" } else { "block" }, block.replace(':', "."));
-            lines.push(self.translate(&key, &block));
+            lines.push(self.translate_with_fallback(&key, &block));
         }
         if lines.is_empty() {
             return;

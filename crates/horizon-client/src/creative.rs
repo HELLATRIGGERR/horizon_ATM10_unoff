@@ -236,8 +236,15 @@ pub fn item_group_key(id: &str) -> Option<&'static str> {
 impl Creative {
     #[cfg(feature = "ae2-lab")]
     fn append_ae2_tabs(&mut self, root: &Path) -> Result<()> {
-        let tags = crate::items::Items::tags_only(root, &horizon_world::loot::PackOverlay::NONE)?;
-        let names = Names::load(root);
+        let defaults = horizon_world::item_defaults::read(root)?;
+        let tags = crate::items::Items::tags_only(
+            root,
+            &horizon_world::loot::PackOverlay::NONE,
+            &defaults,
+        )?;
+        let names = Names::load(&horizon_assets::resource_source::ResourceSource::directory(
+            root.to_path_buf(),
+        ));
         // Into the exported tabs, which `rebuild` makes the shown ones from
         // whenever the permissions change; none of AE2's stacks needs them.
         for extra in crate::ae2_creative::tabs(root)? {
@@ -262,9 +269,14 @@ impl Creative {
                     path,
                     // Its English tooltip lines, as the export's are: a
                     // facade's name names its block (`Facade - Oak Log`).
-                    lines: crate::item_tooltip::lines(stack, None, &self.enchantments, &|k| {
-                        names.get(k).map(str::to_owned)
-                    })
+                    lines: crate::item_tooltip::lines(
+                        stack,
+                        None,
+                        &crate::item_tooltip::NoAttributeListener,
+                        &self.enchantments,
+                        &|k| names.get(k).map(str::to_owned),
+                        &|_| None,
+                    )
                     .iter()
                     .map(|l| java_lower(l))
                     .collect(),

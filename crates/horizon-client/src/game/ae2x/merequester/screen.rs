@@ -294,7 +294,7 @@ impl Game<'_> {
         let text_colour = rgba(64, 64, 64, 255);
         batch.text(atlas, &self.merequester_title(view), ox + 8.0, oy + 6.0, text_colour, false);
         let (_, h) = self.merequester_screen_size().unwrap_or((GUI_WIDTH, 0.0));
-        batch.text(atlas, &self.translate("container.inventory", "Inventory"), ox + 8.0, oy + h - 95.0, text_colour, false);
+        batch.text(atlas, &self.translate_with_fallback("container.inventory", "Inventory"), ox + 8.0, oy + h - 95.0, text_colour, false);
         let mouse = [self.cursor.0 - ox, self.cursor.1 - oy];
         let last = if view.universal.is_some() { SELECTOR } else { HELP };
         self.ae2_draw_toolbar(batch, ox, oy, HELP, last);
@@ -308,11 +308,11 @@ impl Game<'_> {
             search.text_color = TEXTFIELD_TEXT;
             search.draw(batch, atlas, None);
             if search.value.is_empty() && !search.focused {
-                batch.text(atlas, &self.translate("gui.ae2.SearchPlaceholder", "Search..."), search.x, search.y, TEXTFIELD_PLACEHOLDER, false);
+                batch.text(atlas, &self.translate_with_fallback("gui.ae2.SearchPlaceholder", "Search..."), search.x, search.y, TEXTFIELD_PLACEHOLDER, false);
             }
         }
         if view.lines.is_empty() {
-            let text = self.translate("gui.merequester.no_requesters", "No ME Requesters found!");
+            let text = self.translate_with_fallback("gui.merequester.no_requesters", "No ME Requesters found!");
             let width = HudBatch::text_width(atlas, &text);
             batch.text(atlas, &text, ox + ((GUI_WIDTH - width) / 2.0 - 10.0).floor(), oy + PADDING_Y + HEADER, text_colour, false);
         }
@@ -553,9 +553,9 @@ impl Game<'_> {
     /// `dialog_title` of the screen's style.
     fn merequester_title(&self, view: &View) -> String {
         if view.terminal {
-            self.translate("gui.merequester.requester_terminal", "ME Requ. Terminal")
+            self.translate_with_fallback("gui.merequester.requester_terminal", "ME Requ. Terminal")
         } else {
-            self.translate("block.merequester.requester", "ME Requester")
+            self.translate_with_fallback("block.merequester.requester", "ME Requester")
         }
     }
     /// The widgets' tooltips (`getTooltipMessage`), from the mod's language
@@ -566,7 +566,7 @@ impl Game<'_> {
         let (ox, oy) = self.inventory_origin(batch);
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];
         let rows = self.merequester_rows(view);
-        let tip = |game: &Self, name: &str, fallback: &str| game.translate(&format!("tooltip.merequester.{name}"), fallback);
+        let tip = |game: &Self, name: &str, fallback: &str| game.translate_with_fallback(&format!("tooltip.merequester.{name}"), fallback);
         let mut lines: Vec<(Text, u32)> = Vec::new();
         if inside(HELP.map(|n| n as f32), at) {
             let mut help = Vec::new();
@@ -602,7 +602,7 @@ impl Game<'_> {
                     let title = names.iter().find(|(name, _, _)| name == status).map_or("Idling", |(_, title, _)| title);
                     lines.push((Text::literal(tip(self, status, title)), argb(status_colour(status, false))));
                     lines.push(plain(" ".to_string()));
-                    lines.push(plain(self.translate("tooltip.merequester.shift_for_more", "%s for more").replace("%s", "Shift")));
+                    lines.push(plain(self.translate_with_fallback("tooltip.merequester.shift_for_more", "%s for more").replace("%s", "Shift")));
                 }
             } else if inside([ROW + PADDING_X, (j + 1) as f32 * ROW + 2.0, 16.0, 16.0], at) && locked(status) {
                 lines.push((Text::literal(tip(self, "locked", "Locked! Request in progress.")), argb(0xFF5555)));

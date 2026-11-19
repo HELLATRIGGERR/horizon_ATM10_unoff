@@ -1591,12 +1591,12 @@ impl Game<'_> {
                 let desired = wanted.min(*available).min(max);
                 proto.count = desired as u32;
                 let before = self.inventory.clone();
-                let left = self.give(proto).map_or(0, |s| u64::from(s.count));
+                let left = self.add_stack_to_inventory(proto).map_or(0, |s| u64::from(s.count));
                 self.inventory = before;
                 let capacity = desired - left;
                 if let Some(s) = self.ae2_grid_extract(p, k, capacity)? {
                     let n = s.count;
-                    let left = self.give(s);
+                    let left = self.add_stack_to_inventory(s);
                     if left.is_some() {
                         return Err("inventory changed during transfer".into());
                     }

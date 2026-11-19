@@ -353,7 +353,7 @@ impl Game<'_> {
             [1, 0, 0] => "east",
             _ => return false,
         };
-        if self.keys.contains(&super::KeyCode::ShiftLeft)
+        if self.keys.raw(&super::KeyCode::ShiftLeft)
             || !self
                 .held()
                 .is_some_and(|item| self.ae2_wrench_can_rotate(item))
@@ -525,7 +525,7 @@ impl Game<'_> {
             [1, 0, 0] => "east",
             _ => return false,
         };
-        if !self.keys.contains(&super::KeyCode::ShiftLeft)
+        if !self.keys.raw(&super::KeyCode::ShiftLeft)
             || !self.held().is_some_and(|s| self.ae2_wrench_can_disassemble(s))
         {
             return false;
@@ -552,7 +552,7 @@ impl Game<'_> {
             return false;
         };
         let before = self.inventory.clone();
-        let overflow = self.give(item);
+        let overflow = self.add_stack_to_inventory(item);
         let Some(BlockEntity::Ae2(machine)) = self.world.block_entities.get_mut(&pos) else {
             self.inventory = before;
             return true;

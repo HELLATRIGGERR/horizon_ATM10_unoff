@@ -822,9 +822,9 @@ fn condenser_consumed(mut stack: ItemStack, accepted: u32) -> Option<ItemStack> 
 impl Game<'_> {
     pub(super) fn ae2_condenser_me_fluid_insert_at(&mut self,address:super::ae2_global::GridAddress,amount:u64,simulate:bool)->u64 {
         let Some((dim,pos))=self.ae2_address_parts(address) else{return 0;};let back=self.dim;
-        if self.enter_level(None,dim).is_err(){return 0;}
+        if self.enter_level(dim).is_err(){return 0;}
         let accepted=self.ae2_condenser_me_fluid_insert(pos,amount,simulate).unwrap_or(0);
-        let _=self.enter_level(None,back);accepted
+        let _=self.enter_level(back);accepted
     }
     fn ae2_condenser_me_fluid_insert(&mut self,pos:Pos,amount:u64,simulate:bool)->Result<u64,String> {
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos) else{return Err("condenser missing".into());};
@@ -840,15 +840,15 @@ impl Game<'_> {
     }
     pub(super) fn ae2_condenser_insert_at(&mut self,address:super::ae2_global::GridAddress,stack:&ItemStack,limit:u32,simulate:bool)->u32 {
         let Some((dim,pos))=self.ae2_address_parts(address) else {return 0;};let back=self.dim;
-        if self.enter_level(None,dim).is_err(){return 0;}
+        if self.enter_level(dim).is_err(){return 0;}
         let accepted=self.ae2_condenser_insert(pos,stack,u64::from(limit),simulate).unwrap_or(0).min(u64::from(limit)) as u32;
-        let _=self.enter_level(None,back);accepted
+        let _=self.enter_level(back);accepted
     }
     pub(super) fn ae2_condenser_fill_at(&mut self,address:super::ae2_global::GridAddress,amount:u64,simulate:bool)->u64 {
         let Some((dim,pos))=self.ae2_address_parts(address) else {return 0;};let back=self.dim;
-        if self.enter_level(None,dim).is_err(){return 0;}
+        if self.enter_level(dim).is_err(){return 0;}
         let accepted=self.ae2_condenser_fill(pos,amount,simulate).unwrap_or(0);
-        let _=self.enter_level(None,back);accepted
+        let _=self.enter_level(back);accepted
     }
     pub(super) fn ae2_condenser_extract_at(&mut self,address:super::ae2_global::GridAddress,limit:u32,filter:Option<&ItemStack>,simulate:bool)->Option<ItemStack> {
         let Some(BlockEntity::Ae2(machine))=self.ae2_block_entity(address) else {return None;};
@@ -859,13 +859,13 @@ impl Game<'_> {
         let out=ItemStack{count:amount,..stack.clone()};
         if !simulate {
             let (dim,pos)=self.ae2_address_parts(address)?;let back=self.dim;
-            self.enter_level(None,dim).ok()?;
+            self.enter_level(dim).ok()?;
             if let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get_mut(&pos) {
-                if machine.slots.first().and_then(Option::as_ref)!=Some(&stack){let _=self.enter_level(None,back);return None;}
+                if machine.slots.first().and_then(Option::as_ref)!=Some(&stack){let _=self.enter_level(back);return None;}
                 machine.slots[0]=(stack.count>amount).then(||ItemStack{count:stack.count-amount,..stack});
-            } else {let _=self.enter_level(None,back);return None;}
+            } else {let _=self.enter_level(back);return None;}
             self.ae2_condenser_output_changed(pos);self.container_changed(pos);
-            let _=self.enter_level(None,back);
+            let _=self.enter_level(back);
         }
         Some(out)
     }
@@ -1533,7 +1533,7 @@ impl Game<'_> {
         let encoded_filters = horizon_client::ae2_cell_codec::encode_view_filter_slots(&slots)?;
         let before = self.inventory.clone();
         if let Some(card) = return_card {
-            if self.give(card).is_some() {
+            if self.add_stack_to_inventory(card).is_some() {
                 self.inventory = before;
                 return Err("inventory full".into());
             }

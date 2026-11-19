@@ -72,7 +72,7 @@ impl Game<'_> {
     /// (`InteractionUtil.canWrenchRotate`) turns the dock on face `face` of
     /// the cable bus at `pos` a quarter (`spin + 1`, mod 4), saved.
     pub(in crate::game) fn megacells_dock_wrench(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
-        if self.keys.contains(&crate::game::KeyCode::ShiftLeft) || !self.held().is_some_and(|s| self.ae2_wrench_can_rotate(s)) {
+        if self.keys.raw(&crate::game::KeyCode::ShiftLeft) || !self.held().is_some_and(|s| self.ae2_wrench_can_rotate(s)) {
             return false;
         }
         let side = match face {

@@ -352,7 +352,7 @@ impl Game<'_> {
                 let carried = host.hub.guests[gi].carried.clone();
                 let creative = host.hub.guests[gi].creative();
                 if let Some(cursor) = self.merequester_ghost(address, index, input, button, carried.as_ref(), creative) {
-                    host.hub.guests[gi].carried = cursor;
+                    host.hub.guests.update(gi, |g| g.carried = cursor);
                 }
             }
         } else if (SLOTS as i32..SLOTS as i32 + 36).contains(&slot) && input == Input::QuickMove {

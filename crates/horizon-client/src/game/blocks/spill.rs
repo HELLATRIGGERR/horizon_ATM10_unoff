@@ -1888,7 +1888,7 @@ mod tests {
         );
         drive.slots[0] = Some(cell.clone());
         let encoded =
-            save::encode_block_entity((1, 64, 2), &BlockEntity::Ae2(Box::new(drive)), "ae2:drive");
+            save::block_entity_encode::encode((1, 64, 2), &BlockEntity::Ae2(Box::new(drive)), "ae2:drive");
         let (_, BlockEntity::Ae2(loaded)) = save::decode_block_entity(&encoded).unwrap() else {
             panic!("AE2 saved entity")
         };

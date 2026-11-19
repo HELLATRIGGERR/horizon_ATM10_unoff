@@ -51,7 +51,8 @@ impl Game<'_> {
         for item in &mut self.ender_items { update(item); }
         if let Some(host) = &mut self.lan {
             let mut changed = Vec::new();
-            for (index, guest) in host.hub.guests.iter_mut().enumerate() {
+            for index in 0..host.hub.guests.len() {
+                host.hub.guests.update(index, |guest| {
                 let had = guest.inventory.iter().chain(guest.armor.iter()).chain([&guest.offhand,&guest.carried]).chain(guest.craft_grid.iter()).chain(guest.ender_items.iter()).flatten().any(|item| reference.tracks(item));
                 for item in &mut guest.inventory { update(item); }
                 for item in &mut guest.armor { update(item); }
@@ -59,6 +60,7 @@ impl Game<'_> {
                 for item in &mut guest.craft_grid { update(item); }
                 for item in &mut guest.ender_items { update(item); }
                 if had { changed.push(index); }
+                });
             }
             for index in changed { host.hub.send_inventory(index); }
         }
@@ -106,7 +108,7 @@ impl Game<'_> {
         let at=(pos[0],pos[1],pos[2]);
         if !matches!(self.world.block_entities.get(&at),Some(BlockEntity::Ae2(m)) if m.kind==horizon_client::ae2_world::MachineKind::DebugCubeGenerator) { return false; }
         let Some(incarnation)=self.world.block_entities.incarnation(&at) else {return false};
-        let alternate=self.keys.contains(&super::KeyCode::ShiftLeft);
+        let alternate=self.keys.raw(&super::KeyCode::ShiftLeft);
         let selected=self.inventory.get_mut(self.selected).and_then(Option::as_mut);
         let empty=selected.as_ref().is_none_or(|stack|stack.count==0);
         let state=self.ae2_debug_cubes.entry((self.dim,at)).or_default();

@@ -107,7 +107,7 @@ impl Game<'_> {
             None => None,
         };
         let portable = horizon_client::ae2x::defs::get().portable_battery(&stack.item).is_some();
-        if !self.keys.contains(&KeyCode::ShiftLeft) || self.hand != Hand::Main || stack.count != 1 {
+        if !self.keys.raw(&KeyCode::ShiftLeft) || self.hand != Hand::Main || stack.count != 1 {
             return air && !portable;
         }
         let energy = if portable {
@@ -150,7 +150,7 @@ impl Game<'_> {
                 }
                 *self.held_mut() = None;
                 for output in outputs {
-                    if let Some(rest) = self.give(output) {
+                    if let Some(rest) = self.add_stack_to_inventory(output) {
                         self.player_drop(rest);
                     }
                 }
@@ -159,7 +159,7 @@ impl Game<'_> {
         }
     }
     pub(super) fn ae2_predict_cell_disassembly(&self, stack: &ItemStack) -> bool {
-        if !self.keys.contains(&KeyCode::ShiftLeft)
+        if !self.keys.raw(&KeyCode::ShiftLeft)
             || stack.count != 1
             || !codec::is_cell(&stack.item)
         {

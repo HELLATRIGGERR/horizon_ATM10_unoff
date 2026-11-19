@@ -317,7 +317,7 @@ impl Game<'_> {
     /// blocks. Sneaking, the block passes the use to the item. True when the
     /// kit acted, whether it paired or failed.
     pub(in crate::game) fn extendedae_wireless_tool_use(&mut self, pos: [i32; 3]) -> bool {
-        if self.remote.is_some() || self.spectator() || self.keys.contains(&KeyCode::ShiftLeft) {
+        if self.remote.is_some() || self.spectator() || self.keys.raw(&KeyCode::ShiftLeft) {
             return false;
         }
         if !self.held().is_some_and(|held| held.item.as_ref() == rows::WIRELESS_TOOL) {
@@ -389,7 +389,7 @@ impl Game<'_> {
     /// `ItemWirelessConnectTool.use`, sneaking: the kit forgets its block.
     /// True when the held item is the kit.
     pub(in crate::game) fn extendedae_wireless_tool_clear(&mut self) -> bool {
-        if !self.keys.contains(&KeyCode::ShiftLeft) || !self.held().is_some_and(|held| held.item.as_ref() == rows::WIRELESS_TOOL) {
+        if !self.keys.raw(&KeyCode::ShiftLeft) || !self.held().is_some_and(|held| held.item.as_ref() == rows::WIRELESS_TOOL) {
             return false;
         }
         if let Some(stack) = self.held_mut().as_mut() {

@@ -382,7 +382,7 @@ impl Game<'_> {
         let label = |id: &str| -> Option<(String, (i32, i32))> {
             let text = style.text.get(id)?;
             let key = text.text.get("translate")?.as_str()?;
-            Some((self.translate(key, key), text.position.resolve(w, h)))
+            Some((self.translate_with_fallback(key, key), text.position.resolve(w, h)))
         };
         if which == 2 {
             let image = Image { texture: "ae2importexportcard/gui/block_picker_amount".into(), texture_size: (256, 256), src: None };
@@ -497,10 +497,10 @@ impl Game<'_> {
     pub(in crate::game) fn iecard_tooltip(&self, which: u8, at: [f32; 2]) -> Option<Tooltip> {
         let (part, _) = self.iecard_parts(which).into_iter().find(|(_, r)| inside(*r, at))?;
         Some(Tooltip::Text(match part {
-            Part::Back => self.translate("gui.ae2.Back", "Back"),
+            Part::Back => self.translate_with_fallback("gui.ae2.Back", "Back"),
             Part::Fuzzy => {
                 let card = self.iecard_card(which)?;
-                format!("{}\n{}", self.translate("gui.tooltips.ae2.FuzzyMode", "Fuzzy Comparison"), self.translate(fuzzy_tooltip(&card.fuzzy), ""))
+                format!("{}\n{}", self.translate_with_fallback("gui.tooltips.ae2.FuzzyMode", "Fuzzy Comparison"), self.translate_with_fallback(fuzzy_tooltip(&card.fuzzy), ""))
             }
             // A filter's key: the item's own tooltip, a fluid's name.
             Part::Filter(index) => {
@@ -508,11 +508,11 @@ impl Game<'_> {
                 if !fluid {
                     return Some(Tooltip::Stack(ItemStack::new(&id, 1)));
                 }
-                self.translate(&format!("block.{}", id.replace(':', ".")), &id)
+                self.translate_with_fallback(&format!("block.{}", id.replace(':', ".")), &id)
             }
             Part::Upgrade(index) => match self.iecard_card(which)?.upgrades.get(usize::from(index))?.clone() {
                 Some(id) => return Some(Tooltip::Stack(ItemStack::new(&id, 1))),
-                None => self.translate("gui.ae2.CompatibleUpgrades", "Compatible Upgrades"),
+                None => self.translate_with_fallback("gui.ae2.CompatibleUpgrades", "Compatible Upgrades"),
             },
             _ => return None,
         }))
@@ -531,11 +531,11 @@ impl Game<'_> {
     /// Its message: the card's name; the Block Picker's says its amount.
     pub(in crate::game) fn iecard_button_tooltip(&self, which: u8) -> String {
         match which {
-            0 => self.translate("item.ae2importexportcard.import_card", "Import Card"),
-            1 => self.translate("item.ae2importexportcard.export_card", "Export Card"),
+            0 => self.translate_with_fallback("item.ae2importexportcard.import_card", "Import Card"),
+            1 => self.translate_with_fallback("item.ae2importexportcard.export_card", "Export Card"),
             _ => {
                 let amount = self.iecard_picker_amount().unwrap_or(iec::BLOCK_PICKER_DEFAULT_AMOUNT);
-                self.translate("gui.ae2importexportcard.block_picker_amount.value", "Block Picker amount: %s").replace("%s", &amount.to_string())
+                self.translate_with_fallback("gui.ae2importexportcard.block_picker_amount.value", "Block Picker amount: %s").replace("%s", &amount.to_string())
             }
         }
     }

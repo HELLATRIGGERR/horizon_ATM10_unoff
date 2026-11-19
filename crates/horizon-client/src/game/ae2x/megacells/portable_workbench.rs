@@ -110,8 +110,7 @@ impl Game<'_> {
     pub(in crate::game) fn lan_open_portable_workbench(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, hand: i32) -> bool {
         let Some(guest) = host.hub.guests.iter().find(|g| g.conn == conn && !g.spectator()) else { return false };
         let source = if hand == 1 { OFFHAND_SLOT } else { guest.selected };
-        let Some(snapshot) = self
-            .as_guest(host, conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == PORTABLE_CELL_WORKBENCH && s.count == 1).cloned())
+        let Some(snapshot) = host.back(self, |hg| hg.as_guest(conn, |g| g.stack_in(source).filter(|s| s.item.as_ref() == PORTABLE_CELL_WORKBENCH && s.count == 1).cloned()))
             .flatten()
         else {
             return false;
@@ -358,7 +357,7 @@ impl Game<'_> {
                 match input {
                     Input::QuickMove => {
                         if let Some(item) = cell.take() {
-                            cell = self.give(item);
+                            cell = self.add_stack_to_inventory(item);
                         }
                     }
                     Input::Pickup if (0..=1).contains(&button) => match (self.carried.take(), cell.take()) {

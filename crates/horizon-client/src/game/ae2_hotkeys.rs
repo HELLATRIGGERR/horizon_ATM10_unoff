@@ -109,9 +109,11 @@ impl Game<'_> {
             for terminal in terminals.into_iter().rev() {
                 let Some(guest) = host.hub.guests.iter().find(|guest| guest.conn == conn && !guest.spectator()) else { return; };
                 let Some(source) = locate(guest, terminal) else { continue };
-                if let Some(stack) = host.hub.guests.iter_mut().find(|g| g.conn == conn).and_then(|g| super::ae2_wireless::source_stack_mut(g, source)) {
-                    horizon_client::ae2x::wireless::set_current(stack, terminal);
-                }
+                host.hub.guests.update_connection(conn, |g| {
+                    if let Some(stack) = super::ae2_wireless::source_stack_mut(g, source) {
+                        horizon_client::ae2x::wireless::set_current(stack, terminal);
+                    }
+                });
                 self.lan_open_ae2_wireless_source(host, conn, source);
                 if self.lan_wireless_menu_source(host, conn) == Some(source) { return; }
             }

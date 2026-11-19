@@ -78,7 +78,7 @@ impl Game<'_> {
         CHECKS
             .iter()
             .enumerate()
-            .map(|(i, (widget, key))| (*widget, self.translate(key, key), settings.checks[i], settings.active(i)))
+            .map(|(i, (widget, key))| (*widget, self.translate_with_fallback(key, key), settings.checks[i], settings.active(i)))
             .collect()
     }
     /// A press on box `index`: it turns, and the whole is sent (`save`).

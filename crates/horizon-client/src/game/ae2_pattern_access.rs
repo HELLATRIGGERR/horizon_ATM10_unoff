@@ -419,12 +419,14 @@ impl Game<'_> {
     }
     fn access_wireless_set_filter(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,ctx:&super::ae2_wireless::WirelessContext,filter:u8)->bool {
         if filter>2 || !self.ae2_wireless_source_valid(host,conn,ctx){return false;}
-        let Some(stack)=host.hub.guests.iter_mut().find(|g|g.conn==conn).and_then(|g|super::ae2_wireless::source_stack_mut(g,ctx.source)) else{return false};
+        host.hub.guests.update_connection(conn,|g|{
+        let Some(stack)=super::ae2_wireless::source_stack_mut(g,ctx.source) else{return false};
         // exportSettings keeps the values it does not know.
         let mut settings=match stack.data().and_then(|d|d.other("ae2:exported_settings")) {Some(Tag::Compound(map))=>map.clone(),_=>Default::default()};
         settings.insert(SHOW_PATTERN_PROVIDERS.into(),Tag::String(["VISIBLE","NOT_FULL","ALL"][usize::from(filter)].into()));
         stack.data_mut().set_other("ae2:exported_settings",Some(Tag::Compound(settings)));
         horizon_client::ae2_stack_identity::synchronize_tracked(stack);true
+        }).unwrap_or(false)
     }
     /// The menu still has its owner: the part in reach, or the wireless item.
     fn access_guest_valid(&self,host:&crate::game::lan_host_turn::HostTurn,conn:u32,s:&GuestPatternAccess)->bool {
@@ -498,7 +500,7 @@ impl Game<'_> {
         let snapshot=self.ae2_snapshot_blocks();let old_inventory=self.inventory.clone();let old_cursor=self.carried.clone();
         let current=machine.slots[slot].clone();
         if input==Input::QuickMove {
-            if let Some(item)=current {machine.slots[slot]=self.give(item);}
+            if let Some(item)=current {machine.slots[slot]=self.add_stack_to_inventory(item);}
         } else if input==Input::Clone && self.creative && self.carried.is_none() {
             self.carried=current;
         } else if input==Input::Pickup && matches!(button,0|1) {

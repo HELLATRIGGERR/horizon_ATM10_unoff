@@ -803,13 +803,13 @@ impl Game<'_> {
                 .map(|_|{let mut item=ItemStack::new("ae2:processing_pattern",1);item.data_mut().custom_name=Some(horizon_client::item_data::text_name("Encode item processing pattern"));item});
         }
         if state.special_mode==1 {
-            return self.res.stations().recipes.smithing_recipe_result(&self.res.stations().enchantments,state.inputs[0].as_ref(),state.inputs[1].as_ref(),state.inputs[2].as_ref()).map(|(_,result)|result);
+            return self.res.stations().recipes.smithing_recipe_result(&self.loop_context, &self.res.stations().enchantments,state.inputs[0].as_ref(),state.inputs[1].as_ref(),state.inputs[2].as_ref()).map(|(_,result)|result);
         }
         if state.special_mode==2 {
             let input=state.inputs[0].as_ref()?;
-            return state.stone_recipe.as_ref().and_then(|id|self.res.stations().recipes.stonecutter(input).iter().find(|r|&r.id==id).map(|r|r.result.clone()));
+            return state.stone_recipe.as_ref().and_then(|id|self.res.stations().recipes.stonecutter(&self.loop_context, input).iter().find(|r|&r.id==id).map(|r|r.result.clone()));
         }
-        self.res.recipes().find(&state.inputs[..9],3).map(|(_,mut result)|{result.data_mut().custom_name=Some(horizon_client::item_data::text_name("Click to encode pattern"));result})
+        self.res.recipes().find(&self.loop_context, &state.inputs[..9],3).map(|(_,mut result)|{result.data_mut().custom_name=Some(horizon_client::item_data::text_name("Click to encode pattern"));result})
     }
     pub(super) fn ae2_local_encoding_fake_slot(&self,slot:usize)->bool {
         if !self.ae2_terminal_open() || !self.ae2_local_terminal.as_ref().is_some_and(|session|session.encoding && session.encoding_open) {return false;}
@@ -970,7 +970,7 @@ impl Game<'_> {
             },
             342|343 if state.special_mode==2=>{
                 if let Some(item)=state.inputs[0].as_ref() {
-                    let recipes=self.res.stations().recipes.stonecutter(item);
+                    let recipes=self.res.stations().recipes.stonecutter(&self.loop_context, item);
                     if !recipes.is_empty(){
                         let current=state.stone_recipe.as_ref().and_then(|id|recipes.iter().position(|r|&r.id==id)).unwrap_or(0);
                         let next=if slot==342 {(current+recipes.len()-1)%recipes.len()}else{(current+1)%recipes.len()};state.stone_recipe=Some(recipes[next].id.clone());
@@ -991,7 +991,7 @@ impl Game<'_> {
                     let max=state.inputs[index].as_ref().map_or(64,|item|self.ae2_config_item_max(item));
                     super::ae2_encoding::click_ghost(&mut state.inputs[index],&mut state.fluid_inputs[index],value,button==1,max,i32::MAX as u32,i64::MAX as u64);
                 }
-                if state.special_mode==2 && slot==300 {state.stone_recipe=state.inputs[0].as_ref().and_then(|item|self.res.stations().recipes.stonecutter(item).first().map(|r|r.id.clone()));}
+                if state.special_mode==2 && slot==300 {state.stone_recipe=state.inputs[0].as_ref().and_then(|item|self.res.stations().recipes.stonecutter(&self.loop_context, item).first().map(|r|r.id.clone()));}
             },
             318..=320 if state.processing=>{
                 let index=page*3+slot-318;
@@ -1007,10 +1007,10 @@ impl Game<'_> {
                     super::ae2_processing::ae2_encode_processing_positioned(&state.inputs,&state.outputs,&state.fluid_inputs,&state.fluid_outputs).ok()
                 } else if state.special_mode!=0 {
                     let count=if state.special_mode==1 {3}else{1};let mut grid=vec![None;9];grid[..count].clone_from_slice(&state.inputs[..count]);
-                    let recipe=if state.special_mode==1 {self.res.stations().recipes.smithing_recipe_result(&self.res.stations().enchantments,grid[0].as_ref(),grid[1].as_ref(),grid[2].as_ref()).map(|(id,_)|id.to_owned())}else{state.stone_recipe.clone()};
-                    recipe.and_then(|id|{let kind=if state.special_mode==1 {"smithing"}else{"stonecutting"};let output=super::ae2_processing::special_recipe_result(self.res.stations(),kind,&id,&grid)?;super::ae2_processing::ae2_encode_special_pattern(kind,&id,&grid,&output,state.substitutes).ok()})
+                    let recipe=if state.special_mode==1 {self.res.stations().recipes.smithing_recipe_result(&self.loop_context, &self.res.stations().enchantments,grid[0].as_ref(),grid[1].as_ref(),grid[2].as_ref()).map(|(id,_)|id.to_owned())}else{state.stone_recipe.clone()};
+                    recipe.and_then(|id|{let kind=if state.special_mode==1 {"smithing"}else{"stonecutting"};let output=super::ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),kind,&id,&grid)?;super::ae2_processing::ae2_encode_special_pattern(kind,&id,&grid,&output,state.substitutes).ok()})
                 } else {
-                    self.res.recipes().find(&state.inputs[..9],3).and_then(|(recipe,out)|super::ae2_processing::ae2_encode_pattern_source(&state.inputs[..9],&out,recipe,state.substitutes,state.fluid_substitutes).ok())
+                    self.res.recipes().find(&self.loop_context, &state.inputs[..9],3).and_then(|(recipe,out)|super::ae2_processing::ae2_encode_pattern_source(&state.inputs[..9],&out,recipe,state.substitutes,state.fluid_substitutes).ok())
                 };
                 if let Some(pattern)=pattern {
                     let pattern=if state.processing {super::ae2x::reencoded_processing(machine.slots[1].as_ref(),pattern)} else {pattern};
@@ -1129,7 +1129,7 @@ impl Game<'_> {
         use horizon_client::menu::{Kind,Menu};
         let mut machine=self.ae2_local_craft_matrix().ok_or("crafting terminal unavailable")?;
         let pos=self.container.ok_or("terminal closed")?;let part=self.ae2_local_terminal_part();
-        let initial=self.res.recipes().find(&machine.slots,3).map(|(_,item)|item);
+        let initial=self.res.recipes().find(&self.loop_context, &machine.slots,3).map(|(_,item)|item);
         let Some(expected)=initial else{return Ok(());};
         let max=self.res.items().stack_max(&expected);
         let passes=if input==Input::QuickMove {max/expected.count.max(1)}else{1};
@@ -1141,7 +1141,7 @@ impl Game<'_> {
             let mut formation=super::ae2_buses::FormationPlan::default();
             for _ in 0..passes {
                 let previous=machine.slots.clone();
-                let Some((_,next_result))=self.res.recipes().find(&previous,3) else{break;};
+                let Some((_,next_result))=self.res.recipes().find(&self.loop_context, &previous,3) else{break;};
                 if next_result.count!=expected.count || !next_result.same_item_same_components(&expected){break;}
                 if input==Input::QuickMove {
                     let room=inventory.iter().map(|slot|match slot {None=>max,Some(item) if item.same_item_same_components(&expected)=>max.saturating_sub(item.count),_=>0}).fold(0u64,|sum,n|sum.saturating_add(u64::from(n)));
@@ -1178,7 +1178,7 @@ impl Game<'_> {
                             for (candidate,_) in entries {
                                 if !self.ae2_view_permits(&candidate,part,horizon_client::ae2_cell_codec::ViewCellScope::ItemsOnly) || candidate.item_id!=key.item_id || candidate==key {continue;}
                                 let Ok(sample)=ae2_lab::prototype(&candidate) else{continue;};let mut grid=previous.clone();grid[i]=Some(sample);
-                                let valid=self.res.recipes().find(&grid,3).is_some_and(|(_,output)|output.count==expected.count && output.same_item_same_components(&expected));
+                                let valid=self.res.recipes().find(&self.loop_context, &grid,3).is_some_and(|(_,output)|output.count==expected.count && output.same_item_same_components(&expected));
                                 if valid {if let Ok(Some(item))=self.ae2_grid_extract_staged(pos,&candidate,1,&mut formation){machine.slots[i]=Some(item);break;}}
                             }
                         }
@@ -1287,7 +1287,7 @@ impl Game<'_> {
         if let Some(item)=self.ae2_local_encoding_slot_view(slot) {return item;}
         if self.ae2_local_crafting_terminal_open() {
             if (327..=335).contains(&slot) {return self.ae2_local_craft_matrix()?.slots.get(slot-327)?.clone();}
-            if slot==336 {return self.ae2_local_craft_matrix().and_then(|machine|self.res.recipes().find(&machine.slots,3).map(|(_,result)|result));}
+            if slot==336 {return self.ae2_local_craft_matrix().and_then(|machine|self.res.recipes().find(&self.loop_context, &machine.slots,3).map(|(_,result)|result));}
             if slot==337 {return Some(navigation("Clear crafting grid to network"));}
             if slot==338 {return Some(navigation("Clear crafting grid to inventory"));}
         }
@@ -1410,7 +1410,7 @@ impl Game<'_> {
             };
             if carried.count > 1 {
                 self.carried = Some(ItemStack { count: carried.count - 1, ..carried });
-                if let Some(left) = self.give(changed) {
+                if let Some(left) = self.add_stack_to_inventory(changed) {
                     self.player_drop(left);
                 }
             } else {
@@ -2701,7 +2701,7 @@ impl Game<'_> {
             .unwrap_or_default();
         if owner.is_some() && craft_grid.len() == 9 {
             items[27..36].clone_from_slice(&craft_grid);
-            items[36] = self.res.recipes().find(&craft_grid, 3).map(|(_, out)| out);
+            items[36] = self.res.recipes().find(&self.loop_context, &craft_grid, 3).map(|(_, out)| out);
             items[37] = Some(navigation("Clear crafting grid to network"));
             items[38] = Some(navigation("Clear crafting grid to inventory"));
         }
@@ -2726,7 +2726,7 @@ impl Game<'_> {
             "Craft amount: {craft_amount}; click to edit"
         )));
         if wireless.is_some() {
-            let label = key_types_label(enabled_types,&|kind|self.translate(kind.description(),kind.id()));
+            let label = key_types_label(enabled_types,&|kind|self.translate_with_fallback(kind.description(),kind.id()));
             items[52] = Some(navigation(&format!("Visible types: {label}; click to configure, shift-click to cycle")));
         }
         if host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.chest_identity.is_some()) {
@@ -2823,9 +2823,9 @@ impl Game<'_> {
                     items[47]=Some(navigation(if substitutes {"Substitutions: on"}else{"Substitutions: off"}));
                     let mut special_grid=vec![None;9];let count=if special_mode==1 {3}else{1};special_grid[..count].clone_from_slice(&pattern_grid[..count]);items[..9].fill(None);items[..count].clone_from_slice(&special_grid[..count]);
                     if special_mode==1 {
-                        if let Some((_,result))=self.res.stations().recipes.smithing_recipe_result(&self.res.stations().enchantments,special_grid[0].as_ref(),special_grid[1].as_ref(),special_grid[2].as_ref()){items[13]=Some(result);}
+                        if let Some((_,result))=self.res.stations().recipes.smithing_recipe_result(&self.loop_context, &self.res.stations().enchantments,special_grid[0].as_ref(),special_grid[1].as_ref(),special_grid[2].as_ref()){items[13]=Some(result);}
                     } else if let Some(input)=special_grid[0].as_ref() {
-                        let recipes=self.res.stations().recipes.stonecutter(input);
+                        let recipes=self.res.stations().recipes.stonecutter(&self.loop_context, input);
                         items[42]=Some(navigation("Previous stonecutting recipe"));items[43]=Some(navigation("Next stonecutting recipe"));
                         if let Some(recipe)=stone_recipe.as_ref().and_then(|id|recipes.iter().find(|r|&r.id==id)) {items[13]=Some(recipe.result.clone());}
                     }
@@ -2840,7 +2840,7 @@ impl Game<'_> {
                     } else {
                         "Substitutions: off"
                     }));
-                    if let Some((_, result)) = self.res.recipes().find(&pattern_grid[..9], 3) {
+                    if let Some((_, result)) = self.res.recipes().find(&self.loop_context, &pattern_grid[..9], 3) {
                         let mut preview = result;
                         preview.data_mut().custom_name = Some(horizon_client::item_data::text_name("Click to encode pattern"));
                         items[13] = Some(preview);
@@ -2879,7 +2879,7 @@ impl Game<'_> {
             // KeyTypeSelectionScreen: a box per type, then the back tab.
             let types=KeyType::all();
             for (i,kind) in types.iter().enumerate().take(53) {
-                let name=match *kind {KeyType::ITEMS=>"Items".to_owned(),KeyType::FLUIDS=>"Fluids".to_owned(),other=>self.translate(other.description(),other.id())};
+                let name=match *kind {KeyType::ITEMS=>"Items".to_owned(),KeyType::FLUIDS=>"Fluids".to_owned(),other=>self.translate_with_fallback(other.description(),other.id())};
                 items[i]=Some(navigation(&format!("{name}: {}",if enabled_types.contains(*kind) {"enabled"}else{"disabled"})));
             }
             items[types.len().min(53)]=Some(navigation("Back to storage"));
@@ -2910,7 +2910,7 @@ impl Game<'_> {
         // PatternEncodingTermScreen's panel state: the mode, the processing
         // page, the substitution toggles and the stonecutting recipes.
         let stone_recipes=if encoding_view && special_mode==2 {
-            pattern_grid.first().cloned().flatten().map(|input|self.res.stations().recipes.stonecutter(&input)).unwrap_or_default()
+            pattern_grid.first().cloned().flatten().map(|input|self.res.stations().recipes.stonecutter(&self.loop_context, &input)).unwrap_or_default()
         } else {Vec::new()};
         let stone_selected=stone_recipe.as_ref().and_then(|id|stone_recipes.iter().position(|r|&r.id==id));
         let stonecutting:Vec<_>=stone_recipes.iter().map(|r|horizon_client::item_data::canon_stack(Some(&r.result))).collect();
@@ -3960,7 +3960,7 @@ impl Game<'_> {
             let initial_result = if shift_result {
                 self.res
                     .recipes()
-                    .find(&machine.slots, 3)
+                    .find(&self.loop_context, &machine.slots, 3)
                     .map(|(_, item)| item)
             } else {
                 None
@@ -3978,7 +3978,7 @@ impl Game<'_> {
             for _ in 0..max_passes {
                 let previous = machine.slots.clone();
                 if let Some(expected) = &initial_result {
-                    let Some((_, next_result)) = self.res.recipes().find(&previous, 3) else {
+                    let Some((_, next_result)) = self.res.recipes().find(&self.loop_context, &previous, 3) else {
                         break;
                     };
                     if next_result.count != expected.count
@@ -4060,7 +4060,7 @@ impl Game<'_> {
                                         let expected = self
                                             .res
                                             .recipes()
-                                            .find(&previous, 3)
+                                            .find(&self.loop_context, &previous, 3)
                                             .map(|(_, out)| out);
                                         if let (Some(expected), Ok(entries)) =
                                             (expected, self.ae2_grid_inventory(pos))
@@ -4078,7 +4078,7 @@ impl Game<'_> {
                                                 let mut grid = previous.clone();
                                                 grid[i] = Some(sample);
                                                 let valid =
-                                                    self.res.recipes().find(&grid, 3).is_some_and(
+                                                    self.res.recipes().find(&self.loop_context, &grid, 3).is_some_and(
                                                         |(_, out)| {
                                                             out.count == expected.count
                                                                 && out.same_item_same_components(
@@ -4745,7 +4745,7 @@ impl Game<'_> {
             {
                 let special=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.special_mode==2 && (p.slot==42 || p.slot==43)).and_then(|t|t.pattern_grid.first().and_then(Option::as_ref).map(|item|(item.clone(),t.stone_recipe.clone())));
                 if let Some((item,current))=special {
-                    let recipes=self.res.stations().recipes.stonecutter(&item);if !recipes.is_empty(){
+                    let recipes=self.res.stations().recipes.stonecutter(&self.loop_context, &item);if !recipes.is_empty(){
                         let index=current.as_ref().and_then(|id|recipes.iter().position(|r|&r.id==id)).unwrap_or(0);
                         // StonecuttingEncodingPanel picks a recipe by its place
                         // in the list (button 10 + index); 42 and 43 step.
@@ -4838,7 +4838,7 @@ impl Game<'_> {
                     }
                 }}
                 let special_input=host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).filter(|t|t.special_mode==2 && p.slot==0).and_then(|t|t.pattern_grid[0].clone());
-                if let Some(item)=special_input {let selected=self.res.stations().recipes.stonecutter(&item).first().map(|r|r.id.clone());if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()){t.stone_recipe=selected;}}
+                if let Some(item)=special_input {let selected=self.res.stations().recipes.stonecutter(&self.loop_context, &item).first().map(|r|r.id.clone());if let Some(t)=host.play.get_mut(&conn).and_then(|p|p.ae2_terminal.as_mut()){t.stone_recipe=selected;}}
             } else if (18..=20).contains(&p.slot)
                 && matches!(super::lan_crafting::input(p.input),Input::Pickup|Input::QuickMove)
             {
@@ -4913,10 +4913,10 @@ impl Game<'_> {
                     }
                 } else if special_mode!=0 {
                     let count=if special_mode==1 {3}else{1};let mut special_grid=vec![None;9];special_grid[..count].clone_from_slice(&grid[..count]);
-                    let recipe=if special_mode==1 {self.res.stations().recipes.smithing_recipe_result(&self.res.stations().enchantments,special_grid[0].as_ref(),special_grid[1].as_ref(),special_grid[2].as_ref()).map(|(id,_)|id.to_owned())} else {stone_recipe};
-                    recipe.and_then(|id| {let kind=if special_mode==1 {"smithing"}else{"stonecutting"};let output=super::ae2_processing::special_recipe_result(self.res.stations(),kind,&id,&special_grid)?;super::ae2_processing::ae2_encode_special_pattern(kind,&id,&special_grid,&output,substitutes).ok()})
+                    let recipe=if special_mode==1 {self.res.stations().recipes.smithing_recipe_result(&self.loop_context, &self.res.stations().enchantments,special_grid[0].as_ref(),special_grid[1].as_ref(),special_grid[2].as_ref()).map(|(id,_)|id.to_owned())} else {stone_recipe};
+                    recipe.and_then(|id| {let kind=if special_mode==1 {"smithing"}else{"stonecutting"};let output=super::ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),kind,&id,&special_grid)?;super::ae2_processing::ae2_encode_special_pattern(kind,&id,&special_grid,&output,substitutes).ok()})
                 } else {
-                    self.res.recipes().find(&grid[..9], 3).and_then(|(recipe, out)| {
+                    self.res.recipes().find(&self.loop_context, &grid[..9], 3).and_then(|(recipe, out)| {
                         self.res.items().get("ae2:crafting_pattern").and_then(|_| {
                             super::ae2_processing::ae2_encode_pattern_source(
                                 &grid[..9],
@@ -5586,7 +5586,7 @@ impl Game<'_> {
         if input == Input::QuickMove {
             if let Some(ProviderReturnSlot::Item(item))=slots[index].take() {
                 if item.count<=self.provider_return_item_limit(&item) {
-                    slots[index]=self.give(item).map(ProviderReturnSlot::Item);
+                    slots[index]=self.add_stack_to_inventory(item).map(ProviderReturnSlot::Item);
                 } else { slots[index]=Some(ProviderReturnSlot::Item(item)); }
             }
         } else if input == Input::Swap && ((0..=8).contains(&button) || button==40) {
@@ -6681,7 +6681,7 @@ impl Game<'_> {
         if let Some(mut field)=self.ae2_local_machine_field().cloned(){field.x=ox+48.0;field.y=oy+55.0;field.width=66.0;field.height=12.0;field.draw(batch,&self.gui.atlas,None);}
     }
     fn ae2_local_machine_return_carried(&mut self) {
-        if let Some(stack)=self.carried.take(){if let Some(rest)=self.give(stack){self.player_drop(rest);}}
+        if let Some(stack)=self.carried.take(){if let Some(rest)=self.add_stack_to_inventory(stack){self.player_drop(rest);}}
     }
     fn ae2_local_machine_open_priority(&mut self,session:&LocalMachineSession) {
         let target=PriorityTarget::Drive{pos:session.pos,identity:session.owner.host};let Some(value)=self.priority_target_read(target) else{return};
@@ -7491,7 +7491,7 @@ impl Game<'_> {
             }
             if input == Input::QuickMove {
                 if let Some(item) = slots[i].take() {
-                    slots[i] = self.give(item);
+                    slots[i] = self.add_stack_to_inventory(item);
                 }
             } else if input == Input::Pickup && (0..=1).contains(&button) {
                 let held = self.carried.take();
@@ -7756,7 +7756,7 @@ impl Game<'_> {
             }
             if input == Input::QuickMove {
                 if let Some(item) = slots[i].take() {
-                    let rest = self.give(item);
+                    let rest = self.add_stack_to_inventory(item);
                     slots[i] = rest;
                 }
             } else if input == Input::Pickup && (0..=1).contains(&button) {

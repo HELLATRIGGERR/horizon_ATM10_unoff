@@ -680,7 +680,7 @@ impl Game<'_> {
             // SHIFT_CLICK: into the player's inventory, if it fits.
             (Input::QuickMove, 0) => {
                 if let Some(item) = current {
-                    slots[slot] = self.give(item);
+                    slots[slot] = self.add_stack_to_inventory(item);
                 }
             }
             // CREATIVE_DUPLICATE.

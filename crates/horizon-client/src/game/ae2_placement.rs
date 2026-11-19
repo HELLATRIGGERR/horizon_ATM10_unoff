@@ -118,7 +118,7 @@ impl Game<'_> {
     pub(super) fn ae2_try_wrench_disassemble(&mut self,pos:[i32;3])->bool {
         use horizon_client::{ae2_world::MachineKind,containers::BlockEntity};
         use horizon_core::nbt::Tag;
-        if !self.keys.contains(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_disassemble(s)){return false;}
+        if !self.keys.raw(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_disassemble(s)){return false;}
         let key=(pos[0],pos[1],pos[2]);let old=self.world.block(pos[0],pos[1],pos[2]);
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&key) else{return false};
         if matches!(machine.kind,MachineKind::CableBus|MachineKind::Paint) || self.res.items().get(machine.id()).is_none() || self.res.facts().get(old).name.as_ref()!=machine.id(){return false;}
@@ -161,12 +161,12 @@ impl Game<'_> {
             if let Some((index,tag))=saved {if let Some(chunk)=self.world.chunks.get_mut(&(pos[0]>>4,pos[2]>>4)) {if let Some(saved)=std::sync::Arc::make_mut(chunk).saved.as_mut(){let list=&mut std::sync::Arc::make_mut(saved).block_entities;list.insert(index.min(list.len()),tag);}}}
             return result.is_ok();
         }
-        for item in drops {if let Some(rest)=self.give(item){self.pop_resource(pos,rest);}}
+        for item in drops {if let Some(rest)=self.add_stack_to_inventory(item){self.pop_resource(pos,rest);}}
         true
     }
     /// Rotate supported orientation-bearing AE2 blocks with a main-hand wrench.
     pub(super) fn ae2_try_wrench_rotate(&mut self,pos:[i32;3],face:[i32;3])->bool {
-        if self.keys.contains(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_rotate(s)){return false;}
+        if self.keys.raw(&super::KeyCode::ShiftLeft) || !self.held().is_some_and(|s|self.ae2_wrench_can_rotate(s)){return false;}
         let old=self.world.block(pos[0],pos[1],pos[2]);
         let Some(state)=self.pack.assets.registry.state(old) else{return false};
         if horizon_client::ae2_world::base_id(&state.name)=="ae2:pattern_provider" {

@@ -7,7 +7,8 @@ use horizon_client::{
     ae2_world::{Machine, MachineKind},
     block_entities::{Ae2Mutation, Ae2MutationKind},
 };
-use horizon_world::{nbt::Tag, registry::BlockStateId};
+use horizon_world::registry::BlockStateId;
+use horizon_core::nbt::Tag;
 use std::collections::{BTreeMap, BTreeSet};
 use horizon_client::ae2_event_replay::ReplayCheckpoint;
 use ae2_network_core::physical_events::PhysicalTopology;

@@ -1822,7 +1822,7 @@ impl Game<'_> {
                 }
                 data.insert("bus_next_tick".into(), Tag::Long(0));
                 let before = self.inventory.clone();
-                if self.give(card.clone()).is_some() {
+                if self.add_stack_to_inventory(card.clone()).is_some() {
                     self.inventory = before;
                     return Err("inventory full".into());
                 }

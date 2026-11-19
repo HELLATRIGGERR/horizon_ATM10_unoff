@@ -1617,7 +1617,7 @@ impl Game<'_> {
         #[cfg(feature = "ae2-lab")]
         if let Some((current, maximum)) = self.ae2_item_energy(stack) {
             lines.push((horizon_client::ae2_powered_items::energy_tooltip(
-                &self.translate("gui.ae2.StoredEnergy", "Stored Energy"), current, maximum,
+                &self.translate_with_fallback("gui.ae2.StoredEnergy", "Stored Energy"), current, maximum,
             ), rgba(170,170,170,255)));
         }
         #[cfg(feature = "ae2-lab")]

@@ -91,7 +91,7 @@ fn read_saved(card:&horizon_client::items::ItemStack,interface_target:bool)->Res
 impl Game<'_> {
     /// MemoryCardItem.use clears exported settings on alternate use in air.
     pub(super) fn ae2_clear_memory_in_air(&mut self) -> bool {
-        if !self.keys.contains(&super::KeyCode::ShiftLeft) { return false; }
+        if !self.keys.raw(&super::KeyCode::ShiftLeft) { return false; }
         let Some(mut card) = self.held().filter(|s| s.item.as_ref() == "ae2:memory_card" && s.count == 1).cloned() else { return false; };
         if super::ae2_memory::clear(&mut card).is_err() { return true; }
         horizon_client::ae2_stack_identity::synchronize_tracked(&card);
@@ -176,7 +176,7 @@ impl Game<'_> {
         let key=(pos[0],pos[1],pos[2]);
         let snapshot=match self.machine_memory_snapshot(pos,face){Ok(Some(v))=>v,Ok(None)=>return false,Err(_)=>return true};
         let before=&snapshot.machine;let kind=before.kind;
-        if self.keys.contains(&super::KeyCode::ShiftLeft) {
+        if self.keys.raw(&super::KeyCode::ShiftLeft) {
             if super::ae2_memory::clear(&mut card).is_err(){return true}
             let name=snapshot.name.as_deref();
             let result=match kind {

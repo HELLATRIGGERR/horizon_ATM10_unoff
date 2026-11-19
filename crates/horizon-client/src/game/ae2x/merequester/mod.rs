@@ -346,7 +346,7 @@ impl Game<'_> {
         }
         let Some(address) = self.ae2_local_address(key) else { return false };
         let source = Tag::compound([("translate", Tag::String("block.merequester.requester".into()))]);
-        if self.keys.contains(&crate::game::KeyCode::ShiftLeft) {
+        if self.keys.raw(&crate::game::KeyCode::ShiftLeft) {
             let Some(r) = self.merequester_load(address) else { return true };
             if crate::game::ae2_memory::clear(&mut card).is_err() {
                 return true;

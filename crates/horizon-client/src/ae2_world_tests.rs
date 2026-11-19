@@ -12,7 +12,7 @@
         chest.chest_power_capacity = Some(expected + 17.0);
         chest.energy = 42.0;
         let entity = BlockEntity::Ae2(Box::new(chest));
-        let nbt = save::encode_block_entity((0, 0, 0), &entity, "ae2:chest");
+        let nbt = save::block_entity_encode::encode((0, 0, 0), &entity, "ae2:chest");
         let (_, BlockEntity::Ae2(restored)) = save::decode_block_entity(&nbt).unwrap() else {
             panic!("expected chest")
         };
@@ -50,7 +50,7 @@
         machine.slots[0] = Some(ItemStack::new("minecraft:diamond", 64));
         machine.progress = 12.0;
         assert!(machine.physical_contents().is_empty());
-        let nbt = save::encode_block_entity((0, 64, 0), &BlockEntity::Ae2(Box::new(machine)), "ae2:debug_item_gen");
+        let nbt = save::block_entity_encode::encode((0, 64, 0), &BlockEntity::Ae2(Box::new(machine)), "ae2:debug_item_gen");
         let (_, BlockEntity::Ae2(restored)) = save::decode_block_entity(&nbt).expect("debug machine should decode") else { panic!("debug machine missing") };
         assert_eq!(restored.config.get(&"filter".into()), Some(&Tag::String("minecraft:diamond".into())));
         assert!(restored.slots.iter().all(Option::is_none));
@@ -78,7 +78,7 @@
             .config
             .insert("filter".into(), Tag::String("minecraft:stone".into()));
         let original = BlockEntity::Ae2(Box::new(machine.clone()));
-        let nbt = save::encode_block_entity((3, 64, 5), &original, machine.kind.id());
+        let nbt = save::block_entity_encode::encode((3, 64, 5), &original, machine.kind.id());
         assert_eq!(crate::block_entity_nbt::canonical(&nbt), Some(nbt.clone()));
         let (pos, decoded) = save::decode_block_entity(&nbt).unwrap();
         assert_eq!(pos, (3, 64, 5));
@@ -98,7 +98,7 @@
         card.data_mut().custom_name = Some(crate::item_data::text_name("real card"));
         machine.upgrades[0] = Some(card.clone());
         assert_eq!(machine.installed_speed_cards(), 1);
-        let nbt = save::encode_block_entity(
+        let nbt = save::block_entity_encode::encode(
             (3, 64, 5),
             &BlockEntity::Ae2(Box::new(machine.clone())),
             machine.kind.id(),
@@ -140,7 +140,7 @@
                 32,
             ))]),
         );
-        let nbt = save::encode_block_entity(
+        let nbt = save::block_entity_encode::encode(
             (0, 64, 0),
             &BlockEntity::Ae2(Box::new(cpu.clone())),
             cpu.kind.id(),
@@ -164,7 +164,7 @@
             "ae2_provider_return_items".into(),
             Tag::List(vec![save::item_to_nbt(&item)]),
         );
-        let encoded = save::encode_block_entity(
+        let encoded = save::block_entity_encode::encode(
             (1, 2, 3),
             &BlockEntity::Ae2(Box::new(p)),
             "ae2:pattern_provider",
@@ -183,7 +183,7 @@
         let item=ItemStack::new("minecraft:diamond",3);
         provider.config.insert("ae2_provider_send_items".into(),Tag::List(vec![save::item_to_nbt(&item),Tag::compound([("id",Tag::String("minecraft:stone".into()))])]));
         provider.config.insert("ae2_provider_send_fluids".into(),Tag::List(vec![Tag::compound([("fluid",Tag::String("minecraft:water".into()))])]));
-        let encoded=save::encode_block_entity((1,2,3),&BlockEntity::Ae2(Box::new(provider)),"ae2:pattern_provider");
+        let encoded=save::block_entity_encode::encode((1,2,3),&BlockEntity::Ae2(Box::new(provider)),"ae2:pattern_provider");
         let (_,BlockEntity::Ae2(restored))=save::decode_block_entity(&encoded).unwrap() else{panic!("provider")};
         assert_eq!(restored.physical_contents(),vec![item]);
         let mut other=Machine::new(MachineKind::Terminal);other.config=restored.config.clone();assert!(other.physical_contents().is_empty());
@@ -198,7 +198,7 @@
             crate::ae2_provider_queue::Entry::Fluid{key:water,amount:1000},
             crate::ae2_provider_queue::Entry::Item{prototype:item.clone(),amount:999_999},
         ]).unwrap();
-        let encoded=save::encode_block_entity((1,2,3),&BlockEntity::Ae2(Box::new(provider)),"ae2:pattern_provider");
+        let encoded=save::block_entity_encode::encode((1,2,3),&BlockEntity::Ae2(Box::new(provider)),"ae2:pattern_provider");
         let (_,BlockEntity::Ae2(restored))=save::decode_block_entity(&encoded).unwrap() else{panic!("provider")};
         let items=restored.physical_contents();assert_eq!(items.len(),1);assert_eq!(items[0].count,999_999);
         assert!(items[0].same_item_same_components(&item));
@@ -208,7 +208,7 @@
         let entity = BlockEntity::for_block("ae2:terminal").unwrap();
         assert!(entity.slots().is_empty());
         assert!(entity.contents().is_empty());
-        let mut tag = save::encode_block_entity((0, 0, 0), &entity, "ae2:terminal");
+        let mut tag = save::block_entity_encode::encode((0, 0, 0), &entity, "ae2:terminal");
         if let Tag::Compound(ref mut c) = tag {
             c.insert("ae2_lab_energy".into(), Tag::Double(f64::NAN.to_bits()));
         }

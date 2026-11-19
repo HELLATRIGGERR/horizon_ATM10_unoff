@@ -32,7 +32,7 @@ impl Game<'_> {
     pub(super) fn ae2_try_remove_part(&mut self,hit:[i32;3],face:[i32;3])->bool {
         if self.hand != super::Hand::Main { return false; }
         let side=match face {[0,-1,0]=>"down",[0,1,0]=>"up",[0,0,-1]=>"north",[0,0,1]=>"south",[-1,0,0]=>"west",[1,0,0]=>"east",_=>return false};
-        if !self.keys.contains(&KeyCode::ShiftLeft)||!self.held().is_some_and(|s|self.ae2_wrench_can_disassemble(s)){return false}
+        if !self.keys.raw(&KeyCode::ShiftLeft)||!self.held().is_some_and(|s|self.ae2_wrench_can_disassemble(s)){return false}
         let pos=(hit[0],hit[1],hit[2]);
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get(&pos) else{return false};
         if machine.kind!=MachineKind::CableBus {return false}
@@ -49,7 +49,7 @@ impl Game<'_> {
         if items.is_empty(){return true} // malformed/unknown parts stay installed
         let before=self.inventory.clone();
         let mut overflow=Vec::new();
-        for item in items {if let Some(rest)=self.give(item){overflow.push(rest);}}
+        for item in items {if let Some(rest)=self.add_stack_to_inventory(item){overflow.push(rest);}}
         let Some(BlockEntity::Ae2(machine))=self.world.block_entities.get_mut(&pos) else{self.inventory=before;return true};
         let Some(Tag::List(parts))=machine.config.get_mut(&"parts".into()) else{self.inventory=before;return true};
         if parts.get(index)!=Some(&part){self.inventory=before;return true}

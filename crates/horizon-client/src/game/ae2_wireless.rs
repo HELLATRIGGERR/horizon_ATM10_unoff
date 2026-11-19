@@ -364,13 +364,12 @@ impl Game<'_> {
             return self.ae2_wireless_validate(host, conn, ctx);
         }
         let multiplier = horizon_client::ae2_common_config::gameplay().usage_multiplier;
-        let extracted = self
-            .as_guest(host, conn, |game| {
+        let extracted = host.back(self, |hg| hg.as_guest(conn, |game| {
                 let Some(stack) = game.stack_in_mut(ctx.source).as_mut() else {
                     return 0.0;
                 };
                 extract_menu_energy(stack, drain * 10.0, multiplier).unwrap_or(0.0)
-            })
+            }))
             .unwrap_or(0.0);
         ctx.idle = (extracted / drain).ceil().clamp(0.0, 10.0) as u8;
         ctx.idle > 0
@@ -433,18 +432,20 @@ impl Game<'_> {
             }));
             return true;
         };
-        let Some(guest) = host.hub.guests.iter_mut().find(|g| g.conn == conn) else { return false; };
-        let stack = if source == super::shield::OFFHAND_SLOT {
-            guest.offhand.as_mut()
-        } else {
-            guest.inventory.get_mut(source).and_then(Option::as_mut)
-        };
-        let Some(stack) = stack else { return false; };
-        // WTDefinition.ofOrNull keeps the terminal it found as the current one.
-        if wireless::is_universal(stack) {
-            wireless::set_current(stack, terminal);
-        }
-        let source_owner = horizon_client::ae2_stack_identity::StackRef::capture(stack);
+        let owner = host.hub.guests.update_connection(conn, |guest| {
+            let stack = if source == super::shield::OFFHAND_SLOT {
+                guest.offhand.as_mut()
+            } else {
+                guest.inventory.get_mut(source).and_then(Option::as_mut)
+            };
+            let stack = stack?;
+            // WTDefinition.ofOrNull keeps the terminal it found as the current one.
+            if wireless::is_universal(stack) {
+                wireless::set_current(stack, terminal);
+            }
+            Some(horizon_client::ae2_stack_identity::StackRef::capture(stack))
+        });
+        let Some(Some(source_owner)) = owner else { return false; };
         let ctx = WirelessContext {
             source,
             target_dim,

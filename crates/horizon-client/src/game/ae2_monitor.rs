@@ -84,7 +84,7 @@ impl Game<'_> {
         let Some(state)=self.ae2_monitor_state(pos,face) else{return false};
         // An addon monitor's own item (ThroughputMonitorPart.onUseItemOn).
         if self.ae2x_monitor_use(pos,face) {return true;}
-        let alternate=self.keys.contains(&KeyCode::ShiftLeft);
+        let alternate=self.keys.raw(&KeyCode::ShiftLeft);
         let held=self.held().cloned();
         if !self.ae2_part_online(pos,face){return false;}
         if alternate {
@@ -140,9 +140,9 @@ impl Game<'_> {
         let Some((key,false))=state.key else{return true};
         let Ok(prototype)=ae2_lab::prototype(&key) else{return true};
         let max=self.res.items().stack_max(&prototype);
-        let amount=if self.keys.contains(&KeyCode::ShiftLeft){1}else{max};
+        let amount=if self.keys.raw(&KeyCode::ShiftLeft){1}else{max};
         if let Ok(Some(item))=self.ae2_grid_extract(pos,&key,u64::from(amount)) {
-            if let Some(rest)=self.give(item) && let Some(eye)=self.eye_position() {
+            if let Some(rest)=self.add_stack_to_inventory(item) && let Some(eye)=self.eye_position() {
                 self.spawn_item(rest,[eye[0],eye[1]-0.3,eye[2]],[0.0,0.1,0.0],40);
             }
         }

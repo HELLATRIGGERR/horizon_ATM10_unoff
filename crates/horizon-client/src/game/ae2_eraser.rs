@@ -41,7 +41,7 @@ impl Game<'_> {
         if !self.held().is_some_and(|s|s.item.as_ref()=="ae2:debug_eraser"&&s.count>0){return false}
         let Some(air)=self.pack.assets.registry.default_state("minecraft:air") else{return false};
         let registry=self.pack.assets.registry;
-        let alternate=self.keys.contains(&super::KeyCode::ShiftLeft);
+        let alternate=self.keys.raw(&super::KeyCode::ShiftLeft);
         let result=self.ae2_with_demand_columns(|game|{
             game.ae2_demand_column(pos[0]>>4,pos[2]>>4)?;
             let initial=game.with_level(|b,level,_|b.block(level.block_state(BlockPos::new(pos[0],pos[1],pos[2]))));

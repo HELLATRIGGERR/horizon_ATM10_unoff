@@ -228,9 +228,9 @@ fn apply_patterns(m:&mut Machine,player:&mut Player,definitions:&[Option<ItemSta
 impl Game<'_>{
     fn memory_pattern_definition(&self,p:&ItemStack)->Option<ItemStack>{
         let valid=if let Some((grid,expected))=super::ae2_processing::decode_pattern(p){
-            self.res.recipes().find(&grid,3).is_some_and(|(_,actual)|actual==expected)
+            self.res.recipes().find(&self.loop_context, &grid,3).is_some_and(|(_,actual)|actual==expected)
         }else if let Some(special)=super::ae2_processing::ae2_decode_special_pattern(p){
-            super::ae2_processing::special_recipe_result(self.res.stations(),&special.kind,&special.recipe,&special.grid)==Some(special.output)
+            super::ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),&special.kind,&special.recipe,&special.grid)==Some(special.output)
         }else{super::ae2_processing::ae2_decode_processing_pattern(p).is_some()};
         valid.then(||copy_count(p,1))
     }
@@ -301,7 +301,7 @@ impl Game<'_>{
         if let Err(error)=result{self.system_message(horizon_client::text::Text::literal(format!("Memory Card: {error}")));}true
     }
     fn provider_memory_action(&mut self,pos:[i32;3],before:Snapshot,mut card:ItemStack)->Result<(),String>{
-        if self.keys.contains(&super::KeyCode::ShiftLeft){
+        if self.keys.raw(&super::KeyCode::ShiftLeft){
             let (source,push)=match before.target{Target::Block=>(BLOCK_SOURCE,Some(before.push.as_str())),Target::Part{..}=>(PART_SOURCE,None)};
             save_card(&mut card,&before.machine,before.name.as_deref(),source,push)?;
             super::ae2_memory_host::publish_memory_name(&mut card,before.name_component.clone());

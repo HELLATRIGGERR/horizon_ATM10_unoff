@@ -626,8 +626,8 @@ impl Game<'_> {
             e if DIVIDE_BUTTONS.contains(&e) && page == 0 => inv.modify(config.modifier_multiplier((e - DIVIDE_BUTTONS.start) as usize), true),
             CLEAR_BUTTON if page == 0 => inv.clear(),
             REPLACE_BUTTON if page == 1 => {
-                let recipes = self.res.recipes();
-                inv.replace(&|recipe, grid, output| recipes.assemble_named(recipe, grid, 3).as_ref() == Some(output));
+                let (recipes, context) = (self.res.recipes(), &self.loop_context);
+                inv.replace(&|recipe, grid, output| recipes.assemble_named(context, recipe, grid, 3).as_ref() == Some(output));
             }
             e if MODE_BUTTONS.contains(&e) && page == 2 => {
                 let i = e - MODE_BUTTONS.start;
@@ -652,7 +652,7 @@ impl Game<'_> {
         }
         let Some(held) = self.held().cloned() else { return false };
         match held.item.as_ref() {
-            rows::PATTERN_MODIFIER if !self.keys.contains(&KeyCode::ShiftLeft) => self.extendedae_modifier_fill(pos, face, held),
+            rows::PATTERN_MODIFIER if !self.keys.raw(&KeyCode::ShiftLeft) => self.extendedae_modifier_fill(pos, face, held),
             rows::CONFIG_MODIFIER => self.extendedae_config_apply(pos, face, &held),
             _ => false,
         }

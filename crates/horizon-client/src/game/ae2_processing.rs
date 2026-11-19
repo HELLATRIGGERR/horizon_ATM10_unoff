@@ -9,6 +9,7 @@ use horizon_client::{
     items::{ItemStack, Items},
 };
 use horizon_core::random::RandomSource;
+use horizon_world::native_load_context::LoopContext;
 use horizon_core::nbt::Tag;
 use std::sync::Arc;
 use super::ae2_tick_tracker::{Tracker, Modulation};
@@ -1231,7 +1232,7 @@ mod reload_and_oracle_tests {
         (items,recipes)
     }
     fn reload(m:&Machine)->Machine {
-        let nbt=horizon_client::save::encode_block_entity((0,64,0),&BlockEntity::Ae2(Box::new(m.clone())),m.kind.id());
+        let nbt=horizon_client::save::block_entity_encode::encode((0,64,0),&BlockEntity::Ae2(Box::new(m.clone())),m.kind.id());
         let Some((_,BlockEntity::Ae2(back)))=horizon_client::save::decode_block_entity(&nbt) else {panic!("AE2 machine")};
         *back
     }
@@ -1425,11 +1426,11 @@ pub(super) fn special_logical_grid(kind:&str,physical:&[Option<ItemStack>])->Opt
         _=>return None,
     }Some(logical)
 }
-pub(super) fn special_recipe_result(data:&horizon_client::stations::StationData,kind:&str,recipe:&str,grid:&[Option<ItemStack>])->Option<ItemStack> {
+pub(super) fn special_recipe_result(context:&LoopContext,data:&horizon_client::stations::StationData,kind:&str,recipe:&str,grid:&[Option<ItemStack>])->Option<ItemStack> {
     if grid.len()!=9{return None;}
     match kind {
-        "stonecutting"=>{if grid.iter().skip(1).any(Option::is_some){return None;}let item=grid[0].as_ref()?;data.recipes.stonecutter(item).into_iter().find(|r|r.id==recipe).map(|r|r.result.clone())},
-        "smithing"=>{if grid.iter().skip(3).any(Option::is_some){return None;}data.recipes.smithing_recipe_result_selected(&data.enchantments,grid[0].as_ref(),grid[1].as_ref(),grid[2].as_ref(),Some(recipe)).map(|(_,result)|result)},
+        "stonecutting"=>{if grid.iter().skip(1).any(Option::is_some){return None;}let item=grid[0].as_ref()?;data.recipes.stonecutter(context,item).into_iter().find(|r|r.id==recipe).map(|r|r.result.clone())},
+        "smithing"=>{if grid.iter().skip(3).any(Option::is_some){return None;}data.recipes.smithing_recipe_result_selected(context,&data.enchantments,grid[0].as_ref(),grid[1].as_ref(),grid[2].as_ref(),Some(recipe)).map(|(_,result)|result)},
         _=>None
     }
 }
@@ -1438,14 +1439,14 @@ pub(super) fn special_recipe_result(data:&horizon_client::stations::StationData,
 /// that recipe's current output rather than its saved display fallback.
 pub(in crate::game) fn assembler_pattern_accepts(
     pattern:&ItemStack,slot:usize,stack:&ItemStack,
-    items:&Items,recipes:&horizon_client::crafting::Recipes,stations:&horizon_client::stations::StationData,
+    items:&Items,recipes:&horizon_client::crafting::Recipes,context:&LoopContext,stations:&horizon_client::stations::StationData,
 )->bool {
     let known=|s:&ItemStack|s.count>0 && s.item.as_ref()!="ae2:missing_content" && items.get(&s.item).is_some();
     if slot>=9 || !known(stack) {return false;}
     if let Some(special)=ae2_decode_special_pattern(pattern) {
         if !known(&special.output) || special.grid.iter().flatten().any(|item|!known(item)){return false;}
         let Some(mut physical)=special_assembler_grid(&special.kind,&special.grid) else{return false;};
-        let Some(actual)=special_recipe_result(stations,&special.kind,&special.recipe,&special.grid) else{return false;};
+        let Some(actual)=special_recipe_result(context,stations,&special.kind,&special.recipe,&special.grid) else{return false;};
         if !known(&actual){return false;}
         if super::ae2_source_patterns::special(pattern).is_none() && actual!=special.output {return false;}
         let Some(expected)=physical[slot].as_ref() else{return false;};
@@ -1453,16 +1454,16 @@ pub(in crate::game) fn assembler_pattern_accepts(
         if !special.substitutes{return false;}
         let mut proposed=stack.clone();proposed.count=1;physical[slot]=Some(proposed);
         let Some(logical)=special_logical_grid(&special.kind,&physical) else{return false;};
-        return special_recipe_result(stations,&special.kind,&special.recipe,&logical)==Some(actual);
+        return special_recipe_result(context,stations,&special.kind,&special.recipe,&logical)==Some(actual);
     }
     let Some((mut grid,display))=decode_pattern(pattern) else{return false;};
     if !known(&display) || grid.iter().flatten().any(|item|!known(item)){return false;}
     let source=super::ae2_source_patterns::crafting(pattern).and_then(Result::ok);
     let (recipe,actual)=if let Some(source)=source {
-        let Some(actual)=recipes.assemble_named(&source.recipe,&grid,3) else{return false;};
+        let Some(actual)=recipes.assemble_named(context,&source.recipe,&grid,3) else{return false;};
         (source.recipe,actual)
     } else {
-        let Some((name,actual))=recipes.find(&grid,3) else{return false;};
+        let Some((name,actual))=recipes.find(context,&grid,3) else{return false;};
         if actual!=display{return false;}(name.to_owned(),actual)
     };
     if !known(&actual){return false;}
@@ -1470,29 +1471,29 @@ pub(in crate::game) fn assembler_pattern_accepts(
     if expected.same_item_same_components(stack){return true;}
     if !ae2_crafting_pattern_options(pattern).is_some_and(|options|options.0){return false;}
     let mut proposed=stack.clone();proposed.count=1;grid[slot]=Some(proposed);
-    recipes.assemble_named(&recipe,&grid,3)==Some(actual)
+    recipes.assemble_named(context,&recipe,&grid,3)==Some(actual)
 }
 pub(in crate::game) fn assembler_pattern_valid(
-    pattern:&ItemStack,items:&Items,recipes:&horizon_client::crafting::Recipes,stations:&horizon_client::stations::StationData,
+    pattern:&ItemStack,items:&Items,recipes:&horizon_client::crafting::Recipes,context:&LoopContext,stations:&horizon_client::stations::StationData,
 )->bool {
     let known=|s:&ItemStack|s.count>0 && s.item.as_ref()!="ae2:missing_content" && items.get(&s.item).is_some();
     if let Some(special)=ae2_decode_special_pattern(pattern) {
         if !known(&special.output) || special.grid.iter().flatten().any(|item|!known(item)){return false;}
-        return special_recipe_result(stations,&special.kind,&special.recipe,&special.grid)
+        return special_recipe_result(context,stations,&special.kind,&special.recipe,&special.grid)
             .is_some_and(|actual|known(&actual) && (super::ae2_source_patterns::special(pattern).is_some() || actual==special.output));
     }
     let Some((grid,display))=decode_pattern(pattern) else{return false;};
     if !known(&display) || grid.iter().flatten().any(|item|!known(item)){return false;}
     if let Some(Ok(source))=super::ae2_source_patterns::crafting(pattern) {
-        recipes.assemble_named(&source.recipe,&grid,3).is_some_and(|actual|known(&actual))
+        recipes.assemble_named(context,&source.recipe,&grid,3).is_some_and(|actual|known(&actual))
     } else {
-        recipes.find(&grid,3).is_some_and(|(_,actual)|known(&actual) && actual==display)
+        recipes.find(context,&grid,3).is_some_and(|(_,actual)|known(&actual) && actual==display)
     }
 }
 pub(in crate::game) fn assembler_pattern_slot_enabled(
-    pattern:&ItemStack,slot:usize,items:&Items,recipes:&horizon_client::crafting::Recipes,stations:&horizon_client::stations::StationData,
+    pattern:&ItemStack,slot:usize,items:&Items,recipes:&horizon_client::crafting::Recipes,context:&LoopContext,stations:&horizon_client::stations::StationData,
 )->bool {
-    if slot>=9 || !assembler_pattern_valid(pattern,items,recipes,stations){return false;}
+    if slot>=9 || !assembler_pattern_valid(pattern,items,recipes,context,stations){return false;}
     if let Some(special)=ae2_decode_special_pattern(pattern) {
         return special_assembler_grid(&special.kind,&special.grid).is_some_and(|grid|grid[slot].is_some());
     }
@@ -1597,9 +1598,9 @@ fn assembler_recipe_is_special(recipe:&horizon_client::crafting::Recipe)->bool {
 /// Stonecutting and smithing assemble from the compressed live input instead.
 fn assembler_pattern_assemble(
     pattern:&ItemStack,grid:&[Option<ItemStack>],items:&Items,
-    recipes:&horizon_client::crafting::Recipes,stations:&horizon_client::stations::StationData,
+    recipes:&horizon_client::crafting::Recipes,context:&LoopContext,stations:&horizon_client::stations::StationData,
 )->Option<(Option<String>,ItemStack)> {
-    if !assembler_pattern_valid(pattern,items,recipes,stations) || grid.len()!=9
+    if !assembler_pattern_valid(pattern,items,recipes,context,stations) || grid.len()!=9
         || grid.iter().flatten().any(|item|item.count!=1 || items.get(&item.item).is_none()) {return None;}
     let (actual_left,actual_top,actual_width,actual_height)=assembler_bounds(grid)?;
     if let Some(special)=ae2_decode_special_pattern(pattern) {
@@ -1610,16 +1611,16 @@ fn assembler_pattern_assemble(
             let x=actual_left+i%actual_width;let y=actual_top+i/actual_width;
             logical[i]=grid[x+y*3].clone();
         }
-        return special_recipe_result(stations,&special.kind,&special.recipe,&logical).map(|result|(None,result));
+        return special_recipe_result(context,stations,&special.kind,&special.recipe,&logical).map(|result|(None,result));
     }
     let (original,_)=decode_pattern(pattern)?;
     let (left,top,width,height)=assembler_bounds(&original)?;
     if (width,height)!=(actual_width,actual_height) {return None;}
     let source=super::ae2_source_patterns::crafting(pattern).and_then(Result::ok);
     let (recipe,original_output)=if let Some(source)=source {
-        let output=recipes.assemble_named(&source.recipe,&original,3)?;(source.recipe,output)
+        let output=recipes.assemble_named(context,&source.recipe,&original,3)?;(source.recipe,output)
     } else {
-        let (recipe,output)=recipes.find(&original,3)?;(recipe.to_owned(),output)
+        let (recipe,output)=recipes.find(context,&original,3)?;(recipe.to_owned(),output)
     };
     let recipe_name=recipe.strip_prefix("minecraft:").unwrap_or(&recipe);
     // Horizon groups several data-driven normal crafting recipes under its
@@ -1628,14 +1629,14 @@ fn assembler_pattern_assemble(
     let dynamic=recipes.crafting.iter().find(|(name,_)|name.strip_prefix("minecraft:").unwrap_or(name)==recipe_name)
         .map_or(true,|(_,recipe)|assembler_recipe_is_special(recipe));
     if dynamic && ae2_crafting_pattern_options(pattern).is_some_and(|options|options.0) {
-        let result=recipes.assemble_named_special_unchecked(&recipe,grid,3)?;
+        let result=recipes.assemble_named_special_unchecked(context,&recipe,grid,3)?;
         return Some((Some(recipe_name.to_owned()),result));
     }
     for y in 0..height {for x in 0..width {
         let original_slot=(left+x)+(top+y)*3;let actual_slot=(actual_left+x)+(actual_top+y)*3;
         match (&original[original_slot],&grid[actual_slot]) {
             (None,None)=>{},
-            (Some(_),Some(item)) if assembler_pattern_accepts(pattern,original_slot,item,items,recipes,stations)=>{},
+            (Some(_),Some(item)) if assembler_pattern_accepts(pattern,original_slot,item,items,recipes,context,stations)=>{},
             _=>return None,
         }
     }}
@@ -1645,11 +1646,11 @@ fn assembler_pattern_assemble(
 /// check; an invalid explicit definition never falls back to legacy metadata.
 fn assembler_recipe_result(
     data:&Tag,expected_grid:&[Option<ItemStack>],grid:&[Option<ItemStack>],
-    items:&Items,recipes:&horizon_client::crafting::Recipes,stations:&horizon_client::stations::StationData,
+    items:&Items,recipes:&horizon_client::crafting::Recipes,context:&LoopContext,stations:&horizon_client::stations::StationData,
 )->Option<(Option<String>,ItemStack)> {
     if let Some(definition)=data.get("definition") {
         let pattern=horizon_client::save::item_from_nbt(definition)?;
-        let (recipe,result)=assembler_pattern_assemble(&pattern,grid,items,recipes,stations)?;
+        let (recipe,result)=assembler_pattern_assemble(&pattern,grid,items,recipes,context,stations)?;
         return (result.count>0 && items.get(&result.item).is_some()).then_some((recipe,result));
     }
     if !same_grid(grid,expected_grid) {return None;}
@@ -1661,12 +1662,12 @@ fn assembler_recipe_result(
     };
     let (recipe,result)=if let Some((kind,id))=&special {
         let logical=special_logical_grid(kind,grid).unwrap_or_else(||grid.to_vec());
-        (None,special_recipe_result(stations,kind,id,&logical)?)
+        (None,special_recipe_result(context,stations,kind,id,&logical)?)
     } else if let Some(Tag::String(recipe))=data.get("crafting_recipe") {
-        let recipe=recipe.to_string().ok()?;let result=recipes.assemble_named(&recipe,grid,3)?;
+        let recipe=recipe.to_string().ok()?;let result=recipes.assemble_named(context,&recipe,grid,3)?;
         (Some(recipe.strip_prefix("minecraft:").unwrap_or(&recipe).to_owned()),result)
     } else {
-        let (recipe,result)=recipes.find(grid,3)?;(Some(recipe.to_owned()),result)
+        let (recipe,result)=recipes.find(context,grid,3)?;(Some(recipe.to_owned()),result)
     };
     if (data.get("crafting_recipe").is_none() && special.is_none() && result!=expected)
         || items.get(&result.item).is_none() {return None;}
@@ -1718,8 +1719,8 @@ impl Game<'_> {
         let (grid, expected) = decode_pattern(pattern).ok_or("invalid laboratory pattern")?;
         let source_recipe = super::ae2_source_patterns::crafting(pattern).and_then(Result::ok).map(|source| source.recipe);
         let result = match source_recipe.as_deref() {
-            Some(recipe) => self.res.recipes().assemble_named(recipe, &grid, 3),
-            None => self.res.recipes().find(&grid, 3).map(|(_, result)| result),
+            Some(recipe) => self.res.recipes().assemble_named(&self.loop_context, recipe, &grid, 3),
+            None => self.res.recipes().find(&self.loop_context, &grid, 3).map(|(_, result)| result),
         }.ok_or("recipe unavailable")?;
         if source_recipe.is_none() && result != expected {
             return Err("pattern result does not match recipe".into());
@@ -1876,7 +1877,7 @@ impl Game<'_> {
             return false;
         };
         let Some((recipe,result))=assembler_recipe_result(&data,&expected_grid,&recipe_grid,
-            self.res.items(),self.res.recipes(),self.res.stations()) else{return false;};
+            self.res.items(),self.res.recipes(),&self.loop_context,self.res.stations()) else{return false;};
         if !self.ae2_online(pos) {
             return false;
         }
@@ -1938,6 +1939,11 @@ mod pattern_tests {
         let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();
         let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
         let stations=horizon_client::stations::StationData::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let context=horizon_world::native_load_context::LoadContext::new(
+            horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,
+            Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(), Default::default())),
+            [],
+        ).loop_context(horizon_world::native_load_context::LoopSide::Server, []);
         let named=|name:&str|&recipes.crafting.iter().find(|(id,_)|id==name).unwrap().1;
         assert!(!assembler_recipe_is_special(named("transmute")));
         assert!(assembler_recipe_is_special(named("repair")));
@@ -1945,31 +1951,31 @@ mod pattern_tests {
         let stale=simple_stack("minecraft:gold_ingot");
         let mut pattern=ae2_encode_pattern_source(&grid,&stale,"minecraft:b_named",true,false).unwrap();
         pattern.data_mut().set_other("minecraft:custom_data",None);
-        let accepts=|p:&ItemStack,slot,item:&str|assembler_pattern_accepts(p,slot,&simple_stack(item),&items,&recipes,&stations);
-        assert!(assembler_pattern_valid(&pattern,&items,&recipes,&stations));
-        assert!(assembler_pattern_slot_enabled(&pattern,0,&items,&recipes,&stations));
-        assert!(!assembler_pattern_slot_enabled(&pattern,1,&items,&recipes,&stations));
+        let accepts=|p:&ItemStack,slot,item:&str|assembler_pattern_accepts(p,slot,&simple_stack(item),&items,&recipes,&context,&stations);
+        assert!(assembler_pattern_valid(&pattern,&items,&recipes,&context,&stations));
+        assert!(assembler_pattern_slot_enabled(&pattern,0,&items,&recipes,&context,&stations));
+        assert!(!assembler_pattern_slot_enabled(&pattern,1,&items,&recipes,&context,&stations));
         let snapshot=assembler_pattern_data(&pattern).unwrap();
         assert_eq!(horizon_client::save::item_from_nbt(snapshot.get("definition").unwrap()),Some(pattern.clone()));
         assert!(accepts(&pattern,0,"minecraft:stone"));assert!(accepts(&pattern,0,"minecraft:andesite"));
         assert!(!accepts(&pattern,0,"minecraft:dirt"));assert!(!accepts(&pattern,1,"minecraft:stone"));
         let mut actual=vec![None;9];actual[0]=Some(simple_stack("minecraft:andesite"));
         let expected=horizon_client::save::decode_items(snapshot.get("grid"),9);
-        assert_eq!(assembler_recipe_result(&snapshot,&expected,&actual,&items,&recipes,&stations).unwrap().1,simple_stack("minecraft:diamond"));
+        assert_eq!(assembler_recipe_result(&snapshot,&expected,&actual,&items,&recipes,&context,&stations).unwrap().1,simple_stack("minecraft:diamond"));
         // Source AECraftingPattern compares compressed dimensions, so a moved
         // one-slot frame remains valid after it is loaded from an older save.
         actual[4]=actual[0].take();
-        assert_eq!(assembler_recipe_result(&snapshot,&expected,&actual,&items,&recipes,&stations).unwrap().1,simple_stack("minecraft:diamond"));
+        assert_eq!(assembler_recipe_result(&snapshot,&expected,&actual,&items,&recipes,&context,&stations).unwrap().1,simple_stack("minecraft:diamond"));
         actual[5]=Some(simple_stack("minecraft:stone"));
-        assert!(assembler_recipe_result(&snapshot,&expected,&actual,&items,&recipes,&stations).is_none());
+        assert!(assembler_recipe_result(&snapshot,&expected,&actual,&items,&recipes,&context,&stations).is_none());
         let mut bad_snapshot=snapshot.clone();
         if let Tag::Compound(values)=&mut bad_snapshot {values.insert("definition".into(),Tag::String("broken".into()));}
-        assert!(assembler_recipe_result(&bad_snapshot,&expected,&expected,&items,&recipes,&stations).is_none());
+        assert!(assembler_recipe_result(&bad_snapshot,&expected,&expected,&items,&recipes,&context,&stations).is_none());
         let mut old_snapshot=snapshot.clone();
         if let Tag::Compound(values)=&mut old_snapshot {values.remove(&"definition".into());}
-        assert!(assembler_recipe_result(&old_snapshot,&expected,&expected,&items,&recipes,&stations).is_some());
+        assert!(assembler_recipe_result(&old_snapshot,&expected,&expected,&items,&recipes,&context,&stations).is_some());
         actual=vec![None;9];actual[0]=Some(simple_stack("minecraft:andesite"));
-        assert!(assembler_recipe_result(&old_snapshot,&expected,&actual,&items,&recipes,&stations).is_none());
+        assert!(assembler_recipe_result(&old_snapshot,&expected,&actual,&items,&recipes,&context,&stations).is_none());
         // Each replacement is valid against the original inputs. AE2 returns
         // the original output even when the two replacements together no
         // longer match this overlapping shapeless recipe.
@@ -1978,24 +1984,24 @@ mod pattern_tests {
         pattern_overlap.data_mut().set_other("minecraft:custom_data",None);
         let overlap_snapshot=assembler_pattern_data(&pattern_overlap).unwrap();
         let mut both=overlapping.clone();both[0]=Some(simple_stack("minecraft:andesite"));both[1]=Some(simple_stack("minecraft:andesite"));
-        assert!(recipes.assemble_named("minecraft:overlap",&both,3).is_none());
-        assert_eq!(assembler_recipe_result(&overlap_snapshot,&overlapping,&both,&items,&recipes,&stations).unwrap().1,simple_stack("minecraft:diamond"));
+        assert!(recipes.assemble_named(&context,"minecraft:overlap",&both,3).is_none());
+        assert_eq!(assembler_recipe_result(&overlap_snapshot,&overlapping,&both,&items,&recipes,&context,&stations).unwrap().1,simple_stack("minecraft:diamond"));
         let mut strict=ae2_encode_pattern_source(&grid,&stale,"minecraft:b_named",false,false).unwrap();
         strict.data_mut().set_other("minecraft:custom_data",None);
         assert!(!accepts(&strict,0,"minecraft:andesite"));
         let invalid=ae2_encode_pattern_source(&grid,&simple_stack("removed:result"),"minecraft:b_named",true,false).unwrap();
-        assert!(!assembler_pattern_valid(&invalid,&items,&recipes,&stations));
+        assert!(!assembler_pattern_valid(&invalid,&items,&recipes,&context,&stations));
         let mut cut=ae2_encode_special_pattern("stonecutting","minecraft:cut",&grid,&stale,true).unwrap();
         cut.data_mut().set_other("minecraft:custom_data",None);
-        assert!(assembler_pattern_valid(&cut,&items,&recipes,&stations));
-        assert!(assembler_pattern_slot_enabled(&cut,4,&items,&recipes,&stations));
-        assert!(!assembler_pattern_slot_enabled(&cut,0,&items,&recipes,&stations));
+        assert!(assembler_pattern_valid(&cut,&items,&recipes,&context,&stations));
+        assert!(assembler_pattern_slot_enabled(&cut,4,&items,&recipes,&context,&stations));
+        assert!(!assembler_pattern_slot_enabled(&cut,0,&items,&recipes,&context,&stations));
         assert!(accepts(&cut,4,"minecraft:stone"));assert!(accepts(&cut,4,"minecraft:andesite"));
         assert!(!accepts(&cut,0,"minecraft:stone"));
         let cut_snapshot=assembler_pattern_data(&cut).unwrap();
         let cut_expected=horizon_client::save::decode_items(cut_snapshot.get("grid"),9);
         let mut moved_cut=vec![None;9];moved_cut[0]=Some(simple_stack("minecraft:andesite"));
-        assert_eq!(assembler_recipe_result(&cut_snapshot,&cut_expected,&moved_cut,&items,&recipes,&stations).unwrap().1,ItemStack::new("minecraft:stone_slab",2));
+        assert_eq!(assembler_recipe_result(&cut_snapshot,&cut_expected,&moved_cut,&items,&recipes,&context,&stations).unwrap().1,ItemStack::new("minecraft:stone_slab",2));
         let mut smith=vec![None;9];smith[0]=Some(simple_stack("minecraft:netherite_upgrade_smithing_template"));
         smith[1]=Some(simple_stack("minecraft:diamond_sword"));smith[2]=Some(simple_stack("minecraft:netherite_ingot"));
         let mut pattern=ae2_encode_special_pattern("smithing","minecraft:smith",&smith,&stale,false).unwrap();

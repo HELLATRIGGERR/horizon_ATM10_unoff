@@ -27,7 +27,7 @@ impl Recipes {
         mut durability: Option<&mut dyn FnMut(&ItemStack, u32) -> u32>,
     ) -> Vec<Option<ItemStack>> {
         #[cfg(feature = "ae2-lab")]
-        if let Some(result) = super::ae2::remainders(self, recipe, grid, size) {
+        if let Some(result) = super::ae2::remainders(self, recipe, grid, size, remainder) {
             return result;
         }
         let mut out = vec![None; size * size];

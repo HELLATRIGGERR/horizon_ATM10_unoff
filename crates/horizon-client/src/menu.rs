@@ -2229,8 +2229,6 @@ impl Menu {
 
     /// `Slot.safeInsert`: puts up to `amount` of `input` into the slot.
     fn safe_insert(&mut self, env: &Env, s: usize, input: &mut Option<ItemStack>, amount: u32) {
-                #[cfg(feature = "ae2-lab")]
-                { crate::ae2_stack_identity::synchronize_tracked(stack); crate::ae2_stack_identity::synchronize_tracked(&current); }
         self.insert_equip_source(env, s, input, amount);
     }
 
@@ -2238,10 +2236,6 @@ impl Menu {
 
     /// `Inventory.getSlotWithRemainingSpace` (selected slot 0, offhand, rest).
     fn slot_with_space(&self, env: &Env, stack: &ItemStack) -> Option<usize> {
-            #[cfg(feature = "ae2-lab")]
-            crate::ae2_stack_identity::detach_if_tracked(&mut empty);
-        #[cfg(feature = "ae2-lab")]
-        crate::ae2_stack_identity::synchronize_tracked(cell);
         slot_with_space(
             &self.state.containers[PLAYER],
             self.state.selected,
@@ -2324,6 +2318,8 @@ pub(crate) fn inventory_add(
         }
         if creative {
             stack.count = 0;
+            #[cfg(feature = "ae2-lab")]
+            crate::ae2_stack_identity::synchronize_tracked(stack);
             return true;
         }
         return false;
@@ -2335,6 +2331,8 @@ pub(crate) fn inventory_add(
         if let Some(slot) = slot {
             let cell = inventory[slot].get_or_insert_with(|| {
                 let mut empty = stack.clone();
+                #[cfg(feature = "ae2-lab")]
+                crate::ae2_stack_identity::detach_if_tracked(&mut empty);
                 empty.count = 0;
                 empty
             });
@@ -2342,8 +2340,12 @@ pub(crate) fn inventory_add(
                 .count
                 .min(item_max_stack(items, cell).saturating_sub(cell.count));
             cell.count += add;
+            #[cfg(feature = "ae2-lab")]
+            crate::ae2_stack_identity::synchronize_tracked(cell);
             stack.count -= add;
         }
+        #[cfg(feature = "ae2-lab")]
+        crate::ae2_stack_identity::synchronize_tracked(stack);
         if stack.count == 0 || stack.count >= last {
             if stack.count == last && creative {
                 stack.count = 0;
@@ -2351,10 +2353,6 @@ pub(crate) fn inventory_add(
                 crate::ae2_stack_identity::synchronize_tracked(stack);
                 return true;
             }
-            #[cfg(feature = "ae2-lab")]
-            crate::ae2_stack_identity::synchronize_tracked(stack);
-                    #[cfg(feature = "ae2-lab")]
-                    crate::ae2_stack_identity::synchronize_tracked(stack);
             return stack.count < last;
         }
     }
@@ -2392,10 +2390,6 @@ impl Menu {
         end: usize,
         backwards: bool,
     ) -> bool {
-                    #[cfg(feature = "ae2-lab")]
-                    { crate::ae2_stack_identity::synchronize_tracked(target); crate::ae2_stack_identity::synchronize_tracked(stack); }
-                    #[cfg(feature = "ae2-lab")]
-                    { crate::ae2_stack_identity::synchronize_tracked(target); crate::ae2_stack_identity::synchronize_tracked(stack); }
         self.touch();
         self.move_to_equip_source(env, stack, start, end, backwards)
     }

@@ -3,7 +3,8 @@
 use super::{Game, Port, capabilities};
 use crate::game::ae2_global::GridAddress;
 use horizon_client::{ae2_world::MachineKind, containers::BlockEntity};
-use horizon_world::{chunk::BlockState, nbt::Tag, registry::BlockStateId};
+use horizon_world::{chunk::BlockState, registry::BlockStateId};
+use horizon_core::nbt::Tag;
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Default)]

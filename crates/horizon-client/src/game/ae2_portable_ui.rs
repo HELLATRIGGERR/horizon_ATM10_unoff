@@ -289,7 +289,7 @@ impl Game<'_> {
                 }
                 item.count = requested as u32;
                 let before = self.inventory.clone();
-                let leftover = self.give(item.clone()).map_or(0, |s| u64::from(s.count));
+                let leftover = self.add_stack_to_inventory(item.clone()).map_or(0, |s| u64::from(s.count));
                 self.inventory = before.clone();
                 let moved = portable_extract(&mut cell,key,requested-leftover,KeyType::ITEMS,Action::Modulate);
                 if moved == 0 {
@@ -298,7 +298,7 @@ impl Game<'_> {
                 write(&mut stack, &cell)?;
                 self.portable_debit(&mut stack, moved, 1.0)?;
                 item.count = moved as u32;
-                if self.give(item).is_some() {
+                if self.add_stack_to_inventory(item).is_some() {
                     self.inventory = before;
                     return Err("inventory changed during transfer".into());
                 }
@@ -497,7 +497,7 @@ impl Game<'_> {
                 count: bucket.count - 1,
                 ..bucket
             });
-            if self.give(ItemStack::new(result, 1)).is_some() {
+            if self.add_stack_to_inventory(ItemStack::new(result, 1)).is_some() {
                 self.inventory = before_inventory;
                 self.carried = before_cursor;
                 return Err("inventory full".into());
@@ -523,7 +523,7 @@ impl Game<'_> {
         Ok(())
     }
     pub(super) fn ae2_try_open_portable(&mut self) -> bool {
-        if self.keys.contains(&super::KeyCode::ShiftLeft) { return false; }
+        if self.keys.raw(&super::KeyCode::ShiftLeft) { return false; }
         self.ae2_open_local_portable_source(self.held_slot())
     }
     /// Inventory hotkeys keep their actual source slot, even when the cell is
@@ -646,8 +646,7 @@ impl Game<'_> {
         {
             return false;
         }
-        let Some(snapshot) = self
-            .as_guest(host, conn, |g| g.portable_stack(source).ok())
+        let Some(snapshot) = host.back(self, |hg| hg.as_guest(conn, |g| g.portable_stack(source).ok()))
             .flatten()
         else {
             return false;
@@ -694,8 +693,7 @@ impl Game<'_> {
         else {
             return;
         };
-        let rendered = self
-            .as_guest(host, conn, |g| {
+        let rendered = host.back(self, |hg| hg.as_guest(conn, |g| {
                 let stack = g.portable_stack(source).ok()?;
                 let entries = g.portable_entries(source).ok()?;
                 let views = (0..54)
@@ -703,7 +701,7 @@ impl Game<'_> {
                     .collect::<Vec<_>>();
                 let keys=portable_view_keys(&entries,page);
                 Some((stack, views, keys))
-            })
+            }))
             .flatten();
         let Some((snapshot, mut items, keys)) = rendered else {
             let window = host
@@ -783,10 +781,9 @@ impl Game<'_> {
             self.lan_ae2_portable_closed(host, conn, None);
             return true;
         }
-        let current = self
-            .as_guest(host, conn, |g| {
+        let current = host.back(self, |hg| hg.as_guest(conn, |g| {
                 Some((g.portable_stack(source).ok()?,g.portable_entries(source).ok()?))
-            })
+            }))
             .flatten();
         // Keep the original item-owner check. A source MEInteraction carries
         // the displayed key independently of unrelated inventory revisions,
@@ -847,15 +844,14 @@ impl Game<'_> {
             })
             .collect();
         for (conn, source, mut idle, previous, window) in menus {
-            let current = self
-                .as_guest(host, conn, |g| {
+            let current = host.back(self, |hg| hg.as_guest(conn, |g| {
                     // ItemMenuHost.isValid: the same item in the slot, whatever it holds.
                     if g.portable_stack(source)?.item != previous.item {
                         return Err("portable cell moved".to_owned());
                     }
                     g.portable_idle_step(source, &mut idle)?;
                     g.portable_stack(source)
-                })
+                }))
                 .and_then(Result::ok);
             if current.is_none() {
                 self.lan_ae2_portable_closed(host, conn, None);

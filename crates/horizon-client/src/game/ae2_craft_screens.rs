@@ -554,7 +554,7 @@ impl Game<'_> {
         let help = toolbar_button(style, 0);
         let last = if self.ae2_craft_direct() && self.ae2_craft_screen() == 3 { toolbar_button(style, 1) } else { help };
         self.ae2_draw_toolbar(batch, ox, oy, help, last);
-        let tr = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        let tr = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
         for (button, rect) in toolbar {
             let active = self.ae2_craft_active(button);
             let shift = self.has_shift_down() || self.has_control_down();
@@ -618,7 +618,7 @@ impl Game<'_> {
 
     /// `CraftingCPUScreen.updateBeforeRender`: the title with the time left.
     fn ae2_craft_status_title(&self) -> String {
-        let title = self.translate("gui.ae2.CraftingStatus", "Crafting Status");
+        let title = self.translate_with_fallback("gui.ae2.CraftingStatus", "Crafting Status");
         match self.ae2_craft_ui.view.as_ref().filter(|v| v.eta_ms > 0 && !v.rows.is_empty()) {
             Some(view) => format!("{title} - {}", eta_text(view.eta_ms)),
             None => title,
@@ -627,7 +627,7 @@ impl Game<'_> {
 
     /// `getNextCpuButtonLabel`.
     fn ae2_craft_cpu_label(&self) -> String {
-        let tr = |key: &str| self.translate(key, key);
+        let tr = |key: &str| self.translate_with_fallback(key, key);
         let view = self.ae2_craft_ui.view.as_ref();
         if view.is_some_and(|v| v.no_cpu) {
             return tr("gui.ae2.NoCraftingCPUs");
@@ -639,7 +639,7 @@ impl Game<'_> {
     /// `CraftConfirmScreen.updateBeforeRender`: the dialog's title and the
     /// line about the CPU.
     fn ae2_craft_plan_texts(&self) -> (String, String) {
-        let tr = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        let tr = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
         let view = self.ae2_craft_ui.view.as_ref();
         let details = match view {
             Some(CraftView { error: Some(error), .. }) => error.clone(),
@@ -721,7 +721,7 @@ impl Game<'_> {
         let (bw, bh) = normal.size();
         let (x, mut y) = (lx + CPU_BUTTON_AT.0, ly + CPU_BUTTON_AT.1);
         let first = self.ae2_craft_ui.cpus.current.max(0) as usize;
-        let tr = |key: &str| self.translate(key, key);
+        let tr = |key: &str| self.translate_with_fallback(key, key);
         let scale = 0.666;
         for (i, cpu) in view.map_or(&[][..], |v| &v.cpus[..]).iter().enumerate().skip(first).take(CPU_ROWS as usize) {
             let is_selected = view.is_some_and(|v| v.selected == Some(i));
@@ -792,7 +792,7 @@ impl Game<'_> {
         };
         let (ox, oy) = self.inventory_origin(batch);
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];
-        let tr = |key: &str| self.translate(key, key);
+        let tr = |key: &str| self.translate_with_fallback(key, key);
         let mut lines = Vec::new();
         if self.ae2_craft_screen() == 1 && widget(style, "amountToCraftInput", (66, 12)).is_some_and(|r| inside(r, at)) {
             lines = self.ae2_craft_field_tooltip();
@@ -838,7 +838,7 @@ impl Game<'_> {
         let Some(field) = self.ae2_craft_field() else {
             return Vec::new();
         };
-        let tr = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        let tr = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
         let unit: u32 = if self.ae2_craft_fluid() { 1000 } else { 1 };
         let text = field.value.strip_prefix('=').unwrap_or(&field.value);
         let line = match number_value(text, unit, i64::MIN, i64::MAX, '.') {
@@ -867,7 +867,7 @@ impl Game<'_> {
 
     /// `CPUSelectionList.getTooltip`.
     fn ae2_cpu_tooltip(&self, index: usize) -> Vec<String> {
-        let tr = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        let tr = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
         let Some(cpu) = self.ae2_craft_ui.view.as_ref().and_then(|v| v.cpus.get(index)) else {
             return Vec::new();
         };
@@ -998,7 +998,7 @@ fn table_lines(game: &Game<'_>, row: &Row, status: bool, full: bool) -> Vec<Stri
     for (key, amount) in keys.into_iter().zip(row.amounts) {
         if amount > 0 {
             let text = if full { amount_full(amount, row.fluid) } else { slot_text(amount, row.fluid) };
-            lines.push(fill(&game.translate(key, key), &[text]));
+            lines.push(fill(&game.translate_with_fallback(key, key), &[text]));
         }
     }
     lines

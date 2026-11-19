@@ -227,7 +227,7 @@ impl Game<'_> {
             return;
         };
         let mouse = [self.cursor.0 - ox, self.cursor.1 - oy];
-        let tr = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        let tr = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
         self.ae2_draw_background(batch, ox, oy, style);
         let (help, power) = (toolbar_button(style, 0), toolbar_button(style, 1));
         if let Some(v) = self.ae2_status_view() {
@@ -289,8 +289,8 @@ impl Game<'_> {
         } else if let Some(v) = self.ae2_anchor_view() {
             if inside(toolbar_button(style, 2), at) {
                 let value = if v.overlay { "gui.tooltips.ae2.OverlayModeYes" } else { "gui.tooltips.ae2.OverlayModeNo" };
-                lines.push(self.translate("gui.tooltips.ae2.OverlayMode", "Overlay Mode"));
-                lines.push(format!("\u{a7}7{}", self.translate(value, value)));
+                lines.push(self.translate_with_fallback("gui.tooltips.ae2.OverlayMode", "Overlay Mode"));
+                lines.push(format!("\u{a7}7{}", self.translate_with_fallback(value, value)));
             }
         } else if let Some(v) = self.ae2_status_view() {
             for (rect, index) in self.ae2_status_rows(v) {
@@ -298,7 +298,7 @@ impl Game<'_> {
                     && let Some(stack) = v.groups[index].stack.as_ref()
                 {
                     lines.push(self.pack.names.display_item(&stack.item));
-                    lines.push(fill(&self.translate("gui.ae2.Installed", "Installed: %s"), &[v.groups[index].count.to_string()]));
+                    lines.push(fill(&self.translate_with_fallback("gui.ae2.Installed", "Installed: %s"), &[v.groups[index].count.to_string()]));
                 }
             }
         }
@@ -330,8 +330,8 @@ impl Game<'_> {
     /// `Settings.POWER_UNITS`'s tooltip.
     pub(super) fn ae2_power_tooltip(&self, lines: &mut Vec<String>) {
         let value = if power_unit() == 1 { "gui.ae2.units.fe" } else { "gui.ae2.units.appliedenergistics" };
-        lines.push(self.translate("gui.tooltips.ae2.PowerUnits", "Power Units"));
-        lines.push(format!("\u{a7}7{}", self.translate(value, value)));
+        lines.push(self.translate_with_fallback("gui.tooltips.ae2.PowerUnits", "Power Units"));
+        lines.push(format!("\u{a7}7{}", self.translate_with_fallback(value, value)));
     }
 
     /// These screens for the control socket's `screen`.

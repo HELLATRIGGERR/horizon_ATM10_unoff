@@ -848,16 +848,16 @@ impl Game<'_> {
             |pattern, grid, encoded| {
                 if !known(encoded) || grid.iter().flatten().any(|item|!known(item)) {return None;}
                 let actual=if let Some(source)=super::ae2_source_patterns::crafting(pattern) {
-                    let source=source.ok()?;self.res.recipes().assemble_named(&source.recipe,grid,3)?
+                    let source=source.ok()?;self.res.recipes().assemble_named(&self.loop_context, &source.recipe,grid,3)?
                 } else {
-                    let (_,actual)=self.res.recipes().find(grid,3)?;
+                    let (_,actual)=self.res.recipes().find(&self.loop_context, grid,3)?;
                     if actual!=*encoded {return None;}actual
                 };
                 known(&actual).then_some(actual)
             },
             |pattern, special| {
                 if !known(&special.output) || special.grid.iter().flatten().any(|item|!known(item)) {return None;}
-                let actual=super::ae2_processing::special_recipe_result(self.res.stations(),&special.kind,&special.recipe,&special.grid)?;
+                let actual=super::ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),&special.kind,&special.recipe,&special.grid)?;
                 if super::ae2_source_patterns::special(pattern).is_none() && actual!=special.output {return None;}
                 known(&actual).then_some(actual)
             },
@@ -1219,7 +1219,7 @@ mod tests {
             let pos = (0, 64, 0);
             let mut machine=Machine::new(MachineKind::CraftingStorage1k);
             if case=="native_job" {machine.config.insert("ae2_recursive_job".into(),Tag::String("opaque-owned-job".into()));}
-            let mut raw = save::encode_block_entity(pos, &BlockEntity::Ae2(Box::new(machine)), "ae2:1k_crafting_storage");
+            let mut raw = save::block_entity_encode::encode(pos, &BlockEntity::Ae2(Box::new(machine)), "ae2:1k_crafting_storage");
             let Tag::Compound(compound) = &mut raw else { panic!("CPU tag") };
             match case {
                 "core" => { compound.insert("core".into(), Tag::Byte(1)); },
@@ -1455,7 +1455,7 @@ mod tests {
             let pos = (0, 64, 0);
             let mut machine = Machine::new(MachineKind::PatternProvider);
             machine.slots[0] = Some(ItemStack::new("test:old", 1));
-            let mut raw = save::encode_block_entity(pos, &BlockEntity::Ae2(Box::new(machine)), "ae2:pattern_provider");
+            let mut raw = save::block_entity_encode::encode(pos, &BlockEntity::Ae2(Box::new(machine)), "ae2:pattern_provider");
             if case == "absent" {
                 let Tag::Compound(compound) = &mut raw else { panic!("provider tag") };
                 compound.remove(&"Items".into());

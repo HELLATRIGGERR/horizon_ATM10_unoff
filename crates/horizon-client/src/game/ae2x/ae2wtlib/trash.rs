@@ -207,7 +207,7 @@ impl Game<'_> {
         if !inside(rect, [self.cursor.0 - ox, self.cursor.1 - oy]) {
             return false;
         }
-        let text = self.translate("gui.ae2.Back", "Back");
+        let text = self.translate_with_fallback("gui.ae2.Back", "Back");
         self.draw_tooltip_lines(batch, &[(horizon_client::text::Text::literal(text), u32::MAX)], self.cursor.0, self.cursor.1);
         true
     }

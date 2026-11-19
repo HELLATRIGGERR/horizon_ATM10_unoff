@@ -163,7 +163,7 @@ impl Game<'_> {
         let label = color
             .and_then(power::color_translation)
             .and_then(|key| self.pack.names.display_get(key))
-            .unwrap_or_else(|| self.translate("gui.ae2.Empty", "Empty"));
+            .unwrap_or_else(|| self.translate_with_fallback("gui.ae2.Empty", "Empty"));
         format!("{base} - {label}")
     }
     pub(super) fn ae2_item_energy(&self, stack: &ItemStack) -> Option<(f64, f64)> {
@@ -333,7 +333,7 @@ impl Game<'_> {
         let Some(hit) = self.ae2_entropy_hit() else { return Ok(UseResult::Fail); };
         if !self.may_build() { return Ok(UseResult::Fail); }
         let mut updated = stack.clone();
-        let cool = self.keys.contains(&KeyCode::ShiftLeft);
+        let cool = self.keys.raw(&KeyCode::ShiftLeft);
         let result = self.ae2_entropy_at(&mut updated, hit, cool, false);
         *self.held_mut() = Some(updated);
         result
@@ -420,7 +420,7 @@ impl Game<'_> {
         let mut next = None;
         let mut valid = !drops.is_empty();
         for drop in drops {
-            let Some(recipe) = self.res.recipes().cook("minecraft:smelting", &drop) else {
+            let Some(recipe) = self.res.recipes().cook(&self.loop_context, "minecraft:smelting", &drop) else {
                 valid = false;
                 break;
             };

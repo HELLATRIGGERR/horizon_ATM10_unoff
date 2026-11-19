@@ -4,7 +4,8 @@ use super::{Game, ae2_visual_sync::{CellVisual, Part, Visual}};
 use glam::{DVec3, Mat4, Vec2, Vec3};
 use horizon_client::{chunk::Chunk, hud::{HudBatch, rgba}, mesher::Vertex, world::World};
 use horizon_core::position::BlockPos;
-use horizon_world::{chunk::BlockState, nbt::{Tag, parse_snbt}, registry::BlockStateId};
+use horizon_world::{chunk::BlockState, registry::BlockStateId};
+use horizon_core::nbt::{Tag, parse_snbt};
 use serde_json::Value;
 use std::{cell::RefCell, collections::{BTreeMap, HashSet, VecDeque}, path::{Component, Path, PathBuf}, sync::{Arc, Weak}, time::SystemTime};
 

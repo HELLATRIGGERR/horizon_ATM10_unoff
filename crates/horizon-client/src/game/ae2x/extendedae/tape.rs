@@ -63,7 +63,7 @@ impl Game<'_> {
             }
             let Some(state) = self.pack.assets.registry.state(self.world.block(pos[0], pos[1], pos[2])).cloned() else { return false };
             let entity = BlockEntity::Ae2(machine.clone());
-            let mut ctx = save::encode_block_entity(key, &entity, &block);
+            let mut ctx = save::block_entity_encode::encode(key, &entity, &block);
             if let (Tag::Compound(map), Some(name)) = (&mut ctx, self.world.block_names.get(&key)) {
                 map.insert("CustomName".into(), name.clone());
             }
@@ -135,7 +135,7 @@ impl Game<'_> {
     /// machine's menu takes (`useItemOn`, `useWithoutItem`) unless the player sneaks.
     pub(in crate::game) fn extendedae_package_on(&mut self, pos: [i32; 3], face: [i32; 3]) -> bool {
         let menu = matches!(self.world.block_entities.get(&(pos[0], pos[1], pos[2])), Some(BlockEntity::Ae2(m)) if m.kind != MachineKind::CableBus);
-        if menu && !self.keys.contains(&crate::game::KeyCode::ShiftLeft) {
+        if menu && !self.keys.raw(&crate::game::KeyCode::ShiftLeft) {
             return false;
         }
         self.extendedae_package_use(pos, face)

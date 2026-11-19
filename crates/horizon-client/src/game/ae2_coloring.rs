@@ -7,8 +7,8 @@ use horizon_client::{
 };
 use horizon_world::{
     chunk::BlockState,
-    nbt::{Compound, Tag},
 };
+use horizon_core::nbt::{Compound, Tag};
 const SELECTED: &str = "ae2:selected_color";
 fn custom(stack: &ItemStack) -> Result<Compound, String> {
     match stack.data().and_then(|d| d.other("minecraft:custom_data")) {
@@ -70,7 +70,7 @@ fn recolored(id: &str, color: u8) -> Option<String> {
 impl Game<'_> {
     /// Source Shift+wheel cycling prefers the actual main-hand tool, then offhand.
     pub(super) fn ae2_item_wheel(&mut self, delta: f32) -> bool {
-        if !delta.is_finite() || delta == 0.0 || !self.keys.contains(&KeyCode::ShiftLeft) {
+        if !delta.is_finite() || delta == 0.0 || !self.keys.raw(&KeyCode::ShiftLeft) {
             return false;
         }
         // An addon's held item (AE2WTLib's universal terminal) takes it first.
@@ -328,7 +328,7 @@ impl Game<'_> {
         let mut updated = stack.clone();
         let result = self.ae2_applicator_at(&mut updated, hit)?;
         *self.held_mut() = Some(updated);
-        if matches!(result, UseResult::Fail) && self.keys.contains(&KeyCode::ShiftLeft) {
+        if matches!(result, UseResult::Fail) && self.keys.raw(&KeyCode::ShiftLeft) {
             self.ae2_cycle_applicator(1)?;
             return Ok(UseResult::Success { swing: false });
         }

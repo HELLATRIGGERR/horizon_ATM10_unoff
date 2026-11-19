@@ -104,7 +104,7 @@ impl Game<'_> {
     }
     pub(super) fn ae2_try_replicator(&mut self, clicked: [i32;3], face: [i32;3]) -> bool {
         if !self.ae2_replicator_held() { return false; }
-        let result = if self.keys.contains(&KeyCode::ShiftLeft) {
+        let result = if self.keys.raw(&KeyCode::ShiftLeft) {
             self.ae2_replicator_bind(clicked, face).map(|_| Some("Set replicator source".to_owned()))
         } else {
             self.ae2_replicator_copy(clicked).map(|_| None)
@@ -139,7 +139,7 @@ impl Game<'_> {
         if !(1..=4).contains(&count) { return Err("Invalid replication count".into()); }
         let target_dim=self.dim;
         let target_extra=self.streaming.extra.clone();
-        self.enter_level(None,dim).map_err(|e|e.to_string())?;
+        self.enter_level(dim).map_err(|e|e.to_string())?;
         let source_extra=self.streaming.extra.clone();
         let result=(|| {
             self.ae2_demand_column(source[0]>>4,source[2]>>4)?;
@@ -154,7 +154,7 @@ impl Game<'_> {
             for cx in (min[0]+1)>>4..=(max[0]-1)>>4 { for cz in (min[2]+1)>>4..=(max[2]-1)>>4 {
                 self.ae2_demand_column(cx,cz)?;
             }}
-            self.enter_level(None,target_dim).map_err(|e|e.to_string())?;
+            self.enter_level(target_dim).map_err(|e|e.to_string())?;
             let yaw=self.yaw;
             let height=(target_dim.min_y(),target_dim.max_y());
             visit_pairs(min,max,source,target,count,yaw,height,|from,to| {
@@ -194,9 +194,9 @@ impl Game<'_> {
         })();
         // Temporary chunk tickets belong to the level that acquired them.
         let cleanup=(|| {
-            self.enter_level(None,dim).map_err(|e|e.to_string())?;
+            self.enter_level(dim).map_err(|e|e.to_string())?;
             self.streaming.extra=source_extra;
-            self.enter_level(None,target_dim).map_err(|e|e.to_string())?;
+            self.enter_level(target_dim).map_err(|e|e.to_string())?;
             self.streaming.extra=target_extra;
             Ok::<(),String>(())
         })();

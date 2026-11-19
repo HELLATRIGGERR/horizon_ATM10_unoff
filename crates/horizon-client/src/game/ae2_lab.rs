@@ -161,7 +161,7 @@ impl Game<'_> {
                 }
                 item.count = requested as u32;
                 let original = self.inventory.clone();
-                let remainder = self.give(item);
+                let remainder = self.add_stack_to_inventory(item);
                 let inserted = requested - remainder.as_ref().map_or(0, |s| u64::from(s.count));
                 cell.extract(&item_key, inserted, Action::Modulate);
                 if let Err(e) = write_cell(&mut stack, &cell) {

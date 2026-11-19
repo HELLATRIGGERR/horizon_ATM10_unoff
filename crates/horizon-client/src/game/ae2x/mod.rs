@@ -1025,7 +1025,7 @@ impl Game<'_> {
         #[cfg(feature = "ae2-extendedae")]
         if machine.id() == horizon_client::ae2x::extendedae::MATRIX_PATTERN {
             let name = self.pack.names.display_item(machine.id());
-            let line = self.translate("gui.extendedae.assembler_matrix.pattern", "Only accepts crafting patterns");
+            let line = self.translate_with_fallback("gui.extendedae.assembler_matrix.pattern", "Only accepts crafting patterns");
             return Some((name, vec![line]));
         }
         None

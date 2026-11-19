@@ -10,7 +10,8 @@ use horizon_core::{
     position::{BlockPos, ChunkPos},
     ticks::{ScheduledTick, TickArea},
 };
-use horizon_world::{nbt::Tag, registry::BlockStateId};
+use horizon_world::registry::BlockStateId;
+use horizon_core::nbt::Tag;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
@@ -469,7 +470,7 @@ impl Game<'_> {
             // neighbors, retaining duplicates. Source applies the opposite plane's
             // update coordinates to each level; preserve that literal ordering.
             for (dim,origin) in [(source_dim,destination),(Dim::Spatial,source)] {
-                self.enter_level(None,dim).map_err(|e|e.to_string())?;
+                self.enter_level(dim).map_err(|e|e.to_string())?;
                 for offset in &skipped {for delta in [[0,0,0],[0,-1,0],[0,1,0],[0,0,-1],[0,0,1],[-1,0,0],[1,0,0]] {
                     let pos=BlockPos::new(origin.0+offset[0]+delta[0],origin.1+offset[1]+delta[1],origin.2+offset[2]+delta[2]);
                     let air=self.res.facts().air;
@@ -480,7 +481,7 @@ impl Game<'_> {
             // TriggerUpdates visits both outer boundaries, then both interiors.
             for (dim,origin,outer) in [(source_dim,source,true),(Dim::Spatial,destination,true),
                 (source_dim,source,false),(Dim::Spatial,destination,false)] {
-                self.enter_level(None,dim).map_err(|e|e.to_string())?;
+                self.enter_level(dim).map_err(|e|e.to_string())?;
                 let min=if outer {(origin.0-1,origin.1-1,origin.2-1)}else{origin};
                 let adjust=if outer {0}else{-1};
                 let max=(origin.0+size[0]+adjust,origin.1+size[1]+adjust,origin.2+size[2]+adjust);
@@ -493,7 +494,7 @@ impl Game<'_> {
             }
             Ok(())
         })();
-        let restored=self.enter_level(None,back).map_err(|e|e.to_string());
+        let restored=self.enter_level(back).map_err(|e|e.to_string());
         result.and(restored)
     }
     pub(super) fn ae2_spatial_transition(&mut self, pos: WorldPos) -> Result<Value, String> {
@@ -572,13 +573,13 @@ impl Game<'_> {
         // column through both snapshots and the cross-level exchange.
         for (cx,cz) in keys(source,region.size) {self.ae2_demand_column(cx,cz)?;}
         self.ae2_spatial_snapshot(source, region.size)?;
-        self.enter_level(None, Dim::Spatial)
+        self.enter_level(Dim::Spatial)
             .map_err(|e| e.to_string())?;
         let destination = (|| {
             self.ae2_spatial_load_destination(dst, region.size)?;
             self.ae2_spatial_snapshot(dst, region.size)
         })();
-        self.enter_level(None, source_dim)
+        self.enter_level(source_dim)
             .map_err(|e| e.to_string())?;
         let dst_plane = destination?;
         if dst.1 - 1 < Dim::Spatial.min_y()
@@ -652,7 +653,7 @@ impl Game<'_> {
             .as_ref()
             .map(|h| self.ae2_spatial_guest_transfers(h, &src_entities, Dim::Spatial, dst))
             .unwrap_or_default();
-        if let Err(e) = self.enter_level(None, Dim::Spatial) {
+        if let Err(e) = self.enter_level(Dim::Spatial) {
             self.ae2_restore_spatial_entities(src_entities, source);
             if !creative_source {
                 let _ = self.ae2_add_power(pos, charged_ae);
@@ -669,7 +670,7 @@ impl Game<'_> {
             Ok(()) => (),
             Err(error) => {
                 self.ae2_restore_spatial_entities(dst_entities, dst);
-                if self.enter_level(None, source_dim).is_ok() {
+                if self.enter_level(source_dim).is_ok() {
                     self.ae2_restore_spatial_entities(src_entities, source);
                     if !creative_source {
                         let _ = self.ae2_add_power(pos, charged_ae);
@@ -680,7 +681,7 @@ impl Game<'_> {
         };
         let apply = (|| -> Result<(), String> {
             self.ae2_spatial_write(dst, region.size, source, &src, &skip, true)?;
-            self.enter_level(None, source_dim)
+            self.enter_level(source_dim)
                 .map_err(|e| e.to_string())?;
             self.ae2_spatial_write(source, region.size, dst, &dst_plane, &skip, true)?;
             Ok(())
@@ -690,7 +691,7 @@ impl Game<'_> {
             // Restore both snapshots, pending entity ownership and energy on
             // ordinary errors. This is not a crash-atomic transaction.
             if self.dim != Dim::Spatial {
-                let _ = self.enter_level(None, Dim::Spatial);
+                let _ = self.enter_level(Dim::Spatial);
             }
             if self.dim == Dim::Spatial {
                 let _ = self.ae2_spatial_write(dst, region.size, dst, &dst_plane, &none, false);
@@ -699,7 +700,7 @@ impl Game<'_> {
                 // containers here would duplicate items that were dropped.
                 self.ae2_restore_spatial_entities(dst_entities, dst);
             }
-            if self.enter_level(None, source_dim).is_ok() {
+            if self.enter_level(source_dim).is_ok() {
                 let _ = self.ae2_spatial_write(source, region.size, source, &src, &none, false);
                 self.ae2_restore_spatial_entities(src_entities, source);
                 if !creative_source {
@@ -710,10 +711,10 @@ impl Game<'_> {
         }
         // Both writes succeeded. The levels were pre-opened above, so these
         // level swaps only exchange already-resident state.
-        self.enter_level(None, Dim::Spatial)
+        self.enter_level(Dim::Spatial)
             .map_err(|e| e.to_string())?;
         self.ae2_restore_spatial_entities(src_entities, dst);
-        self.enter_level(None, source_dim)
+        self.enter_level(source_dim)
             .map_err(|e| e.to_string())?;
         self.ae2_restore_spatial_entities(dst_entities, source);
         let mut anchor_moves=Vec::new();
@@ -732,7 +733,7 @@ impl Game<'_> {
         let moved_port =
             (0..3).all(|i| offset[i] >= 0 && offset[i] < region.size[i]) && !skip.contains(&offset);
         let port = if moved_port {
-            self.enter_level(None, Dim::Spatial)
+            self.enter_level(Dim::Spatial)
                 .map_err(|e| e.to_string())?;
             (dst.0 + offset[0], dst.1 + offset[1], dst.2 + offset[2])
         } else {
@@ -743,21 +744,21 @@ impl Game<'_> {
             m.slots[1] = Some(cell);
             self.world.modified.insert((port.0 >> 4, port.2 >> 4));
         }
-        self.enter_level(None, source_dim)
+        self.enter_level(source_dim)
             .map_err(|e| e.to_string())?;
         self.ae2_queue_spatial_guests(src_guests);
         if let Some(mut host) = self.lan.take() {
             host.back(self, |g| g.run_level_teleports());
             self.lan = Some(host);
         }
-        self.enter_level(None, Dim::Spatial)
+        self.enter_level(Dim::Spatial)
             .map_err(|e| e.to_string())?;
         self.ae2_queue_spatial_guests(dst_guests);
         if let Some(mut host) = self.lan.take() {
             host.back(self, |g| g.run_level_teleports());
             self.lan = Some(host);
         }
-        self.enter_level(None, source_dim)
+        self.enter_level(source_dim)
             .map_err(|e| e.to_string())?;
         self.ae2_spatial_post_updates(source_dim,source,dst,region.size,&skip)?;
         Ok(

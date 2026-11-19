@@ -216,7 +216,7 @@ impl Game<'_> {
         let Some((w, h)) = self.ae2_term_sub_size() else {
             return Vec::new();
         };
-        let tip = |key: &str| self.translate(key, key);
+        let tip = |key: &str| self.translate_with_fallback(key, key);
         let place = |name: &str| {
             let widget = style.widgets.get(name)?;
             let (x, y) = widget.position.resolve(w, h);
@@ -369,7 +369,7 @@ impl Game<'_> {
             return;
         }
         self.ae2_draw_generated_background(batch, ox, oy, w, h);
-        let title = (sub == Sub::KeyTypes).then(|| ("dialog_title", self.translate("gui.ae2.ConfigureVisibleTypes", "Configure Visible Types")));
+        let title = (sub == Sub::KeyTypes).then(|| ("dialog_title", self.translate_with_fallback("gui.ae2.ConfigureVisibleTypes", "Configure Visible Types")));
         self.ae2_draw_texts(batch, ox, oy, style, title.as_slice());
         if let Some(rect) = self.ae2_term_sub_back(sub) {
             self.ae2_draw_tab(batch, ox, oy, rect, ICON_BACK);

@@ -586,7 +586,7 @@ impl Game<'_> {
                     };
                     line(&monitor_amount(display.amount,display.craftable,display.fluid),y+spacing,0xffffffff,out);
                     if let Some(rate)=&display.rate {
-                        let text=super::ae2_screens::fill(&self.translate(&rate.key,"%s%s/s"),&[rate.sign.clone(),rate.value.clone()]);
+                        let text=super::ae2_screens::fill(&self.translate_with_fallback(&rate.key,"%s%s/s"),&[rate.sign.clone(),rate.value.clone()]);
                         let color=rate.color.map_or(0xffffffff,|c|horizon_client::hud::rgba((c>>16) as u8,(c>>8) as u8,c as u8,255));
                         line(&text,y-0.23,color,out);
                     }

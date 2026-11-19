@@ -73,7 +73,7 @@ impl Game<'_> {
                 count: source.count - 1,
                 ..source.clone()
             });
-            if self.give(ItemStack::new(result, 1)).is_some() {
+            if self.add_stack_to_inventory(ItemStack::new(result, 1)).is_some() {
                 self.inventory = inventory;
                 self.offhand = offhand;
                 return Err("inventory has no room for the returned bucket".into());

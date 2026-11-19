@@ -95,7 +95,7 @@ impl Game<'_> {
         change(
             &block.name,
             held,
-            self.keys.contains(&KeyCode::ShiftLeft),
+            self.keys.raw(&KeyCode::ShiftLeft),
             hands_full,
             self.res
                 .recipes()
@@ -118,7 +118,7 @@ impl Game<'_> {
         let Some(change) = change(
             &name,
             self.held(),
-            self.keys.contains(&KeyCode::ShiftLeft),
+            self.keys.raw(&KeyCode::ShiftLeft),
             hands_full,
             self.res
                 .recipes()
@@ -191,7 +191,7 @@ impl Game<'_> {
         // Source removeUpgrade returns the old component before consuming the
         // held one. With a full inventory that ordering can cause overflow.
         if let Some(returned) = change.returned {
-            if let Some(rest) = self.give(returned) {
+            if let Some(rest) = self.add_stack_to_inventory(returned) {
                 self.player_drop(rest);
             }
         }

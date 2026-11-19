@@ -800,7 +800,7 @@ impl Game<'_> {
     /// An item's name, for a tooltip.
     fn ae2_term_item_name(&self, item: &ItemStack) -> String {
         let (namespace, path) = item.item.split_once(':').unwrap_or(("minecraft", &item.item));
-        self.translate(&format!("item.{namespace}.{path}"), &item.item)
+        self.translate_with_fallback(&format!("item.{namespace}.{path}"), &item.item)
     }
 
     fn ae2_term_widgets(&self, l: &Layout) -> Vec<(Widget, [i32; 4])> {
@@ -1443,9 +1443,9 @@ impl Game<'_> {
         let chest = self.ae2_term_view().is_some_and(|v| v.chest);
         for (id, text) in &l.style.text {
             let label = if id == "dialog_title" && chest {
-                self.translate("gui.ae2.MEChest", "ME Chest")
+                self.translate_with_fallback("gui.ae2.MEChest", "ME Chest")
             } else if let Some(key) = text.text.get("translate").and_then(|v| v.as_str()) {
-                self.translate(key, key)
+                self.translate_with_fallback(key, key)
             } else if let Some(plain) = text.text.get("text").and_then(|v| v.as_str()) {
                 plain.to_owned()
             } else {
@@ -1481,7 +1481,7 @@ impl Game<'_> {
         let empty = field.value.is_empty() && !field.focused;
         field.draw(batch, &self.gui.atlas, None);
         if empty {
-            let placeholder = self.translate("gui.ae2.SearchPlaceholder", "Search...");
+            let placeholder = self.translate_with_fallback("gui.ae2.SearchPlaceholder", "Search...");
             batch.text(&self.gui.atlas, &placeholder, ox + text[0], oy + text[1], argb(l.style.color("TEXTFIELD_PLACEHOLDER")), false);
         }
     }
@@ -1520,7 +1520,7 @@ impl Game<'_> {
         }
         let view = self.ae2_term_view();
         let panel = self.ae2_term_panel();
-        let tip = |key: &str| self.translate(key, key);
+        let tip = |key: &str| self.translate_with_fallback(key, key);
         let gray = |key: &str| tip(key).split('\n').map(|line| format!("\u{a7}7{line}")).collect::<Vec<_>>();
         let mut lines: Vec<String> = Vec::new();
         if let Some((widget, _)) = self.ae2_term_widgets(&l).into_iter().find(|(_, r)| inside(*r, at)) {
@@ -1560,7 +1560,7 @@ impl Game<'_> {
                     let Some((_, item)) = current else {
                         return false;
                     };
-                    (self.translate("gui.ae2wtlib.current_terminal", "Current Terminal: %s").replace("%s", &self.ae2_term_item_name(item)), Vec::new())
+                    (self.translate_with_fallback("gui.ae2wtlib.current_terminal", "Current Terminal: %s").replace("%s", &self.ae2_term_item_name(item)), Vec::new())
                 }
                 Widget::SelectTerminal(index) => {
                     let Some((_, item)) = view.and_then(|v| v.universal.as_ref()).and_then(|u| u.terminals.get(index)) else {

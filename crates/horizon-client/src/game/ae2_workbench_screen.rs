@@ -256,11 +256,11 @@ impl Game<'_> {
         let (ox, oy) = self.inventory_origin(batch);
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];
         if let Some((_, tool)) = tools(&v).into_iter().enumerate().find(|(i, _)| inside(toolbar_button(style, *i as i32 + 1), at)) {
-            let mut lines = vec![self.translate(tool.title, tool.title)];
+            let mut lines = vec![self.translate_with_fallback(tool.title, tool.title)];
             match &tool.item {
                 // CompressionCutoffButton.getTooltipMessage: the item's hover name.
                 Some(item) => lines.push(item.custom_name().unwrap_or_else(|| self.pack.names.display_item(&item.item))),
-                None => lines.extend(self.translate(tool.value, tool.value).split('\n').map(|l| format!("\u{a7}7{l}"))),
+                None => lines.extend(self.translate_with_fallback(tool.value, tool.value).split('\n').map(|l| format!("\u{a7}7{l}"))),
             }
             self.ae2_tooltip_lines(batch, lines);
             return true;

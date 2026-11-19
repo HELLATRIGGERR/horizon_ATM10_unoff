@@ -742,7 +742,7 @@ mod tank_tests {
         assert_eq!(read_tank(&machine).unwrap(), Some((water.clone(), 16_000)));
         assert!(set_tank(&mut machine, &water, 16_001).is_err());
         let be = BlockEntity::Ae2(Box::new(machine));
-        let tag = horizon_client::save::encode_block_entity((0, 1, 2), &be, "ae2:sky_stone_tank");
+        let tag = horizon_client::save::block_entity_encode::encode((0, 1, 2), &be, "ae2:sky_stone_tank");
         let (_, back) = horizon_client::save::decode_block_entity(&tag).unwrap();
         let BlockEntity::Ae2(back) = back else {
             panic!()

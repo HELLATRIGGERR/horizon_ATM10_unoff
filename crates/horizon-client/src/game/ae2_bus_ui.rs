@@ -870,7 +870,7 @@ impl Game<'_> {
             if input == Input::QuickMove && bus_card(slot).is_some() {
                 let index = bus_card(slot).unwrap_or(usize::MAX);
                 if let Some(item) = cards.get(index).and_then(Clone::clone) {
-                    if self.give(item).is_none()
+                    if self.add_stack_to_inventory(item).is_none()
                     {
                         cards[index] = None;
                         changed = true;

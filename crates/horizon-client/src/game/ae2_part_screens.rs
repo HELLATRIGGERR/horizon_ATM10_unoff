@@ -367,10 +367,10 @@ impl Game<'_> {
             let color = argb(style.color(if active { "DEFAULT_TEXT_COLOR" } else { "MUTED_TEXT_COLOR" }));
             // `AEKeyType.getDescription`.
             let description = types[i].description();
-            let name = self.translate(description, description);
+            let name = self.translate_with_fallback(description, description);
             batch.text(&self.gui.atlas, &name, ox + (rect[0] + 26) as f32, oy + (rect[1] + 4) as f32, color, false);
         }
-        let title = self.translate("gui.ae2.ConfigureImportedTypes", "Configure Imported Types");
+        let title = self.translate_with_fallback("gui.ae2.ConfigureImportedTypes", "Configure Imported Types");
         batch.text(&self.gui.atlas, &title, ox + 8.0, oy + 7.0, argb(style.color("DEFAULT_TEXT_COLOR")), false);
     }
 
@@ -655,7 +655,7 @@ impl Game<'_> {
         self.ae2_draw_texts(batch, ox, oy, style, &[]);
         // StorageBusScreen.drawFG: what it is attached to, small.
         if v.kind == "ae2:storage_bus" {
-            let tr = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+            let tr = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
             let text = match v.connected.as_ref() {
                 Some(name) => tr("gui.ae2.AttachedTo", &[self.pack.names.display_item(name)]),
                 None => tr("gui.ae2.Unattached", &[]),
@@ -678,17 +678,17 @@ impl Game<'_> {
         if self.ae2_part_key_types_open() {
             if self.ae2_part_key_types_style().is_some_and(|s| inside(self.ae2_part_key_types_back(s), at)) {
                 let key = format!("item.{}", v.kind.replace(':', "."));
-                lines.push(self.translate(&key, &v.kind));
+                lines.push(self.translate_with_fallback(&key, &v.kind));
             }
         } else if inside(toolbar_button(style, 0), at) {
             self.ae2_help_tooltip(&mut lines);
         } else if let Some((_, tool)) = self.ae2_part_tools().into_iter().enumerate().find(|(i, _)| inside(toolbar_button(style, *i as i32 + 1), at)) {
-            lines.push(self.translate(tool.title, tool.title));
+            lines.push(self.translate_with_fallback(tool.title, tool.title));
             if !tool.value.is_empty() {
-                lines.extend(self.translate(tool.value, tool.value).split('\n').map(|l| format!("\u{a7}7{l}")));
+                lines.extend(self.translate_with_fallback(tool.value, tool.value).split('\n').map(|l| format!("\u{a7}7{l}")));
             }
         } else if !is_emitter(&v.kind) && widget(style, "openPriority", (20, 20)).is_some_and(|r| inside(r, at)) {
-            lines.push(self.translate("gui.ae2.Priority", "Priority"));
+            lines.push(self.translate_with_fallback("gui.ae2.Priority", "Priority"));
         } else if let Some((index, _)) = self.ae2_part_config_at(style, at) {
             if let Some(stack) = v.stacks.get(index).and_then(Option::as_ref) {
                 self.draw_stack_tooltip(batch, stack, self.cursor.0, self.cursor.1);

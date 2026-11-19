@@ -136,7 +136,7 @@ impl Game<'_> {
                 let (recipe, out) = self
                     .res
                     .recipes()
-                    .find(&grid, 3)
+                    .find(&self.loop_context, &grid, 3)
                     .ok_or("no matching crafting recipe")?;
                 if self.res.items().get("ae2:crafting_pattern").is_none() {
                     return Err("crafting pattern item not registered".into());
@@ -192,8 +192,8 @@ impl Game<'_> {
                     ae2_processing::decode_pattern(pattern).ok_or("invalid laboratory pattern")?;
                 let source_recipe = super::ae2_source_patterns::crafting(pattern).and_then(Result::ok).map(|source| source.recipe);
                 let actual = match source_recipe.as_deref() {
-                    Some(recipe) => self.res.recipes().assemble_named(recipe, &grid, 3),
-                    None => self.res.recipes().find(&grid, 3).map(|(_, result)| result),
+                    Some(recipe) => self.res.recipes().assemble_named(&self.loop_context, recipe, &grid, 3),
+                    None => self.res.recipes().find(&self.loop_context, &grid, 3).map(|(_, result)| result),
                 }.ok_or("recipe missing")?;
                 if source_recipe.is_none() && encoded_output != actual { return Err("pattern result changed".into()); }
                 let expected=actual;
@@ -1472,12 +1472,12 @@ mod recursive {
                     let mut outputs = Vec::new();
                     if let Some((grid, encoded)) = ae2_processing::decode_pattern(pattern) {
                         if let Some(source)=super::super::ae2_source_patterns::crafting(pattern) {
-                            if let Ok(source)=source {if let Some(output)=self.res.recipes().assemble_named(&source.recipe,&grid,3) {outputs.push(output);}}
+                            if let Ok(source)=source {if let Some(output)=self.res.recipes().assemble_named(&self.loop_context, &source.recipe,&grid,3) {outputs.push(output);}}
                         } else {outputs.push(encoded);}
                     }
                     if let Some(special)=ae2_processing::ae2_decode_special_pattern(pattern){
                         if super::super::ae2_source_patterns::special(pattern).is_some() {
-                            if let Some(output)=ae2_processing::special_recipe_result(self.res.stations(),&special.kind,&special.recipe,&special.grid){outputs.push(output);}
+                            if let Some(output)=ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),&special.kind,&special.recipe,&special.grid){outputs.push(output);}
                         } else {outputs.push(special.output);}
                     }
                     if let Some((_, items)) = ae2_processing::ae2_decode_processing_pattern(pattern)
@@ -1504,7 +1504,7 @@ mod recursive {
                     if let Some(special)=pattern.as_ref().and_then(ae2_processing::ae2_decode_special_pattern) {
                         if special.output.item.as_ref()=="ae2:missing_content" || self.res.items().get(&special.output.item).is_none()
                             || special.grid.iter().flatten().any(|item|item.item.as_ref()=="ae2:missing_content"||self.res.items().get(&item.item).is_none()){continue;}
-                        let Some(actual)=ae2_processing::special_recipe_result(self.res.stations(),&special.kind,&special.recipe,&special.grid) else{continue};
+                        let Some(actual)=ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),&special.kind,&special.recipe,&special.grid) else{continue};
                         if self.res.items().get(&actual.item).is_none() {continue;}
                         if pattern.as_ref().and_then(super::super::ae2_source_patterns::special).is_none() && actual!=special.output {continue;}
                         let Some(physical_grid)=ae2_processing::special_assembler_grid(&special.kind,&special.grid) else{continue};
@@ -1514,7 +1514,7 @@ mod recursive {
                             if special.substitutes {for candidate in &candidates {
                                 let key=canon(candidate);if choices[i].contains(&key){continue;}
                                 let mut trial=physical_grid.clone();let mut item=candidate.clone();item.count=1;trial[i]=Some(item);
-                                if ae2_processing::special_logical_grid(&special.kind,&trial).and_then(|logical|ae2_processing::special_recipe_result(self.res.stations(),&special.kind,&special.recipe,&logical))==Some(actual.clone()){choices[i].push(key);}
+                                if ae2_processing::special_logical_grid(&special.kind,&trial).and_then(|logical|ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),&special.kind,&special.recipe,&logical))==Some(actual.clone()){choices[i].push(key);}
                             }}
                         }
                         let inputs=choices.iter().filter(|c|!c.is_empty()).map(|c|Ingredient{choices:c.iter().cloned().map(|key|(key,1)).collect()}).collect();
@@ -1609,10 +1609,10 @@ mod recursive {
                         .and_then(Result::ok);
                     let source_recipe = source_crafting.as_ref().map(|source|source.recipe.clone());
                     let (name, actual) = if let Some(recipe) = source_recipe.as_deref() {
-                        let Some(actual) = self.res.recipes().assemble_named(recipe, &grid, 3) else { continue; };
+                        let Some(actual) = self.res.recipes().assemble_named(&self.loop_context, recipe, &grid, 3) else { continue; };
                         (recipe.strip_prefix("minecraft:").unwrap_or(recipe), actual)
                     } else {
-                        let Some(result) = self.res.recipes().find(&grid, 3) else { continue; };
+                        let Some(result) = self.res.recipes().find(&self.loop_context, &grid, 3) else { continue; };
                         result
                     };
                     if source_recipe.is_none() && actual != encoded_output { continue; }
@@ -1645,10 +1645,10 @@ mod recursive {
                                 candidate.count = 1;
                                 trial[i] = Some(candidate);
                                 let (candidate_name, candidate_result) = if source_recipe.is_some() {
-                                    let Some(result) = self.res.recipes().assemble_named(name, &trial, 3) else { continue; };
+                                    let Some(result) = self.res.recipes().assemble_named(&self.loop_context, name, &trial, 3) else { continue; };
                                     (name, result)
                                 } else {
-                                    let Some(result) = self.res.recipes().find(&trial, 3) else { continue; };
+                                    let Some(result) = self.res.recipes().find(&self.loop_context, &trial, 3) else { continue; };
                                     result
                                 };
                                 if candidate_name != name || candidate_result != actual {
@@ -2663,6 +2663,7 @@ mod recursive {
         spec: &Spec,
         step: &ae2_crafting_core::extended::Step,
         recipes: &horizon_client::crafting::Recipes,
+        context: &horizon_world::native_load_context::LoopContext,
         stations: &horizon_client::stations::StationData,
     ) -> Option<(Vec<Option<ItemStack>>, BTreeMap<usize, (String, u64)>)> {
         let template = pattern_grid(spec).ok()?;
@@ -2686,6 +2687,7 @@ mod recursive {
             spec: &Spec,
             step: &ae2_crafting_core::extended::Step,
             recipes: &horizon_client::crafting::Recipes,
+            context: &horizon_world::native_load_context::LoopContext,
             stations: &horizon_client::stations::StationData,
         ) -> bool {
             if i == 9 {
@@ -2694,15 +2696,15 @@ mod recursive {
                 }
                 if let Some((kind,id))=&spec.special {
                     let logical=if spec.special_grid_version==0 {grid.to_vec()}else{let Some(grid)=ae2_processing::special_logical_grid(kind,grid) else{return false};grid};
-                    let Some(result)=ae2_processing::special_recipe_result(stations,kind,id,&logical) else{return false;};
+                    let Some(result)=ae2_processing::special_recipe_result(context,stations,kind,id,&logical) else{return false;};
                     let Ok(Some(expected))=item_data::parse_stack_exact(&spec.output) else{return false;};
                     let mut output=Inventory::new();return result==expected && output_add(&mut output,&result).is_ok() && output==step.outputs;
                 }
                 let (name, result) = if let Some(name) = spec.crafting_recipe.as_deref() {
-                    let Some(result) = recipes.assemble_named(name, grid, 3) else { return false; };
+                    let Some(result) = recipes.assemble_named(context, name, grid, 3) else { return false; };
                     (name.strip_prefix("minecraft:").unwrap_or(name), result)
                 } else {
-                    let Some(result) = recipes.find(grid, 3) else { return false; };
+                    let Some(result) = recipes.find(context, grid, 3) else { return false; };
                     result
                 };
                 let Ok(Some(expected)) = item_data::parse_stack_exact(&spec.output) else {
@@ -2737,6 +2739,7 @@ mod recursive {
                     spec,
                     step,
                     recipes,
+                    context,
                     stations,
                 );
             }
@@ -2767,6 +2770,7 @@ mod recursive {
                         spec,
                         step,
                         recipes,
+                        context,
                         stations,
                     )
                 {
@@ -2791,6 +2795,7 @@ mod recursive {
             spec,
             step,
             recipes,
+            context,
             stations,
         ) {Some((grid,active_fluids))} else {None}
     }
@@ -3173,12 +3178,12 @@ mod recursive {
             let (grid,output)=if let Some((kind,recipe))=&spec.special {
                 let pattern=ae2_processing::ae2_decode_special_pattern(stored)?;
                 if &pattern.kind!=kind || &pattern.recipe!=recipe {return None;}
-                let output=ae2_processing::special_recipe_result(self.res.stations(),kind,recipe,&pattern.grid)?;
+                let output=ae2_processing::special_recipe_result(&self.loop_context,self.res.stations(),kind,recipe,&pattern.grid)?;
                 let grid=if spec.special_grid_version==0 {pattern.grid}else{ae2_processing::special_assembler_grid(kind,&pattern.grid)?};
                 (grid,output)
             } else {
                 let (grid,encoded)=ae2_processing::decode_pattern(stored)?;
-                let output=if let Some(recipe)=spec.crafting_recipe.as_deref(){self.res.recipes().assemble_named(recipe,&grid,3)?}else{encoded};
+                let output=if let Some(recipe)=spec.crafting_recipe.as_deref(){self.res.recipes().assemble_named(&self.loop_context, recipe,&grid,3)?}else{encoded};
                 (grid,output)
             };
             if grid
@@ -4550,7 +4555,7 @@ mod recursive {
                 let Some(job_id) = session.job_id else {
                     break;
                 };
-                let Some((template, active_fluids)) = choose_grid(&spec, &step, self.res.recipes(), self.res.stations()) else {
+                let Some((template, active_fluids)) = choose_grid(&spec, &step, self.res.recipes(), &self.loop_context, self.res.stations()) else {
                     break;
                 };
                 let mut staged = vec![None; 9];
@@ -5058,6 +5063,7 @@ mod recursive {
             std::fs::write(dir.join("fluid_grid.json"),r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:water_bucket","minecraft:water_bucket"],"result":{"id":"minecraft:diamond","count":1}}"#).unwrap();
             let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
             let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);
+            let context=horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]).loop_context(horizon_world::native_load_context::LoopSide::Server,[]);
             let water=fluid_name(&super::super::super::ae2_fluids::fluid_key("minecraft:water"));
             let filled=canon(&ItemStack::new("minecraft:water_bucket",1));let empty=canon(&ItemStack::new("minecraft:bucket",1));
             let result=canon(&ItemStack::new("minecraft:diamond",1));let mut grid=vec!["-".to_string();9];grid[0]=filled.clone();grid[1]=filled.clone();
@@ -5066,16 +5072,16 @@ mod recursive {
                 crafting_recipe:Some("minecraft:fluid_grid".into()),grid,choices,fluid_slots:BTreeMap::from([(0,(water.clone(),1000)),(1,(water.clone(),1000))]),
                 processing:false,special:None,special_grid_version:0,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:result.clone(),global:false};
             let step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(water.clone(),1000),(filled.clone(),1)]),outputs:Inventory::from([(result.clone(),1),(empty,1)]),runs:1};
-            let (grid,fluids)=choose_grid(&spec,&step,&recipes,&stations).unwrap();
+            let (grid,fluids)=choose_grid(&spec,&step,&recipes,&context,&stations).unwrap();
             assert_eq!(grid[0].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
             assert_eq!(grid[1].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
             assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
             let mut legacy:Spec=serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
             legacy.choices[0]=vec![water.clone()];legacy.choices[1]=vec![filled];legacy.fluid_slots.remove(&1);
-            let (_,fluids)=choose_grid(&legacy,&step,&recipes,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
+            let (_,fluids)=choose_grid(&legacy,&step,&recipes,&context,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
             let mut value=serde_json::to_value(&legacy).unwrap();value.as_object_mut().unwrap().remove("choices");
             let oldest:Spec=serde_json::from_value(value).unwrap();
-            let (_,fluids)=choose_grid(&oldest,&step,&recipes,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water,1000))]));
+            let (_,fluids)=choose_grid(&oldest,&step,&recipes,&context,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water,1000))]));
             std::fs::remove_dir_all(root).unwrap();
         }
         #[test]
@@ -5086,7 +5092,7 @@ mod recursive {
             let root=std::env::temp_dir().join(format!("ae2-nonunit-grid-{}",std::process::id()));
             let dir=root.join("data/minecraft/recipe");std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("nonunit.json"),r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:oak_log"],"result":{"id":"minecraft:oak_planks","count":4}}"#).unwrap();
-            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);
+            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);let context=horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]).loop_context(horizon_world::native_load_context::LoopSide::Server,[]);
             let input=canon(&ItemStack::new("minecraft:oak_log",1));let output=canon(&ItemStack::new("minecraft:oak_planks",4));
             let mut grid=vec!["-".to_string();9];grid[0]=input.clone();let mut choices=vec![Vec::new();9];choices[0]=vec![input.clone()];
             let mut recipe_grid=vec![None;9];recipe_grid[0]=Some(ItemStack::new("minecraft:oak_log",1));
@@ -5095,8 +5101,8 @@ mod recursive {
                 crafting_recipe:Some("minecraft:nonunit".into()),grid,choices,fluid_slots:BTreeMap::new(),processing:false,special:None,special_grid_version:0,
                 fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&ItemStack::new("minecraft:oak_planks",4))),global:false};
             let mut step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(input.clone(),4)]),outputs:Inventory::from([(output,4)]),runs:1};
-            let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&stations).is_none());assert_eq!(step,before);
-            step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&stations).is_some());
+            let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&context,&stations).is_none());assert_eq!(step,before);
+            step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&context,&stations).is_some());
             std::fs::remove_dir_all(root).unwrap();
         }
         #[test]

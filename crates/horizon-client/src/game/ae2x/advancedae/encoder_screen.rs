@@ -236,7 +236,7 @@ impl Game<'_> {
         let at = [self.cursor.0 - ox, self.cursor.1 - oy];
         let Some(b) = self.advancedae_encoder_buttons().into_iter().find(|b| inside(b.rect, at)) else { return false };
         let (key, fallback) = TOOLTIPS[b.column];
-        let text = self.translate(key, fallback);
+        let text = self.translate_with_fallback(key, fallback);
         self.draw_tooltip_lines(batch, &[(horizon_client::text::Text::literal(text), u32::MAX)], self.cursor.0, self.cursor.1);
         true
     }

@@ -116,11 +116,21 @@ impl Menu {
                 if total <= max {
                     *stack.count_mut() = 0;
                     target.count = total;
+                    #[cfg(feature = "ae2-lab")]
+                    {
+                        crate::ae2_stack_identity::synchronize_tracked(target);
+                        crate::ae2_stack_identity::synchronize_tracked(stack);
+                    }
                     changed = true;
                     self.slot_changed(env, dest);
                 } else if target.count < max {
                     *stack.count_mut() -= max - target.count;
                     target.count = max;
+                    #[cfg(feature = "ae2-lab")]
+                    {
+                        crate::ae2_stack_identity::synchronize_tracked(target);
+                        crate::ae2_stack_identity::synchronize_tracked(stack);
+                    }
                     changed = true;
                     self.slot_changed(env, dest);
                 }
@@ -208,6 +218,11 @@ impl Menu {
             Some(mut current) if current.same_item_same_components(stack) => {
                 *stack.count_mut() -= transferable;
                 current.count += transferable;
+                #[cfg(feature = "ae2-lab")]
+                {
+                    crate::ae2_stack_identity::synchronize_tracked(stack);
+                    crate::ae2_stack_identity::synchronize_tracked(&current);
+                }
                 self.set_by_player(env, s, Some(current));
             }
             Some(_) => {}

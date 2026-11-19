@@ -15,10 +15,10 @@ use horizon_core::{
 };
 use horizon_world::{
     fluid::FluidKind,
-    nbt::{Compound, Tag},
     registry::BlockStateId,
     worldgen::{biome::BiomeId, generator::GeneratorData},
 };
+use horizon_core::nbt::{Compound, Tag};
 use std::{cell::RefCell, rc::Rc};
 
 const ITEM: &str = "ae2:debug_meteorite_placer";
@@ -268,7 +268,7 @@ impl ae2_meteorite::World for LiveWorld<'_, '_> {
 impl Game<'_> {
     pub(super) fn ae2_try_meteorite_cycle(&mut self) -> bool {
         if self.remote.is_some()
-            || !self.keys.contains(&KeyCode::ShiftLeft)
+            || !self.keys.raw(&KeyCode::ShiftLeft)
             || !self
                 .held()
                 .is_some_and(|s| s.item.as_ref() == ITEM && s.count > 0)

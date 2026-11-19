@@ -5,7 +5,8 @@ use ae2_cell_core::ItemKey;
 use ae2_network_core::NodeIdentity;
 use horizon_client::{blocks::BlockFacts, containers::BlockEntity, world::World};
 use horizon_core::position::BlockPos;
-use horizon_world::{fluid::FluidKind, nbt::{self, Limits, Tag}};
+use horizon_world::fluid::FluidKind;
+use horizon_core::nbt::{self, Limits, Tag};
 use std::{collections::HashMap, time::{SystemTime, UNIX_EPOCH}};
 
 const BUCKET_MB: u64 = 1000;

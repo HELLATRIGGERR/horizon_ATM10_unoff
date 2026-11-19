@@ -775,7 +775,7 @@ impl Game<'_> {
             set_tank(&mut m, TANK_OUT, Some((&fluid, amount - 1000)));
             *self.held_mut() = Some(ItemStack::new(bucket, 1));
             if held.count > 1 {
-                if let Some(rest) = self.give(ItemStack::new("minecraft:bucket", held.count - 1)) {
+                if let Some(rest) = self.add_stack_to_inventory(ItemStack::new("minecraft:bucket", held.count - 1)) {
                     self.pop_resource([pos.0, pos.1, pos.2], rest);
                 }
             }

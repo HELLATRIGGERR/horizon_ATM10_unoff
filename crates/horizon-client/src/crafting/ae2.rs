@@ -102,6 +102,7 @@ pub(super) fn remainders(
     name: &str,
     grid: &[Option<ItemStack>],
     size: usize,
+    remainder: &dyn Fn(&ItemStack) -> Option<ItemStack>,
 ) -> Option<Vec<Option<ItemStack>>> {
     let mut out = vec![None; size * size];
     for (i, stack) in grid
@@ -109,11 +110,7 @@ pub(super) fn remainders(
         .enumerate()
         .filter_map(|(i, s)| s.as_ref().map(|s| (i, s)))
     {
-        *out.get_mut(i)? = recipes
-            .facts
-            .get(&stack.item)
-            .and_then(|f| f.remainder.as_ref())
-            .map(|id| ItemStack::new(id.as_ref(), 1));
+        *out.get_mut(i)? = remainder(stack);
     }
     if let Some((_, recipe)) = recipes
         .ae2_custom

@@ -265,7 +265,7 @@ impl Game<'_> {
             if self
                 .ae2_guest(host, conn, |g| {
                     let hands_full = g.inventory[g.selected].is_some() || g.offhand.is_some();
-                    if g.keys.contains(&KeyCode::ShiftLeft) && hands_full {
+                    if g.keys.raw(&KeyCode::ShiftLeft) && hands_full {
                         return false;
                     }
                     g.with_hand(hand, |g| g.ae2_try_debug_cube_use(pos))
@@ -313,7 +313,7 @@ impl Game<'_> {
             if self
                 .ae2_guest(host, conn, |g| {
                     g.with_hand(hand, |g| {
-                        let bypass = g.keys.contains(&KeyCode::ShiftLeft)
+                        let bypass = g.keys.raw(&KeyCode::ShiftLeft)
                             && (g.inventory[g.selected].is_some() || g.offhand.is_some());
                         (!bypass
                             && (g.ae2_try_crank_use(at)

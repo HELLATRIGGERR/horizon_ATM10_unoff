@@ -10,7 +10,8 @@
 //! on the entry (`lan_ae2_machine_button`). What the screen shows (progress,
 //! the settings' values) comes as the menu's data slots, which
 //! `ae2_screen_data` makes on the server.
-use super::{Game, native_hooks::NativeScreen};
+use super::Game;
+use mod_api::Screen as NativeScreen;
 use horizon_client::{
     ae2_screen_style::{Align, Image, ScreenStyle},
     ae2_world::{Machine, MachineKind},
@@ -1127,6 +1128,7 @@ impl Game<'_> {
                             i,
                             self.res.items(),
                             self.res.recipes(),
+                            &self.loop_context,
                             self.res.stations(),
                         )
                     });
@@ -1195,6 +1197,7 @@ impl Game<'_> {
             inventory_x: ix as f32,
             own_labels: true,
             own_background: false,
+            ..Default::default()
         };
         Some((laid_out, screen))
     }
@@ -1274,7 +1277,7 @@ impl Game<'_> {
         let (w, h) = style.size();
         for (id, text) in &style.text {
             let label = match (text.text.get("translate").and_then(|v| v.as_str()), text.text.get("text")) {
-                (Some(key), _) => self.translate(key, key),
+                (Some(key), _) => self.translate_with_fallback(key, key),
                 (None, Some(v)) => v.as_str().unwrap_or("").to_owned(),
                 _ => match filled.iter().find(|(name, _)| *name == id.as_str()) {
                     Some((_, label)) => label.clone(),
@@ -1320,8 +1323,8 @@ impl Game<'_> {
 
     /// The help button's tooltip (`OpenGuideButton`).
     pub(super) fn ae2_help_tooltip(&self, lines: &mut Vec<String>) {
-        lines.push(self.translate("gui.tooltips.ae2.OpenGuide", "Open Guide"));
-        lines.push(format!("\u{a7}7{}", self.translate("gui.tooltips.ae2.OpenGuideDetail", "")));
+        lines.push(self.translate_with_fallback("gui.tooltips.ae2.OpenGuide", "Open Guide"));
+        lines.push(format!("\u{a7}7{}", self.translate_with_fallback("gui.tooltips.ae2.OpenGuideDetail", "")));
     }
 
     /// `OpenGuideButton`: the menu closes and the guide opens at block
@@ -1414,9 +1417,9 @@ impl Game<'_> {
         if let Some(page) = layout.page_line.as_ref() {
             let line = if page.per_value {
                 let key = format!("{}{}", page.key, value(data, page.data));
-                self.translate(&key, page.fallback)
+                self.translate_with_fallback(&key, page.fallback)
             } else {
-                fill(&self.translate(page.key, page.fallback), &[(value(data, page.data) + i32::from(!page.count)).to_string()])
+                fill(&self.translate_with_fallback(page.key, page.fallback), &[(value(data, page.data) + i32::from(!page.count)).to_string()])
             };
             batch.text(&self.gui.atlas, &line, ox + page.at.0, oy + page.at.1, argb(screen.style.color("DEFAULT_TEXT_COLOR")), false);
         }
@@ -1431,7 +1434,7 @@ impl Game<'_> {
                 (icon::UNLOCKED, "gui.ae2.CraftingLockIsUnlocked", rgba(125, 169, 210, 255))
             };
             self.ae2_icon(batch, mark, (16, 16), ox + 5.0, oy + 15.0);
-            batch.text(&self.gui.atlas, &self.translate(key, key), ox + 20.0, oy + 20.0, color, false);
+            batch.text(&self.gui.atlas, &self.translate_with_fallback(key, key), ox + 20.0, oy + 20.0, color, false);
         }
         if let Some(progress) = layout.progress.as_ref()
             && let (Some(image), Some(widget)) = (style.images.get(progress.name), style.widgets.get(progress.name))
@@ -1458,7 +1461,7 @@ impl Game<'_> {
 
     /// The texts a screen fills in (`setTextContent`), by the style's ids.
     fn ae2_screen_texts(&self, kind: MachineKind, data: &[i32]) -> Vec<(&'static str, String)> {
-        let text = |key: &str, args: &[String]| fill(&self.translate(key, key), args);
+        let text = |key: &str, args: &[String]| fill(&self.translate_with_fallback(key, key), args);
         match kind {
             // SpatialIOPortScreen.updateBeforeRender.
             MachineKind::SpatialIoPort => {
@@ -1467,7 +1470,7 @@ impl Game<'_> {
                 let scs = if size.iter().all(|n| *n != 0) {
                     text("gui.ae2.SCSSize", &size.map(|n| n.to_string()))
                 } else {
-                    self.translate("gui.ae2.SCSInvalid", "gui.ae2.SCSInvalid")
+                    self.translate_with_fallback("gui.ae2.SCSInvalid", "gui.ae2.SCSInvalid")
                 };
                 vec![
                     ("stored_power", text("gui.ae2.StoredPower", &[power(0)])),
@@ -1643,28 +1646,28 @@ impl Game<'_> {
                     let (name, _, key) = t.values[value(data, t.data).clamp(0, t.values.len() as i32 - 1) as usize];
                     // A button with no setting's name says what it does and no more.
                     if t.title.is_empty() {
-                        lines.push(self.translate(key, key));
+                        lines.push(self.translate_with_fallback(key, key));
                         return;
                     }
-                    lines.push(self.translate(t.title, t.title));
+                    lines.push(self.translate_with_fallback(t.title, t.title));
                     // The condenser's outputs say how much matter one takes.
                     let amount = match name {
                         "matter_balls" => horizon_client::ae2_common_config::condenser().matter_balls,
                         "singularity" => horizon_client::ae2_common_config::condenser().singularity,
                         _ => 0.0,
                     };
-                    let text = self.translate(key, key).replace("%s", &format!("{amount}"));
+                    let text = self.translate_with_fallback(key, key).replace("%s", &format!("{amount}"));
                     lines.extend(text.split('\n').map(|l| format!("\u{a7}7{l}")));
                 }
             }
             return;
         }
         if screen.priority_tab().is_some_and(|tab| inside(tab, at)) {
-            lines.push(self.translate("gui.ae2.Priority", "Priority"));
+            lines.push(self.translate_with_fallback("gui.ae2.Priority", "Priority"));
             return;
         }
         if screen.cogs(|e| self.ae2_screen_entry_filled(e)).iter().any(|(r, _)| inside(*r, at)) {
-            lines.push(self.translate("gui.tooltips.ae2.InterfaceSetStockAmount", "Set Stock Amount"));
+            lines.push(self.translate_with_fallback("gui.tooltips.ae2.InterfaceSetStockAmount", "Set Stock Amount"));
             return;
         }
         if let Some([mode, locked, reason]) = screen.layout.lock_line
@@ -1678,7 +1681,7 @@ impl Game<'_> {
                 4 => "waila.ae2.CraftingLockedUntilResult",
                 _ => "waila.ae2.CraftingLockedUntilPulse",
             };
-            lines.push(self.translate(key, key).replace("%s", "?"));
+            lines.push(self.translate_with_fallback(key, key).replace("%s", "?"));
             return;
         }
         let (w, h) = screen.size();
@@ -1697,8 +1700,8 @@ impl Game<'_> {
                     }
                     // CondenserScreen: "Stored Energy", then "<n> of <max>".
                     MachineKind::Condenser => {
-                        lines.push(self.translate("gui.ae2.StoredEnergy", "Stored Energy"));
-                        lines.push(format!("{current} {} {max}", self.translate("gui.ae2.Of", "of")));
+                        lines.push(self.translate_with_fallback("gui.ae2.StoredEnergy", "Stored Energy"));
+                        lines.push(format!("{current} {} {max}", self.translate_with_fallback("gui.ae2.Of", "of")));
                     }
                     // Inscriber and Molecular Assembler: "progress%".
                     _ => lines.push(format!("{}%", current * 100 / max.max(1))),

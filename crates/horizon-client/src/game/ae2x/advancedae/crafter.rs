@@ -675,9 +675,9 @@ impl Game<'_> {
         let (grid, encoded) = crate::game::ae2_processing::decode_pattern(pattern)?;
         let recipes = self.res.recipes();
         let (name, result) = match crate::game::ae2_source_patterns::crafting(pattern).and_then(Result::ok) {
-            Some(source) => (source.recipe.clone(), recipes.assemble_named(&source.recipe, &grid, 3)?),
+            Some(source) => (source.recipe.clone(), recipes.assemble_named(&self.loop_context, &source.recipe, &grid, 3)?),
             None => {
-                let (name, result) = recipes.find(&grid, 3)?;
+                let (name, result) = recipes.find(&self.loop_context, &grid, 3)?;
                 if result != encoded {
                     return None;
                 }

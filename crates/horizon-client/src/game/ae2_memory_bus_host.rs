@@ -41,7 +41,7 @@ impl Game<'_> {
     fn ae2_try_bus_memory_face(&mut self,pos:[i32;3],face:&str)->bool{
         let Some(mut card)=self.held().filter(|s|s.item.as_ref()=="ae2:memory_card"&&s.count==1).cloned()else{return false};
         let snapshot=match self.bus_memory_snapshot(pos,face){Ok(None)=>return false,Ok(Some(s))=>s,Err(_)=>return true};
-        if self.keys.contains(&super::KeyCode::ShiftLeft){
+        if self.keys.raw(&super::KeyCode::ShiftLeft){
             if super::ae2_memory::clear(&mut card).is_err(){return true}
             if super::ae2_memory::save_bus(&mut card,&snapshot.part,snapshot.name.as_deref()).is_ok(){publish_memory_name(&mut card,snapshot.name_component.clone());horizon_client::ae2_stack_identity::synchronize_tracked(&card);*self.held_mut()=Some(card);self.system_message(horizon_client::text::Text::literal("Settings saved"));}
             return true

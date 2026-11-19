@@ -255,14 +255,14 @@ impl Game<'_> {
             let Some((dim, pos)) = self.ae2_address_parts(address) else {
                 continue;
             };
-            if self.enter_level(None, dim).is_ok() {
+            if self.enter_level(dim).is_ok() {
                 if matches!(self.world.block_entities.get(&pos), Some(BlockEntity::Ae2(machine)) if machine.kind == MachineKind::QuantumLink) {
                     self.ae2_quantum_inventory_changed(pos);
                 }
                 self.container_changed(pos);
             }
         }
-        let _ = self.enter_level(None, back);
+        let _ = self.enter_level(back);
     }
     pub(in crate::game) fn ae2_provider_part_at(
         &self,
@@ -1105,7 +1105,7 @@ impl Game<'_> {
 // pattern slot or fluid/CPU escrow. A physical installed pattern is required.
 impl Game<'_> {
     pub(in crate::game) fn ae2_assembler_pattern_valid(&self,pattern:&ItemStack)->bool {
-        super::super::ae2_processing::assembler_pattern_valid(pattern,self.res.items(),self.res.recipes(),self.res.stations())
+        super::super::ae2_processing::assembler_pattern_valid(pattern,self.res.items(),self.res.recipes(),&self.loop_context,self.res.stations())
     }
     /// The menu uses the active forced definition when a Provider owns the
     /// plan. Older snapshots lack that metadata and remain exact-only.
@@ -1114,7 +1114,7 @@ impl Game<'_> {
         if let Some(snapshot)=m.config.get(&"ae2_assembler_pattern".into()) {
             if let Some(definition)=snapshot.get("definition") {
                 return horizon_client::save::item_from_nbt(definition).is_some_and(|pattern|
-                    super::super::ae2_processing::assembler_pattern_accepts(&pattern,slot,stack,self.res.items(),self.res.recipes(),self.res.stations()));
+                    super::super::ae2_processing::assembler_pattern_accepts(&pattern,slot,stack,self.res.items(),self.res.recipes(),&self.loop_context,self.res.stations()));
             }
             return horizon_client::save::decode_items(snapshot.get("grid"),9).get(slot).and_then(Option::as_ref)
                 .is_some_and(|expected|expected.same_item_same_components(stack));
@@ -1127,12 +1127,12 @@ impl Game<'_> {
         if let Some(snapshot)=m.config.get(&"ae2_assembler_pattern".into()) {
             if let Some(definition)=snapshot.get("definition") {
                 return horizon_client::save::item_from_nbt(definition).is_some_and(|pattern|
-                    super::super::ae2_processing::assembler_pattern_slot_enabled(&pattern,slot,self.res.items(),self.res.recipes(),self.res.stations()));
+                    super::super::ae2_processing::assembler_pattern_slot_enabled(&pattern,slot,self.res.items(),self.res.recipes(),&self.loop_context,self.res.stations()));
             }
             return horizon_client::save::decode_items(snapshot.get("grid"),9).get(slot).is_some_and(Option::is_some);
         }
         m.slots[10].as_ref().is_some_and(|pattern|
-            super::super::ae2_processing::assembler_pattern_slot_enabled(pattern,slot,self.res.items(),self.res.recipes(),self.res.stations()))
+            super::super::ae2_processing::assembler_pattern_slot_enabled(pattern,slot,self.res.items(),self.res.recipes(),&self.loop_context,self.res.stations()))
     }
     pub(in crate::game) fn ae2_assembler_accepts(&self,m:&horizon_client::ae2_world::Machine,slot:usize,stack:&ItemStack)->bool {
         if slot>=9 || m.slots.len()!=11 {return false;}
@@ -1142,7 +1142,7 @@ impl Game<'_> {
         if m.config.contains_key(&"ae2_assembler_pattern".into()) {
             return self.ae2_assembler_menu_accepts(m,slot,stack);
         }
-        super::super::ae2_processing::assembler_pattern_accepts(pattern,slot,stack,self.res.items(),self.res.recipes(),self.res.stations())
+        super::super::ae2_processing::assembler_pattern_accepts(pattern,slot,stack,self.res.items(),self.res.recipes(),&self.loop_context,self.res.stations())
     }
     fn ae2_assembler_insert(&mut self,address:GridAddress,stack:&ItemStack,limit:u32,simulate:bool)->Option<u32>{
         let BlockEntity::Ae2(m)=self.ae2_block_entity(address)? else{return None};if m.kind!=MachineKind::MolecularAssembler{return None}if m.slots.len()!=11{return Some(0)}

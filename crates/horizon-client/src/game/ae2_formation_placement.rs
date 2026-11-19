@@ -2,7 +2,8 @@
 use super::{Game,ae2_formation::{FormationAction,FormationPlan,PlaneOwner,PlaneTarget,FluidPreview}};
 use horizon_client::{containers::BlockEntity,items::ItemStack,ae2_world::MachineKind};
 use horizon_core::{geometry::{Direction,Vec3},position::BlockPos};
-use horizon_world::{level::{PlaceContext,PlaceOutcome},registry::BlockStateId,nbt::Tag,fluid::FluidKind};
+use horizon_world::{level::{PlaceContext,PlaceOutcome},registry::BlockStateId,fluid::FluidKind};
+use horizon_core::nbt::Tag;
 
 impl Game<'_> {
     pub(super) fn ae2_formation_owner_valid(&self,owner:PlaneOwner)->bool {

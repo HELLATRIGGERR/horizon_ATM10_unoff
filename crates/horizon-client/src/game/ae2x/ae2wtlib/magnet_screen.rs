@@ -184,12 +184,12 @@ impl Game<'_> {
     pub(in crate::game) fn ae2wtlib_magnet_tooltip(&self, at: [f32; 2]) -> Option<String> {
         let (part, _) = self.ae2wtlib_magnet_parts().into_iter().find(|(_, r)| inside(*r, at))?;
         let filters = self.ae2wtlib_magnet_filters();
-        let tr = |key: &str| self.translate(key, key);
+        let tr = |key: &str| self.translate_with_fallback(key, key);
         Some(match part {
             Part::Filter(which, index) => {
                 let item = filters?.slots[usize::from(which)].get(usize::from(index)).cloned().flatten()?;
                 let (namespace, path) = item.split_once(':').unwrap_or(("minecraft", &item));
-                self.translate(&format!("item.{namespace}.{path}"), &item)
+                self.translate_with_fallback(&format!("item.{namespace}.{path}"), &item)
             }
             Part::Button(action @ (0 | 1)) => {
                 let allow = filters.is_some_and(|f| f.allow[usize::from(action)]);

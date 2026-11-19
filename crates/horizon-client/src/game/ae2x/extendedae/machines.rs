@@ -798,7 +798,7 @@ impl Game<'_> {
         match self.held().cloned() {
             None => {
                 let Some(fuel) = m.slots[0].take() else { return true };
-                if let Some(rest) = self.give(fuel) {
+                if let Some(rest) = self.add_stack_to_inventory(fuel) {
                     self.pop_resource([pos.0, pos.1, pos.2], rest);
                 }
             }

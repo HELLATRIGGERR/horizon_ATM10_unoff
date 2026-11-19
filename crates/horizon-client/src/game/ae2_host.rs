@@ -155,7 +155,7 @@ impl Ae2Host for Game<'_> {
     }
 
     fn shift_down(&self) -> bool {
-        self.keys.contains(&super::KeyCode::ShiftLeft)
+        self.keys.raw(&super::KeyCode::ShiftLeft)
     }
 
     fn held(&self) -> Option<&ItemStack> {
@@ -321,11 +321,13 @@ impl Game<'_> {
         let Some(ext) = self.ae2_ext.get() else { return false };
         let Some(addon) = ext.addon(id) else { return false };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return true };
-        let guest = &mut host.hub.guests[gi];
-        let player = horizon_protocol::crypto::uuid_string(guest.uuid);
-        let selected = guest.selected;
-        let Some(Some(stack)) = guest.inventory.get_mut(selected) else { return true };
-        if addon.lan_main_hand_payload(channel, data, &player, stack) {
+        let changed = host.hub.guests.update(gi, |guest| {
+            let player = horizon_protocol::crypto::uuid_string(guest.uuid);
+            let selected = guest.selected;
+            let Some(Some(stack)) = guest.inventory.get_mut(selected) else { return false };
+            addon.lan_main_hand_payload(channel, data, &player, stack)
+        });
+        if changed {
             host.hub.send_inventory(gi);
         }
         true

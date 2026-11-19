@@ -119,7 +119,7 @@ impl Game<'_> {
                 ..source.clone()
             })
         };
-        if self.give(ItemStack::new(result, 1)).is_some() {
+        if self.add_stack_to_inventory(ItemStack::new(result, 1)).is_some() {
             self.inventory = before;
             return Err("inventory has no space for the returned bucket".into());
         }

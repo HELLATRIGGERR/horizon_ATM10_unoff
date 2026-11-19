@@ -274,7 +274,7 @@ impl Game<'_> {
             None => Default::default(),
             _ => return true,
         };
-        let save = self.keys.contains(&super::KeyCode::ShiftLeft);
+        let save = self.keys.raw(&super::KeyCode::ShiftLeft);
         let mut updated = part.clone();
         let mut replaced = false;
         if save {

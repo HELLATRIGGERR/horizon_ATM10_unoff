@@ -13,6 +13,8 @@
 //   PORT_PACK         the horizon-port-pack binary      <base>/.build/target-portpack/release/horizon-port-pack
 //   ATM10_DIR         the ATM10 instance (its jar, its quest book)
 //   FTBQ_JOBS         cargo jobs                        2
+//   FTBQ_FEATURES     the game's Cargo features         ae2-lab (`-p horizon-game --no-default-features`; the
+//                                                     world tests load AE2's content, which needs it)
 // `world` passes AE2_RESOURCES, AE2_CONTENT_DIR, FTBQ_CONTENT_DIR and ATM10_DIR to the harness, and
 // FTBTEAMS_DEV=1 (the fake player command and the probes).
 //
@@ -22,6 +24,8 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
+import { addLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -96,15 +100,16 @@ const steps: Record<string, () => Promise<void>> = {
     const mods = `${stage}-mods`;
     rmSync(mods, { recursive: true, force: true });
     for (const name of BUNDLES) cpSync(join(root, 'pack/mods', name), join(mods, name), { recursive: true, filter: path => !path.includes(`${join('tests', '')}`) });
+    addLocalBundles(mods);
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', mods, '--out', next]);
+    await applyBundles(command => run(command), mixins, root, mods, next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.FTBQ_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   /** The book item and its model, carried from the player's jar into a content mod beside the checkout. */
   async content() {

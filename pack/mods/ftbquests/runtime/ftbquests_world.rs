@@ -9,11 +9,8 @@
 // FTB Quests is All Rights Reserved: written from its behaviour; messages are translation keys with our own
 // fallback wording.
 
-use super::{
-    Game, ftbteams_world,
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
+use super::{Game, ftbteams_world};
+use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, WorldPhase};
 use ftbquests_core::{
     CLAIM_REWARD, OPEN_BOOK, Request, SUBMIT_TASK, SYNC,
     file::{QuestFile, parse_id},
@@ -94,34 +91,35 @@ fn team_dir(world: &std::path::Path) -> PathBuf {
     world.join("ftbquests")
 }
 
-/// `native_world_lifecycle`: the teams' progress is read when the world opens, written when it closes.
-pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
-    match phase {
-        WorldPhase::WorldOpenReady => {
-            let Some(world) = game.native_world_dir() else { return };
-            let _ = quest_file();
-            let mut teams = BTreeMap::new();
-            if let Ok(entries) = std::fs::read_dir(team_dir(&world)) {
-                for path in entries.flatten().map(|e| e.path()) {
-                    let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
-                    if !(name.contains('-') && name.ends_with(".snbt")) {
-                        continue;
-                    }
-                    match snbt::read_file(&path).and_then(|c| TeamData::from_snbt(&c)) {
-                        Some(data) => {
-                            teams.insert(data.uuid, data);
-                        }
-                        None => log::warn!("[ftbquests] {} doesn't read; ignoring it", path.display()),
-                    }
-                }
+/// `native_server_started` (where the fork's `WorldOpenReady` was): the teams' progress is read once the worlds are
+/// open, before any player joins.
+pub(super) fn opened(game: &mut Game<'_>) {
+    let Some(world) = game.native_world_dir() else { return };
+    let _ = quest_file();
+    let mut teams = BTreeMap::new();
+    if let Ok(entries) = std::fs::read_dir(team_dir(&world)) {
+        for path in entries.flatten().map(|e| e.path()) {
+            let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
+            if !(name.contains('-') && name.ends_with(".snbt")) {
+                continue;
             }
-            log::info!("[ftbquests] {} team progress file(s)", teams.len());
-            SERVER.with(|s| *s.borrow_mut() = Some(Server { world, teams, ticks: 0, synced: HashMap::new(), gave: 0 }));
+            match snbt::read_file(&path).and_then(|c| TeamData::from_snbt(&c)) {
+                Some(data) => {
+                    teams.insert(data.uuid, data);
+                }
+                None => log::warn!("[ftbquests] {} doesn't read; ignoring it", path.display()),
+            }
         }
-        WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => {
-            saved();
-            SERVER.with(|s| *s.borrow_mut() = None);
-        }
+    }
+    log::info!("[ftbquests] {} team progress file(s)", teams.len());
+    SERVER.with(|s| *s.borrow_mut() = Some(Server { world, teams, ticks: 0, synced: HashMap::new(), gave: 0 }));
+}
+
+/// `native_world_lifecycle`: the teams' progress is written and dropped when the world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        saved();
+        SERVER.with(|s| *s.borrow_mut() = None);
     }
 }
 
@@ -151,7 +149,7 @@ fn data_of<'a>(s: &'a mut Server, team: u128, name: &str) -> &'a mut TeamData {
 
 /// Sends `team`'s progress to its members who are on (all of them: `only` None), or to one player.
 fn sync(game: &mut Game<'_>, file: &QuestFile, team: u128, only: Option<u128>) {
-    let players: Vec<u128> = game.native_server_players().into_iter().map(|p| p.uuid).filter(|p| only.is_none_or(|o| o == *p)).collect();
+    let players: Vec<u128> = game.native_server_players().into_iter().map(|p| p.uuid()).filter(|p| only.is_none_or(|o| o == *p)).collect();
     for player in players {
         if team_of(player).map(|t| t.0) != Some(team) {
             continue;
@@ -177,8 +175,9 @@ pub(super) fn tick(game: &mut Game<'_>) {
     }) else {
         return;
     };
-    let players = game.native_server_players();
+    let players: Vec<u128> = game.native_server_players().into_iter().map(|p| p.uuid()).collect();
     for p in &players {
+        let p = Online { uuid: *p };
         let Some((team, name)) = team_of(p.uuid) else { continue };
         if with_server(|s| s.synced.get(&p.uuid) != Some(&team)) == Some(true) {
             with_server(|s| {
@@ -190,7 +189,7 @@ pub(super) fn tick(game: &mut Game<'_>) {
             continue;
         }
         let mut carried = Vec::new();
-        game.native_as_player(p.uuid, |g| carried = g.native_carried_items());
+        game.native_as_player(p.uuid, |g| carried = carried_items(g));
         if carried.is_empty() {
             continue;
         }
@@ -228,8 +227,7 @@ pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data
     match claimed {
         Some(Ok(item)) => {
             if let Some((item, count)) = item {
-                let mut given = 0;
-                game.native_as_player(player, |g| given = g.native_give_items(&item, count));
+                let given = give_items(game, player, &item, count);
                 if given < count {
                     log::warn!("[ftbquests] {} of {count} {item} didn't fit in the inventory", count - given);
                 }
@@ -242,28 +240,94 @@ pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data
     }
 }
 
-fn open_book(game: &mut Game<'_>, player: u128) {
-    if let Err(e) = game.native_net_send_to_player(player, OPEN_BOOK, b"{}") {
-        log::debug!("[ftbquests] {OPEN_BOOK}: {e}");
+/// A player on the server (the tick's loop reads the UUID only).
+struct Online {
+    uuid: u128,
+}
+
+/// The plain stacks (no damage, no components) the player in place carries in the main inventory and the off hand,
+/// summed by item: what the item tasks count (the fork's `native_carried_items`, which the merge dropped).
+fn carried_items(game: &Game<'_>) -> Vec<(String, u32)> {
+    let mut out: Vec<(String, u32)> = Vec::new();
+    let held = game.inventory.iter().take(36).chain(std::iter::once(&game.offhand));
+    for s in held.flatten().filter(|s| s.damage == 0 && s.extra.is_none()) {
+        match out.iter_mut().find(|(i, _)| *i == *s.item) {
+            Some((_, n)) => *n += s.count,
+            None => out.push((s.item.to_string(), s.count)),
+        }
+    }
+    out
+}
+
+/// Gives `player` `count` plain `item` in whole stacks as `/give` does (what does not fit is thrown for them to pick
+/// up); how many it gave (the fork's `native_give_items`, which the merge dropped).
+fn give_items(game: &mut Game<'_>, player: u128, item: &str, count: u32) -> u32 {
+    let Some(max) = game.res.items().get(item).map(|i| i.max_stack) else { return 0 };
+    let Some(handle) = game.fork_player(player) else { return 0 };
+    let max = (max as u32).max(1);
+    let mut given = 0;
+    while given < count {
+        let n = (count - given).min(max);
+        if game.player_give_stack(handle, horizon_client::items::ItemStack::new(item, n)).is_err() {
+            break;
+        }
+        given += n;
+    }
+    given
+}
+
+fn open_book(game: &mut Game<'_>, player: u128) -> bool {
+    match game.native_net_send_to_player(player, OPEN_BOOK, b"{}") {
+        Ok(()) => true,
+        Err(e) => {
+            log::debug!("[ftbquests] {OPEN_BOOK}: {e}");
+            false
+        }
     }
 }
 
-/// `native_use_item`: the book item opens the book (FTB Quests' `QuestBookItem`).
-pub(super) fn use_item(game: &mut Game<'_>, stack: &horizon_client::items::ItemStack, claimed: &mut bool) {
-    if *claimed || &*stack.item != BOOK_ITEM {
+thread_local! {
+    /// `use_item` opened the book for the use in progress: `take_book_use` answers it.
+    static BOOK_USED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether `use_item` took the use the hook is answering (once).
+pub(super) fn take_book_use() -> bool {
+    BOOK_USED.with(|b| b.replace(false))
+}
+
+/// `native_use_item`: the book item opens the book (FTB Quests' `QuestBookItem`), on the server (the window's
+/// client has no player to send to); the use is then answered `Success` (`take_book_use`).
+pub(super) fn use_item(game: &mut Game<'_>, stack: &horizon_client::items::ItemStack) {
+    BOOK_USED.with(|b| b.set(false));
+    if &*stack.item != BOOK_ITEM {
         return;
     }
-    *claimed = true;
     let player = game.native_acting_id();
-    open_book(game, player);
+    if open_book(game, player) {
+        BOOK_USED.with(|b| b.set(true));
+    }
 }
 
-pub(super) fn register(commands: &mut Vec<NativeCommand>) {
-    commands.push(NativeCommand::new("ftbquests open_book"));
+/// `native_register_commands`. `/ftbquests` takes one optional `text` line its rules read (upstream's dispatcher
+/// parses a usage's arguments itself).
+pub(super) fn register(commands: &mut Vec<Command>) {
+    commands.push(Command::new("ftbquests [line:text]"));
     if dev() {
-        commands.push(NativeCommand::op("ftbquests_probe", 2));
-        commands.push(NativeCommand::op("ftbquests_probe pick", 2));
+        commands.push(Command::op("ftbquests_probe [line:text]", 2));
     }
+}
+
+/// The command line a parsed invocation of one of `register`'s usages was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
 }
 
 /// Quests of the book for the tests to play, in book order, none waiting on another: one whose only task is a
@@ -295,11 +359,14 @@ fn pick(f: &QuestFile) -> serde_json::Value {
     serde_json::json!({ "item": item, "check": check })
 }
 
-/// `native_perform_command`: `/ftbquests open_book`; `/ftbquests_probe` for the tests.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+/// `native_run_mod_command`: `/ftbquests open_book`; `/ftbquests_probe` for the tests.
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
     if *ran {
         return;
     }
+    let CommandSource::Player { player, .. } = source else { return };
+    let player = Online { uuid: player.uuid() };
+    let command = line(call);
     let words: Vec<&str> = command.split_whitespace().collect();
     match words.as_slice() {
         ["ftbquests", "open_book"] => {

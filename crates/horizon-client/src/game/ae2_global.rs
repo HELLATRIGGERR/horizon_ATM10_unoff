@@ -50,14 +50,22 @@ const STRIDE: i32 = 4096;
 /// Far above every encoded level ([`STRIDE`] each) and every network block
 /// position (a packed `BlockPos` has 12 bits of Y).
 const ANCHOR: i32 = 1 << 24;
+/// Whether AE2's grids reach `dim`: the vanilla three and spatial storage. Upstream's extra
+/// dimensions (`Dim::Extra`, ATM10's mod dimensions) are not supported until after the upstream
+/// merge (mapping.md): they have no grid ordinal, so no grid address encodes a position there,
+/// [`Game::ae2_loaded_worlds`] leaves them out, and their AE2 blocks form no grid. Their mutation
+/// journal is drained and dropped (`Game::ae2_drop_gridless_mutations`), and the first AE2 block
+/// entity found in one logs one warning.
+pub(super) fn grid_level(dim: Dim) -> bool {
+    ordinal(dim) >= 0
+}
 fn ordinal(dim: Dim) -> i32 {
     match dim {
         Dim::Overworld => 0,
         Dim::Nether => 1,
         Dim::End => 2,
         Dim::Spatial => 3,
-        // FORK-TODO(merge): upstream's extra dimensions have no AE2 grid ordinal yet; the
-        // fork's grids span the vanilla three and spatial storage.
+        // No grid level: see `grid_level`.
         Dim::Extra(_) => -1,
     }
 }
@@ -117,10 +125,15 @@ impl Game<'_> {
     pub(super) fn ae2_address_parts(&self, p: GridAddress) -> Option<(Dim, LocalPos)> {
         decode(p)
     }
+    /// The loaded levels AE2's grids span, the level in place first when it is one of them:
+    /// upstream's extra dimensions are left out ([`grid_level`]).
     pub(super) fn ae2_loaded_worlds(&self) -> Vec<(Dim, &World)> {
-        let mut dims: Vec<_> = self.levels.ae2_dimensions().collect();
+        let mut dims: Vec<_> = self.levels.ae2_dimensions().filter(|d| grid_level(*d)).collect();
         dims.sort_by_key(|d| ordinal(*d));
-        let mut out = vec![(self.dim, &self.world)];
+        let mut out = Vec::new();
+        if grid_level(self.dim) {
+            out.push((self.dim, &self.world));
+        }
         for dim in dims {
             if dim != self.dim {
                 if let Some(world) = self.levels.ae2_world(dim) {
@@ -129,6 +142,41 @@ impl Game<'_> {
             }
         }
         out
+    }
+    /// The loaded levels AE2's grids do not reach (upstream's extra dimensions, [`grid_level`]).
+    fn ae2_gridless_worlds(&self) -> Vec<(Dim, &World)> {
+        let mut out = Vec::new();
+        if !grid_level(self.dim) {
+            out.push((self.dim, &self.world));
+        }
+        for dim in self.levels.ae2_dimensions() {
+            if !grid_level(dim)
+                && dim != self.dim
+                && let Some(world) = self.levels.ae2_world(dim)
+            {
+                out.push((dim, world));
+            }
+        }
+        out
+    }
+    /// Drains and drops the AE2 mutation journal of every level AE2's grids do not reach, so it
+    /// can neither overflow nor hold back the other levels' ordered replay (review finding 14),
+    /// and logs once per process that AE2 blocks there form no grid.
+    pub(super) fn ae2_drop_gridless_mutations(&self) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static WARNED: AtomicBool = AtomicBool::new(false);
+        for (dim, world) in self.ae2_gridless_worlds() {
+            let _ = world.block_entities.take_ae2_mutations();
+            if !WARNED.load(Ordering::Relaxed)
+                && world.block_entities.iter().any(|(_, be)| matches!(be, BlockEntity::Ae2(_)))
+            {
+                WARNED.store(true, Ordering::Relaxed);
+                log::warn!(
+                    "AE2 networks are not supported in mod dimensions yet: AE2 blocks in {} form no grid",
+                    dim.id()
+                );
+            }
+        }
     }
     pub(super) fn ae2_world_for(&self, dim: Dim) -> Option<&World> {
         if dim == self.dim {

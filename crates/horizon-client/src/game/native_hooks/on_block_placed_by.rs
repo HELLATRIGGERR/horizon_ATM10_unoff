@@ -19,7 +19,7 @@ impl Game<'_> {
         pos: BlockPos,
         ctx: &PlaceContext,
     ) {
-        if !mod_api::__private::item_listens(mod_api::HookId::OnBlockPlacedBy, &stack.item) {
+        if !crate::game::fork_compat::item_heard(mod_api::HookId::OnBlockPlacedBy, &stack.item) {
             return;
         }
         // setPlacedBy (for example a jukebox) can change the state again.

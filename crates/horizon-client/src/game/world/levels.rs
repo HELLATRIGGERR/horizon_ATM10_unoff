@@ -235,12 +235,7 @@ impl Game<'_> {
                 source
             });
         }
-        let dim = match at.owner.dimension {
-            DimensionKey::OVERWORLD => Dim::Overworld,
-            DimensionKey::NETHER => Dim::Nether,
-            DimensionKey::END => Dim::End,
-            key => Dim::Extra(key),
-        };
+        let dim = Dim::from_key(at.owner.dimension);
         // The transactions stay with the game when a level is parked: its pending removals too.
         self.levels
             .parked
@@ -279,12 +274,7 @@ impl Game<'_> {
         if dimension == self.dim.key() {
             return !self.target_removed(&target);
         }
-        let dim = match dimension {
-            DimensionKey::OVERWORLD => Dim::Overworld,
-            DimensionKey::NETHER => Dim::Nether,
-            DimensionKey::END => Dim::End,
-            key => Dim::Extra(key),
-        };
+        let dim = Dim::from_key(dimension);
         self.levels.parked.get(&dim).is_none_or(|parked| {
             !parked.persist.removals.contains(&target)
                 && !parked.persist.destroying_vehicles.contains(&target)
@@ -324,12 +314,7 @@ impl Game<'_> {
                 | horizon_client::join_seq::residency::Kind::Hook
         ) {
             if *dimension != self.dim.key() {
-                let dim = match *dimension {
-                    DimensionKey::OVERWORLD => Dim::Overworld,
-                    DimensionKey::NETHER => Dim::Nether,
-                    DimensionKey::END => Dim::End,
-                    key => Dim::Extra(key),
-                };
+                let dim = Dim::from_key(*dimension);
                 if !self.levels.parked.contains_key(&dim) {
                     return SlotAccess::Missing;
                 }
@@ -339,12 +324,7 @@ impl Game<'_> {
         if *dimension == self.dim.key() {
             self.with_resident_owner_slot(location, visit)
         } else {
-            let dim = match *dimension {
-                mod_api::DimensionKey::OVERWORLD => Dim::Overworld,
-                mod_api::DimensionKey::NETHER => Dim::Nether,
-                mod_api::DimensionKey::END => Dim::End,
-                key => Dim::Extra(key),
-            };
+            let dim = Dim::from_key(*dimension);
             self.levels
                 .parked
                 .get_mut(&dim)
@@ -387,12 +367,7 @@ impl Game<'_> {
             }
             _ => return None,
         };
-        Some(match found.owner.dimension {
-            DimensionKey::OVERWORLD => Dim::Overworld,
-            DimensionKey::NETHER => Dim::Nether,
-            DimensionKey::END => Dim::End,
-            key => Dim::Extra(key),
-        })
+        Some(Dim::from_key(found.owner.dimension))
     }
 
     /// A new epoch invalidates every old producer before rebinding retained levels.

@@ -4534,6 +4534,7 @@ impl Hub {
                 && !g.spectator()
                 && !self.config.allow_flight
                 && !g.creative()
+                && !g.abilities.may_fly
                 && g.effects.get("levitation").is_none()
                 && !g.fall_flying
                 && !g

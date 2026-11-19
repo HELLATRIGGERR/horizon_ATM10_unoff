@@ -2196,6 +2196,16 @@ impl<R: RandomSource> LootContext<'_, R> {
         Self::number(v, random).round() as i32
     }
     fn condition(&self, c: &Value, random: &mut R) -> bool {
+        // 1.21.1's data (AE2's block loot) names a condition's kind
+        // `condition`; 26.3's `type`. Every reader below sees `type`.
+        if let Value::Object(o) = c
+            && !o.contains_key("type")
+            && let Some(kind) = o.get("condition").filter(|k| k.is_string())
+        {
+            let mut typed = o.clone();
+            typed.insert("type".into(), kind.clone());
+            return self.condition(&Value::Object(typed), random);
+        }
         if let Some(holds) = self.stock_condition(c) {
             return holds;
         }

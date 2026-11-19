@@ -2506,6 +2506,18 @@ impl Dim {
             Self::Spatial => mod_api::__private::dimension_key(self.id()),
         }
     }
+    /// The dimension a mod's level handle names: [`Self::key`]'s inverse, AE2's
+    /// spatial storage level included (it is no extra dimension of the world).
+    fn from_key(key: mod_api::DimensionKey) -> Self {
+        match key {
+            mod_api::DimensionKey::OVERWORLD => Self::Overworld,
+            mod_api::DimensionKey::NETHER => Self::Nether,
+            mod_api::DimensionKey::END => Self::End,
+            #[cfg(feature = "ae2-lab")]
+            key if key == Self::Spatial.key() => Self::Spatial,
+            key => Self::Extra(key),
+        }
+    }
     /// `Level.getMinY`.
     fn min_y(self) -> i32 {
         self.shape().min_y

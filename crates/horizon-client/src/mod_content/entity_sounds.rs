@@ -42,6 +42,10 @@ pub(super) fn mod_entity_row(
         }
     }
     fields.insert("template".into(), to_raw_value(&t.template).map_err(fail)?);
+    // A living type's own texture: `MobTypes` draws it in place of the template's.
+    if let Some(texture) = &t.texture {
+        fields.insert("texture".into(), to_raw_value(texture).map_err(fail)?);
+    }
     if t.sounds != Default::default() {
         fields.insert("sounds".into(), to_raw_value(&t.sounds).map_err(fail)?);
     }

@@ -3157,8 +3157,17 @@ impl Game<'_> {
         let Some((block, data, at)) = self.native_screen_at() else {
             return false;
         };
+        // The game's own screens on this path (AE2's machines): a press this
+        // client handles alone (workbench, help button), then their buttons.
+        if self.extra_screen_local_press(at, right) {
+            self.audio.play_button_click();
+            return true;
+        }
         let mut button = None;
         self.native_screen_click(&block, &data, at, right, &mut button);
+        if button.is_none() {
+            button = self.extra_screen_button(&data, at, right);
+        }
         let Some(button) = button else {
             return false;
         };
@@ -3181,6 +3190,7 @@ impl Game<'_> {
         };
         let mut lines = Vec::new();
         self.native_screen_tooltip(&block, &data, at, &mut lines);
+        self.extra_screen_tooltip(&data, at, &mut lines);
         let lines: Vec<(horizon_client::text::Text, u32)> = lines
             .into_iter()
             .map(|l| (horizon_client::text::Text::literal(l), u32::MAX))

@@ -525,7 +525,14 @@ impl Game<'_> {
             return false;
         }
         for (dim, world) in self.ae2_loaded_worlds() {
-            match world.block_entities.take_ae2_mutations() {
+            let taken = world.block_entities.take_ae2_mutations();
+            // A level with no AE2 grid ordinal (upstream's extra dimensions)
+            // has no grid address to replay at: its mutations are dropped, so
+            // they cannot hold back every other level's ordered replay.
+            if ordinal(dim) < 0 {
+                continue;
+            }
+            match taken {
                 Ok(events) => live
                     .pending
                     .extend(events.into_iter().map(|event| (ordinal(dim), event))),

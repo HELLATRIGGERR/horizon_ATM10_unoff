@@ -261,7 +261,12 @@ impl Shown {
         (inputs, outputs, used)
     }
     fn height(&self, room: f32) -> f32 {
-        let note = if self.note.is_empty() { 0.0 } else { 11.0 };
+        // A note of several lines takes a row each.
+        let note = if self.note.is_empty() {
+            0.0
+        } else {
+            11.0 * self.note.lines().count() as f32
+        };
         self.block(room) + self.fluid_places(room).2 + note + GAP
     }
     /// Every slot's place from the recipe's corner (the results last, in a
@@ -455,7 +460,7 @@ impl Game<'_> {
             .into_iter()
             .find_map(|(i, (x, y))| {
                 let r = pages.recipes.get(i)?;
-                let (wells_in, wells_out, _) = r.fluid_places(layout.width());
+                let (wells_in, wells_out, _) = r.fluid_places(recipe_room(pages, layout));
                 [(wells_in, &r.fluid_inputs), (wells_out, &r.fluid_outputs)]
                     .into_iter()
                     .flat_map(|(places, wells)| places.into_iter().zip(wells))
@@ -610,12 +615,14 @@ impl Game<'_> {
             let Some(r) = self.panel.recipes.as_ref().map(|p| &p.recipes[i]) else {
                 break;
             };
-            let (at, arrow, action) = r.places(layout.width());
-            let h = r.block(layout.width());
+            // The room the hit tests use (`recipe_room`: less the catalyst column when shown),
+            // so a slot or the "+" is drawn where its click lands.
+            let (at, arrow, action) = r.places(width);
+            let h = r.block(width);
             let (cooking, button) = (r.layout == BrowserLayout::Cooking, r.action);
             let inputs = r.slots.len() - r.chances.len();
-            let staggered = r.result_step(layout.width()).1 > 1.0;
-            let (wells_in, wells_out, wells_h) = r.fluid_places(layout.width());
+            let staggered = r.result_step(width).1 > 1.0;
+            let (wells_in, wells_out, wells_h) = r.fluid_places(width);
             let atlas = &self.gui.atlas;
             for &(sx, sy) in at.iter().filter(|p| p.0.is_finite()) {
                 batch.sprite(atlas, "gui/sprites/container/slot", x + sx, y + sy);
@@ -661,15 +668,9 @@ impl Game<'_> {
                 batch.text(atlas, "+", rect[0] + 3.0, rect[1] + 2.0, color, true);
                 horizon_client::widgets::record(&format!("+ {i}"), rect, enabled);
             }
-            if !r.note.is_empty() {
-                batch.text(
-                    atlas,
-                    &r.note,
-                    x,
-                    y + h + wells_h + 2.0,
-                    rgba(224, 224, 224, 255),
-                    true,
-                );
+            for (n, line) in r.note.lines().enumerate() {
+                let y = y + h + wells_h + 2.0 + n as f32 * 11.0;
+                batch.text(atlas, line, x, y, rgba(224, 224, 224, 255), true);
             }
             for (k, &(sx, sy)) in at.iter().enumerate().filter(|(_, p)| p.0.is_finite()) {
                 let Some((_, stack)) = self.recipe_slot_now(i, k).cloned() else {

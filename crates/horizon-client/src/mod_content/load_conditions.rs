@@ -374,6 +374,14 @@ pub fn build_with_conditions(
     let (mut placed_doc, mut biome_doc) = (None, None);
     for (bundle, entries) in &worldgen {
         if !base.join(bundle).exists() {
+            // A mod's worldgen (AE2's `ae2:spatial_storage` biome) needs the base root's bundle
+            // to land in: without it the game falls back (a biome to plains) with no word.
+            if !entries.is_empty() {
+                log::warn!(
+                    "Horizon: {} mod worldgen file(s) for {bundle} left out: the base root has no {bundle}",
+                    entries.len()
+                );
+            }
             continue;
         }
         let mut doc = read_json(&base.join(bundle))?;

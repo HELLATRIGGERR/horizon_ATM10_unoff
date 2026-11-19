@@ -233,19 +233,6 @@ impl Drop for Lent {
     }
 }
 
-/// The hooks' view of the mod block entity at `key` (upstream's snapshot,
-/// `try_into_api`): it stays in the world while a hook answers. None for any
-/// other block entity and for one out of the world (ticking).
-pub(super) fn snapshot(world: &World, key: Pos) -> Option<mod_api::ModBlockEntity> {
-    let Some(BlockEntity::Mod(m)) = world.block_entities.get(&key) else {
-        return None;
-    };
-    if m.id().is_empty() {
-        return None;
-    }
-    (**m).try_into_api().ok()
-}
-
 /// The mod block entity at `key`, taken out of `world`: an empty id marks its
 /// place meanwhile, as during its tick. None for any other block entity, and
 /// for one already out (ticking).
@@ -302,9 +289,11 @@ impl Game<'_> {
     /// with the hook's answer (a declared buffer's or tanks' rules where no
     /// hook answered). `after`'s flag, a write-back or moved items mark the
     /// chunk changed (`setChanged`); moved items also tell the container.
-    /// None where no mod block entity is, and where the call removed or
-    /// replaced it.
-    pub(in crate::game) fn with_mod_entity<A, T>(
+    /// An entity with no snapshot is asked of no hook, `after` answering alone.
+    /// None where no mod block entity is, where the call removed or replaced
+    /// it, where it is lent to a hook already, and where the write-back was
+    /// rejected.
+    pub(in crate::game) fn with_mod_entity<A: Default, T>(
         &mut self,
         dim: Dim,
         pos: [i32; 3],
@@ -313,12 +302,27 @@ impl Game<'_> {
         after: impl FnOnce(A, &mut ModBlockEntity) -> (T, bool),
     ) -> Option<T> {
         let key = (pos[0], pos[1], pos[2]);
+        let world = self.fe_world(dim)?;
+        let Some(BlockEntity::Mod(m)) = world.block_entities.get(&key) else {
+            return None;
+        };
+        if m.id().is_empty() {
+            return None;
+        }
+        // An entity with no snapshot (a stack that does not convert): no hook hears it, and
+        // `after` still gives the declared buffer's or tanks' answer.
+        let snapshot = (**m).try_into_api().ok();
         // Lent to a hook: a call reaching the same entity again from inside it finds none, as
         // when the fork took the entity out of the world for the call.
         let _lent = Lent::enter(dim, key)?;
-        let mut api = self.fe_world(dim).and_then(|world| snapshot(world, key))?;
-        let before = api.revision();
-        let answer = hook(self, &mut api);
+        let (answer, asked) = match snapshot {
+            Some(mut api) => {
+                let before = api.revision();
+                let answer = hook(self, &mut api);
+                (answer, Some((api, before)))
+            }
+            None => (A::default(), None),
+        };
         let items = world_items!(self);
         let world = if dim == self.dim {
             &mut self.world
@@ -328,16 +332,19 @@ impl Game<'_> {
         let Some(BlockEntity::Mod(m)) = world.block_entities.get_mut(&key) else {
             return None;
         };
-        if m.id() != api.id() {
-            return None;
-        }
         let old_items = m.items.clone();
-        let written = api.revision() != before;
-        // A rejected write-back (the entity changed during the hook, or a stack that does not
-        // convert) leaves the entity as it was: the hook's answer goes with it, so no energy or
-        // fluid is made or lost on the caller's side.
-        if finish_block_entity_writeback(m, &api, before, items, hook_name, Ok(())).is_err() {
-            return None;
+        let mut written = false;
+        if let Some((api, before)) = &asked {
+            if m.id() != api.id() {
+                return None;
+            }
+            written = api.revision() != *before;
+            // A rejected write-back (the entity changed during the hook, or a stack that does
+            // not convert) leaves the entity as it was: the hook's answer goes with it, so no
+            // energy or fluid is made or lost on the caller's side.
+            if finish_block_entity_writeback(m, api, *before, items, hook_name, Ok(())).is_err() {
+                return None;
+            }
         }
         let (out, changed) = after(answer, m);
         let items_moved = m.items != old_items;

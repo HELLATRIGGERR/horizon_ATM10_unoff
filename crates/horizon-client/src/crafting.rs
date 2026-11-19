@@ -1726,7 +1726,17 @@ impl Recipes {
                         String::new(),
                     ),
                 );
-                crafting.push((name.clone(), Recipe::Special(Special::Ae2wtlib(recipe))));
+                // A crafting recipe (`CustomRecipe`) to the book and the network copy too: its
+                // snapshot under `minecraft:crafting`, with its raw JSON.
+                let special = Special::Ae2wtlib(recipe);
+                let mut entry = crate::crafting::RecipeSnapshot::new(
+                    qualified(name),
+                    "minecraft:crafting",
+                    json.clone(),
+                );
+                entry.rule = special.rule();
+                by_type.entry(entry.kind.clone()).or_default().push(entry);
+                crafting.push((name.clone(), Recipe::Special(special)));
                 continue;
             }
             let mut entry = None;

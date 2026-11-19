@@ -12,11 +12,17 @@ use ftbquests_core::{
     CLAIM_REWARD, OPEN_BOOK, Request, SUBMIT_TASK, SYNC, Sync,
     file::{QuestFile, RewardKind, TaskKind, code, parse_id},
 };
-use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
+use horizon_client::{hud::HudBatch, text::Text};
+use mod_api::{Command, ScreenView};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
 };
+
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
 
 const MOD: &str = "ftbquests";
 pub(super) const SCREEN: &str = "ftbquests";
@@ -196,7 +202,7 @@ fn wrap(game: &Game<'_>, text: &str, width: f32) -> Vec<String> {
         let mut line = String::new();
         for word in para.split(' ') {
             let next = if line.is_empty() { word.to_owned() } else { format!("{line} {word}") };
-            if !line.is_empty() && game.native_text_width(&next) > width {
+            if !line.is_empty() && text_width(game, &next) > width {
                 lines.push(std::mem::replace(&mut line, word.to_owned()));
             } else {
                 line = next;
@@ -233,7 +239,7 @@ fn line(game: &Game<'_>, batch: &mut HudBatch, a: [f32; 2], b: [f32; 2], argb: u
 }
 
 /// `native_screen_render_post`: the book.
-pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     if !screen_open(game) {
         return;
     }
@@ -345,7 +351,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         game.native_text(batch, &name, [area[0] + 6.0, area[1] + 5.0], 0xFF_FFFF, true);
         if let (Some((id, r)), None) = (hover, b.view) {
             let t = quest_title(&file, id);
-            let w = game.native_text_width(&t);
+            let w = text_width(game, &t);
             game.native_fill(batch, [r[0] + r[2] + 2.0, r[1], w + 6.0, 12.0], 0xF010_0010);
             game.native_text(batch, &t, [r[0] + r[2] + 5.0, r[1] + 2.0], 0xFF_FFFF, true);
         }
@@ -420,10 +426,10 @@ fn view(game: &Game<'_>, batch: &mut HudBatch, file: &QuestFile, b: &mut Book, i
                 let line = format!("{count} x {}", item_name(item));
                 game.native_text(batch, &line, [x + 15.0, ty + 2.0], 0xFF_FFFF, false);
                 let label = if claimed { tr("ftbquests.port.claimed", "taken", &[]) } else { tr("ftbquests.port.claim", "Take", &[]) };
-                let bw = game.native_text_width(&label) + 8.0;
+                let bw = text_width(game, &label) + 8.0;
                 let right = v[0] + v[2] - bw - 6.0;
                 // The button sits at the view's edge; a name that would run under it puts the button on its own row.
-                let button = if x + 15.0 + game.native_text_width(&line) + 6.0 <= right {
+                let button = if x + 15.0 + text_width(game, &line) + 6.0 <= right {
                     [right, ty, bw, 12.0]
                 } else {
                     ty += 14.0;
@@ -445,7 +451,7 @@ fn view(game: &Game<'_>, batch: &mut HudBatch, file: &QuestFile, b: &mut Book, i
 }
 
 /// `native_screen_mouse_button_pressed_pre`: chapters, quests, the view's buttons; a drag starts on the grid.
-pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+pub(super) fn pressed(game: &Game<'_>, screen: &ScreenView<'_>, button: i32, canceled: &mut bool) {
     if !screen_open(game) || button != 0 {
         return;
     }
@@ -469,7 +475,7 @@ pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i3
 }
 
 /// `native_screen_mouse_dragged_pre`: the grid follows the pointer.
-pub(super) fn dragged(game: &Game<'_>, screen: &NativeScreenView<'_>, canceled: &mut bool) {
+pub(super) fn dragged(game: &Game<'_>, screen: &ScreenView<'_>, canceled: &mut bool) {
     if !screen_open(game) {
         return;
     }
@@ -485,7 +491,7 @@ pub(super) fn dragged(game: &Game<'_>, screen: &NativeScreenView<'_>, canceled: 
 }
 
 /// `native_screen_mouse_scrolled_pre`: the wheel scrolls the chapters, or zooms the grid.
-pub(super) fn scrolled(game: &Game<'_>, screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+pub(super) fn scrolled(game: &Game<'_>, screen: &ScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
     if !screen_open(game) || scroll[1] == 0.0 {
         return;
     }
@@ -500,9 +506,9 @@ pub(super) fn scrolled(game: &Game<'_>, screen: &NativeScreenView<'_>, scroll: [
     });
 }
 
-pub(super) fn client_commands(commands: &mut Vec<&'static str>) {
+pub(super) fn client_commands(commands: &mut Vec<Command>) {
     if dev() {
-        commands.push("ftbquestsbook");
+        commands.push(Command::new("ftbquestsbook [line:text]"));
     }
 }
 

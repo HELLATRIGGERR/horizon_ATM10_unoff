@@ -32,3 +32,15 @@ the world test copies the instance's folder into its own game folder. The book i
 
 Tests: the crate's unit tests, and `tests/quests.ts` in a world (`FTBTEAMS_DEV=1` gives `/ftbquests_probe` and
 `/ftbquestsbook`).
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- The teams' progress is read at `server_started` and written and dropped at `world_lifecycle`'s close phases.
+- `key` -> `input_key` (presses only), `frame` -> `render_frame_pre`, `commands` -> `register_client_commands`,
+  `perform_command` -> `run_mod_command` (`/ftbquests [line:text]`, `/ftbquests_probe [line:text]`: upstream's
+  dispatcher parses a usage's arguments itself).
+- The book item: `use_item` passes one `UseItemCall` whose stack is the API's; a HEAD injection converts it and sends
+  `open_book`, and a `MODIFY_ARG` one answers `Success`. On the merged engine `use_item` only fires while a trait
+  mod has a `use_item` part (HANDOFF "S3", N5), so the item does not open the book yet; `/ftbquests open_book` does.
+- The merge dropped the fork's `native_carried_items` and `native_give_items`: `ftbquests_world` reads the
+  inventory and the off hand itself and gives rewards through upstream's `player_give_stack`, in whole stacks.

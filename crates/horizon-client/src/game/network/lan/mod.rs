@@ -1363,6 +1363,13 @@ impl Game<'_> {
         if self.lan.is_none() {
             return;
         }
+        // The guests' AE2 menus close first, as the fork closed them: what a close puts back
+        // (the cursor, link items) is in the guest before its file is written. The call in
+        // `lan_disconnect` finds them closed then.
+        #[cfg(feature = "ae2-lab")]
+        self.with_lan_host(|g, host| g.lan_close_ae2_menus(host));
+        // The bundles' last messages go before the players leave.
+        self.flush_fork_net();
         self.award_leave_game_to_all();
         self.save_leaving_guests();
         self.lan_disconnect(announce);
@@ -2949,6 +2956,18 @@ impl Game<'_> {
         self.flush_hook_pulls();
         // Particles a guest's turn sent (sweep attack, damage indicator, a hook's splashes).
         self.flush_lan_particles();
+        self.lan_flush_effects();
+        self.lan_living_flags();
+        self.lan_stuck(paused);
+        self.tick_server_travel();
+        self.lan_swings();
+        self.lan_update_streaming();
+        self.lan_guest_poses();
+        self.lan_update_waypoints();
+        self.lan_sync_scoreboard();
+        self.lan_sync_border();
+        // AE2's tick end after the travel and the streamed chunks, as the fork ran it: its
+        // paint, visuals, compass, effects and job status reach the guests this tick.
         #[cfg(feature = "ae2-lab")]
         self.ae2_tick_paint();
         #[cfg(feature = "ae2-lab")]
@@ -2960,21 +2979,14 @@ impl Game<'_> {
         });
         #[cfg(feature = "ae2-lab")]
         { self.ae2_lan_active = false; }
-        self.lan_flush_effects();
-        self.lan_living_flags();
-        self.lan_stuck(paused);
-        self.tick_server_travel();
-        self.lan_swings();
-        self.lan_update_streaming();
-        self.lan_guest_poses();
-        self.lan_update_waypoints();
-        self.lan_sync_scoreboard();
-        self.lan_sync_border();
         if let Some(host) = self.lan.as_mut() {
             host.hub.anticheat_ping();
         }
         drop(holding);
         self.flush_attachment_sync();
+        // The bundles' messages to players, from every hook of the tick (the fork's
+        // `flush_native_net` place).
+        self.flush_fork_net();
         self.flush_far_terrain();
         if let Some(host) = self.lan.as_ref() {
             lan::flush_all(host.hub.guests.iter().map(|g| &g.sender));

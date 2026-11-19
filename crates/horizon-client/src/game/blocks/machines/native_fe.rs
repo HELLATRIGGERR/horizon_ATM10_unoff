@@ -206,6 +206,33 @@ fn declared_move(
     i64::from(moved)
 }
 
+/// The mod block entities lent to a hook by [`Game::with_mod_entity`] on this thread.
+struct Lent((Dim, Pos));
+thread_local! {
+    static LENT: std::cell::RefCell<Vec<(Dim, Pos)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+impl Lent {
+    /// Marks the entity at `key` in `dim` lent until the guard drops; None when it already is.
+    fn enter(dim: Dim, key: Pos) -> Option<Self> {
+        LENT.with_borrow_mut(|lent| {
+            if lent.contains(&(dim, key)) {
+                return None;
+            }
+            lent.push((dim, key));
+            Some(Self((dim, key)))
+        })
+    }
+}
+impl Drop for Lent {
+    fn drop(&mut self) {
+        LENT.with_borrow_mut(|lent| {
+            if let Some(i) = lent.iter().rposition(|entry| *entry == self.0) {
+                lent.remove(i);
+            }
+        });
+    }
+}
+
 /// The hooks' view of the mod block entity at `key` (upstream's snapshot,
 /// `try_into_api`): it stays in the world while a hook answers. None for any
 /// other block entity and for one out of the world (ticking).
@@ -286,6 +313,9 @@ impl Game<'_> {
         after: impl FnOnce(A, &mut ModBlockEntity) -> (T, bool),
     ) -> Option<T> {
         let key = (pos[0], pos[1], pos[2]);
+        // Lent to a hook: a call reaching the same entity again from inside it finds none, as
+        // when the fork took the entity out of the world for the call.
+        let _lent = Lent::enter(dim, key)?;
         let mut api = self.fe_world(dim).and_then(|world| snapshot(world, key))?;
         let before = api.revision();
         let answer = hook(self, &mut api);
@@ -303,7 +333,12 @@ impl Game<'_> {
         }
         let old_items = m.items.clone();
         let written = api.revision() != before;
-        let _ = finish_block_entity_writeback(m, &api, before, items, hook_name, Ok(()));
+        // A rejected write-back (the entity changed during the hook, or a stack that does not
+        // convert) leaves the entity as it was: the hook's answer goes with it, so no energy or
+        // fluid is made or lost on the caller's side.
+        if finish_block_entity_writeback(m, &api, before, items, hook_name, Ok(())).is_err() {
+            return None;
+        }
         let (out, changed) = after(answer, m);
         let items_moved = m.items != old_items;
         if changed || written || items_moved {
@@ -451,9 +486,31 @@ impl Game<'_> {
             return 0;
         }
         let [x, y, z] = at.pos;
-        self.journal_block_entity((x, y, z));
         let amount = i64::from(amount.min(i32::MAX.unsigned_abs()));
-        let moved = self.fe_move_at(self.dim, at.pos, at.side, amount, false, false, !insert);
+        let journaled = matches!(
+            self.world.block_entities.get(&(x, y, z)),
+            Some(BlockEntity::Mod(_))
+        );
+        let moved = if journaled {
+            // A mod block entity's energy is in the entity: the journal puts it back.
+            self.journal_block_entity((x, y, z));
+            self.fe_move_at(self.dim, at.pos, at.side, amount, false, false, !insert)
+        } else {
+            // One of the game's own machines (AE2's grid power, P2P) keeps its energy where
+            // no journal reaches: what it would move now is the answer, and it moves for real
+            // at the root commit, so a transaction that aborts (upstream's simulation) moves
+            // nothing.
+            let moved = self.fe_move_at(self.dim, at.pos, at.side, amount, true, false, !insert);
+            if moved > 0 {
+                self.after_commit(crate::game::transactions::After::FeMove {
+                    pos: at.pos,
+                    face: at.side,
+                    amount: moved,
+                    extract: !insert,
+                });
+            }
+            moved
+        };
         moved.clamp(0, i64::from(i32::MAX)) as u32
     }
 }
@@ -616,6 +673,26 @@ mod tests {
             ModBlockEntity::new("mymod:battery".into(), ModBlockEntityFields::default());
         entity.nbt.insert("energy".into(), Tag::Long(stored));
         entity
+    }
+
+    /// A mod block entity lent to a hook (`with_mod_entity`) cannot be lent again from inside
+    /// the call (a nested move through another face finds none), and is free again after it,
+    /// also when the call unwinds.
+    #[test]
+    fn a_lent_entity_is_lent_once() {
+        let key = (3, 64, 5);
+        let outer = Lent::enter(Dim::Overworld, key).expect("free");
+        assert!(Lent::enter(Dim::Overworld, key).is_none(), "already lent");
+        let other = Lent::enter(Dim::Nether, key).expect("another level's");
+        drop(other);
+        drop(outer);
+        assert!(Lent::enter(Dim::Overworld, key).is_some(), "back after the call");
+        let unwound = std::panic::catch_unwind(|| {
+            let _lent = Lent::enter(Dim::End, key).unwrap();
+            panic!("a hook unwinds");
+        });
+        assert!(unwound.is_err());
+        assert!(Lent::enter(Dim::End, key).is_some(), "an unwound call gives it back");
     }
 
     #[test]

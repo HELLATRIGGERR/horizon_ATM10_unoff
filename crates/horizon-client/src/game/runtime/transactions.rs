@@ -292,6 +292,15 @@ pub(super) enum After {
         equips: bool,
         who: u32,
     },
+    /// A Forge Energy move into or out of one of the game's own machines (AE2's), which keep
+    /// their energy outside any block entity a journal keeps: answered by a simulation inside
+    /// the transaction, moved for real only at the root commit (`Game::fe_energy_moved`).
+    FeMove {
+        pos: [i32; 3],
+        face: Option<horizon_core::geometry::Direction>,
+        amount: i64,
+        extract: bool,
+    },
 }
 
 /// Effects shared by transactional interaction contexts.
@@ -997,6 +1006,14 @@ impl Game<'_> {
                 });
             }
             After::Spawn(at, stack) => self.spawn_item(stack, at, [0.0; 3], 10),
+            After::FeMove {
+                pos,
+                face,
+                amount,
+                extract,
+            } => {
+                let _ = self.fe_move_at(self.dim, pos, face, amount, false, false, extract);
+            }
             After::Emptied(id) => {
                 let emptied = self
                     .dropped

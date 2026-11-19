@@ -1063,16 +1063,18 @@ impl Game<'_> {
         self.native_players_leaving();
         // IntegratedServer.stopServer: teardownPublishedState.
         self.stop_serving();
+        // Menu removal returns cursor ownership to the real inventory, before the players
+        // below are saved (the fork's order). Keep this host attached through save_game
+        // below, so store_owner snapshots that inventory after sync_level's server avatar.
+        #[cfg(feature = "ae2-lab")]
+        self.with_lan_host(|g, host| g.lan_close_ae2_menus(host));
+        // The bundles' last messages go before the players leave.
+        self.flush_fork_net();
         // PlayerList.removeAll: the owner and every guest leave the game.
         if !crashed {
             self.award_leave_game_to_all();
             self.save_leaving_guests();
         }
-            // Menu removal returns cursor ownership to the real inventory.
-            // Keep this host attached through save_game below, so store_owner
-            // snapshots that inventory after sync_level's server avatar.
-            #[cfg(feature = "ae2-lab")]
-            self.with_lan_host(|g, host| g.lan_close_ae2_menus(host));
         if let Some(host) = self.lan.as_mut() {
             let conns: Vec<u32> = host.hub.guests.iter().map(|g| g.conn).collect();
             for conn in conns {

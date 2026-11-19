@@ -110,23 +110,48 @@ impl Game<'_> {
             _ => None,
         }
     }
-    /// Sends `data` on channel `channel` to player `player`, as a payload of that id
-    /// (`player_send_payload`: the channel must be declared as one).
+    /// Sends `data` on channel `channel` to player `player`, as a plain payload of that id, at
+    /// the end of the tick's `tick_lan` (`flush_fork_net`), from any server hook: one fired while
+    /// the host is lent to a turn as well. At most [`FORK_PER_TICK`] a player a server tick. Ok
+    /// means queued: a player who is not on by then gets nothing.
     pub(in crate::game) fn native_net_send_to_player(
         &mut self,
         player: u128,
         channel: &str,
         data: &[u8],
     ) -> Result<(), String> {
-        let guest = self
-            .lan
-            .as_ref()
-            .and_then(|lan| lan.hub.online_players().find(|g| g.uuid == player))
-            .ok_or_else(|| format!("player {player:032x} is not on"))?;
-        guest.send(&horizon_protocol::packets::play::Clientbound::CustomPayload(
-            horizon_protocol::packets::configuration::CustomPayload { channel: channel.to_owned(), data: data.to_vec() },
-        ));
+        if self.remote.is_some() {
+            return Err("a client has no players to send to".into());
+        }
+        let count = self.native_net.fork_to_counts.entry(player).or_default();
+        if *count >= super::native_net::FORK_PER_TICK {
+            return Err(format!(
+                "past {} messages to this player this tick",
+                super::native_net::FORK_PER_TICK
+            ));
+        }
+        *count += 1;
+        self.native_net
+            .fork_to_players
+            .push((player, channel.to_owned(), data.to_vec()));
         Ok(())
+    }
+    /// What `native_net_send_to_player` queued goes to the players still on; after a server
+    /// tick's last level pass, the allowances start over.
+    pub(in crate::game) fn flush_fork_net(&mut self) {
+        let queued = std::mem::take(&mut self.native_net.fork_to_players);
+        if let Some(lan) = self.lan.as_ref() {
+            for (player, channel, data) in queued {
+                if let Some(guest) = lan.hub.online_players().find(|g| g.uuid == player) {
+                    guest.send(&horizon_protocol::packets::play::Clientbound::CustomPayload(
+                        horizon_protocol::packets::configuration::CustomPayload { channel, data },
+                    ));
+                }
+            }
+        }
+        if self.level_pass.last {
+            self.native_net.fork_to_counts.clear();
+        }
     }
     /// Sends `data` on channel `channel` to the server (`send_payload_to_server`).
     pub(in crate::game) fn native_net_send_to_server(
@@ -328,5 +353,36 @@ impl Game<'_> {
             pos,
             Some([yaw, pitch.clamp(-90.0, 90.0)]),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::game::native_entity_refs::tests::with_game;
+
+    /// N1: a bundle's message to a player is queued from any hook, the host lent or not, at
+    /// most `FORK_PER_TICK` a player a tick, and leaves at the end of the tick, when the
+    /// allowance starts over.
+    #[test]
+    #[ignore = "daily"]
+    fn bundle_messages_to_a_player_wait_for_the_tick_end_within_an_allowance() {
+        with_game(|game| {
+            let per_tick = crate::game::native_net::FORK_PER_TICK;
+            for i in 0..per_tick {
+                assert_eq!(
+                    game.native_net_send_to_player(7, "ftbteams:sync", &[i as u8]),
+                    Ok(())
+                );
+            }
+            assert!(game.native_net_send_to_player(7, "ftbteams:sync", &[]).is_err());
+            assert!(game.native_net_send_to_player(8, "ftbteams:sync", &[]).is_ok());
+            assert_eq!(
+                game.native_net.fork_to_players.len(),
+                per_tick as usize + 1
+            );
+            game.flush_fork_net();
+            assert!(game.native_net.fork_to_players.is_empty());
+            assert!(game.native_net_send_to_player(7, "ftbteams:sync", &[]).is_ok());
+        });
     }
 }

@@ -1000,6 +1000,10 @@ pub(super) fn content_root(
         content_overlay(root, sources, &jar_store)?
     };
     let world_fluids = horizon_client::mod_content::register_world_fluids(&overlay.mods)?;
+    register_carried_fluids(overlay.root.prepared(), &overlay.mods);
+    // ExtendedAE's infinity cells of the pack (All the Mods 10's KubeJS ones).
+    #[cfg(feature = "ae2-extendedae")]
+    horizon_client::ae2x::extendedae::install_pack_cells(overlay.root.prepared());
     register_block_entity_types(overlay.root.prepared(), &overlay.mods)?;
     if overlay.announce {
         horizon_protocol::mod_list::set_local(overlay.announced);
@@ -1048,6 +1052,38 @@ pub(super) fn content_root(
     register_iterated_registries(overlay.root.prepared())?;
     horizon_client::mod_content::set_fluid_looks(&overlay.mods);
     Ok(overlay.root)
+}
+
+/// The carried mods' fluids (`mod_fluids`) join vanilla's and the world
+/// fluids in the fluid registry, then their fluid interactions: set once, from
+/// the startup root, before the block tables read which blocks hold them.
+fn register_carried_fluids(
+    root: &std::path::Path,
+    mods: &[horizon_client::mod_content::ContentMod],
+) {
+    let fluids: Vec<_> = horizon_client::mod_content::carried_fluids(mods)
+        .into_iter()
+        .cloned()
+        .collect();
+    // None carried (vanilla, a test's root): the once-per-process tables stay
+    // unset for the root that has some.
+    if fluids.is_empty() {
+        return;
+    }
+    let set = horizon_client::mod_content::register_mod_fluids(root, &fluids);
+    if !set
+        && horizon_world::mod_fluids::mod_fluids()
+            .iter()
+            .map(|f| f.id.as_str())
+            .ne(fluids.iter().map(|f| f.id.as_str()))
+    {
+        log::warn!("Horizon: the mods' fluids changed; restart the game to use them");
+    }
+    let interactions: Vec<_> = horizon_client::mod_content::fluid_interactions(mods)
+        .into_iter()
+        .cloned()
+        .collect();
+    horizon_client::mod_content::register_fluid_interactions(&interactions);
 }
 
 /// Publish the built-in registry orders mods iterate. The report already

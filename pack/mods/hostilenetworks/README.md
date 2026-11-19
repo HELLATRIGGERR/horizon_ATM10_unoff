@@ -32,3 +32,14 @@ machines' block entities and containers, the item components (`hostilenetworks:d
 registered through `native_component_types`), Forge Energy, the menu buttons, and both screens drawn from the mod's
 `gui/sim_chamber`, `gui/loot_fabricator` and `gui/default_gui` textures. `tests/chamber.ts` runs a chamber and a
 fabricator in a world. `NOTES.md` lists what is left.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- Settings are read at `server_started` (the registry dropped there) and both dropped at `world_lifecycle`'s close
+  phases.
+- `block_entity` answers the compound only; the tick and the menu buttons hand the API's `mod_api::ModBlockEntity`,
+  whose slots hold `mod_api::ItemStack`s: the machines read the engine's stacks (their components through
+  `native_component`) and put back the slots the rules changed. `menu_button` hands a `MenuButtonContext` (its `id`).
+- `fe_receive` passes one `FeReceiveCall`: a `MODIFY_ARG` injection on the call into `fire_fe_receive`.
+- `perform_command` -> `run_mod_command`: `/hnn [line:text]` (operators; upstream's `word` takes no `:`), whose
+  rules read `give <model> [data]`. `screen` is `mod_api::Screen`; text is measured on the GUI atlas.

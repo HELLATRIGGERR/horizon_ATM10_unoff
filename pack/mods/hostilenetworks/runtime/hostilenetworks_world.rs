@@ -3,22 +3,16 @@
 // the registry of data models and tiers read from the game's data, the block entities and their saved compounds,
 // the item components, the containers, Forge Energy, the menu buttons and the data the screens read. Server hooks run
 // on the thread of the `Game` that simulates the world and a client's screen hooks on the client's, so the settings
-// and the registry are kept per thread, dropped when a world opens or closes. Translated from Hostile Neural
-// Networks 6.5.1 (MIT); see this bundle's README.md.
+// and the registry are kept per thread, dropped when the server opens its world and when it closes. The hooks' block
+// entities hold the API's stacks: the machines read and write the engine's (components included) and put back the
+// slots they changed. Translated from Hostile Neural Networks 6.5.1 (MIT); see this bundle's README.md.
 
-use super::{
-    Game,
-    native_hooks::NativeFeInfo,
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
-use horizon_client::{
-    containers::{ModBlockEntity, ModContainer},
-    items::ItemStack,
-    text::Text,
-};
+use super::Game;
+use crate::game::api_values::{TryIntoApi, TryIntoEngine};
+use horizon_client::{containers::ModContainer, items::ItemStack, text::Text};
+use horizon_core::nbt::{Compound, JavaString, Tag};
 use horizon_core::random::RandomSource;
-use horizon_world::nbt::{Compound, JavaString, Tag};
+use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, ModBlockEntity, NativeFeInfo, WorldPhase};
 use hostilenetworks_core::{
     config::Config,
     fab::{self, Fab, Production, Selection},
@@ -74,11 +68,19 @@ pub(super) fn settings() -> Config {
     SETTINGS.with(|s| s.borrow_mut().get_or_insert_with(read_settings).clone())
 }
 
-/// `native_world_lifecycle`: settings and registry are read as a world opens and dropped as it closes.
-pub(super) fn lifecycle(phase: WorldPhase) {
-    let fresh = matches!(phase, WorldPhase::WorldOpenReady).then(read_settings);
-    SETTINGS.with(|s| *s.borrow_mut() = fresh);
+/// `native_server_started` (where the fork's `WorldOpenReady` was): settings are read afresh, the registry dropped.
+pub(super) fn opened() {
+    let fresh = read_settings();
+    SETTINGS.with(|s| *s.borrow_mut() = Some(fresh));
     REGISTRY.with(|r| *r.borrow_mut() = None);
+}
+
+/// `native_world_lifecycle` v2: settings and registry are dropped as the world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        SETTINGS.with(|s| *s.borrow_mut() = None);
+        REGISTRY.with(|r| *r.borrow_mut() = None);
+    }
 }
 
 /// `ModelTierRegistry` and `DataModelRegistry` as the data says: `data/<ns>/model_tiers/<name>.json` and
@@ -166,10 +168,26 @@ fn put(nbt: &mut Compound, name: &str, v: i32) {
     nbt.insert(key(name), Tag::Int(v));
 }
 
-fn read_chamber(entity: &ModBlockEntity, game: &Game<'_>) -> Chamber {
-    let n = &entity.nbt;
+/// The entity's slots as the engine's stacks (the hooks hand the API's).
+fn engine_items(game: &Game<'_>, entity: &ModBlockEntity) -> Vec<Option<ItemStack>> {
+    entity.items.iter().map(|s| s.as_ref().and_then(|s| s.try_into_engine(game.items()).ok())).collect()
+}
+
+/// Puts back into the entity the slots of `items` that differ from `held` (what `engine_items` read).
+fn put_back(entity: &mut ModBlockEntity, held: &[Option<ItemStack>], items: &[Option<ItemStack>]) {
+    if entity.items.len() < items.len() {
+        entity.items.resize(items.len(), None);
+    }
+    for (i, now) in items.iter().enumerate() {
+        if held.get(i) != Some(now) {
+            entity.items[i] = now.as_ref().and_then(|s| s.try_into_api().ok());
+        }
+    }
+}
+
+fn read_chamber(n: &Compound, items: &[Option<ItemStack>], game: &Game<'_>) -> Chamber {
     Chamber {
-        slots: std::array::from_fn(|i| entity.items.get(i).and_then(Option::as_ref).and_then(|s| core_stack(game, s))),
+        slots: std::array::from_fn(|i| items.get(i).and_then(Option::as_ref).and_then(|s| core_stack(game, s))),
         energy: int(n, "energy"),
         runtime: int(n, "runtime"),
         prediction_success: int(n, "predSuccess"),
@@ -193,8 +211,7 @@ fn write_chamber(entity: &mut ModBlockEntity, c: &Chamber) {
 
 const SELECTIONS: &str = "saved_selections";
 
-fn read_fab(entity: &ModBlockEntity, game: &Game<'_>) -> Fab {
-    let n = &entity.nbt;
+fn read_fab(n: &Compound, items: &[Option<ItemStack>], game: &Game<'_>) -> Fab {
     let mut selections = BTreeMap::new();
     if let Some(Tag::Compound(saved)) = n.get(&key(SELECTIONS)) {
         for (model, tag) in saved {
@@ -214,7 +231,7 @@ fn read_fab(entity: &ModBlockEntity, game: &Game<'_>) -> Fab {
         }
     }
     Fab {
-        slots: std::array::from_fn(|i| entity.items.get(i).and_then(Option::as_ref).and_then(|s| core_stack(game, s))),
+        slots: std::array::from_fn(|i| items.get(i).and_then(Option::as_ref).and_then(|s| core_stack(game, s))),
         energy: int(n, "energy"),
         runtime: int(n, "runtime"),
         current_sel: if n.contains_key(&key("selection")) { int(n, "selection") } else { -1 },
@@ -288,23 +305,23 @@ fn set_components(game: &Game<'_>, stack: &mut ItemStack, c: &Stack) {
     }
 }
 
-/// Makes the entity's slots hold what the rules left: a slot the rules left alone keeps its stack, a count that
-/// changed changes it, anything else is made anew.
-fn sync_slots(game: &Game<'_>, entity: &mut ModBlockEntity, before: &[Option<Stack>], after: &[Option<Stack>]) {
-    if entity.items.len() < after.len() {
-        entity.items.resize(after.len(), None);
+/// Makes the slots hold what the rules left: a slot the rules left alone keeps its stack, a count that changed
+/// changes it, anything else is made anew.
+fn sync_slots(game: &Game<'_>, items: &mut Vec<Option<ItemStack>>, before: &[Option<Stack>], after: &[Option<Stack>]) {
+    if items.len() < after.len() {
+        items.resize(after.len(), None);
     }
     for (i, (was, now)) in before.iter().zip(after).enumerate() {
         if was == now {
             continue;
         }
-        entity.items[i] = match (was, now) {
+        items[i] = match (was, now) {
             (_, None) => None,
-            (Some(w), Some(n)) if w.same(n) => entity.items[i].take().map(|mut s| {
+            (Some(w), Some(n)) if w.same(n) => items[i].take().map(|mut s| {
                 s.count = n.count;
                 s
             }),
-            (Some(w), Some(n)) if w.item == n.item && w.model == n.model => entity.items[i].take().map(|mut s| {
+            (Some(w), Some(n)) if w.item == n.item && w.model == n.model => items[i].take().map(|mut s| {
                 s.count = n.count;
                 set_components(game, &mut s, n);
                 s
@@ -343,8 +360,9 @@ impl Kind {
     }
 }
 
-/// `native_block_entity`: a new, empty machine; the fabricator's chosen drop starts at -1, as Java's.
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+/// `native_block_entity`: a new, empty machine; the fabricator's chosen drop starts at -1, as Java's (its type id is
+/// the block's declaration's).
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     let Some(kind) = Kind::of(block) else { return };
     if entity.is_some() {
         return;
@@ -361,7 +379,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
         }
         Kind::Fabricator => put(&mut nbt, "selection", -1),
     }
-    *entity = Some((block.to_owned(), nbt));
+    *entity = Some(nbt);
 }
 
 /// `native_block_entity_ticks`: both tick.
@@ -411,18 +429,28 @@ pub(super) fn slot_accepts(block: &str, slot: usize, accepts: &mut bool) {
 
 /// `native_block_entity_tick`: one tick of either machine, then what its screen shows.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
-    let Some(kind) = Kind::of(&entity.id) else { return };
+    let Some(kind) = Kind::of(entity.id()) else { return };
     let reg = registry(game);
     let cfg = settings();
     let dimension = game.native_dimension();
     let powered = game.native_neighbor_signal(dimension, pos) > 0;
+    let held = engine_items(game, entity);
+    let mut items = held.clone();
     match kind {
         Kind::Chamber => {
-            let mut c = read_chamber(entity, game);
+            let mut c = read_chamber(&entity.nbt, &items, game);
             let before = c.clone();
             // One draw of the level's random, as `rollPredictions` takes, only when a run could start.
             let roll = if c.runtime == 0 && c.slots[sim::MODEL].is_some() && c.slots[sim::INPUT].is_some() && c.energy > 0 {
-                game.native_level_random(dimension).map_or(0.5, |r| r.next_float())
+                game.fork_level_here()
+                    .and_then(|level| {
+                        // A copy of the level's random, stored back so the draw moves the level's own.
+                        let mut random = game.level_random(level)?;
+                        let roll = random.next_float();
+                        game.level_set_random(level, random);
+                        Some(roll)
+                    })
+                    .unwrap_or(0.5)
             } else {
                 0.5
             };
@@ -432,13 +460,14 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
                 c.tick(&ctx, powered, roll);
             }
             if c != before {
-                sync_slots(game, entity, &before.slots, &c.slots);
+                sync_slots(game, &mut items, &before.slots, &c.slots);
+                put_back(entity, &held, &items);
                 write_chamber(entity, &c);
             }
             entity.data = chamber_view(&reg, &cfg, &c).pack();
         }
         Kind::Fabricator => {
-            let mut f = read_fab(entity, game);
+            let mut f = read_fab(&entity.nbt, &items, game);
             let before = f.clone();
             {
                 let max = |item: &str| game.native_max_stack_size(item).unwrap_or(64);
@@ -446,7 +475,8 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
                 f.tick(&ctx, powered);
             }
             if f != before {
-                sync_slots(game, entity, &before.slots, &f.slots);
+                sync_slots(game, &mut items, &before.slots, &f.slots);
+                put_back(entity, &held, &items);
                 write_fab(entity, &f);
             }
             entity.data = fab_view(&reg, &cfg, &f).pack();
@@ -515,11 +545,12 @@ fn fab_view(reg: &Registry, cfg: &Config, f: &Fab) -> FabView {
 
 /// `native_menu_button`: the chamber's redstone (0 to 2) and mode (3, 4) buttons, the fabricator's (`Fab::button`).
 pub(super) fn button(game: &mut Game<'_>, entity: &mut ModBlockEntity, id: i32) {
-    let Some(kind) = Kind::of(&entity.id) else { return };
+    let Some(kind) = Kind::of(entity.id()) else { return };
     let cfg = settings();
+    let items = engine_items(game, entity);
     match kind {
         Kind::Chamber => {
-            let mut c = read_chamber(entity, game);
+            let mut c = read_chamber(&entity.nbt, &items, game);
             match id {
                 0..=2 => c.redstone = Redstone::from_index(id),
                 // Training is refused while the config has model upgrades off.
@@ -531,7 +562,7 @@ pub(super) fn button(game: &mut Game<'_>, entity: &mut ModBlockEntity, id: i32) 
         }
         Kind::Fabricator => {
             let reg = registry(game);
-            let mut f = read_fab(entity, game);
+            let mut f = read_fab(&entity.nbt, &items, game);
             if f.button(&reg.models, &cfg, id) {
                 write_fab(entity, &f);
             }
@@ -543,7 +574,7 @@ pub(super) fn button(game: &mut Game<'_>, entity: &mut ModBlockEntity, id: i32) 
 
 /// `native_fe_storage`: every side takes and none gives.
 pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo>) {
-    let Some(kind) = Kind::of(&entity.id) else { return };
+    let Some(kind) = Kind::of(entity.id()) else { return };
     if info.is_some() {
         return;
     }
@@ -557,7 +588,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
 
 /// `native_fe_receive`: up to what the buffer has room for.
 pub(super) fn fe_receive(entity: &mut ModBlockEntity, max: i64, simulate: bool, accepted: &mut Option<i64>) {
-    let Some(kind) = Kind::of(&entity.id) else { return };
+    let Some(kind) = Kind::of(entity.id()) else { return };
     if accepted.is_some() {
         return;
     }
@@ -574,13 +605,30 @@ pub(super) fn fe_receive(entity: &mut ModBlockEntity, max: i64, simulate: bool, 
 
 /// `native_register_commands`. A data model carries its model and its data in item components, which the game's
 /// `/give` doesn't know of (it parses against the components of the vanilla registry), so `/hnn give` makes one.
-pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
-    commands.push(NativeCommand::op("hnn give <model:word> [data:integer]", 2));
+/// Upstream's dispatcher parses a usage's arguments itself and its `word` takes no `:`: `/hnn` takes one `text` line
+/// the rules read (`give <model> [data]`), operators only.
+pub(super) fn commands(commands: &mut Vec<Command>) {
+    commands.push(Command::op("hnn [line:text]", 2));
 }
 
-/// `native_perform_command`: `/hnn give <model> [data]` gives the player a data model of `model` (`hostilenetworks:zombie`
-/// or just `zombie`) holding `data`.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+/// The command line a parsed invocation of `/hnn` was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
+}
+
+/// `native_run_mod_command`: `/hnn give <model> [data]` gives the player a data model of `model`
+/// (`hostilenetworks:zombie` or just `zombie`) holding `data`.
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
+    let CommandSource::Player { player, .. } = source else { return };
+    let player = player.uuid();
+    let command = line(call);
     let mut words = command.split_whitespace();
     if *ran || words.next() != Some("hnn") {
         return;
@@ -594,7 +642,7 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
             if reg.models.contains_key(&id) {
                 let mut stack = ItemStack::new("hostilenetworks:data_model", 1);
                 set_components(game, &mut stack, &Stack { model: Some(id.clone()), data, ..Stack::default() });
-                match game.native_give_stack(player.uuid, stack) {
+                match game.native_give_stack(player, stack) {
                     None => format!("Gave a {id} data model with {data} data"),
                     Some(_) => "No room in the inventory".to_owned(),
                 }

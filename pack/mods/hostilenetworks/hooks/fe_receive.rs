@@ -1,9 +1,5 @@
-// Forge Energy offered to a machine (`IEnergyStorage.receiveEnergy`).
-fn hostilenetworks_fe_receive(
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    max: i64,
-    simulate: bool,
-    accepted: &mut Option<i64>,
-) {
-    crate::game::hostilenetworks_world::fe_receive(entity, max, simulate, accepted);
+// Forge Energy offered to a machine (`IEnergyStorage.receiveEnergy`; the hook passes one call).
+fn hostilenetworks_fe_receive(call: mod_api::__private::FeReceiveCall<'_>) -> mod_api::__private::FeReceiveCall<'_> {
+    crate::game::hostilenetworks_world::fe_receive(&mut *call.entity, call.max, call.simulate, &mut *call.accepted);
+    call
 }

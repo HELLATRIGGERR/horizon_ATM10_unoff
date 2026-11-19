@@ -1,6 +1,4 @@
-// A world opens or closes: the settings and the registry of data models are read afresh or dropped.
-fn hostilenetworks_world_lifecycle(
-    phase: crate::game::native_lifecycle::WorldPhase,
-) {
+// The world closes (or fails to open): the settings and the registry of data models are dropped.
+fn hostilenetworks_world_lifecycle(phase: mod_api::WorldPhase) {
     crate::game::hostilenetworks_world::lifecycle(phase);
 }

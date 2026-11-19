@@ -1,8 +1,8 @@
 // A button of a machine's screen, on the server.
 fn hostilenetworks_menu_button(
     game: &mut crate::game::Game<'_>,
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    id: i32,
+    context: &mod_api::item::menu::MenuButtonContext,
+    entity: &mut mod_api::ModBlockEntity,
 ) {
-    crate::game::hostilenetworks_world::button(game, entity, id);
+    crate::game::hostilenetworks_world::button(game, entity, context.id);
 }

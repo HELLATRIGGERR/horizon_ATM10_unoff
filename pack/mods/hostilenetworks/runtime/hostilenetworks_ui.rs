@@ -7,8 +7,13 @@
 use super::{
     Game,
     hostilenetworks_world::{self as world, LOOT_FABRICATOR, Registry, SIM_CHAMBER},
-    native_hooks::NativeScreen,
 };
+use mod_api::Screen;
+
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
 use horizon_client::hud::HudBatch;
 use hostilenetworks_core::{
     fab,
@@ -73,12 +78,12 @@ fn model_of<'a>(reg: &'a Registry, index: i32) -> Option<&'a Model> {
 
 /// `native_screen`: the sizes and the slots of the two menus. The chamber's hopper menu has a fifth slot, the
 /// fabricator's nine-by-two menu an eighteenth: both left out.
-pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
+pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
     if screen.is_some() {
         return;
     }
     *screen = match block {
-        SIM_CHAMBER => Some(NativeScreen {
+        SIM_CHAMBER => Some(Screen {
             width: 232.0,
             height: 230.0,
             slots: vec![Some([-13.0, 1.0]), Some([176.0, 7.0]), Some([196.0, 7.0]), Some([186.0, 27.0]), None],
@@ -86,12 +91,13 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
             inventory_x: 36.0,
             own_labels: true,
             own_background: true,
+            ..Screen::default()
         }),
         LOOT_FABRICATOR => {
             let mut slots = vec![Some([79.0, 62.0])];
             slots.extend((0..16).map(|i| Some([100.0 + 18.0 * (i % 4) as f32, 7.0 + 18.0 * (i / 4) as f32])));
             slots.push(None);
-            Some(NativeScreen { width: 176.0, height: 178.0, slots, inventory_y: 96.0, inventory_x: 8.0, own_labels: true, own_background: true })
+            Some(Screen { width: 176.0, height: 178.0, slots, inventory_y: 96.0, inventory_x: 8.0, own_labels: true, own_background: true, ..Screen::default() })
         }
         _ => None,
     };
@@ -107,7 +113,7 @@ struct Pen<'a, 'g> {
 impl Pen<'_, '_> {
     fn sprite(&mut self, texture: &str, src: Rect, dst: Rect) {
         let dst = [self.origin[0] + dst[0], self.origin[1] + dst[1], dst[2], dst[3]];
-        self.game.native_sprite(self.batch, texture, src, dst);
+        self.game.native_sprite(self.batch, texture, src, dst, None);
     }
 
     fn text(&mut self, text: &str, x: f32, y: f32, color: u32, shadow: bool) {
@@ -123,7 +129,7 @@ impl Pen<'_, '_> {
         self.item(item, x, y);
         if count > 1 {
             let label = count.to_string();
-            let w = self.game.native_text_width(&label);
+            let w = text_width(self.game, &label);
             self.text(&label, x + 17.0 - w, y + 9.0, WHITE, true);
         }
     }
@@ -165,7 +171,7 @@ fn wrap(game: &Game<'_>, text: &str, width: f32) -> Vec<String> {
         let mut line = String::new();
         for word in paragraph.split(' ') {
             let longer = if line.is_empty() { word.to_owned() } else { format!("{line} {word}") };
-            if !line.is_empty() && game.native_text_width(&longer) > width {
+            if !line.is_empty() && text_width(game, &longer) > width {
                 lines.push(std::mem::replace(&mut line, word.to_owned()));
             } else {
                 line = longer;
@@ -409,7 +415,7 @@ fn draw_fabricator(pen: &mut Pen<'_, '_>, reg: &Registry, v: &FabView) {
                 }
             } else if i == QUEUE_CELLS - 1 && overflow {
                 let label = format!("+{}", v.queue_len as usize - shown);
-                let w = pen.game.native_text_width(&label);
+                let w = text_width(pen.game, &label);
                 pen.text(&label, r[0] + 1.0 + (16.0 - w) / 2.0, r[1] + 2.0 + 3.5, WHITE, true);
             }
         }

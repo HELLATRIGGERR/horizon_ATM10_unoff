@@ -11,6 +11,42 @@ pub struct FluidTagId(pub u32);
 pub trait FluidMembership {
     fn fluid_in_tag(&self, fluid: FluidKind, tag: FluidTagId) -> bool;
 }
+
+/// Where the tags of the carried mod fluids start: one each, past any tag a
+/// caller numbers itself, holding that fluid's source and flowing forms.
+const MOD_TAGS: u32 = 1 << 16;
+
+impl FluidTagId {
+    /// The tag that holds just this carried mod fluid (none for any other).
+    pub fn of_mod_fluid(fluid: FluidKind) -> Option<Self> {
+        let source = fluid.source();
+        source.carried()?;
+        Some(Self(MOD_TAGS + source.mod_fluid()?.index() as u32))
+    }
+    fn holds_one_mod_fluid(self) -> bool {
+        self.0 >= MOD_TAGS
+    }
+}
+
+/// Whether `tag` holds `fluid`: a carried mod fluid's own tag by the table,
+/// the caller's tags by `tags`.
+fn holds<W: FluidMembership + ?Sized>(tags: &W, fluid: FluidKind, tag: FluidTagId) -> bool {
+    if tag.holds_one_mod_fluid() {
+        FluidTagId::of_mod_fluid(fluid) == Some(tag)
+    } else {
+        tags.fluid_in_tag(fluid, tag)
+    }
+}
+
+/// An entity's immersion in one carried mod fluid, as `Entity.isInFluidType`
+/// sees it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ModFluidImmersion {
+    /// The fluid's source form.
+    pub fluid: FluidKind,
+    pub height: f64,
+    pub eyes_inside: bool,
+}
 #[derive(Clone, Copy, Debug)]
 pub struct FluidTracker {
     pub fluid: FluidKind,
@@ -165,14 +201,41 @@ pub struct EntityFluidInteraction {
 impl EntityFluidInteraction {
     /// Preserve the caller's tag-set iteration order: a fluid's current belongs
     /// to the first matching tag, even when several tags contain that fluid.
+    /// Each carried mod fluid gets its own tag after the caller's (NeoForge
+    /// tracks every `FluidType`), so its current and immersion are its own.
     pub fn new(tags: impl IntoIterator<Item = FluidTagId>) -> Self {
         let mut state = Self::default();
         for tag in tags {
-            if !state.currents.iter().any(|(t, _)| *t == tag) {
-                state.currents.push((tag, CurrentAccumulator::default()));
+            state.add_tag(tag);
+        }
+        state.add_mod_tags();
+        state
+    }
+    fn add_tag(&mut self, tag: FluidTagId) {
+        if !self.currents.iter().any(|(t, _)| *t == tag) {
+            self.currents.push((tag, CurrentAccumulator::default()));
+        }
+    }
+    /// The carried mod fluids' tags, also for an entity made before its
+    /// content root registered them.
+    fn add_mod_tags(&mut self) {
+        let fluids = crate::mod_fluids::mod_fluids();
+        if self
+            .currents
+            .iter()
+            .filter(|(t, _)| t.holds_one_mod_fluid())
+            .count()
+            == fluids.len()
+        {
+            return;
+        }
+        for fluid in fluids {
+            if let Some(tag) =
+                crate::mod_fluids::kind_by_name(&fluid.id).and_then(FluidTagId::of_mod_fluid)
+            {
+                self.add_tag(tag);
             }
         }
-        state
     }
     pub fn trackers(&self) -> &[FluidTracker] {
         &self.trackers
@@ -183,7 +246,7 @@ impl EntityFluidInteraction {
     pub fn fluid_height<W: FluidMembership>(&self, tags: &W, tag: FluidTagId) -> f64 {
         let mut height = 0.0;
         for t in &self.trackers {
-            if t.height > height && tags.fluid_in_tag(t.fluid, tag) {
+            if t.height > height && holds(tags, t.fluid, tag) {
                 height = t.height;
             }
         }
@@ -195,7 +258,45 @@ impl EntityFluidInteraction {
     pub fn is_eye_in_fluid<W: FluidMembership>(&self, tags: &W, tag: FluidTagId) -> bool {
         self.trackers
             .iter()
-            .any(|t| t.eyes_inside && tags.fluid_in_tag(t.fluid, tag))
+            .any(|t| t.eyes_inside && holds(tags, t.fluid, tag))
+    }
+    /// The carried mod fluids the entity is in, from its last update: their
+    /// heights and whether the eyes are in them, in the table's order.
+    pub fn mod_fluids(&self) -> impl Iterator<Item = ModFluidImmersion> + '_ {
+        self.currents.iter().filter_map(|(tag, _)| {
+            if !tag.holds_one_mod_fluid() {
+                return None;
+            }
+            let mut immersion: Option<ModFluidImmersion> = None;
+            for t in &self.trackers {
+                if FluidTagId::of_mod_fluid(t.fluid) != Some(*tag) {
+                    continue;
+                }
+                let m = immersion.get_or_insert(ModFluidImmersion {
+                    fluid: t.fluid.source(),
+                    height: 0.0,
+                    eyes_inside: false,
+                });
+                m.height = m.height.max(t.height);
+                m.eyes_inside |= t.eyes_inside;
+            }
+            immersion.filter(|m| m.height > 0.0 || m.eyes_inside)
+        })
+    }
+    /// Each carried mod fluid's current, at its `motionScale`, when it
+    /// `canPushEntity`.
+    pub fn apply_mod_currents<W: CurrentTarget>(&self, world: &mut W) -> Result<(), W::Error> {
+        for m in self.mod_fluids().filter(|m| m.height > 0.0) {
+            let Some(numbers) = m.fluid.carried().map(|f| f.entity) else {
+                continue;
+            };
+            if numbers.can_push
+                && let Some(tag) = FluidTagId::of_mod_fluid(m.fluid)
+            {
+                self.apply_current(world, tag, numbers.motion_scale)?;
+            }
+        }
+        Ok(())
     }
     pub fn apply_current<W: CurrentTarget>(
         &self,
@@ -259,6 +360,7 @@ impl EntityFluidInteraction {
             t.eyes_inside = false;
             true
         });
+        self.add_mod_tags();
         for (_, c) in &mut self.currents {
             c.reset();
         }
@@ -335,7 +437,7 @@ impl EntityFluidInteraction {
                         } else {
                             self.currents
                                 .iter()
-                                .position(|(tag, _)| world.fluid_in_tag(kind, *tag))
+                                .position(|(tag, _)| holds(world, kind, *tag))
                         };
                         let entry = (kind, index, current);
                         last = Some(entry);

@@ -3,6 +3,17 @@
 Slice 1 of docs/ftb-chunks.md. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world`
 (this PC: `atm10-work/ftb-work/ftb.sh`).
 
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- The teams are read at `server_started` (where the fork's `WorldOpenReady` was) and written and dropped at
+  `world_lifecycle`'s close phases.
+- Upstream's command dispatcher parses each usage's arguments itself: its `word` takes no `:` or `#` (property ids,
+  team short names) and `player_name` is gone. So `/ftbteams` is registered as `ftbteams [line:text]` (and the dev
+  commands the same way), `run_mod_command` rebuilds the line and the rules parse it and check the operator levels
+  as before. The client's command tree no longer completes the subcommands.
+- The client's copy of the teams needs the bundle messages (`native_net_send_to_player`, `net_from_server`), which
+  the merged engine does not carry yet (HANDOFF "S3", N1).
+
 ## Open properties (slice 6)
 
 `Manager::register_property(PropertyDef)` is `TeamCollectPropertiesEvent.add`: other mods' properties (FTB Chunks' `ftbchunks:*`)

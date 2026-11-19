@@ -5,11 +5,8 @@
 // Server hooks run on the thread of the `Game` that simulates the world and client hooks on the window's, so each
 // side's state is kept per thread: the server's is read when a world opens and dropped when it closes.
 
-use super::{
-    Game,
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
+use super::Game;
+use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, WorldPhase};
 use ftbteams_core::{
     Config, Manager, Out,
     manager::Event,
@@ -84,7 +81,7 @@ fn text(msg: &Msg) -> Text {
                 color: s.color,
                 italic: s.italic.then_some(true),
                 click,
-                hover: s.hover.as_deref().map(|h| Box::new(text(h))),
+                hover: s.hover.as_deref().map(|h| std::sync::Arc::new(text(h))),
                 ..Style::default()
             };
             text(inner).with_style(&style)
@@ -109,7 +106,7 @@ fn flush(game: &mut Game<'_>) {
         }
         let m = &mut server.manager;
         let out = std::mem::take(&mut m.out);
-        let online: Vec<u128> = game.native_server_players().iter().map(|p| p.uuid).collect();
+        let online: Vec<u128> = game.native_server_players().iter().map(|p| p.uuid()).collect();
         let mut parts: Vec<(u128, &'static str, Vec<u8>)> = Vec::new();
         for o in &out {
             match o {
@@ -155,28 +152,30 @@ fn flush(game: &mut Game<'_>) {
 
 // ---- The world ---------------------------------------------------------------------------------------------
 
-/// `native_world_lifecycle`: the teams are read as a world opens and written and dropped as it closes.
-pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
-    match phase {
-        WorldPhase::WorldOpenReady => {
-            let dir = game.native_world_dir();
-            let Some(world) = dir.clone() else { return };
-            let mut manager = Manager::load(&world, seed());
-            let config_dir = Game::native_config_dir().ok();
-            manager.config = Config::load(config_dir.as_deref(), Some(&world));
-            log::info!("[ftbteams] loaded team data: {} known players, {} teams total", manager.known.len(), manager.teams.len());
-            SERVER.with(|s| *s.borrow_mut() = Some(Server { manager, dir }));
-        }
-        WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => {
-            SERVER.with(|s| {
-                if let Some(server) = s.borrow_mut().as_mut() {
-                    save(server);
-                }
-                *s.borrow_mut() = None;
-            });
-            CLIENT.with(|c| *c.borrow_mut() = ClientManager::default());
-        }
+/// `native_server_started` (NeoForge's `ServerStartedEvent`, where the fork's `WorldOpenReady` was): the teams are
+/// read once the worlds are open, before any player joins.
+pub(super) fn opened(game: &mut Game<'_>) {
+    let dir = game.native_world_dir();
+    let Some(world) = dir.clone() else { return };
+    let mut manager = Manager::load(&world, seed());
+    let config_dir = Game::native_config_dir().ok();
+    manager.config = Config::load(config_dir.as_deref(), Some(&world));
+    log::info!("[ftbteams] loaded team data: {} known players, {} teams total", manager.known.len(), manager.teams.len());
+    SERVER.with(|s| *s.borrow_mut() = Some(Server { manager, dir }));
+}
+
+/// `native_world_lifecycle`: the teams are written and dropped as a world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if !matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        return;
     }
+    SERVER.with(|s| {
+        if let Some(server) = s.borrow_mut().as_mut() {
+            save(server);
+        }
+        *s.borrow_mut() = None;
+    });
+    CLIENT.with(|c| *c.borrow_mut() = ClientManager::default());
 }
 
 /// `native_world_saved`: FTB Teams writes its changed files on each level save.
@@ -203,21 +202,38 @@ pub(super) fn logged_out(game: &mut Game<'_>, player: u128) {
 
 // ---- /ftbteams ---------------------------------------------------------------------------------------------
 
-/// `native_register_commands`.
-pub(super) fn register(commands: &mut Vec<NativeCommand>) {
-    for (usage, level) in commands::usages(dev()) {
-        commands.push(if level == 0 { NativeCommand::new(usage) } else { NativeCommand::op(usage, level) });
-    }
+/// `native_register_commands`. Upstream's dispatcher parses a usage's arguments itself, and its `word` takes no `:`
+/// or `#` (a property id, a team's short name), which FTB's own argument types read: so each command is its name
+/// and one optional `text` argument, the line the rules parse as Java's tree does (`commands::usages` and the
+/// operator levels stay the rules', which check them).
+pub(super) fn register(commands: &mut Vec<Command>) {
+    commands.push(Command::new("ftbteams [line:text]"));
     if dev() {
-        commands.push(NativeCommand::op("ftbteams_probe", 2));
+        commands.push(Command::op("ftbteams_add_fake_player [line:text]", 2));
+        commands.push(Command::op("ftbteams_probe", 2));
     }
 }
 
-/// `native_perform_command`: `/ftbteams ...`, and `/ftbteams_probe` (tests) answering `FTBT {json}`.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+/// The command line a parsed invocation of one of `register`'s usages was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
+}
+
+/// `native_run_mod_command`: `/ftbteams ...`, and `/ftbteams_probe` (tests) answering `FTBT {json}`.
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
     if *ran {
         return;
     }
+    let CommandSource::Player { player, permission } = source else { return };
+    let command = line(call);
+    let command = command.as_str();
     let first = command.split_whitespace().next().unwrap_or_default();
     if first == "ftbteams_probe" && dev() {
         *ran = true;
@@ -231,7 +247,8 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
     if first != "ftbteams" && first != "ftbteams_add_fake_player" {
         return;
     }
-    let sender = Sender { uuid: player.uuid, name: player.name.clone(), level: player.permission, player: true };
+    let name = game.player_name(*player).unwrap_or_default();
+    let sender = Sender { uuid: player.uuid(), name, level: permission.level(), player: true };
     let reply = {
         let game: &Game<'_> = game;
         let lookup = |name: &str| game.native_profile_by_name(name);
@@ -297,10 +314,10 @@ pub(super) fn from_server(channel: &str, data: &[u8]) {
     }
 }
 
-/// `native_commands`: the client's probe.
-pub(super) fn client_commands(commands: &mut Vec<&'static str>) {
+/// `native_register_client_commands`: the client's probe.
+pub(super) fn client_commands(commands: &mut Vec<Command>) {
     if dev() {
-        commands.push("ftbteamsclient");
+        commands.push(Command::new("ftbteamsclient"));
     }
 }
 

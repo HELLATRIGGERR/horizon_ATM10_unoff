@@ -3,7 +3,8 @@
 # in the crate `ftbteams-core` from what the mod does; no file of it is copied.
 # See README.md.
 #
-# It hooks Horizon's named hook points only; it pins no revision. FTB Chunks
+# It hooks Horizon's named hook points only (tools/fork/native-hooks.json: upstream's
+# declared hooks plus the fork's compat hooks such as net_from_server); it pins no revision. FTB Chunks
 # (pack/mods/ftbchunks) reads the teams through `crate::game::ftbteams_world`.
 [mod]
 id = "ftbteams"
@@ -23,12 +24,21 @@ source = "runtime/ftbteams_world.rs"
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/world_lifecycle.rs"
 bindings = [
+  { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
+]
+
+[[injection]]
+id = "server-started"
+hook = "server_started"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/server_started.rs"
+bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
 ]
 
 [[injection]]
@@ -54,7 +64,7 @@ bindings = [
 [[injection]]
 id = "logged-out"
 hook = "player_logged_out"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/player_logged_out.rs"
 bindings = [
@@ -65,23 +75,23 @@ bindings = [
 [[injection]]
 id = "register-commands"
 hook = "register_commands"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/register_commands.rs"
 bindings = [
-  { name = "commands", ty = "&mut Vec<crate::game::native_server::NativeCommand>", value = "&mut *commands" },
+  { name = "commands", ty = "&mut Vec<mod_api::Command>", value = "&mut *commands" },
 ]
 
 [[injection]]
-id = "perform-command"
-hook = "perform_command"
+id = "run-mod-command"
+hook = "run_mod_command"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/perform_command.rs"
+helper = "hooks/run_mod_command.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "player", ty = "&crate::game::native_server::NativeServerPlayer", value = "player" },
-  { name = "command", ty = "&str", value = "command" },
+  { name = "source", ty = "&mod_api::CommandSource", value = "source" },
+  { name = "command", ty = "&mod_api::CommandInvocation", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]
 
@@ -98,18 +108,18 @@ bindings = [
 
 [[injection]]
 id = "client-commands"
-hook = "commands"
+hook = "register_client_commands"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/commands.rs"
+helper = "hooks/register_client_commands.rs"
 bindings = [
-  { name = "commands", ty = "&mut Vec<&'static str>", value = "&mut *commands" },
+  { name = "commands", ty = "&mut Vec<mod_api::Command>", value = "&mut *commands" },
 ]
 
 [[injection]]
 id = "client-command"
 hook = "command"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/command.rs"
 bindings = [

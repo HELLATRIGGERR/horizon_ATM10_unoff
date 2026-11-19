@@ -1,0 +1,13 @@
+# Writes the game's generated module lists into a copy of the source, as the launcher does before horizon-mixins
+# reads it (launcher/src/native_mods.rs, `prepare_mixins_source`): pack/scripts/hook-catalog.ts runs it on the
+# prepared workspace the bundles are applied to. Outside the workspace (`pack` is excluded).
+[package]
+name = "horizon-materialize-modules"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+horizon-mod-api-gen = { path = "../../../crates/horizon-mod-api-gen" }
+
+[workspace]

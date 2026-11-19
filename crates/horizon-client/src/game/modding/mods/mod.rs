@@ -1036,6 +1036,16 @@ pub(super) fn content_root(
         .map(|value| value.as_str().ok_or("invalid fluid registry entry"))
         .collect::<Result<Vec<_>, _>>()?;
     fluids.extend(world_fluids.iter().map(String::as_str));
+    // The carried mods' fluids (registered above) have keys too: the fork's fluid hooks and an
+    // AE2 storage bus on a mod tank name them, and a bundle may ask for one.
+    for fluid in horizon_world::mod_fluids::mod_fluids() {
+        let flowing = fluid.flows().then_some(fluid.flowing.as_str());
+        for id in std::iter::once(fluid.id.as_str()).chain(flowing) {
+            if !fluids.contains(&id) {
+                fluids.push(id);
+            }
+        }
+    }
     mod_api::__private::resolve_fluids(
         &fluids,
         &horizon_world::fluid::FluidKind::ALL.map(|kind| kind.name()),

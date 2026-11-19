@@ -104,6 +104,7 @@ impl Strike {
             team: None,
             item: None,
             ignite: 0.0,
+            ae2_tool: None,
         }
     }
 }

@@ -982,7 +982,8 @@ mod tests {
     use super::*;
     #[test]
     fn inscriber_output_respects_component_stack_maximum() {
-        let items=Items::tags_only(&std::env::temp_dir().join("ae2-empty-item-catalog"), &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let empty=std::env::temp_dir().join("ae2-empty-item-catalog");std::fs::create_dir_all(&empty).unwrap();std::fs::write(empty.join("items.json"),"{}").unwrap();
+        let items=Items::tags_only(&empty, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&empty).unwrap()).unwrap();
         let mut output=ItemStack::new("minecraft:stone",1);
         output.data_mut().set_other("minecraft:max_stack_size",Some(Tag::Int(16)));
         let mut partial=output.clone();partial.count=15;
@@ -1226,8 +1227,8 @@ mod reload_and_oracle_tests {
         let mut recipe=serde_json::json!({"type":"ae2:inscriber","ingredients":{"middle":{"tag":"c:silicon"},"top":{"item":"ae2:silicon_press"}},"result":{"count":1,"id":"ae2:printed_silicon"}});
         if let Some(mode)=mode {recipe["mode"]=mode.into();}
         std::fs::write(recipe_dir.join("silicon_print.json"),recipe.to_string()).unwrap();
-        let items=Items::catalog(&root,&horizon_world::loot::PackOverlay::NONE).unwrap();
-        let recipes=horizon_client::crafting::Recipes::load(&root,&items,&horizon_world::loot::PackOverlay::NONE).unwrap();
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();
+        let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[])).unwrap();
         std::fs::remove_dir_all(&root).unwrap();
         (items,recipes)
     }
@@ -1936,9 +1937,9 @@ mod pattern_tests {
         std::fs::write(dir.join("cut.json"),r#"{"type":"minecraft:stonecutting","ingredient":["minecraft:stone","minecraft:andesite"],"result":{"id":"minecraft:stone_slab","count":2}}"#).unwrap();
         std::fs::write(dir.join("smith.json"),r#"{"type":"minecraft:smithing_transform","template":"minecraft:netherite_upgrade_smithing_template","base":"minecraft:diamond_sword","addition":"minecraft:netherite_ingot","result":{"id":"minecraft:netherite_sword"}}"#).unwrap();
         std::fs::write(root.join("items.json"),r#"{"minecraft:stone":{},"minecraft:andesite":{},"minecraft:dirt":{},"minecraft:diamond":{},"minecraft:gold_ingot":{},"minecraft:stone_slab":{},"minecraft:netherite_upgrade_smithing_template":{},"minecraft:diamond_sword":{},"minecraft:netherite_ingot":{},"minecraft:netherite_sword":{}}"#).unwrap();
-        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();
-        let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
-        let stations=horizon_client::stations::StationData::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();
+        let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[])).unwrap();
+        let stations=horizon_client::stations::StationData::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap(), &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]));
         let context=horizon_world::native_load_context::LoadContext::new(
             horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,
             Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(), Default::default())),

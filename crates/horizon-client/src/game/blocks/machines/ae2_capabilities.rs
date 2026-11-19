@@ -1178,12 +1178,12 @@ mod native_sided_slot_tests {
         let port=|up|View{parts:vec![((0,0,0),12)],kind:Kind::IoPort(up),container:None};
         let (inputs,outputs):(Vec<usize>,Vec<usize>)=((0..6).collect(),(6..12).collect());
         let standing=port(orientation_up("north",0).unwrap());
-        for face in [Direction::Up,Direction::Down] {assert_eq!(standing.slots_for_face(Some(face)),inputs);}
-        for face in [Direction::North,Direction::South,Direction::West,Direction::East] {assert_eq!(standing.slots_for_face(Some(face)),outputs);}
+        for face in [Direction::Up,Direction::Down] {assert_eq!(standing.slots_for_face_iter(Some(face)).collect::<Vec<_>>(),inputs);}
+        for face in [Direction::North,Direction::South,Direction::West,Direction::East] {assert_eq!(standing.slots_for_face_iter(Some(face)).collect::<Vec<_>>(),outputs);}
         // UP_NORTH: the top looks north.
         let lying=port(orientation_up("up",0).unwrap());
-        for face in [Direction::North,Direction::South] {assert_eq!(lying.slots_for_face(Some(face)),inputs);}
-        for face in [Direction::Up,Direction::Down,Direction::West,Direction::East] {assert_eq!(lying.slots_for_face(Some(face)),outputs);}
+        for face in [Direction::North,Direction::South] {assert_eq!(lying.slots_for_face_iter(Some(face)).collect::<Vec<_>>(),inputs);}
+        for face in [Direction::Up,Direction::Down,Direction::West,Direction::East] {assert_eq!(lying.slots_for_face_iter(Some(face)).collect::<Vec<_>>(),outputs);}
         // inputCellsExt is INSERT_ONLY, outputCellsExt EXTRACT_ONLY.
         let cell=ItemStack::new("ae2:item_storage_cell_1k",1);
         assert_eq!(ae2_slot_insert(MachineKind::IoPort,0,&cell),Some((true,1)));

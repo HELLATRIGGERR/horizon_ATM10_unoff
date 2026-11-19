@@ -26,11 +26,11 @@ mod tests {
         use horizon_client::{banner::Banners, brewing::Brewing, crafting::Recipes, items::Items, menu::Input};
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
         if !root.join("items.json").exists() { return; }
-        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
-        let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);
-        let station_recipes=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[])).unwrap();
+        let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root, &horizon_world::item_defaults::read(&root).unwrap());
+        let station_recipes=horizon_client::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]));
         let enchantments=horizon_client::enchant::Enchantments::default();let names=horizon_client::creative::Names::default();
-        let env=horizon_client::menu::Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
+        let env=horizon_client::menu::Env{crafting_remainder:None,player:None,player_entity_id:None,loop_context:&horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]).loop_context(horizon_world::native_load_context::LoopSide::Server,[]),can_equip:None,slot_rules:None,items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,
             station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
         let card=|n|Some(ItemStack::new("ae2:speed_card",n));
         let mut menu=pocket_menu(0);menu.set_player_item(0,Some(ItemStack::new(TOOL,1)));

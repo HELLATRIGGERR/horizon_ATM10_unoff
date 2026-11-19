@@ -1424,6 +1424,8 @@ pub struct ResolvedSources {
     stations: std::sync::OnceLock<Vec<Option<crate::stations::ParsedStationRecipe>>>,
     /// What mods added to the recipe property sets, asked once per load.
     pub property_additions: PropertyAdditions,
+    /// The root's carried content mods' own recipe types.
+    pub carried: mod_kinds::CarriedKinds,
 }
 /// The items mods added to the recipe property sets
 /// (`RecipeManager.RECIPE_PROPERTY_SETS`) in one load, by set key without
@@ -1510,9 +1512,10 @@ impl ResolvedSources {
         context: &horizon_world::native_load_context::LoadContext,
     ) -> Result<Self> {
         let context = context.with_fluid_tags(horizon_items::items::fluid_tag_list(root, overlay)?);
-        Self::resolve(
+        Self::resolve_carried(
             horizon_items::recipe_sources::sources(root, overlay)?,
             &context,
+            mod_kinds::CarriedKinds::of_root(root),
         )
     }
     /// `load`, an unreadable recipe folder leaving no recipes.
@@ -1530,14 +1533,23 @@ impl ResolvedSources {
     /// each mod ingredient in the recipes the loader parses (minecraft's own
     /// types; a mod's recipe types are its own to read).
     pub fn resolve(
+        sources: Vec<(String, Value)>,
+        context: &horizon_world::native_load_context::LoadContext,
+    ) -> Result<Self> {
+        Self::resolve_carried(sources, context, mod_kinds::CarriedKinds::default())
+    }
+    /// [`Self::resolve`] in a root whose carried content mods read
+    /// `carried`'s recipe types themselves.
+    pub fn resolve_carried(
         mut sources: Vec<(String, Value)>,
         context: &horizon_world::native_load_context::LoadContext,
+        carried: mod_kinds::CarriedKinds,
     ) -> Result<Self> {
         // Every consumer keeps vanilla's resource-file registration order.
         sources.sort_by_cached_key(|(name, _)| registration_key(name));
         for (name, file) in &sources {
             if let Some(serializer) = file["type"].as_str() {
-                mod_kinds::recipe_type(name, serializer)?;
+                carried.recipe_type(name, serializer)?;
             }
         }
         let listened = mod_api::__private::listened(mod_api::HookId::Ingredient);
@@ -1610,6 +1622,7 @@ impl ResolvedSources {
         Ok(Self {
             recipes,
             property_additions: PropertyAdditions::ask(context),
+            carried,
             ..Self::default()
         })
     }
@@ -1665,7 +1678,11 @@ impl Recipes {
             root,
             items,
             overlay,
-            &ResolvedSources::resolve(sources, context)?,
+            &ResolvedSources::resolve_carried(
+                sources,
+                context,
+                mod_kinds::CarriedKinds::of_root(root),
+            )?,
         )
     }
     /// The tables from the condition-selected recipes of one owning load. Unknown serializers
@@ -1679,7 +1696,7 @@ impl Recipes {
     ) -> Result<Self> {
         for recipe in &sources.recipes {
             if let Some(serializer) = recipe.file["type"].as_str() {
-                mod_kinds::recipe_type(&recipe.name, serializer)?;
+                sources.carried.recipe_type(&recipe.name, serializer)?;
             }
         }
         let mut mod_read_only = Vec::new();
@@ -1721,7 +1738,7 @@ impl Recipes {
                 };
                 entry = Some(crate::crafting::RecipeSnapshot::new(
                     id,
-                    mod_kinds::recipe_type(name, kind)?,
+                    sources.carried.recipe_type(name, kind)?,
                     json.clone(),
                 ));
             }
@@ -1732,15 +1749,21 @@ impl Recipes {
                     .entry(kind.to_owned())
                     .or_default()
                     .push((name.clone(), Value::clone(json)));
-                if let Some(recipe) = mod_kinds::decode(name, json)
-                    && let Some(entry) = entry
-                {
-                    if entry.kind == "minecraft:crafting" {
-                        crafting.push((name.clone(), Recipe::Mod(recipe)));
-                    } else {
-                        mod_read_only.push((name.clone(), recipe));
+                match (mod_kinds::decode(name, json), entry) {
+                    (Some(recipe), Some(entry)) => {
+                        if entry.kind == "minecraft:crafting" {
+                            crafting.push((name.clone(), Recipe::Mod(recipe)));
+                        } else {
+                            mod_read_only.push((name.clone(), recipe));
+                        }
+                        by_type.entry(entry.kind.clone()).or_default().push(entry);
                     }
-                    by_type.entry(entry.kind.clone()).or_default().push(entry);
+                    // A carried mod's own type: its native handlers and bundles
+                    // read it by type, with the file (the fork's `custom` table).
+                    (None, Some(entry)) if sources.carried.carries(kind) => {
+                        by_type.entry(entry.kind.clone()).or_default().push(entry);
+                    }
+                    _ => {}
                 }
                 continue;
             }
@@ -2403,6 +2426,142 @@ mod tests {
         );
     }
 
+    /// 1.21.1's list of ingredients (ATM10's own `allthetweaks/dragon_soul`,
+    /// ExtendedAE's matrix glass): any of them, each matching as itself; one
+    /// child that doesn't parse fails the list.
+    #[test]
+    fn a_list_of_ingredient_objects_is_any_of_them() {
+        let items = Items::for_tests(HashMap::from([(
+            "minecraft:planks".into(),
+            HashSet::from(["minecraft:oak_planks".into()]),
+        )]));
+        let any = Ingredient::parse(
+            &serde_json::json!([
+                {"type": "neoforge:compound", "children": ["minecraft:stick"]},
+                "minecraft:quartz_block",
+                "#minecraft:planks"
+            ]),
+            &items,
+        )
+        .expect("parses");
+        assert_eq!(
+            any.order,
+            [
+                "minecraft:stick",
+                "minecraft:quartz_block",
+                "minecraft:oak_planks"
+            ]
+        );
+        for id in [
+            "minecraft:stick",
+            "minecraft:quartz_block",
+            "minecraft:oak_planks",
+        ] {
+            assert!(any.test_in(lc(), &ItemStack::new(id, 1)), "{id}");
+        }
+        assert!(!any.test_in(lc(), &ItemStack::new("minecraft:stone", 1)));
+        let unknown = serde_json::json!([{"type": "nomod:thing"}, "minecraft:stone"]);
+        assert!(
+            Ingredient::parse(&unknown, &items).is_none(),
+            "one child that doesn't parse fails the list"
+        );
+    }
+
+    /// AE2's 1.21.1 data: an `{item}` or `{tag}` object with no kind is that
+    /// id or tag, alone or in a list; a NeoForge kind naming a `tag` is still
+    /// that kind.
+    #[cfg(feature = "ae2-lab")]
+    #[test]
+    fn ae2_item_and_tag_objects_parse() {
+        let items = Items::for_tests(HashMap::from([(
+            "ae2:knife".into(),
+            HashSet::from(["ae2:certus_quartz_cutting_knife".into()]),
+        )]));
+        let parse = |v: serde_json::Value| Ingredient::parse(&v, &items).map(|i| i.order);
+        assert_eq!(
+            parse(serde_json::json!({"item": "minecraft:stick"})).unwrap(),
+            ["minecraft:stick"]
+        );
+        assert_eq!(
+            parse(serde_json::json!({"tag": "ae2:knife"})).unwrap(),
+            ["ae2:certus_quartz_cutting_knife"]
+        );
+        assert_eq!(
+            parse(serde_json::json!([{"tag": "ae2:knife"}, {"item": "minecraft:stick"}])).unwrap(),
+            ["ae2:certus_quartz_cutting_knife", "minecraft:stick"]
+        );
+        assert!(parse(serde_json::json!({"type": "neoforge:block_tag", "tag": "#bad"})).is_none());
+    }
+
+    /// A root that carries content mods loads their own recipe types (AE2's
+    /// `ae2:inscriber`, AE2WTLib's `ae2wtlib:combine`): no Parts mod registers
+    /// them, and their handlers read them by type. Upstream's refusal still
+    /// holds for an unknown `minecraft:` serializer there, and for any
+    /// unregistered serializer in a root that carries no content.
+    #[test]
+    fn carried_mod_recipe_types_load_in_a_content_root() {
+        let root = std::env::temp_dir().join(format!(
+            "horizon-carried-kinds-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let ae2 = root.join("data/ae2/recipe");
+        let wtlib = root.join("data/ae2wtlib/recipe");
+        fs::create_dir_all(&ae2).unwrap();
+        fs::create_dir_all(&wtlib).unwrap();
+        fs::create_dir_all(root.join("data/minecraft/recipe")).unwrap();
+        let inscriber = br#"{"type":"ae2:inscriber","mode":"inscribe"}"#;
+        fs::write(ae2.join("silicon_print.json"), inscriber).unwrap();
+        fs::write(
+            wtlib.join("combine.json"),
+            br#"{"type":"ae2wtlib:combine"}"#,
+        )
+        .unwrap();
+        let items = Items::for_tests(HashMap::new());
+        let load = |overlay: &PackOverlay| {
+            Recipes::load(
+                &root,
+                &items,
+                overlay,
+                &crate::test_resources::server_load(),
+            )
+        };
+        // No content in the root: a pack's unregistered type refuses the load.
+        let packs = [(
+            "recipe/ae2:silicon_print".to_owned(),
+            vec![inscriber.to_vec()],
+        )];
+        let error = load(&PackOverlay::new(&packs)).err().unwrap().to_string();
+        assert!(
+            error.contains("unregistered recipe serializer ae2:inscriber"),
+            "{error}"
+        );
+        fs::write(
+            root.join("horizon-mod-content.json"),
+            br#"["ae2","ae2wtlib"]"#,
+        )
+        .unwrap();
+        let recipes = load(&PackOverlay::NONE).unwrap();
+        assert_eq!(recipes.by_type["ae2:inscriber"][0].id, "ae2:silicon_print");
+        assert!(
+            recipes.ae2_custom["ae2:inscriber"]
+                .iter()
+                .any(|(name, _)| name == "ae2:silicon_print")
+        );
+        assert!(recipes.recipe("ae2:silicon_print").is_none(), "not crafted");
+        fs::write(
+            root.join("data/minecraft/recipe/later.json"),
+            br#"{"type":"minecraft:from_a_later_version"}"#,
+        )
+        .unwrap();
+        let error = load(&PackOverlay::NONE).err().unwrap().to_string();
+        assert!(error.contains("minecraft:from_a_later_version"), "{error}");
+        let _ = fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn ae2_nested_mod_recipes_load_with_full_ids_and_tags() {
         let root = std::env::temp_dir().join(format!(
@@ -2452,6 +2611,8 @@ mod tests {
         assert_eq!(recipes.crafting.len(), 3);
         fs::remove_dir_all(root).unwrap();
     }
+    // AE2's 1.21.1 data: its ingredients are `{tag}` objects (ae2-lab).
+    #[cfg(feature = "ae2-lab")]
     #[test]
     fn quartz_cutting_loads_source_recipe_and_returns_only_one_damaged_knife() {
         let root = std::env::temp_dir().join(format!(

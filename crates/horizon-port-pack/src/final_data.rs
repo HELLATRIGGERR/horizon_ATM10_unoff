@@ -850,7 +850,7 @@ fn kubejs_data(
                 continue;
             };
             let to = owner.join(format!("data/{rel}"));
-            if horizon_mods::content::check_path(&format!("data/{rel}")).is_err() {
+            if horizon_mod_package::content::check_path(&format!("data/{rel}")).is_err() {
                 left("a path the game refuses");
                 continue;
             }

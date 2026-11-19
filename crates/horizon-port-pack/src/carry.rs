@@ -1513,13 +1513,13 @@ pub fn carry(
             }
             match facts.item(full, &owned) {
                 Ok((mut v, mut differences)) => {
-                    // The game binds only a vanilla block or one of the mod's own (`place_block`): another
-                    // namespace's leaves an item that places nothing.
-                    if let Some(block) = v["place_block"].as_str().map(str::to_owned)
+                    // The game binds only a vanilla block or one of the mod's own (the declaration's `block`):
+                    // another namespace's leaves an item that places nothing.
+                    if let Some(block) = v["block"].as_str().map(str::to_owned)
                         && !block.starts_with("minecraft:")
                         && !block.starts_with(&prefix)
                     {
-                        v.as_object_mut().map(|o| o.remove("place_block"));
+                        v.as_object_mut().map(|o| o.remove("block"));
                         differences.push(format!("places {block}, which the template does not"));
                     }
                     write_decl("item", name, &v)?;

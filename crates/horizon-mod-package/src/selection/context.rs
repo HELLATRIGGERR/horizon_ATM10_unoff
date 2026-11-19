@@ -149,6 +149,7 @@ impl LaunchArguments {
                 | "--test-terrain"
                 | "--no-pause"
                 | "--offscreen"
+                | "--background"
                 | "--headless"
                 | "--control"
                 | "--server-thread"

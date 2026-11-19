@@ -7,9 +7,10 @@
 // bookmark key over a bookmark takes it off, over an ingredient anywhere else it adds it. The state is the
 // bundle's crate `jei_core::bookmarks`; the screen hooks only read the game, so a click leaves an `Action` for
 // `jei_recipes::frame` (through `jei_window::ask_open`).
-use super::{Game, native_hooks::NativeRecipes, native_lifecycle::WorldPhase};
+use super::{Game, native_hooks::NativeRecipes};
 use super::jei_window::{self, BAND, BOOKMARK_LIST, BOOKMARK_SLOTS};
-use horizon_client::{hud::HudBatch, mod_api::{NativePanelAlign, NativeScreenView}, text::Text};
+use horizon_client::{hud::HudBatch, text::Text};
+use mod_api::{NativePanelAlign, ScreenView};
 use jei_core::bookmarks::{Bookmarks, NAV, SLOT, grid_within, pages};
 use jei_core::recipes::{Mode, Stack};
 use jei_core::window::{Rect, inside};
@@ -104,16 +105,18 @@ fn load(file: &Path) -> Bookmarks {
 }
 
 /// The folder of the world the integrated server has open. The window's own game has no `world_root` (the world
-/// lives on the server thread's), so the server thread's `world_lifecycle` hook leaves it here, in the same process.
+/// lives on the server thread's), so the server thread's `server_started` hook leaves it here, in the same process.
 static OPEN_WORLD: Mutex<Option<PathBuf>> = Mutex::new(None);
 
-/// `native_world_lifecycle` (server side): the open world's folder is known from `WorldOpenReady` until it closes.
-pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
-    let world = match phase {
-        WorldPhase::WorldOpenReady => game.native_world_dir(),
-        _ => None,
-    };
-    *OPEN_WORLD.lock().unwrap_or_else(|e| e.into_inner()) = world;
+/// `native_server_started` (server side): the open world's folder is known from when the server has it open until it
+/// closes.
+pub(super) fn opened(game: &mut Game<'_>) {
+    *OPEN_WORLD.lock().unwrap_or_else(|e| e.into_inner()) = game.native_world_dir();
+}
+
+/// `native_world_lifecycle`: the world closed (or failed to open); the bookmarks are no longer its.
+pub(super) fn closed() {
+    *OPEN_WORLD.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
 /// The tables the item names were last taken from.
@@ -182,7 +185,7 @@ pub(super) fn over(at: [f32; 2]) -> bool {
 // ---- Drawing ---------------------------------------------------------------------------------------------------
 
 /// The list left of the open container screen, under the item list's top: `native_screen_render_post`.
-pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     let covered = jei_window::covers(screen.mouse);
     let mut guard = state();
     let s = guard.get_or_insert_with(State::default);
@@ -267,7 +270,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
 
 /// `native_screen_mouse_button_pressed_pre`: a click on a bookmark shows its recipes (left) or uses (right), on an
 /// arrow it turns the page; the list takes every click on it.
-pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+pub(super) fn pressed(screen: &ScreenView<'_>, button: i32, canceled: &mut bool) {
     let at = screen.mouse;
     if *canceled || !over(at) || jei_window::covers(at) {
         return;
@@ -284,13 +287,13 @@ pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut
     }
 }
 /// `native_screen_mouse_button_released_pre`: the release stays the list's too.
-pub(super) fn released(screen: &NativeScreenView<'_>, canceled: &mut bool) {
+pub(super) fn released(screen: &ScreenView<'_>, canceled: &mut bool) {
     if !*canceled && over(screen.mouse) && !jei_window::covers(screen.mouse) {
         *canceled = true;
     }
 }
 /// `native_screen_mouse_scrolled_pre`: the wheel over the list turns its pages.
-pub(super) fn scrolled(screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+pub(super) fn scrolled(screen: &ScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
     if *canceled || !over(screen.mouse) || jei_window::covers(screen.mouse) {
         return;
     }

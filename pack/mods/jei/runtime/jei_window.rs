@@ -8,7 +8,7 @@
 // that carry, with the game's sprites and fills in JEI's sizes and colours.
 use super::Game;
 use super::jei_world::ID;
-use horizon_client::mod_api::{NativeRecipeTransfer, NativeScreenView, NativeStack, NativeTransferAnswer, NativeTransferHandler};
+use mod_api::{NativeRecipeTransfer, NativeStack, NativeTransferAnswer, NativeTransferHandler, ScreenView};
 use horizon_client::{hud::HudBatch, items::ItemStack, text::Text};
 use jei_core::recipes::{Mode, Page, Shape, Stack, View};
 use jei_core::window::{
@@ -17,6 +17,11 @@ use jei_core::window::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
 
 /// What a click, the wheel or a key on the window asks for; `jei_recipes::frame` does it.
 #[derive(Clone, Debug, PartialEq)]
@@ -314,7 +319,7 @@ pub(super) fn carried(game: &Game<'_>) -> bool {
 pub(super) fn sprite(game: &Game<'_>, batch: &mut HudBatch, name: &str, dst: Rect) -> bool {
     let name = jei_sprite(name);
     let Some([w, h]) = game.native_sprite_size(&name) else { return false };
-    game.native_sprite(batch, &name, [0.0, 0.0, w, h], dst)
+    game.native_sprite(batch, &name, [0.0, 0.0, w, h], dst, None)
 }
 /// `GuiGraphics.blitNineSlicedSprite` over `r` with a JEI sprite: the corners as they are, the edges and the centre
 /// tiled, each border at most half of `r`. A pack's larger copy is read in its own pixels. False without it.
@@ -339,7 +344,7 @@ pub(super) fn nine(game: &Game<'_>, batch: &mut HudBatch, n: &Nine, [x, y, w, h]
                 while ox < dw {
                     let tw = sw.min(dw - ox);
                     let src = [sx * k[0], sy * k[1], tw * k[0], th * k[1]];
-                    game.native_sprite(batch, &name, src, [dx + ox, dy + oy, tw, th]);
+                    game.native_sprite(batch, &name, src, [dx + ox, dy + oy, tw, th], None);
                     ox += sw;
                 }
                 oy += sh;
@@ -374,7 +379,7 @@ fn slot(game: &Game<'_>, batch: &mut HudBatch, x: f32, y: f32, output: bool) {
         return;
     }
     if !sprite(game, batch, "slot", [x, y, SLOT, SLOT])
-        && !game.native_sprite(batch, "gui/sprites/container/slot", [0.0, 0.0, SLOT, SLOT], [x, y, SLOT, SLOT])
+        && !game.native_sprite(batch, "gui/sprites/container/slot", [0.0, 0.0, SLOT, SLOT], [x, y, SLOT, SLOT], None)
     {
         inset(game, batch, [x, y, SLOT, SLOT], 0xFF8B8B8B);
     }
@@ -385,7 +390,7 @@ pub(super) fn stack(game: &Game<'_>, batch: &mut HudBatch, s: &Stack, x: f32, y:
         ingredient(game, batch, s, x + 1.0, y + 1.0);
     } else if game.native_item_stack(batch, &item_stack(s), [x + 1.0, y + 1.0], 16.0) && s.count > 1 {
         let count = s.count.to_string();
-        let w = game.native_text_width(&count);
+        let w = text_width(game, &count);
         game.native_text(batch, &count, [x + 18.0 - w, y + 10.0], 0xFFFFFF, true);
     }
     if inside(cursor, [x, y, SLOT, SLOT]) {
@@ -423,11 +428,11 @@ pub(super) fn button(game: &Game<'_>, batch: &mut HudBatch, r: Rect, next: bool,
     let icon = if next { "arrow_next_v2" } else { "arrow_previous_v2" };
     let at = [r[0] + 2.0, r[1] + 3.0, 9.0, 7.0];
     if !sprite(game, batch, &format!("icons/{icon}"), at) {
-        game.native_sprite(batch, &format!("horizon/jei/icons/{icon}"), [0.0, 0.0, 9.0, 7.0], at);
+        game.native_sprite(batch, &format!("horizon/jei/icons/{icon}"), [0.0, 0.0, 9.0, 7.0], at, None);
     }
 }
 pub(super) fn centred(game: &Game<'_>, batch: &mut HudBatch, text: &str, r: Rect, rgb: u32) {
-    let w = game.native_text_width(text);
+    let w = text_width(game, text);
     game.native_text(batch, text, [(r[0] + (r[2] - w) / 2.0).floor(), r[1] + ((r[3] - 8.0) / 2.0).floor()], rgb, true);
 }
 /// `text` cut at spaces into lines `room` wide.
@@ -436,7 +441,7 @@ pub(super) fn wrap(game: &Game<'_>, text: &str, room: f32) -> Vec<String> {
     let mut cur = String::new();
     for word in text.split_whitespace() {
         let next = if cur.is_empty() { word.to_owned() } else { format!("{cur} {word}") };
-        if !cur.is_empty() && game.native_text_width(&next) > room {
+        if !cur.is_empty() && text_width(game, &next) > room {
             out.push(std::mem::replace(&mut cur, word.to_owned()));
         } else {
             cur = next;
@@ -467,7 +472,7 @@ fn notes(game: &Game<'_>, v: &View, room: f32) -> Notes {
 }
 
 /// The window over the open screen: `native_screen_render_post`.
-pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     let mut guard = shown();
     let Some(s) = guard.as_mut() else { return };
     s.drawn_at = Instant::now();
@@ -571,12 +576,12 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         // JEI's `recipe_arrow` and `icons/flame`, else the furnace's (its arrow's tail cut to JEI's 22 px).
         let arrow = [x + p.arrow[0], top + p.arrow[1], ARROW[0], ARROW[1]];
         if !sprite(game, batch, "recipe_arrow", arrow) {
-            game.native_sprite(batch, "gui/sprites/container/furnace/burn_progress", [24.0 - ARROW[0], 0.0, ARROW[0], ARROW[1]], arrow);
+            game.native_sprite(batch, "gui/sprites/container/furnace/burn_progress", [24.0 - ARROW[0], 0.0, ARROW[0], ARROW[1]], arrow, None);
         }
         if let Some([fx, fy]) = p.flame {
             let at = [x + fx, top + fy, 14.0, 14.0];
             if !sprite(game, batch, "icons/flame", at) {
-                game.native_sprite(batch, "gui/sprites/container/furnace/lit_progress", [0.0, 0.0, 14.0, 14.0], at);
+                game.native_sprite(batch, "gui/sprites/container/furnace/lit_progress", [0.0, 0.0, 14.0, 14.0], at, None);
             }
         }
         let stacks = v.slots.iter().map(Vec::as_slice).chain(std::iter::once(v.results.as_slice()));
@@ -595,12 +600,12 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         }
         if let Some((xp, time)) = &n.corner {
             let right = x + p.size[0];
-            game.native_text(batch, xp, [right - game.native_text_width(xp), top], NOTE, false);
-            game.native_text(batch, time, [right - game.native_text_width(time), top + p.size[1] - 8.0], NOTE, false);
+            game.native_text(batch, xp, [right - text_width(game, xp), top], NOTE, false);
+            game.native_text(batch, time, [right - text_width(game, time), top + p.size[1] - 8.0], NOTE, false);
         }
         for (l, line) in n.lines.iter().enumerate() {
             let y = top + p.size[1] + 2.0 + l as f32 * LINE;
-            game.native_text(batch, line, [w.recipes[0] + ((room - game.native_text_width(line)) / 2.0).floor(), y], NOTE, false);
+            game.native_text(batch, line, [w.recipes[0] + ((room - text_width(game, line)) / 2.0).floor(), y], NOTE, false);
         }
         // JEI's "+" right of the recipe (`RecipeLayoutWithButtons`), hidden when the open screen takes no such
         // recipe; over it, the slots it lacks in red (`recipeTransferMissingSlotHighlight`) and AE2's craftable
@@ -660,11 +665,11 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
 
 /// `text` cut with vanilla's ellipsis to `room`.
 pub(super) fn fit(game: &Game<'_>, text: &str, room: f32) -> String {
-    if game.native_text_width(text) <= room {
+    if text_width(game, text) <= room {
         return text.to_owned();
     }
     let mut kept: String = text.to_owned();
-    while !kept.is_empty() && game.native_text_width(&format!("{kept}...")) > room {
+    while !kept.is_empty() && text_width(game, &format!("{kept}...")) > room {
         kept.pop();
     }
     format!("{}...", kept.trim_end())
@@ -692,7 +697,7 @@ pub(super) fn stack_at(at: [f32; 2]) -> Option<String> {
 
 /// `native_screen_mouse_button_pressed_pre`: a click on a stack shows its recipes (left) or uses (right), on a tab,
 /// an arrow it acts; nothing under the window reaches the screen.
-pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+pub(super) fn pressed(screen: &ScreenView<'_>, button: i32, canceled: &mut bool) {
     let guard = shown();
     let Some(s) = guard.as_ref() else { return };
     if *canceled || on_list(&s.drawn, screen.mouse) {
@@ -708,7 +713,7 @@ pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut
     }
 }
 /// `native_screen_mouse_button_released_pre`: off the list, the release stays the window's too.
-pub(super) fn released(screen: &NativeScreenView<'_>, canceled: &mut bool) {
+pub(super) fn released(screen: &ScreenView<'_>, canceled: &mut bool) {
     if let Some(s) = shown().as_ref()
         && !on_list(&s.drawn, screen.mouse)
     {
@@ -716,7 +721,7 @@ pub(super) fn released(screen: &NativeScreenView<'_>, canceled: &mut bool) {
     }
 }
 /// `native_screen_mouse_scrolled_pre`: the wheel over the tabs walks the categories, elsewhere the pages.
-pub(super) fn scrolled(screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+pub(super) fn scrolled(screen: &ScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
     let guard = shown();
     let Some(s) = guard.as_ref() else { return };
     if *canceled || on_list(&s.drawn, screen.mouse) {

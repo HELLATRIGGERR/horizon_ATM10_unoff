@@ -1,7 +1,5 @@
-// A world opens or closes on the server thread: the bookmarks learn which folder is the open world's.
-fn jei_world_lifecycle(
-    game: &mut crate::game::Game<'_>,
-    phase: crate::game::native_lifecycle::WorldPhase,
-) {
-    crate::game::jei_bookmarks::lifecycle(game, phase);
+// The world closes (or fails to open) on the server thread: the bookmarks are no longer the world's.
+fn jei_world_lifecycle(phase: mod_api::WorldPhase) {
+    let _ = phase;
+    crate::game::jei_bookmarks::closed();
 }

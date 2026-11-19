@@ -2,7 +2,7 @@
 fn jei_screen_render_post(
     game: &crate::game::Game<'_>,
     batch: &mut horizon_client::hud::HudBatch,
-    screen: &horizon_client::mod_api::NativeScreenView<'_>,
+    screen: &mod_api::ScreenView<'_>,
 ) {
     if game.native_on(crate::game::jei_world::ID) {
         crate::game::jei_bookmarks::render(game, batch, screen);

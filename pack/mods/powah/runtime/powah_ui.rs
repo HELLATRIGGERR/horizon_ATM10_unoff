@@ -4,12 +4,18 @@
 // gauge on the left, the fuel slot with its burn bar and the bolt that lights
 // while it burns. Powah is LGPL-3.0; see this bundle's README.md.
 
-use super::{Game, native_hooks::NativeScreen};
+use super::Game;
+use mod_api::Screen;
 use horizon_client::{hud::HudBatch, items::ItemStack, text::Text};
 use powah_core::{
     tier::Tier,
     view::{FurnatorView, commas, short},
 };
+
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
 
 const TEXTURE: &str = "powah:gui/container/furnator";
 const TITLE: u32 = 0x404040;
@@ -37,11 +43,11 @@ fn inside(r: Rect, at: [f32; 2]) -> bool {
 }
 
 /// `native_screen`: the panel's size and its two slots; the title is drawn here.
-pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
+pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
     if screen.is_some() || Tier::of_furnator(block).is_none() {
         return;
     }
-    *screen = Some(NativeScreen {
+    *screen = Some(Screen {
         width: 176.0,
         height: 166.0,
         // The charge slot and the fuel slot; the hopper menu's other three don't exist.
@@ -50,6 +56,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         inventory_x: 8.0,
         own_labels: true,
         own_background: false,
+        ..Screen::default()
     });
 }
 
@@ -60,7 +67,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     let view = FurnatorView::unpack(data);
     let at = |r: Rect| [origin[0] + r[0], origin[1] + r[1], r[2], r[3]];
-    game.native_sprite(batch, TEXTURE, [0.0, 0.0, 176.0, 166.0], at([0.0, 0.0, 176.0, 166.0]));
+    game.native_sprite(batch, TEXTURE, [0.0, 0.0, 176.0, 166.0], at([0.0, 0.0, 176.0, 166.0]), None);
     // Both bars are filled from the bottom.
     let rows = view.energy_rows(GAUGE[3] as i64) as f32;
     if rows > 0.0 {
@@ -69,7 +76,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
             batch,
             TEXTURE,
             [GAUGE_FILL[0], GAUGE_FILL[1] + skip, GAUGE[2], rows],
-            at([GAUGE[0], GAUGE[1] + skip, GAUGE[2], rows]),
+            at([GAUGE[0], GAUGE[1] + skip, GAUGE[2], rows]), None,
         );
     }
     let rows = view.fuel_rows(FUEL_BAR[3] as i64) as f32;
@@ -79,14 +86,14 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
             batch,
             TEXTURE,
             [FUEL_FILL[0], FUEL_FILL[1] + skip, FUEL_BAR[2], rows],
-            at([FUEL_BAR[0], FUEL_BAR[1] + skip, FUEL_BAR[2], rows]),
+            at([FUEL_BAR[0], FUEL_BAR[1] + skip, FUEL_BAR[2], rows]), None,
         );
     }
     if view.burning {
-        game.native_sprite(batch, TEXTURE, [BOLT_LIT[0], BOLT_LIT[1], BOLT[2], BOLT[3]], at(BOLT));
+        game.native_sprite(batch, TEXTURE, [BOLT_LIT[0], BOLT_LIT[1], BOLT[2], BOLT[3]], at(BOLT), None);
     }
     let title = game.native_screen_title().unwrap_or_default();
-    let x = PANEL_LEFT + ((PANEL_WIDTH - game.native_text_width(&title)) / 2.0).floor();
+    let x = PANEL_LEFT + ((PANEL_WIDTH - text_width(game, &title)) / 2.0).floor();
     game.native_text(batch, &title, [origin[0] + x, origin[1] + 5.0], TITLE, false);
 }
 

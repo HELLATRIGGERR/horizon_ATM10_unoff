@@ -7,23 +7,18 @@
 // settings are kept per thread, read when a world opens and dropped when it
 // closes. Powah is LGPL-3.0; see this bundle's README.md.
 
-use super::{
-    Game,
-    native_hooks::NativeFeInfo,
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
+use super::Game;
+use mod_api::{
+    ModBlockEntity,Command, CommandArgumentValue, CommandInvocation, CommandSource, NativeFeInfo, WorldPhase};
 use horizon_client::{
-    containers::{ModBlockEntity, ModContainer},
+    containers::ModContainer,
     item_data,
     items::ItemStack,
     text::Text,
 };
 use horizon_core::geometry::Direction;
-use horizon_world::{
-    level::flags,
-    nbt::{Compound, JavaString, Tag},
-};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use horizon_world::level::flags;
 use powah_core::{
     config::{GeneratorSpec, PowahConfig},
     furnator::{self, FUEL_SLOT, Furnator, STORED_STATE},
@@ -64,11 +59,17 @@ pub(super) fn spec_of(tier: Tier) -> GeneratorSpec {
     with_settings(|s| s.config.furnators.spec(tier))
 }
 
-/// `native_world_lifecycle`: settings are read as a world opens (ATM10's file,
-/// copied by `pack/scripts/sync-atm10.ts`) and dropped as it closes.
+/// `native_server_started`: settings are read as the world opens (ATM10's file, copied by
+/// `pack/scripts/sync-atm10.ts`).
+pub(super) fn opened() {
+    let fresh = read_settings();
+    SETTINGS.with(|s| *s.borrow_mut() = Some(fresh));
+}
+
+/// `native_world_lifecycle`: settings are dropped as the world closes or fails to open.
 pub(super) fn lifecycle(phase: WorldPhase) {
-    let fresh = matches!(phase, WorldPhase::WorldOpenReady).then(read_settings);
-    SETTINGS.with(|s| *s.borrow_mut() = fresh);
+    let _ = phase;
+    SETTINGS.with(|s| *s.borrow_mut() = None);
 }
 
 // ---- The saved compound, in Powah's names ---------------------------------
@@ -132,8 +133,8 @@ pub(super) fn item_energy(stack: &ItemStack) -> i64 {
 
 // ---- Block entities -------------------------------------------------------
 
-/// `native_block_entity`: a new, empty Furnator.
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+/// `native_block_entity`: a new, empty Furnator (its type id is the block's declaration's).
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     if entity.is_some() || Tier::of_furnator(block).is_none() {
         return;
     }
@@ -141,7 +142,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     write(&mut nbt, &Furnator::default());
     nbt.insert(key(SIDE_TYPES), Tag::IntArray(vec![1; 6]));
     nbt.insert(key(REDSTONE), Tag::Int(0));
-    *entity = Some((block.to_owned(), nbt));
+    *entity = Some(nbt);
 }
 
 /// `native_block_entity_ticks`: Furnators tick.
@@ -189,7 +190,7 @@ pub(super) fn drop_components(block: &str, entity: &ModBlockEntity, by_player: b
     components.insert(key(STORED_STATE), Tag::Compound(state));
 }
 
-/// `native_place_block`: what the item keeps goes back into the block.
+/// `native_on_block_placed_by`: what the item keeps goes back into the block.
 pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     let Some(tier) = Tier::of_furnator(&stack.item) else {
         return;
@@ -199,7 +200,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     };
     let capacity = spec_of(tier).capacity;
     game.native_with_mod_block_entity(pos, |m| {
-        if Tier::of_furnator(&m.id).is_some() {
+        if Tier::of_furnator(m.id()).is_some() {
             let mut f = read(&m.nbt);
             f.stored = kept.stored.min(capacity);
             f.carbon = kept.carbon;
@@ -210,19 +211,24 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 }
 
 /// The fuel slot's next item, gone: what it is worth. An item that leaves
-/// something behind (a lava bucket) leaves it in the slot.
+/// something behind (a lava bucket) leaves it in the slot. The slots hold the API's stacks: the burn time and the
+/// remainder are asked of the engine's.
 fn take_fuel(game: &Game<'_>, entity: &mut ModBlockEntity, energy_per_fuel_tick: i64) -> Option<i64> {
+    use crate::game::api_values::{TryIntoApi, TryIntoEngine};
     let slot = entity.items.get_mut(FUEL_SLOT)?;
-    let stack = slot.as_mut()?;
-    let burn = game.native_burn_time(stack);
+    let engine = slot.as_ref()?.try_into_engine(game.items()).ok()?;
+    let burn = game.native_burn_time(&engine);
     if burn <= 0 {
         return None;
     }
-    stack.count -= 1;
-    if stack.count == 0 {
-        let rest = game.native_crafting_remainder(&stack.item);
-        *slot = rest;
-    }
+    *slot = match slot.take().and_then(|stack| stack.shrink(1)) {
+        Some(rest) => Some(rest),
+        None => {
+            let mut remainder = None;
+            game.native_crafting_remainder(&engine, &mut remainder);
+            remainder.and_then(|r| r.try_into_api().ok())
+        }
+    };
     Some(furnator::fuel_value(burn, energy_per_fuel_tick))
 }
 
@@ -230,7 +236,7 @@ fn take_fuel(game: &Game<'_>, entity: &mut ModBlockEntity, energy_per_fuel_tick:
 /// `lit` picks the model with the burning face; Java draws that face with a
 /// renderer and has no such state, so neighbours aren't told.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
-    let Some(tier) = Tier::of_furnator(&entity.id) else {
+    let Some(tier) = Tier::of_furnator(entity.id()) else {
         return;
     };
     let (spec, per_fuel_tick) = with_settings(|s| (s.config.furnators.spec(tier), s.config.energy_per_fuel_tick));
@@ -269,7 +275,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
     if info.is_some() {
         return;
     }
-    let Some(tier) = Tier::of_furnator(&entity.id) else {
+    let Some(tier) = Tier::of_furnator(entity.id()) else {
         return;
     };
     *info = Some(NativeFeInfo {
@@ -282,7 +288,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
 
 /// `native_fe_receive`: a generator takes no energy.
 pub(super) fn fe_receive(entity: &ModBlockEntity, accepted: &mut Option<i64>) {
-    if accepted.is_none() && Tier::of_furnator(&entity.id).is_some() {
+    if accepted.is_none() && Tier::of_furnator(entity.id()).is_some() {
         *accepted = Some(0);
     }
 }
@@ -292,7 +298,7 @@ pub(super) fn fe_extract(entity: &mut ModBlockEntity, max: i64, simulate: bool, 
     if given.is_some() {
         return;
     }
-    let Some(tier) = Tier::of_furnator(&entity.id) else {
+    let Some(tier) = Tier::of_furnator(entity.id()) else {
         return;
     };
     let mut f = read(&entity.nbt);
@@ -305,9 +311,21 @@ pub(super) fn fe_extract(entity: &mut ModBlockEntity, max: i64, simulate: bool, 
 
 // ---- /powah probe ---------------------------------------------------------
 
-/// `native_register_commands`.
-pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
-    commands.push(NativeCommand::op("powah probe <pos:block_pos>", 2));
+/// `native_register_commands`: `/powah` with one `text` line (upstream's `word` takes no `~`), operators only.
+pub(super) fn commands(commands: &mut Vec<Command>) {
+    commands.push(Command::op("powah [line:text]", 2));
+}
+
+/// The command line a parsed invocation of `/powah` was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
 }
 
 /// A coordinate of the command line: a number, or `~`/`~n` from the player.
@@ -320,9 +338,12 @@ fn coordinate(word: Option<&str>, from: f64) -> Option<i32> {
     }
 }
 
-/// `native_perform_command`: `/powah probe x y z` answers `POWAH {json}` with
+/// `native_run_mod_command`: `/powah probe x y z` answers `POWAH {json}` with
 /// what the Furnator there holds and runs on.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
+    let CommandSource::Player { player, .. } = source else { return };
+    let position = game.entity_position(player.entity()).unwrap_or_default();
+    let command = line(call);
     let mut words = command.split_whitespace();
     if *ran || words.next() != Some("powah") {
         return;
@@ -331,7 +352,7 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
     let usage = || serde_json::json!({ "error": "usage: /powah probe <x> <y> <z>" });
     let answer = match words.next() {
         Some("probe") => {
-            let p = player.position;
+            let p = position;
             match (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2])) {
                 (Some(x), Some(y), Some(z)) => probe(game, [x, y, z]),
                 _ => usage(),
@@ -343,7 +364,7 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
 }
 
 fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
-    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), read(&m.nbt)));
+    let found = game.native_with_mod_block_entity(pos, |m| (m.id().to_owned(), read(&m.nbt)));
     let Some((id, f)) = found else {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };

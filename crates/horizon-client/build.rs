@@ -40,6 +40,29 @@ fn main() {
             println!("cargo:rerun-if-changed={}", root.join(dir).display());
         }
     }
+    // The fork's N5: the hooks of the injections horizon-mixins applied to this tree, from its record
+    // of a stage (none in a checkout), for the listener gates (`game/modding/fork_compat/bundle_hooks.rs`).
+    let stage = root.join(".horizon-mixins-stage.json");
+    let mut injected = std::collections::BTreeSet::new();
+    if stage.is_file() {
+        println!("cargo:rerun-if-changed={}", stage.display());
+        let text = std::fs::read_to_string(&stage).expect("reading .horizon-mixins-stage.json");
+        let record: serde_json::Value =
+            serde_json::from_str(&text).expect("parsing .horizon-mixins-stage.json");
+        for injection in record["injections"].as_array().into_iter().flatten() {
+            if let Some(hook) = injection["hook"].as_str() {
+                injected.insert(hook.to_owned());
+            }
+        }
+    }
+    std::fs::write(
+        out_dir.join("bundle_hooks.rs"),
+        format!(
+            "pub(super) const INJECTED: &[&str] = &{:?};\n",
+            injected.iter().collect::<Vec<_>>()
+        ),
+    )
+    .expect("writing bundle hooks");
     if let Some(found) = horizon_mod_api_gen::mob_turn(&root) {
         println!("cargo:rustc-env=HORIZON_MOB_TURN={found}");
     }

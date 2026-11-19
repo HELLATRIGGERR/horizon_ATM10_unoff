@@ -1869,7 +1869,7 @@ impl Game<'_> {
         if !self.with_level(|b, level, ticks| b.directional_can_place(level, ticks, &ctx)) {
             return Ok((Some(stack), FAIL));
         }
-        if mod_api::__private::listened(mod_api::HookId::EntityPlace)
+        if crate::game::fork_compat::heard(mod_api::HookId::EntityPlace)
             && let Some(preview) =
                 self.with_level(|b, level, ticks| b.placement_preview(level, ticks, &ctx))
         {

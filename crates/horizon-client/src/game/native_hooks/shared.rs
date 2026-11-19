@@ -836,7 +836,7 @@ impl Game<'_> {
             HookId::ScreenRenderPost,
         ]
         .into_iter()
-        .any(mod_api::__private::listened)
+        .any(crate::game::fork_compat::heard)
     }
     /// `Render.Pre`: whether the screen draws. The screen owns its later phases.
     pub(super) fn screen_render_begin(&self, draw: &mut HudBatch, screen: &ScreenView<'_>) -> bool {
@@ -1331,7 +1331,7 @@ pub(super) fn incoming_damage(
         return true;
     }
     container.set_new_damage(amount);
-    if !mod_api::__private::listened(mod_api::HookId::LivingIncomingDamage) {
+    if !crate::game::fork_compat::heard(mod_api::HookId::LivingIncomingDamage) {
         return false;
     }
     let (entity, kind, source) = hurt_server_args(hurting, level.attack());
@@ -2426,7 +2426,7 @@ impl Game<'_> {
         placed_against: BlockStateId,
         companion: Option<(BlockPos, BlockStateId)>,
     ) -> bool {
-        if !mod_api::__private::listened(mod_api::HookId::EntityPlace) {
+        if !crate::game::fork_compat::heard(mod_api::HookId::EntityPlace) {
             return false;
         }
         let placement = match companion {
@@ -2449,7 +2449,7 @@ impl Game<'_> {
     /// Whether a mod canceled the block the player's `ctx` would place
     /// (`entity_place`): nothing is previewed unless a mod listens.
     pub(super) fn player_place_canceled(&mut self, ctx: &PlaceContext) -> bool {
-        if !mod_api::__private::listened(mod_api::HookId::EntityPlace) {
+        if !crate::game::fork_compat::heard(mod_api::HookId::EntityPlace) {
             return false;
         }
         let Some(preview) =
@@ -2521,7 +2521,7 @@ impl Game<'_> {
         stack: Option<&ItemStack>,
     ) -> BlockClickAnswer {
         let (mut use_block, mut use_item) = (TriState::Default, TriState::Default);
-        if !mod_api::__private::listened(mod_api::HookId::RightClickBlock) {
+        if !crate::game::fork_compat::heard(mod_api::HookId::RightClickBlock) {
             return BlockClickAnswer::Go {
                 use_block,
                 use_item,

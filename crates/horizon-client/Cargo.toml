@@ -12,6 +12,8 @@ autotests = false
 [build-dependencies]
 horizon-game-discovery = { path = "../horizon-game-discovery" }
 horizon-mod-api-gen = { path = "../horizon-mod-api-gen" }
+# The fork's N5: reads horizon-mixins' stage record (game/modding/fork_compat/bundle_hooks.rs).
+serde_json = "1"
 # The build script runs on the host, but embeds resources based on the target OS.
 winresource = "0.1"
 

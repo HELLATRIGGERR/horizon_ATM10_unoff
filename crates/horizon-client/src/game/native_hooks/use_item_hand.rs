@@ -48,7 +48,7 @@ impl Game<'_> {
 
     /// `Player.interactOn`: Fail skips this interaction, not the hand loop.
     pub(in crate::game) fn entity_interaction(&mut self, hand: Hand, id: i32) -> Option<bool> {
-        if self.spectator() || !mod_api::__private::listened(mod_api::HookId::EntityInteract) {
+        if self.spectator() || !crate::game::fork_compat::heard(mod_api::HookId::EntityInteract) {
             return None;
         }
         let entity = self.level_entity(id)?;
@@ -80,7 +80,7 @@ impl Game<'_> {
     pub(in crate::game) fn use_item_in_hand(&mut self, stack: &ItemStack) -> Option<bool> {
         use mod_api::InteractionResult as Result;
         let mut result = None;
-        if mod_api::__private::has_part_hook(mod_api::HookId::UseItem)
+        if crate::game::fork_compat::part_heard(mod_api::HookId::UseItem)
             && let Ok(snapshot) = stack.try_into_api()
         {
             let (player, player_entity_id) = self.native_clicker();

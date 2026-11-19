@@ -251,7 +251,7 @@ impl Game<'_> {
             RenderPhase::Background => mod_api::HookId::ScreenRenderBackground,
             RenderPhase::Foreground => mod_api::HookId::ScreenRenderForeground,
         };
-        if !mod_api::__private::listened(hook) {
+        if !crate::game::fork_compat::heard(hook) {
             return;
         }
         let view = self

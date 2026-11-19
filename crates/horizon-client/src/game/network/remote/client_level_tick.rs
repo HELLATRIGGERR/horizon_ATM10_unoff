@@ -25,8 +25,8 @@ impl Game<'_> {
         &mut self,
         body: impl FnOnce(&mut Self) -> Result<()>,
     ) -> Result<()> {
-        let level = (mod_api::__private::listened(mod_api::HookId::LevelTickPre)
-            || mod_api::__private::listened(mod_api::HookId::LevelTickPost))
+        let level = (crate::game::fork_compat::heard(mod_api::HookId::LevelTickPre)
+            || crate::game::fork_compat::heard(mod_api::HookId::LevelTickPost))
         .then(|| self.native_client_level())
         .flatten();
         if let Some(level) = level {

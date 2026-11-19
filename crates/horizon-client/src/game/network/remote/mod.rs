@@ -3683,6 +3683,9 @@ impl Game<'_> {
             C::CustomPayload(p) if p.channel == horizon_protocol::passage_sync::CHANNEL => {
                 self.remote_passage_sync(&p.data);
             }
+            C::CustomPayload(p) if !p.channel.starts_with("minecraft:") => {
+                self.native_net_from_server(&p.channel, &p.data);
+            }
             // PingDebugMonitor.onPongReceived.
             C::PongResponse(p) => {
                 let delay = self.debug_millis() - p.time;

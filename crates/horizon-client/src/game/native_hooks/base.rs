@@ -1056,7 +1056,11 @@ impl Game<'_> {
         block: &str,
         container: &mut Option<ModContainer>,
     ) {
-        *container = mod_api::__private::parts_installation::block_container(block);
+        // A bundle's own answer is set before this body runs (its hook injects at the head) and wins
+        // over the installed parts' declaration.
+        if container.is_none() {
+            *container = mod_api::__private::parts_installation::block_container(block);
+        }
     }
     /// Block `block`'s registered fluid tanks: each tank's capacity in
     /// millibuckets, the tanks each face reaches, and the tanks a fill may

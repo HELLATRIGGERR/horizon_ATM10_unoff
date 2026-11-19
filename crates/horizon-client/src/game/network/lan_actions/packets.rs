@@ -857,6 +857,13 @@ impl Game<'_> {
             S::CustomPayload(p) if p.channel == horizon_client::lod_net::CHANNEL => {
                 self.guest_far_terrain(conn, &p.data)
             }
+            // A bundle's own channel (mixin bundles declare none): the fork's `native_net_from_client`.
+            S::CustomPayload(p) if !p.channel.starts_with("minecraft:") => {
+                let Some(uuid) = self.lan.as_ref().map(|host| host.hub.guests[gi].uuid) else {
+                    return;
+                };
+                self.native_net_from_client(uuid, &p.channel, &p.data);
+            }
             S::ChatCommandSigned(p) => self.guest_signed_command(conn, p),
             // ServerCommonPacketListenerImpl.handleCustomClickAction: the server only logs
             // the click, so a mod's cancel leaves nothing else to skip.

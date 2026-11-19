@@ -118,16 +118,15 @@ impl Game<'_> {
         channel: &str,
         data: &[u8],
     ) -> Result<(), String> {
-        let target = self
-            .fork_player(player)
+        let guest = self
+            .lan
+            .as_ref()
+            .and_then(|lan| lan.hub.online_players().find(|g| g.uuid == player))
             .ok_or_else(|| format!("player {player:032x} is not on"))?;
-        self.player_send_payload(
-            target,
-            &mod_api::PayloadId(channel.to_owned()),
-            mod_api::PayloadBytes(data.to_vec()),
-        )
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+        guest.send(&horizon_protocol::packets::play::Clientbound::CustomPayload(
+            horizon_protocol::packets::configuration::CustomPayload { channel: channel.to_owned(), data: data.to_vec() },
+        ));
+        Ok(())
     }
     /// Sends `data` on channel `channel` to the server (`send_payload_to_server`).
     pub(in crate::game) fn native_net_send_to_server(
@@ -135,12 +134,13 @@ impl Game<'_> {
         channel: &str,
         data: &[u8],
     ) -> Result<(), String> {
-        self.send_payload_to_server(
-            &mod_api::PayloadId(channel.to_owned()),
-            mod_api::PayloadBytes(data.to_vec()),
-        )
-        .map(|_| ())
-        .map_err(|e| format!("{e:?}"))
+        if self.remote.is_none() {
+            return Err("not connected to a server".into());
+        }
+        self.send(horizon_protocol::packets::play::Serverbound::CustomPayload(
+            horizon_protocol::packets::configuration::CustomPayload { channel: channel.to_owned(), data: data.to_vec() },
+        ));
+        Ok(())
     }
     /// What player `uuid` wears or holds in `slot`.
     pub(in crate::game) fn native_player_equipment(

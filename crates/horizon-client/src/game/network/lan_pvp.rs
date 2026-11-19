@@ -393,10 +393,6 @@ impl Game<'_> {
         // Taken here, before the victim is swapped in, so the attacker's hands are found.
         let attack = self.attack_of(attacker_note.as_ref().map_or(attacker_id, |(id, _)| *id));
         let land = |g: &mut Self| {
-            #[cfg(feature = "ae2-lab")]
-            if hurt && let Some(staff) = s.ae2_tool {
-                g.ae2_pvp_effect(staff);
-            }
             g.with_attack(attack.clone(), |g| {
                 g.combat.player_attacker = Some((s.from, s.disable_blocking));
                 if let Some((id, name)) = attacker_note.clone() {
@@ -409,6 +405,10 @@ impl Game<'_> {
                 }
                 let hurt =
                     g.mob_hits_player_from(s.amount, s.from, "minecraft:player_attack", s.creative);
+                #[cfg(feature = "ae2-lab")]
+                if hurt && let Some(staff) = s.ae2_tool {
+                    g.ae2_pvp_effect(staff);
+                }
                 g.combat.player_attacker = None;
                 let (strength, xd, zd) = s.knockback;
                 if hurt && strength > 0.0 {

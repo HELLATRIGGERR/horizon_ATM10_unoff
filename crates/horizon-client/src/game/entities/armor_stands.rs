@@ -1024,7 +1024,7 @@ impl Game<'_> {
         if spared_by_blast(&self.armor_stands[i]) {
             return;
         }
-        self.break_armor_stand_by_anything(i);
+        self.break_armor_stand_by_anything(i, "minecraft:explosion", 0);
     }
     /// `Entity.gameEvent(event, attributedTo)` for a stand at `at`: the
     /// causing player (a LAN guest too) or mob, else the stand itself (which

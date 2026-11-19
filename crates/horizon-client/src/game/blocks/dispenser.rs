@@ -649,6 +649,7 @@ impl Game<'_> {
                     pos: [front.0, front.1, front.2],
                     face: normal.map(|v| -v),
                     point: [front.0, front.1, front.2].map(|v| f64::from(v) + 0.5),
+                    inside: false,
                 };
                 // AE2 registers DefaultDispenseItemBehavior: retain the tool
                 // even when its action fails, and use the normal click/smoke.

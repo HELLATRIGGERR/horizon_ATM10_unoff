@@ -146,16 +146,16 @@ impl Game<'_> {
             horizon_client::cooldowns::group(stack, info.and_then(|i| i.use_cooldown.as_ref()));
         let partial = self.clock.fraction() as f32;
         // BundleItem overrides the bar with its fullness.
-        #[cfg(feature = "ae2-lab")]
-        {
-            bar = self.ae2_energy_bar(stack).or(bar);
-        }
         let mut bar = if info.is_some_and(|item| item.bundle) {
             horizon_client::bundle::Contents::of(self.items(), stack)
                 .and_then(|contents| contents.bar())
         } else {
             hud_overlays::damage_bar(stack.effective_damage(info), max_damage)
         };
+        #[cfg(feature = "ae2-lab")]
+        {
+            bar = self.ae2_energy_bar(stack).or(bar);
+        }
         // Client-only: a mod may replace or hide the bar vanilla just chose.
         self.native_item_bar(stack, &mut bar);
         let decorations = hud_overlays::ItemDecorations {

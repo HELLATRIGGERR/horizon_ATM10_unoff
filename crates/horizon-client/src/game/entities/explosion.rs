@@ -1811,11 +1811,14 @@ impl Game<'_> {
             p[1]+height > center[1]-1.5 && p[1] < center[1]+1.5 &&
             p[2]+h > center[2]-1.5 && p[2]-h < center[2]+1.5
         };
-        for mob in &mut self.mobs {
-            if mob.alive() && overlaps([mob.position.x,mob.position.y,mob.position.z],mob.kind.width,mob.kind.height) {
-                let source=horizon_client::mobs::Damage{kind:horizon_client::mobs::DamageKind::Explosion,attacker:owner.map(|_|horizon_client::mobs::Who::Player),from:Some(center),attacker_species:None};
-                if mob.damage(6.0,source) && let Some(super::tnt::TinyTntOwner::Player(conn))=owner {self.last_hurt_by_player.insert(mob.id,conn);}
-            }
+        let hit_mobs:Vec<usize>=self.mobs.iter().enumerate()
+            .filter(|(_,mob)|mob.alive() && overlaps([mob.position.x,mob.position.y,mob.position.z],mob.kind.width,mob.kind.height))
+            .map(|(i,_)|i).collect();
+        for i in hit_mobs {
+            let source=horizon_client::mobs::Damage{kind:horizon_client::mobs::DamageKind::Explosion,attacker:owner.map(|_|horizon_client::mobs::Who::Player),from:Some(center),attacker_species:None};
+            let id=self.mobs[i].id;
+            let hurt=self.mobs[i].damage(crate::game::entity::damage_level_of!(self),6.0,source);
+            if hurt && let Some(super::tnt::TinyTntOwner::Player(conn))=owner {self.last_hurt_by_player.insert(id,conn);}
         }
         let affected:Vec<u32>=self.dropped.iter().filter_map(|item|{
             let p=item.position;overlaps([p.x,p.y,p.z],0.25,0.25).then_some(item.id)
@@ -1832,7 +1835,7 @@ impl Game<'_> {
             let b=cart.bounds();let lo=b.min_position();let hi=b.max_position();
             (hi.x>center[0]-1.5 && lo.x<center[0]+1.5 && hi.y>center[1]-1.5 && lo.y<center[1]+1.5 && hi.z>center[2]-1.5 && lo.z<center[2]+1.5).then_some(cart.id)
         }).collect();
-        for id in cart_ids {if let Some(i)=self.carts.iter().position(|cart|cart.id==id){self.hurt_cart(i,6.0,false,true);}}
+        for id in cart_ids {if let Some(i)=self.carts.iter().position(|cart|cart.id==id){self.hurt_cart(i,6.0,false,true,super::minecarts::CartHit::attributed(None));}}
         let intersects=|lo:[f64;3],hi:[f64;3]|(0..3).all(|axis|hi[axis]>center[axis]-1.5 && lo[axis]<center[axis]+1.5);
         let boats:Vec<usize>=self.boats.iter().enumerate().filter_map(|(i,b)|{
             let bounds=b.bounds();let lo=bounds.min_position();let hi=bounds.max_position();
@@ -1877,7 +1880,8 @@ impl Game<'_> {
         }
         let pitch=(1.0+(self.world.random.next_float()-self.world.random.next_float())*0.2)*32.9;
         self.audio.play("minecraft:entity.generic.explode",Some(center),4.0,pitch);
-        self.lan_explode(center, true, 0.2, 0, Vec::new());
+        let effects=self.blast_effects();
+        self.lan_explode(center, true, 0.2, 0, Vec::new(), effects);
         Ok(())
     }
     #[cfg(feature = "ae2-lab")]
@@ -1891,11 +1895,17 @@ impl Game<'_> {
         let causing=match owner {Some(super::tnt::TinyTntOwner::Player(Some(id)))=>id as i32,_=>0};
         let blocking=self.player_blocking(Some(center),damage_type,false);
         let raised=blocking.is_some();
-        if let Some(id)=self.motion.health.damage.id(damage_type) {
-            if let Some(player)=self.player.as_mut() {
-                if let Ok(outcome)=player.hurt_caused_by(&self.motion.health,self.world.health_rules,id,6.0,blocking,owner.is_some(),causing) {
-                    if outcome.hurt {self.hurt_armor(id, 6.0);}
-                    if raised {self.after_block(outcome,(None,false),horizon_client::health::HurtSource{damage_type,causing,direct:0});}
+        if let Some(id)=self.health_resources.damage.id(damage_type) {
+            let rules=self.world.health_rules;
+            let outcome=match self.player.as_mut() {
+                Some(player)=>player.hurt_caused_by(crate::game::entity::damage_level_of!(self),&self.motion.health,rules,id,6.0,blocking,owner.is_some(),causing,false).ok(),
+                None=>None,
+            };
+            if let Some(outcome)=outcome {
+                if outcome.hurt {self.hurt_armor(&horizon_client::health::HurtSource{damage_type,causing,direct:0,position:None}, 6.0);}
+                if raised {
+                    let attack=self.current_attack();
+                    self.after_block(outcome,(None,false),horizon_client::health::HurtSource{damage_type,causing,direct:0,position:None},&attack);
                 }
             }
         }

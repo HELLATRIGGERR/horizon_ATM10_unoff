@@ -30,7 +30,7 @@ impl Game<'_> {
                 for item in entity.slots() { visit(item); }
                 if let BlockEntity::Ae2(machine) = entity { for item in &machine.upgrades { visit(item); } }
             }
-            let dropped = if dim == self.dim { Some(self.dropped.as_slice()) } else { self.levels.ae2_dropped(dim) };
+            let dropped = if dim == self.dim { Some(&self.dropped[..]) } else { self.levels.ae2_dropped(dim) };
             if let Some(dropped) = dropped { for entity in dropped { visit(&Some(entity.stack.clone())); } }
         }
         found

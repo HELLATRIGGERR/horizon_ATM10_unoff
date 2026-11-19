@@ -283,7 +283,7 @@ impl Game<'_> {
     fn ae2_local_craft_calculating(&self)->bool {
         self.ae2_local_craft.as_ref().is_some_and(|s|s.session.dimension==self.dim.id() && s.session.calculation.is_some())
     }
-    fn ae2_guest_craft_calculations(&self,host:&crate::game::lan_host_turn::HostTurn)->usize {
+    fn ae2_guest_craft_calculations(&self,host:&crate::game::lan::LanHost)->usize {
         host.play.iter().filter(|(conn,p)|host.hub.guests.iter().any(|g|g.conn==**conn && host.hub.here(g))
             && p.ae2_craft_confirm.as_ref().is_some_and(|s|s.dimension==self.dim.id() && s.calculation.is_some())).count()
     }

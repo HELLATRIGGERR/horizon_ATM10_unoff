@@ -354,6 +354,7 @@ impl Game<'_> {
         self.ae2x_enrich_visual(v);
     }
     pub(super) fn ae2_sync_visuals(&mut self, host: &mut crate::game::lan_host_turn::HostTurn) {
+        let host: &mut crate::game::lan::LanHost = host;
         let dim = self.dim.id().to_owned();
         let network = self.ae2_network();
         let analysis = network.analyze().ok();

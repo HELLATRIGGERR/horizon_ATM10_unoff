@@ -8469,10 +8469,6 @@ impl Game<'_> {
                     );
                 }
             }
-            #[cfg(feature="ae2-lab")]
-            if held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:debug_eraser"|"ae2:debug_meteorite_placer"|"ae2:debug_replicator_card") && s.count>0) {
-                self.with_hand(hand,Game::swing_arm);return true;
-            }
             waxes
         } else if let Some((_, sound, _, _, particle, _)) = self.block_transform(stack, hit) {
             self.transform_particle(&particle, hit.pos);

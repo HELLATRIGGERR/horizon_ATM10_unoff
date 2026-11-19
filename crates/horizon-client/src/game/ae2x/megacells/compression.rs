@@ -128,7 +128,7 @@ impl Game<'_> {
             let (ingredients, result): (Vec<&[String]>, _) = match recipe {
                 Recipe::Shaped { cells, result, .. } => (cells.iter().map(|cell| cell.as_ref().map_or(&[][..], |i| i.order.as_slice())).collect(), result),
                 Recipe::Shapeless { ingredients, result, .. } => (ingredients.iter().map(|i| i.order.as_slice()).collect(), result),
-                Recipe::Special(_) => continue,
+                Recipe::Special(_) | Recipe::Mod(_) => continue,
             };
             let Some(item) = &result.item else { continue };
             let stack = ItemStack { item: item.clone(), count: 1, damage: result.damage, extra: result.extra.clone() };
@@ -145,17 +145,18 @@ impl Game<'_> {
     /// `DataMapFile`: values, then removals).
     fn megacells_compression_overrides(&self) -> HashMap<String, OverrideValue> {
         let mut map = std::collections::BTreeMap::new();
-        let tags = &self.items().item_tags;
+        let tags = ItemTagRegistries(&self.items().item_tags);
+        let conditions = horizon_world::conditions::LoadConditions::default();
         if let Ok(bytes) = std::fs::read(self.options.resources.join(OVERRIDES)) {
             if let Ok(file) = serde_json::from_slice::<Value>(&bytes) {
-                crate::game::native_data_maps::apply_file(&mut map, &file, tags);
+                crate::game::native_data_maps::apply_file(&mut map, &file, "minecraft:item", &tags, &conditions, OVERRIDES);
             }
         }
         let pack_key = "data_maps/megacells:item/compression_overrides";
         if let Some((_, versions)) = self.world_tables.as_ref().and_then(|t| t.files.iter().find(|(k, _)| k == pack_key)) {
             for bytes in versions {
                 if let Ok(file) = serde_json::from_slice::<Value>(bytes) {
-                    crate::game::native_data_maps::apply_file(&mut map, &file, tags);
+                    crate::game::native_data_maps::apply_file(&mut map, &file, "minecraft:item", &tags, &conditions, pack_key);
                 }
             }
         }
@@ -250,5 +251,22 @@ mod tests {
         assert_eq!(override_value(&json!({"variant": "minecraft:nothing"}), &known, &loaded), None);
         let conditional = json!({"neoforge:conditions": [{"type": "neoforge:mod_loaded", "modid": "mysticalagriculture"}], "variant": "NONE"});
         assert_eq!(override_value(&conditional, &known, &loaded), None);
+    }
+}
+
+/// The item tags the compression overrides resolve their `#tag` entries with, as upstream's
+/// data map registries (an item map only).
+struct ItemTagRegistries<'a>(&'a HashMap<String, std::collections::HashSet<String>>);
+impl crate::game::native_data_maps::MapRegistries for ItemTagRegistries<'_> {
+    fn known(&self, registry: &str) -> bool {
+        registry == "minecraft:item"
+    }
+    fn contains(&self, _registry: &str, _entry: &str) -> bool {
+        true
+    }
+    fn tag(&self, _registry: &str, tag: &str) -> Vec<String> {
+        let mut members: Vec<String> = self.0.get(tag).map_or_else(Vec::new, |set| set.iter().cloned().collect());
+        members.sort();
+        members
     }
 }

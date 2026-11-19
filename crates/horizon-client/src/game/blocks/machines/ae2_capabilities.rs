@@ -84,7 +84,7 @@ impl Game<'_> {
             || self.ae2_cell_part_at(address,face).is_some()
             || matches!(self.ae2_block_entity(address),Some(BlockEntity::Ae2(m)) if m.kind==MachineKind::PatternProvider)
             {return true;}
-        self.ae2_native_view(address).is_some_and(|(_,view,_)|!view.slots_for_face(Some(face)).is_empty())
+        self.ae2_native_view(address).is_some_and(|(_,view,_)|view.slots_for_face_iter(Some(face)).next().is_some())
     }
     /// The native fluid adapters currently expose tanks, interfaces, provider
     /// returns and fluid P2P; all are discoverable even when empty.
@@ -101,7 +101,7 @@ impl Game<'_> {
     ) -> Option<(Containers<'_>, View, super::super::Dim)> {
         let (dimension, local) = self.ae2_address_parts(address)?;
         let (world, mobs) = if dimension == self.dim {
-            (&self.world, self.mobs.as_slice())
+            (&self.world, &self.mobs[..])
         } else {
             (self.levels.ae2_world(dimension)?, self.levels.parked_mobs(dimension).unwrap_or(&[]))
         };
@@ -138,14 +138,14 @@ impl Game<'_> {
     /// A concrete sided native container, including an empty one. Specialized
     /// AE2/P2P capabilities keep their existing separate adapters.
     pub(in crate::game) fn ae2_native_container_supports(&self, address: GridAddress, face: Direction) -> bool {
-        self.ae2_native_view(address).is_some_and(|(_, view, _)| !view.slots_for_face(Some(face)).is_empty())
+        self.ae2_native_view(address).is_some_and(|(_, view, _)| view.slots_for_face_iter(Some(face)).next().is_some())
     }
     /// ExternalStorageFacade lists the handler's visible slots. Only its
     /// EXTRACTABLE_ONLY mode suppresses a stack that the sided handler cannot
     /// actually extract; NONE still shows it without changing custody.
     pub(in crate::game) fn ae2_native_container_candidates(&self, address: GridAddress, face: Direction, extractable_only: bool) -> Option<Vec<ItemStack>> {
         let (c, view, _) = self.ae2_native_view(address)?;
-        Some(view.slots_for_face(Some(face)).into_iter().filter_map(|slot| {
+        Some(view.slots_for_face_iter(Some(face)).into_iter().filter_map(|slot| {
             let stack = c.get(&view, slot).filter(|s| s.count > 0)?;
             let (owner, index) = view.locate(slot)?;
             let io_input = matches!(c.world.block_entities.get(&owner), Some(BlockEntity::Ae2(m)) if m.kind == MachineKind::IoPort && index < 6);
@@ -176,7 +176,7 @@ impl Game<'_> {
     pub(in crate::game) fn ae2_native_container_insert_staged(&mut self, address: GridAddress, face: Direction, stack: &ItemStack, limit: u32, simulate: bool) -> Option<(u32, Vec<(GridAddress, u64)>)> {
         let (c, view, dim) = self.ae2_native_view(address)?;
         let mut left = stack.count.min(limit); let requested = left; let mut changes = Vec::new();
-        for slot in view.slots_for_face(Some(face)) {
+        for slot in view.slots_for_face_iter(Some(face)) {
             if left == 0 { break; }
             if !c.can_place(&view, slot, stack) { continue; }
             let (owner, index) = view.locate(slot)?;
@@ -226,7 +226,7 @@ impl Game<'_> {
     pub(in crate::game) fn ae2_native_container_extract_staged(&mut self, address: GridAddress, face: Direction, prototype: &ItemStack, limit: u32, simulate: bool) -> Option<(Option<ItemStack>, Vec<(GridAddress, u64)>)> {
         let (c, view, dim) = self.ae2_native_view(address)?;
         let mut left = limit; let mut changes = Vec::new();
-        for slot in view.slots_for_face(Some(face)) {
+        for slot in view.slots_for_face_iter(Some(face)) {
             if left == 0 { break; }
             let Some(stack) = c.get(&view, slot).filter(|s| s.count > 0 && s.same_item_same_components(prototype)) else { continue };
             if !c.can_take(&view, slot, stack, face) { continue; }
@@ -778,7 +778,7 @@ impl Game<'_> {
         let mut left = stack.count.min(limit);
         let wanted = left;
         let mut changes = Vec::new();
-        for slot in view.slots_for_face(Some(face)) {
+        for slot in view.slots_for_face_iter(Some(face)) {
             if left == 0 {
                 break;
             }
@@ -897,7 +897,7 @@ impl Game<'_> {
         let Some((c, view, _)) = self.ae2_native_view(address) else {
             return Vec::new();
         };
-        view.slots_for_face(Some(face)).into_iter().filter_map(|slot|{
+        view.slots_for_face_iter(Some(face)).into_iter().filter_map(|slot|{
             let stack=c.get(&view,slot).filter(|s|s.count>0)?;
             if !c.can_take(&view,slot,stack,face){return None;}
             let(owner,index)=view.locate(slot)?;
@@ -945,7 +945,7 @@ impl Game<'_> {
         }
         let (c, view, dim) = self.ae2_native_view(address)?;
         let mut selected = None;
-        for slot in view.slots_for_face(Some(face)) {
+        for slot in view.slots_for_face_iter(Some(face)) {
             let Some(stack) = c.get(&view, slot).filter(|s| s.count > 0) else {
                 continue;
             };

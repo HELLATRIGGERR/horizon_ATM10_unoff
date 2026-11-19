@@ -320,6 +320,8 @@ fn recipe_displays(game:&Game<'_>,node:&Value)->Vec<(String,Display,ItemStack)> 
                 Recipe::Shaped{width,height,cells,result}=>{let out=result.create(); if (by_output && out.item.as_ref()==id)||(!by_output&&exact){recipes.push((name.clone(),Display::Shaped{width:*width,height:*height,cells:cells.clone()},out));}},
                 Recipe::Shapeless{ingredients,result,..}=>{let out=result.create(); if (by_output&&out.item.as_ref()==id)||(!by_output&&exact){recipes.push((name.clone(),Display::Shapeless(ingredients.clone()),out));}},
                 Recipe::Special(s)=>for display in s.book_displays() {if (by_output&&display.result.item.as_ref()==id)||(!by_output&&exact){recipes.push((name.clone(),display.display,display.result));}},
+                // A mod's crafting recipe has no guide display of AE2's.
+                Recipe::Mod(_)=>{},
             }
         }
         for r in &game.res.recipes().cooking {if (by_output&&r.result.item.as_ref()==id)||(!by_output&&normalize_id(&r.id)==id){recipes.push((r.id.clone(),Display::Furnace(r.ingredient.clone()),r.result.clone()));}}

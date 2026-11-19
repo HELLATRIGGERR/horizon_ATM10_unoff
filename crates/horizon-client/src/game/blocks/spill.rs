@@ -929,14 +929,14 @@ impl GameLevel<'_> {
             breaker: self.drop_breaker_at == Some(pos),
             ..Default::default()
         };
-            #[cfg(feature = "ae2-lab")]
-            if ae2_synthetic_cable_host_drop(&self.facts.get(state).name, &stack) { continue; }
         let entity = self
             .drop_entity
             .filter(|_| self.drop_breaker_at == Some(pos));
         let drops = self.roll_block_loot(pos, state, entity, roll);
         let dropped = self.block_dropped(pos, state, None, tool.as_ref(), drops, None);
         for item in dropped.items {
+            #[cfg(feature = "ae2-lab")]
+            if ae2_synthetic_cable_host_drop(&self.facts.get(state).name, &item.stack) { continue; }
             if let Some(kept) = self.drop_into.as_mut().filter(|_| machine) {
                 kept.push(item.stack);
             } else {

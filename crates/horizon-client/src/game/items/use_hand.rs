@@ -143,32 +143,32 @@ impl Game<'_> {
             #[cfg(feature = "ae2-lab")]
             if self.ae2_try_tank_interaction((hit.pos[0],hit.pos[1],hit.pos[2])){self.swing_arm();return Ok(true);}
             #[cfg(feature = "ae2-lab")]
-            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+            if !self.held().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
                 && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
                 && self.ae2_open_local_provider((hit.pos[0],hit.pos[1],hit.pos[2]), Some(hit.face)) {
                 self.swing_arm();
                 return Ok(true);
             }
             #[cfg(feature = "ae2-lab")]
-            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+            if !self.held().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
                 && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
                 && self.ae2_open_local_machine((hit.pos[0],hit.pos[1],hit.pos[2]),Some(hit.face)) {
                 self.swing_arm();return Ok(true);
             }
             #[cfg(feature = "ae2-lab")]
-            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+            if !self.held().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
                 && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
                 && self.ae2_open_local_bus((hit.pos[0],hit.pos[1],hit.pos[2]),hit.face) {
                 self.swing_arm();return Ok(true);
             }
             #[cfg(feature = "ae2-lab")]
-            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+            if !self.held().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
                 && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
                 && self.ae2_open_local_pattern_access((hit.pos[0],hit.pos[1],hit.pos[2]),hit.face) {
                 self.swing_arm();return Ok(true);
             }
             #[cfg(feature = "ae2-lab")]
-            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
+            if !self.held().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator"))
                 && self.ae2_ensure_machine((hit.pos[0],hit.pos[1],hit.pos[2]))
                 && self.ae2_open_terminal((hit.pos[0],hit.pos[1],hit.pos[2]),Some(hit.face)) {
                 self.screen=Screen::Inventory;
@@ -177,8 +177,8 @@ impl Game<'_> {
                 return Ok(true);
             }
             #[cfg(feature="ae2-lab")]
-            if !held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator")) && self.ae2_ensure_machine((hit.pos[0], hit.pos[1], hit.pos[2])) && matches!(self.world.block_entities.get(&(hit.pos[0],hit.pos[1],hit.pos[2])),Some(BlockEntity::Ae2(m)) if ae2_terminal::ae2_hand_menu_kind(m.kind)) {
-                self.open_menu(hit.pos);
+            if !self.held().is_some_and(|s|matches!(s.item.as_ref(),"ae2:entropy_manipulator"|"ae2:color_applicator")) && self.ae2_ensure_machine((hit.pos[0], hit.pos[1], hit.pos[2])) && matches!(self.world.block_entities.get(&(hit.pos[0],hit.pos[1],hit.pos[2])),Some(BlockEntity::Ae2(m)) if ae2_terminal::ae2_hand_menu_kind(m.kind)) {
+                self.open_block_effect_menu(hit.pos);
                 self.swing_arm();
                 return Ok(true);
             }

@@ -296,9 +296,10 @@ impl Game<'_> {
         let Some(g) = host.hub.guests.iter().find(|g| g.conn == conn) else { return };
         let ghosts = items.clone();
         items.extend((9..36).chain(0..9).map(|i| g.inventory[i].clone()));
+        let carried = g.carried.clone();
         if all || ghosts != s.sent_items {
             s.state = (s.state + 1) & 0x7fff;
-            let carried = host.hub.stack(&g.carried.clone());
+            let carried = host.hub.stack(&carried);
             let wire = items.iter().map(|item| host.hub.stack(item)).collect();
             host.hub.send_to(conn, &C::ContainerSetContent(play::ContainerSetContent { container: s.window, state: s.state, items: wire, carried }));
         }

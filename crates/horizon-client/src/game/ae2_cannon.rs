@@ -191,7 +191,7 @@ impl Game<'_> {
                 }
             }
         }
-        if let Some(host) = host.or(self.lan.as_ref()) {
+        if let Some(host) = host.map(|h| &**h).or(self.lan.as_ref()) {
             for guest in host.hub.guests.iter().filter(|g| {
                 Some(g.conn) != self.lan_acting
                     && g.loaded
@@ -247,7 +247,7 @@ impl Game<'_> {
             CannonEntity::Boat(i) => self.hurt_boat(i, amount, creative),
             CannonEntity::Cart(i) => {
                 let id = self.carts[i].id;
-                self.hurt_cart(i, amount, creative, false);
+                self.hurt_cart(i, amount, creative, false, super::minecarts::CartHit::player());
                 self.carts.iter().all(|c| c.id != id)
             }
             CannonEntity::Frame(i) => {
@@ -292,8 +292,7 @@ impl Game<'_> {
             .guest(conn)
             .and_then(|g| self.score.board.players_team(&g.name))
             .cloned();
-        if !self.ui.rules.bool("pvp")
-            || !horizon_client::scoreboard::teams_allow_damage(target.as_ref(), attacker.as_ref())
+        if !self.player_may_harm(target.as_ref(), attacker.as_ref())
         {
             return (false, false);
         }
@@ -304,8 +303,10 @@ impl Game<'_> {
                     damage_type: "ae2:matter_cannon",
                     causing: shooter as i32,
                     direct: 0,
+                    position: None,
                 };
-                game.knock_back_player(0.0, -dir[0], -dir[2], source);
+                let attack = game.current_attack();
+                game.knock_back_player(0.0, -dir[0], -dir[2], source, &attack, amount);
             }
             (
                 hurt,
@@ -404,6 +405,7 @@ impl Game<'_> {
                                 }
                             }
                             self.mobs[index].damage(
+                                crate::game::entity::damage_level_of!(self),
                                 0.0,
                                 Damage {
                                     kind: DamageKind::PlayerAttack,
@@ -443,9 +445,10 @@ impl Game<'_> {
                     penetration -= amount;
                     let result = if let Some(host) = host.as_deref_mut() {
                         self.ae2_cannon_guest(host, conn, amount, origin, dir)
-                    } else if let Some(mut own) = self.lan.take() {
-                        let r = self.ae2_cannon_guest(&mut own, conn, amount, origin, dir);
-                        self.lan = Some(own);
+                    } else if let Some(own) = self.lan.take() {
+                        let mut turn = crate::game::lan_host_turn::HostTurn::lend(own);
+                        let r = self.ae2_cannon_guest(&mut turn, conn, amount, origin, dir);
+                        self.lan = turn.into_inner();
                         r
                     } else {
                         (false, false)
@@ -464,10 +467,10 @@ impl Game<'_> {
                         from: Some(origin),
                         attacker_species: None,
                     };
-                    let hurt = self.mobs[index].damage(amount, source);
+                    let hurt = self.mobs[index].damage(crate::game::entity::damage_level_of!(self), amount, source);
                     if hurt && self.mobs[index].health != old {
                         self.mob_damage_event(self.mobs[index].id);
-                        self.mobs[index].knockback(0.0, -dir[0], -dir[2], &source);
+                        self.mobs[index].knockback(crate::game::entity::damage_level_of!(self), 0.0, -dir[0], -dir[2], &source, amount);
                     }
                     if !(hurt && !self.mobs[index].alive() && penetration > 0.0) {
                         break;

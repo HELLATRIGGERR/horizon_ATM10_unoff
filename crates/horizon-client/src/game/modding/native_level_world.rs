@@ -109,6 +109,9 @@ impl Game<'_> {
                 ),
                 Dim::Nether => self.res.nether_environment(),
                 Dim::End => self.res.end_environment(),
+                // AE2's spatial storage: its dimension type's table (the overworld's without one).
+                #[cfg(feature = "ae2-lab")]
+                Dim::Spatial => self.res.environment_of(dimension.id()),
             },
         };
         let (rain, thunder) = weather_for_level(

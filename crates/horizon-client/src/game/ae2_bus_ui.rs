@@ -1338,7 +1338,7 @@ impl Game<'_> {
         let armor=host.hub.guests[gi].armor.clone();let offhand=host.hub.guests[gi].offhand.clone();let carried=host.hub.guests[gi].carried.clone();let random=self.world.random.clone();
         let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env|{
             menu.set_slot(env,36,state.upgrades[0].clone());menu.click(env,i32::from(p.slot),i32::from(p.button),input)?;Ok::<_,&'static str>(menu.slot(36).cloned())
-        }));
+        })).expect("the LAN host is back in self.lan for the call");
         let mut upgrade_changed=false;
         let committed=result.map_err(str::to_owned).and_then(|after|{
             if after!=state.upgrades[0] {
@@ -1383,6 +1383,7 @@ impl Game<'_> {
         Some(items)
     }
     fn lan_send_ae2_energy_emitter(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32) {
+        let host:&mut crate::game::lan::LanHost=host;
         let Some((pos,face,window,edit))=host.play.get(&conn).and_then(|p|p.ae2_bus.as_ref())
             .map(|s|(s.pos,s.face,s.window,s.emitter_edit.clone())) else{return};
         let Some(data)=self.bus_ui_read(pos,face) else{return};
@@ -1455,7 +1456,7 @@ impl Game<'_> {
     fn lan_ae2_energy_emitter_player_click(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,gi:usize,p:&play::ContainerClick,mut session:GuestBus)->bool {
         let input=super::lan_crafting::input(p.input);let before=host.hub.guests[gi].inventory.clone();
         let armor=host.hub.guests[gi].armor.clone();let offhand=host.hub.guests[gi].offhand.clone();let carried=host.hub.guests[gi].carried.clone();let random=self.world.random.clone();
-        let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env|menu.click(env,i32::from(p.slot),i32::from(p.button),input)));
+        let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env|menu.click(env,i32::from(p.slot),i32::from(p.button),input))).expect("the LAN host is back in self.lan for the call");
         if result.is_err() {
             let g=&mut host.hub.guests[gi];g.inventory=before;g.armor=armor;g.offhand=offhand;g.carried=carried;self.world.random=random;
             for item in g.inventory.iter().chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten() {horizon_client::ae2_stack_identity::synchronize_tracked(item);}

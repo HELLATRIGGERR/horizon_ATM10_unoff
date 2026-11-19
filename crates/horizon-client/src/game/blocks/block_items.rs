@@ -134,7 +134,7 @@ impl Game<'_> {
             if let (Some(name), Tag::Compound(map)) = (self.world.block_names.get(&key), &mut tag) {
                 map.insert("CustomName".into(), name.clone());
             }
-            self.restore_loot_table(key,&mut tag);
+            Self::write_pending_loot(&self.world,key,&mut tag);
         }
         if matches!(entity, BlockEntity::Mod(_)) {
             // The mod owns its serializer; the vanilla canonicalizer only knows

@@ -76,11 +76,11 @@ impl Game<'_> {
         if self.creative {
             return;
         }
-            #[cfg(feature = "ae2-lab")]
-            horizon_client::ae2_stack_identity::synchronize_tracked(s);
         self.edit_block_use_stack(|cell| {
             if let Some(s) = cell.as_mut() {
                 s.count = s.count.saturating_sub(1);
+                #[cfg(feature = "ae2-lab")]
+                horizon_client::ae2_stack_identity::synchronize_tracked(s);
                 if s.count == 0 {
                     *cell = None;
                 }

@@ -1261,7 +1261,8 @@ mod recursive {
                 if x>=*width{return None;}cells.get(y.checked_mul(*width)?.checked_add(x)?)?.as_ref()
             }
             Recipe::Shapeless{ingredients,..}=>ingredients.get(grid.iter().take(slot).filter(|s|s.is_some()).count()),
-            Recipe::Special(_)=>None,
+            // A mod's crafting recipe (upstream's Recipe::Mod) exposes no per-slot ingredient.
+            Recipe::Special(_)|Recipe::Mod(_)=>None,
         }
     }
     /// Produce the source possible-template sequence: first the selected
@@ -2664,6 +2665,7 @@ mod recursive {
         step: &ae2_crafting_core::extended::Step,
         recipes: &horizon_client::crafting::Recipes,
         context: &horizon_world::native_load_context::LoopContext,
+        remainder: &dyn Fn(&ItemStack) -> Option<ItemStack>,
         stations: &horizon_client::stations::StationData,
     ) -> Option<(Vec<Option<ItemStack>>, BTreeMap<usize, (String, u64)>)> {
         let template = pattern_grid(spec).ok()?;
@@ -2688,6 +2690,7 @@ mod recursive {
             step: &ae2_crafting_core::extended::Step,
             recipes: &horizon_client::crafting::Recipes,
             context: &horizon_world::native_load_context::LoopContext,
+            remainder: &dyn Fn(&ItemStack) -> Option<ItemStack>,
             stations: &horizon_client::stations::StationData,
         ) -> bool {
             if i == 9 {
@@ -2717,7 +2720,7 @@ mod recursive {
                 if output_add(&mut output, &result).is_err() {
                     return false;
                 }
-                for (index, remainder) in recipes.remainders(name, grid, 3, &|s| self.crafting_remainder(s)).iter().enumerate() {
+                for (index, remainder) in recipes.remainders(name, grid, 3, remainder).iter().enumerate() {
                     if !active_fluids.contains_key(&index)
                         && remainder
                             .as_ref()
@@ -2740,6 +2743,7 @@ mod recursive {
                     step,
                     recipes,
                     context,
+                    remainder,
                     stations,
                 );
             }
@@ -2771,6 +2775,7 @@ mod recursive {
                         step,
                         recipes,
                         context,
+                        remainder,
                         stations,
                     )
                 {
@@ -2796,6 +2801,7 @@ mod recursive {
             step,
             recipes,
             context,
+            remainder,
             stations,
         ) {Some((grid,active_fluids))} else {None}
     }
@@ -4555,7 +4561,7 @@ mod recursive {
                 let Some(job_id) = session.job_id else {
                     break;
                 };
-                let Some((template, active_fluids)) = choose_grid(&spec, &step, self.res.recipes(), &self.loop_context, self.res.stations()) else {
+                let Some((template, active_fluids)) = choose_grid(&spec, &step, self.res.recipes(), &self.loop_context, &|s| self.crafting_remainder(s), self.res.stations()) else {
                     break;
                 };
                 let mut staged = vec![None; 9];
@@ -5072,16 +5078,16 @@ mod recursive {
                 crafting_recipe:Some("minecraft:fluid_grid".into()),grid,choices,fluid_slots:BTreeMap::from([(0,(water.clone(),1000)),(1,(water.clone(),1000))]),
                 processing:false,special:None,special_grid_version:0,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:result.clone(),global:false};
             let step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(water.clone(),1000),(filled.clone(),1)]),outputs:Inventory::from([(result.clone(),1),(empty,1)]),runs:1};
-            let (grid,fluids)=choose_grid(&spec,&step,&recipes,&context,&stations).unwrap();
+            let (grid,fluids)=choose_grid(&spec,&step,&recipes,&context,&|_| None,&stations).unwrap();
             assert_eq!(grid[0].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
             assert_eq!(grid[1].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
             assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
             let mut legacy:Spec=serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
             legacy.choices[0]=vec![water.clone()];legacy.choices[1]=vec![filled];legacy.fluid_slots.remove(&1);
-            let (_,fluids)=choose_grid(&legacy,&step,&recipes,&context,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
+            let (_,fluids)=choose_grid(&legacy,&step,&recipes,&context,&|_| None,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
             let mut value=serde_json::to_value(&legacy).unwrap();value.as_object_mut().unwrap().remove("choices");
             let oldest:Spec=serde_json::from_value(value).unwrap();
-            let (_,fluids)=choose_grid(&oldest,&step,&recipes,&context,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water,1000))]));
+            let (_,fluids)=choose_grid(&oldest,&step,&recipes,&context,&|_| None,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water,1000))]));
             std::fs::remove_dir_all(root).unwrap();
         }
         #[test]
@@ -5101,8 +5107,8 @@ mod recursive {
                 crafting_recipe:Some("minecraft:nonunit".into()),grid,choices,fluid_slots:BTreeMap::new(),processing:false,special:None,special_grid_version:0,
                 fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&ItemStack::new("minecraft:oak_planks",4))),global:false};
             let mut step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(input.clone(),4)]),outputs:Inventory::from([(output,4)]),runs:1};
-            let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&context,&stations).is_none());assert_eq!(step,before);
-            step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&context,&stations).is_some());
+            let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&context,&|_| None,&stations).is_none());assert_eq!(step,before);
+            step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&context,&|_| None,&stations).is_some());
             std::fs::remove_dir_all(root).unwrap();
         }
         #[test]

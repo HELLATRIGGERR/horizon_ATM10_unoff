@@ -254,7 +254,7 @@ impl Game<'_> {
 
     /// The amount in the field, when it is one a job can have.
     fn ae2_craft_amount(&self) -> Option<u64> {
-        let text = self.ae2_craft_field()?.value;
+        let text = self.ae2_craft_field()?.value.clone();
         super::ae2_craft_confirm::craft_amount_text(&text, self.ae2_craft_fluid()).map(|(n, _)| n)
     }
 
@@ -912,7 +912,7 @@ impl Game<'_> {
             },
             "size": [w, h],
             "buttons": buttons,
-            "text": self.ae2_craft_field().map(|f| f.value),
+            "text": self.ae2_craft_field().map(|f| f.value.clone()),
             "field": self.ae2_craft_field_rects().map(|(r, _)| [origin.0 + r[0], origin.1 + r[1], r[2], r[3]]),
             "button_label": self.ae2_craft_cpu_label(),
             "rows": view.map(|v| v.rows.iter().map(|r| serde_json::json!({"item": r.stack.as_ref().map(|s| s.item.to_string()), "amounts": r.amounts})).collect::<Vec<_>>()),

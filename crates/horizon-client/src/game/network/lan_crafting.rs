@@ -1672,7 +1672,7 @@ impl Game<'_> {
         // A terminal's cursor is real player property, not a virtual slot.
         // Returning it before saving prevents loss on disconnect or shutdown.
         #[cfg(feature = "ae2-lab")]
-        if play.as_ref().is_some_and(|p| p.ae2_terminal.is_some() || p.ae2_machine.is_some() || p.ae2_portable.is_some() || p.ae2_network_tool.is_some() || p.ae2_bus.is_some() || p.ae2_pattern_access.is_some() || p.ae2_anchor.is_some()) {
+        if host.play.get(&g.conn).is_some_and(|p| p.ae2_terminal.is_some() || p.ae2_machine.is_some() || p.ae2_portable.is_some() || p.ae2_network_tool.is_some() || p.ae2_bus.is_some() || p.ae2_pattern_access.is_some() || p.ae2_anchor.is_some()) {
             if let Some(carried) = g.carried.take() { grid.push(carried); }
         }
         if let Some(play) = play {

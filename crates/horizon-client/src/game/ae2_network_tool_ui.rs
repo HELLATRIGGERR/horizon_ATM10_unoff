@@ -147,6 +147,7 @@ impl Game<'_> {
         true
     }
     fn lan_send_ae2_network_tool(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
+        let host: &mut crate::game::lan::LanHost = host;
         let Some((source, window, state, status, requested_page)) = host.play.get(&conn).and_then(|p| p.ae2_network_tool.as_ref()).map(|s| (s.source,s.window,s.state,s.status,s.status_page)) else { return; };
         let mut status_view=None;
         let status_lines=status.and_then(|pos| {
@@ -246,7 +247,7 @@ impl Game<'_> {
             for (i,item) in inv.slots.iter().cloned().enumerate(){menu.set_slot(env,i,item);}
             menu.click(env,i32::from(p.slot),i32::from(p.button),input)?;
             Ok::<_,&'static str>(Inventory {slots:std::array::from_fn(|i|menu.slot(i).cloned())})
-        }));
+        })).expect("the LAN host is back in self.lan for the call");
         let result=result.map_err(str::to_owned).and_then(|after| {
             stage_owned_pocket(&tool,held(&host.hub.guests[gi],session.source),&inv,&after)
         });

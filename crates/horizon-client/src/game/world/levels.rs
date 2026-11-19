@@ -464,7 +464,7 @@ impl Levels {
     pub(super) fn ae2_world(&self, dim: Dim) -> Option<&World> { self.parked.get(&dim).map(|p| &p.world) }
     pub(super) fn ae2_world_mut(&mut self, dim: Dim) -> Option<&mut World> { self.parked.get_mut(&dim).map(|p| &mut p.world) }
     pub(super) fn ae2_dimensions(&self) -> impl Iterator<Item = Dim> + '_ { self.parked.keys().copied() }
-    pub(super) fn ae2_dropped(&self, dim: Dim) -> Option<&[ItemEntity]> { self.parked.get(&dim).map(|p| p.dropped.as_slice()) }
+    pub(super) fn ae2_dropped(&self, dim: Dim) -> Option<&[ItemEntity]> { self.parked.get(&dim).map(|p| &p.dropped[..]) }
     pub(super) fn ae2_dropped_mut(&mut self, dim: Dim) -> Option<&mut horizon_client::join_seq::JoinList<ItemEntity>> { self.parked.get_mut(&dim).map(|p| &mut p.dropped) }
 }
 

@@ -290,6 +290,7 @@ impl Game<'_> {
                         pos: at,
                         face: if face == [0, 0, 0] { [0, 1, 0] } else { face },
                         point,
+                        inside: false,
                     });
                 }
             }
@@ -409,12 +410,12 @@ impl Game<'_> {
         if cool {
             return Ok(UseResult::Fail);
         }
-        let drops = self.res.items().block_drops_in(
-            self.pack.assets.registry,
+        let held = stack.clone();
+        let drops = self.roll_block_loot(
+            hit.pos,
             state,
-            Some(stack),
-            &mut self.world.random,
-            Some((&mut self.rand_sequences, self.level.seed)),
+            None,
+            horizon_client::items::BlockLootRoll { held: Some(&held), ..Default::default() },
         );
         let mut smelted = Vec::new();
         let mut next = None;
@@ -489,7 +490,7 @@ impl Game<'_> {
                 bounds.max_position().components(),
             );
             let health = self.mobs[index].health;
-            if self.mobs[index].damage(6.0, Damage::of(DamageKind::Magic))
+            if self.mobs[index].damage(crate::game::entity::damage_level_of!(self), 6.0, Damage::of(DamageKind::Magic))
                 && self.mobs[index].health != health
             {
                 self.mob_damage_event(self.mobs[index].id);

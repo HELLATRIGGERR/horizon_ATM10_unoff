@@ -412,7 +412,7 @@ impl Game<'_> {
     /// vehicles. The caller queues both sides after exchanging the blocks.
     pub(super) fn ae2_spatial_guest_transfers(
         &self,
-        host: &crate::game::lan_host_turn::HostTurn,
+        host: &crate::game::lan::LanHost,
         batch: &SpatialEntities,
         destination: super::Dim,
         to: (i32, i32, i32),

@@ -906,7 +906,7 @@ impl Game<'_> {
             return false;
         };
         let back = self.dim;
-        if let Err(error) = self.enter_level(Some(host), source) {
+        if let Err(error) = host.back(self, |g| g.enter_level(source)) {
             log::error!("AE2 source menu could not close before travel: {error}");
             return false;
         }
@@ -923,7 +923,7 @@ impl Game<'_> {
         if let Some(index) = host.hub.guests.iter().position(|g| g.conn == conn) {
             host.hub.send_inventory(index);
         }
-        if let Err(error) = self.enter_level(Some(host), back) {
+        if let Err(error) = host.back(self, |g| g.enter_level(back)) {
             log::error!("AE2 could not restore level after menu close: {error}");
             return false;
         }

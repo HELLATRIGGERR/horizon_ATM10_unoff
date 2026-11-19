@@ -2500,6 +2500,10 @@ impl Dim {
             Self::Nether => mod_api::DimensionKey::NETHER,
             Self::End => mod_api::DimensionKey::END,
             Self::Extra(key) => key,
+            // AE2's spatial storage level is no extra dimension of the world: its key is
+            // interned by id, as the extra levels' are.
+            #[cfg(feature = "ae2-lab")]
+            Self::Spatial => mod_api::__private::dimension_key(self.id()),
         }
     }
     /// `Level.getMinY`.
@@ -3280,6 +3284,7 @@ impl Game<'_> {
         let native_authoritative = self.native_authoritative();
         let environment = self.res.environment_of(&self.dimension_type().id);
         let other_entities = entity::entity_lists_of!(self, without_carts);
+        let api_level = self.level(self.dim.id());
         let mut level = GameLevel {
             #[cfg(feature="ae2-lab")]
             formation_fluid: &mut self.ae2_formation_fluid_runtime,
@@ -3292,7 +3297,7 @@ impl Game<'_> {
             cake_probe: false,
             cake_requested: std::cell::Cell::new(false),
             cake_answer: None,
-            api_level: self.level(self.dim.id()),
+            api_level,
             command_block_transition: None,
             positions: piston_carry_state::PositionState {
                 gateways: &mut self.be_anims.gateway_servers,
@@ -4519,6 +4524,9 @@ impl Game<'_> {
             .as_ref()
             .is_some_and(|(h, (honey, _))| !h.bees.is_empty() || honey.is_some_and(|l| l > 0));
         let creative = self.creative;
+        // The block's parts first, then playerWillDestroy and Level.removeBlock.
+        let (removed, state, harvest) =
+            self.player_destroy_block_removal(pos, state, &facts, held.as_ref(), filled_hive);
         #[cfg(feature = "ae2-lab")]
         if removed && horizon_client::ae2_world::is_machine_block(&facts.name)
             && (matches!(self.world.block_entities.get(&key), Some(BlockEntity::Ae2(_))) || spill::saved_entity(&self.world, pos).is_some())
@@ -4528,9 +4536,6 @@ impl Game<'_> {
             // Only run the fallback if the entity remains after destruction.
             self.with_level(|_, level, _| { level.remove_entity(BlockPos::new(pos[0],pos[1],pos[2]), broken, true); });
         }
-        // The block's parts first, then playerWillDestroy and Level.removeBlock.
-        let (removed, state, harvest) =
-            self.player_destroy_block_removal(pos, state, &facts, held.as_ref(), filled_hive);
         if !creative {
             // The stack as the removal left it: a listener may have swapped it.
             let held = self.held().cloned();

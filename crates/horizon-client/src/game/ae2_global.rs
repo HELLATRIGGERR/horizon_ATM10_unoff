@@ -56,10 +56,13 @@ fn ordinal(dim: Dim) -> i32 {
         Dim::Nether => 1,
         Dim::End => 2,
         Dim::Spatial => 3,
+        // FORK-TODO(merge): upstream's extra dimensions have no AE2 grid ordinal yet; the
+        // fork's grids span the vanilla three and spatial storage.
+        Dim::Extra(_) => -1,
     }
 }
 fn encode(dim: Dim, p: LocalPos) -> Option<GridAddress> {
-    if !(-64..=319).contains(&p.1) {
+    if !(-64..=319).contains(&p.1) || ordinal(dim) < 0 {
         return None;
     }
     Some(GridAddress((

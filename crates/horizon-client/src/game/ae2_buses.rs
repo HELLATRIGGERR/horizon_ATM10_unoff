@@ -2650,13 +2650,8 @@ impl Game<'_> {
         let saved=super::spill::saved_entity(&self.world,at);
         let components=entity.as_ref().and_then(|entity|self.world.block_entities.vanilla_metadata(&target).map(|raw|(entity,raw))).map(|(entity,raw)|{
             let mut current=save::live_vanilla_block_entity(target,entity,&facts.name,self.world.block_names.get(&target),Some(raw));
-            let table=save::text(raw.get("LootTable"));
-            let current_roll=self.world.chunks.get(&(target.0>>4,target.2>>4))
-                .and_then(|chunk|chunk.saved.as_deref())
-                .and_then(|saved|saved.rolled_loot.iter().find(|roll|roll.pos==target));
-            if current_roll.is_some_and(|roll|table.as_deref()==Some(roll.table.as_str())) {
-                self.restore_loot_table(target,&mut current);
-            }
+            // An unopened container picks up with its table (upstream's pending loot).
+            Self::write_pending_loot(&self.world,target,&mut current);
             let canonical=horizon_client::block_entity_nbt::canonical(&current).unwrap_or(current);
             horizon_client::block_entity_item::pick(&canonical)
         }).or_else(||saved.as_ref().map(horizon_client::block_entity_item::pick));

@@ -73,7 +73,7 @@ impl Game<'_> {
         host.back(self, |g| g.lan_station_closed(conn,None));host.back(self, |g| g.lan_crafting_closed(conn,None));host.back(self, |g| g.guest_container_closed(conn));
         let Some(window)=host.hub.open_window(conn,"minecraft:anvil",horizon_protocol::text::literal("Quartz Cutting Knife")) else{return true};
         let mut menu=Box::new(Menu::new(Kind::Anvil));menu.quartz_knife_slot=Some(slot);
-        host.play.entry(conn).or_default().station=Some(GuestStation{window,state:0,kind:StationKind::Anvil,pos,menu,sent_data:Vec::new(),last_sound:0});
+        *host.menus.entry(conn).or_default().station=Some(GuestStation{window,state:0,kind:StationKind::Anvil,pos,menu,sent_data:Vec::new(),last_sound:0});
         host.back(self, |g| g.lan_send_station(conn));true
     }
     /// A workstation a guest's use opened (`ServerPlayer.openMenu`); false
@@ -288,13 +288,16 @@ impl Game<'_> {
             #[cfg(feature = "ae2-lab")]
             if std::mem::take(&mut gs.menu.quartz_knife_used) {
                 if let Some(slot)=gs.menu.quartz_knife_slot {
-                    let current=if slot==40 {host.hub.guests[gi].offhand.clone()} else {host.hub.guests[gi].inventory.get(slot).cloned().flatten()};
+                    let current=self.lan.as_ref().and_then(|host|if slot==40 {host.hub.guests[gi].offhand.clone()} else {host.hub.guests[gi].inventory.get(slot).cloned().flatten()});
                     if let Some(mut knife)=current {
-                        let loss=self.durability_loss(&knife,1);let max=self.res.items().get(&knife.item).map_or(0,|i|i.max_damage);
+                        // The knife is worn on the host's side, as the fork's tick did (no wearer entity).
+                        let loss=self.durability_loss(&knife,1,crate::game::durability::Wearer::Nobody);let max=self.res.items().get(&knife.item).map_or(0,|i|i.max_damage);
                         knife.damage=knife.damage.saturating_add(loss);
                         let kept=(max==0 || knife.damage<max).then_some(knife);
-                        if slot==40 {host.hub.guests[gi].offhand=kept;} else if let Some(place)=host.hub.guests[gi].inventory.get_mut(slot) {*place=kept;}
-                        host.hub.send_inventory(gi);
+                        if let Some(host)=self.lan.as_mut() {
+                            host.hub.guests.update(gi,|g|if slot==40 {g.offhand=kept;} else if let Some(place)=g.inventory.get_mut(slot) {*place=kept;});
+                            host.hub.send_inventory(gi);
+                        }
                     }
                 }
             }

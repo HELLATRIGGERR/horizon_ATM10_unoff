@@ -78,7 +78,7 @@ struct Block {
     raw_entity: Option<Tag>,
     name: Option<Tag>,
     vanilla_metadata: Option<Tag>,
-    rolled_loot: Option<horizon_client::save::RolledLoot>,
+    pending_loot: Option<horizon_client::save::PendingContainerLoot>,
     skip: bool,
 }
 struct Plane {
@@ -301,10 +301,9 @@ impl Game<'_> {
                             .filter(|raw|raw.get("id")==Some(&Tag::String(expected.into()))))
                     } else {None};
                     let vanilla_metadata=self.world.block_entities.vanilla_metadata(&p).cloned();
-                    let table=vanilla_metadata.as_ref().and_then(|tag|horizon_client::save::text(tag.get("LootTable")));
-                    let rolled_loot=table.as_deref().and_then(|table|self.world.chunks.get(&(p.0>>4,p.2>>4))
+                    let pending_loot=self.world.chunks.get(&(p.0>>4,p.2>>4))
                         .and_then(|chunk|chunk.saved.as_deref())
-                        .and_then(|saved|saved.rolled_loot.iter().find(|roll|roll.pos==p && roll.table==table)).cloned());
+                        .and_then(|saved|saved.pending_loot.get(&p)).cloned();
                     blocks.push(Block {
                         offset: [x, y, z],
                         state,
@@ -312,7 +311,7 @@ impl Game<'_> {
                         raw_entity,
                         name: self.world.block_names.get(&p).cloned(),
                         vanilla_metadata,
-                        rolled_loot,
+                        pending_loot,
                         skip: blacklist.is_some_and(|set| set.contains(id.as_ref())),
                     });
                 }
@@ -346,7 +345,7 @@ impl Game<'_> {
                         raw_positions.insert((*x,*y,*z));
                     }
                 }
-                rolled_positions.extend(saved.rolled_loot.iter().map(|roll|roll.pos));
+                rolled_positions.extend(saved.pending_loot.keys().copied());
             }
         }
         for block in &plane.blocks {
@@ -380,12 +379,12 @@ impl Game<'_> {
             if let Some(chunk)=self.world.chunks.get_mut(&(p.0>>4,p.2>>4)) {
                 let old=rolled_positions.remove(&p);
                 let old_raw=raw_positions.remove(&p);
-                if old || block.rolled_loot.is_some() || old_raw || block.raw_entity.is_some() {
+                if old || block.pending_loot.is_some() || old_raw || block.raw_entity.is_some() {
                     let chunk=std::sync::Arc::make_mut(chunk);
                     let saved=std::sync::Arc::make_mut(chunk.saved.get_or_insert_with(||std::sync::Arc::new(horizon_client::save::ChunkExtras::default())));
-                    saved.rolled_loot.retain(|roll|roll.pos!=p);
-                    if let Some(roll)=block.rolled_loot.as_ref() {
-                        let mut roll=roll.clone();roll.pos=p;saved.rolled_loot.push(roll);
+                    saved.pending_loot.remove(&p);
+                    if let Some(loot)=block.pending_loot.clone() {
+                        saved.pending_loot.insert(p,loot);
                     }
                     saved.block_entities.retain(|tag|tag.get("x")!=Some(&Tag::Int(p.0)) || tag.get("y")!=Some(&Tag::Int(p.1)) || tag.get("z")!=Some(&Tag::Int(p.2)));
                     if let Some(Tag::Compound(raw))=block.raw_entity.as_ref() {
@@ -747,16 +746,14 @@ impl Game<'_> {
         self.enter_level(source_dim)
             .map_err(|e| e.to_string())?;
         self.ae2_queue_spatial_guests(src_guests);
-        if let Some(mut host) = self.lan.take() {
-            host.back(self, |g| g.run_level_teleports());
-            self.lan = Some(host);
+        if self.lan.is_some() {
+            self.run_level_teleports();
         }
         self.enter_level(Dim::Spatial)
             .map_err(|e| e.to_string())?;
         self.ae2_queue_spatial_guests(dst_guests);
-        if let Some(mut host) = self.lan.take() {
-            host.back(self, |g| g.run_level_teleports());
-            self.lan = Some(host);
+        if self.lan.is_some() {
+            self.run_level_teleports();
         }
         self.enter_level(source_dim)
             .map_err(|e| e.to_string())?;

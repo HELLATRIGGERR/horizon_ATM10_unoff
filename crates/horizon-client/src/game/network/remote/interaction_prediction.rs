@@ -339,6 +339,10 @@ impl Game<'_> {
                 world_border: false,
                 sequence: seq,
             }));
+            #[cfg(feature="ae2-lab")]
+            if held.as_ref().is_some_and(|s|matches!(s.item.as_ref(),"ae2:debug_eraser"|"ae2:debug_meteorite_placer"|"ae2:debug_replicator_card") && s.count>0) {
+                self.with_hand(hand,Game::swing_arm);return true;
+            }
             // MultiPlayerGameMode.performUseItemOn: a spectator's use predicts
             // nothing and ends the click (CONSUME, no swing); the server opens
             // the block's menu. A cancelled RightClickBlock answers instead,

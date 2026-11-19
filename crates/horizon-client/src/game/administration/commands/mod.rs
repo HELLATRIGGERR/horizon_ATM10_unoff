@@ -2854,12 +2854,6 @@ impl Game<'_> {
             Some(horizon_client::containers::BlockEntity::Chest(_))
         ) {
             return;
-            #[cfg(feature = "ae2-lab")]
-            if matches!(self.world.block_entities.get(&key),Some(horizon_client::containers::BlockEntity::Chest(_))) {
-                let owned=self.world.block_entities.vanilla_metadata(&key)
-                    .and_then(|raw|horizon_client::save::text(raw.get("LootTable")));
-                if owned.as_deref()!=Some(r.table.as_str()){return}
-            }
         }
         if let horizon_core::nbt::Tag::Compound(map) = tag {
             map.remove(&"LootTable".into());

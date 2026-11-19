@@ -737,6 +737,7 @@ mod tests {
             assert_eq!(item.tick_count(game), Some(77));
 
             game.orbs.push(ExperienceOrb {
+                invulnerable: false,
                 attachment_lifetime: Default::default(),
                 fall_distance: 0.0,
                 rotation: [0.0, 0.0],
@@ -832,6 +833,7 @@ mod tests {
             );
             let item = game.dropped[0].id;
             game.orbs.push(ExperienceOrb {
+                invulnerable: false,
                 attachment_lifetime: Default::default(),
                 fall_distance: 0.0,
                 rotation: [0.0, 0.0],

@@ -14950,7 +14950,7 @@ pub(crate) mod tests {
                 "prediction is dry"
             );
             *game.held_mut() = Some(stack);
-            assert!(game.use_hand(Some(&hit), None).unwrap());
+            assert!(game.use_hand(Some(&hit)).unwrap());
             assert_eq!(game.world.block(pos[0], pos[1], pos[2]), target);
             let held = game.held().unwrap();
             assert_eq!((&*held.item, held.count), (*name, 1));
@@ -14963,7 +14963,7 @@ pub(crate) mod tests {
         };
         game.set_mode_id(2);
         let before = game.held().cloned();
-        game.use_hand(Some(&blocked), None).unwrap();
+        game.use_hand(Some(&blocked)).unwrap();
         assert_eq!(
             game.held(),
             before.as_ref(),

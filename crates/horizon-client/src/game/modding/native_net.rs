@@ -13,7 +13,15 @@ pub(super) struct NativeNet {
     pub(super) book_retry_at: Option<std::time::Instant>,
     /// A mod's `disconnect` (its reason, if any), carried out at the end of the frame.
     pub(super) leave: Option<super::native_disconnect::LeaveRequest>,
+    /// The fork bundles' messages to players (`native_net_send_to_player`), sent at the end of
+    /// `tick_lan` from any hook, the host lent to a turn or not: (player, channel, data).
+    pub(super) fork_to_players: Vec<(u128, String, Vec<u8>)>,
+    /// How many of them each player was sent this server tick (at most [`FORK_PER_TICK`]).
+    pub(super) fork_to_counts: HashMap<u128, u32>,
 }
+
+/// The fork bundles' messages a player may be sent per server tick.
+pub(super) const FORK_PER_TICK: u32 = 32;
 
 impl Game<'_> {
     /// A mod's chat line or command (`/` first), sent as `send_chat` sends

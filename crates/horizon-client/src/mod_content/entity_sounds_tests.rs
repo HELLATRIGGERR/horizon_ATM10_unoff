@@ -15,6 +15,7 @@ fn a_living_mod_types_row_is_its_templates_with_its_attributes() {
         sounds: Default::default(),
         attributes: attributes.iter().map(|&(a, v)| (a.into(), v)).collect(),
         passenger_attachments: attachments.to_vec(),
+        texture: None,
     };
     let modded = ghoul(&[("minecraft:max_health", 40.0)], &[[0.0, 0.7, -0.1]]);
     let written: serde_json::Value =
@@ -32,4 +33,13 @@ fn a_living_mod_types_row_is_its_templates_with_its_attributes() {
     assert!(!text.contains("passenger_attachments"), "{text}");
     let e = mod_entity_row(&row, &ghoul(&[("minecraft:flying_speed", 1.0)], &[])).unwrap_err();
     assert!(e.contains("not one of minecraft:zombie's"), "{e}");
+    // its own texture, drawn on the template's model, goes in the row.
+    let textured = EntityType {
+        texture: Some("ruby:entity/ghoul".into()),
+        ..ghoul(&[], &[])
+    };
+    let written: serde_json::Value =
+        serde_json::from_slice(&mod_entity_row(&row, &textured).unwrap()).unwrap();
+    assert_eq!(written["texture"], "ruby:entity/ghoul");
+    assert!(written.get("texture").is_some());
 }

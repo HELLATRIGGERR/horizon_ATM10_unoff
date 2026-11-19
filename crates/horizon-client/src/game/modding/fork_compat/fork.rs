@@ -605,8 +605,9 @@ impl Game<'_> {
             return None;
         }
         let at = BlockPos::new(pos[0], pos[1], pos[2]);
-        let mut drops = self.with_level(|_, level, _| level.roll_machine_drops(at, state, tool));
-        self.native_block_drops(pos, state, None, tool, None, &mut drops);
+        // `Block.getDrops`: the loot roll is the mods' say (their loot modifiers run in it);
+        // no `BlockDropsEvent`, which only `Block.dropResources` fires, and no second roll.
+        let drops = self.with_level(|_, level, _| level.roll_machine_drops(at, state, tool));
         Some(drops)
     }
 }

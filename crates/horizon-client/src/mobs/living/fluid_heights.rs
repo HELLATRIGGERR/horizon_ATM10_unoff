@@ -4,6 +4,7 @@ use super::super::MobWorld;
 use super::Fluids;
 use crate::blocks::Fluid;
 use horizon_core::geometry::{Aabb, Vec3};
+use horizon_world::{entity_fluid::ModFluidImmersion, fluid::FluidKind};
 
 impl MobWorld<'_> {
     /// FluidState.getHeight: a full block under the same fluid, else amount / 9.
@@ -50,11 +51,18 @@ impl MobWorld<'_> {
                 (hi.z.ceil() as i32 - 1).max(ez),
             ],
         );
-        if !self
-            .world
-            .may_hold(cells.0, cells.1, |s| self.facts.get(s).fluid != Fluid::None)
-        {
+        // A carried mod fluid's liquid block may hold its fluid only in the
+        // fluid table.
+        let carried = !horizon_world::mod_fluids::mod_fluids().is_empty();
+        if !self.world.may_hold(cells.0, cells.1, |s| {
+            self.facts.get(s).fluid != Fluid::None
+                || carried && self.fluid_tables.fluid(s).kind().carried().is_some()
+        }) {
             return out;
+        }
+        // A second pass over the box, only when a content root carries fluids.
+        if carried {
+            out.modded = self.mod_fluid(lo, hi, bottom, (ex, ez), eye_y);
         }
         for x in lo.x.floor() as i32..=(hi.x.ceil() as i32 - 1) {
             for y in lo.y.floor() as i32..=(hi.y.ceil() as i32 - 1) {
@@ -113,6 +121,58 @@ impl MobWorld<'_> {
             }
         }
         out
+    }
+    /// The carried mod fluid in a cell and its surface: a full block under the
+    /// same fluid, else its amount / 9 (`FluidState.getHeight`). A carried
+    /// liquid block may hold its fluid only in the fluid table.
+    pub(in crate::mobs) fn mod_fluid_at(&self, x: i32, y: i32, z: i32) -> Option<(FluidKind, f64)> {
+        let state = self.fluid_tables.fluid(self.world.block(x, y, z));
+        state.kind().carried()?;
+        let fluid = state.kind().source();
+        let above = self.fluid_tables.fluid(self.world.block(x, y + 1, z));
+        let h = if above.kind().source() == fluid {
+            1.0
+        } else {
+            f64::from(state.amount()) / 9.0
+        };
+        Some((fluid, f64::from(y) + h))
+    }
+    /// The carried mod fluid deepest over the box (`lo`..`hi`, depths from
+    /// `bottom`), and whether the eye (in column `eye`) is in it.
+    fn mod_fluid(
+        &self,
+        lo: Vec3,
+        hi: Vec3,
+        bottom: f64,
+        eye: (i32, i32),
+        eye_y: f64,
+    ) -> Option<ModFluidImmersion> {
+        let at = |x, y, z| self.mod_fluid_at(x, y, z);
+        let (y0, y1) = (lo.y.floor() as i32, hi.y.ceil() as i32 - 1);
+        let mut deepest: Option<ModFluidImmersion> = None;
+        for x in lo.x.floor() as i32..=(hi.x.ceil() as i32 - 1) {
+            for y in y0..=y1 {
+                for z in lo.z.floor() as i32..=(hi.z.ceil() as i32 - 1) {
+                    if let Some((fluid, top)) = at(x, y, z)
+                        && top >= lo.y
+                        && deepest.is_none_or(|m| top - bottom > m.height)
+                    {
+                        deepest = Some(ModFluidImmersion {
+                            fluid,
+                            height: top - bottom,
+                            eyes_inside: false,
+                        });
+                    }
+                }
+            }
+        }
+        let mut m = deepest?;
+        m.eyes_inside = (y0..=y1).any(|y| {
+            at(eye.0, y, eye.1).is_some_and(|(fluid, top)| {
+                fluid == m.fluid && top >= lo.y && eye_y >= f64::from(y) && eye_y <= top
+            })
+        });
+        Some(m)
     }
 }
 

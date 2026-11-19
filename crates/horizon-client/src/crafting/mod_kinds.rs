@@ -42,6 +42,59 @@ pub fn recipe_type(file: &str, serializer: &str) -> Result<String, String> {
         })
 }
 
+/// The recipe types a root's carried content mods read themselves. In a root
+/// built by `mod_content::build` (it lists content namespaces), a serializer
+/// no Parts mod registered, outside `minecraft` and outside every namespace a
+/// Parts mod registered serializers or crafting kinds in, is a carried mod's
+/// own type (`ae2:inscriber`, `extendedae:circuit_cutter`, a jar mod's
+/// machine recipes): its native handlers and bundles read it by type and file,
+/// as the fork's loader kept it, and it is its own recipe type. Upstream's
+/// refusal holds for every other unregistered serializer, and in any root that
+/// carries no content.
+#[derive(Clone, Debug, Default)]
+pub struct CarriedKinds {
+    /// The Parts mods' namespaces; `None` when the root carries no content.
+    parts: Option<Arc<HashSet<String>>>,
+}
+impl CarriedKinds {
+    pub fn of_root(root: &Path) -> Self {
+        if horizon_items::content_namespaces::namespaces(root).is_empty() {
+            return Self::default();
+        }
+        let namespace = |id: &str| id.split_once(':').map(|(ns, _)| ns.to_owned());
+        let mut parts = HashSet::new();
+        for (serializer, kind) in mod_api::__private::parts_installation::recipe_serializers() {
+            parts.extend(namespace(&serializer));
+            parts.extend(namespace(&kind));
+        }
+        for kind in mod_api::__private::parts_installation::crafting_recipe_kinds() {
+            parts.extend(namespace(&kind));
+        }
+        Self {
+            parts: Some(Arc::new(parts)),
+        }
+    }
+    /// Whether `serializer` is a carried mod's own recipe type in this root.
+    pub fn carries(&self, serializer: &str) -> bool {
+        let Some(parts) = &self.parts else {
+            return false;
+        };
+        serializer.split_once(':').is_some_and(|(ns, path)| {
+            !ns.is_empty() && !path.is_empty() && ns != "minecraft" && !parts.contains(ns)
+        })
+    }
+    /// [`recipe_type`], a carried mod's own type answering itself.
+    pub fn recipe_type(&self, file: &str, serializer: &str) -> Result<String, String> {
+        recipe_type(file, serializer).or_else(|error| {
+            if self.carries(serializer) {
+                Ok(serializer.to_owned())
+            } else {
+                Err(error)
+            }
+        })
+    }
+}
+
 #[cfg(test)]
 pub(super) fn load(file: &str, json: &Value) -> Option<Recipe> {
     decode(file, json).map(Recipe::Mod)

@@ -2667,7 +2667,9 @@ mod namespace_tests {
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, table).unwrap();
         }
-        let data = LootData::load(&root, &PackOverlay::NONE).unwrap();
+        fs::write(root.join("items.json"), "{}").unwrap();
+        let defaults = crate::item_defaults::read(&root).unwrap();
+        let data = LootData::load(&root, &PackOverlay::NONE, &defaults).unwrap();
         let roll = |name: &str| {
             let rolled = data.roll(
                 &format!("test:{name}"),

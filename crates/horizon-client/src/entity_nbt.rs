@@ -6501,6 +6501,7 @@ mod tests {
     #[test]
     fn orbs_save_and_load_their_fire() {
         let mut o = ExperienceOrb {
+            invulnerable: false,
             attachment_lifetime: Default::default(),
             rotation: [0.0, 0.0],
             join: Default::default(),

@@ -44,7 +44,8 @@ pub struct SignTextDefaults {
 #[derive(Clone, Debug)]
 pub struct StateFacts {
     pub name: Arc<str>,
-    air: bool,
+    /// `BlockState.isAir`.
+    pub air: bool,
     pub emission: u8,
     /// The block declares `dynamic_light`: its parts' `light_emission` answers what a cell emits
     /// (`IBlockExtension.hasDynamicLightEmission`); `emission` is the light of a cell without one.

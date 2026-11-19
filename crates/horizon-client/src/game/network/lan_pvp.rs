@@ -104,6 +104,8 @@ impl Strike {
             team: None,
             item: None,
             ignite: 0.0,
+            #[cfg(feature = "ae2-lab")]
+            ae2_tool: None,
         }
     }
 }

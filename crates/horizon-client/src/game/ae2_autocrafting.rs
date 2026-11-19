@@ -5063,12 +5063,12 @@ mod recursive {
         fn fluid_slots_follow_each_selected_flight_and_legacy_spec() {
             let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
             if !resources.join("items.json").exists(){return;}
-            let items=horizon_client::items::Items::catalog(&resources, &horizon_world::loot::PackOverlay::NONE).unwrap();
+            let items=horizon_client::items::Items::catalog(&resources, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&resources).unwrap()).unwrap();
             let root=std::env::temp_dir().join(format!("ae2-fluid-grid-{}",std::process::id()));
             let dir=root.join("data/minecraft/recipe");std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("fluid_grid.json"),r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:water_bucket","minecraft:water_bucket"],"result":{"id":"minecraft:diamond","count":1}}"#).unwrap();
-            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
-            let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);
+            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[])).unwrap();
+            let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&resources).unwrap(), &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]));
             let context=horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]).loop_context(horizon_world::native_load_context::LoopSide::Server,[]);
             let water=fluid_name(&super::super::super::ae2_fluids::fluid_key("minecraft:water"));
             let filled=canon(&ItemStack::new("minecraft:water_bucket",1));let empty=canon(&ItemStack::new("minecraft:bucket",1));
@@ -5094,11 +5094,11 @@ mod recursive {
         fn nonunit_source_crafting_never_partially_moves_escrow_into_assembler() {
             let resources=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
             if !resources.join("items.json").exists(){return;}
-            let items=horizon_client::items::Items::catalog(&resources, &horizon_world::loot::PackOverlay::NONE).unwrap();
+            let items=horizon_client::items::Items::catalog(&resources, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&resources).unwrap()).unwrap();
             let root=std::env::temp_dir().join(format!("ae2-nonunit-grid-{}",std::process::id()));
             let dir=root.join("data/minecraft/recipe");std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("nonunit.json"),r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:oak_log"],"result":{"id":"minecraft:oak_planks","count":4}}"#).unwrap();
-            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE);let context=horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]).loop_context(horizon_world::native_load_context::LoopSide::Server,[]);
+            let recipes=horizon_client::crafting::Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[])).unwrap();let stations=horizon_client::stations::StationData::load(&resources, &items, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&resources).unwrap(), &horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]));let context=horizon_world::native_load_context::LoadContext::new(horizon_world::native_load_context::DataLoadOrigin::ServerDataLoad,std::sync::Arc::new(horizon_world::native_load_context::LoadInputs::new(Default::default(),Default::default())),[]).loop_context(horizon_world::native_load_context::LoopSide::Server,[]);
             let input=canon(&ItemStack::new("minecraft:oak_log",1));let output=canon(&ItemStack::new("minecraft:oak_planks",4));
             let mut grid=vec!["-".to_string();9];grid[0]=input.clone();let mut choices=vec![Vec::new();9];choices[0]=vec![input.clone()];
             let mut recipe_grid=vec![None;9];recipe_grid[0]=Some(ItemStack::new("minecraft:oak_log",1));

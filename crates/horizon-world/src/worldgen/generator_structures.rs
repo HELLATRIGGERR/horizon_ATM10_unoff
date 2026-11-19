@@ -1199,7 +1199,7 @@ mod tests {
             ("references".into(), Tag::Int(7)),
             ("Children".into(), Tag::List(vec![Tag::Compound(raw)])),
         ].into_iter().collect();
-        let mut start = StructureStart { structure: 0, name: "ae2:meteorite".into(), chunk: ChunkPos::new(0,0), pieces: vec![Piece::Legacy(Box::new(piece))], bounding_box: super::horizon_core::bounding_box::BoundingBox::new([-64,20,-64],[79,20,79]), references: 7, saved_raw: Some(saved.clone()) };
+        let mut start = StructureStart { structure: 0, name: "ae2:meteorite".into(), chunk: ChunkPos::new(0,0), pieces: vec![Piece::Legacy(Box::new(piece))], bounding_box: horizon_core::bounding_box::BoundingBox::new([-64,20,-64],[79,20,79]), has_piece_beardifier: false, references: 7, saved_raw: Some(saved.clone()) };
         assert_eq!(start.save(), Some(Tag::Compound(saved)));
         start.references = 8;
         assert_eq!(start.save().unwrap().get("references"), Some(&Tag::Int(8)));

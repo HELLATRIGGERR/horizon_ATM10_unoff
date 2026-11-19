@@ -115,6 +115,15 @@ pub fn mod_fluid_named(id: &str) -> Option<ModFluid> {
         .map(|at| ModFluid(at as u16))
 }
 
+/// The mod fluid whose liquid block is `name`: a carried fluid's own block (its
+/// `createLegacyBlock` id, which can differ from the fluid's: Bumblezone's sugar water), else a
+/// mod fluid whose block is named as the fluid.
+fn mod_fluid_of_block_name(name: &str) -> Option<ModFluid> {
+    crate::mod_fluids::kind_by_block(name)
+        .and_then(FluidKind::mod_fluid)
+        .or_else(|| mod_fluid_named(name))
+}
+
 /// The mod fluid a filled bucket holds.
 pub fn mod_fluid_of_bucket(bucket: &str) -> Option<ModFluid> {
     mod_fluid_table()
@@ -410,7 +419,7 @@ impl FluidState {
     }
     pub fn from_block(state: &BlockState) -> io::Result<Self> {
         let water = state.name == "minecraft:water";
-        let mod_fluid = mod_fluid_named(&state.name);
+        let mod_fluid = mod_fluid_of_block_name(&state.name);
         if water || state.name == "minecraft:lava" || mod_fluid.is_some() {
             let level = state
                 .properties
@@ -472,7 +481,7 @@ impl FluidState {
 }
 /// `state`'s fluid when its block is a mod fluid's, whose rows copy a vanilla liquid's.
 pub fn mod_fluid_of_block(state: &BlockState) -> io::Result<Option<FluidState>> {
-    match mod_fluid_named(&state.name) {
+    match mod_fluid_of_block_name(&state.name) {
         Some(_) => FluidState::from_block(state).map(Some),
         None => Ok(None),
     }
@@ -528,9 +537,18 @@ impl FluidBlockBindings {
                 .ok_or_else(|| invalid("missing air block"))?,
             water: levels("minecraft:water")?,
             lava: levels("minecraft:lava")?,
+            // A carried fluid's liquid block is its own (`ModFluid::block`), which need not be
+            // named as the fluid.
             mods: mod_fluids()
                 .into_iter()
-                .map(|(_, fluid)| levels(&fluid.id).ok())
+                .map(|(handle, fluid)| {
+                    let block = FluidKind::Mod(handle)
+                        .carried()
+                        .map(|carried| carried.block.as_str())
+                        .filter(|block| *block != "minecraft:air")
+                        .unwrap_or(&fluid.id);
+                    levels(block).ok()
+                })
                 .collect(),
         })
     }

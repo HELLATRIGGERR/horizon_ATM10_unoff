@@ -4240,7 +4240,7 @@ pub(super) mod tests {
         let block_before = game.world.block(5, 64, 0);
         assert!(game.level_send_block_updated(level, [5, 64, 0]));
         assert!(game.level_send_block_updated(level, [5, 64, 0]));
-        assert_eq!(game.world.modified.clone(), dirty_before);
+        assert_eq!(*game.world.modified, *dirty_before);
         assert_eq!(game.world.block(5, 64, 0), block_before);
         let host: &mut dyn mod_api::ServerHost = &mut game;
         let aborted: Result<(), ()> = host.transaction(|host, _| {

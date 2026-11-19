@@ -235,6 +235,7 @@ fn block_parts_xp_and_explosion_contract() {
                     [x, 64, 1],
                     4.0,
                     BlockInteraction::Destroy,
+                    None,
                     &start,
                     &mut drops,
                 )
@@ -266,6 +267,7 @@ fn block_parts_xp_and_explosion_contract() {
                         [1, 64, 1],
                         4.0,
                         BlockInteraction::Destroy,
+                        None,
                         &start,
                         &mut drops,
                     )
@@ -490,6 +492,7 @@ fn block_parts_answer_drops_from_explosions() {
                     [x, 64, z],
                     4.0,
                     BlockInteraction::Destroy,
+                    None,
                     &start,
                     &mut drops,
                 )

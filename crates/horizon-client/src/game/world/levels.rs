@@ -235,12 +235,7 @@ impl Game<'_> {
                 source
             });
         }
-        let dim = match at.owner.dimension {
-            DimensionKey::OVERWORLD => Dim::Overworld,
-            DimensionKey::NETHER => Dim::Nether,
-            DimensionKey::END => Dim::End,
-            key => Dim::Extra(key),
-        };
+        let dim = Dim::from_key(at.owner.dimension);
         // The transactions stay with the game when a level is parked: its pending removals too.
         self.levels
             .parked
@@ -279,12 +274,7 @@ impl Game<'_> {
         if dimension == self.dim.key() {
             return !self.target_removed(&target);
         }
-        let dim = match dimension {
-            DimensionKey::OVERWORLD => Dim::Overworld,
-            DimensionKey::NETHER => Dim::Nether,
-            DimensionKey::END => Dim::End,
-            key => Dim::Extra(key),
-        };
+        let dim = Dim::from_key(dimension);
         self.levels.parked.get(&dim).is_none_or(|parked| {
             !parked.persist.removals.contains(&target)
                 && !parked.persist.destroying_vehicles.contains(&target)
@@ -324,12 +314,7 @@ impl Game<'_> {
                 | horizon_client::join_seq::residency::Kind::Hook
         ) {
             if *dimension != self.dim.key() {
-                let dim = match *dimension {
-                    DimensionKey::OVERWORLD => Dim::Overworld,
-                    DimensionKey::NETHER => Dim::Nether,
-                    DimensionKey::END => Dim::End,
-                    key => Dim::Extra(key),
-                };
+                let dim = Dim::from_key(*dimension);
                 if !self.levels.parked.contains_key(&dim) {
                     return SlotAccess::Missing;
                 }
@@ -339,12 +324,7 @@ impl Game<'_> {
         if *dimension == self.dim.key() {
             self.with_resident_owner_slot(location, visit)
         } else {
-            let dim = match *dimension {
-                mod_api::DimensionKey::OVERWORLD => Dim::Overworld,
-                mod_api::DimensionKey::NETHER => Dim::Nether,
-                mod_api::DimensionKey::END => Dim::End,
-                key => Dim::Extra(key),
-            };
+            let dim = Dim::from_key(*dimension);
             self.levels
                 .parked
                 .get_mut(&dim)
@@ -387,12 +367,7 @@ impl Game<'_> {
             }
             _ => return None,
         };
-        Some(match found.owner.dimension {
-            DimensionKey::OVERWORLD => Dim::Overworld,
-            DimensionKey::NETHER => Dim::Nether,
-            DimensionKey::END => Dim::End,
-            key => Dim::Extra(key),
-        })
+        Some(Dim::from_key(found.owner.dimension))
     }
 
     /// A new epoch invalidates every old producer before rebinding retained levels.
@@ -1804,6 +1779,20 @@ impl Game<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mod level handle's key names the level it came from: vanilla's three, an extra
+    /// dimension, and (ae2-lab) AE2's spatial storage level, which is no extra dimension, so a
+    /// parked spatial level is found by its key (`Dim::from_key`, review finding 8).
+    #[test]
+    fn a_dimension_key_maps_back_to_its_level() {
+        for dim in [Dim::Overworld, Dim::Nether, Dim::End] {
+            assert_eq!(Dim::from_key(dim.key()), dim);
+        }
+        let extra = mod_api::__private::dimension_key("example:moon");
+        assert_eq!(Dim::from_key(extra), Dim::Extra(extra));
+        #[cfg(feature = "ae2-lab")]
+        assert_eq!(Dim::from_key(Dim::Spatial.key()), Dim::Spatial);
+    }
 
     #[test]
     fn levels_clear_empties_parked_and_heard_open() {

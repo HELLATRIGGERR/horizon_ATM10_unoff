@@ -966,22 +966,29 @@ mod tests {
         let mut faces: [Vec<usize>; 6] = Default::default();
         faces[Direction::Up as usize] = vec![0];
         faces[Direction::Down as usize] = vec![1, 0];
-        ModFluidTanks {
-            tanks: vec![4000, 2000],
-            faces,
-            inputs: vec![0],
-            outputs: vec![1],
-        }
+        let mut tanks = ModFluidTanks::default();
+        tanks.tanks = vec![4000, 2000];
+        tanks.faces = faces;
+        tanks.inputs = vec![0];
+        tanks.outputs = vec![1];
+        tanks
+    }
+
+    /// A tank's stack as the engine's `FluidStack` (empty when it has none).
+    fn engine(t: &NativeFluidTankInfo) -> FluidStack {
+        t.stack.as_ref().map_or(FluidStack::EMPTY, engine_fluid_stack)
     }
 
     fn entity_with(tanks: &[Tank]) -> ModBlockEntity {
         let mut nbt = Compound::new();
         write_tanks(&mut nbt, tanks);
-        ModBlockEntity::new(horizon_client::containers::ModBlockEntityFields {
-            id: "test:tank".into(),
-            nbt,
-            ..Default::default()
-        })
+        ModBlockEntity::new(
+            "test:tank".into(),
+            horizon_client::containers::ModBlockEntityFields {
+                nbt,
+                ..Default::default()
+            },
+        )
     }
 
     #[test]
@@ -1019,7 +1026,7 @@ mod tests {
         let info = declared_tanks(&tanks, Some(Direction::Down), &entity).unwrap();
         assert_eq!(
             info.iter()
-                .map(|t| (t.stack.name(), t.stack.amount(), t.capacity, t.drainable))
+                .map(|t| (engine(t).name(), engine(t).amount(), t.capacity, t.drainable))
                 .collect::<Vec<_>>(),
             [
                 ("test:brine", 1500, 2000, true),
@@ -1145,11 +1152,11 @@ mod tests {
         // Water reads in thirds of a bucket but moves only whole buckets: gcd(3, 1000) = 1.
         let t = c(water, 1).tank();
         assert_eq!(
-            (t.stack.amount(), t.capacity, t.drainable),
+            (engine(&t).amount(), t.capacity, t.drainable),
             (333, 1000, false)
         );
         let t = c(water, 3).tank();
-        assert_eq!((t.stack.amount(), t.drainable), (1000, true));
+        assert_eq!((engine(&t).amount(), t.drainable), (1000, true));
         assert_eq!(got(c(water, 1).drain(1000)), (FluidKind::Empty, 0, None));
         assert_eq!(got(c(water, 3).drain(999)), (FluidKind::Empty, 0, None));
         assert_eq!(
@@ -1176,7 +1183,7 @@ mod tests {
             (0, None),
             "no cauldron holds flowing water"
         );
-        assert_eq!(c(empty, 0).tank().stack, FluidStack::EMPTY);
+        assert_eq!(engine(&c(empty, 0).tank()), FluidStack::EMPTY);
         // A mod's cauldron of four levels (Create Dragons Plus' dragon's breath): 250 mB a level.
         let sludge = FluidKind::from_name("test:sludge").unwrap();
         let own = cauldron_for_fluid(sludge).unwrap();
@@ -1186,7 +1193,7 @@ mod tests {
         );
         let t = c(own, 2).tank();
         assert_eq!(
-            (t.stack.fluid(), t.stack.amount(), t.capacity, t.drainable),
+            (engine(&t).fluid(), engine(&t).amount(), t.capacity, t.drainable),
             (sludge, 500, 1000, true)
         );
         assert_eq!(got(c(own, 2).drain(300)), (sludge, 250, Some((own, 1))));

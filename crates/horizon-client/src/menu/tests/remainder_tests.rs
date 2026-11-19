@@ -18,6 +18,7 @@ fn crafting_remainder_consumption_and_quick_move() {
         recipes.crafting.push((
             "tool".into(),
             Recipe::Shapeless {
+                quartz_knife: None,
                 ingredients: vec![Ingredient::of(vec!["test:tool".into()])],
                 result: Template {
                     item: Some("test:result".into()),

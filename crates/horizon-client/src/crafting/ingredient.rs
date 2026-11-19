@@ -27,6 +27,45 @@ fn ingredient_kind(o: &serde_json::Map<String, Value>) -> Option<&str> {
         .as_str()
 }
 
+/// 1.21.1's ingredient shapes, which the pack's data still writes, as 26.3's
+/// walk reads them: a list holding objects (ATM10's own `allthetweaks`
+/// recipes, ExtendedAE's matrix glass) is `CompoundIngredient`, any of them
+/// matching; and, for AE2's 1.21.1 data, an `{item}` or `{tag}` object with no
+/// kind is that id or `#tag`. `None`: `v` is already in 26.3's shape.
+fn legacy_shapes(v: &Value) -> Option<Value> {
+    match v {
+        Value::Array(a) if a.iter().any(Value::is_object) => {
+            let children = a
+                .iter()
+                .map(|child| legacy_shapes(child).unwrap_or_else(|| child.clone()))
+                .collect();
+            Some(serde_json::json!({
+                "type": "neoforge:compound",
+                "children": Value::Array(children),
+            }))
+        }
+        #[cfg(feature = "ae2-lab")]
+        Value::Object(o)
+            if ingredient_kind(o).is_none()
+                && (o.contains_key("item") || o.contains_key("tag")) =>
+        {
+            let mut ids = Vec::new();
+            if let Some(item) = o.get("item").and_then(Value::as_str) {
+                ids.push(Value::String(item.to_owned()));
+            }
+            if let Some(tag) = o.get("tag").and_then(Value::as_str) {
+                ids.push(Value::String(format!("#{tag}")));
+            }
+            match ids.len() {
+                0 => None,
+                1 => ids.pop(),
+                _ => Some(Value::Array(ids)),
+            }
+        }
+        _ => None,
+    }
+}
+
 /// A mod's own kind: a namespaced type that is not minecraft's.
 fn is_custom(kind: &str) -> bool {
     kind.contains(':') && !kind.starts_with("minecraft:")
@@ -266,6 +305,9 @@ impl Ingredient {
         }
     }
     pub fn parse(v: &Value, items: &Items) -> Option<Self> {
+        if let Some(v) = legacy_shapes(v) {
+            return Self::parse(&v, items);
+        }
         // A mod's own kind: `resolve` asked the hook once at load and left
         // the item list it matches with the occurrence; one no load
         // resolved fails the file.

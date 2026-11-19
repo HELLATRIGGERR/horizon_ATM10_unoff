@@ -265,8 +265,10 @@ pub(super) fn load_core(
                 );
                 // A launch that names a world: its data preload needs only the
                 // block registry and the biomes, so it starts here rather than
-                // after the block models and facts (~250 ms later).
-                if let Some(folder) = launch_world {
+                // after the block models and facts (~250 ms later). A large
+                // registry (a full modpack) preloads after the mesh tables
+                // instead (`late_preload`): the two read the same files.
+                if let Some(folder) = launch_world.filter(|_| registry.len() < LARGE_REGISTRY) {
                     world_loading::preload_launch_world(
                         folder,
                         root,

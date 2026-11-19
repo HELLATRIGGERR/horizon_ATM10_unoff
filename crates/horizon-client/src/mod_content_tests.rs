@@ -2756,7 +2756,13 @@ fn a_mod_growing_plant_names_its_template_for_world_generation() {
             ),
         ],
     );
-    let root = resource_root(&base, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let root = resource_root_fixture(
+        &base,
+        Path::new(""),
+        std::slice::from_ref(&m),
+        &scratch.join("cache"),
+    )
+    .unwrap();
     let extra: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("worldgen/blocks/survival-extra-definitions.json")).unwrap(),
     )
@@ -2887,7 +2893,7 @@ fn a_linked_folder_mod_stays_as_it_was() {
     let files: Vec<PathBuf> = m.content.files.iter().map(|f| source.join(f)).collect();
     let root = scratch.join("root");
     for _ in 0..2 {
-        build(&base, std::slice::from_ref(&m), &root).unwrap();
+        build_fixture(&base, Path::new(""), std::slice::from_ref(&m), &root).unwrap();
         for (rel, text) in [
             ("assets/ruby/models/block/gem.json", r#"{"parent": "x"}"#),
             ("assets/ruby/sounds.json", "{}"),
@@ -2923,9 +2929,20 @@ fn a_moved_mod_changes_the_stamp() {
     let Some(base) = prepared() else {
         return;
     };
-    let stamp_at = |path: &str| stamp(&base, [("ruby", Path::new(path), 1)], "").unwrap();
-    assert_eq!(stamp_at("a/ruby"), stamp_at("a/ruby"));
-    assert_ne!(stamp_at("a/ruby"), stamp_at("b/ruby"));
+    // The stamp names each file of a folder mod by its path.
+    let scratch = std::env::temp_dir().join(format!("horizon-moved-stamp-{}", std::process::id()));
+    let files = [("assets/ruby/lang/en_us.json", "{}")];
+    let (a, b) = (
+        folder_mod(&scratch.join("a/ruby"), &files),
+        folder_mod(&scratch.join("b/ruby"), &files),
+    );
+    let stamp_of = |m: &ContentMod| {
+        let mods = std::slice::from_ref(m);
+        stamp(&base, &base.join("jars"), mods, &fixture_inventory(mods)).unwrap()
+    };
+    assert_eq!(stamp_of(&a), stamp_of(&a));
+    assert_ne!(stamp_of(&a), stamp_of(&b));
+    let _ = fs::remove_dir_all(&scratch);
 }
 
 /// A mod's file over one the overlay links from the base replaces the link, on
@@ -3042,15 +3059,16 @@ fn a_packed_mod_builds_the_root_a_folder_does() {
         zip.write_all(text.as_bytes()).unwrap();
     }
     zip.finish().unwrap();
-    let package = horizon_mods::Package::read(&hmod).unwrap();
+    let package = horizon_mod_package::Package::read(&hmod).unwrap();
     let packed = ContentMod {
+        jars: Vec::new(),
         id: package.manifest.id.clone(),
         content: Content::read(&hmod, &package.manifest).unwrap(),
     };
     let (from_folder, from_package) = (scratch.join("from-folder"), scratch.join("from-package"));
     assert_eq!(
-        build(&base, &[folder], &from_folder).unwrap(),
-        build(&base, &[packed], &from_package).unwrap()
+        build_fixture(&base, Path::new(""), &[folder], &from_folder).unwrap(),
+        build_fixture(&base, Path::new(""), &[packed], &from_package).unwrap()
     );
     for dir in ["assets/ruby", "data/ruby", "worldgen/structure/ruby"] {
         let (a, b) = (
@@ -3118,7 +3136,7 @@ fn a_reused_root_registers_what_the_build_did() {
             fs::write(path, text).unwrap();
         }
         Candidate {
-            manifest: horizon_mods::Package::read(&dir).unwrap().manifest,
+            manifest: horizon_mod_package::Package::read(&dir).unwrap().manifest,
             path: dir,
         }
     };
@@ -3220,18 +3238,18 @@ fn a_reused_root_registers_what_the_build_did() {
     assert_eq!(reused.accepted, built.accepted);
     // What native code declares joins the mods, a change of it needs a new root, and a file item
     // may name a declared item as its remainder.
-    let wrench = horizon_mods::content::Item {
+    let wrench = horizon_mod_package::content::Item {
         id: "tools:wrench".into(),
         template: "minecraft:stick".into(),
         ..Default::default()
     };
-    let shaft = horizon_mods::content::Block {
+    let shaft = horizon_mod_package::content::Block {
         id: "example:shaft".into(),
         template: "minecraft:oak_log".into(),
         item: true,
         ..Default::default()
     };
-    let remainder = horizon_mods::content::Item {
+    let remainder = horizon_mod_package::content::Item {
         id: "example:dust".into(),
         template: "minecraft:stick".into(),
         ..Default::default()
@@ -3265,7 +3283,7 @@ fn a_reused_root_registers_what_the_build_did() {
     assert!(registry.default_state("example:shaft").is_some());
     // The declared item refused (no such stack size): the file item's remainder dangles,
     // so its mod alone is left out.
-    let dangling = horizon_mods::content::Item {
+    let dangling = horizon_mod_package::content::Item {
         id: "other:dust".into(),
         template: "minecraft:stick".into(),
         max_stack_size: Some(200),
@@ -3535,12 +3553,13 @@ fn ae2_machine_overlay_sets_world_block_entity_flag() {
         r#"{"template":"minecraft:iron_block"}"#,
     )
     .unwrap();
-    let package = horizon_mods::Package::read(&mod_dir).unwrap();
+    let package = horizon_mod_package::Package::read(&mod_dir).unwrap();
     let m = ContentMod {
+        jars: Vec::new(),
         id: "ae2".into(),
         content: Content::read(&mod_dir, &package.manifest).unwrap(),
     };
-    let root = resource_root(&base, &[m], &scratch.join("cache")).unwrap();
+    let root = resource_root_fixture(&base, Path::new(""), &[m], &scratch.join("cache")).unwrap();
     let assets = Assets::load(&root).unwrap();
     let drive = assets.registry.default_state("ae2:drive").unwrap();
     let iron = assets
@@ -3577,7 +3596,7 @@ fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
             ),
         ],
     );
-    let root = resource_root(&base, &[m], &scratch.join("cache")).unwrap();
+    let root = resource_root_fixture(&base, Path::new(""), &[m], &scratch.join("cache")).unwrap();
     let doc: serde_json::Value =
         serde_json::from_slice(&fs::read(root.join("items.json")).unwrap()).unwrap();
     let component = &doc["ae2:fluix_pickaxe"];
@@ -3605,6 +3624,7 @@ fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
         assets.registry,
         &facts,
         &horizon_world::loot::PackOverlay::NONE,
+        &horizon_world::item_defaults::read(&root).unwrap(),
     )
     .unwrap();
     let pick = items.get("ae2:fluix_pickaxe").unwrap();
@@ -3645,7 +3665,7 @@ fn declared_custom_states_survive_registry_and_resource_tables() {
             ),
         ],
     );
-    let root = resource_root(&base, &[m], &scratch.join("cache")).unwrap();
+    let root = resource_root_fixture(&base, Path::new(""), &[m], &scratch.join("cache")).unwrap();
     let assets = Assets::load(&root).unwrap();
     let state = |facing: &str, formed: &str| BlockState {
         name: "ruby:machine".into(),
@@ -3792,15 +3812,16 @@ fn ae2_physical_candidate_loads_real_runtime_facts_and_shapes() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");
     assert!(base.join("facts.json").exists());
     let candidate = PathBuf::from(candidate);
-    let package = horizon_mods::Package::read(&candidate).unwrap();
+    let package = horizon_mod_package::Package::read(&candidate).unwrap();
     let content = Content::read(&candidate, &package.manifest).unwrap();
     let m = ContentMod {
+        jars: Vec::new(),
         id: package.manifest.id.clone(),
         content,
     };
     let scratch = std::env::temp_dir().join(format!("ae2-physical-facts-{}", std::process::id()));
     let _ = fs::remove_dir_all(&scratch);
-    let root = resource_root(&base, &[m], &scratch).unwrap();
+    let root = resource_root_fixture(&base, Path::new(""), &[m], &scratch).unwrap();
     let assets = Assets::load(&root).unwrap();
     let facts = BlockFacts::load(&root, assets.registry).unwrap();
     let get = |id: &str| facts.get(assets.registry.default_state(id).unwrap());
@@ -4735,7 +4756,13 @@ fn declared_properties_place_and_mod_rails_ride() {
         .collect();
     let m = folder_mod(&scratch.join("deco"), &files);
     let relative = Path::new("../../.local/horizon-client/26.3");
-    let root = resource_root(relative, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let root = resource_root_fixture(
+        relative,
+        Path::new(""),
+        std::slice::from_ref(&m),
+        &scratch.join("cache"),
+    )
+    .unwrap();
     let assets = Assets::load(&root).unwrap();
     let registry = assets.registry;
     let b = Behaviours::load(registry, &root).unwrap();
@@ -4745,6 +4772,7 @@ fn declared_properties_place_and_mod_rails_ride() {
         air: BlockStateId,
         random: LegacyRandom,
     }
+    impl horizon_world::level::BlockEntityNeighbors for Level {}
     impl LevelAccess for Level {
         fn block_state(&self, pos: BlockPos) -> BlockStateId {
             self.blocks.get(&pos).copied().unwrap_or(self.air)
@@ -4787,7 +4815,7 @@ fn declared_properties_place_and_mod_rails_ride() {
             item: item.into(),
             can_use_game_master_blocks: false,
         };
-        let (_, state) = b.placement_state(level, &mut ticks, &ctx).unwrap();
+        let state = b.placement_preview(level, &mut ticks, &ctx).unwrap().state;
         registry.state(state).unwrap().properties[property].clone()
     };
     // Yaw 90 looks west, -90 east, 180 north; a pitch of 90 looks down.
@@ -7801,7 +7829,13 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
             ),
         ],
     );
-    let root = resource_root(&base, std::slice::from_ref(&m), &scratch.join("cache")).unwrap();
+    let root = resource_root_fixture(
+        &base,
+        Path::new(""),
+        std::slice::from_ref(&m),
+        &scratch.join("cache"),
+    )
+    .unwrap();
     let decls: Vec<CarriedFluid> = carried_fluids(std::slice::from_ref(&m))
         .into_iter()
         .cloned()
@@ -7811,7 +7845,7 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
     // another test registered first).
     horizon_world::mod_fluids::register_test_fluids();
     // The interaction files in the mod's path order, the same rules as the test set's.
-    let files: Vec<horizon_mods::content::FluidInteractions> =
+    let files: Vec<horizon_mod_package::content::FluidInteractions> =
         fluid_interactions(std::slice::from_ref(&m))
             .into_iter()
             .cloned()
@@ -7845,6 +7879,7 @@ fn a_mod_fluid_flows_by_its_own_numbers_and_fills_its_bucket() {
         random: LegacyRandom,
         time: i64,
     }
+    impl horizon_world::level::BlockEntityNeighbors for Level {}
     impl LevelAccess for Level {
         fn block_state(&self, pos: BlockPos) -> BlockStateId {
             self.blocks.get(&pos).copied().unwrap_or(self.air)
@@ -8129,10 +8164,12 @@ fn a_mod_turning_milk_on_adds_neoforges_milk() {
     on.milk_fluid = true;
     let mods = vec![
         ContentMod {
+            jars: Vec::new(),
             id: "plain".into(),
             content: Content::declared("plain"),
         },
         ContentMod {
+            jars: Vec::new(),
             id: "cow".into(),
             content: on,
         },

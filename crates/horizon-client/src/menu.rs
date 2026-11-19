@@ -3163,8 +3163,9 @@ pub(crate) mod tests {
     #[test]
     fn wrapped_stack_refuses_pickup_and_pours_only_real_fluid_into_buckets() {
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
-        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
-        let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
+        let items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();let load=crate::test_resources::server_load();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &load).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root, &horizon_world::item_defaults::read(&root).unwrap());let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &load);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
+        let loop_context=crate::test_resources::loop_context(LoopSide::Server);
+        let env=Env{crafting_remainder:None,player:None,player_entity_id:None,loop_context:&loop_context,can_equip:None,slot_rules:None,items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
         let value=crate::ae2_generic_stack::GenericStack::fluid(crate::ae2_cell_codec::fluid_key("minecraft:water"), 1500);
         let wrapper=crate::ae2_generic_stack::wrap(&value).unwrap();let mut menu=Menu::new(Kind::Chest(1));
         menu.set_slot(&env,0,Some(wrapper.clone()));menu.click(&env,0,0,Input::Pickup).unwrap();
@@ -3185,9 +3186,10 @@ pub(crate) mod tests {
     #[test]
     fn quartz_knife_menu_consumes_one_ingot_and_locks_the_physical_knife() {
         let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/resources/26.3");if !root.join("items.json").exists(){return;}
-        let mut items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();items.item_tags.insert("ae2:metal_ingots".into(),std::collections::HashSet::from(["minecraft:iron_ingot".into()]));
-        let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root);let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
-        let env=Env{items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
+        let mut items=Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();items.item_tags.insert("ae2:metal_ingots".into(),std::collections::HashSet::from(["minecraft:iron_ingot".into()]));
+        let load=crate::test_resources::server_load();let recipes=Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &load).unwrap();let brewing=Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);let banners=Banners::load(&root, &horizon_world::item_defaults::read(&root).unwrap());let station_recipes=crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &load);let enchantments=crate::enchant::Enchantments::default();let names=crate::creative::Names::default();
+        let loop_context=crate::test_resources::loop_context(LoopSide::Server);
+        let env=Env{crafting_remainder:None,player:None,player_entity_id:None,loop_context:&loop_context,can_equip:None,slot_rules:None,items:&items,recipes:&recipes,brewing:&brewing,banners:&banners,station_recipes:&station_recipes,enchantments:&enchantments,names:&names,trade:None,maps:None,limited_crafting:false,known_recipes:None};
         let mut menu=Menu::new(Kind::Anvil);menu.quartz_knife_slot=Some(0);menu.set_player_item(0,Some(ItemStack::new("ae2:certus_quartz_cutting_knife",1)));
         menu.set_slot(&env,0,stack("iron_ingot",1));assert!(menu.slot(2).is_none());assert!(menu.rename(&env,"Hello"));
         assert_eq!(menu.slot(2).unwrap().item.as_ref(),"ae2:name_press");
@@ -3200,14 +3202,18 @@ pub(crate) mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../.local/resources/26.3");
         if !root.join("items.json").exists() { return; }
-        let items = Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE).unwrap();
-        let recipes = Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let items = Items::catalog(&root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();
+        let load = crate::test_resources::server_load();
+        let recipes = Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &load).unwrap();
         let brewing = Brewing::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
-        let banners = Banners::load(&root);
-        let station_recipes = crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let banners = Banners::load(&root, &horizon_world::item_defaults::read(&root).unwrap());
+        let station_recipes = crate::stations::StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE, &load);
         let enchantments = crate::enchant::Enchantments::default();
         let names = crate::creative::Names::default();
-        let env = Env { items: &items, recipes: &recipes, brewing: &brewing,
+        let loop_context = crate::test_resources::loop_context(LoopSide::Server);
+        let env = Env { crafting_remainder: None, player: None, player_entity_id: None,
+            loop_context: &loop_context, can_equip: None, slot_rules: None,
+            items: &items, recipes: &recipes, brewing: &brewing,
             banners: &banners, station_recipes: &station_recipes, enchantments: &enchantments,
             names: &names, trade: None, maps: None, limited_crafting: false, known_recipes: None };
         let mut player = vec![None; 36];
@@ -5585,14 +5591,18 @@ mod ae2_identity_tests {
     fn native_menu_swap_clone_and_pickup_preserve_source_object_rules() {
         let Some(root) = std::env::var_os("HORIZON_TEST_RESOURCES") else { return };
         let root = std::path::Path::new(&root);
-        let items = Items::catalog(root, &horizon_world::loot::PackOverlay::NONE).unwrap();
-        let recipes = Recipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let items = Items::catalog(root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(root).unwrap()).unwrap();
+        let load = crate::test_resources::server_load();
+        let recipes = Recipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE, &load).unwrap();
         let brewing = Brewing::load(root, &items, &horizon_world::loot::PackOverlay::NONE);
-        let banners = Banners::load(root);
-        let station_recipes = crate::stations::StationRecipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let banners = Banners::load(root, &horizon_world::item_defaults::read(root).unwrap());
+        let station_recipes = crate::stations::StationRecipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE, &load);
         let enchantments = crate::enchant::Enchantments::default();
         let names = crate::creative::Names::default();
-        let env = Env { items: &items, recipes: &recipes, brewing: &brewing, banners: &banners,
+        let loop_context = crate::test_resources::loop_context(LoopSide::Server);
+        let env = Env { crafting_remainder: None, player: None, player_entity_id: None,
+            loop_context: &loop_context, can_equip: None, slot_rules: None,
+            items: &items, recipes: &recipes, brewing: &brewing, banners: &banners,
             station_recipes: &station_recipes, enchantments: &enchantments, names: &names, trade: None, maps: None, limited_crafting: false, known_recipes: None };
         let mut menu = Menu::new(Kind::Inventory);
         menu.creative = true;

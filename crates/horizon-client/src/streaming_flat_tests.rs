@@ -12,11 +12,11 @@
     fn forced_flat_halo_finishes_and_lights_with_real_workers() -> crate::Result<()> {
         let root = std::path::PathBuf::from(std::env::var_os("HORIZON_TEST_RESOURCES").expect("HORIZON_TEST_RESOURCES"));
         let assets = Arc::new(Assets::load(&root)?);
-        let render = Arc::new(assets.reload(&root)?);
+        let render = Arc::new(assets.reload(&horizon_assets::resource_source::ResourceRoot::directory(root.clone()))?);
         let facts = BlockFacts::load(&root, assets.registry)?;
-        let biomes = Arc::new(Biomes::load(&root)?);
-        let tables = Arc::new(MeshTables::new(&assets, &render, &facts, crate::models::load_visibility(&root, assets.registry)?)?);
-        let context = Arc::new(WorkerContext { light: Arc::new(LightTables::load(&root, assets.registry, &facts)?), tables, assets, render, biomes: biomes.clone() });
+        let biomes = Arc::new(Biomes::load(&horizon_assets::resource_source::ResourceRoot::directory(root.clone()))?);
+        let tables = Arc::new(MeshTables::new(&assets, &render, &facts, crate::models::load_visibility(&root, assets.registry)?, None)?);
+        let context = Arc::new(WorkerContext { light: Arc::new(LightTables::load(&root, assets.registry, &facts)?), tables, assets, render, biomes: biomes.clone(), hidden_states: Arc::from([]), part_tables: Default::default() });
         for force_radius in [1, 0] {
         let mut streaming = Streaming::new(Arc::new(FlatTerrain::void(biomes.id("minecraft:plains"))), context.clone(), 2);
         streaming.radius = 0;
@@ -46,11 +46,11 @@
     fn authoritative_flat_owns_contents_and_rejects_late_worker_results_after_unload() -> crate::Result<()> {
         let root = std::path::PathBuf::from(std::env::var_os("HORIZON_TEST_RESOURCES").expect("HORIZON_TEST_RESOURCES"));
         let assets=Arc::new(Assets::load(&root)?);
-        let render=Arc::new(assets.reload(&root)?);
+        let render=Arc::new(assets.reload(&horizon_assets::resource_source::ResourceRoot::directory(root.clone()))?);
         let facts=BlockFacts::load(&root,assets.registry)?;
-        let biomes=Arc::new(Biomes::load(&root)?);
-        let tables=Arc::new(MeshTables::new(&assets,&render,&facts,crate::models::load_visibility(&root,assets.registry)?)?);
-        let context=Arc::new(WorkerContext{light:Arc::new(LightTables::load(&root,assets.registry,&facts)?),tables,assets:assets.clone(),render,biomes:biomes.clone()});
+        let biomes=Arc::new(Biomes::load(&horizon_assets::resource_source::ResourceRoot::directory(root.clone()))?);
+        let tables=Arc::new(MeshTables::new(&assets,&render,&facts,crate::models::load_visibility(&root,assets.registry)?,None)?);
+        let context=Arc::new(WorkerContext{light:Arc::new(LightTables::load(&root,assets.registry,&facts)?),tables,assets:assets.clone(),render,biomes:biomes.clone(),hidden_states:Arc::from([]),part_tables:Default::default()});
         let mut streaming=Streaming::new(Arc::new(FlatTerrain::void(biomes.id("minecraft:plains"))),context,1);
         let mut world=World::new(facts.air,0);
         let stone=assets.registry.default_state("minecraft:stone").unwrap();

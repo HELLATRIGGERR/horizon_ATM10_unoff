@@ -904,6 +904,9 @@ mod tests {
                 );
                 drop(seen);
                 game.tnts.push(super::super::tnt::PrimedTnt {
+                    saved_uuid: None,
+                    tiny: false,
+                    tiny_owner: None,
                     attachment_lifetime: Default::default(),
                     rotation: [0.0, 0.0],
                     join: Default::default(),

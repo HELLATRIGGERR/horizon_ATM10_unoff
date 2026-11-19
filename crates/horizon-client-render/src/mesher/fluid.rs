@@ -616,6 +616,7 @@ mod tests {
             flow: 32,
             overlay: Some(33),
             tint: Some(0xFF0000),
+            translucent: true,
         };
         for kind in [FluidKind::Mod(fluid), FluidKind::Water, FluidKind::Lava] {
             tables.info[1].fluid = FluidState::new(kind, 8, false);

@@ -239,9 +239,12 @@ fn metal_uses_a_conservative_default_split_but_respects_overrides() {
     // More sprites than the arrays hold at 512: the arrays grow, up to the GPU's layers.
     let split = adapter_requested_split(&info, None, 10_271);
     assert_eq!(split, Some(1284));
-    assert_eq!(layer_split(2048, false, split, 10_271), Ok(1284));
+    assert_eq!(
+        layer_split(2048, false, split, 10_271, SPRITE_ARRAYS),
+        Ok(1284)
+    );
     let split = adapter_requested_split(&info, None, 2048 * SPRITE_ARRAYS + 1);
-    assert!(layer_split(2048, false, split, 2048 * SPRITE_ARRAYS + 1).is_err());
+    assert!(layer_split(2048, false, split, 2048 * SPRITE_ARRAYS + 1, SPRITE_ARRAYS).is_err());
 
     info.backend = wgpu::Backend::Vulkan;
     assert_eq!(adapter_requested_split(&info, None, 10_271), None);

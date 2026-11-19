@@ -1702,8 +1702,8 @@ mod mod_lifecycle_tests {
         let p = (0, 0, 0);
         b.insert(p, cable(1));
         b.take_mod_lifecycle();
-        let e = b.take(&p).unwrap();
-        b.put(p, e);
+        let (lease, e) = b.take(&p).unwrap();
+        assert!(b.put(lease, e));
         let (added, removed) = b.take_mod_lifecycle();
         assert!(added.is_empty() && removed.is_empty());
     }
@@ -1744,7 +1744,7 @@ mod tests {
         b.prepare_vanilla_metadata(&chunk);
         b.load_chunk(std::mem::take(&mut chunk.block_entities));
         assert_eq!(b.vanilla_metadata(&p),Some(&raw));
-        let e=b.take(&p).unwrap();b.put(p,e);
+        let (lease,e)=b.take(&p).unwrap();assert!(b.put(lease,e));
         assert_eq!(b.vanilla_metadata(&p),Some(&raw),"taking for a tick keeps the same owner");
         chunk.block_entities.push((p,b.get(&p).unwrap().clone()));
         b.project_vanilla_metadata(&mut chunk);
@@ -2060,7 +2060,8 @@ mod tests {
         b.record_ae2_part_change(p, part.clone(), changed);
         let node = ae2_network_core::NodeIdentity {host:first,part:None,outer:false};
         b.record_ae2_forced_mode(p, node, Some(ae2_network_core::ChannelMode::X3));
-        let held = b.take(&p).unwrap(); b.put(p, held);
+        let (lease, held) = b.take(&p).unwrap();
+        assert!(b.put(lease, held));
         b.record_ae2_part(p, part, false);
         b.remove(&p);
         b.insert(p, BlockEntity::Ae2(Box::new(Machine::new(MachineKind::CableBus))));
@@ -2201,9 +2202,9 @@ mod tests {
         let p = (2, 64, 3);
         b.insert(p, hopper());
         let first = b.incarnation(&p).unwrap();
-        let entity = b.take(&p).unwrap();
+        let (lease, entity) = b.take(&p).unwrap();
         assert_eq!(b.incarnation(&p), Some(first));
-        b.put(p, entity);
+        assert!(b.put(lease, entity));
         assert_eq!(b.incarnation(&p), Some(first));
         b.insert(p, hopper());
         let replacement = b.incarnation(&p).unwrap();

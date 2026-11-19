@@ -2649,11 +2649,18 @@ mod special_pattern_recipe_tests {
         std::fs::write(nested.join("upgrade.json"),br#"{"type":"minecraft:smithing_transform","template":"minecraft:paper","base":"minecraft:iron_sword","addition":"minecraft:gold_ingot","result":{"id":"minecraft:golden_sword"}}"#).unwrap();
         std::fs::write(nested.join("cut.json"),br#"{"type":"minecraft:stonecutting","ingredient":"minecraft:stone","result":{"id":"minecraft:stone_slab","count":2}}"#).unwrap();
         let items = Items::for_tests(Default::default());
-        let recipes = StationRecipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let recipes = StationRecipes::load(
+            &root,
+            &items,
+            &horizon_world::loot::PackOverlay::NONE,
+            &crate::test_resources::server_load(),
+        );
         let enchantments = crate::enchant::tests::sample();
         let base = ItemStack::new("minecraft:iron_sword", 1);
+        let context = crate::test_resources::server_loop_context();
         let (id, result) = recipes
             .smithing_recipe_result(
+                context,
                 &enchantments,
                 Some(&ItemStack::new("minecraft:paper", 1)),
                 Some(&base),
@@ -2662,7 +2669,7 @@ mod special_pattern_recipe_tests {
             .unwrap();
         assert_eq!(id, "example:nested/stations/upgrade");
         assert_eq!(&*result.item, "minecraft:golden_sword");
-        let stone = recipes.stonecutter(&ItemStack::new("minecraft:stone", 1));
+        let stone = recipes.stonecutter(context, &ItemStack::new("minecraft:stone", 1));
         assert_eq!(stone.len(), 1);
         assert_eq!(stone[0].id, "example:nested/stations/cut");
         assert_eq!(stone[0].result.count, 2);

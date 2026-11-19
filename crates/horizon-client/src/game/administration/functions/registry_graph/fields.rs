@@ -97,7 +97,7 @@ impl Fields {
             registry,
             Registry::Predicate | Registry::Modifier | Registry::Slots
         ) {
-            if value.get("type").and_then(Value::as_str).is_none() {
+            if value.get("type").or_else(|| value.get("condition")).and_then(Value::as_str).is_none() {
                 self.errors.push(format!(
                     "{path}: No key type in {} {value}",
                     registry.directory()

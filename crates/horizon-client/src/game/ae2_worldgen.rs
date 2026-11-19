@@ -495,7 +495,8 @@ mod tests {
     #[test]
     fn anvil_saved_ae2_owner_is_restored_when_neighbor_generates_first() {
         use crate::save::SaveDir;
-        use horizon_world::{compression::Compression, nbt::{Limits, NamedTag}, region::{ChunkRecord, RegionFile}, worldgen::generator::OverworldGenerator};
+        use horizon_core::nbt::{Limits, NamedTag};
+        use horizon_world::{compression::Compression, region::{ChunkRecord, RegionFile}, worldgen::generator::OverworldGenerator};
         let Some(root) = std::env::var_os("AE2_MERGED_TEST_RESOURCES").map(std::path::PathBuf::from) else { eprintln!("skipping: AE2_MERGED_TEST_RESOURCES absent"); return; };
         let registry = Box::leak(Box::new(horizon_world::level::data::load_registry(&root).unwrap()));
         let data = GeneratorData::load(&root.join("worldgen"), registry).unwrap();

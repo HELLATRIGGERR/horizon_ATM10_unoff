@@ -1859,7 +1859,7 @@ pub(crate) mod tests {
         let Some(rules)=rules() else{return;};let mut g=guest();
         let wrapped=crate::ae2_generic_stack::wrap(&crate::ae2_generic_stack::GenericStack::fluid(crate::ae2_cell_codec::fluid_key("minecraft:water"), 1500,)).unwrap();
         let mut chest=vec![Some(wrapped.clone())];let mut drag=None;
-        let mut view=View{guest:&mut g,container:Some(&mut chest),shulker:false,hidden:&[]};
+        let lc=crate::test_resources::loop_context(horizon_world::native_load_context::LoopSide::Server);let mut view=View{guest:&mut g,container:Some(&mut chest),shulker:false,container_limits:Vec::new(),hidden:&[],sounds:Vec::new(),slot_snapshot:Default::default(),loop_context:&lc};
         click(&mut view,&mut drag,0,0,input::PICKUP,&rules);
         assert!(view.guest.carried.is_none());assert_eq!(view.get(0),Some(wrapped));
         view.guest.carried=Some(ItemStack::new("minecraft:bucket",2));

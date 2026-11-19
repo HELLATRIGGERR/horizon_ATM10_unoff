@@ -1780,6 +1780,20 @@ impl Game<'_> {
 mod tests {
     use super::*;
 
+    /// A mod level handle's key names the level it came from: vanilla's three, an extra
+    /// dimension, and (ae2-lab) AE2's spatial storage level, which is no extra dimension, so a
+    /// parked spatial level is found by its key (`Dim::from_key`, review finding 8).
+    #[test]
+    fn a_dimension_key_maps_back_to_its_level() {
+        for dim in [Dim::Overworld, Dim::Nether, Dim::End] {
+            assert_eq!(Dim::from_key(dim.key()), dim);
+        }
+        let extra = mod_api::__private::dimension_key("example:moon");
+        assert_eq!(Dim::from_key(extra), Dim::Extra(extra));
+        #[cfg(feature = "ae2-lab")]
+        assert_eq!(Dim::from_key(Dim::Spatial.key()), Dim::Spatial);
+    }
+
     #[test]
     fn levels_clear_empties_parked_and_heard_open() {
         let mut levels = Levels::default();

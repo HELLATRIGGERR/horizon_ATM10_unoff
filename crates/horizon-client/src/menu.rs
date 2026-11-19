@@ -5592,13 +5592,17 @@ mod ae2_identity_tests {
         let Some(root) = std::env::var_os("HORIZON_TEST_RESOURCES") else { return };
         let root = std::path::Path::new(&root);
         let items = Items::catalog(root, &horizon_world::loot::PackOverlay::NONE, &horizon_world::item_defaults::read(root).unwrap()).unwrap();
-        let recipes = Recipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let load = crate::test_resources::server_load();
+        let recipes = Recipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE, &load).unwrap();
         let brewing = Brewing::load(root, &items, &horizon_world::loot::PackOverlay::NONE);
-        let banners = Banners::load(root);
-        let station_recipes = crate::stations::StationRecipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE);
+        let banners = Banners::load(root, &horizon_world::item_defaults::read(root).unwrap());
+        let station_recipes = crate::stations::StationRecipes::load(root, &items, &horizon_world::loot::PackOverlay::NONE, &load);
         let enchantments = crate::enchant::Enchantments::default();
         let names = crate::creative::Names::default();
-        let env = Env { items: &items, recipes: &recipes, brewing: &brewing, banners: &banners,
+        let loop_context = crate::test_resources::loop_context(LoopSide::Server);
+        let env = Env { crafting_remainder: None, player: None, player_entity_id: None,
+            loop_context: &loop_context, can_equip: None, slot_rules: None,
+            items: &items, recipes: &recipes, brewing: &brewing, banners: &banners,
             station_recipes: &station_recipes, enchantments: &enchantments, names: &names, trade: None, maps: None, limited_crafting: false, known_recipes: None };
         let mut menu = Menu::new(Kind::Inventory);
         menu.creative = true;

@@ -147,21 +147,11 @@ mod tests {
     #[test]
     fn storage_upgrade_keeps_filled_cell_components_and_returns_the_original_component_once() {
         let recipe = serde_json::json!({"input_cell":"ae2:item_storage_cell_1k","input_component":"ae2:cell_component_4k","result_cell":"ae2:item_storage_cell_4k","result_component":"ae2:cell_component_1k"});
-        let recipes = Recipes {
-            crafting: vec![],
-            cooking: vec![],
-            custom: Default::default(),
-            ae2_custom: std::collections::HashMap::from([(
+        let mut recipes = Recipes::empty();
+        recipes.ae2_custom = std::collections::HashMap::from([(
                 "ae2:storage_cell_upgrade".into(),
                 vec![("ae2:upgrade/test".into(), recipe)],
-            )]),
-            fluid_tags:Default::default(),
-            facade_items: Default::default(),
-            meta: Default::default(),
-            facts: Default::default(),
-            curses: Default::default(),
-            cook_index: Default::default(),
-        };
+            )]);
         let diamond = ItemStack::new("minecraft:diamond", 1);
         let key = crate::ae2_cell_codec::key(&diamond).unwrap();
         let mut cell = Cell::new_1k();
@@ -172,7 +162,7 @@ mod tests {
         let mut grid = vec![None; 9];
         grid[7] = Some(holder.clone());
         grid[2] = Some(ItemStack::new("ae2:cell_component_4k", 64));
-        let (name, out) = recipes.find(&grid, 3).unwrap();
+        let (name, out) = recipes.find(crate::test_resources::server_loop_context(), &grid, 3).unwrap();
         assert_eq!(out.item.as_ref(), "ae2:item_storage_cell_4k");
         assert_eq!(out.extra, holder.extra);
         assert_eq!(
@@ -184,23 +174,20 @@ mod tests {
                 .1,
             &7
         );
-        let rest = recipes.remainders(name, &grid, 3);
+        let rest = recipes.remainders(name, &grid, 3, &|_| None);
         assert_eq!(rest[7], Some(ItemStack::new("ae2:cell_component_1k", 1)));
         assert_eq!(rest.iter().flatten().count(), 1);
         assert_eq!(grid[2].as_ref().unwrap().count, 64);
         grid[7].as_mut().unwrap().count = 2;
-        assert!(recipes.find(&grid, 3).is_none());
+        assert!(recipes.find(crate::test_resources::server_loop_context(), &grid, 3).is_none());
         grid[7].as_mut().unwrap().count = 1;
         grid[3] = grid[2].clone();
-        assert!(recipes.find(&grid, 3).is_none());
+        assert!(recipes.find(crate::test_resources::server_loop_context(), &grid, 3).is_none());
     }
     #[test]
     fn source_card_crafting_preserves_actual_cell_and_returns_the_marked_card() {
-        let recipes = Recipes {
-            crafting: vec![],
-            cooking: vec![],
-            custom: Default::default(),
-            ae2_custom: std::collections::HashMap::from([
+        let mut recipes = Recipes::empty();
+        recipes.ae2_custom = std::collections::HashMap::from([
                 (
                     "ae2:add_item_upgrade".into(),
                     vec![("ae2:add_item_upgrade".into(), serde_json::json!({}))],
@@ -209,14 +196,7 @@ mod tests {
                     "ae2:remove_item_upgrade".into(),
                     vec![("ae2:remove_item_upgrade".into(), serde_json::json!({}))],
                 ),
-            ]),
-            fluid_tags:Default::default(),
-            facade_items: Default::default(),
-            meta: Default::default(),
-            facts: Default::default(),
-            curses: Default::default(),
-            cook_index: Default::default(),
-        };
+            ]);
         let key = crate::ae2_cell_codec::key(&ItemStack::new("minecraft:diamond", 1)).unwrap();
         let mut cell = Cell::new_1k();
         cell.insert(&key, 7, Action::Modulate);
@@ -228,7 +208,7 @@ mod tests {
         let mut grid = vec![None; 9];
         grid[7] = Some(holder);
         grid[2] = Some(card.clone());
-        let (id, upgraded) = recipes.find(&grid, 3).unwrap();
+        let (id, upgraded) = recipes.find(crate::test_resources::server_loop_context(), &grid, 3).unwrap();
         assert_eq!(id, "ae2:add_item_upgrade");
         assert_eq!(
             crate::ae2_cell_codec::read_cell(&upgraded)
@@ -242,10 +222,10 @@ mod tests {
         assert_eq!(grid[2].as_ref().unwrap().count, 3);
         grid[7] = Some(upgraded);
         grid[2] = None;
-        let (id, removed) = recipes.find(&grid, 3).unwrap();
+        let (id, removed) = recipes.find(crate::test_resources::server_loop_context(), &grid, 3).unwrap();
         assert_eq!(id, "ae2:remove_item_upgrade");
         assert_eq!(removed, ItemStack { count: 1, ..card });
-        let remaining = recipes.remainders(id, &grid, 3);
+        let remaining = recipes.remainders(id, &grid, 3, &|_| None);
         let holder = remaining[7].as_ref().unwrap();
         assert_eq!(
             holder.data().unwrap().custom_name_plain().as_deref(),
@@ -270,6 +250,6 @@ mod tests {
         assert_eq!(remaining.iter().flatten().count(), 1);
         grid[7] = Some(holder.clone());
         grid[2] = Some(ItemStack::new("ae2:energy_card", 1));
-        assert!(recipes.find(&grid, 3).is_none());
+        assert!(recipes.find(crate::test_resources::server_loop_context(), &grid, 3).is_none());
     }
 }

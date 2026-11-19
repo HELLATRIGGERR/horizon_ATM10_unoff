@@ -3624,6 +3624,7 @@ fn fluix_tool_overlay_components_match_host_stats_without_double_application() {
         assets.registry,
         &facts,
         &horizon_world::loot::PackOverlay::NONE,
+        &horizon_world::item_defaults::read(&root).unwrap(),
     )
     .unwrap();
     let pick = items.get("ae2:fluix_pickaxe").unwrap();

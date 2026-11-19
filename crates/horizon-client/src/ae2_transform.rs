@@ -182,7 +182,8 @@ mod tests {
     use horizon_core::geometry::Vec3;
     fn entity(id: u32, item: &str, count: u32) -> ItemEntity {
         ItemEntity {
-            random: horizon_core::random::LegacyRandom::new(0),
+            attachment_lifetime: Default::default(),
+            random: horizon_core::random::EntityRandom::own(horizon_core::random::LegacyRandom::new(0)),
             rotation: [0.0, 0.0],
             join: Default::default(),
             fall_distance: 0.0,

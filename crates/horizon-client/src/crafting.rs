@@ -2678,14 +2678,16 @@ mod tests {
         let (id, result) = recipes.find(lc(), &grid, 3).unwrap();
         assert_eq!(id, "ae2:network/parts/cable_anchor");
         assert_eq!((&*result.item, result.count), ("ae2:cable_anchor", 4));
-        let remaining = recipes.remainders(&id, &grid, 3);
+        let remaining = recipes.remainders(&id, &grid, 3, &|_| None);
         assert_eq!(remaining[4].as_ref().unwrap().damage, 49);
         assert!(remaining[5].is_none());
         grid[4] = remaining[4].clone();
-        assert!(recipes.remainders(&id, &grid, 3)[4].is_none());
-        let preserved = recipes.remainders_with_durability(&id, &grid, 3, Some(&mut |_, _| 0));
+        assert!(recipes.remainders(&id, &grid, 3, &|_| None)[4].is_none());
+        let preserved =
+            recipes.remainders_with_durability(&id, &grid, 3, &|_| None, Some(&mut |_, _| 0));
         assert_eq!(preserved[4].as_ref().unwrap().damage, 49);
-        let broken = recipes.remainders_with_durability(&id, &grid, 3, Some(&mut |_, _| 1));
+        let broken =
+            recipes.remainders_with_durability(&id, &grid, 3, &|_| None, Some(&mut |_, _| 1));
         assert!(broken[4].is_none());
         // Preview never consumes world RNG; actual committed remainders use
         // the vanilla data-driven Unbreaking effect and retain the real stack.
@@ -2694,7 +2696,7 @@ mod tests {
         let enchantments = crate::enchant::tests::sample();
         let mut random = LegacyRandom::new(42);
         let mut control = random.clone();
-        let _ = recipes.remainders(&id, &grid, 3);
+        let _ = recipes.remainders(&id, &grid, 3, &|_| None);
         assert_eq!(random.next_long(), control.next_long());
         let mut preserved_count = 0;
         let mut broken_count = 0;
@@ -2702,7 +2704,8 @@ mod tests {
             let mut loss = |stack: &ItemStack, amount: u32| {
                 committed_durability_loss(&enchantments, &items, stack, &mut random, amount)
             };
-            match &recipes.remainders_with_durability(&id, &grid, 3, Some(&mut loss))[4] {
+            match &recipes.remainders_with_durability(&id, &grid, 3, &|_| None, Some(&mut loss))[4]
+            {
                 Some(stack) => {
                     assert_eq!(stack.damage, 49);
                     assert_eq!(

@@ -9,6 +9,8 @@
 //   FTB_TOOL_TARGET  target dir of the bundles' crates <base>/.build/target-ftb
 //   HORIZON_MIXINS   the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
 //   FTB_JOBS         cargo jobs                       2
+//   FTB_FEATURES     the game's Cargo features        none (`-p horizon-game --no-default-features`)
+//   FTB_BUNDLES      the bundles to stage and test    all of them
 // `world` passes AE2_RESOURCES and AE2_CONTENT_DIR to the harness, and FTBTEAMS_DEV=1 (Java's development
 // environment: the fake player command and the probes).
 //
@@ -17,12 +19,17 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
 import { addLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
 const exe = process.platform === 'win32' ? '.exe' : '';
 /** The bundles of this port, in the order they depend on each other. */
-const BUNDLES = ['ftbteams', 'ftbchunks', 'journeymap'].filter(name => existsSync(join(root, 'pack/mods', name, 'horizon-mixin.toml')));
+/** FTB_BUNDLES (`ftbteams`, `ftbteams,ftbchunks`) stages and tests some of them only; all by default. */
+const PICKED = process.env.FTB_BUNDLES?.split(',').map(name => name.trim()).filter(Boolean);
+const BUNDLES = ['ftbteams', 'ftbchunks', 'journeymap']
+  .filter(name => existsSync(join(root, 'pack/mods', name, 'horizon-mixin.toml')))
+  .filter(name => !PICKED || PICKED.includes(name));
 const CRATES: Record<string, string> = { ftbteams: 'ftbteams-core', ftbchunks: 'ftbchunks-core', journeymap: 'journeymap-core' };
 const env = (name: string, fallback: string) => resolve(process.env[name] ?? fallback);
 const stage = env('FTB_STAGE', join(base, 'stage-ftb'));
@@ -86,12 +93,12 @@ const steps: Record<string, () => Promise<void>> = {
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', mods, '--out', next]);
+    await applyBundles(command => run(command), mixins, root, mods, next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.FTB_FEATURES), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

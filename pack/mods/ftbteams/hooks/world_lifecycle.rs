@@ -1,4 +1,4 @@
-// A world opens or closes: the teams are read, or written and dropped.
-fn ftbteams_world_lifecycle(game: &mut crate::game::Game<'_>, phase: crate::game::native_lifecycle::WorldPhase) {
-    crate::game::ftbteams_world::lifecycle(game, phase);
+// A world closes (or fails to open): the teams are written and dropped.
+fn ftbteams_world_lifecycle(phase: mod_api::WorldPhase) {
+    crate::game::ftbteams_world::lifecycle(phase);
 }

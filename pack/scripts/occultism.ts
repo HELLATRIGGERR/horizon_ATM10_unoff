@@ -10,6 +10,8 @@
 //   OCCULTISM_TARGET       the staged game's target dir     <base>/.build/target-occultism-game
 //   OCCULTISM_TOOL_TARGET  target dir of the bundle's crate <base>/.build/target-occultism
 //   HORIZON_MIXINS         the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
+//   OCCULTISM_FEATURES    the game's Cargo features (`-p horizon-game --no-default-features`): ae2-lab, the world
+//                          tests load AE2's content
 //   OCCULTISM_JOBS         cargo jobs                       2
 // `units` also reads the carry's rituals, spirit fire recipes and pentacles when the carry is there. `world` passes
 // the carries, AE2_RESOURCES and AE2_CONTENT_DIR to the harness. No file of Occultism is in the bundle: the carry,
@@ -18,6 +20,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync,
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
 import { addLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -85,12 +88,12 @@ const steps: Record<string, () => Promise<void>> = {
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', mods, '--out', next]);
+    await applyBundles(command => run(command), mixins, root, mods, next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.OCCULTISM_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

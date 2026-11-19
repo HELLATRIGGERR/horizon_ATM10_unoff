@@ -23,3 +23,15 @@ here.
 No file of Occultism is committed: no code, textures, models, sounds or lang files. Its blocks, items, recipes,
 pentacles, loot tables and assets come from the carry of the player's own jar (`horizon-port-pack carry`), loaded with
 `--dev-mod`. This bundle adds their behaviour.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- The parsed recipes, pentacles, running bowls and items seen in fire are dropped at `server_started` and at
+  `world_lifecycle`'s close phases.
+- `block_entity` answers the compound only; the golden bowl's tick hands the API's `mod_api::ModBlockEntity` (its
+  slots hold `mod_api::ItemStack`s), the other bowls are read and written in the level as the engine's.
+- `right_click_block` on its `BlockClick` (a click taken ends as `Success`); `use_item` v2 reads its `UseItemCall`
+  at the head; the fork's `block_entity_inside` is upstream's `entity_inside` (one call, read at the head);
+  `level_tick_post` hands a `LevelRef`. Sounds go through `level_play_sound`, spirit fire through `level_set_block`.
+- Engine needs (HANDOFF "S3"): `right_click_block`, `use_item` and `entity_inside` are asked only while a part
+  listens (N5), so the bowls, the rituals' activation and spirit fire do nothing in a world yet.

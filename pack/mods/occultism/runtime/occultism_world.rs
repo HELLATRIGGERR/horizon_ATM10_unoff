@@ -4,15 +4,19 @@
 // Translated from Occultism 1.224.6 (MIT, Copyright 2020 klikli-dev; see this bundle's LICENSE-occultism):
 // `SpiritFireBlock`, `PlayerEventHandler.spiritFire`, `SacrificialBowlBlock`, `GoldenSacrificialBowlBlockEntity`,
 // `Ritual` and `CraftRitual`. Server hooks run on the thread of the `Game` that simulates the world, so the parsed
-// recipes are kept per thread, read on first use and dropped when a world opens or closes.
+// recipes are kept per thread, read on first use and dropped when the server opens its world or closes it. The golden
+// bowl's tick hands the API's block entity (the API's stacks); the other bowls are read and written in the level as
+// the engine's (`native_with_mod_block_entity`).
 
-use super::{Game, native_lifecycle::WorldPhase};
+use super::Game;
+use crate::game::api_values::{TryIntoApi, TryIntoEngine};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     items::ItemStack,
     text::Text,
 };
-use horizon_world::nbt::{Compound, JavaString, Tag};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use mod_api::{BlockUpdateFlags, SoundSource, WorldPhase};
 use occultism_core::{
     Ingredient, Pentacle, RitualRecipe, SpiritFireRecipe,
     pentacle::Blocks,
@@ -24,8 +28,6 @@ use std::{cell::RefCell, collections::HashMap};
 const BOWL: &str = "occultism:sacrificial_bowl";
 /// Slots of a golden bowl: 0 the activation item, then the ingredients taken so far (`consumedIngredients`).
 const GOLDEN_SLOTS: usize = 1 + 32;
-/// `SoundSource.BLOCKS`.
-const BLOCKS: usize = 4;
 // The golden bowl's saved keys, as `GoldenSacrificialBowlBlockEntity.saveNetwork` names them.
 const RITUAL: &str = "currentRitual";
 const TIME: &str = "currentTime";
@@ -57,7 +59,9 @@ fn key(name: &str) -> JavaString {
     JavaString::from(name)
 }
 
-pub(super) fn lifecycle(phase: WorldPhase) {
+/// `native_server_started` (where the fork's `WorldOpenReady` was) and `native_world_lifecycle` v2: the parsed
+/// recipes and pentacles, the running bowls and the items seen in fire are dropped.
+pub(super) fn lifecycle(phase: Option<WorldPhase>) {
     let _ = phase;
     CACHE.with(|c| *c.borrow_mut() = None);
     ACTIVE_BOWLS.with(|a| a.borrow_mut().clear());
@@ -69,7 +73,7 @@ fn cache(game: &Game<'_>) -> std::rc::Rc<Cache> {
         return c;
     }
     let mut rituals = Vec::new();
-    for r in game.native_recipes_of_type("occultism:ritual") {
+    for r in game.native_recipes_of_type("occultism:ritual").iter() {
         match RitualRecipe::parse(&r.id, &r.json) {
             Ok(recipe) => rituals.push(recipe),
             Err(e) => log::warn!("[occultism] ritual {e}"),
@@ -125,15 +129,18 @@ fn fits(game: &Game<'_>, ingredient: &Ingredient, stack: Option<&ItemStack>) -> 
 
 fn sound(game: &mut Game<'_>, sound: &str, pos: [i32; 3], volume: f32, pitch: f32) {
     let at = pos.map(|v| f64::from(v) + 0.5);
-    game.native_play_sound_in_place(sound, at, BLOCKS, volume, pitch);
+    if let Some(level) = game.fork_level_here() {
+        game.level_play_sound(level, sound, at, SoundSource::Blocks, volume, pitch);
+    }
 }
 
 // ---- Block entities -------------------------------------------------------
 
-/// `native_block_entity`: the sacrificial bowl and every golden bowl tier have one.
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+/// `native_block_entity`: the sacrificial bowl and every golden bowl tier have one (its type id is the block's
+/// declaration's).
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     if entity.is_none() && (block == BOWL || ritual::bowl_tier(block) > 0) {
-        *entity = Some((block.to_owned(), Compound::new()));
+        *entity = Some(Compound::new());
     }
 }
 
@@ -247,7 +254,7 @@ fn click_bowl(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut bool) {
             if held.is_none() {
                 *game.native_used_stack() = Some(stack);
             } else if let Some(player) = game.native_acting_player()
-                && let Some(left) = game.native_give_stack(player.uuid, stack)
+                && let Some(left) = game.native_give_stack(player.uuid(), stack)
             {
                 game.native_pop_resource(pos, left);
             }
@@ -258,7 +265,7 @@ fn click_bowl(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut bool) {
 }
 
 fn game_time(game: &Game<'_>) -> i64 {
-    game.native_level(game.native_dimension()).and_then(|l| game.native_level_game_time(l)).unwrap_or(0)
+    game.fork_level_here().and_then(|l| game.level_game_time(l)).unwrap_or(0)
 }
 
 /// The recipe a golden bowl would start (`RitualRecipe.matches` → `Ritual.identify`): the activation item fits, the
@@ -279,7 +286,7 @@ fn identify<'a>(game: &mut Game<'_>, cache: &'a Cache, pos: [i32; 3], activation
 /// `GoldenSacrificialBowlBlockEntity.activate` with the main hand.
 fn click_golden_bowl(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut bool) {
     let Some(held) = game.native_used_stack().clone().filter(|s| s.count > 0) else { return };
-    let player = game.native_acting_player();
+    let player = game.native_acting_player().map(|p| p.uuid());
     let running = game.native_with_mod_block_entity(pos, |e| e.nbt.contains_key(&key(RITUAL))).unwrap_or(false);
     if running {
         stop(game, pos, false);
@@ -294,14 +301,14 @@ fn click_golden_bowl(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut bool) {
             } else {
                 "ritual.occultism.does_not_exist"
             };
-            game.native_tell(p.uuid, Text::translate(message, &[]));
+            game.native_tell(p, Text::translate(message, &[]));
         }
         return;
     };
     if recipe.ritual_type != "occultism:craft" {
         if let Some(p) = player {
             let line = format!("[Occultism port] {} rituals are not ported yet: {}", recipe.ritual_type, recipe.id);
-            game.native_tell(p.uuid, Text::literal(line));
+            game.native_tell(p, Text::literal(line));
         }
         return;
     }
@@ -311,7 +318,7 @@ fn click_golden_bowl(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut bool) {
     let mut rest = held;
     rest.count -= 1;
     *game.native_used_stack() = (rest.count > 0).then_some(rest);
-    let caster = player.as_ref().map(|p| p.uuid);
+    let caster = player;
     let remaining: Vec<i32> = (0..recipe.ingredients.len() as i32).collect();
     game.native_with_mod_block_entity(pos, |e| {
         *slot_mut(e, 0) = Some(one);
@@ -327,13 +334,13 @@ fn click_golden_bowl(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut bool) {
     });
     sound(game, "occultism:start_ritual", pos, 1.0, 1.0);
     if let Some(p) = player {
-        game.native_action_bar(p.uuid, Text::translate(&format!("ritual.{}.started", recipe.ritual_key()), &[]));
+        game.native_action_bar(p, Text::translate(&format!("ritual.{}.started", recipe.ritual_key()), &[]));
         if let Some((_, name)) = &recipe.entity_to_sacrifice {
-            game.native_tell(p.uuid, Text::translate("ritual.occultism.sacrifice", &[]));
-            game.native_tell(p.uuid, Text::translate(name, &[]));
+            game.native_tell(p, Text::translate("ritual.occultism.sacrifice", &[]));
+            game.native_tell(p, Text::translate(name, &[]));
         }
         if recipe.requires_item_use() {
-            game.native_tell(p.uuid, Text::translate("ritual.occultism.use_item", &[]));
+            game.native_tell(p, Text::translate("ritual.occultism.use_item", &[]));
         }
     }
     let dimension = game.native_dimension().to_owned();
@@ -422,8 +429,8 @@ fn drop_result(game: &mut Game<'_>, pos: [i32; 3], result: ItemStack) {
     game.native_pop_resource(pos, result);
 }
 
-/// `GoldenSacrificialBowlBlockEntity.tick`.
-pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
+/// `GoldenSacrificialBowlBlockEntity.tick`, on the API's block entity (its slots hold the API's stacks).
+pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut mod_api::ModBlockEntity) {
     let Some(Tag::String(id)) = entity.nbt.get(&key(RITUAL)) else { return };
     let id = id.to_string_lossy();
     let cache = cache(game);
@@ -434,7 +441,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
             a.push((dimension, pos));
         }
     });
-    let finish_later = |game: &mut Game<'_>, entity: &mut ModBlockEntity, finished: bool| {
+    let finish_later = |game: &mut Game<'_>, entity: &mut mod_api::ModBlockEntity, finished: bool| {
         // The ticking entity is out of the world for this call: `stop` reads it back after its tick, so mark it.
         entity.nbt.insert(key("occultismStop"), Tag::Byte(if finished { 2 } else { 1 }));
         let _ = game;
@@ -455,8 +462,9 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     let mut bowls = bowl_items(game, pentacle, pos);
     let items: Vec<String> = bowls.iter().map(|(_, s)| s.item.to_string()).collect();
     let wanted: Vec<Ingredient> = remaining.iter().map(|i| recipe.ingredients[*i].clone()).collect();
+    let activation = entity.items.first().and_then(Option::as_ref).and_then(|s| s.try_into_engine(game.items()).ok());
     let valid = pentacle.validate(&World(game), pos).is_some()
-        && fits(game, &recipe.activation_item, slot(entity, 0))
+        && fits(game, &recipe.activation_item, activation.as_ref())
         && ritual::matches_ingredients(&wanted, &items, false, &item_tags(game));
     if !valid {
         finish_later(game, entity, false);
@@ -465,7 +473,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     if (recipe.requires_sacrifice() && !flag(&entity.nbt, SACRIFICED)) || (recipe.requires_item_use() && !flag(&entity.nbt, ITEM_USED)) {
         return;
     }
-    let tier = ritual::bowl_tier(&entity.id);
+    let tier = ritual::bowl_tier(entity.id());
     let before = match entity.nbt.get(&key(TIME)) {
         Some(Tag::Int(t)) => *t,
         _ => 0,
@@ -491,7 +499,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
             return;
         };
         if let Some(free) = entity.items.iter_mut().skip(1).find(|s| s.is_none()) {
-            *free = Some(stack);
+            *free = stack.try_into_api().ok();
         }
         remaining.remove(0);
         game.native_block_entity_sync(bowl);
@@ -528,7 +536,8 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
 
 // ---- Spirit fire ----------------------------------------------------------
 
-/// `native_block_entity_inside`: an item entity in a mod block, kept for the level's end of tick.
+/// `native_entity_inside` (the fork's `native_block_entity_inside`): an item entity in a mod block, kept for the
+/// level's end of tick.
 pub(super) fn inside(dimension: &str, entity: i32, kind: &str, position: [i32; 3]) {
     if kind == "minecraft:item"
         && let Ok(id) = u32::try_from(entity)
@@ -604,7 +613,9 @@ fn light_spirit_fire(game: &mut Game<'_>, pos: [i32; 3], face: [i32; 3], cancele
     {
         let sound_id = if flint { "minecraft:item.flintandsteel.use" } else { "minecraft:item.firecharge.use" };
         sound(game, sound_id, target, 1.0, 1.0);
-        game.native_set_block(dimension, target, state, 11);
+        if let Some(level) = game.fork_level(dimension) {
+            let _ = game.level_set_block(level, target, state, BlockUpdateFlags::NEIGHBORS | BlockUpdateFlags::CLIENTS);
+        }
         if !game.native_instabuild() || !flint {
             let used = game.native_used_stack();
             if let Some(s) = used.as_mut() {
@@ -632,7 +643,8 @@ pub(super) fn use_item(game: &mut Game<'_>, stack: &ItemStack) {
     let dimension = game.native_dimension();
     let bowls: Vec<[i32; 3]> = ACTIVE_BOWLS.with(|a| a.borrow().iter().filter(|(d, _)| d == dimension).map(|(_, p)| *p).collect());
     let Some(player) = game.native_acting_player() else { return };
-    let at = player.position.map(|v| v.floor() as i64);
+    let Some(position) = game.entity_position(player.entity()) else { return };
+    let at = position.map(|v| v.floor() as i64);
     let cache = cache(game);
     for pos in bowls {
         let d = [i64::from(pos[0]) - at[0], i64::from(pos[1]) - at[1], i64::from(pos[2]) - at[2]];

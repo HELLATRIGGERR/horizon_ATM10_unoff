@@ -1542,12 +1542,15 @@ pub(super) const BLOCK_CONTACT_HOOKS: horizon_client::block_contact::Hooks =
                 [c.position.x, c.position.y, c.position.z],
             );
         },
-        any_inside: || mod_api::__private::has_scoped_hook(mod_api::HookId::EntityInside),
+        any_inside: || {
+            mod_api::__private::has_scoped_hook(mod_api::HookId::EntityInside)
+                || crate::game::fork_compat::injected(mod_api::HookId::EntityInside)
+        },
         inside_listens: |state| {
             crate::game::api_values::block_state::block_listens(
                 mod_api::HookId::EntityInside,
                 state,
-            )
+            ) || crate::game::fork_compat::injected(mod_api::HookId::EntityInside)
         },
         pass_listens: |state| {
             crate::game::api_values::block_state::block_listens(

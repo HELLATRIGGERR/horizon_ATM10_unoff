@@ -42,6 +42,11 @@ const GATES: &[(HookId, &str)] = &[
     // network/remote/client_level_tick.rs: the client's level tick.
     (HookId::LevelTickPre, "level_tick_pre"),
     (HookId::LevelTickPost, "level_tick_post"),
+    // native_hooks/use_item_hand.rs `item_on_interaction` (a part hook): Iron Furnaces' upgrades and augments.
+    (HookId::UseOn, "use_on"),
+    // native_hooks/shared.rs `BLOCK_CONTACT_HOOKS` (`any_inside`, a scoped hook; `inside_listens`, per block):
+    // Occultism's spirit fire. An injection is not scoped to a block, so every block an entity is inside asks it.
+    (HookId::EntityInside, "entity_inside"),
 ];
 
 /// Whether `injected` (the hooks of applied injections) holds the gated hook `hook`.

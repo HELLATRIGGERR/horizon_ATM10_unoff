@@ -627,6 +627,61 @@ Not yet:
 - Of the pack's 12 MysticalCustomization crops, only `entro` and `xychorium_gem` have blocks: the others'
   blockstates come from MysticalCustomization's generated resources, which no jar holds.
 
+### Modern Industrialization
+
+`pack/mods/modern_industrialization` ports Modern Industrialization 2.5.11 from its own MIT source (the repository's
+tag `2.5.11`, cloned into `atm10-work/mod-sources/`; the bundle's README and `LICENSE-modern-industrialization`
+credit it). MI's blocks, items, recipes, loot and assets are the carry of the player's jar, loaded as a `--dev-mod`;
+the bundle adds behaviour through hooks that exist on main (no new hook):
+
+- `mi-core`: `MachineRecipe`'s codec and checks, `CrafterComponent`'s processing loop (recipe start, the efficiency
+  ramp, chance inputs and outputs, machine locks on output slots, overlapping recipes, the 100-tick recheck),
+  `EnergyComponent` and the Forge Energy bridge, the machines' layouts, the screen's data. Unit tests:
+  `pack/scripts/modern_industrialization.ts units` (17).
+- The electric macerator, compressor and cutting machine (`MachineTier.LV`: 8 EU/t base, 32 max, 3,200 EU), on the
+  world's `modern_industrialization:macerator`, `compressor` and `cutting_machine` recipes. Item slots are the
+  engine's container in a hopper menu (inputs take any item, outputs none; hoppers put into inputs and take from
+  outputs); fluid slots, energy and the crafter live in the saved compound under MI's names (`storedEu`,
+  `usedEnergy`, `activeRecipe`, `efficiencyTicks`...; fluids in `inventory_fluids`). Forge Energy goes in at
+  `forgeEnergyPerEu` (ATM10's `config/modern_industrialization-server.toml`: 16), whole EU only; machines give none.
+- The screen is MI's `MachineScreen`: its panel, slot frames, progress, energy and efficiency bars from the jar's
+  GUI textures, and the bars', fluid slots' and progress arrow's tooltips. `/mi probe <pos>` and
+  `/mi offer_fe <pos> <fe>` are for tests; the probe also lists each recipe the input items could start and whether
+  its item inputs, fluid inputs and outputs fit (why a machine doesn't start).
+- The carry's machine blocks are on the `minecraft:andesite` template, whose use opens no menu (`interact` answers
+  ok and nothing opens). The script's `content` step copies the carry and puts each ported machine's block on the
+  `minecraft:beacon` template, as Mekanism's machines are; the world test loads that copy. Whatever builds the pack's
+  own data from the carry needs the same change for these blocks.
+
+```sh
+source atm10-work/mi-work/env-mi.sh      # MI_CARRY, MI_CONTENT, MI_STAGE, MI_TARGET, HORIZON_MIXINS, MI_ONLY=1, ATM10_DIR
+bun run pack/scripts/modern_industrialization.ts units stage build world   # world makes the content copy first
+```
+
+State: the unit tests pass (17); `horizon-mixins apply` stages the bundle (14 injections, 2 modules, the crate) and the
+staged game builds. The world test `tests/machines.ts` (`mi-machines`) passes. It holds the server and steps it, with
+ATM10's own MI recipes (of the carry's 327 macerator, 102 compressor and 126 cutting machine recipes the world reads 125,
+19 and 78; the rest name tags or items this one-mod world doesn't hold, mostly other mods' `c:` tags) and `config/modern_industrialization-server.toml`: 1,000 FE give 62 EU (992 FE taken), then the
+rest of the 3,200 EU room; an annealed copper double ingot macerates in 25 ticks and 200 EU at 8 EU/t with its output
+slot reserved from the first tick, the next starts on the following tick with efficiency 1 of 72, and the recipe is
+forgotten when the efficiency is back to 0; a drill head gives 64 and 3 tiny dusts in two slots after 50 ticks; the
+compressor makes two plates in 25 ticks; the cutting machine makes 16 glass panes from 6 glass and 1 mB of lubricant
+in 25 ticks, and starts nothing without lubricant. An oak log with lubricant matches two of ATM10's cutting recipes (the
+planks' `#minecraft:oak_logs` and the stripped log's item), a plank matches the slabs' and the sticks'
+(`#minecraft:planks`): as `CrafterComponent.overlaps` says, none starts and the screen's data says so
+(`matches_multiple_recipes`). Output slots refuse a player's item. The macerator's and the cutting machine's screens
+open on a use and draw MI's panel, slots, progress, energy and efficiency bars, with the energy bar's and a fluid
+slot's tooltips; the run's screenshots (`mi-macerator.png`, `mi-macerator-energy-tooltip.png`, `mi-cutting-machine.png`,
+`mi-cutting-machine-fluid-tooltip.png`) were looked at. The NeoForge oracle hasn't run MI yet. One difference from MI:
+the crafter's memory of the last inventory hash (`lastInvHash`, `lastForcedTick`) isn't kept between ticks, so an idle
+machine looks for a recipe every tick instead of every 100 while its inventory is unchanged.
+
+Not ported yet: the multiblock framework (`ShapeTemplate`, `ShapeMatcher`, hatches; ATM10's Star altar, auto forge,
+runic crucible and enchanter are KubeJS-registered MI multiblocks), steam machines, the other electric machines,
+upgrades, casings, redstone control, overdrive, auto-extract and the side panel, the slot lock button, fluid slots
+through pipes and buckets, the stonecutter recipes the cutting machine also runs (`stonecutterToCuttingMachine`), the
+recipe viewer's categories, MI's cables and generators.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

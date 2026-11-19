@@ -18,13 +18,19 @@ use ftbchunks_core::{
     regions::{self, MapView, Region, TeleportFromMap},
     waypoints,
 };
-use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
+use horizon_client::{hud::HudBatch, text::Text};
+use mod_api::ScreenView;
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     path::PathBuf,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
 
 const MOD: &str = "ftbchunks";
 /// The large map's own screen id (the claim screen is `ftbchunks`).
@@ -369,7 +375,7 @@ fn map_frame(view: MapView, rect: [f32; 4]) -> ftbchunks_minimap::MapFrame {
 }
 
 /// `native_screen_render_post`: the large map, or the sidebar buttons on the inventory screen.
-pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     if sidebar_screen(screen) {
         sidebar(game, batch, screen);
         return;
@@ -389,7 +395,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
             let b1 = c.view.block_at(c.rect, far);
             let (p0, p1) = (l.view.point_of(rect, b0), l.view.point_of(rect, b1));
             let src = [0.0, 0.0, c.size[0] as f32, c.size[1] as f32];
-            game.native_sprite(batch, horizon_client::hud::MOD_IMAGE_SPRITE, src, [p0[0], p0[1], p1[0] - p0[0], p1[1] - p0[1]]);
+            game.native_sprite(batch, horizon_client::hud::MOD_IMAGE_SPRITE, src, [p0[0], p0[1], p1[0] - p0[0], p1[1] - p0[1]], None);
         }
         (l.view, l.dim.clone())
     });
@@ -407,7 +413,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
     }
     // The claim screen's button (C), top left.
     let label = tr("ftbchunks.gui.claimed_chunks", "Claim map", &[]);
-    let button = [rect[0] + 4.0, rect[1] + 4.0, game.native_text_width(&label) + 10.0, 14.0];
+    let button = [rect[0] + 4.0, rect[1] + 4.0, text_width(game, &label) + 10.0, 14.0];
     let hover = inside(button, screen.mouse);
     game.native_fill(batch, button, if hover { 0xE060_6060 } else { 0xC020_2020 });
     game.native_text(batch, &label, [button[0] + 5.0, button[1] + 3.0], 0xFFFFFF, true);
@@ -428,7 +434,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
 
 /// `native_screen_mouse_button_pressed_pre`: a left drag pans, a right click opens the waypoint menu; the button
 /// opens the claim screen. On the inventory screen: the sidebar buttons.
-pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+pub(super) fn pressed(game: &Game<'_>, screen: &ScreenView<'_>, button: i32, canceled: &mut bool) {
     if sidebar_screen(screen) {
         if let Some(p) = sidebar_buttons().into_iter().find(|(_, r, _, _)| inside(*r, screen.mouse)).map(|(p, ..)| p) {
             *canceled = true;
@@ -454,7 +460,7 @@ pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i3
 }
 
 /// `native_screen_mouse_dragged_pre`: the map follows the pointer.
-pub(super) fn dragged(game: &Game<'_>, screen: &NativeScreenView<'_>, canceled: &mut bool) {
+pub(super) fn dragged(game: &Game<'_>, screen: &ScreenView<'_>, canceled: &mut bool) {
     if !screen_open(game) {
         return;
     }
@@ -493,7 +499,7 @@ pub(super) fn released(game: &Game<'_>, button: i32, canceled: &mut bool) {
 }
 
 /// `native_screen_mouse_scrolled_pre`: the wheel zooms round the pointer, doubling a notch.
-pub(super) fn scrolled(game: &Game<'_>, screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+pub(super) fn scrolled(game: &Game<'_>, screen: &ScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
     if !screen_open(game) || scroll[1] == 0.0 {
         return;
     }
@@ -552,7 +558,7 @@ fn teleport(game: &mut Game<'_>) {
 // ---- FTB Library's sidebar buttons ------------------------------------------------------------------------
 
 /// The player's own inventory (no menu from the server, no title).
-fn sidebar_screen(screen: &NativeScreenView<'_>) -> bool {
+fn sidebar_screen(screen: &ScreenView<'_>) -> bool {
     screen.id == "inventory" && screen.menu.is_none() && screen.title.is_none()
 }
 
@@ -565,7 +571,7 @@ fn sidebar_buttons() -> [(Pending, [f32; 4], &'static str, &'static str); 2] {
 }
 
 /// The buttons, with icons of our own drawn in fills (FTB's textures are not ours to ship), and the hovered one's name.
-fn sidebar(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+fn sidebar(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     let team_rgb = game
         .native_player()
         .and_then(|_| ftbteams_world::with_client(|t| t.self_team.and_then(|id| t.color(id))))
@@ -592,7 +598,7 @@ fn sidebar(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>)
         }
         if hover {
             let name = tr(key, fallback, &[]);
-            let w = game.native_text_width(&name);
+            let w = text_width(game, &name);
             let at = [screen.mouse[0] + 10.0, screen.mouse[1] + 2.0];
             game.native_fill(batch, [at[0] - 2.0, at[1] - 2.0, w + 4.0, 12.0], 0xF010_0010);
             game.native_text(batch, &name, at, 0xFFFFFF, true);

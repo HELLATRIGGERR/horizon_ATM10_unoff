@@ -12,12 +12,18 @@ use ftbchunks_core::{
     net::{self, ChangeRequest, ChangeResponse, ChunkInfo, GeneralData, ManyChunks, Op},
     regions::{self, ForceLoadExpiry, OpenClaimGui},
 };
-use horizon_client::{hud::HudBatch, mod_api::NativeScreenView, text::Text};
+use horizon_client::{hud::HudBatch, text::Text};
+use mod_api::{Command, ScreenView};
 use std::{
     cell::RefCell,
     collections::{BTreeSet, HashMap},
     time::{Duration, Instant},
 };
+
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
 
 const MOD: &str = "ftbchunks";
 /// `FTBChunks.TILES`: the claim screen shows this many chunks a side, the player's in the middle.
@@ -279,7 +285,7 @@ pub(super) fn frame(game: &mut Game<'_>) {
 }
 
 /// `native_screen_mouse_button_pressed_pre`: a drag starts on the map.
-pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i32, modifiers: u32, canceled: &mut bool) {
+pub(super) fn pressed(game: &Game<'_>, screen: &ScreenView<'_>, button: i32, modifiers: u32, canceled: &mut bool) {
     if !screen_open(game) || !(button == 0 || button == 1) {
         return;
     }
@@ -298,7 +304,7 @@ pub(super) fn pressed(game: &Game<'_>, screen: &NativeScreenView<'_>, button: i3
 }
 
 /// `native_screen_mouse_dragged_pre`: every chunk the pointer passes over joins the selection (FTB's freehand mode).
-pub(super) fn dragged(game: &Game<'_>, screen: &NativeScreenView<'_>, canceled: &mut bool) {
+pub(super) fn dragged(game: &Game<'_>, screen: &ScreenView<'_>, canceled: &mut bool) {
     if !screen_open(game) {
         return;
     }
@@ -369,7 +375,7 @@ fn now_ms() -> i64 {
 
 /// `native_screen_mouse_scrolled_pre`: the wheel over a force-loaded chunk moves when it stops being force-loaded,
 /// by FTB Chunks' steps (`update_force_load_expiry`; the server takes it from a member of the claim's team).
-pub(super) fn scrolled(game: &Game<'_>, screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+pub(super) fn scrolled(game: &Game<'_>, screen: &ScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
     if !screen_open(game) || scroll[1] == 0.0 {
         return;
     }
@@ -394,7 +400,7 @@ fn argb(alpha: u32, rgb: u32) -> u32 {
 }
 
 /// `native_screen_render_post`: the claim screen.
-pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     if !screen_open(game) {
         return;
     }
@@ -407,7 +413,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
         let mut c = c.borrow_mut();
         c.layout = layout;
         if c.uploaded.is_some() {
-            game.native_sprite(batch, horizon_client::hud::MOD_IMAGE_SPRITE, [0.0, 0.0, size, size], [layout.x, layout.y, layout.side, layout.side]);
+            game.native_sprite(batch, horizon_client::hud::MOD_IMAGE_SPRITE, [0.0, 0.0, size, size], [layout.x, layout.y, layout.side, layout.side], None);
         }
         // The chunk grid.
         for i in 1..TILES {
@@ -485,7 +491,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
             y += 10.0;
         }
         let title = tr("ftbchunks.gui.claimed_chunks", "Claim map", &[]);
-        let w = game.native_text_width(&title);
+        let w = text_width(game, &title);
         game.native_text(batch, &title, [screen.rect[0] + (screen.rect[2] - w) / 2.0, layout.y - 12.0], 0xFFFFFF, true);
         if let Some((r, at)) = c.response.as_ref().filter(|(_, at)| at.elapsed() < Duration::from_secs(5)) {
             let _ = at;
@@ -523,12 +529,12 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
 
 // ---- The tests' probe -------------------------------------------------------------------------------------
 
-/// `native_commands`: the client's probe.
-pub(super) fn client_commands(commands: &mut Vec<&'static str>) {
+/// `native_register_client_commands`: the client's probe (each with an optional line its handler reads).
+pub(super) fn client_commands(commands: &mut Vec<Command>) {
     if dev() {
-        commands.push("ftbchunksclient");
-        commands.push("ftbchunksmap");
-        commands.push("ftbchunksbigmap");
+        commands.push(Command::new("ftbchunksclient [line:text]"));
+        commands.push(Command::new("ftbchunksmap [line:text]"));
+        commands.push(Command::new("ftbchunksbigmap [line:text]"));
     }
 }
 

@@ -24,6 +24,11 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// The width of `text` in GUI pixels (upstream's `native_text_width` takes the batch it would draw into).
+fn text_width(game: &Game<'_>, text: &str) -> f32 {
+    horizon_client::hud::HudBatch::text_width(&game.gui.atlas, text)
+}
+
 const MOD: &str = "ftbchunks";
 /// Chunks a side of the minimap's image, centred on the player's chunk (64 blocks show, plus the chunk's part).
 const CHUNKS: i32 = 5;
@@ -149,7 +154,7 @@ fn diamond(game: &Game<'_>, batch: &mut HudBatch, c: [f32; 2], rgb: u32, alpha: 
 }
 
 fn small_text(game: &Game<'_>, batch: &mut HudBatch, text: &str, center: [f32; 2], rgb: u32, scale: f32) {
-    let w = game.native_text_width(text);
+    let w = text_width(game, text);
     let start = batch.vertices.len();
     game.native_text(batch, text, [center[0] - w / 2.0, center[1]], rgb, true);
     if scale != 1.0 {
@@ -227,7 +232,7 @@ impl MapFrame {
 }
 
 fn menu_width(game: &Game<'_>, menu: &Menu) -> f32 {
-    menu.items.iter().map(|(l, _)| game.native_text_width(l)).fold(0.0, f32::max) + 8.0
+    menu.items.iter().map(|(l, _)| text_width(game, l)).fold(0.0, f32::max) + 8.0
 }
 
 /// A press while the menu is open: the item under it is done, and the menu closes. True when a menu was open.
@@ -352,11 +357,15 @@ fn info_lines(game: &Game<'_>, block: [i32; 3], dim: &str) -> Vec<(String, u32)>
     lines
 }
 
-/// `native_hud`: the corner minimap.
-pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corners) {
-    let shown = enabled() && !ftbchunks_map::screen_open(game) && !ftbchunks_largemap::screen_open(game) && ftbchunks_map::manager().is_some();
-    MINI.with(|m| m.borrow_mut().shown = false);
-    let Some(p) = game.native_player().filter(|_| shown) else { return };
+/// Whether the corner minimap shows now: on, no map screen open, and a manager known.
+fn shown(game: &Game<'_>) -> bool {
+    enabled() && !ftbchunks_map::screen_open(game) && !ftbchunks_largemap::screen_open(game) && ftbchunks_map::manager().is_some()
+}
+
+/// `native_render_frame_pre`: the minimap's image round the player, scanned again and uploaded when due (upstream's
+/// HUD hook `render_gui_post` reads the game only, so `hud` draws what this made).
+pub(super) fn frame(game: &mut Game<'_>) {
+    let Some(p) = game.native_player().filter(|_| shown(game)) else { return };
     let dim = p.dimension.to_string();
     let block = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
     let origin = ((block[0] >> 4) - CHUNKS / 2, (block[2] >> 4) - CHUNKS / 2);
@@ -379,9 +388,20 @@ pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corne
             MINI.with(|m| m.borrow_mut().uploaded = ok);
         }
     }
-    if !MINI.with(|m| m.borrow().uploaded) {
+}
+
+/// `native_render_gui_post`: the corner minimap, from the image `frame` made.
+pub(super) fn hud(game: &Game<'_>, batch: &mut HudBatch, corners: &mut Corners) {
+    MINI.with(|m| m.borrow_mut().shown = false);
+    let Some(p) = game.native_player().filter(|_| shown(game)) else { return };
+    let dim = p.dimension.to_string();
+    let block = [p.x.floor() as i32, p.y.floor() as i32, p.z.floor() as i32];
+    let Some(origin) = MINI.with(|m| {
+        let m = m.borrow();
+        (m.uploaded && m.dim == dim).then_some(m.origin)
+    }) else {
         return;
-    }
+    };
     // FTB Chunks' size (`proportional`: a tenth of the GUI width, times `scale`) and place (`TOP_RIGHT`, 5 from the
     // edges); here it goes below what the corner holds (the status effects) where FTB Chunks moves them aside.
     let size = (batch.width / 10.0 * SCALE).floor().max(32.0);
@@ -409,7 +429,7 @@ pub(super) fn hud(game: &mut Game<'_>, batch: &mut HudBatch, corners: &mut Corne
             continue;
         }
         let x0 = r - half;
-        game.native_sprite(batch, MOD_IMAGE_SPRITE, [ox + x0 * k, oz + row as f32 * k, 2.0 * half * k, k], [x + x0, y + row as f32, 2.0 * half, 1.0]);
+        game.native_sprite(batch, MOD_IMAGE_SPRITE, [ox + x0 * k, oz + row as f32 * k, 2.0 * half * k, k], [x + x0, y + row as f32, 2.0 * half, 1.0], None);
     }
     // The reticle and the compass letters (`minimap.reticle`, `minimap.compass`).
     game.native_fill(batch, [x + 2.0, cy, size - 4.0, 0.5], 0x30FFFFFF);

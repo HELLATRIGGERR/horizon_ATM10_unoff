@@ -3,11 +3,8 @@
 // (`super::ftbteams_world`), the world's `ftbchunks/<team>.snbt` files, `/ftbchunks`, the protection hooks and the
 // force-load tickets (`native_force_chunk_in`, owned by `ftbchunks:<team>`, so `/forceload` stays vanilla's).
 
-use super::{
-    Game, ftbteams_world,
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
+use super::{Game, ftbteams_world};
+use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, EntityRef, PlayerRef, WorldPhase};
 use ftbchunks_core::{
     Actor, ChunkPos, Chunks, Claim, Config, Kind, MemberData, Protection, TeamData, TeamView, Teams, Uuid, chunk_of,
     commands::{self, Ctx, Msg},
@@ -61,6 +58,55 @@ thread_local! {
 }
 
 const BYPASS: &str = "BypassFTBChunksProtection";
+
+/// A server player as the rules read them (the fork's `NativeServerPlayer`), from upstream's typed reads of a
+/// `PlayerRef`.
+#[derive(Clone, Debug)]
+struct Sp {
+    uuid: Uuid,
+    name: String,
+    permission: u8,
+    dimension: String,
+    position: [f64; 3],
+    yaw: f32,
+    pitch: f32,
+    fake: bool,
+    spectator: bool,
+    entity_id: i32,
+    health: f32,
+}
+
+fn sp(game: &Game<'_>, p: PlayerRef) -> Option<Sp> {
+    let entity = p.entity();
+    let [yaw, pitch] = game.entity_rotation(entity).unwrap_or_default();
+    Some(Sp {
+        uuid: p.uuid(),
+        name: game.player_name(p).unwrap_or_default(),
+        permission: game.player_permission_level(p).unwrap_or(0),
+        dimension: game.player_dimension(p)?.to_string(),
+        position: game.entity_position(entity)?,
+        yaw,
+        pitch,
+        fake: game.player_is_fake(p).unwrap_or(false),
+        spectator: game.player_is_spectator(p).unwrap_or(false),
+        entity_id: i32::try_from(entity.id()).unwrap_or(0),
+        health: game.living_health(mod_api::LivingRef::new(entity)).unwrap_or(1.0),
+    })
+}
+
+/// The players on the server.
+fn server_players(game: &Game<'_>) -> Vec<Sp> {
+    game.native_server_players().into_iter().filter_map(|p| sp(game, p)).collect()
+}
+
+/// The player whose action a hook is asked about.
+fn acting(game: &Game<'_>) -> Option<Sp> {
+    sp(game, game.native_acting_player()?)
+}
+
+fn server_player(game: &Game<'_>, uuid: Uuid) -> Option<Sp> {
+    sp(game, game.fork_player(uuid)?)
+}
 
 fn now_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
@@ -318,44 +364,47 @@ fn load_config(instance: Option<&Path>, world: &Path) -> Config {
 
 // ---- The world ----------------------------------------------------------------------------------------------
 
-/// `native_world_lifecycle`: the claims are read as a world opens, written and dropped as it closes.
-pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
-    match phase {
-        WorldPhase::WorldOpenReady => {
-            let Some(world) = game.native_world_dir() else { return };
-            let config_dir = Game::native_config_dir().ok();
-            let mut chunks = Chunks { config: load_config(config_dir.as_deref(), &world), ..Chunks::default() };
-            if let Ok(entries) = std::fs::read_dir(world.join("ftbchunks")) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    let Some(id) = path.file_stem().and_then(|s| s.to_str()).and_then(parse_uuid) else { continue };
-                    if path.extension().is_some_and(|e| e == "snbt") {
-                        if let Some(c) = snbt::read_file(&path) {
-                            read_team(&mut chunks, id, &c);
-                        }
-                    }
+/// `native_server_started` (NeoForge's `ServerStartedEvent`, where the fork's `WorldOpenReady` was): the claims are
+/// read once the worlds are open, before any player joins.
+pub(super) fn opened(game: &mut Game<'_>) {
+    let Some(world) = game.native_world_dir() else { return };
+    let config_dir = Game::native_config_dir().ok();
+    let mut chunks = Chunks { config: load_config(config_dir.as_deref(), &world), ..Chunks::default() };
+    if let Ok(entries) = std::fs::read_dir(world.join("ftbchunks")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(id) = path.file_stem().and_then(|s| s.to_str()).and_then(parse_uuid) else { continue };
+            if path.extension().is_some_and(|e| e == "snbt") {
+                if let Some(c) = snbt::read_file(&path) {
+                    read_team(&mut chunks, id, &c);
                 }
             }
-            log::info!("[ftbchunks] loaded {} claims of {} teams", chunks.claims.len(), chunks.teams.len());
-            let server = Server {
-                chunks,
-                dir: Some(world),
-                held: BTreeSet::new(),
-                resync_in: 0,
-                noticed: BTreeMap::new(),
-                sent: BTreeMap::new(),
-                logins: Vec::new(),
-                publish: true,
-                registered: false,
-                ticks: 0,
-                last_sweep: 0,
-                sweep_now: false,
-                pvp_noticed: BTreeMap::new(),
-            };
-            SPREAD_GUARD.with(|g| g.set((server.chunks.config.fire_spread_protection, server.chunks.config.flowing_fluid_protection)));
-            SERVER.with(|s| *s.borrow_mut() = Some(server));
         }
-        WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => saved_and(true),
+    }
+    log::info!("[ftbchunks] loaded {} claims of {} teams", chunks.claims.len(), chunks.teams.len());
+    let server = Server {
+        chunks,
+        dir: Some(world),
+        held: BTreeSet::new(),
+        resync_in: 0,
+        noticed: BTreeMap::new(),
+        sent: BTreeMap::new(),
+        logins: Vec::new(),
+        publish: true,
+        registered: false,
+        ticks: 0,
+        last_sweep: 0,
+        sweep_now: false,
+        pvp_noticed: BTreeMap::new(),
+    };
+    SPREAD_GUARD.with(|g| g.set((server.chunks.config.fire_spread_protection, server.chunks.config.flowing_fluid_protection)));
+    SERVER.with(|s| *s.borrow_mut() = Some(server));
+}
+
+/// `native_world_lifecycle`: the claims are written and dropped as a world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        saved_and(true);
     }
 }
 
@@ -622,7 +671,7 @@ fn json_bytes(value: &impl serde::Serialize) -> Vec<u8> {
 /// Tells the clients what changed since they were last told (`send_many_chunks`, `send_general_data`), and gives
 /// players who just logged in the whole picture.
 fn publish(game: &mut Game<'_>) {
-    let online = game.native_server_players();
+    let online = server_players(game);
     let Some(out) = with(|server, view| {
         if !std::mem::take(&mut server.publish) {
             return Vec::new();
@@ -680,7 +729,7 @@ pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data
         log::warn!("[ftbchunks] a bad {channel} message from {player:032x}");
         return;
     };
-    let Some(sender) = game.native_server_players().into_iter().find(|p| p.uuid == player) else { return };
+    let Some(sender) = server_player(game, player) else { return };
     let operator = sender.permission >= 2;
     let response = with(|server, view| {
         let asked = request.team.as_deref().and_then(net::parse_uuid_text).and_then(|id| view.team(id));
@@ -711,7 +760,7 @@ fn force_load_expiry(game: &mut Game<'_>, player: u128, data: &[u8]) {
         log::warn!("[ftbchunks] a bad {} message from {player:032x}", regions::FORCE_LOAD_EXPIRY);
         return;
     };
-    let Some(sender) = game.native_server_players().into_iter().find(|p| p.uuid == player) else { return };
+    let Some(sender) = server_player(game, player) else { return };
     if sender.dimension != m.dim {
         return;
     }
@@ -733,13 +782,13 @@ fn force_load_expiry(game: &mut Game<'_>, player: u128, data: &[u8]) {
 /// height there (FTB Chunks' fallback height where the server has none either).
 fn teleport_from_map(game: &mut Game<'_>, player: u128, data: &[u8]) {
     let Ok(m) = serde_json::from_slice::<regions::TeleportFromMap>(data) else { return };
-    let Some(sender) = game.native_server_players().into_iter().find(|p| p.uuid == player) else { return };
+    let Some(sender) = server_player(game, player) else { return };
     if sender.permission < 2 {
         return;
     }
     let [x, y, z] = m.pos;
     let y = if m.unknown_y {
-        game.native_surface_heights(&m.dim, &[(x, z)], super::NativeHeightmap::MotionBlockingNoLeaves)
+        game.native_surface_heights(&m.dim, &[(x, z)], mod_api::Heightmap::MotionBlockingNoLeaves)
             .ok()
             .and_then(|h| h.first().copied().flatten())
             .unwrap_or(regions::TELEPORT_FALLBACK_Y)
@@ -755,7 +804,7 @@ fn teleport_from_map(game: &mut Game<'_>, player: u128, data: &[u8]) {
 /// FTB Chunks' notice over the hotbar when a player walks into another chunk whose claim is another team's (its
 /// name in its colour) or none (the wilderness line, dark green): real players only, as FTB Chunks' section event.
 fn claim_notices(game: &mut Game<'_>) {
-    let players = game.native_server_players();
+    let players = server_players(game);
     let lines = with(|server, view| {
         NOTICE.with(|n| {
             let mut n = n.borrow_mut();
@@ -790,9 +839,9 @@ fn bypass_of(m: &Manager, player: Uuid) -> bool {
     matches!(m.teams.get(&player).and_then(|t| t.extra.get(BYPASS)), Some(Value::Bool(true)))
 }
 
-fn actor(game: &Game<'_>, m: &Manager) -> Option<(Actor, NativeServerPlayer)> {
-    let p = game.native_acting_player()?;
-    let actor = Actor { uuid: p.uuid, name: p.name.clone(), fake: p.fake, spectator: p.game_mode == 3, bypass: bypass_of(m, p.uuid) };
+fn actor(game: &Game<'_>, m: &Manager) -> Option<(Actor, Sp)> {
+    let p = acting(game)?;
+    let actor = Actor { uuid: p.uuid, name: p.name.clone(), fake: p.fake, spectator: p.spectator, bypass: bypass_of(m, p.uuid) };
     Some((actor, p))
 }
 
@@ -869,17 +918,31 @@ pub(super) fn right_click_block(game: &mut Game<'_>, pos: [i32; 3], canceled: &m
     }
 }
 
-/// `native_use_item_on`: a placement (BlockEvent.EntityPlaceEvent) is EDIT_BLOCK where the block lands.
-pub(super) fn use_item_on(game: &mut Game<'_>, pos: [i32; 3], face: [i32; 3], claimed: &mut bool) {
-    if !*claimed {
-        let at = [pos[0] + face[0], pos[1] + face[1], pos[2] + face[2]];
-        *claimed = !check(game, at, Protection::EditBlock, false);
+/// `native_entity_place` (BlockEvent.EntityPlaceEvent): a player's placement is EDIT_BLOCK where the block lands.
+pub(super) fn place(game: &mut Game<'_>, placer: Option<EntityRef>, at: [i32; 3], canceled: &mut bool) {
+    if *canceled {
+        return;
+    }
+    let by_player = placer.zip(game.native_acting_player()).is_some_and(|(e, p)| e.id() == p.entity().id());
+    if by_player {
+        *canceled = !check(game, at, Protection::EditBlock, false);
     }
 }
 
-/// `native_use_item`: RIGHT_CLICK_ITEM at the player's eyes.
-pub(super) fn use_item(game: &mut Game<'_>, stack: &horizon_client::items::ItemStack, claimed: &mut bool) {
-    if *claimed || stack.count == 0 {
+thread_local! {
+    /// `use_item` refused the use in progress: `take_item_refusal` answers it.
+    static ITEM_REFUSED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether `use_item` refused the use the hook is answering (once).
+pub(super) fn take_item_refusal() -> bool {
+    ITEM_REFUSED.with(|r| r.replace(false))
+}
+
+/// `native_use_item`: RIGHT_CLICK_ITEM at the player's eyes; a refusal is answered by `take_item_refusal`.
+pub(super) fn use_item(game: &mut Game<'_>, stack: &horizon_client::items::ItemStack) {
+    ITEM_REFUSED.with(|r| r.set(false));
+    if stack.count == 0 {
         return;
     }
     let item = stack.item.to_string();
@@ -898,7 +961,7 @@ pub(super) fn use_item(game: &mut Game<'_>, stack: &horizon_client::items::ItemS
     .flatten();
     if let Some(player) = refused {
         notify(game, player, ftbchunks_core::Refusal::Prevented);
-        *claimed = true;
+        ITEM_REFUSED.with(|r| r.set(true));
     }
 }
 
@@ -910,7 +973,7 @@ pub(super) fn fill_bucket(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut boo
 }
 
 fn player_block(game: &Game<'_>) -> Option<[i32; 3]> {
-    let p = game.native_acting_player()?;
+    let p = acting(game)?;
     Some(p.position.map(|v| v.floor() as i32))
 }
 
@@ -938,7 +1001,7 @@ pub(super) fn attack_entity(game: &mut Game<'_>, kind: &str, pos: [f64; 3], canc
         return;
     }
     if kind == "minecraft:player" {
-        if let Some(attacker) = game.native_acting_player().filter(|p| melee_refused(p, pos)).map(|p| p.uuid) {
+        if let Some(attacker) = acting(game).filter(|p| melee_refused(p, pos)).map(|p| p.uuid) {
             *canceled = true;
             tell_pvp_to(game, attacker);
         }
@@ -948,14 +1011,15 @@ pub(super) fn attack_entity(game: &mut Game<'_>, kind: &str, pos: [f64; 3], canc
 }
 
 /// Whether `attacker`'s blow on a player standing at `victim` is refused: either stands in a claim `pvp_mode` guards.
-fn melee_refused(attacker: &NativeServerPlayer, victim: [f64; 3]) -> bool {
+fn melee_refused(attacker: &Sp, victim: [f64; 3]) -> bool {
     let at = |v: [f64; 3]| chunk_of(&attacker.dimension, v[0].floor() as i32, v[2].floor() as i32);
     with(|server, view| server.chunks.refuses_pvp(view, &at(attacker.position), &at(victim))).unwrap_or(false)
 }
 
-/// `native_explosion_detonate`: claimed blocks of teams that don't allow explosions stay.
-pub(super) fn explosion(dimension: &str, source: Option<(u32, &str)>, blocks: &mut Vec<[i32; 3]>) {
-    with(|server, view| server.chunks.filter_explosion(view, dimension, source.is_some(), blocks));
+/// `native_explosion_detonate`: claimed blocks of teams that don't allow explosions stay. Upstream's hook names no
+/// source, so every explosion is taken as one with a known source (`protect_unknown_explosions` no longer exempts any).
+pub(super) fn explosion(dimension: &str, blocks: &mut Vec<[i32; 3]>) {
+    with(|server, view| server.chunks.filter_explosion(view, dimension, true, blocks));
 }
 
 /// `native_piston_move`: no block crosses into another team's claim (`piston_protection`).
@@ -986,22 +1050,46 @@ pub(super) fn piston_move(
 
 // ---- /ftbchunks ---------------------------------------------------------------------------------------------
 
-/// `native_register_commands`.
-pub(super) fn register(commands: &mut Vec<NativeCommand>) {
-    for (usage, level) in commands::usages() {
-        commands.push(if level == 0 { NativeCommand::new(&usage) } else { NativeCommand::op(&usage, level) });
-    }
+/// `native_register_commands`. Upstream's dispatcher parses a usage's arguments itself, and its `word` takes no `:`
+/// (a dimension, a colour) or `~` (a position), which FTB's own argument types read: so each root is its name and one
+/// optional `text` argument, the line the rules parse as Java's tree does (`commands::usages` and the operator
+/// levels stay the rules', which check them).
+pub(super) fn register(commands: &mut Vec<Command>) {
+    commands.push(Command::new("ftbchunks [line:text]"));
+    commands.push(Command::new("chunks [line:text]"));
     if dev() {
-        commands.push(NativeCommand::op("ftbchunks_probe", 2));
-        commands.push(NativeCommand::op("ftbchunks_probe_pvp <x:integer> <z:integer>", 2));
+        commands.push(Command::op("ftbchunks_probe", 2));
+        commands.push(Command::op("ftbchunks_probe_pvp <x:integer> <z:integer>", 2));
     }
 }
 
-/// `native_perform_command`: `/ftbchunks ...` (`/chunks ...`), and `/ftbchunks_probe` (tests) answering `FTBC {json}`.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+/// The command line a parsed invocation of one of `register`'s usages was typed as: its words, then the arguments.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        let word = match &argument.value {
+            CommandArgumentValue::String(text) => text.clone(),
+            CommandArgumentValue::Integer(n) => n.to_string(),
+            CommandArgumentValue::Number(n) => n.to_string(),
+            CommandArgumentValue::Boolean(b) => b.to_string(),
+            _ => continue,
+        };
+        line.push(' ');
+        line.push_str(&word);
+    }
+    line
+}
+
+/// `native_run_mod_command`: `/ftbchunks ...` (`/chunks ...`), and `/ftbchunks_probe` (tests) answering `FTBC {json}`.
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
     if *ran {
         return;
     }
+    let CommandSource::Player { player, .. } = source else { return };
+    let Some(player) = sp(game, *player) else { return };
+    let player = &player;
+    let command = line(call);
+    let command = command.as_str();
     let first = command.split_whitespace().next().unwrap_or_default();
     if first == "ftbchunks_probe" && dev() {
         *ran = true;
@@ -1096,7 +1184,7 @@ thread_local! {
 
 /// Each tick: the block, and dimension, of every living player.
 fn remember_alive(game: &Game<'_>) {
-    let players = game.native_server_players();
+    let players = server_players(game);
     ALIVE.with(|a| {
         let mut a = a.borrow_mut();
         a.retain(|id, _| players.iter().any(|p| p.uuid == *id));

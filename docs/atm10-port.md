@@ -563,6 +563,70 @@ Not yet, by size:
   ritual's dropped result and returned items come out at a random point of the bowl's block (`Block.popResource`), not
   tossed up from its center.
 
+### Mystical Agriculture
+
+`pack/mods/mysticalagriculture` ports Mystical Agriculture 1.21.1-8.0.29 and the parts of Cucumber 1.21.1-8.0.16
+it needs, both MIT, from their own source (`README.md` names the commits; `LICENSE-mysticalagriculture`,
+`LICENSE-cucumber`). The rules are in `ma-core`, the glue in `runtime/ma_world.rs`, on hook points main already has.
+Blocks, items, recipes and assets are the carry of the player's jar, carried with the oracle's facts of MA's batch
+(`facts-b07.json`), so each seed's `place_block` names its crop:
+
+```sh
+ATM10_DIR=... MA_WORK=<port-pack work, MA fetched, oracle/facts.json = facts-b07.json> \
+  bun run pack/scripts/mysticalagriculture.ts carry units stage build world
+```
+
+What works:
+
+- Crops: the 136 crops of `ModCrops` with their tiers, and the pack's MysticalCustomization crops and tiers read
+  from `config/mysticalcustomization/` (their crux, tier and farmland). A crop that can't grow (its crux two below,
+  or its tier's farmland when `requiresEffectiveFarmland` is on) takes no random tick; one that can grows as its
+  wheat template does. Bone meal is used up and grows nothing. A harvest drops `MysticalCropBlock.getDrops`:
+  the essence, a second one at the farmland's secondary chance (an essence farmland's base 0.1, plus 0.1 on the
+  tier's own), the seed (a second only with `secondarySeedDrops`, off in ATM10), and Fertilized Essence at
+  `fertilizedEssenceChance`. Inferium drops by the farmland's tier (1, 1 or 2, 2, 2 or 3, 3).
+- Growth Accelerators: every 9 to 11 s (`growthAcceleratorCooldown`) the first of MA's crops within reach above takes
+  `CropBlock.randomTick` (light, growth speed, the level's random).
+- The infusion altar and its eight pedestals: right clicks put one item on or take it off, the altar gives its output
+  first; a redstone signal or the wand activates it; after 100 ticks with a matching recipe the pedestals' items
+  are used (their crafting remainders stay) and the result goes to the output slot. Recipes are the world's
+  `mysticalagriculture:infusion` table, matched one item to one ingredient as NeoForge's `RecipeMatcher`.
+- Settings from ATM10's `config/mysticalagriculture-common.toml` (`pack/pack.toml` lists it for `sync-atm10.ts`).
+
+Differences from Java: the altar and pedestals draw no item above them and send no particles (no block entity
+renderer yet); an item taken off goes into the inventory, not an item entity at the player's feet; a hopper can put a
+second item into the altar's input; an accelerator is a ticking block entity, not a scheduled block tick, and only
+reaches MA's crops (Java gives any bonemealable block a random tick); its light check reads the brighter of block and
+sky light without the time of day; `transfer_components` recipes don't copy the input's components.
+
+Verified: `ma-core` has 15 unit tests (crops, tiers, drops, growth speed, infusion matching, altar steps,
+accelerator, config). The world test `tests/crops-infusion.ts` runs on a world with the carry as a dev mod:
+
+- Inferium Seeds plant `inferium_crop[age=0]` on Tertium farmland (the carry's `place_block` and the `may_place_on` hook).
+- A Growth Accelerator has its block entity and `Cooldown`; the crop grows on random ticks.
+- A survival break of a ripe Inferium crop on Tertium farmland drops 2 Inferium Essence and 1 seed.
+- Right clicks put an Unattuned Augment on the altar and one item on each of the eight pedestals; a redstone signal
+  starts the ritual; the altar crafts the Absorption I Augment, the pedestals are emptied, and a right click gives
+  the output. A screenshot of the ring is taken (`infusion-altar.png`, in the run folder).
+- ATM10's `config/mysticalagriculture-common.toml` is read (`secondarySeedDrops = false`, 12 custom crops, 1 custom tier).
+
+Not tested in a world: bone meal on a crop (its hooks are in; the harness can't see a crop's face to use an item on
+it).
+
+Not yet:
+
+- The infusion recipes: the carry from the jar holds 123 and 57 load. The other 66 are the seed recipes
+  (`recipe/seed/infusion/`), whose ingredients are of MA's own type `mysticalagriculture:crop_component` (a crop's
+  material or essence) behind `crop_enabled` and `crop_has_material` conditions; the altar leaves them out. The oracle's
+  dump of ATM10 has 195 (MA builds the seed recipes in code at load); the port-pack's `final-data` over this carry
+  is the way to bring them in, and has not been run. The world table also lacks the recipes in
+  sub-folders, so the altar reads the data files of the type as well.
+- The awakening altar and essence vessels (`awakening`), the machines (Essence Furnace, Seed Reprocessor, Soul
+  Extractor and the rest, `reprocessor`, `soul_extraction`), Fertilized Essence and Mystical Fertilizer on crops, the
+  tools, armour and augments' effects, soul jars, the Agradditions crops.
+- Of the pack's 12 MysticalCustomization crops, only `entro` and `xychorium_gem` have blocks: the others'
+  blockstates come from MysticalCustomization's generated resources, which no jar holds.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

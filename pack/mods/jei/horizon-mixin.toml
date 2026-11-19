@@ -5,7 +5,8 @@
 # MIT (mezz); its behaviour is reimplemented in the crate `jei-core` from what the mod does; no file of it is
 # copied. JEI's artwork for the panel is the engine's (`NativePanelStyle::Viewer`); the recipe window's sprites come
 # from the player's jar at run time through the carry (`jei:gui/sprites/...`). See README.md.
-# It hooks Horizon's named hook points only; it pins no revision.
+# It hooks Horizon's named hook points only (tools/fork/native-hooks.json: upstream's declared hooks plus the
+# fork's compat hooks); it pins no revision.
 [mod]
 id = "jei"
 version = "0.1.0"
@@ -52,7 +53,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/mods.rs"
 bindings = [
-  { name = "mods", ty = "&mut Vec<crate::game::native_hooks::NativeMod>", value = "&mut *mods" },
+  { name = "mods", ty = "&mut Vec<NativeMod>", value = "&mut *mods" },
 ]
 
 [[injection]]
@@ -80,22 +81,31 @@ bindings = [
 ]
 
 [[injection]]
+id = "server-started"
+hook = "server_started"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/server_started.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
+
+[[injection]]
 id = "world-lifecycle"
 hook = "world_lifecycle"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/world_lifecycle.rs"
 bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+  { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
 ]
 
 [[injection]]
 id = "frame"
-hook = "frame"
-hook_version = 1
+hook = "render_frame_pre"
+hook_version = 2
 kind = "HEAD"
-helper = "hooks/frame.rs"
+helper = "hooks/render_frame_pre.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
 ]
@@ -109,7 +119,7 @@ helper = "hooks/panel_event.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "mod_id", ty = "&str", value = "mod_id" },
-  { name = "event", ty = "&crate::game::native_hooks::NativePanelEvent", value = "event" },
+  { name = "event", ty = "&mod_api::PanelEvent", value = "event" },
 ]
 
 [[injection]]
@@ -128,18 +138,18 @@ bindings = [
 
 [[injection]]
 id = "client-commands"
-hook = "commands"
+hook = "register_client_commands"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/commands.rs"
+helper = "hooks/register_client_commands.rs"
 bindings = [
-  { name = "commands", ty = "&mut Vec<&'static str>", value = "&mut *commands" },
+  { name = "commands", ty = "&mut Vec<mod_api::Command>", value = "&mut *commands" },
 ]
 
 [[injection]]
 id = "client-command"
 hook = "command"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/command.rs"
 bindings = [
@@ -156,8 +166,8 @@ kind = "HEAD"
 helper = "hooks/recipe_lookup.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "stack", ty = "&crate::game::native_hooks::NativeStack", value = "stack" },
-  { name = "lookup", ty = "&crate::game::native_hooks::NativeRecipeLookup", value = "lookup" },
+  { name = "stack", ty = "&mod_api::NativeStack", value = "stack" },
+  { name = "lookup", ty = "&mod_api::NativeRecipeLookup", value = "lookup" },
   { name = "handled", ty = "&mut bool", value = "&mut *handled" },
 ]
 
@@ -169,8 +179,8 @@ kind = "HEAD"
 helper = "hooks/screen_render_post.rs"
 bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
-  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
-  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *draw" },
+  { name = "screen", ty = "&mod_api::ScreenView<'_>", value = "screen" },
 ]
 
 [[injection]]
@@ -180,7 +190,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/screen_mouse_button_pressed_pre.rs"
 bindings = [
-  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "screen", ty = "&mod_api::ScreenView<'_>", value = "screen" },
   { name = "button", ty = "i32", value = "button" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
@@ -192,7 +202,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/screen_mouse_button_released_pre.rs"
 bindings = [
-  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "screen", ty = "&mod_api::ScreenView<'_>", value = "screen" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
 
@@ -203,7 +213,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/screen_mouse_scrolled_pre.rs"
 bindings = [
-  { name = "screen", ty = "&horizon_client::mod_api::NativeScreenView<'_>", value = "screen" },
+  { name = "screen", ty = "&mod_api::ScreenView<'_>", value = "screen" },
   { name = "scroll", ty = "[f64; 2]", value = "scroll" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]

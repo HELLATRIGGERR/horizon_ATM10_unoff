@@ -34,8 +34,21 @@ which writes JEI's `assets/jei` into `<work>/mods/jei/carry`, a content mod whos
 | `jei-core/src/recipes.rs` | the recipe screen: lookups, categories, JEI's crafting grid, history, the page drawn |
 | `runtime/jei_world.rs` | the glue: the game's items in, the panel out, Ctrl+O, cheat mode, settings, `/jeiclient` |
 | `runtime/jei_recipes.rs` | the recipe screen's glue: the tables and the mods' categories in, the page and catalysts out |
-| `hooks/` | the named hook points it uses: `frame`, `panel_event`, `screen_key_pressed_pre`, `mods`, `settings`, `settings_click`, `commands`, `command`, `recipe_lookup` |
+| `hooks/` | the named hook points it uses: `render_frame_pre`, `panel_event`, `screen_key_pressed_pre`, `mods`, `settings`, `settings_click`, `register_client_commands`, `command`, `recipe_lookup`, `server_started`, `world_lifecycle` |
 | `tests/item-list.ts` | the world test: the list in the inventory, searches, pages, Ctrl+O, a screenshot |
 | `tests/recipes.ts` | the world test: R, U, tabs, catalysts, clicks on ingredients, Backspace, screenshots |
 
 Build and test: `bun run pack/scripts/jei.ts units stage build world`.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- `frame` -> `render_frame_pre`, `commands` -> `register_client_commands`; the bookmarks learn the open world's
+  folder at `server_started` and forget it at `world_lifecycle`'s close phases.
+- `panel_event` carries upstream's `PanelEvent`, whose stacks are `ItemKey`s: `jei_world::NativePanelEvent` is the
+  fork's shape again (`NativePanelEvent::of`), the stack's id read from its key (a fluid or a mod's ingredient on the
+  panel arrives as the item drawn for it; upstream has no `Catalyst` event).
+- The mod list row (`mods`), the settings page (`settings`, `settings_click`) are the fork's compat hooks, which
+  nothing in the merged engine fires: upstream declares mod settings as data (`content/mod_settings.rs`,
+  `setting_changed`). Until JEI's settings are declared that way, its page is missing from Options > Mods.
+- `native_text_width` takes the batch now: the window measures with `HudBatch::text_width` on the GUI atlas
+  (`jei_window::text_width`); `native_sprite` takes a tint (`None`).

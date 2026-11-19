@@ -4,8 +4,7 @@
 // style with JEI's artwork), Ctrl+O, cheat mode (`native_give`), the Options > Mods page and the tests' probe. The
 // recipe screen (R, U, Backspace) is `jei_recipes`, its window `jei_window`.
 use super::Game;
-use super::native_hooks::{NativeMod, NativePanelEvent, NativeStack};
-use horizon_client::mod_api::{NativeIngredientInfo, NativePanelAlign, NativePanelGrid, NativePanelIngredient, NativePanelStyle};
+use mod_api::{Command, NativeIngredientInfo, NativePanelAlign, NativePanelGrid, NativePanelIngredient, NativeStack, PanelStyle};
 use jei_core::blacklist::Blacklist;
 use jei_core::{Item, List, Mode, Modes, Prefix, mod_id_format};
 use std::sync::Mutex;
@@ -223,7 +222,7 @@ pub(super) fn frame(game: &mut Game<'_>) {
             let blacklist = read_blacklist();
             let shown = filter(&list, &blacklist, "", game);
             let hidden = overlay_hidden();
-            game.native_panel_style(ID, NativePanelStyle::Viewer);
+            game.native_panel_style(ID, PanelStyle::Viewer);
             grid(game, hidden);
             let s = State { list, query: String::new(), shown, hidden, blacklist, version };
             show(game, &s);
@@ -266,6 +265,52 @@ pub(super) fn frame(game: &mut Game<'_>) {
     drop(guard);
     super::jei_recipes::frame(game, in_world);
     super::jei_bookmarks::frame(game, in_world);
+}
+
+/// What the player did on JEI's panel, as the fork's `NativePanelEvent` carried it: upstream's `PanelEvent` names
+/// an item by its `ItemKey` (`Stack`), the rules by its id (`NativeStack`).
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum NativePanelEvent {
+    Clicked { index: u32, right: bool },
+    Search(String),
+    Key { key: String, stack: NativeStack },
+    SlotClicked { recipe: u32, slot: u32, stack: NativeStack, right: bool },
+    Action(u32),
+    Page(u32),
+    Back,
+    Tab(u32),
+    Catalyst { index: u32, stack: NativeStack, right: bool },
+}
+
+/// Upstream's stack as the fork's: its item's id (a fluid or a mod's ingredient on the panel arrives as the item
+/// its side table drew, so it reads as an item here).
+fn native_stack(stack: &mod_api::Stack) -> NativeStack {
+    NativeStack {
+        item: mod_api::__private::item_key_id(stack.item).map(|id| id.to_string()).unwrap_or_default(),
+        count: stack.count,
+        components: stack.components.clone(),
+        kind: String::new(),
+    }
+}
+
+impl NativePanelEvent {
+    /// Upstream's `PanelEvent` (`panel_event`) as the fork's; None for one the fork had no variant for.
+    pub(super) fn of(event: &mod_api::PanelEvent) -> Option<Self> {
+        use mod_api::PanelEvent as E;
+        Some(match event {
+            E::Clicked { index, right } => Self::Clicked { index: *index, right: *right },
+            E::Search(text) => Self::Search(text.clone()),
+            E::Key { key, stack } => Self::Key { key: key.clone(), stack: native_stack(stack) },
+            E::SlotClicked { recipe, slot, stack, right } => {
+                Self::SlotClicked { recipe: *recipe, slot: *slot, stack: native_stack(stack), right: *right }
+            }
+            E::Action(i) => Self::Action(*i),
+            E::Page(i) => Self::Page(*i),
+            E::Back => Self::Back,
+            E::Tab(i) => Self::Tab(*i),
+            _ => return None,
+        })
+    }
 }
 
 /// The player's search or click on the panel.
@@ -353,14 +398,14 @@ pub(super) fn key_pressed(game: &Game<'_>, key: &str, repeat: bool, modifiers: u
 pub(super) fn recipe_lookup(
     game: &mut Game<'_>,
     stack: &NativeStack,
-    lookup: &super::native_hooks::NativeRecipeLookup,
+    lookup: &mod_api::NativeRecipeLookup,
     handled: &mut bool,
 ) {
     if state().is_none() {
         return;
     }
     // Another mod's screen asks what the bookmark key over a stack does: it bookmarks it.
-    if let super::native_hooks::NativeRecipeLookup::Key(key) = lookup
+    if let mod_api::NativeRecipeLookup::Key(key) = lookup
         && !*handled
         && *key == game.native_mod_key(ID, KEYS[BOOKMARK][0], KEYS[BOOKMARK][2])
     {
@@ -371,14 +416,10 @@ pub(super) fn recipe_lookup(
     super::jei_recipes::lookup(game, stack, lookup, handled);
 }
 
-/// The mod's row in Options > Mods, with its key.
-pub(super) fn listed(mods: &mut Vec<NativeMod>) {
-    mods.push(NativeMod {
-        id: ID.into(),
-        title: TITLE.into(),
-        description: DESCRIPTION.into(),
-        keys: KEYS.iter().map(|k| k.map(String::from)).collect(),
-    });
+/// The mod's row in Options > Mods, with its keys: id, title, description, keys (the `mods` hook's helper makes the
+/// fork's `NativeMod` of them, a type of the compat module).
+pub(super) fn listed() -> (String, String, String, Vec<[String; 3]>) {
+    (ID.into(), TITLE.into(), DESCRIPTION.into(), KEYS.iter().map(|k| k.map(String::from)).collect())
 }
 
 fn prefix_label(p: Prefix) -> &'static str {
@@ -431,9 +472,9 @@ pub(super) fn settings_click(game: &mut Game<'_>, mod_id: &str, button: usize) {
 }
 
 /// The client's own commands (the tests' probe, `JEI_DEV=1`).
-pub(super) fn client_commands(commands: &mut Vec<&'static str>) {
+pub(super) fn client_commands(commands: &mut Vec<Command>) {
     if dev() {
-        commands.push("jeiclient");
+        commands.push(Command::new("jeiclient [line:text]"));
     }
 }
 

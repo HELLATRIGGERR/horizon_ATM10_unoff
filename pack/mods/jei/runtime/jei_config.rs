@@ -7,7 +7,7 @@
 use super::Game;
 use super::jei_window::{self, BACKGROUND, BUTTON, BUTTON_DISABLED, BUTTON_HOVER, FACE};
 use horizon_client::hud::HudBatch;
-use horizon_client::mod_api::NativeScreenView;
+use mod_api::ScreenView;
 use horizon_client::text::Text;
 use jei_core::config::{CATEGORIES, Ini, OPTS};
 use jei_core::window::{Rect, inside};
@@ -207,7 +207,7 @@ fn vanilla_button(game: &Game<'_>, batch: &mut HudBatch, r: Rect, label: &str, c
 }
 
 /// `screen_render_post`: JEI's look on the item list's wrench (its cheat-mode icon in red), then the screen.
-pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScreenView<'_>) {
+pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &ScreenView<'_>) {
     let cursor = screen.mouse;
     let wrench = game.native_panel_area(super::jei_world::ID).map(|a| [a[0] + a[2] - 20.0, a[3] - 26.0, 20.0, 20.0]);
     *lock(&WRENCH) = wrench;
@@ -292,7 +292,7 @@ pub(super) fn render(game: &Game<'_>, batch: &mut HudBatch, screen: &NativeScree
 }
 
 /// `screen_mouse_button_pressed_pre`: the screen takes every click while open; the wrench opens it.
-pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+pub(super) fn pressed(screen: &ScreenView<'_>, button: i32, canceled: &mut bool) {
     if *canceled {
         return;
     }
@@ -323,12 +323,12 @@ pub(super) fn pressed(screen: &NativeScreenView<'_>, button: i32, canceled: &mut
 }
 /// Shift as the last frame saw it (the mouse hooks have no modifiers): ten steps for a number.
 static SHIFT: AtomicBool = AtomicBool::new(false);
-pub(super) fn released(_screen: &NativeScreenView<'_>, canceled: &mut bool) {
+pub(super) fn released(_screen: &ScreenView<'_>, canceled: &mut bool) {
     if is_open() {
         *canceled = true;
     }
 }
-pub(super) fn scrolled(_screen: &NativeScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
+pub(super) fn scrolled(_screen: &ScreenView<'_>, scroll: [f64; 2], canceled: &mut bool) {
     let mut guard = lock(&SCREEN);
     let Some(win) = guard.as_mut() else { return };
     *canceled = true;

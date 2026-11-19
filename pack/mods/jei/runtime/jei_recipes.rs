@@ -5,11 +5,10 @@
 use super::Game;
 use super::jei_world::{ID, KEYS};
 use super::jei_window::{self, Action};
-use super::native_hooks::{
-    NativePanelEvent, NativeRecipe, NativeRecipeCategory, NativeRecipeKind, NativeRecipeLookup, NativeRecipeStack,
-    NativeRecipes, NativeStack,
-};
-use horizon_client::mod_api::NativeIngredientInfo;
+use super::jei_world::NativePanelEvent;
+use super::native_hooks::{NativeRecipe, NativeRecipeKind, NativeRecipeStack, NativeRecipes};
+use mod_api::{NativeRecipeCategory, NativeRecipeLookup, NativeStack};
+use mod_api::NativeIngredientInfo;
 use jei_core::recipes::{Book, Category, Focus, Mode, Output, Recipe, Shape, Stack, Viewer, cooking_note};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

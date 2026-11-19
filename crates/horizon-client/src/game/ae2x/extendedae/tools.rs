@@ -546,7 +546,7 @@ impl Game<'_> {
                         break;
                     }
                 }
-                host.hub.guests[gi].inventory[index] = (moving.count > 0).then_some(moving);
+                host.hub.guests.update(gi, |g| g.inventory[index] = (moving.count > 0).then_some(moving));
                 let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| inv.store(s))));
             }
             self.lan_send_extendedae_tool(host, conn);
@@ -585,8 +585,8 @@ impl Game<'_> {
         if ok {
             let _ = host.back(self, |g| g.as_guest(conn, |g| g.stack_in_mut(source).as_mut().map(|s| next.store(s))));
         } else {
-            host.hub.guests[gi].inventory = before_inventory;
-            host.hub.guests[gi].carried = before_carried;
+            host.hub.guests.update(gi, |g| g.inventory = before_inventory);
+            host.hub.guests.update(gi, |g| g.carried = before_carried);
         }
         if let Some(m) = self.ae2x.extendedae.tool_menus.get_mut(&conn) {
             m.menu = menu;

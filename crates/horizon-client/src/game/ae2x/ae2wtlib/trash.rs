@@ -49,10 +49,14 @@ impl Game<'_> {
     /// in its place.
     pub(in crate::game) fn lan_ae2wtlib_open_trash(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) {
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
-        let Some(g) = host.hub.guests.iter_mut().find(|g| g.conn == conn && !g.spectator()) else { return };
-        let Some(stack) = ae2_wireless::source_stack_mut(g, source).filter(|s| wireless::kind(s) == Some(TerminalKind::Crafting)) else { return };
-        let Some((target_dim, target)) = ae2_wireless::target(stack) else { return };
-        let source_owner = horizon_client::ae2_stack_identity::StackRef::capture(stack);
+        let Some((target_dim, target, source_owner)) = host.hub.guests.update_connection(conn, |g| {
+            if g.spectator() {
+                return None;
+            }
+            let stack = ae2_wireless::source_stack_mut(g, source).filter(|s| wireless::kind(s) == Some(TerminalKind::Crafting))?;
+            let (target_dim, target) = ae2_wireless::target(stack)?;
+            Some((target_dim, target, horizon_client::ae2_stack_identity::StackRef::capture(stack)))
+        }).flatten() else { return };
         let ctx = ae2_wireless::WirelessContext { source, target_dim, target, kind: TerminalKind::Crafting, idle: 0, source_owner };
         self.lan_ae2_terminal_closed(host, conn, None);
         self.lan_pattern_access_closed(host, conn, None);
@@ -96,7 +100,8 @@ impl Game<'_> {
         let mut items: Vec<Option<ItemStack>> = (0..SLOTS).map(|i| s.menu.slot(i).cloned()).collect();
         items.extend((9..36).chain(0..9).map(|i| g.inventory[i].clone()));
         s.state = (s.state + 1) & 0x7fff;
-        let carried = host.hub.stack(&g.carried.clone());
+        let carried_item = g.carried.clone();
+        let carried = host.hub.stack(&carried_item);
         let wire = items.iter().map(|item| host.hub.stack(item)).collect();
         let (window, state) = (s.window, s.state);
         host.hub.send_to(conn, &C::ContainerSetContent(play::ContainerSetContent { container: window, state, items: wire, carried }));

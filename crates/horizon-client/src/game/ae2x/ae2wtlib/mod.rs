@@ -249,8 +249,10 @@ impl Game<'_> {
         };
         let Some(stack) = super::super::ae2_wireless::source_stack(g, source).filter(|s| horizon_client::ae2x::wireless::is_universal(s)) else { return };
         let Some(next) = horizon_client::ae2x::wireless::next_terminal(stack, reverse) else { return };
-        let Some(stack) = host.hub.guests.iter_mut().find(|g| g.conn == conn).and_then(|g| super::super::ae2_wireless::source_stack_mut(g, source)) else { return };
-        horizon_client::ae2x::wireless::set_current(stack, next);
+        let set = host.hub.guests.update_connection(conn, |g| {
+            super::super::ae2_wireless::source_stack_mut(g, source).map(|stack| horizon_client::ae2x::wireless::set_current(stack, next))
+        });
+        if set.flatten().is_none() { return };
         if in_menu.is_some() {
             self.lan_open_ae2_wireless_source(host, conn, source);
         } else {
@@ -269,11 +271,15 @@ impl Game<'_> {
     fn lan_select_universal_terminal(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, name: &str) {
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
         let Some(terminal) = horizon_client::ae2x::defs::get().wireless_terminal_named(name) else { return };
-        let Some(stack) = host.hub.guests.iter_mut().find(|g| g.conn == conn).and_then(|g| super::super::ae2_wireless::source_stack_mut(g, source)) else { return };
-        if !horizon_client::ae2x::wireless::is_universal(stack) || !horizon_client::ae2x::wireless::has_terminal(stack, terminal) {
-            return;
-        }
-        horizon_client::ae2x::wireless::set_current(stack, terminal);
+        let set = host.hub.guests.update_connection(conn, |g| {
+            let stack = super::super::ae2_wireless::source_stack_mut(g, source)?;
+            if !horizon_client::ae2x::wireless::is_universal(stack) || !horizon_client::ae2x::wireless::has_terminal(stack, terminal) {
+                return None;
+            }
+            horizon_client::ae2x::wireless::set_current(stack, terminal);
+            Some(())
+        });
+        if set.flatten().is_none() { return };
         self.lan_open_ae2_wireless_source(host, conn, source);
     }
     /// AE2WTLib's own hotkey actions (the terminals' are the locating

@@ -227,7 +227,8 @@ impl Game<'_> {
         items[INPUT] = input;
         items[OUTPUT] = output;
         items.extend((9..36).chain(0..9).map(|i| g.inventory[i].clone()));
-        let carried = host.hub.stack(&g.carried.clone());
+        let carried_item = g.carried.clone();
+        let carried = host.hub.stack(&carried_item);
         let packet = C::ContainerSetContent(play::ContainerSetContent { container: s.window, state: s.state, items: items.iter().map(|i| host.hub.stack(i)).collect(), carried });
         host.hub.send_to(conn, &packet);
         host.hub.inventory_told_by(conn, &items);
@@ -278,7 +279,7 @@ impl Game<'_> {
             {
                 let mut rest = moving.clone();
                 rest.count -= 1;
-                host.hub.guests[gi].inventory[index] = (rest.count > 0).then_some(rest);
+                host.hub.guests.update(gi, |g| g.inventory[index] = (rest.count > 0).then_some(rest));
                 next = after_click(&before, [Some(ItemStack { count: 1, ..moving }), before[OUTPUT].clone()], &is_pattern);
             }
         } else {
@@ -297,8 +298,8 @@ impl Game<'_> {
             let stray = (2..ENTRIES).any(|entry| menu.slot(entry).is_some());
             next = (!stray).then(|| after_click(&before, [menu.slot(INPUT).cloned(), menu.slot(OUTPUT).cloned()], &is_pattern)).flatten();
             if next.is_none() {
-                host.hub.guests[gi].inventory = before_inventory;
-                host.hub.guests[gi].carried = before_carried;
+                host.hub.guests.update(gi, |g| g.inventory = before_inventory);
+                host.hub.guests.update(gi, |g| g.carried = before_carried);
             }
         }
         if let Some(next) = next.filter(|next| *next != before) {

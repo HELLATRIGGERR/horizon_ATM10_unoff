@@ -32,10 +32,8 @@ use horizon_client::{
     ae2x::advancedae::{QuantumConfig, QuantumPart},
     containers::BlockEntity,
 };
-use horizon_world::{
-    chunk::BlockState,
-    nbt::{Compound, Tag},
-};
+use horizon_core::nbt::{Compound, Tag};
+use horizon_world::chunk::BlockState;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 

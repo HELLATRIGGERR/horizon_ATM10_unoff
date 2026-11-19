@@ -468,8 +468,18 @@ impl Game<'_> {
             self.ae2x.advancedae.armor_modifiers.remove(&conn);
         }
         if outcome.flight != granted {
-            let flying = outcome.flight && host.hub.guests[gi].flying;
-            host.hub.set_flight(conn, outcome.flight, flying);
+            let flying = outcome.flight && host.hub.guests[gi].abilities.flying;
+            // `Hub::set_flight` of the fork, on upstream's `abilities` (the grant is `may_fly`).
+            host.hub.guests.update(gi, |g| {
+                let may = outcome.flight && !g.creative() && !g.spectator() || g.creative() || g.spectator();
+                g.abilities.may_fly = may;
+                g.abilities.flying = g.spectator() || (flying && may);
+                if let Some(motion) = g.motion.as_mut() {
+                    motion.may_fly = may;
+                    motion.flying = g.abilities.flying;
+                }
+                g.send(&g.abilities_packet());
+            });
             if outcome.flight {
                 self.ae2x.advancedae.armor_flight.insert(conn);
             } else {
@@ -664,13 +674,15 @@ impl Game<'_> {
     pub(in crate::game) fn lan_advancedae_armor_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32, id: &str) -> bool {
         let Some(&(_, name)) = TOGGLE_HOTKEYS.iter().find(|(hotkey, _)| *hotkey == id) else { return false };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return false };
-        let Some(helmet) = host.hub.guests[gi].armor[0].as_mut().filter(|s| s.item.as_ref() == PIECES[0].item) else { return false };
         let Some(card) = upgrade(name) else { return false };
         let card_name = Text::translate(&format!("item.{}", card.card.replace(':', ".")), &[]);
-        let text = match toggle(helmet, name) {
-            Some(on) => card_name.append(Text::literal(if on { " ON" } else { " OFF" }).with_color(if on { GREEN } else { RED })),
-            None => Text::translate("gui.advanced_ae.UpgradeNotInstalledMessage", &[card_name]),
-        };
+        let Some(text) = host.hub.guests.update(gi, |g| {
+            let helmet = g.armor[0].as_mut().filter(|s| s.item.as_ref() == PIECES[0].item)?;
+            Some(match toggle(helmet, name) {
+                Some(on) => card_name.append(Text::literal(if on { " ON" } else { " OFF" }).with_color(if on { GREEN } else { RED })),
+                None => Text::translate("gui.advanced_ae.UpgradeNotInstalledMessage", &[card_name]),
+            })
+        }) else { return false };
         host.hub.send_to(conn, &Clientbound::SystemChat(SystemChat { content: horizon_client::lan::data::component_nbt(&text.component()), overlay: true }));
         true
     }

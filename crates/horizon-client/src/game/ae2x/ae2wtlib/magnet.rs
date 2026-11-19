@@ -166,9 +166,11 @@ impl Game<'_> {
         let mode = Text::translate(key, &[]).with_color(if on { GREEN } else { RED });
         let text = Text::translate("gui.ae2wtlib.magnetcard.hotkey", &[mode]);
         host.hub.send_to(conn, &Clientbound::SystemChat(SystemChat { content: horizon_client::lan::data::component_nbt(&text.component()), overlay: true }));
-        if let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], slot) {
-            magnet::save_mode(stack, next);
-        }
+        host.hub.guests.update(gi, |g| {
+            if let Some(stack) = ae2_wireless::source_stack_mut(g, slot) {
+                magnet::save_mode(stack, next);
+            }
+        });
         host.hub.send_inventory(gi);
         true
     }
@@ -179,8 +181,12 @@ impl Game<'_> {
         let [pick_block, restock, magnet, pickup_to_me, craft_if_missing] = data else { return };
         let Some(source) = self.lan_wireless_menu_source(host, conn) else { return };
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn) else { return };
-        let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], source).filter(|s| wireless::host(s)) else { return };
-        magnet::apply_settings(stack, *pick_block != 0, *restock != 0, *magnet != 0, *pickup_to_me != 0, *craft_if_missing != 0);
+        let applied = host.hub.guests.update(gi, |g| {
+            ae2_wireless::source_stack_mut(g, source)
+                .filter(|s| wireless::host(s))
+                .map(|stack| magnet::apply_settings(stack, *pick_block != 0, *restock != 0, *magnet != 0, *pickup_to_me != 0, *craft_if_missing != 0))
+        });
+        if applied.is_none() { return };
         host.hub.send_inventory(gi);
     }
 
@@ -196,21 +202,25 @@ impl Game<'_> {
         }
         let Some((slot, _)) = located(g) else { return };
         let carried = g.carried.clone();
-        let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], slot) else { return };
         let config = |which: u8| if which == 0 { magnet::PICKUP_CONFIG } else { magnet::INSERT_CONFIG };
-        match data {
-            [0] => magnet::toggle_filter_mode(stack, magnet::PICKUP_MODE),
-            [1] => magnet::toggle_filter_mode(stack, magnet::INSERT_MODE),
-            [2] => magnet::copy_filter(stack, magnet::INSERT_CONFIG, magnet::PICKUP_CONFIG),
-            [3] => magnet::copy_filter(stack, magnet::PICKUP_CONFIG, magnet::INSERT_CONFIG),
-            [4] => magnet::switch_filters(stack),
-            [5, which @ (0 | 1), index] => {
-                if magnet::set_filter_slot(stack, config(*which), usize::from(*index), carried.as_ref()).is_err() {
-                    return;
+        let done = host.hub.guests.update(gi, |g| {
+            let stack = ae2_wireless::source_stack_mut(g, slot)?;
+            match data {
+                [0] => magnet::toggle_filter_mode(stack, magnet::PICKUP_MODE),
+                [1] => magnet::toggle_filter_mode(stack, magnet::INSERT_MODE),
+                [2] => magnet::copy_filter(stack, magnet::INSERT_CONFIG, magnet::PICKUP_CONFIG),
+                [3] => magnet::copy_filter(stack, magnet::PICKUP_CONFIG, magnet::INSERT_CONFIG),
+                [4] => magnet::switch_filters(stack),
+                [5, which @ (0 | 1), index] => {
+                    if magnet::set_filter_slot(stack, config(*which), usize::from(*index), carried.as_ref()).is_err() {
+                        return None;
+                    }
                 }
+                _ => return None,
             }
-            _ => return,
-        }
+            Some(())
+        });
+        if done.is_none() { return };
         host.hub.send_inventory(gi);
     }
 

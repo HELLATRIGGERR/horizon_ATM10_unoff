@@ -27,7 +27,8 @@ use horizon_client::{
     items::ItemStack,
     menu::{Input, Kind, Menu},
 };
-use horizon_world::{chunk::BlockState, nbt::{Compound, Tag}};
+use horizon_core::nbt::{Compound, Tag};
+use horizon_world::chunk::BlockState;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 type Pos = (i32, i32, i32);

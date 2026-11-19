@@ -182,9 +182,11 @@ impl Game<'_> {
                 && self.ae2_grid_fluid_insert_encoded(address, &what.key, BUCKET, true).unwrap_or(0) >= BUCKET
                 && self.ae2_grid_fluid_insert_encoded(address, &what.key, BUCKET, false).unwrap_or(0) > 0
             {
-                if let Some(cell) = host.hub.guests.get_mut(gi).and_then(|g| slot_mut(g, index)) {
-                    *cell = Some(ItemStack::new("minecraft:bucket", 1));
-                }
+                host.hub.guests.update(gi, |g| {
+                    if let Some(cell) = slot_mut(g, index) {
+                        *cell = Some(ItemStack::new("minecraft:bucket", 1));
+                    }
+                });
                 // The item step works on the emptied bucket from the next
                 // tick: AE2 Import Export Card's goes on with the filled
                 // bucket's stack, which would put it in too.
@@ -200,9 +202,11 @@ impl Game<'_> {
         if inserted == 0 {
             return false;
         }
-        if let Some(cell) = host.hub.guests.get_mut(gi).and_then(|g| slot_mut(g, index)) {
-            *cell = (item.count > inserted).then(|| ItemStack { count: item.count - inserted, ..item });
-        }
+        host.hub.guests.update(gi, |g| {
+            if let Some(cell) = slot_mut(g, index) {
+                *cell = (item.count > inserted).then(|| ItemStack { count: item.count - inserted, ..item });
+            }
+        });
         true
     }
 
@@ -303,10 +307,12 @@ impl Game<'_> {
         }
         let Some(extracted) = self.ae2_grid_extract_encoded(address, &key.key, u64::from(accepted)).ok().flatten() else { return false };
         let put = extracted.count.min(accepted);
-        if let Some(cell) = host.hub.guests.get_mut(gi).and_then(|g| slot_mut(g, index)) {
-            let now = cell.as_ref().map_or(0, |s| s.count);
-            *cell = Some(ItemStack { count: now + put, ..extracted.clone() });
-        }
+        host.hub.guests.update(gi, |g| {
+            if let Some(cell) = slot_mut(g, index) {
+                let now = cell.as_ref().map_or(0, |s| s.count);
+                *cell = Some(ItemStack { count: now + put, ..extracted.clone() });
+            }
+        });
         if extracted.count > put {
             let back = ItemStack { count: extracted.count - put, ..extracted };
             let _ = self.ae2_grid_insert_encoded(address, &back, u64::from(back.count));
@@ -341,9 +347,11 @@ impl Game<'_> {
             }
             return false;
         }
-        if let Some(cell) = host.hub.guests.get_mut(gi).and_then(|g| slot_mut(g, index)) {
-            *cell = Some(ItemStack::new(bucket, 1));
-        }
+        host.hub.guests.update(gi, |g| {
+            if let Some(cell) = slot_mut(g, index) {
+                *cell = Some(ItemStack::new(bucket, 1));
+            }
+        });
         true
     }
 
@@ -462,9 +470,10 @@ impl Game<'_> {
         // SET_BLOCK_PICKER_AMOUNT: the amount (an int).
         if let [6, amount @ ..] = data {
             let Ok(amount) = <[u8; 4]>::try_from(amount) else { return };
-            if let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], source)
-                && iec::set_block_picker_amount(stack, i32::from_be_bytes(amount))
-            {
+            if host.hub.guests.update(gi, |g| {
+                ae2_wireless::source_stack_mut(g, source)
+                    .is_some_and(|stack| iec::set_block_picker_amount(stack, i32::from_be_bytes(amount)))
+            }) {
                 host.hub.send_inventory(gi);
             }
             return;
@@ -513,16 +522,18 @@ impl Game<'_> {
     /// The terminal's card of `ty` changed, and its selections past the
     /// active filter slots cleared (`onUpgradesChanged` on the Export Card).
     fn iecard_edit_card(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, gi: usize, source: usize, ty: CardType, edit: impl Fn(&mut ItemStack)) -> bool {
-        let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], source).filter(|s| wireless::host(s)) else { return false };
-        iec::edit_card(stack, ty.card(), |card| {
-            edit(card);
-            if ty == CardType::Export {
-                let active = iec::filter_slot_count(&iec::card_upgrades(card, ty));
-                let mut slots = iec::selected_slots(card);
-                if iec::clamp_selected(&mut slots, active) {
-                    iec::set_selected_slots(card, &slots);
+        host.hub.guests.update(gi, |g| {
+            let Some(stack) = ae2_wireless::source_stack_mut(g, source).filter(|s| wireless::host(s)) else { return false };
+            iec::edit_card(stack, ty.card(), |card| {
+                edit(card);
+                if ty == CardType::Export {
+                    let active = iec::filter_slot_count(&iec::card_upgrades(card, ty));
+                    let mut slots = iec::selected_slots(card);
+                    if iec::clamp_selected(&mut slots, active) {
+                        iec::set_selected_slots(card, &slots);
+                    }
                 }
-            }
+            })
         })
     }
 
@@ -561,7 +572,7 @@ impl Game<'_> {
             let _ = iec::store_card_upgrades(card, &upgrades);
         });
         if stored {
-            host.hub.guests[gi].carried = next_carried;
+            host.hub.guests.update(gi, |g| g.carried = next_carried);
         }
         stored
     }
@@ -580,8 +591,12 @@ impl Game<'_> {
             let stored = self.iecard_edit_card(host, gi, source, ty, |card| {
                 let _ = iec::store_card_upgrades(card, &upgrades);
             });
-            if stored && let Some(cell) = host.hub.guests.get_mut(gi).and_then(|g| slot_mut(g, index)) {
-                *cell = (stack.count > 1).then(|| ItemStack { count: stack.count - 1, ..stack.clone() });
+            if stored {
+                host.hub.guests.update(gi, |g| {
+                    if let Some(cell) = slot_mut(g, index) {
+                        *cell = (stack.count > 1).then(|| ItemStack { count: stack.count - 1, ..stack.clone() });
+                    }
+                });
             }
             return stored;
         }

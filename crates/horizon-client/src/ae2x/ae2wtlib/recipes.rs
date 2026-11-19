@@ -42,8 +42,8 @@ fn universal_ingredient() -> Ingredient {
 
 /// `InputHelper.getInputStack`: the first stack of the grid's box, row by
 /// row, the ingredient takes.
-fn input<'a>(stacks: &[&'a ItemStack], ingredient: &Ingredient) -> Option<&'a ItemStack> {
-    stacks.iter().copied().find(|s| s.count > 0 && ingredient.test(s))
+fn input<'a>(context: &horizon_world::native_load_context::LoopContext, stacks: &[&'a ItemStack], ingredient: &Ingredient) -> Option<&'a ItemStack> {
+    stacks.iter().copied().find(|s| s.count > 0 && ingredient.test_in(context, s))
 }
 
 /// The terminal's `Unit` component.
@@ -95,16 +95,16 @@ impl Recipe {
     /// `matches`, over the stacks of the grid's box: exactly two, each
     /// ingredient taking one; an upgrade's universal terminal must not hold
     /// the terminal yet.
-    pub fn matches(&self, stacks: &[&ItemStack]) -> bool {
+    pub fn matches(&self, context: &horizon_world::native_load_context::LoopContext, stacks: &[&ItemStack]) -> bool {
         if stacks.len() != 2 {
             return false;
         }
         match self {
-            Self::Combine { a, b, .. } => input(stacks, a).is_some() && input(stacks, b).is_some(),
+            Self::Combine { a, b, .. } => input(context, stacks, a).is_some() && input(context, stacks, b).is_some(),
             Self::Upgrade { terminal, name } => {
                 let Some(definition) = definition(name) else { return false };
-                input(stacks, terminal).is_some()
-                    && input(stacks, &universal_ingredient()).is_some_and(|wut| !wireless::has_terminal(wut, definition))
+                input(context, stacks, terminal).is_some()
+                    && input(context, stacks, &universal_ingredient()).is_some_and(|wut| !wireless::has_terminal(wut, definition))
             }
         }
     }
@@ -112,15 +112,15 @@ impl Recipe {
     /// `assemble`: `Common.mergeTerminal` of the terminals into the output
     /// (a combine) or into the universal terminal (an upgrade); None when a
     /// merge fails (`ItemStack.EMPTY`).
-    pub fn assemble(&self, stacks: &[&ItemStack]) -> Option<ItemStack> {
+    pub fn assemble(&self, context: &horizon_world::native_load_context::LoopContext, stacks: &[&ItemStack]) -> Option<ItemStack> {
         match self {
             Self::Combine { a, b, a_name, b_name } => {
-                let wut = wireless::merge_terminal(&self.output(), input(stacks, a)?, definition(a_name)?).ok()?;
-                wireless::merge_terminal(&wut, input(stacks, b)?, definition(b_name)?).ok()
+                let wut = wireless::merge_terminal(&self.output(), input(context, stacks, a)?, definition(a_name)?).ok()?;
+                wireless::merge_terminal(&wut, input(context, stacks, b)?, definition(b_name)?).ok()
             }
             Self::Upgrade { terminal, name } => {
-                let wut = input(stacks, &universal_ingredient())?;
-                wireless::merge_terminal(wut, input(stacks, terminal)?, definition(name)?).ok()
+                let wut = input(context, stacks, &universal_ingredient())?;
+                wireless::merge_terminal(wut, input(context, stacks, terminal)?, definition(name)?).ok()
             }
         }
     }
@@ -147,6 +147,17 @@ mod tests {
     };
 
     const CRAFTING: &str = "ae2:wireless_crafting_terminal";
+
+    /// The context a server recipe lookup holds, with no mod ingredient kinds.
+    fn context() -> horizon_world::native_load_context::LoopContext {
+        use horizon_world::native_load_context::{DataLoadOrigin, LoadContext, LoadInputs, LoopSide};
+        LoadContext::new(
+            DataLoadOrigin::ServerDataLoad,
+            std::sync::Arc::new(LoadInputs::new(Default::default(), Default::default())),
+            [],
+        )
+        .loop_context(LoopSide::Server, [])
+    }
 
     fn combine(a: &str, b: &str, a_name: &str, b_name: &str) -> Recipe {
         Recipe::Combine {
@@ -178,10 +189,11 @@ mod tests {
         let crafting = with_card(CRAFTING, 2.0 * base);
         let mut encoding = ItemStack::new(PATTERN_ENCODING_TERMINAL, 1);
         wireless::transfer_energy(&mut encoding, 300_000.0, true, false).unwrap();
-        assert!(recipe.matches(&[&encoding, &crafting]), "either order");
-        assert!(!recipe.matches(&[&crafting, &crafting]));
-        assert!(!recipe.matches(&[&crafting, &encoding, &ItemStack::new("minecraft:stick", 1)]), "two ingredients only");
-        let wut = recipe.assemble(&[&encoding, &crafting]).unwrap();
+        let context = context();
+        assert!(recipe.matches(&context, &[&encoding, &crafting]), "either order");
+        assert!(!recipe.matches(&context, &[&crafting, &crafting]));
+        assert!(!recipe.matches(&context, &[&crafting, &encoding, &ItemStack::new("minecraft:stick", 1)]), "two ingredients only");
+        let wut = recipe.assemble(&context, &[&encoding, &crafting]).unwrap();
         assert_eq!(&*wut.item, UNIVERSAL_TERMINAL);
         let held: Vec<_> = wireless::installed(&wut).iter().map(|t| t.name.as_str()).collect();
         assert_eq!(held, ["crafting", "pattern_encoding"]);
@@ -206,15 +218,16 @@ mod tests {
         let mut access = ItemStack::new(PATTERN_ACCESS_TERMINAL, 1);
         access.data_mut().set_other("minecraft:custom_name", Some(Tag::String("Mine".into())));
         wireless::transfer_energy(&mut access, 500.0, true, false).unwrap();
-        assert!(recipe.matches(&[&access, &wut]));
-        assert!(!recipe.matches(&[&access, &access]));
-        let upgraded = recipe.assemble(&[&access, &wut]).unwrap();
+        let context = context();
+        assert!(recipe.matches(&context, &[&access, &wut]));
+        assert!(!recipe.matches(&context, &[&access, &access]));
+        let upgraded = recipe.assemble(&context, &[&access, &wut]).unwrap();
         let held: Vec<_> = wireless::installed(&upgraded).iter().map(|t| t.name.as_str()).collect();
         assert_eq!(held, ["crafting", "pattern_access"]);
         assert_eq!(wireless::energy(&upgraded).unwrap().0, 1500.0);
         assert!(upgraded.data().unwrap().other("minecraft:custom_name").is_some(), "the terminal's other components");
-        assert!(!recipe.matches(&[&access, &upgraded]), "it holds the pattern access terminal now");
-        assert!(upgrade(CRAFTING, "crafting").assemble(&[&ItemStack::new(CRAFTING, 1), &upgraded]).is_some(), "assemble does not check");
+        assert!(!recipe.matches(&context, &[&access, &upgraded]), "it holds the pattern access terminal now");
+        assert!(upgrade(CRAFTING, "crafting").assemble(&context, &[&ItemStack::new(CRAFTING, 1), &upgraded]).is_some(), "assemble does not check");
     }
 
     #[test]

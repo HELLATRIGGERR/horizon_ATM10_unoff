@@ -242,11 +242,13 @@ impl Game<'_> {
         let Some((target_dim, target)) = ae2_wireless::target(stack) else { return };
         let Some(reach) = self.ae2_wireless_reach(host, conn, stack) else { return };
         let anchor = self.ae2_anchor(reach.node);
-        let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], slot) else { return };
-        if let Some(terminal) = crafting() {
-            wireless::set_current(stack, terminal);
-        }
-        let source_owner = horizon_client::ae2_stack_identity::StackRef::capture(stack);
+        let Some(source_owner) = host.hub.guests.update(gi, |g| {
+            let stack = ae2_wireless::source_stack_mut(g, slot)?;
+            if let Some(terminal) = crafting() {
+                wireless::set_current(stack, terminal);
+            }
+            Some(horizon_client::ae2_stack_identity::StackRef::capture(stack))
+        }) else { return };
         let ctx = ae2_wireless::WirelessContext { source: slot, target_dim, target, kind: TerminalKind::Crafting, idle: 0, source_owner };
         self.lan_open_terminal_craft_confirm(host, conn, anchor, key, false, None, Some(ctx));
     }
@@ -256,9 +258,12 @@ impl Game<'_> {
     pub(in crate::game) fn lan_ae2wtlib_restock_hotkey(&mut self, host: &mut crate::game::lan_host_turn::HostTurn, conn: u32) -> bool {
         let Some(gi) = host.hub.guests.iter().position(|g| g.conn == conn && !g.spectator()) else { return false };
         let Some((slot, _)) = located(&host.hub.guests[gi]) else { return false };
-        let Some(stack) = ae2_wireless::source_stack_mut(&mut host.hub.guests[gi], slot) else { return false };
-        let on = !magnet::settings(stack).2;
-        magnet::set_restock(stack, on);
+        let Some(on) = host.hub.guests.update(gi, |g| {
+            let stack = ae2_wireless::source_stack_mut(g, slot)?;
+            let on = !magnet::settings(stack).2;
+            magnet::set_restock(stack, on);
+            Some(on)
+        }) else { return false };
         let state = Text::translate(if on { "gui.ae2wtlib.on" } else { "gui.ae2wtlib.off" }, &[]).with_color(if on { GREEN } else { RED });
         let text = Text::translate("gui.ae2wtlib.restock", &[state]);
         host.hub.send_to(conn, &Clientbound::SystemChat(SystemChat { content: horizon_client::lan::data::component_nbt(&text.component()), overlay: true }));
@@ -278,9 +283,10 @@ impl Game<'_> {
             return false;
         }
         let inserted = u32::try_from(self.ae2wtlib_insert(address, &stack, false)).unwrap_or(u32::MAX).min(stack.count);
-        let g = &mut host.hub.guests[gi];
-        let slot = g.selected;
-        g.inventory[slot] = (stack.count > inserted).then(|| ItemStack { count: stack.count - inserted, ..stack });
+        host.hub.guests.update(gi, |g| {
+            let slot = g.selected;
+            g.inventory[slot] = (stack.count > inserted).then(|| ItemStack { count: stack.count - inserted, ..stack });
+        });
         host.hub.send_inventory(gi);
         true
     }

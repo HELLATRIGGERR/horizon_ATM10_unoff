@@ -65,8 +65,10 @@ impl Game<'_> {
         if extracted <= 0.0 {
             return;
         }
-        if let Some(stack) = host.hub.guests.iter_mut().find(|g| g.conn == conn).and_then(|g| ae2_wireless::source_stack_mut(g, source)) {
-            let _ = ae2_wireless::transfer_energy(stack, extracted, true, false);
-        }
+        host.hub.guests.update_connection(conn, |g| {
+            if let Some(stack) = ae2_wireless::source_stack_mut(g, source) {
+                let _ = ae2_wireless::transfer_energy(stack, extracted, true, false);
+            }
+        });
     }
 }

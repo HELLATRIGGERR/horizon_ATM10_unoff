@@ -342,10 +342,11 @@ pub enum Special {
     Ae2wtlib(crate::ae2x::ae2wtlib::recipes::Recipe),
 }
 impl Special {
-    /// A data projection of this parse; concrete outputs still use `craft`.
-    fn rule(&self) -> crate::crafting::RecipeRule {
+    /// A data projection of this parse; concrete outputs still use `craft`. None for a mod's own
+    /// special recipe, which keeps its raw JSON instead of a vanilla rule.
+    fn rule(&self) -> Option<crate::crafting::RecipeRule> {
         use crate::crafting::RecipeRule as Rule;
-        match self {
+        Some(match self {
             Self::BannerDuplicate { banner, result } => Rule::BannerDuplicate {
                 banner: banner.clone(),
                 result: result.view(),
@@ -468,7 +469,9 @@ impl Special {
                 result: result.view(),
             },
             Self::RepairItem => Rule::RepairItem,
-        }
+            #[cfg(feature = "ae2-ae2wtlib")]
+            Self::Ae2wtlib(_) => return None,
+        })
     }
     /// The recipe-book displays of a learnable (non-custom) crafting recipe:
     /// its layout, its result as the button shows it, and every stack the
@@ -966,7 +969,7 @@ impl Special {
             }
             Self::RepairItem => repair_item::pair(ctx, &stacks).is_some(),
             #[cfg(feature = "ae2-ae2wtlib")]
-            Self::Ae2wtlib(recipe) => recipe.matches(&stacks),
+            Self::Ae2wtlib(recipe) => recipe.matches(ctx.context, &stacks),
         }
     }
     /// `Recipe.assemble`; None is the empty stack.
@@ -1198,7 +1201,7 @@ impl Special {
                 out
             }
             #[cfg(feature = "ae2-ae2wtlib")]
-            Self::Ae2wtlib(recipe) => recipe.assemble(&stacks)?,
+            Self::Ae2wtlib(recipe) => recipe.assemble(ctx.context, &stacks)?,
             Self::RepairItem => repair_item::assemble(ctx, &stacks)?,
         };
         let mut made = made;
@@ -1956,7 +1959,7 @@ impl Recipes {
                         entry.results = vec![result.create()];
                     }
                     (Some(Recipe::Special(special)), _) => {
-                        entry.rule = Some(special.rule());
+                        entry.rule = special.rule();
                     }
                     (_, Some(cook)) => {
                         entry.ingredients = vec![cook.ingredient.clone()];

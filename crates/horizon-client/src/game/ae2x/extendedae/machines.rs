@@ -25,8 +25,8 @@ use horizon_world::{
     fluid::FluidKind,
     fluid_ingredient::FluidIngredient,
     fluid_stack::{FluidStack, positive_int},
-    nbt::Tag,
 };
+use horizon_core::nbt::Tag;
 use serde_json::Value;
 use std::collections::HashMap;
 

@@ -14,10 +14,13 @@ fn item_stack(game: &Game<'_>, v: &Value) -> Option<Vec<mod_api::NativeStack>> {
     slot(game, v.get("ingredient")?, amount)
 }
 
-fn of<'g>(game: &'g Game<'_>, kind: &str) -> impl Iterator<Item = (&'g str, &'g Value)> {
+/// The recipes of a type as owned ids and files: `native_recipes_of_type` hands out a shared snapshot, not a borrow.
+fn of(game: &Game<'_>, kind: &str) -> std::vec::IntoIter<(String, std::sync::Arc<Value>)> {
     game.native_recipes_of_type(kind)
         .iter()
-        .map(|r| (r.id.as_str(), &*r.json))
+        .map(|r| (r.id.clone(), r.json.clone()))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 pub(in crate::game) fn categories(game: &Game<'_>, out: &mut Vec<NativeRecipeCategory>) {

@@ -1,10 +1,8 @@
-// A world opens or closes: the claims are read, or written and dropped.
-fn ftbchunks_world_lifecycle(
-    game: &mut crate::game::Game<'_>,
-    phase: crate::game::native_lifecycle::WorldPhase,
-) {
-    if matches!(phase, crate::game::native_lifecycle::WorldPhase::WorldCloseFinal) {
+// A world closes (or fails to open): the claims are written and dropped; in the window's own world the region
+// cache too.
+fn ftbchunks_world_lifecycle(phase: mod_api::WorldPhase) {
+    if matches!(phase, mod_api::WorldPhase::WorldCloseFinal) {
         crate::game::ftbchunks_largemap::world_closed();
     }
-    crate::game::ftbchunks_world::lifecycle(game, phase);
+    crate::game::ftbchunks_world::lifecycle(phase);
 }

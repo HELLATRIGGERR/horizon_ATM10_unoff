@@ -6,6 +6,31 @@ messages) and 6 (team properties and the claim rules) of docs/ftb-chunks.md are 
 reimplements its behaviour; nothing of it is copied. Build and test: `bun run pack/scripts/ftbchunks.ts units stage build world` (this PC:
 `atm10-work/ftb-work/ftb.sh`; `FTB_LIST=ftbchunks/claims`, `ftbchunks/map`, `ftbchunks/waypoints` or `ftbchunks/region-map` for this bundle's world tests).
 
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- The claims are read at `server_started` (where the fork's `WorldOpenReady` was) and written and dropped at
+  `world_lifecycle`'s close phases; the large map's region cache is written at `client_disconnecting` (the window)
+  and at `WorldCloseFinal`.
+- Renamed hooks: `destroy_block` -> `break_block`, `use_item_on` (a placement) -> `entity_place` (the placer must be
+  the acting player), `interact_entity` -> `entity_interact` (a refusal answers `Fail`), `right_click_block` takes
+  a `BlockClick` (a refusal cancels with `Fail`), `piston_move` -> `piston_pre`, `key` -> `input_key` (presses
+  only), `frame` -> `render_frame_pre`, `hud` -> `render_gui_post`, `commands` -> `register_client_commands`,
+  `perform_command` -> `run_mod_command`.
+- `use_item`, `living_incoming_damage` and `piston_pre` pass one `*Call`: the last two are `MODIFY_ARG` injections
+  on the call into `fire_*` (the helper takes the call by value and writes through its `canceled`); `use_item` has
+  a HEAD injection that decides (it can tell the player) and a `MODIFY_ARG` one that answers `Fail`.
+- `render_gui_post` reads the game only, so the minimap's image is scanned and uploaded in `render_frame_pre`
+  (`ftbchunks_minimap::frame`) and only drawn in the HUD hook.
+- Upstream's dispatcher parses a usage's arguments itself and its `word` takes no `:` or `~`: `/ftbchunks` and
+  `/chunks` are registered as `<root> [line:text]` and the rules parse the line and check the levels as before.
+- The server reads players as `PlayerRef`s: `ftbchunks_world::Sp` is the fork's `NativeServerPlayer` made from
+  upstream's typed reads (name, permission level, dimension, position, rotation, fake, spectator, health).
+- `explosion_detonate` v2 names no source: every explosion counts as one with a known source, so
+  `protect_unknown_explosions = false` no longer lets any through.
+- Engine needs (HANDOFF "S3"): `right_click_block`, `entity_place`, `entity_interact`, `use_item`,
+  `explosion_detonate` and `living_incoming_damage` are only called while a trait mod listens (N5), so those
+  protections do nothing on the merged engine yet.
+
 ## How it fits
 
 - `ftbchunks-core` has no dependencies: horizon-mixins refuses a bundle crate's path dependency on another bundle's

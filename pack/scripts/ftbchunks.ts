@@ -9,7 +9,8 @@
 //   FTB_TOOL_TARGET  target dir of the bundles' crates <base>/.build/target-ftb
 //   HORIZON_MIXINS   the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
 //   FTB_JOBS         cargo jobs                       2
-//   FTB_FEATURES     the game's Cargo features        none (`-p horizon-game --no-default-features`)
+//   FTB_FEATURES     the game's Cargo features        ae2-lab (`-p horizon-game --no-default-features`; the
+//                                                    world tests load AE2's content, which needs it)
 //   FTB_BUNDLES      the bundles to stage and test    all of them
 // `world` passes AE2_RESOURCES and AE2_CONTENT_DIR to the harness, and FTBTEAMS_DEV=1 (Java's development
 // environment: the fake player command and the probes).
@@ -98,7 +99,7 @@ const steps: Record<string, () => Promise<void>> = {
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.FTB_FEATURES), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.FTB_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

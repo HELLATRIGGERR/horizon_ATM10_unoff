@@ -8172,7 +8172,7 @@ impl Game<'_> {
             if self.ae2_conversion_monitor_client_active((hit.pos[0],hit.pos[1],hit.pos[2]),side) {
                 let sequence=self.next_sequence();
                 self.send(S::PlayerAction(play::PlayerAction{action:0,pos:hit.pos,direction:face,sequence}));
-                self.mining=None;return;
+                self.mining=None;return true;
             }
         }
         let state = self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);

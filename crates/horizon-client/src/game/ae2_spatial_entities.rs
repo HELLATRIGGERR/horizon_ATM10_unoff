@@ -65,12 +65,37 @@ fn guest_box(guest:&horizon_client::lan::guest::Guest)->Aabb {
     guest.motion.as_ref().map(|m|m.dimensions.bounds(vec3(guest.position)))
         .unwrap_or_else(||super::lan_mobs::guest_bounds(guest))
 }
-fn drain_bounds<T>(items:&mut Vec<T>,min:(i32,i32,i32),size:[i32;3],bounds:impl Fn(&T)->Aabb)->Vec<T> {
-    let mut selected=Vec::new();let mut left=Vec::with_capacity(items.len());
-    for item in std::mem::take(items) {
-        if intersects(bounds(&item),min,size){selected.push(item)}else{left.push(item)}
+/// An entity family the spatial take empties, in whichever list type the game keeps it:
+/// upstream's join-numbered lists give their members up through the list, so the
+/// residency journal sees the removal, and keep the join number the entity carries over.
+trait Family {
+    type Item;
+    fn take_where(&mut self,take:impl FnMut(&Self::Item)->bool)->Vec<Self::Item>;
+}
+impl<T> Family for Vec<T> {
+    type Item=T;
+    fn take_where(&mut self,mut take:impl FnMut(&T)->bool)->Vec<T> {
+        let mut selected=Vec::new();let mut left=Vec::with_capacity(self.len());
+        for item in std::mem::take(self) {
+            if take(&item){selected.push(item)}else{left.push(item)}
+        }
+        *self=left;selected
     }
-    *items=left;selected
+}
+impl<T,const DIRECT:bool> Family for horizon_client::join_seq::JoinList<T,DIRECT> {
+    type Item=T;
+    fn take_where(&mut self,take:impl FnMut(&T)->bool)->Vec<T> { self.extract_if(take).collect() }
+}
+impl<T:horizon_client::join_seq::Joined> Family for horizon_client::join_seq::ResidentList<T> {
+    type Item=T;
+    fn take_where(&mut self,mut take:impl FnMut(&T)->bool)->Vec<T> {
+        let indices:Vec<usize>=(0..self.len()).filter(|&i|take(&self[i])).collect();
+        let mut taken:Vec<T>=indices.into_iter().rev().map(|i|self.remove(i)).collect();
+        taken.reverse();taken
+    }
+}
+fn drain_bounds<F:Family>(items:&mut F,min:(i32,i32,i32),size:[i32;3],bounds:impl Fn(&F::Item)->Aabb)->Vec<F::Item> {
+    items.take_where(|item|intersects(bounds(item),min,size))
 }
 #[derive(Clone, Copy, serde::Deserialize)]
 pub(super) struct SpatialEntityDimensions { width:f32, height:f32 }
@@ -272,36 +297,15 @@ impl Game<'_> {
             connected.extend(mobs.iter().filter_map(|m| m.extra.mount));
             connected.extend(guest_vehicles.iter().copied());
             let previous_vehicles = boats.len() + carts.len();
-            let mut left_boats = Vec::new();
-            for boat in std::mem::take(&mut self.boats) {
-                if connected.contains(&boat.id) {
-                    boats.push(boat);
-                } else {
-                    left_boats.push(boat);
-                }
-            }
-            self.boats = left_boats.into();
-            let mut left_carts = Vec::new();
-            for cart in std::mem::take(&mut self.carts) {
-                if connected.contains(&cart.id) {
-                    carts.push(cart);
-                } else {
-                    left_carts.push(cart);
-                }
-            }
-            self.carts = left_carts.into();
-            let mut remaining = Vec::new();
-            let mut linked = Vec::new();
-            for mob in std::mem::take(&mut self.mobs) {
-                if connected.contains(&mob.id)
-                    || mob.extra.mount.is_some_and(|id| connected.contains(&id))
-                {
-                    linked.push(mob);
-                } else {
-                    remaining.push(mob);
-                }
-            }
-            self.mobs = remaining.into();
+            boats.extend(self.boats.extract_if(|boat| connected.contains(&boat.id)));
+            carts.extend(self.carts.extract_if(|cart| connected.contains(&cart.id)));
+            let linked: Vec<Mob> = self
+                .mobs
+                .extract_if(|mob| {
+                    connected.contains(&mob.id)
+                        || mob.extra.mount.is_some_and(|id| connected.contains(&id))
+                })
+                .collect();
             if linked.is_empty() && previous_vehicles == boats.len() + carts.len() {
                 break;
             }
@@ -312,7 +316,8 @@ impl Game<'_> {
             .as_ref()
             .is_some_and(|e| intersects(type_box(types,"minecraft:ender_dragon",array(e.position),None), min, size))
         {
-            self.dragon.take()
+            // A consumed extraction: the singleton leaves this level for the destination's.
+            self.dragon.extract().inspect(|d| self.dragon.retire_extracted(d.id, d.join))
         } else {
             None
         };
@@ -438,7 +443,6 @@ impl Game<'_> {
                 rotation: None,
                 // The vehicle went with the batch: the guest rides on as its passenger.
                 vehicle: guest.vehicle.filter(|id| vehicles.contains(id)),
-                cause: None,
             })
             .collect()
     }
@@ -524,7 +528,7 @@ impl Game<'_> {
         if let Some(mut d) = b.dragon {
             d.position = vec3(mapped(array(d.position), from, to, size));
             d.previous = d.position;
-            self.dragon = Some(d)
+            self.dragon.replace(d)
         }
         for (kind, position, mut tag) in b.anonymous {
             map_entity_nbt(&mut tag, from, to, size);
@@ -548,7 +552,9 @@ impl Game<'_> {
             let chunk = ((p[0].floor() as i32) >> 4, (p[2].floor() as i32) >> 4);
             self.persist.unknown.entry(chunk).or_default().push(tag);
         }
-        self.persist.uuids.extend(b.uuids);
+        for (id, uuid) in b.uuids {
+            self.persist.uuids.insert(id, uuid);
+        }
         for (id, mut tag) in b.raw {
             map_entity_nbt(&mut tag, from, to, size);
             self.persist.raw.insert(id, tag);

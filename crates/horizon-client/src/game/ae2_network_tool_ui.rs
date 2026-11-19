@@ -253,8 +253,8 @@ impl Game<'_> {
         });
         match result {
             Err(_) => {
-                let g=&mut host.hub.guests[gi];
-                g.inventory=before_inventory;g.armor=before_armor;g.offhand=before_offhand;g.carried=before_carried;
+                host.hub.guests.update(gi,|g|{g.inventory=before_inventory;g.armor=before_armor;g.offhand=before_offhand;g.carried=before_carried;});
+                let g=&host.hub.guests[gi];
                 self.world.random=random;
                 for stack in inv.slots.iter().chain(g.inventory.iter()).chain(g.armor.iter())
                     .chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten()
@@ -265,7 +265,7 @@ impl Game<'_> {
                 return true;
             }
             Ok(Some(updated)) => {
-                *held_mut(&mut host.hub.guests[gi],session.source).expect("validated owner")=updated;
+                host.hub.guests.update(gi,|g|*held_mut(g,session.source).expect("validated owner")=updated);
             }
             Ok(None) => {}
         }

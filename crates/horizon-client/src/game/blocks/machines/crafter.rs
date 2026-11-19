@@ -131,7 +131,7 @@ impl Game<'_> {
         #[cfg(feature = "ae2-lab")]
         let remainders = {
             let (items, recipes, enchantments) = match &self.world_tables {
-                Some(t) => (&t.items, &t.recipes, &t.stations.enchantments),
+                Some(t) => (&*t.items, &t.recipes, &t.stations.enchantments),
                 None => (self.res.items(), self.res.recipes(), &self.res.stations().enchantments),
             };
             let random = &mut self.world.random;

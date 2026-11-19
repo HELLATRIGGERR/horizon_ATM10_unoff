@@ -211,7 +211,7 @@ fn source_quads(game:&Game<'_>,blocks:&[(StructureBlock,BlockStateId)], world:&W
     // Reuse the native block-entity models for chests, banners and other
     // structures, with a fresh immutable scene world and closed animations.
     let atlas=&game.gui.atlas;
-    let scene=horizon_client::block_entity_render::Scene{glyphs:0,camera:DVec3::ZERO,orientation:glam::Quat::IDENTITY,
+    let scene=horizon_client::block_entity_render::Scene{glyphs:0,camera:DVec3::ZERO,spyglass_outline:false,orientation:glam::Quat::IDENTITY,
         anim:&|_|Default::default(),texts:None,partial:0.0,game_time:0,max_y:319,world,sprites:&atlas.sprites,nether:false,
         lid:&|_|0.0,sign:&|_|None,banner:&|_|Vec::new(),skull:&|_|None,glyph:&|c|atlas.glyph_cell(c),
         emissive:&atlas.emissive,translucent_sprites:&atlas.translucent,atlas_revision:atlas.revision,

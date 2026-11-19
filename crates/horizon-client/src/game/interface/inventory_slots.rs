@@ -834,53 +834,6 @@ impl Game<'_> {
     /// screen render hook asks once a frame and must not allocate. Same
     /// branches in the same order, so the two stay in step.
     pub(super) fn slot_count(&self) -> usize {
-        #[cfg(feature = "ae2-lab")]
-        if let Some(slots) = self.ae2x_slots() {return slots;}
-        #[cfg(feature = "ae2-lab")]
-        if self.ae2_local_provider_open() {
-            return (0..36).chain(300..327).collect();
-        }
-        #[cfg(feature = "ae2-lab")]
-        if self.ae2_local_machine_open() {return (0..36).chain(300..327).collect();}
-        #[cfg(feature = "ae2-lab")]
-        if self.ae2_local_bus_open() {return (0..36).chain(300..354).collect();}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_pattern_access_screen() {
-            let mut slots:Vec<usize>=(0..36).collect();
-            if let Some(rows)=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()) {
-                for (line,row) in rows.iter().take(6).enumerate() {
-                    if row.get("kind").and_then(|v|v.as_str())==Some("provider") {slots.extend(300+line*9..309+line*9);}
-                }
-            }
-            return slots;
-        }
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_stock_ui() {return (300..=311).collect();}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_priority_ui() {return (300..=308).collect();}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_craft_screen()!=0 {return (300..=321).collect();}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_network_status_screen() {return (303..311).chain([325,326]).collect();}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_anchor_screen() {return vec![300];}
-        #[cfg(feature = "ae2-lab")]
-        if let Some((view_cells, toolbox)) = self.remote.as_ref().and_then(|r| {
-            let view_cells = r.ae2_view_cells.is_some();
-            let toolbox = r.ae2_terminal_toolbox.is_some();
-            (view_cells || toolbox).then_some((view_cells, toolbox))
-        }) {
-            return ae2_terminal::terminal_visible_slots(view_cells, toolbox);
-        }
-        #[cfg(feature = "ae2-lab")]
-        if self.ae2_portable_open() { return (0..36).chain(300..354).collect(); }
-        #[cfg(feature = "ae2-lab")]
-        if self.ae2_terminal_open() {
-            let mut slots:Vec<usize>=(0..36).chain(300..354).collect();
-            if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {slots.extend(360..365);}
-            if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {slots.extend(365..374);}
-            return slots;
-        }
         if self.creative_inventory_open() {
             return Creative::inventory_slots().count();
         }
@@ -944,6 +897,53 @@ impl Game<'_> {
     }
     /// 300.. are the open container's slots.
     pub(super) fn slots(&self) -> Vec<usize> {
+        #[cfg(feature = "ae2-lab")]
+        if let Some(slots) = self.ae2x_slots() {return slots;}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_provider_open() {
+            return (0..36).chain(300..327).collect();
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_machine_open() {return (0..36).chain(300..327).collect();}
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_local_bus_open() {return (0..36).chain(300..354).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_pattern_access_screen() {
+            let mut slots:Vec<usize>=(0..36).collect();
+            if let Some(rows)=self.ae2_pattern_access_layout().as_ref().and_then(|v|v.get("rows")).and_then(|v|v.as_array()) {
+                for (line,row) in rows.iter().take(6).enumerate() {
+                    if row.get("kind").and_then(|v|v.as_str())==Some("provider") {slots.extend(300+line*9..309+line*9);}
+                }
+            }
+            return slots;
+        }
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_stock_ui() {return (300..=311).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_priority_ui() {return (300..=308).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_craft_screen()!=0 {return (300..=321).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_network_status_screen() {return (303..311).chain([325,326]).collect();}
+        #[cfg(feature="ae2-lab")]
+        if self.ae2_anchor_screen() {return vec![300];}
+        #[cfg(feature = "ae2-lab")]
+        if let Some((view_cells, toolbox)) = self.remote.as_ref().and_then(|r| {
+            let view_cells = r.ae2_view_cells.is_some();
+            let toolbox = r.ae2_terminal_toolbox.is_some();
+            (view_cells || toolbox).then_some((view_cells, toolbox))
+        }) {
+            return ae2_terminal::terminal_visible_slots(view_cells, toolbox);
+        }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_portable_open() { return (0..36).chain(300..354).collect(); }
+        #[cfg(feature = "ae2-lab")]
+        if self.ae2_terminal_open() {
+            let mut slots:Vec<usize>=(0..36).chain(300..354).collect();
+            if self.remote.as_ref().is_some_and(|r|r.ae2_view_cells.is_some()) {slots.extend(360..365);}
+            if self.remote.as_ref().is_some_and(|r|r.ae2_terminal_toolbox.is_some()) {slots.extend(365..374);}
+            return slots;
+        }
         if self.creative_inventory_open() {
             return Creative::inventory_slots().collect();
         }

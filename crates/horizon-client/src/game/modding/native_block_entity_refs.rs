@@ -662,6 +662,8 @@ fn loaded_block_entity(world: &World, [x, y, z]: [i32; 3]) -> Option<&BlockEntit
 fn menu_holds(menu: &Menu, key: (i32, i32, i32)) -> bool {
     match menu.slots {
         Slots::Block(at) => at == key,
+        #[cfg(feature = "ae2-lab")]
+        Slots::Ae2SkyChest(at, _, _) => at == key,
         Slots::Double(first, second) => first == key || second == key,
         Slots::Ender => menu.pos == Some(key),
         Slots::Native => false,

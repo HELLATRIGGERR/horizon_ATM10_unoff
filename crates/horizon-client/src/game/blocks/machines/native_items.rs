@@ -251,6 +251,10 @@ impl Game<'_> {
             Kind::Crafter | Kind::Brewing => false,
             // A pot's item lives in saved data; composter writes use the block-state journal.
             Kind::Pot | Kind::Composter(_) => false,
+            // An ME IO Port's cell slots wake its transfer work beside the slot, so the block
+            // entity is kept whole.
+            #[cfg(feature = "ae2-lab")]
+            Kind::IoPort(_) => false,
         };
         if slot_only && let Some((pos, slot)) = view.locate(slot) {
             return self.journal_block_entity_slot(pos, slot);

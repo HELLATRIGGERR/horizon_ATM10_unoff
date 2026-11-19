@@ -1818,7 +1818,9 @@ impl Game<'_> {
             let source=horizon_client::mobs::Damage{kind:horizon_client::mobs::DamageKind::Explosion,attacker:owner.map(|_|horizon_client::mobs::Who::Player),from:Some(center),attacker_species:None};
             let id=self.mobs[i].id;
             let hurt=self.mobs[i].damage(crate::game::entity::damage_level_of!(self),6.0,source);
-            if hurt && let Some(super::tnt::TinyTntOwner::Player(conn))=owner {self.last_hurt_by_player.insert(id,conn);}
+            if hurt && let Some(super::tnt::TinyTntOwner::Player(conn))=owner && let Some(uuid)=self.player_uuid_of(conn) {
+                self.last_hurt_by_player.insert(id,crate::game::combat::PlayerCredit(horizon_client::lan::playerdata::ints_uuid(uuid)));
+            }
         }
         let affected:Vec<u32>=self.dropped.iter().filter_map(|item|{
             let p=item.position;overlaps([p.x,p.y,p.z],0.25,0.25).then_some(item.id)

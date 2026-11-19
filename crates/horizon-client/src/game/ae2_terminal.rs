@@ -2195,23 +2195,23 @@ impl Game<'_> {
         let accepts=|s:&ItemStack|if slot==0 {s.item.as_ref()=="ae2:blank_pattern"} else {s.item.as_ref()=="ae2:blank_pattern" || super::ae2_processing::decode_pattern(s).is_some() || super::ae2_processing::ae2_decode_processing_pattern(s).is_some() || super::ae2_processing::ae2_decode_special_pattern(s).is_some()};
         if input==horizon_client::menu::Input::QuickMove {
             if let Some(item)=machine.slots[slot].take(){
-                let Some(remaining)=host.back(self, |g| g.as_guest(conn,|g|g.give(item))) else{return Err("player unavailable".into())};
+                let Some(remaining)=host.back(self, |g| g.as_guest(conn,|g|g.add_stack_to_inventory(item))) else{return Err("player unavailable".into())};
                 machine.slots[slot]=remaining;
             }
         } else if input==horizon_client::menu::Input::Pickup && matches!(button,0|1) {
-            let cursor=host.hub.guests[gi].carried.take();let stored=machine.slots[slot].take();
+            let cursor=host.hub.guests.update(gi,|g|g.carried.take());let stored=machine.slots[slot].take();
             match (cursor,stored) {
-                (None,Some(mut item))=>{let n=if button==1 {(item.count+1)/2}else{item.count};let mut taken=item.clone();taken.count=n;item.count-=n;host.hub.guests[gi].carried=Some(taken);if item.count>0 {machine.slots[slot]=Some(item);}}
-                (Some(mut held),None) if accepts(&held)=>{let limit=self.res.items().stack_max(&held).min(if slot==1 {1}else{64});let n=if button==1 {1.min(limit)}else{held.count.min(limit)};let mut put=held.clone();put.count=n;held.count-=n;machine.slots[slot]=Some(put);if held.count>0 {host.hub.guests[gi].carried=Some(held);}}
-                (Some(mut held),Some(mut item)) if slot==0 && accepts(&held) && same(&held,&item)=>{let n=self.res.items().stack_max(&held).min(64).saturating_sub(item.count).min(if button==1 {1}else{held.count});held.count-=n;item.count+=n;machine.slots[slot]=Some(item);if held.count>0 {host.hub.guests[gi].carried=Some(held);}}
-                (Some(held),Some(item)) if button==0 && accepts(&held) && held.count<=self.res.items().stack_max(&held).min(if slot==1 {1}else{64})=>{machine.slots[slot]=Some(held);host.hub.guests[gi].carried=Some(item);}
-                (held,item)=>{host.hub.guests[gi].carried=held;machine.slots[slot]=item;}
+                (None,Some(mut item))=>{let n=if button==1 {(item.count+1)/2}else{item.count};let mut taken=item.clone();taken.count=n;item.count-=n;host.hub.guests.update(gi,|g|g.carried=Some(taken));if item.count>0 {machine.slots[slot]=Some(item);}}
+                (Some(mut held),None) if accepts(&held)=>{let limit=self.res.items().stack_max(&held).min(if slot==1 {1}else{64});let n=if button==1 {1.min(limit)}else{held.count.min(limit)};let mut put=held.clone();put.count=n;held.count-=n;machine.slots[slot]=Some(put);if held.count>0 {host.hub.guests.update(gi,|g|g.carried=Some(held));}}
+                (Some(mut held),Some(mut item)) if slot==0 && accepts(&held) && same(&held,&item)=>{let n=self.res.items().stack_max(&held).min(64).saturating_sub(item.count).min(if button==1 {1}else{held.count});held.count-=n;item.count+=n;machine.slots[slot]=Some(item);if held.count>0 {host.hub.guests.update(gi,|g|g.carried=Some(held));}}
+                (Some(held),Some(item)) if button==0 && accepts(&held) && held.count<=self.res.items().stack_max(&held).min(if slot==1 {1}else{64})=>{machine.slots[slot]=Some(held);host.hub.guests.update(gi,|g|g.carried=Some(item));}
+                (held,item)=>{host.hub.guests.update(gi,|g|g.carried=held);machine.slots[slot]=item;}
             }
         }
         if slot==1 && machine.slots[1]!=old {if let Some(pattern)=machine.slots[1].as_ref().and_then(super::ae2_encoding::EncodingState::from_pattern){
-            if let Err(e)=pattern.save(&mut machine){host.hub.guests[gi].inventory=before_inventory;host.hub.guests[gi].carried=before_cursor;return Err(e);}
+            if let Err(e)=pattern.save(&mut machine){host.hub.guests.update(gi,|g|g.inventory=before_inventory);host.hub.guests.update(gi,|g|g.carried=before_cursor);return Err(e);}
         }}
-        if let Err(e)=self.lan_store_encoding_machine(host,conn,owner,&machine){host.hub.guests[gi].inventory=before_inventory;host.hub.guests[gi].carried=before_cursor;return Err(e);}
+        if let Err(e)=self.lan_store_encoding_machine(host,conn,owner,&machine){host.hub.guests.update(gi,|g|g.inventory=before_inventory);host.hub.guests.update(gi,|g|g.carried=before_cursor);return Err(e);}
         Ok(())
     }
     fn lan_encoding_quick_insert(&mut self,host:&mut crate::game::lan_host_turn::HostTurn,conn:u32,owner:&EncodingOwner,index:usize)->Result<bool,String> {
@@ -3235,14 +3235,13 @@ impl Game<'_> {
                     self.lan_craft_matrix_store(host, conn, matrix_owner, &machine)?;
                 }
             }
-            *toolbox_stack_mut(&mut host.hub.guests[gi], owner).ok_or("network tool moved")? = tool;
+            host.hub.guests.update(gi, |g| toolbox_stack_mut(g, owner).map(|stack| *stack = tool)).ok_or("network tool moved")?;
             Ok(())
         });
         if let Err(message) = result {
             self.ae2_restore_blocks(before);
-            let g = &mut host.hub.guests[gi];
-            g.inventory = inventory; g.armor = armor; g.offhand = offhand;
-            g.carried = carried; self.world.random = random;
+            host.hub.guests.update(gi, |g| { g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried; });
+            let g = &host.hub.guests[gi]; self.world.random = random;
             for stack in pocket.slots.iter().chain(drag.matrix.iter()).chain(g.inventory.iter())
                 .chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten()
             { horizon_client::ae2_stack_identity::synchronize_tracked(stack); }
@@ -3284,8 +3283,8 @@ impl Game<'_> {
                 if result.is_ok() && self.ae2_wireless_source_valid(host, conn, ctx) {
                     host.back(self, |g| g.apply_guest_menu_effects(gi, effects));
                 } else {
-                    let g = &mut host.hub.guests[gi];
-                    g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried;
+                    host.hub.guests.update(gi, |g| { g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried; });
+                    let g = &host.hub.guests[gi];
                     self.world.random = random;
                     for stack in g.inventory.iter().chain(g.armor.iter()).chain(std::iter::once(&g.offhand))
                         .chain(std::iter::once(&g.carried)).flatten() {
@@ -3374,8 +3373,8 @@ impl Game<'_> {
         });
         if result.is_err() {
             self.ae2_restore_blocks(before); self.world.random = random;
-            let g = &mut host.hub.guests[gi];
-            g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried;
+            host.hub.guests.update(gi, |g| { g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried; });
+            let g = &host.hub.guests[gi];
             for stack in g.inventory.iter().chain(g.armor.iter()).chain(std::iter::once(&g.offhand))
                 .chain(std::iter::once(&g.carried)).flatten() {
                 horizon_client::ae2_stack_identity::synchronize_tracked(stack);
@@ -3558,10 +3557,7 @@ impl Game<'_> {
         });
         if let Err(message) = result {
             self.ae2_restore_blocks(before);
-            host.hub.guests[gi].inventory = inventory;
-            host.hub.guests[gi].armor = armor;
-            host.hub.guests[gi].offhand = offhand;
-            host.hub.guests[gi].carried = carried;
+            host.hub.guests.update(gi, |g| { g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried; });
             self.world.random = random;
             let guest = &host.hub.guests[gi];
             for stack in drag.matrix.iter().chain(guest.inventory.iter()).chain(guest.armor.iter())
@@ -3613,7 +3609,7 @@ impl Game<'_> {
                 self.ae2_restore_blocks(before);
                 return Err(e);
             }
-            *toolbox_stack_mut(&mut host.hub.guests[gi], owner).ok_or("network tool moved")? = updated;
+            host.hub.guests.update(gi, |g| toolbox_stack_mut(g, owner).map(|stack| *stack = updated)).ok_or("network tool moved")?;
             return Ok(());
         }
         let allowed = match input {
@@ -3648,12 +3644,12 @@ impl Game<'_> {
             }
             let mut updated = tool.clone();
             Inventory { slots }.store(&mut updated)?;
-            *toolbox_stack_mut(&mut host.hub.guests[gi], owner).ok_or("network tool moved")? = updated;
+            host.hub.guests.update(gi, |g| toolbox_stack_mut(g, owner).map(|stack| *stack = updated)).ok_or("network tool moved")?;
             Ok(())
         });
         if let Err(e) = result {
-            let guest = &mut host.hub.guests[gi];
-            guest.inventory = inventory; guest.armor = armor; guest.offhand = offhand; guest.carried = carried;
+            host.hub.guests.update(gi, |guest| { guest.inventory = inventory; guest.armor = armor; guest.offhand = offhand; guest.carried = carried; });
+            let guest = &host.hub.guests[gi];
             self.world.random = random;
             for stack in pocket.slots.iter().chain(guest.inventory.iter()).chain(guest.armor.iter())
                 .chain(std::iter::once(&guest.offhand)).chain(std::iter::once(&guest.carried)).flatten()
@@ -3921,7 +3917,8 @@ impl Game<'_> {
                         stack.count -= moved as u32;
                     } else {
                         let max = self.res.items().stack_max(&stack);
-                        let inv = &mut host.hub.guests[gi].inventory;
+                        host.hub.guests.update(gi, |g| {
+                        let inv = &mut g.inventory;
                         // CraftingTermMenu clears into hotbar 8..0, then the
                         // remaining 27 slots, first merging and then filling.
                         let order = (0..9).rev().chain(9..36);
@@ -3952,6 +3949,7 @@ impl Game<'_> {
                                 }
                             }
                         }
+                        });
                     }
                     if stack.count > 0 {
                         machine.slots[i] = Some(stack);
@@ -4122,10 +4120,7 @@ impl Game<'_> {
         })();
         if result.is_err() {
             self.ae2_restore_blocks(before);
-            host.hub.guests[gi].inventory = inventory;
-            host.hub.guests[gi].armor = armor;
-            host.hub.guests[gi].offhand = offhand;
-            host.hub.guests[gi].carried = carried;
+            host.hub.guests.update(gi, |g| { g.inventory = inventory; g.armor = armor; g.offhand = offhand; g.carried = carried; });
             self.world.random = random;
             // Menu operations can split tracked live stacks before a storage
             // error. Restore the retained values with the owned slots.

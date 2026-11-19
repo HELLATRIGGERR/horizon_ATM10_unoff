@@ -138,10 +138,13 @@ pub(in crate::game) fn category(
     })
 }
 
-fn recipes_of<'g>(game: &'g Game<'_>, kind: &str) -> impl Iterator<Item = (&'g str, &'g Value)> {
+/// The recipes of a type as owned ids and files: `native_recipes_of_type` hands out a shared snapshot, not a borrow.
+fn recipes_of(game: &Game<'_>, kind: &str) -> std::vec::IntoIter<(String, std::sync::Arc<Value>)> {
     game.native_recipes_of_type(kind)
         .iter()
-        .map(|r| (r.id.as_str(), &*r.json))
+        .map(|r| (r.id.clone(), r.json.clone()))
+        .collect::<Vec<_>>()
+        .into_iter()
 }
 
 /// `InscriberRecipeCategory`: top, middle and bottom, the presses kept unless the recipe presses them.

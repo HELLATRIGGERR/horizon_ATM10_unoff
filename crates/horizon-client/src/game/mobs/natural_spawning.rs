@@ -377,6 +377,11 @@ pub(super) trait LevelHost: Sized {
     /// The game's mobs, scanned for a box query before the grid is built.
     fn mobs(&self) -> &[Mob];
     fn potential_spawns(&self, category: Category, pos: [i32; 3], entries: &mut Vec<SpawnEntry>);
+    /// A light the level has throughout in place of its dimension type's ambient light
+    /// (AE2's spatial storage level); none for every other level.
+    fn ambient_light_override(&self) -> Option<f32> {
+        None
+    }
     /// `mob_spawn_placement_check` for the level's spawn at `at`; `vanilla` where nothing listens.
     fn placement_check(
         _: &Level<'_, Self>,
@@ -401,6 +406,12 @@ pub(super) trait LevelHost: Sized {
 impl LevelHost for &Game<'_> {
     fn mobs(&self) -> &[Mob] {
         &self.mobs
+    }
+    #[cfg(feature = "ae2-lab")]
+    fn ambient_light_override(&self) -> Option<f32> {
+        // AE2's spatial storage dimension is lit throughout; upstream's
+        // dimension facts know only the built-in levels.
+        (self.dim == Dim::Spatial).then_some(1.0)
     }
     fn potential_spawns(&self, category: Category, pos: [i32; 3], entries: &mut Vec<SpawnEntry>) {
         let mut canceled = false;
@@ -940,13 +951,9 @@ impl<H: LevelHost> NaturalLevel for Level<'_, H> {
         self.w.world.shape.max_y() - 1
     }
     fn ambient_light(&self) -> f32 {
-        // AE2's spatial storage dimension is lit throughout; upstream's
-        // dimension facts know only the built-in levels.
-        #[cfg(feature = "ae2-lab")]
-        if self.game.dim == Dim::Spatial {
-            return 1.0;
-        }
-        self.w.dimension_type.ambient_light
+        self.game
+            .ambient_light_override()
+            .unwrap_or(self.w.dimension_type.ambient_light)
     }
     fn has_ceiling(&self) -> bool {
         self.w.world.shape.has_ceiling

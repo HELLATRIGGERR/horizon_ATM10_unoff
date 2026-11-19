@@ -25,9 +25,25 @@ impl Game<'_> {
         let amount = amount.min(i64::MAX as u64) as i64;
         let mut moved = None;
         if extract {
-            self.native_chemical_handler_extract(dim.id(), [pos.0, pos.1, pos.2], Some(face), chemical, amount, simulate, &mut moved);
+            self.native_chemical_handler_extract(mod_api::__private::ChemicalHandlerExtractCall {
+                dimension: dim.id(),
+                pos: [pos.0, pos.1, pos.2],
+                face: Some(face),
+                chemical,
+                amount,
+                simulate,
+                extracted: &mut moved,
+            });
         } else {
-            self.native_chemical_handler_insert(dim.id(), [pos.0, pos.1, pos.2], Some(face), chemical, amount, simulate, &mut moved);
+            self.native_chemical_handler_insert(mod_api::__private::ChemicalHandlerInsertCall {
+                dimension: dim.id(),
+                pos: [pos.0, pos.1, pos.2],
+                face: Some(face),
+                chemical,
+                amount,
+                simulate,
+                inserted: &mut moved,
+            });
         }
         moved.unwrap_or(0).clamp(0, amount) as u64
     }

@@ -298,7 +298,7 @@ impl Game<'_> {
         if self.remote.is_some() {
             self.remote_menu_ops(&[(Some(slot), i32::from(right), input)]);
         } else {
-            self.menu_click(Some(slot), i32::from(right), input);
+            self.click_open_inventory(Some(slot), i32::from(right), input);
         }
         true
     }

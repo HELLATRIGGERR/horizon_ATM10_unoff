@@ -1348,7 +1348,7 @@ impl Game<'_> {
             Ok(())
         });
         if committed.is_err() {
-            let g=&mut host.hub.guests[gi];g.inventory=before;g.armor=armor;g.offhand=offhand;g.carried=carried;self.world.random=random;
+            host.hub.guests.update(gi,|g|{g.inventory=before;g.armor=armor;g.offhand=offhand;g.carried=carried;});let g=&host.hub.guests[gi];self.world.random=random;
             for item in old_upgrades.iter().chain(state.upgrades.iter()).chain(g.inventory.iter()).chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten() {horizon_client::ae2_stack_identity::synchronize_tracked(item);}
             session.menu=emitter_menu();host.play.entry(conn).or_default().ae2_bus=Some(session);host.hub.send_inventory(gi);self.lan_send_ae2_bus(host,conn);return true;
         }
@@ -1458,7 +1458,7 @@ impl Game<'_> {
         let armor=host.hub.guests[gi].armor.clone();let offhand=host.hub.guests[gi].offhand.clone();let carried=host.hub.guests[gi].carried.clone();let random=self.world.random.clone();
         let (result,effects)=host.back(self, |g| g.guest_menu_op_deferred(gi,&mut session.menu,|menu,env|menu.click(env,i32::from(p.slot),i32::from(p.button),input))).expect("the LAN host is back in self.lan for the call");
         if result.is_err() {
-            let g=&mut host.hub.guests[gi];g.inventory=before;g.armor=armor;g.offhand=offhand;g.carried=carried;self.world.random=random;
+            host.hub.guests.update(gi,|g|{g.inventory=before;g.armor=armor;g.offhand=offhand;g.carried=carried;});let g=&host.hub.guests[gi];self.world.random=random;
             for item in g.inventory.iter().chain(g.armor.iter()).chain(std::iter::once(&g.offhand)).chain(std::iter::once(&g.carried)).flatten() {horizon_client::ae2_stack_identity::synchronize_tracked(item);}
             session.menu=Menu::new(Kind::Chest(6));host.play.entry(conn).or_default().ae2_bus=Some(session);host.hub.send_inventory(gi);self.lan_send_ae2_bus(host,conn);return true;
         }

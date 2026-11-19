@@ -51,7 +51,7 @@ impl Game<'_> {
         let tanks = self.fluid_tanks_at(dim, pos, Some(face))?;
         let mut out: Vec<(ItemKey, u64)> = Vec::new();
         for tank in tanks {
-            let Some(stack) = tank.stack.as_ref().map(crate::game::native_fluid_handler::engine_fluid_stack) else {
+            let Some(stack) = tank.stack.as_ref().map(crate::game::machines::native_fluid_handler::engine_fluid_stack) else {
                 continue;
             };
             if stack.is_empty() || !stack.components().is_empty() {

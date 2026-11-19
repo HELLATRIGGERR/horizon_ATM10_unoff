@@ -109,7 +109,7 @@ pub(super) fn api_fluid_stack(stack: &FluidStack) -> Option<mod_api::FluidStack>
 
 /// The hooks' fluid stack as the handler's: the empty stack for a fluid with
 /// no world kind.
-pub(super) fn engine_fluid_stack(stack: &mod_api::FluidStack) -> FluidStack {
+pub(in crate::game) fn engine_fluid_stack(stack: &mod_api::FluidStack) -> FluidStack {
     let kind = stack
         .key()
         .and_then(mod_api::__private::fluid_id)

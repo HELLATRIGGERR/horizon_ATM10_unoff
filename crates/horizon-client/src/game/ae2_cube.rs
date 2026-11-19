@@ -160,7 +160,7 @@ impl Game<'_> {
                     use horizon_core::{geometry::Direction, position::BlockPos};
                     let target=BlockPos::new(at[0],at[1],at[2]);
                     let grew=self.with_level(|b,level,ticks| {
-                        if b.grow_crop(level,ticks,target) { return true; }
+                        if b.grow_crop(level,ticks,target,None) { return true; }
                         let clicked=level.block_state(target);
                         if !b.is_face_sturdy(clicked,Direction::Down) { return false; }
                         b.grow_water_plant(level,ticks,BlockPos::new(at[0],at[1]-1,at[2]),Some(Direction::Down))

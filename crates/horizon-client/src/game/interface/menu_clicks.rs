@@ -877,7 +877,7 @@ impl Game<'_> {
         #[cfg(feature = "ae2-lab")]
         if self.ae2_terminal_open() || self.ae2_portable_open() {
             let input=if held_shift {horizon_client::menu::Input::QuickMove} else {horizon_client::menu::Input::Pickup};
-            self.menu_click(Some(slot),i32::from(right),input);
+            self.click_open_inventory(Some(slot),i32::from(right),input);
             return;
         }
         if self.crafter_click(slot, held_shift, right) {

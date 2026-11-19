@@ -2411,6 +2411,40 @@ impl Game<'_> {
             self.adv.toasts.push_back(toast);
         }
     }
+    /// FORK: the fork's `native_add_toast` (FTB Quests' toasts), which the merge dropped: a toast of a mod's own
+    /// in the advancement toasts' slots, drawn as an `AdvancementToast`: item `icon`, `title` in the frame label's
+    /// place (yellow, or pink with the challenge sound with `challenge`), `description` its white line. `toast_add`
+    /// is asked first as `Other` (`id` is the mod's name for the toast, for the log). True when queued; false on a
+    /// server, without a window and when cancelled.
+    pub(in crate::game) fn native_add_toast(
+        &mut self,
+        id: &str,
+        icon: &str,
+        title: Text,
+        description: Text,
+        challenge: bool,
+    ) -> bool {
+        if !self.native_window() {
+            return false;
+        }
+        let mut toast = Toast {
+            icon: ItemStack::new(icon, 1),
+            frame: if challenge { Frame::Challenge } else { Frame::Task },
+            title,
+            description: Some(description),
+            slide: Slide::default(),
+            slot: None,
+            recipes: Vec::new(),
+            changed: false,
+            last_changed: 0,
+        };
+        if !self.add_toast(mod_api::ToastKind::Other, &mut toast.title, &mut toast.description) {
+            log::debug!("toast {id} cancelled");
+            return false;
+        }
+        self.adv.toasts.push_back(toast);
+        true
+    }
 
     /// The `AdvancementToast` or `RecipeToast` at `index` in its slot at `y`.
     fn draw_toast(&self, batch: &mut HudBatch, index: usize, y: f32, multiplier: f64) {

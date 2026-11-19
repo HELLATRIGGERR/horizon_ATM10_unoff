@@ -3,8 +3,8 @@
 # the rules are ported from its source in the crate `fluxnetworks-core`. See
 # README.md for the notice and what isn't covered by it (the GUI's art).
 #
-# It hooks Horizon's named hook points and needs hooks API 417 (Forge Energy,
-# API 416; block entity drop, API 417). `flux_world` also reads the game's open levels directly,
+# It hooks Horizon's named hook points (tools/fork/native-hooks.json: upstream's declared hooks plus the fork's
+# Forge Energy and block entity drop hooks). `flux_world` also reads the game's open levels directly,
 # to reach a device in any of them. It pins no revision. Its blocks, models and recipes are a content mod
 # built locally from the player's jar by `pack/scripts/fluxnetworks.ts content`,
 # loaded with `--dev-mod`.
@@ -26,12 +26,21 @@ source = "runtime/flux_world.rs"
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/world_lifecycle.rs"
 bindings = [
+  { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
+]
+
+[[injection]]
+id = "server-started"
+hook = "server_started"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/server_started.rs"
+bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
 ]
 
 [[injection]]
@@ -41,7 +50,7 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/level_tick_pre.rs"
 bindings = [
-  { name = "dimension", ty = "&str", value = "dimension" },
+  { name = "level", ty = "mod_api::LevelRef", value = "level" },
 ]
 
 [[injection]]
@@ -52,7 +61,7 @@ kind = "HEAD"
 helper = "hooks/server_tick.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "phase", ty = "crate::game::native_lifecycle::ServerTickPhase", value = "phase" },
+  { name = "phase", ty = "mod_api::ServerTickPhase", value = "phase" },
 ]
 
 [[injection]]
@@ -63,7 +72,7 @@ kind = "HEAD"
 helper = "hooks/block_entity.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "entity", ty = "&mut Option<(String, horizon_world::nbt::Compound)>", value = "&mut *entity" },
+  { name = "entity", ty = "&mut Option<horizon_core::nbt::Compound>", value = "&mut *entity" },
 ]
 
 [[injection]]
@@ -86,7 +95,7 @@ helper = "hooks/block_entity_tick.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "entity", ty = "&mut mod_api::ModBlockEntity", value = "&mut *entity" },
 ]
 
 [[injection]]
@@ -98,35 +107,33 @@ helper = "hooks/fe_storage.rs"
 bindings = [
   { name = "dimension", ty = "&str", value = "dimension" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
-  { name = "info", ty = "&mut Option<crate::game::native_hooks::NativeFeInfo>", value = "&mut *info" },
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
+  { name = "info", ty = "&mut Option<mod_api::NativeFeInfo>", value = "&mut *info" },
 ]
 
 [[injection]]
 id = "fe-receive"
 hook = "fe_receive"
 hook_version = 1
-kind = "HEAD"
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_receive"
+require = 1
+ordinal = 0
+argument = 0
 helper = "hooks/fe_receive.rs"
 bindings = [
-  { name = "dimension", ty = "&str", value = "dimension" },
-  { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
-  { name = "max", ty = "i64", value = "max" },
-  { name = "simulate", ty = "bool", value = "simulate" },
-  { name = "accepted", ty = "&mut Option<i64>", value = "&mut *accepted" },
+  { name = "call", ty = "mod_api::__private::FeReceiveCall<'_>", value = "$value" },
 ]
 
 [[injection]]
-id = "place-block"
-hook = "place_block"
+id = "placed-by"
+hook = "on_block_placed_by"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/place_block.rs"
+helper = "hooks/on_block_placed_by.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
-  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "call", ty = "&super::fire::OnBlockPlacedByCall<'_>", value = "&call" },
 ]
 
 [[injection]]
@@ -137,8 +144,8 @@ kind = "HEAD"
 helper = "hooks/block_entity_drop.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
-  { name = "components", ty = "&mut horizon_world::nbt::Compound", value = "&mut *components" },
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
+  { name = "components", ty = "&mut horizon_core::nbt::Compound", value = "&mut *components" },
 ]
 
 [[injection]]
@@ -149,7 +156,8 @@ kind = "HEAD"
 helper = "hooks/right_click_block.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "click", ty = "&mod_api::BlockClick<'_>", value = "click" },
+  { name = "result", ty = "&mut mod_api::InteractionResult", value = "&mut *cancellation_result" },
   { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]
 
@@ -181,22 +189,22 @@ bindings = [
 [[injection]]
 id = "register-commands"
 hook = "register_commands"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/register_commands.rs"
 bindings = [
-  { name = "commands", ty = "&mut Vec<crate::game::native_server::NativeCommand>", value = "&mut *commands" },
+  { name = "commands", ty = "&mut Vec<mod_api::Command>", value = "&mut *commands" },
 ]
 
 [[injection]]
-id = "perform-command"
-hook = "perform_command"
+id = "run-mod-command"
+hook = "run_mod_command"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/perform_command.rs"
+helper = "hooks/run_mod_command.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "player", ty = "&crate::game::native_server::NativeServerPlayer", value = "player" },
-  { name = "command", ty = "&str", value = "command" },
+  { name = "source", ty = "&mod_api::CommandSource", value = "source" },
+  { name = "command", ty = "&mod_api::CommandInvocation", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]

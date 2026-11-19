@@ -11,11 +11,10 @@
 // when it closes. The transfer cycle calls into the game for each neighbour and
 // the game may call back, so no borrow of that state is held across a call.
 
-use super::{
-    Dim, Game, KeyCode,
-    native_hooks::NativeFeInfo,
-    native_lifecycle::{ServerTickPhase, WorldPhase},
-    native_server::{NativeCommand, NativeServerPlayer},
+use super::{Dim, Game};
+use mod_api::{
+    ModBlockEntity,
+    Command, CommandArgumentValue, CommandInvocation, CommandSource, NativeFeInfo, PlayerRef, ServerTickPhase, WorldPhase,
 };
 use fluxnetworks_core::{
     config::FluxConfig,
@@ -25,7 +24,7 @@ use fluxnetworks_core::{
     world::{FluxWorld, Host, Key, SIDES, tick_all},
 };
 use horizon_client::{
-    containers::{BlockEntity, ModBlockEntity},
+    containers::{BlockEntity, ModBlockEntity as EngineEntity},
     item_data,
     items::ItemStack,
     lan::data::component_nbt,
@@ -33,10 +32,8 @@ use horizon_client::{
     world::World,
 };
 use horizon_core::geometry::Direction;
-use horizon_world::{
-    level::flags,
-    nbt::{Compound, JavaString, Tag},
-};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use horizon_world::level::flags;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -283,36 +280,42 @@ fn save_networks() {
 
 /// `native_world_lifecycle`: the networks and the settings are read as a world
 /// opens and dropped as it closes.
-pub(super) fn lifecycle(game: &mut Game<'_>, phase: WorldPhase) {
-    match phase {
-        WorldPhase::WorldOpenReady => {
-            let config = match Game::native_config_dir() {
-                Ok(dir) => FluxConfig::load(&dir),
-                Err(e) => {
-                    log::warn!("[fluxnetworks] no config folder ({e}): Flux Networks' defaults");
-                    FluxConfig::default()
-                }
-            };
-            let dir = game.native_world_dir();
-            let networks = dir
-                .as_deref()
-                .and_then(|dir| horizon_client::save::read_dat(&data_path(dir)))
-                .and_then(|tag| read_networks(&tag))
-                .unwrap_or_else(|| Networks::new(random_origin()));
-            with_world(|w| *w = FluxWorld::new(networks, config));
-            WORLD_DIR.with(|d| *d.borrow_mut() = dir);
+pub(super) fn opened(game: &mut Game<'_>) {
+    let config = match Game::native_config_dir() {
+        Ok(dir) => FluxConfig::load(&dir),
+        Err(e) => {
+            log::warn!("[fluxnetworks] no config folder ({e}): Flux Networks' defaults");
+            FluxConfig::default()
         }
-        WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed => {
-            with_world(|w| *w = FluxWorld::new(Networks::new(0), FluxConfig::default()));
-            WORLD_DIR.with(|d| *d.borrow_mut() = None);
-        }
+    };
+    let dir = game.native_world_dir();
+    let networks = dir
+        .as_deref()
+        .and_then(|dir| horizon_client::save::read_dat(&data_path(dir)))
+        .and_then(|tag| read_networks(&tag))
+        .unwrap_or_else(|| Networks::new(random_origin()));
+    with_world(|w| *w = FluxWorld::new(networks, config));
+    WORLD_DIR.with(|d| *d.borrow_mut() = dir);
+    forget_session();
+}
+
+/// `native_world_lifecycle`: the networks and settings are dropped as the world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        with_world(|w| *w = FluxWorld::new(Networks::new(0), FluxConfig::default()));
+        WORLD_DIR.with(|d| *d.borrow_mut() = None);
     }
+    forget_session();
+}
+
+/// The tick count and the open menus start again with each world.
+fn forget_session() {
     TICK.with(|t| t.set(0));
     MENUS.with(|m| m.borrow_mut().clear());
     PENDING.with(|m| m.borrow_mut().clear());
 }
 
-/// `native_level_tick_pre`: the level whose block entities tick next.
+/// `native_level_tick_pre`: the level whose block entities tick next (`dimension`: its id).
 pub(super) fn level_pre(dimension: &str) {
     let level = with_world(|w| w.dimension_id(dimension));
     LEVEL.with(|l| l.set(level));
@@ -320,7 +323,7 @@ pub(super) fn level_pre(dimension: &str) {
 
 /// `native_block_entity`: a device's entity. Storages and the controller have
 /// one with no rules yet (later slices), so their blocks can keep it.
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     if entity.is_some() || !is_device(block) {
         return;
     }
@@ -329,7 +332,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     } else {
         Compound::new()
     };
-    *entity = Some((block.to_owned(), nbt));
+    *entity = Some(nbt);
 }
 
 /// `native_block_entity_ticks`: plugs and points tick.
@@ -366,7 +369,7 @@ fn scan_sides(game: &Game<'_>, dimension: &str, pos: [i32; 3]) -> u8 {
 /// its block the sides it connects to (`sendBlockUpdateIfNeeded`). The energy
 /// moves at the server tick's end.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
-    let Some(kind) = Kind::of_block(&entity.id) else {
+    let Some(kind) = Kind::of_block(entity.id()) else {
         return;
     };
     let level = LEVEL.with(Cell::get);
@@ -423,13 +426,13 @@ fn compound_energy(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: Kind) 
     let BlockEntity::Mod(m) = world.block_entities.get(&(pos[0], pos[1], pos[2]))? else {
         return None;
     };
-    (Kind::of_block(&m.id) == Some(kind)).then(|| number(m.nbt.get(&key("energy"))).unwrap_or(0))
+    (Kind::of_block(m.id()) == Some(kind)).then(|| number(m.nbt.get(&key("energy"))).unwrap_or(0))
 }
 
 /// Runs `write` on the plug or point at `pos` in any open level, and marks its
 /// chunk for saving. False when no such block entity is there now (another
 /// block took the place), and nothing else is touched.
-fn write_entity(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], write: impl FnOnce(&mut ModBlockEntity)) -> bool {
+fn write_entity(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], write: impl FnOnce(&mut EngineEntity)) -> bool {
     let dim = Dim::from_id(dimension);
     if dim.id() != dimension {
         return false;
@@ -442,10 +445,10 @@ fn write_entity(game: &mut Game<'_>, dimension: &str, pos: [i32; 3], write: impl
     let Some(BlockEntity::Mod(m)) = world.block_entities.get_mut(&at) else {
         return false;
     };
-    if Kind::of_block(&m.id).is_none() {
+    if Kind::of_block(m.id()).is_none() {
         return false;
     }
-    write(m);
+    write(&mut **m);
     world.modified.insert((at.0 >> 4, at.2 >> 4));
     true
 }
@@ -498,7 +501,7 @@ fn run_networks(game: &mut Game<'_>) {
 /// its buffer. A plug takes energy while on a network and neither gives any
 /// out of its block.
 pub(super) fn fe_storage(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, info: &mut Option<NativeFeInfo>) {
-    if info.is_some() || !is_ours(&entity.id) || Kind::of_block(&entity.id).is_none() {
+    if info.is_some() || !is_ours(entity.id()) || Kind::of_block(entity.id()).is_none() {
         return;
     }
     let device = with_world(|w| w.key(dimension, pos).and_then(|at| w.info(at)));
@@ -515,7 +518,7 @@ pub(super) fn fe_storage(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity
 /// comes in goes into the compound at once, so a plug's intake is there whatever
 /// happens to the plug before the tick's end.
 pub(super) fn fe_receive(dimension: &str, pos: [i32; 3], entity: &mut ModBlockEntity, max: i64, simulate: bool, accepted: &mut Option<i64>) {
-    if accepted.is_some() || Kind::of_block(&entity.id).is_none() {
+    if accepted.is_some() || Kind::of_block(entity.id()).is_none() {
         return;
     }
     let (taken, buffer) = with_world(|w| {
@@ -541,7 +544,7 @@ pub(super) fn fe_receive(dimension: &str, pos: [i32; 3], entity: &mut ModBlockEn
 /// `TileFluxDevice.collectImplicitComponents`. It takes any drop of the loot
 /// table, a player's or not, as the mod's does.
 pub(super) fn drop_components(block: &str, entity: &ModBlockEntity, components: &mut Compound) {
-    if Kind::of_block(block).is_none() || Kind::of_block(&entity.id).is_none() {
+    if Kind::of_block(block).is_none() || Kind::of_block(entity.id()).is_none() {
         return;
     }
     let mut config = Compound::new();
@@ -556,7 +559,7 @@ pub(super) fn drop_components(block: &str, entity: &ModBlockEntity, components: 
 
 /// `TileFluxDevice.applyImplicitComponents`: what the item kept goes into a new
 /// block entity's compound, where its first tick finds it.
-fn apply_components(stack: &ItemStack, entity: &mut ModBlockEntity) {
+fn apply_components(stack: &ItemStack, entity: &mut EngineEntity) {
     let Some(Tag::Compound(components)) = item_data::encode_components(stack) else {
         return;
     };
@@ -631,11 +634,11 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut boo
     if !is_device(&block) {
         return;
     }
-    if game.keys.contains(&KeyCode::ShiftLeft) && (game.native_held().is_some() || game.offhand.is_some()) {
+    if game.native_has_shift_down() && (game.native_held().is_some() || game.offhand.is_some()) {
         return;
     }
     *canceled = true;
-    let (Some(kind), Some(player)) = (Kind::of_block(&block), game.native_acting_player()) else {
+    let (Some(kind), Some(player)) = (Kind::of_block(&block), game.native_acting_player().map(|p| Online::of(game, p))) else {
         return;
     };
     if MENUS.with(|m| m.borrow().get(&player.uuid).is_some_and(|m| m.pos == pos)) {
@@ -717,7 +720,7 @@ pub(super) fn menu_clicked(game: &mut Game<'_>, uuid: u128, window: i32, slot: i
         Action::Connect(network) => connect(game, &menu, uuid, network),
         Action::Disconnect => connect(game, &menu, uuid, NO_NETWORK),
         Action::Create => {
-            let name = game.native_server_players().into_iter().find(|p| p.uuid == uuid).map_or_else(String::new, |p| p.name);
+            let name = game.fork_player(uuid).and_then(|p| game.player_name(p)).unwrap_or_default();
             let made = with_world(|w| {
                 let maximum = w.config.maximum_per_player;
                 w.networks.create_default(uuid, &name, maximum)
@@ -758,9 +761,9 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     if Kind::of_block(&game.native_block(pos)).is_none() {
         return;
     }
-    let owner = game.native_acting_player().map(|player| player.uuid);
+    let owner = game.native_acting_player().map(|player| player.uuid());
     game.native_with_mod_block_entity(pos, |m| {
-        if Kind::of_block(&m.id).is_some() {
+        if Kind::of_block(m.id()).is_some() {
             apply_components(stack, m);
             if let Some(owner) = owner {
                 m.nbt.insert(key("player_uuid"), uuid_tag(owner));
@@ -771,10 +774,33 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 
 // ---- /flux ------------------------------------------------------------------------
 
-/// `native_register_commands`.
-pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
-    commands.push(NativeCommand::op("flux probe <pos:block_pos>", 2));
-    commands.push(NativeCommand::op("flux networks", 2));
+/// `native_register_commands`: `/flux` with one `text` line (upstream's `word` takes no `~`), operators only.
+pub(super) fn commands(commands: &mut Vec<Command>) {
+    commands.push(Command::op("flux [line:text]", 2));
+}
+
+/// The command line a parsed invocation of `/flux` was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
+}
+
+/// The acting player as the menus read them (the fork's `NativeServerPlayer`): the UUID and the dimension's id.
+struct Online {
+    uuid: u128,
+    dimension: String,
+}
+
+impl Online {
+    fn of(game: &Game<'_>, player: PlayerRef) -> Self {
+        Self { uuid: player.uuid(), dimension: game.player_dimension(player).map(|d| d.to_string()).unwrap_or_default() }
+    }
 }
 
 /// A coordinate of the command line: a number, or `~`/`~n` from the player.
@@ -787,9 +813,9 @@ fn coordinate(word: Option<&str>, from: f64) -> Option<i32> {
     }
 }
 
-fn probe(player: &NativeServerPlayer, pos: [i32; 3]) -> serde_json::Value {
+fn probe(dimension: &str, pos: [i32; 3]) -> serde_json::Value {
     with_world(|w| {
-        let device = w.key(&player.dimension, pos).and_then(|at| w.devices.get(&at).map(|d| (at, d)));
+        let device = w.key(dimension, pos).and_then(|at| w.devices.get(&at).map(|d| (at, d)));
         let Some((at, d)) = device else {
             return serde_json::json!({ "pos": pos, "error": "no live device here" });
         };
@@ -847,7 +873,11 @@ fn networks_json() -> serde_json::Value {
 
 /// `native_perform_command`: `/flux probe x y z` answers `FLUX {json}` with the
 /// live device there, `/flux networks` with the world's networks.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
+    let CommandSource::Player { player, .. } = source else { return };
+    let position = game.entity_position(player.entity()).unwrap_or_default();
+    let dimension = game.player_dimension(*player).map(|d| d.to_string()).unwrap_or_default();
+    let command = line(call);
     let mut words = command.split_whitespace();
     if *ran || words.next() != Some("flux") {
         return;
@@ -855,9 +885,9 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
     *ran = true;
     let answer = match words.next() {
         Some("probe") => {
-            let p = player.position;
+            let p = position;
             match (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2])) {
-                (Some(x), Some(y), Some(z)) => probe(player, [x, y, z]),
+                (Some(x), Some(y), Some(z)) => probe(&dimension, [x, y, z]),
                 _ => serde_json::json!({ "error": "usage: /flux probe <x> <y> <z>" }),
             }
         }

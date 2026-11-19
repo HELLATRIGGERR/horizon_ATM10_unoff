@@ -1,11 +1,5 @@
-// `receiveEnergy` on a plug or a point.
-fn flux_fe_receive(
-    dimension: &str,
-    pos: [i32; 3],
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    max: i64,
-    simulate: bool,
-    accepted: &mut Option<i64>,
-) {
-    crate::game::flux_world::fe_receive(dimension, pos, entity, max, simulate, accepted);
+// `receiveEnergy` on a plug or a point (the hook passes one call).
+fn flux_fe_receive(call: mod_api::__private::FeReceiveCall<'_>) -> mod_api::__private::FeReceiveCall<'_> {
+    crate::game::flux_world::fe_receive(call.dimension, call.pos, &mut *call.entity, call.max, call.simulate, &mut *call.accepted);
+    call
 }

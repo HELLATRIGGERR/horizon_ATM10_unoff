@@ -13,6 +13,7 @@
 //   PORT_PACK         the horizon-port-pack binary     <base>/.build/target-portpack/release/horizon-port-pack
 //   HORIZON_MIXINS    the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
 //   FLUX_JOBS         cargo jobs                       2
+//   FLUX_FEATURES     the game's Cargo features        ae2-lab (`-p horizon-game --no-default-features`)
 // `world` also passes ATM10_DIR (the instance, whose settings it tests reading), AE2_RESOURCES and AE2_CONTENT_DIR to
 // the harness.
 //
@@ -23,6 +24,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
 import { withLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -139,12 +141,12 @@ const steps: Record<string, () => Promise<void>> = {
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`), '--out', next]);
+    await applyBundles(command => run(command), mixins, root, withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`), next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.FLUX_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

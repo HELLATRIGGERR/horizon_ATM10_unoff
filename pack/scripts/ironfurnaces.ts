@@ -13,13 +13,16 @@
 //   IRONFURNACES_TOOL_TARGET target dir of the pack's crate   <base>/.build/target-ironfurnaces
 //   HORIZON_MIXINS           the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
 //   AE2_RESOURCES            the prepared 26.3 resources      <base>/horizon/.local/resources/26.3
+//   IRONFURNACES_FEATURES    the game's Cargo features (`-p horizon-game --no-default-features`): ae2-lab, the world
+//                          tests load AE2's content
 //   IRONFURNACES_JOBS        cargo jobs                       2
 // `world` also passes ATM10_DIR (ATM10's settings) and AE2_CONTENT_DIR through to the harness. Nothing a step
 // generates is committed: Iron Furnaces' files stay local.
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
-import { withLocalBundles } from './local-bundles';
+import { addLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -113,12 +116,17 @@ const steps: Record<string, () => Promise<void>> = {
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`), '--out', next]);
+    // Only this bundle (and HORIZON_LOCAL_BUNDLES): the others under pack/mods may still be on the fork's hooks.
+    const mods = `${stage}-mods`;
+    rmSync(mods, { recursive: true, force: true });
+    cpSync(bundle, join(mods, basename(bundle)), { recursive: true, filter: path => !relative(bundle, path).split(/[\\/]/).some(part => part === 'tests' || part === 'target' || part === 'Cargo.lock') });
+    addLocalBundles(mods);
+    await applyBundles(command => run(command), mixins, root, mods, next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.IRONFURNACES_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

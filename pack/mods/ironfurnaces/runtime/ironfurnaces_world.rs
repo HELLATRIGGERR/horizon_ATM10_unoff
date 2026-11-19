@@ -2,18 +2,16 @@
 // native bundle). The rules are the bundle's crate `ironfurnaces_core`; this module is the glue: the block entity
 // and its saved compound, the nine-slot container, the world's cooking recipes (`native_cooking_recipes`), the
 // settings from `config/ironfurnaces-common.toml`, the augments and the tier upgrades. Server hooks run on the
-// thread of the `Game` that simulates the world, so the settings are kept per thread, read when a world opens and
-// dropped when it closes. Translated from Iron Furnaces 4.3.2 (Apache-2.0); see this bundle's README.md.
+// thread of the `Game` that simulates the world, so the settings are kept per thread, read when the server has
+// opened its world and dropped when it closes. Translated from Iron Furnaces 4.3.2 (Apache-2.0); see this bundle's
+// README.md.
 
-use super::{Game, native_lifecycle::WorldPhase};
-use horizon_client::{
-    containers::{ModBlockEntity, ModContainer},
-    items::ItemStack,
-};
-use horizon_world::{
-    level::flags,
-    nbt::{Compound, JavaString, Tag},
-};
+use super::Game;
+use crate::game::api_values::{TryIntoApi, TryIntoEngine};
+use horizon_client::{containers::ModContainer, items::ItemStack};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use horizon_world::level::flags;
+use mod_api::{BlockUpdateFlags, ModBlockEntity, WorldPhase};
 use ironfurnaces_core::{
     config::IronFurnacesConfig,
     furnace::{self, Green, Red, Step, Timers},
@@ -41,10 +39,17 @@ fn with_settings<R>(read: impl FnOnce(&IronFurnacesConfig) -> R) -> R {
     SETTINGS.with(|s| read(s.borrow_mut().get_or_insert_with(read_settings)))
 }
 
-/// `native_world_lifecycle`: settings are read as a world opens and dropped as it closes.
+/// `native_server_started` (where the fork's `WorldOpenReady` was): settings are read as the world opens.
+pub(super) fn opened() {
+    let fresh = read_settings();
+    SETTINGS.with(|s| *s.borrow_mut() = Some(fresh));
+}
+
+/// `native_world_lifecycle` v2: settings are dropped as the world closes or fails to open.
 pub(super) fn lifecycle(phase: WorldPhase) {
-    let fresh = matches!(phase, WorldPhase::WorldOpenReady).then(read_settings);
-    SETTINGS.with(|s| *s.borrow_mut() = fresh);
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        SETTINGS.with(|s| *s.borrow_mut() = None);
+    }
 }
 
 // ---- The saved compound ---------------------------------------------------
@@ -82,15 +87,15 @@ fn write(nbt: &mut Compound, t: &Timers) {
 
 // ---- Block entities -------------------------------------------------------
 
-/// `native_block_entity`: a new, empty furnace.
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+/// `native_block_entity`: a new, empty furnace (its type id is the block's declaration's).
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     if entity.is_some() || Tier::of_block(block).is_none() {
         return;
     }
     let mut nbt = Compound::new();
     write(&mut nbt, &Timers { total: with_settings(|c| Tier::of_block(block).map_or(0, |t| c.speed(t))), ..Timers::default() });
     nbt.insert(key(TYPE), Tag::Int(0));
-    *entity = Some((block.to_owned(), nbt));
+    *entity = Some(nbt);
 }
 
 /// `native_block_entity_ticks`: furnaces tick.
@@ -143,36 +148,40 @@ fn find_recipe(game: &Game<'_>, kind: &str, item: &str) -> Option<(i32, ItemStac
         .map(|c| (c.time as i32, c.result.clone()))
 }
 
-fn stack_at(entity: &ModBlockEntity, slot: usize) -> Option<&ItemStack> {
-    entity.items.get(slot)?.as_ref().filter(|s| s.count > 0)
+fn stack_at(items: &[Option<ItemStack>], slot: usize) -> Option<&ItemStack> {
+    items.get(slot)?.as_ref().filter(|s| s.count > 0)
 }
 
-/// `native_block_entity_tick`: one tick of the furnace branch of `BlockIronFurnaceTileBase.tick`.
+/// `native_block_entity_tick`: one tick of the furnace branch of `BlockIronFurnaceTileBase.tick`. The hook's slots
+/// hold the API's stacks: the furnace works on the engine's and writes back the slots it changed.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
-    let Some(tier) = Tier::of_block(&entity.id) else {
+    let Some(tier) = Tier::of_block(entity.id()) else {
         return;
     };
+    let held: Vec<Option<ItemStack>> =
+        entity.items.iter().map(|s| s.as_ref().and_then(|s| s.try_into_engine(game.items()).ok())).collect();
+    let mut items = held.clone();
     let (regular, mult) = with_settings(|c| (c.speed(tier), c.mult(tier)));
     let before = read(&entity.nbt);
     let mut t = before;
-    let red = stack_at(entity, furnace::AUGMENT_RED).map_or(Red::None, |s| Red::of_item(&s.item));
-    let green = stack_at(entity, furnace::AUGMENT_GREEN).map_or(Green::None, |s| Green::of_item(&s.item));
-    let input = stack_at(entity, furnace::INPUT).cloned();
+    let red = stack_at(&items, furnace::AUGMENT_RED).map_or(Red::None, |s| Red::of_item(&s.item));
+    let green = stack_at(&items, furnace::AUGMENT_GREEN).map_or(Green::None, |s| Green::of_item(&s.item));
+    let input = stack_at(&items, furnace::INPUT).cloned();
     let recipe = input.as_ref().and_then(|s| find_recipe(game, red.recipe_kind(), &s.item));
     // `getCookTime`: with no input the total stays; with one, the recipe's time at this tier and these augments.
     if input.is_some() {
         t.total = furnace::cook_time(recipe.as_ref().map_or(0, |(time, _)| furnace::recipe_speed(regular, *time)), green);
     }
     // `canSmelt`: a recipe, and room for its result on the output stack.
-    let valid = recipe.as_ref().is_some_and(|(_, result)| match stack_at(entity, furnace::OUTPUT) {
+    let valid = recipe.as_ref().is_some_and(|(_, result)| match stack_at(&items, furnace::OUTPUT) {
         None => true,
         Some(out) => {
             let max = game.native_max_stack_size(&result.item).unwrap_or(64) as i32;
             furnace::fits(out.count as i32, result.count as i32, out.item == result.item, max)
         }
     });
-    let fuel = stack_at(entity, furnace::FUEL);
-    let fuel_burn = fuel.map_or(0, |s| game.native_burn_time(s));
+    let fuel = stack_at(&items, furnace::FUEL).cloned();
+    let fuel_burn = fuel.as_ref().map_or(0, |s| game.native_burn_time(s));
     let done = t.tick(&Step {
         has_input: input.is_some(),
         has_fuel: fuel.is_some(),
@@ -183,8 +192,12 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     });
     if done.used_fuel {
         // `itemstack.shrink(1)`, or the remainder (a lava bucket leaves its bucket).
-        let rest = fuel.and_then(|s| (s.count == 1).then(|| game.native_crafting_remainder(&s.item)).flatten());
-        if let Some(slot) = entity.items.get_mut(furnace::FUEL) {
+        let rest = fuel.as_ref().filter(|s| s.count == 1).and_then(|s| {
+            let mut rest = None;
+            game.native_crafting_remainder(s, &mut rest);
+            rest
+        });
+        if let Some(slot) = items.get_mut(furnace::FUEL) {
             if let Some(stack) = slot.as_mut() {
                 stack.count -= 1;
                 if stack.count == 0 {
@@ -196,10 +209,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     if done.smelted
         && let Some((_, result)) = recipe
     {
-        let held = stack_at(entity, furnace::OUTPUT).map_or(0, |s| s.count as i32);
+        let held = stack_at(&items, furnace::OUTPUT).map_or(0, |s| s.count as i32);
         let (used, made) = furnace::smelt_count(mult, input.as_ref().map_or(0, |s| s.count as i32), held, result.count as i32);
         if made > 0 {
-            if let Some(slot) = entity.items.get_mut(furnace::OUTPUT) {
+            if let Some(slot) = items.get_mut(furnace::OUTPUT) {
                 match slot.as_mut() {
                     Some(out) => out.count += made as u32,
                     None => {
@@ -209,7 +222,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
                     }
                 }
             }
-            if let Some(slot) = entity.items.get_mut(furnace::INPUT) {
+            if let Some(slot) = items.get_mut(furnace::INPUT) {
                 if let Some(stack) = slot.as_mut() {
                     stack.count = stack.count.saturating_sub(used as u32);
                     if stack.count == 0 {
@@ -217,6 +230,13 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
                     }
                 }
             }
+        }
+    }
+    for (i, (now, was)) in items.iter().zip(&held).enumerate() {
+        if now != was
+            && let Some(slot) = entity.items.get_mut(i)
+        {
+            *slot = now.as_ref().and_then(|s| s.try_into_api().ok());
         }
     }
     if t != before {
@@ -239,11 +259,23 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
 
 // ---- Items used on a furnace ----------------------------------------------
 
-/// `native_use_item_on`: a tier upgrade turns the furnace into the next one, an augment goes into its slot.
-/// Sneaking, so the furnace's screen doesn't open first (Java's block takes a plain click for its screen, and the
-/// item's `useOn` runs for a sneaking one).
-pub(super) fn use_item_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], claimed: &mut bool) {
-    if *claimed {
+thread_local! {
+    /// `use_on` took the use in progress: `take_use` answers it.
+    static USE_TAKEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether `use_on` took the use the hook is answering (once).
+pub(super) fn take_use() -> bool {
+    USE_TAKEN.with(|u| u.replace(false))
+}
+
+/// `native_use_on` (the fork's `native_use_item_on`): a tier upgrade turns the furnace into the next one, an augment
+/// goes into its slot; the use is then answered `Success` (`take_use`). Sneaking, so the furnace's screen doesn't
+/// open first (Java's block takes a plain click for its screen, and the item's `useOn` runs for a sneaking one). On
+/// the server only: a client's `use_on` leaves the world to the server.
+pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
+    USE_TAKEN.with(|u| u.set(false));
+    if game.remote.is_some() {
         return;
     }
     let block = game.native_block(pos);
@@ -258,7 +290,7 @@ pub(super) fn use_item_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3],
         false
     };
     if used {
-        *claimed = true;
+        USE_TAKEN.with(|u| u.set(true));
         if !game.native_instabuild() {
             let hand = game.native_used_stack();
             if let Some(held) = hand.as_mut() {
@@ -319,20 +351,20 @@ pub(super) fn install(game: &mut Game<'_>, pos: [i32; 3], to: &str) -> Result<()
     let kind = game.native_block_property(pos, "type");
     let jovial = game.native_block_property(pos, "jovial");
     let state = game.native_default_state(to).ok_or("no such block")?;
-    let dimension = game.native_dimension();
-    if !game.native_set_block(dimension, pos, state, 3) {
+    let level = game.fork_level_here().ok_or("no level")?;
+    if !matches!(game.level_set_block(level, pos, state, BlockUpdateFlags::NEIGHBORS | BlockUpdateFlags::CLIENTS), Ok(true)) {
         game.native_with_mod_block_entity(pos, |m| m.items = items);
         return Err("the block didn't change".into());
     }
-    game.native_set_block_property(pos, "facing", &facing);
+    game.native_set_block_property_with(pos, "facing", &facing, flags::UPDATE_ALL);
     for (name, value) in [("type", kind), ("jovial", jovial)] {
         if let Some(value) = value {
-            game.native_set_block_property(pos, name, &value);
+            game.native_set_block_property_with(pos, name, &value, flags::UPDATE_ALL);
         }
     }
     let timers = read(&nbt);
     if timers.burning() {
-        game.native_set_block_property(pos, "lit", "true");
+        game.native_set_block_property_with(pos, "lit", "true", flags::UPDATE_ALL);
     }
     let moved = game.native_with_mod_block_entity(pos, |m| {
         for name in [BURN, COOK, COOK_TOTAL, USED, TYPE] {

@@ -31,3 +31,16 @@ and the furnace's screen. `NOTES.md` lists what is left.
 
 The numbers are `config/ironfurnaces-common.toml` (ATM10's file, which `pack/scripts/sync-atm10.ts` copies), falling
 back on the mod's defaults. Rules live in `ironfurnaces-core` with unit tests; nothing there depends on the engine.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- Settings are read at `server_started` and dropped at `world_lifecycle`'s close phases.
+- `block_entity` answers the compound only (the block's declaration owns the type id); the tick hands the API's
+  `mod_api::ModBlockEntity`, whose slots hold `mod_api::ItemStack`s: the furnace works on the engine's stacks and
+  writes back the slots it changed. The fuel's remainder comes from `native_crafting_remainder`.
+- The fork's `use_item_on` (where `ItemStack.useOn` starts) is upstream's `use_on` v2, one `UseOnCall`: a HEAD
+  injection reads it with the game and does the upgrade or the augment (on the server only), a `MODIFY_ARG` one
+  answers `Success` (`use_on_answer`). A tier upgrade sets the new block through `level_set_block`.
+- `screen` is `mod_api::Screen`; `screen_draw`'s batch is `draw`; sprites take a tint (`None`).
+- Engine needs (HANDOFF "S3"): `use_on` is asked only while a part listens (`has_part_hook(UseOn)`, N5), so the
+  upgrades and augments do nothing in a world yet.

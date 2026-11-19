@@ -2,8 +2,8 @@
 # Iron Furnaces is Apache-2.0; see this folder's README.md, LICENSE-ironfurnaces and NOTICE-ironfurnaces. The code
 # here is translated to Rust from its source at 4.3.2 (the version All the Mods 10 ships).
 #
-# It hooks only Horizon's named hook points (API 3, 8, 12, 14-20, 63, 416, 417, 421, 424), so it builds on any
-# Horizon with hooks API 424 or later: it pins no revision. Its blocks, items, models and recipes are the carry of
+# It hooks only Horizon's named hook points (tools/fork/native-hooks.json: upstream's declared hooks plus the fork's
+# compat hooks such as block_entity_container): it pins no revision. Its blocks, items, models and recipes are the carry of
 # the player's own jar (horizon-port-pack carry), loaded with `--dev-mod`; the world's smelting, blasting and
 # smoking recipes come through `native_cooking_recipes` (API 421), as Mekanism's smelter reads them.
 [mod]
@@ -30,12 +30,20 @@ source = "runtime/ironfurnaces_ui.rs"
 [[injection]]
 id = "world-lifecycle"
 hook = "world_lifecycle"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/world_lifecycle.rs"
 bindings = [
-  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+  { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
 ]
+
+[[injection]]
+id = "server-started"
+hook = "server_started"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/server_started.rs"
+bindings = []
 
 [[injection]]
 id = "block-entity"
@@ -45,7 +53,7 @@ kind = "HEAD"
 helper = "hooks/block_entity.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "entity", ty = "&mut Option<(String, horizon_world::nbt::Compound)>", value = "&mut *entity" },
+  { name = "entity", ty = "&mut Option<horizon_core::nbt::Compound>", value = "&mut *entity" },
 ]
 
 [[injection]]
@@ -92,21 +100,34 @@ helper = "hooks/block_entity_tick.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "entity", ty = "&mut mod_api::ModBlockEntity", value = "&mut *entity" },
+]
+
+# The fork's use_item_on (where `ItemStack.useOn` starts) is upstream's use_on v2: one call, read at the head with the
+# game, answered by a MODIFY_ARG helper on the call into fire_use_on.
+[[injection]]
+id = "use-on"
+hook = "use_on"
+hook_version = 2
+kind = "HEAD"
+helper = "hooks/use_on.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "call", ty = "&mod_api::__private::UseOnCall<'_>", value = "&call" },
 ]
 
 [[injection]]
-id = "use-item-on"
-hook = "use_item_on"
-hook_version = 1
-kind = "HEAD"
-helper = "hooks/use_item_on.rs"
+id = "use-on-answer"
+hook = "use_on"
+hook_version = 2
+kind = "MODIFY_ARG"
+selector = "self.fire_use_on"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/use_on_answer.rs"
 bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
-  { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "face", ty = "[i32; 3]", value = "face" },
-  { name = "claimed", ty = "&mut bool", value = "&mut *claimed" },
+  { name = "call", ty = "mod_api::__private::UseOnCall<'_>", value = "$value" },
 ]
 
 [[injection]]
@@ -117,7 +138,7 @@ kind = "HEAD"
 helper = "hooks/screen.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+  { name = "screen", ty = "&mut Option<mod_api::Screen>", value = "&mut *screen" },
 ]
 
 [[injection]]
@@ -130,6 +151,6 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "block", ty = "&str", value = "block" },
   { name = "data", ty = "&[i32]", value = "data" },
-  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *draw" },
   { name = "origin", ty = "[f32; 2]", value = "origin" },
 ]

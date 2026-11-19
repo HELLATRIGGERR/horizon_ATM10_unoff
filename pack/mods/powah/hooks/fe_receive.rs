@@ -1,4 +1,5 @@
-// Forge Energy offered to a Furnator: it refuses it (`IEnergyStorage.receiveEnergy`).
-fn powah_fe_receive(entity: &horizon_client::containers::ModBlockEntity, accepted: &mut Option<i64>) {
-    crate::game::powah_world::fe_receive(entity, accepted);
+// Forge Energy offered to a Furnator: it refuses it (`IEnergyStorage.receiveEnergy`; the hook passes one call).
+fn powah_fe_receive(call: mod_api::__private::FeReceiveCall<'_>) -> mod_api::__private::FeReceiveCall<'_> {
+    crate::game::powah_world::fe_receive(&*call.entity, &mut *call.accepted);
+    call
 }

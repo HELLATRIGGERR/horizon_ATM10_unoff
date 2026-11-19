@@ -23,3 +23,16 @@ player's own jar: `horizon-port-pack carry`, then `powah-content`.
 The game reads `config/powah.json5` (ATM10's file, which `pack/scripts/sync-atm10.ts` copies), and falls back on the
 same numbers, which are the mod's defaults. Rules live in `powah-core` with unit tests; nothing there depends on the
 engine.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- Settings are read at `server_started` and dropped at `world_lifecycle`'s close phases.
+- `block_entity` answers the compound only (the block's declaration owns the type id); the hooks hand the API's
+  `mod_api::ModBlockEntity` (`id()`, its fields through `Deref`), whose slots hold `mod_api::ItemStack`s: the fuel
+  is shrunk through the API and its burn time and remainder asked of the engine's stack.
+- `fe_receive` and `fe_extract` pass one `*Call`: `MODIFY_ARG` injections on the call into `fire_*`.
+- `place_block` -> `on_block_placed_by` (a HEAD injection reading the call); `perform_command` -> `run_mod_command`
+  (`/powah [line:text]`, operators).
+- Engine needs (HANDOFF "S3"): `on_block_placed_by` fires only for items a trait mod's part listens on (N5), so a
+  placed Furnator does not take its item's energy back yet. `pack/scripts/powah.ts stage` stages every bundle under
+  `pack/mods`, so it passes only once Mekanism is on upstream's hooks too.

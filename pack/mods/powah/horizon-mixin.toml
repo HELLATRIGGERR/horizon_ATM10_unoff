@@ -2,8 +2,8 @@
 # Powah is LGPL-3.0; see this folder's README.md for the credits. This bundle
 # stays in the fork and is never proposed to Horizon.
 #
-# It hooks only Horizon's named hook points (API 3, 8, 12, 14-20, 63, 416, 417), so
-# it builds on any Horizon with hooks API 417 or later: it pins no revision.
+# It hooks only Horizon's named hook points (tools/fork/native-hooks.json: upstream's declared hooks plus the
+# fork's hooks such as fe_receive): it pins no revision.
 # Its blocks, models and recipes are a content mod built from the carry of the
 # player's own jar by `powah-content` (see pack/scripts/powah.ts), loaded with
 # `--dev-mod`.
@@ -31,12 +31,20 @@ source = "runtime/powah_ui.rs"
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/world_lifecycle.rs"
 bindings = [
-  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+  { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
 ]
+
+[[injection]]
+id = "server-started"
+hook = "server_started"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/server_started.rs"
+bindings = []
 
 [[injection]]
 id = "block-entity"
@@ -46,7 +54,7 @@ kind = "HEAD"
 helper = "hooks/block_entity.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "entity", ty = "&mut Option<(String, horizon_world::nbt::Compound)>", value = "&mut *entity" },
+  { name = "entity", ty = "&mut Option<horizon_core::nbt::Compound>", value = "&mut *entity" },
 ]
 
 [[injection]]
@@ -92,9 +100,9 @@ kind = "HEAD"
 helper = "hooks/block_entity_drop.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
   { name = "by_player", ty = "bool", value = "by_player" },
-  { name = "components", ty = "&mut horizon_world::nbt::Compound", value = "&mut *components" },
+  { name = "components", ty = "&mut horizon_core::nbt::Compound", value = "&mut *components" },
 ]
 
 [[injection]]
@@ -106,19 +114,18 @@ helper = "hooks/block_entity_tick.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "entity", ty = "&mut mod_api::ModBlockEntity", value = "&mut *entity" },
 ]
 
 [[injection]]
-id = "place-block"
-hook = "place_block"
+id = "placed-by"
+hook = "on_block_placed_by"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/place_block.rs"
+helper = "hooks/on_block_placed_by.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "stack", ty = "&horizon_client::items::ItemStack", value = "stack" },
-  { name = "pos", ty = "[i32; 3]", value = "pos" },
+  { name = "call", ty = "&super::fire::OnBlockPlacedByCall<'_>", value = "&call" },
 ]
 
 [[injection]]
@@ -128,32 +135,36 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/fe_storage.rs"
 bindings = [
-  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
-  { name = "info", ty = "&mut Option<crate::game::native_hooks::NativeFeInfo>", value = "&mut *info" },
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
+  { name = "info", ty = "&mut Option<mod_api::NativeFeInfo>", value = "&mut *info" },
 ]
 
 [[injection]]
 id = "fe-receive"
 hook = "fe_receive"
 hook_version = 1
-kind = "HEAD"
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_receive"
+require = 1
+ordinal = 0
+argument = 0
 helper = "hooks/fe_receive.rs"
 bindings = [
-  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "&*entity" },
-  { name = "accepted", ty = "&mut Option<i64>", value = "&mut *accepted" },
+  { name = "call", ty = "mod_api::__private::FeReceiveCall<'_>", value = "$value" },
 ]
 
 [[injection]]
 id = "fe-extract"
 hook = "fe_extract"
 hook_version = 1
-kind = "HEAD"
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_extract"
+require = 1
+ordinal = 0
+argument = 0
 helper = "hooks/fe_extract.rs"
 bindings = [
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
-  { name = "max", ty = "i64", value = "max" },
-  { name = "simulate", ty = "bool", value = "simulate" },
-  { name = "given", ty = "&mut Option<i64>", value = "&mut *given" },
+  { name = "call", ty = "mod_api::__private::FeExtractCall<'_>", value = "$value" },
 ]
 
 [[injection]]
@@ -175,7 +186,7 @@ kind = "HEAD"
 helper = "hooks/screen.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+  { name = "screen", ty = "&mut Option<mod_api::Screen>", value = "&mut *screen" },
 ]
 
 [[injection]]
@@ -188,7 +199,7 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "block", ty = "&str", value = "block" },
   { name = "data", ty = "&[i32]", value = "data" },
-  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *draw" },
   { name = "origin", ty = "[f32; 2]", value = "origin" },
 ]
 
@@ -208,22 +219,22 @@ bindings = [
 [[injection]]
 id = "register-commands"
 hook = "register_commands"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/register_commands.rs"
 bindings = [
-  { name = "commands", ty = "&mut Vec<crate::game::native_server::NativeCommand>", value = "&mut *commands" },
+  { name = "commands", ty = "&mut Vec<mod_api::Command>", value = "&mut *commands" },
 ]
 
 [[injection]]
-id = "perform-command"
-hook = "perform_command"
+id = "run-mod-command"
+hook = "run_mod_command"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/perform_command.rs"
+helper = "hooks/run_mod_command.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "player", ty = "&crate::game::native_server::NativeServerPlayer", value = "player" },
-  { name = "command", ty = "&str", value = "command" },
+  { name = "source", ty = "&mod_api::CommandSource", value = "source" },
+  { name = "command", ty = "&mod_api::CommandInvocation", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]

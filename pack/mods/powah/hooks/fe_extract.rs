@@ -1,9 +1,5 @@
-// Forge Energy drawn from a Furnator (`IEnergyStorage.extractEnergy`).
-fn powah_fe_extract(
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    max: i64,
-    simulate: bool,
-    given: &mut Option<i64>,
-) {
-    crate::game::powah_world::fe_extract(entity, max, simulate, given);
+// Forge Energy drawn from a Furnator (`IEnergyStorage.extractEnergy`; the hook passes one call).
+fn powah_fe_extract(call: mod_api::__private::FeExtractCall<'_>) -> mod_api::__private::FeExtractCall<'_> {
+    crate::game::powah_world::fe_extract(&mut *call.entity, call.max, call.simulate, &mut *call.given);
+    call
 }

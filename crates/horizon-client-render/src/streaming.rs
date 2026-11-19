@@ -4305,7 +4305,7 @@ mod tests {
         let candidates=scan.candidates(f.input(),usize::MAX).unwrap();
         assert!(candidates.iter().any(|(_,x,z)|(*x,*z)==(-40,40)));
         assert!(candidates.iter().any(|(_,x,z)|(*x,*z)==(40,40)));
-        let ranges=f.input().ranges;assert_eq!(ranges.forced_chunks().count(),2);
+        let ranges=f.input().ranges;assert_eq!(ranges.forced.len(),2);
         scan.remember(f.input().ranges,&f.world);
         assert!(scan.unchanged(&f.input().ranges,&f.world));
         f.mod_forced.clear();assert!(!scan.unchanged(&f.input().ranges,&f.world));

@@ -867,6 +867,7 @@ mod source_position_tests {
             0
         }
     }
+    impl crate::level::block_entity_neighbors::BlockEntityNeighbors for Air {}
 
     #[test]
     fn queued_multi_neighbors_retain_the_actual_changed_position() {

@@ -1702,8 +1702,8 @@ mod mod_lifecycle_tests {
         let p = (0, 0, 0);
         b.insert(p, cable(1));
         b.take_mod_lifecycle();
-        let e = b.take(&p).unwrap();
-        b.put(p, e);
+        let (lease, e) = b.take(&p).unwrap();
+        assert!(b.put(lease, e));
         let (added, removed) = b.take_mod_lifecycle();
         assert!(added.is_empty() && removed.is_empty());
     }
@@ -2201,9 +2201,9 @@ mod tests {
         let p = (2, 64, 3);
         b.insert(p, hopper());
         let first = b.incarnation(&p).unwrap();
-        let entity = b.take(&p).unwrap();
+        let (lease, entity) = b.take(&p).unwrap();
         assert_eq!(b.incarnation(&p), Some(first));
-        b.put(p, entity);
+        assert!(b.put(lease, entity));
         assert_eq!(b.incarnation(&p), Some(first));
         b.insert(p, hopper());
         let replacement = b.incarnation(&p).unwrap();

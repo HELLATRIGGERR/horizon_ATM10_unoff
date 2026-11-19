@@ -660,6 +660,7 @@ mod tests {
             states: Vec::new(),
             air: horizon_world::registry::BlockStateId(0),
             woods: Default::default(),
+            sign_texts: Default::default(),
         };
         let world = world_with(vec![
             grass_chunk(0, 0),

@@ -1017,7 +1017,7 @@ fn empty_ingredient_network_consumers_exclude_whole_unplaceable_recipes() {
         let oracle=std::env::var_os("AE2_RECIPE_ORACLE").expect("AE2_RECIPE_ORACLE");
         let rows:Value=serde_json::from_slice(&std::fs::read(oracle).unwrap()).unwrap();
         let expected:BTreeSet<_>=rows.as_array().unwrap().iter().map(|r|r["id"].as_str().unwrap().to_owned()).collect();
-        let actual:BTreeSet<_>=resource_recipes(Path::new(&root)).into_keys().filter(|id|id.starts_with("ae2:")).collect();
+        let actual:BTreeSet<_>=horizon_items::recipe_sources::sources(Path::new(&root),&horizon_world::loot::PackOverlay::NONE).unwrap().into_iter().map(|(name,_)|horizon_items::recipe_sources::qualified(&name)).filter(|id|id.starts_with("ae2:")).collect();
         assert_eq!(actual,expected);
     }
 }

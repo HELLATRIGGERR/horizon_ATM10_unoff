@@ -1737,7 +1737,7 @@ mod tests {
         // Choosing a tab elsewhere brings its page; permissions keep the mod's tab.
         c.select(at(&c, "minecraft:building_blocks"));
         assert_eq!(c.page, 0);
-        assert!(c.set_permissions(true, &Names::default()));
+        assert!(refresh(&mut c, true, &Names::default()));
         assert!(tab_ids(&c).contains(&"mymod:main"));
         c.set_page(9);
         assert_eq!(c.page, 1);

@@ -1276,12 +1276,18 @@ mod lazy_tests {
             return Ok(());
         }
         let registry = horizon_world::level::data::load_registry(&root)?;
-        let parsed = ParsedModels::load(&root);
+        let resources = horizon_assets::resource_source::ResourceRoot::directory(root.clone());
+        let parsed = ParsedModels::load(resources.source());
         let load = |lazy| -> Result<(Sprites, StateModels)> {
             let mut sprites = Sprites::default();
-            let mut catalog =
-                crate::models::prepare_with_models(&root, &registry, &mut sprites, &parsed, lazy)?
-                    .catalog;
+            let mut catalog = crate::models::prepare_with_models(
+                &resources,
+                &registry,
+                &mut sprites,
+                &parsed,
+                lazy,
+            )?
+            .catalog;
             catalog.finish_loading(&sprites);
             Ok((sprites, catalog))
         };

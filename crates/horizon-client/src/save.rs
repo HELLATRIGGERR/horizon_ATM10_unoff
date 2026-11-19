@@ -5370,7 +5370,7 @@ mod tests {
         let before = std::fs::read(save.region_path("entities",0,0)).unwrap();
         assert!(save.load_entities_checked(0,0).is_err());
         assert_eq!(before,std::fs::read(save.region_path("entities",0,0)).unwrap());
-        assert_eq!(save.read_record_raw_checked("entities",0,0).unwrap().unwrap(),bad);
+        assert_eq!(save.try_read_record_raw("entities",0,0).unwrap().unwrap(),bad);
         // The checked read brings it to the current version, in memory only.
         assert_eq!(save.read_record_checked("entities",0,0).unwrap().unwrap().tag.get("Entities"),Some(&Tag::Int(8)));
         assert_eq!(before,std::fs::read(save.region_path("entities",0,0)).unwrap());

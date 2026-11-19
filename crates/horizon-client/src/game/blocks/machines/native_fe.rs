@@ -531,7 +531,8 @@ mod tests {
     use super::*;
     use horizon_client::chunk::Chunk;
     use horizon_client::containers::ModBlockEntityFields;
-    use horizon_world::{nbt::Tag, registry::BlockStateId};
+    use horizon_core::nbt::Tag;
+    use horizon_world::registry::BlockStateId;
     use std::sync::Arc;
 
     #[test]
@@ -611,10 +612,8 @@ mod tests {
     }
 
     fn cube(stored: i64) -> ModBlockEntity {
-        let mut entity = ModBlockEntity::from(ModBlockEntityFields {
-            id: "mymod:battery".into(),
-            ..Default::default()
-        });
+        let mut entity =
+            ModBlockEntity::new("mymod:battery".into(), ModBlockEntityFields::default());
         entity.nbt.insert("energy".into(), Tag::Long(stored));
         entity
     }
@@ -623,7 +622,7 @@ mod tests {
     fn a_block_entity_is_out_of_the_world_during_its_call() {
         let (mut world, key) = world_with(cube(100));
         let mut taken = take(&mut world, key).expect("a mod block entity");
-        assert_eq!(taken.id, "mymod:battery");
+        assert_eq!(taken.id(), "mymod:battery");
         // Its place reads as the ticking placeholder: asked again, it isn't there.
         assert!(take(&mut world, key).is_none());
         assert!(take(&mut world, (0, 64, 0)).is_none(), "no block entity");
@@ -649,10 +648,7 @@ mod tests {
             insert_faces: [false, true, false, false, false, false],
             extract_faces: [true, false, false, false, false, false],
         };
-        let mut entity = ModBlockEntity::from(ModBlockEntityFields {
-            id: "mymod:cell".into(),
-            ..Default::default()
-        });
+        let mut entity = ModBlockEntity::new("mymod:cell".into(), ModBlockEntityFields::default());
         entity.nbt.insert("energy".into(), Tag::Int(900));
         // The top fills, the bottom drains, the sides reach neither.
         let up = declared_info(&buffer, Some(Direction::Up), &entity).unwrap();

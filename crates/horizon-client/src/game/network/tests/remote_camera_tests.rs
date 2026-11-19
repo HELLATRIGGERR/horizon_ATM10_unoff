@@ -33,6 +33,9 @@ fn frame(id: u32, pos: [i32; 3], facing: u8) -> ItemFrame {
 fn tnt(id: u32) -> PrimedTnt {
     let at = Vec3::new(4.5, 64.0, 7.5);
     PrimedTnt {
+        saved_uuid: None,
+        tiny: false,
+        tiny_owner: None,
         rotation: [135.0, 0.0],
         join: Default::default(),
         attachment_lifetime: Default::default(),

@@ -818,6 +818,7 @@ mod mod_spawn_rule_tests {
         let sound: Arc<str> = Arc::from("");
         StateFacts {
             name: Arc::from(name),
+            air: name == "minecraft:air",
             emission: 0,
             dynamic_light: false,
             dampening: 0,

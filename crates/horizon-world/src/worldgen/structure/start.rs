@@ -2162,7 +2162,14 @@ mod left_out_tests {
         ]);
         let biomes = |_: &Value| -> Result<BTreeSet<BiomeId>, DecodeError> { Ok(BTreeSet::new()) };
         let registry =
-            StructureRegistry::new(&structures, &sets, BTreeMap::new(), &biomes).unwrap();
+            StructureRegistry::new(
+                &structures,
+                &sets,
+                BTreeMap::new(),
+                &biomes,
+                &ModStructureTypes::new(),
+            )
+            .unwrap();
         let def = |name: &str| registry.structures.iter().find(|d| d.name == name).unwrap();
         assert!(matches!(def("a:good").kind, StructureKind::Jigsaw(_)));
         assert!(matches!(def("a:own_height").kind, StructureKind::Unsupported(_)));

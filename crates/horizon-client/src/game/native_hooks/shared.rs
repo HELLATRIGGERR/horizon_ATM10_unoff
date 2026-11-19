@@ -5157,6 +5157,7 @@ pub(super) mod particle_count_tests {
 
     fn orb(at: Vec3) -> ExperienceOrb {
         ExperienceOrb {
+            invulnerable: false,
             attachment_lifetime: Default::default(),
             fall_distance: 0.0,
             rotation: [0.0, 0.0],

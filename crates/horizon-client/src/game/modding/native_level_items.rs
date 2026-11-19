@@ -293,6 +293,7 @@ mod tests {
                 let orb = |id, x, value, ticks| {
                     let p = Vec3::new(x, 70.0, 0.5);
                     ExperienceOrb {
+                        invulnerable: false,
                         attachment_lifetime: Default::default(),
                         fall_distance: 0.0,
                         rotation: [0.0, 0.0],

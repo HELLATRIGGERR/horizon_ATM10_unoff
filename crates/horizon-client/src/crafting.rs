@@ -2587,8 +2587,13 @@ mod tests {
             "c:gems/fluix".into(),
             HashSet::from(["ae2:fluix_crystal".into()]),
         )]));
-        let recipes =
-            Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let recipes = Recipes::load(
+            &root,
+            &items,
+            &horizon_world::loot::PackOverlay::NONE,
+            &crate::test_resources::server_load(),
+        )
+        .unwrap();
         let mut grid = vec![None; 9];
         grid[0] = Some(ItemStack::new("ae2:fluix_crystal", 1));
         let (id, out) = recipes.find(lc(), &grid, 3).unwrap();
@@ -2638,8 +2643,13 @@ mod tests {
                 HashSet::from(["minecraft:iron_ingot".into()]),
             ),
         ]));
-        let mut recipes =
-            Recipes::load(&root, &items, &horizon_world::loot::PackOverlay::NONE).unwrap();
+        let mut recipes = Recipes::load(
+            &root,
+            &items,
+            &horizon_world::loot::PackOverlay::NONE,
+            &crate::test_resources::server_load(),
+        )
+        .unwrap();
         recipes.facts.insert(
             Arc::from("ae2:certus_quartz_cutting_knife"),
             Facts {
@@ -2716,7 +2726,7 @@ mod tests {
             grid[i] = Some(ItemStack::new("ae2:cable_anchor", 1));
         }
         grid[4] = Some(ItemStack::new("minecraft:stone", 1));
-        let (id, result) = book.find(&grid, 3).unwrap();
+        let (id, result) = book.find(lc(), &grid, 3).unwrap();
         assert_eq!(id, "ae2:special/facade");
         assert_eq!(result.count, 4);
         assert!(
@@ -2726,12 +2736,12 @@ mod tests {
             matches!(result.data().and_then(|d|d.other("minecraft:custom_data")).and_then(|t|t.get("ae2:facade_item")),Some(horizon_core::nbt::Tag::String(s)) if s.to_string_lossy()=="minecraft:stone")
         );
         grid[4] = Some(ItemStack::new("minecraft:glass_pane", 1));
-        assert!(book.find(&grid, 3).is_none());
+        assert!(book.find(lc(), &grid, 3).is_none());
         grid[4] = Some(patterned("minecraft:stone"));
-        assert!(book.find(&grid, 3).is_none());
+        assert!(book.find(lc(), &grid, 3).is_none());
         grid[4] = Some(ItemStack::new("minecraft:stone", 1));
         grid[0] = Some(ItemStack::new("minecraft:dirt", 1));
-        assert!(book.find(&grid, 3).is_none());
+        assert!(book.find(lc(), &grid, 3).is_none());
     }
     #[test]
     fn result_count_is_bounded_like_vanilla() {

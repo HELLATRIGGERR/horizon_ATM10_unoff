@@ -77,7 +77,7 @@ fn a_placed_lectern_takes_has_book_from_its_item() {
     game.set_mode_id(1);
     game.ui.registries.permission = 2;
     *game.held_mut() = Some(lectern_item());
-    assert!(game.use_hand(Some(&click([8, 64, 8])), None).unwrap());
+    assert!(game.use_hand(Some(&click([8, 64, 8]))).unwrap());
     assert!(
         matches!(game.world.block_entities.get(&(8, 64, 8)), Some(BlockEntity::Lectern(l)) if l.book.is_some())
     );
@@ -88,7 +88,7 @@ fn a_placed_lectern_takes_has_book_from_its_item() {
     // neither the state nor the block entity book, so the comparator reads 0.
     game.ui.registries.permission = 0;
     *game.held_mut() = Some(lectern_item());
-    assert!(game.use_hand(Some(&click([10, 64, 8])), None).unwrap());
+    assert!(game.use_hand(Some(&click([10, 64, 8]))).unwrap());
     assert!(
         matches!(game.world.block_entities.get(&(10, 64, 8)), Some(BlockEntity::Lectern(l)) if l.book.is_none())
     );
@@ -124,7 +124,7 @@ fn a_book_going_on_or_off_posts_one_block_change() {
     lectern(&mut game, [8, 64, 8], false, None);
     *game.held_mut() = Some(ItemStack::new("minecraft:written_book", 1));
     record_events(true);
-    assert!(game.use_hand(Some(&click([8, 64, 8])), None).unwrap());
+    assert!(game.use_hand(Some(&click([8, 64, 8]))).unwrap());
     assert_eq!(
         block_changes(),
         [(

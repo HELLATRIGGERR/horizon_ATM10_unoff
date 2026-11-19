@@ -4697,7 +4697,10 @@ texture=wide",
             r#"{"sources":[{"type":"minecraft:directory","source":"item","prefix":"item/"}]}"#,
         )
         .unwrap();
-        let atlas = HudAtlas::build(&root).unwrap();
+        let atlas = HudAtlas::build(
+            horizon_assets::resource_source::ResourceRoot::directory(root.clone()).source(),
+        )
+        .unwrap();
         let rect = atlas.sprites["ae2:item/charged_staff"];
         assert_eq!(rect.texels((atlas.width, atlas.height)), (16, 16));
         let animation = atlas

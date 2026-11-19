@@ -2782,6 +2782,7 @@ mod placement_snapshot_tests {
             sneaking: true,
             item: "minecraft:stone".into(),
             replace_clicked: true,
+            plane_look: None,
         };
         let snapshot = engine.try_into_api().unwrap();
         assert_eq!(snapshot.pos, horizon_core::position::BlockPos::new(1, 2, 3));

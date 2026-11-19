@@ -840,11 +840,21 @@ mod tests {
     #[ignore = "needs the prepared 26.3 resources"]
     fn vanilla_recipes_all_run() {
         let root = root();
-        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
-        let recipes = Recipes::load(&root, &items, &PackOverlay::NONE).unwrap();
-        let stations = StationData::load(&root, &items, &PackOverlay::NONE);
-        let sources = Recipes::sources(&root, &PackOverlay::NONE).unwrap();
-        let report = audit(&sources, &items, &recipes, &stations, &[], 2);
+        let items = Items::catalog(&root, &PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();
+        let load = crate::test_resources::server_load();
+        let recipes = Recipes::load(&root, &items, &PackOverlay::NONE, &load).unwrap();
+        let defaults = horizon_world::item_defaults::read(&root).unwrap();
+        let stations = StationData::load(&root, &items, &PackOverlay::NONE, &defaults, &load);
+        let sources = horizon_items::recipe_sources::sources(&root, &PackOverlay::NONE).unwrap();
+        let report = audit(
+            crate::test_resources::server_loop_context(),
+            &sources,
+            &items,
+            &recipes,
+            &stations,
+            &[],
+            2,
+        );
         let a = &report["audited"];
         assert!(a["total"].as_u64().unwrap() > 1000, "{a}");
         let failed: Vec<_> = report["failures"]
@@ -862,8 +872,10 @@ mod tests {
     #[ignore = "needs the prepared 26.3 resources"]
     fn causes_are_told_apart() {
         let root = root();
-        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
-        let stations = StationData::load(&root, &items, &PackOverlay::NONE);
+        let items = Items::catalog(&root, &PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();
+        let load = crate::test_resources::server_load();
+        let defaults = horizon_world::item_defaults::read(&root).unwrap();
+        let stations = StationData::load(&root, &items, &PackOverlay::NONE, &defaults, &load);
         let sources: Vec<(String, Value)> = [
             ("t:good", json!({"type": "minecraft:crafting_shapeless", "ingredients": ["minecraft:dirt"], "result": {"id": "minecraft:diamond"}})),
             ("t:item", json!({"type": "minecraft:crafting_shapeless", "ingredients": ["nomod:thing"], "result": {"id": "minecraft:diamond"}})),
@@ -875,8 +887,17 @@ mod tests {
         .map(|(n, v)| (n.to_owned(), v))
         .collect();
         let recipes =
-            Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
-        let report = audit(&sources, &items, &recipes, &stations, &[], 1);
+            Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone(), &load)
+                .unwrap();
+        let report = audit(
+            crate::test_resources::server_loop_context(),
+            &sources,
+            &items,
+            &recipes,
+            &stations,
+            &[],
+            1,
+        );
         let cause = |id: &str| {
             report["failures"]
                 .as_array()
@@ -901,8 +922,10 @@ mod tests {
     #[ignore = "needs the prepared 26.3 resources"]
     fn machine_types_are_read_through_categories() {
         let root = root();
-        let items = Items::catalog(&root, &PackOverlay::NONE).unwrap();
-        let stations = StationData::load(&root, &items, &PackOverlay::NONE);
+        let items = Items::catalog(&root, &PackOverlay::NONE, &horizon_world::item_defaults::read(&root).unwrap()).unwrap();
+        let load = crate::test_resources::server_load();
+        let defaults = horizon_world::item_defaults::read(&root).unwrap();
+        let stations = StationData::load(&root, &items, &PackOverlay::NONE, &defaults, &load);
         let sources: Vec<(String, Value)> = [
             ("m:ok", json!({"type": "m:grind", "input": "minecraft:stone", "output": {"id": "minecraft:gravel", "count": 1}})),
             ("m:gone", json!({"type": "m:grind", "input": {"item": "nomod:rock"}, "output": {"id": "minecraft:gravel", "count": 1}})),
@@ -931,8 +954,17 @@ mod tests {
             ..Default::default()
         }];
         let recipes =
-            Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone()).unwrap();
-        let report = audit(&sources, &items, &recipes, &stations, &categories, 1);
+            Recipes::from_sources(&root, &items, &PackOverlay::NONE, sources.clone(), &load)
+                .unwrap();
+        let report = audit(
+            crate::test_resources::server_loop_context(),
+            &sources,
+            &items,
+            &recipes,
+            &stations,
+            &categories,
+            1,
+        );
         let grind = &report["machines"]["by_type"]["m:grind"];
         assert_eq!(
             (

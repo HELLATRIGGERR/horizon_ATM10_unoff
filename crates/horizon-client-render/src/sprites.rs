@@ -1257,10 +1257,9 @@ mod tests {
     }
     #[test]
     fn textures_that_do_not_load_share_the_missing_layer() {
-        let root = std::env::temp_dir().join(format!("horizon-missing-sprites-{}", std::process::id()));
         let mut sprites = Sprites::default();
-        let a = sprites.insert(&root, "m:block/gone").unwrap();
-        let b = sprites.insert(&root, "other:block/gone_too").unwrap();
+        let a = sprites.insert("m:block/gone").unwrap();
+        let b = sprites.insert("other:block/gone_too").unwrap();
         assert_eq!(a, b);
         assert_eq!((sprites.count(), sprites.missing_names), (1, 2));
         assert_eq!(sprites.layers["other:block/gone_too"], a);

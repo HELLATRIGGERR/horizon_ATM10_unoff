@@ -167,7 +167,6 @@ fn fixture() -> (Scratch, Assets, RenderAssets, MeshTables, Biomes) {
         animated_layers: vec![false],
         colormaps: Vec::new(),
         water_colormap: None,
-        mod_fluids: vec![],
         mod_tints: Default::default(),
         section_geometry: std::sync::Arc::new([]),
     };

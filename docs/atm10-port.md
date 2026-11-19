@@ -682,6 +682,47 @@ upgrades, casings, redstone control, overdrive, auto-extract and the side panel,
 through pipes and buckets, the stonecutter recipes the cutting machine also runs (`stonecutterToCuttingMachine`), the
 recipe viewer's categories, MI's cables and generators.
 
+### Hostile Neural Networks
+
+`pack/mods/hostilenetworks` ports Hostile Neural Networks 6.5.1 from its source: Shadows-of-Fire/Hostile-Neural-Networks,
+branch `1.21`, commit 73979e2d (the commit "6.5.1"), MIT (`LICENSE-hostilenetworks`, Copyright (c) 2021 Brennan Ward). Its
+library Placebo, also MIT, was not needed. The blocks, items, models, textures, tiers and the jar's data models are the mod's
+carry; ATM10's 17 KubeJS data models are laid over it by `final-data` (above). `pack/scripts/hostilenetworks.ts content` puts
+the Simulation Chamber and the Loot Fabricator on `minecraft:furnace`, as Iron Furnaces' are.
+
+What exists: the rules crate `hostilenetworks-core`, translated from `ModelTier`, `ModelTierRegistry`, `DataModelInstance`,
+the data models, `SimChamberTileEntity`, `LootFabTileEntity`, `FabSelection` and `HostileConfig`, with 25 unit tests: the five
+tiers (faulty 0, basic 6, advanced 54, superior 354, self-aware 1,254 data) with a model's own overrides, the accuracy that
+climbs between tiers, the prediction roll, the chamber's inference run (240 ticks) and training run (300 ticks, 20% more FE,
+one point of data on the model), its failures and redstone modes, the fabricator (60 ticks and 256 FE a tick a drop, fixed
+and queue selections) and the numbers the two screens carry in a menu's data (16 bits a slot). `pack/scripts/hostilenetworks.ts
+units content stage build world` runs the tests, makes the content mod, stages the game with the bundles, builds it and runs the
+world test.
+
+The native bundle (`horizon-mixin.toml`, `hooks/`, `runtime/hostilenetworks_world.rs`, `hostilenetworks_ui.rs`) puts them in the game
+on hooks already on main (`world_lifecycle`, `component_types`, `block_entity`, `block_entity_ticks`, `block_entity_container`,
+`block_entity_slot_accepts`, `block_entity_tick`, `menu_button`, `fe_storage`, `fe_receive`, `screen`, `screen_draw`,
+`screen_click`, `screen_tooltip`, `register_commands`, `perform_command`): no hook of its own.
+
+- The tiers and data models are read from the game's data, every namespace (`native_data_files`), so ATM10's 17 are there with
+  the jar's; a data model, a prediction and a blank one hold their model and data in the item components
+  `hostilenetworks:data_model`, `:data` and `:iterations`, registered through `native_component_types` (API 65). The game's
+  `/give` doesn't know components of a mod's, so `/hnn give <model> [data]` (operators) makes a data model.
+- The Simulation Chamber (a hopper menu: model, matrix, base drop, prediction) and the Loot Fabricator (a nine-by-two menu:
+  prediction and sixteen outputs) take FE through `fe_receive` (caps 2,000,000 and 1,000,000), run the core's cycles and
+  keep Java's NBT keys. Both screens are drawn from the mod's own `sim_chamber`, `loot_fabricator` and `default_gui`
+  textures, with the chamber's bars, run text, redstone and mode buttons and the fabricator's drop palette, pages,
+  queue and buttons; `NOTES.md` lists where they differ from Java.
+- `tests/chamber.ts` runs it in a world: a chamber with a self-aware zombie data model, three matrices and FE makes a base drop
+  and a prediction in 240 ticks at 128 FE a tick and the model runs once; a fabricator takes the prediction, a click on its
+  palette picks rotten flesh, and 64 come out after 60 ticks at 256 FE; a training chamber adds a point of data to a basic
+  model and puts nothing out.
+
+What doesn't exist yet: the Deep Learner's data from kills, which needs a kill hook that names the mob and the killer
+(`native_mob_killed` hears only a player's melee blow; the hook comes after the upstream merge, and the core's
+`Instance::data_gained` is what it will call), the Deep Learner item and screen, the Data Center and its I/O port, the Fabrication
+Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/NOTES.md` lists what is left.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

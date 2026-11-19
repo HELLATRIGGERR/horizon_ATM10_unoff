@@ -506,7 +506,7 @@ with some of its properties, and declares the others its blockstate names as `st
 (a property no model reads is left out, since a world holds 2^20 states in all and only a port would
 read it): a template of a class in its own chain, or below its first vanilla class when that says
 something (a rail on a powered rail), the blockstate's guess, or a plain template of about its shape
-(a carved pumpkin for `facing`, stone for none). Where the template's states have other shapes it also
+(a carved pumpkin for `facing`, stone for none; a furnace for a block that cooks: [atm10-port.md](atm10-port.md)). Where the template's states have other shapes it also
 gets `no_occlusion`, and `shapes` by one of the template's properties or `outline_boxes` and
 `collision_boxes` by its own, and `light_emission` when its own properties move its light. Every block
 of ATM10 gets a declaration this way. An item of a vanilla tool or armour class

@@ -29,7 +29,8 @@ import net.minecraft.world.level.storage.loot.LootTable;
  * The pack's final data as the running server holds it, once every data pack, KubeJS script and Almost Unified
  * replacement has had its say: {@code recipes.jsonl}, {@code loot_tables.jsonl}, {@code tags.jsonl} (one JSON object
  * a line), {@code registries.json} (every id of every registry), {@code pack-facts.json} (what no 26.3 table can say
- * of an item or a block in the pack: fuel, compost, pistons, light) and {@code summary.json}. Everything goes through
+ * of an item or a block in the pack: fuel, compost, pistons, light), {@code kubejs-generated/} (KubeJS's generated data
+ * packs: {@link KubeJsGenerated}) and {@code summary.json}. Everything goes through
  * the game's own codecs; a recipe no codec can write falls back to its data pack file, and failing that is listed.
  */
 final class PackDump {
@@ -52,6 +53,7 @@ final class PackDump {
         registries();
         names();
         packFacts();
+        generated();
         Files.writeString(dir.resolve("summary.json"), summary.toString(), StandardCharsets.UTF_8);
         System.out.println("horizon-oracle: dumped " + summary);
     }
@@ -297,6 +299,15 @@ final class PackDump {
         all.add("items", items);
         all.add("blocks", blocks);
         Files.writeString(dir.resolve("pack-facts.json"), all.toString(), StandardCharsets.UTF_8);
+    }
+
+    /** What KubeJS's scripts generate at load ({@code ServerEvents.generateData}), as data pack folders. */
+    private void generated() {
+        try {
+            summary.add("kubejs_generated", KubeJsGenerated.write(server, dir.resolve("kubejs-generated")));
+        } catch (Throwable t) {
+            summary.addProperty("kubejs_generated", reason(t));
+        }
     }
 
     private void registries() throws IOException {

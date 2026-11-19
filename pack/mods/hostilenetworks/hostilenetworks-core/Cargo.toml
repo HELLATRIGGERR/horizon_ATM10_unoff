@@ -1,0 +1,9 @@
+[package]
+name = "hostilenetworks-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Hostile Neural Networks' rules (model tiers, data models, the Simulation Chamber's cycle, the Loot Fabricator) for the pack's port"
+
+[dependencies]
+serde_json = "1"

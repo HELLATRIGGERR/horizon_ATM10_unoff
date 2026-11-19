@@ -19,16 +19,20 @@ instance); it is never committed, not even as a test fixture. The unit tests wri
 the world test copies the instance's folder into its own game folder. The book item comes from a content mod that
 `pack/scripts/ftbquests.ts content` carries from the player's jar into a folder outside the repository.
 
-## What there is (slice 1)
+## What there is (slices 1 and 2)
 
 - The book read whole: chapters in their groups' order, quests, tasks, rewards, reward tables, the split lang.
 - Progress per FTB team, `<world>/ftbquests/<team uuid>.snbt` in FTB Quests' layout, written on each save.
 - Item tasks (by item id) seen in the inventory every `detection_delay` ticks; checkmark tasks; a quest completes
-  with its tasks and its dependencies (ATM10's book is `flexible`); item rewards claimed per player, or once per
-  team for a team reward.
+  with its tasks and its dependencies (ATM10's book is `flexible`).
+- Rewards of every kind ATM10's book has: items, experience points and levels, reward tables (`random`, `loot`,
+  `choice` with a picker), commands run as the player at the reward's `permission_level`, toasts. Claimed per
+  player, or once per team for a team reward; "take all" (minus `exclude_from_claim_all`), auto-claim,
+  `rewards_blocked` (`/ftbquests block_rewards`). Toasts for completed tasks, quests and chapters and for what a
+  claim gave; chat notices for refused claims, a command's output and items dropped for want of room.
 - The book screen: chapters by group, the chapter's quest grid with dependency lines and item icons, a quest's view
-  with its text, tasks and rewards. It opens with the book item, `/ftbquests open_book`, or the quests key (unbound
-  by default, as in FTB Quests).
+  with its text, tasks and rewards, a choice reward's picker, "take all". It opens with the book item,
+  `/ftbquests open_book`, or the quests key (unbound by default, as in FTB Quests).
 
 Tests: the crate's unit tests, and `tests/quests.ts` in a world (`FTBTEAMS_DEV=1` gives `/ftbquests_probe` and
 `/ftbquestsbook`).

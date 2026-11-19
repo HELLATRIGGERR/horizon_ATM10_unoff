@@ -49,13 +49,16 @@ impl Progress {
 
 /// Harness and dedicated runs keep the fully-synchronous startup so their
 /// output stays byte-identical; only an ordinary launch shows the window first.
+/// `HORIZON_PLAYER_START` set gives a game driven by a control socket the
+/// ordinary launch too: the title shows while the world tables load behind it,
+/// and a world opens without holding the frame loop (`tools/atm10/pack-start.ts`).
 pub(super) fn synchronous_startup(options: &Options) -> bool {
     // A headless game has no window for the loading screen.
     options.headless
         || options.frames.is_some()
         || options.world_frames.is_some()
         || options.benchmark.is_some()
-        || options.control.is_some()
+        || (options.control.is_some() && std::env::var_os("HORIZON_PLAYER_START").is_none())
         || !options.execution_role.is_client()
         || std::env::var_os("HORIZON_SCREEN_BUILD_FIXTURE").is_some()
         || std::env::var_os("HORIZON_DISPENSE_FIXTURE").is_some()

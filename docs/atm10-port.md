@@ -107,8 +107,9 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
    (`coverage-summary.py` names the groups); `tools/atm10/batches.py` cuts them into oracle batches.
 2. `tools/atm10/oracle-pack.sh` (under `fullpack.lock`): the whole pack on NeoForge with KubeJS and Almost Unified
    (`neoforge_oracle.py pack`), 448 mods. It writes the final recipes, tags and loot tables, `pack-facts.json` (fuel,
-   compost, worn slot, piston and light facts of every item and block), and each batch's facts (`--batches`,
-   `facts-<batch>.json`, 1.5 GB in all): one server run, about 16 minutes at `-Xmx5G` on the 16 GB PC.
+   compost, worn slot, piston and light facts of every item and block), KubeJS's generated data packs
+   (`kubejs-generated/`, see "Pack logic" below), and each batch's facts (`--batches`, `facts-<batch>.json`, 1.5 GB in
+   all): one server run, about 16 minutes at `-Xmx5G` on the 16 GB PC.
    Then `tools/atm10/oracle-client.sh`: the pack on NeoForge's client, hidden, for what only a client knows of its
    fluids (textures, tints, render layers, bucket colours: `client-facts.json`, docs/mod-fluids.md), about 2.5 minutes.
 3. `tools/atm10/carry-with-facts.sh`: each batch carried with its facts and the client's (about 10 minutes for all);
@@ -117,6 +118,24 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
    writes each namespace's data into the carry that owns it. The rest goes in `atm10-pack`, whose mod id is `kubejs`.
 5. `tools/atm10/load-check` reads them as the game does; `tools/atm10/play-atm10.ts` passes each carry to the game as a
    `--dev-mod` (`measure-load.ps1` measures a start).
+
+A carry gives each block a vanilla template, and the engine reads a click on it through the template. A bundle's
+`native_right_click_block` hooks (API 21 and v2) hear every click on every block, whatever the template, before the
+block's own use. A menu opens only through a template whose class opens one (`use_without_item`: furnaces, chests,
+barrels, hoppers...), with the block entity's container (hook 417) behind it; and an item's click reaches
+`native_use_item_on` (424) only when the template's own use passed, so a template that opens a menu answers it first.
+So the carry reads each block's class and its block entity's from the jar (`classes::Hierarchy`: names, superclasses
+and interfaces, never a method body) and chooses by what Java does on a click. A block that cooks (it extends
+`AbstractFurnaceBlock`, or its block entity extends `AbstractFurnaceBlockEntity` or implements `RecipeCraftingHolder`)
+and has the furnace's `facing` and `lit` takes `minecraft:furnace` (a smoker's or blast furnace's own class keeps that
+template); its other properties are declared. A block that opens a menu without cooking (`MenuProvider`) keeps the
+template it would have, one that opens nothing, and `carry-report.json` says Java opens a menu. Any other block keeps its
+template. Iron Furnaces' thirteen furnaces are on `minecraft:furnace` in a carry made so (the heater stays on
+`iron_block`), and the bundle's `furnace` world test passes on that carry as it is. Powah's furnators are not cookers
+and their block entity is not a `MenuProvider` (it implements `IInventoryHolder`), so they stay on the carved pumpkin.
+Only a menu-opening template opens a mod block entity's container on a click, so a machine that opens a menu without
+cooking (Powah's furnators; a mod's own `MenuProvider`s) gets its screen from a bundle's content step, which moves it to
+one, until the engine opens a mod container from the click itself.
 
 What ATM10 8.4 gives (2 November 2026): 287 carries, 40,557 blocks with 873,394 states (plus vanilla's and AE2's,
 about 910,000 of `MAX_STATES`' 1,048,576), 14,218 items; the load check has 289 mods on and none refused. A block
@@ -151,6 +170,8 @@ another, each hidden behind the one before (first starts on this PC):
 | run 19 | 7.3 s | 45 s | 69 s | **first world with all carries**: first frame at 275 s |
 | run 21 | 5.6 s | 49 s | 68 s | a first start on the final code: first frame at 249 s, its data file written behind it in 273 s |
 | run 22 | none | none | 6.5 s | a second start: first frame at **73 s** |
+| title screen, first start (`pack-start.ts`) | 8.9 s | 67 s | 89 s | Singleplayer, Create New World: first frame in the world at **213 s**; Save and Quit to Title, then the world from the list: in it 41 s later |
+| title screen, second start | none | none | 19 s | the saved world from the list: first frame at 198 s (no data file: the first launch quit before writing it) |
 
 A world opens with all carries. All of these with the session locked, so no frame rate here compares with Java's (the
 compositor holds the window to 30 fps); memory, tick and load times do. Against Java's 200 s, on the same PC:
@@ -167,6 +188,33 @@ compositor holds the window to 30 fps); memory, tick and load times do. Against 
 | Peak working set | 6.7 GB | 6.9 GB |
 | At spawn: working set, private (with 1.5 GB of GPU memory) | 5.0, 9.4 GB | 6.6, 9.1 GB |
 | Lowest free memory, from 7-8 GB at the start | 0.2 GB | 1.0 GB |
+
+Through the title screen, as a player starts it: `tools/atm10/pack-start.ts` starts every carry (and AE2's addons)
+offscreen with no `--world`, with sound on (the output open, the master volume at 0), and drives the title screen
+through the control socket: Singleplayer, Create New World, in the world, Save and Quit to Title, the world from the
+list, in the world, quit; then a second launch that opens the saved world from the list. `HORIZON_PLAYER_START=1`
+gives that game the player's start (the title shows while the world tables load behind it; a control socket
+otherwise loads everything before the window). It writes `pack-start.json` (each step, the startup trace's marks,
+working set and private bytes once a second). On the 64 GB PC, with other work beside it (`bash run.sh` in the
+`packstart-work` folder holds the full-pack lock):
+
+| Through the title screen | First start | Second start | Java |
+|---|--:|--:|--:|
+| Title shown | 89 s | 19 s | 140 s |
+| Core tables; the game answers its socket (a click before goes to the loading screen's menu) | 111 s; 127 s | 63 s; 96 s | |
+| World tables | 166 s | 111 s | |
+| World prepared, server's world open | 197 s, 201 s | 163 s, 169 s | |
+| First frame in the world | **213 s** | 198 s | 200 s |
+| Save and Quit to Title, the world from the list, first frame | 41 s | | |
+| Peak working set, private | 6.4, 8.7 GB | 5.6, 8.3 GB | 8.3 GB heap |
+| In the world: working set, private | 5.7, 8.1 GB | 5.2, 7.2 GB | |
+
+The pack opens through the title screen, first start and second, and a saved world reopens from the list; no
+fatal error on the way. The first start is at Java's 200 s. The second is not the 73 s of run 22: `horizon-data.bin`
+is written 30 s after the first world shows, and the first launch had quit before then. A start just after a power
+loss (cold disk cache, the machine busy rebuilding) also reached the world, at 1,754 s, and wrote no data file in
+the 20 minutes after it. 46 blockstates of mods name models 26.3 doesn't have (`minecraft:block/oak_sign`...): the
+missing model, a warning.
 
 The server thread's tick, over runs 18-22: 5.0-8.8 ms standing at spawn (peak 7.9-15.6 ms); 7.2-16.6 ms on a 400-block
 flight at 10 blocks a second (peak 15-47 ms, and one 1.08 s spike in run 22 not looked into). 637 chunks, 322-1,911
@@ -330,6 +378,351 @@ terminals' `combine` and `upgrade`) and Mekanism's `mek_data` 74. Another 347 re
 audited either: brewing 279, `crafting_transmute` 33, banner duplication 17, and the special crafting recipes.
 
 
+### Pack logic: ATM10's KubeJS
+
+No JavaScript runs here. What ATM10's `kubejs/` does (215 scripts: 19 startup, 180 server, 16 client; a data pack, a
+resource pack) reaches the game as data: through the oracle's dump, which is the game on NeoForge with KubeJS on, and
+`final-data`. `tools/atm10/kubejs-audit.py` counts the scripts' calls by kind. It checks each effect against the dump,
+the carries, the native content folders and vanilla's files. It copies nothing, and its report stays in the work folder:
+
+```sh
+python tools/atm10/kubejs-audit.py --instance <ATM10> --dump <dump> --carries <carries> --resources <26.3> \
+  --also content/ae2 --also <addon content root> --out kubejs-audit.json
+```
+
+ATM10 8.4. Calls are counted in the scripts' text, so a call inside a loop counts once:
+
+| Kind | Count | Applied |
+|---|--:|---|
+| Recipe removals | 294 calls; 190 name an id | Yes, through the dump. 188 of the 190 ids are gone everywhere, and none of the 13,036 jar recipes the dump lacks is in a carry. Not applied: 64 recipes that vanilla's or a native mod's own file still holds (AE2's matter cannon nuggets, vanilla's cake) |
+| Recipe additions | 561 calls in 60 types; 144 named | Yes. All 144 named ones are in the dump. Of the dump's 277 `kubejs:` recipes, the pack mod holds 228 and 49 are parked (their result isn't ours) |
+| Recipe replacements | 66 calls | Yes for carried mods. Not applied: 289 vanilla and native recipes the pack changed keep their own file |
+| Tag edits | 512 calls | Yes, through the dump, except 17 literal edits Java has. 12 are tags of native or uncarried mods (MEGA's compression overrides, Curios), whose tags the dump doesn't write. The other 5 are worldgen tags, which `final-data` leaves to the carries |
+| Startup registrations | 101 items, 7 blocks, 3 fluids | Yes, declared from the oracle's facts. 27 items get their texture from the script (`.texture()`, `.color()`: the enchanting bases, Theurgy's sulfurs, the ore clumps), so they draw the missing texture |
+| Other registrations | 4 Mekanism chemicals, 4 MI machines with casings, hatches and 4 recipe types, 13 Modular Machinery machines | No. The machines need MI's multiblocks, and the chemicals need Mekanism's chemical registry to take data |
+| Data pack (`kubejs/data`) | 337 files | Recipes (100) and loot tables (23) through the dump. Every other file is laid over the carries by `final-data` (below) |
+| Data generators (`generateData`) | 29 calls in 11 scripts | Yes. The oracle exports what they made (1,100 files), and `final-data` lays it over the carries (below) |
+| Resource pack (`kubejs/assets`) | 2,081 files | 1,947 are laid over the carries. 134 belong to mods that aren't carried: the native ports (AE2, MEGA, Powah...) and client-only mods |
+| Event handlers | 21 | No: right-clicks, logins, NeoForge events, a command, a level unload |
+| Client only | 61 tooltip lines, 34 recipe viewer removals, 5 information pages, 9 ponder scenes | No |
+
+`final-data` with `--instance` also lays KubeJS's data pack over the carries, as the game lays a data pack over its
+mods. It takes each file the dump doesn't stand for (anything but recipes, loot tables and the tags of the dump's
+registries) to the carry that owns its namespace. A file replaces the one at its path. A tag file or data map adds to
+the one at its path. A free namespace's file goes in the pack mod. Worldgen files and advancements get carry's 26.3
+rewrite. ATM10 8.4: 190 files are laid over the carries: 49 biome modifiers, 74 worldgen biome tag files, 16 worldgen
+features and sets, 9 advancements, 7 loot modifiers, 2 data maps, and 33 of mods' own data (Forbidden Arcanus rituals,
+Compact Machines room templates, Silent Gear materials and traits, Productive Bees, Hostile Neural Networks). Left out:
+3 of mods that aren't carried, 6 files that aren't JSON (3 structures), and KubeJS's own 11. The largest effect is on
+ore generation. ATM10 turns most mods' ores off so
+that All the Ores' ores stand for them: 47 biome modifiers become `neoforge:none` (Modern Industrialization 16,
+Railcraft 11, Mekanism 6...). It also sets All the Ores' vein sizes and counts, and its biome tags place
+Dungeons Arise's structures.
+
+What the `generateData` scripts make at load lives only in the running game: KubeJS keeps it in virtual data packs,
+one per stage. The oracle's server writes them out (`KubeJsGenerated`, through each pack's own `export`) to
+`<dump>/kubejs-generated/<stage>/data`, with `packs.json` giving their order among the game's 518 packs. The pack
+oracle does it on every run. A run that does only this takes 3.5 minutes: `oracle-pack.sh` with
+`-Dhorizon.oracle.kubejs_generated_only=true` in `JVM` and its own `ATM10_DATA` (its `--out`), under `fullpack.lock`.
+Then copy its `dump/kubejs-generated` into the dump. `final-data --instance` lays the packs as the game orders them.
+`internal`, `registries` and `after_mods` go first, then `kubejs/data` over them, then `last`. `before_mods` lies under
+the mods' own files. The files are handled as `kubejs/data`'s are. A loot table that a file turns off
+(`neoforge:false`) is also taken out of the carry that kept the jar's. ATM10 8.4 uses `after_mods` only, plus
+KubeJS's `internal` pack:
+
+| Generated | Files | Where |
+|---|--:|---|
+| The Mining dimension's ores (`miningDim.js`): configured and placed features, biome modifiers on `#allthemodium:mining_features/mining_biomes` | 32 + 32 + 32 | `allthemodium`, in 26.3's form; the jar has none of them |
+| Hephaestus Forge rituals (`atm:`): the star altar, auto forge, runic crucible and enchanter, MI's hatches, modularium... | 15 | the pack mod |
+| Hostile Neural Networks data models | 17 | `hostilenetworks` |
+| Create's zinc ore turned off (`neoforge:none`) | 1 | `create` |
+| Data maps: MI's fluid fuels (creosote), KubeJS's furnace fuels (empty) | 2 | `modern_industrialization`, the pack mod |
+| Loot tables turned off (Bibliocraft's furniture of absent woods, Generator Galore's, Iron's Spellbooks' arcane debris) | 935 | none in the dump; 7 jar tables taken out of carries |
+| Recipes, KubeJS's block loot tables | 26, 8 | the dump has them |
+
+`kubejs-audit.py` reads `<dump>/kubejs-generated` too, and counts each generated file against the carries as it
+counts `kubejs/data`'s. All 131 that `final-data` lays are applied.
+
+```sh
+ATM10_CARRIES=<the folder final-data wrote> bun run tools/atm10/tests/kubejs-data.ts
+```
+
+The world test loads Modern Industrialization's and All the Ores' carries. The pack replaces ten of All the Ores'
+ore features (tin, lead, nickel, osmium, silver, zinc, platinum, uranium, iridium, cinnabar), and `final-data`
+writes them in 26.3's form. The game runs all ten, and the nine chunks around spawn hold about 2,000 of their ore
+blocks. The count varies a little between runs of the same seed. None of the 15 MI ore blocks the pack turns off
+generates there. Without these files the ten don't run: the carries hold the jar's features still in 1.21.1's form
+(`config` wrapped), and the game skips those as `invalid world generation field: targets`. The same holds for All
+the Ores' other seven ores and all of MI's. That is a defect of these carries, not of KubeJS. The pack's files went
+through carry's own 26.3 rewrite here and came out unwrapped, so carrying the two mods again should fix theirs (not
+tried).
+
+The same test proves the generated pack in effect. It also loads allthemodium's carry, and in the world it runs
+`place feature allthemodium:lignite_coal_ore` in a block of stone. That puts MI's lignite coal ore there (24 blocks
+on ATM10 8.4).
+The feature is one of the Mining dimension's, and only the generated pack has it. A feature id the game doesn't
+have fails. The Mining dimension itself can't be entered yet. Nothing in the game reads the other generated kinds
+yet: rituals, data models, Create's zinc modifier (Create's own zinc feature is still in 1.21.1's form). The test checks
+them in the carries.
+
+What remains, by size:
+
+- 353 vanilla and native recipes the pack removed (64) or changed (289). The dump has their final form, but the
+  content fence keeps vanilla's and the native ports' own files. Applying them needs a pack-level override that the
+  engine accepts over those namespaces.
+- The 27 items whose texture is in the script. `.texture()` lands in KubeJS's client virtual asset pack, which the
+  client oracle could export as the server's data packs are. `.color()` is an item colour in code, in no asset: the
+  client oracle would read the colours of each `kubejs:` item, and the pack mod would write 26.3 tints for them.
+- Tags of native and uncarried mods (12 edits) and worldgen tags edited by scripts (5).
+- Real scripting: 21 event handlers and the code behind items (`use` callbacks: the Ice and Fire eyes).
+  Each is small, and each is a native hook's worth of logic in the mod it touches. About a dozen of them matter
+  for play.
+- Client only: tooltips and recipe viewer hiding. JEI's bundle could read them as a second blacklist.
+- The Star needs these from KubeJS: its items (registered and declared today, the star shards among them), the
+  star altar, auto forge, runic crucible and enchanter as MI multiblocks (not applied), their recipes (in the dump),
+  and the Hephaestus Forge rituals that make the altar's item (in the pack mod; a Forbidden Arcanus port must read them).
+
+
+### Iron Furnaces
+
+`pack/mods/ironfurnaces` ports Iron Furnaces 4.3.2 from its source: Qelifern/IronFurnacesNeoForge, branch `4.3.2`
+(commit 41fde020), Apache-2.0 (`LICENSE-ironfurnaces`, `NOTICE-ironfurnaces`). The older Qelifern/IronFurnaces repository
+holds the 1.20.1 versions under GPL-3.0 and was not used. The blocks, items, models and recipes are the mod's carry,
+whose furnaces are on `minecraft:furnace` (its block entity cooks: see the carries above), which opens the menu the
+bundle fills. `IRONFURNACES_CONTENT_DIR` can be the carry as it is. The script's `content` step, which copies a carry to
+a content mod with each furnace moved to that template, is for carries made before port-pack chose it: the full pack's
+carries have to be made again before it can go, and it stays until then. Powah's `content` step stays: its furnators
+are on the carved pumpkin. The script's
+steps `units content stage build world` build and test the bundle. It uses hooks on main and no new one: the world's cooking recipes (421, as Mekanism's smelter reads them), a
+mod container and its menu (417), an item used on a block (424), and the screen hooks.
+
+What runs: the thirteen furnaces with their cooking time and fuel use from `config/ironfurnaces-common.toml` (an
+iron furnace takes 160 ticks for a 200-tick recipe and a coal lights 1,280 ticks), the 16-, 32- and 64-item cookings of
+the Allthemodium, Vibranium, Unobtainium and Rainbow furnaces, the speed, fuel, blasting and smoking augments (put in
+by a sneaking click), the Iron Furnaces' tier upgrades in place (a sneaking click keeps the input, fuel, output, fire
+and facing), and the furnace's screen from the jar's `gui/furnace.png`. Not ported: the factory and generator
+augments, the side configuration, redstone modes and copy tool, the Wireless Energy Heater, the Rainbow furnace's
+network, stored experience, and the vanilla furnace to Iron or Copper upgrade. The input slot takes any item. Unit
+tests of the tiers, the config, the cooking and fuel arithmetic and the upgrades are in the crate; the world test
+`tests/furnace.ts` checks the speeds in game time, the fuel use and an upgrade; `NOTES.md` lists the differences.
+
+## Occultism
+
+Occultism 1.224.6 (MIT, <https://github.com/klikli-dev/occultism>, tag `release/v1.21.1-1.224.6`) is needed for the
+ATM Star: ATM10 has 691 of its recipes and 114 quest tasks. The native bundle `pack/mods/occultism` translates its code;
+the carry (`fullpack/carries/occultism`) brings its blocks, items, recipes, pentacles, loot and assets. Credits and the
+licence are in the bundle's `README.md` and `LICENSE-occultism`.
+
+```sh
+OCCULTISM_CARRY=<carries>/occultism OCCULTISM_PACK_CARRY=<carries>/atm10-pack bun run pack/scripts/occultism.ts units stage build world
+```
+
+What runs:
+
+- **Spirit fire** (`occultism:spirit_fire`, 27 recipes in ATM10): an item entity in the fire becomes the first recipe's
+  result, with the stack's count. Flint and steel or a fire charge used on a block with datura
+  (`#occultism:start_spiritfire`) in the 2x2x2 box around it lights the fire there, or on the face clicked, and uses the
+  datura up.
+- **Sacrificial bowls:** one item each. A click puts one of the held stack in, and a click on a full bowl gives its item
+  back. Hoppers can take from a bowl; they don't put items in yet.
+- **Pentacles:** Modonomicon's dense multiblocks (`data/<ns>/modonomicon/multiblocks/`, 20 in ATM10), matched in the four
+  rotations around the golden bowl (`occultism-core/src/pentacle.rs`). Only glyphs, candles, skulls and the bowl are
+  checked; the floor layer is display only.
+- **Rituals** (`occultism:ritual`, 158 in ATM10): a golden bowl clicked with the activation item finds the first
+  recipe whose activation item fits, whose ingredients the bowls in range hold (one item each, extras allowed), and whose
+  pentacle is drawn. Each tick checks the pentacle, the activation item and the ingredients still to come, or the ritual
+  stops and gives back the book and what it took. The clock adds a unit every 20 ticks on golden bowls, every 5 on iesnium
+  ones, and the chalices finish at once. An ingredient goes each time `floor(time / (duration / (ingredients + 1)))`
+  grows. A ritual that asks for an item use waits for it within 16 blocks. **Craft rituals** (`occultism:craft`, 47 in
+  ATM10) drop their result, or put it into an empty bowl hanging one to three blocks above.
+- Messages are Occultism's own lang keys (`ritual.<id>.started`, `.finished`, `.interrupted`, `does_not_exist`,
+  `book_not_bound`).
+
+Tests: `occultism-core` 14 unit tests (the pentacle matcher, the recipe check, the clock, spirit fire, and every
+ritual, spirit fire recipe and pentacle of the carry parsed when `OCCULTISM_CARRY` is set). The world test
+`tests/ritual.ts` runs spirit fire on five andesite, lights a fire over datura, then
+`occultism:ritual/craft_fragile_soul_gem` on the drawn `craft_foliot`, with ATM10's `c:` tags. Its bowls empty at times
+8, 15 and 23 and the soul gem drops at 30: 580 and 585 ticks after the click in three runs, read in steps of 5. Then a
+glyph taken away interrupts a second start, which gives the book back. Its picture (`occultism.png` in the run folder)
+shows the pentacle, the bowls and two fires.
+
+Not yet, by size:
+
+- The other ritual types: `summon` 29, `summon_spirit_with_job` 26, `summon_tamed` 17, `summon_wild` 15,
+  `craft_with_spirit_name` 9, `craft_miner_spirit` 5, `repair` 4, `upgrade` 3, `resurrect_familiar` 2 and one more. A bowl
+  says so when one would start. Summons need the spirits as mob types (`docs/mobs.md`, slices 2 and 4; their brains are
+  SmartBrainLib, MPL-2.0).
+- Sacrifices (`entity_to_sacrifice`): no hook tells a mob's death with its entity type tags. Recipe `condition`s are
+  not read, so a condition passes.
+- Chalk drawing glyphs (`ChalkItem.useOn`), the glyphs' and the fire's colours (tints in Java's code, so every glyph
+  draws white), the pentacle and ritual help messages, particles, the items drawn on the bowls, hoppers putting items
+  into a bowl, the ritual satchels and the ritual dummies.
+- Machines: the dimensional mineshaft and its miners (`occultism:miner`), the storage system, the spirit grindstone
+  (`occultism:crushing`).
+- Differences from Java: a turned item stays the same entity in place (Java drops a new one at the fire's center); a
+  ritual's dropped result and returned items come out at a random point of the bowl's block (`Block.popResource`), not
+  tossed up from its center.
+
+### Mystical Agriculture
+
+`pack/mods/mysticalagriculture` ports Mystical Agriculture 1.21.1-8.0.29 and the parts of Cucumber 1.21.1-8.0.16
+it needs, both MIT, from their own source (`README.md` names the commits; `LICENSE-mysticalagriculture`,
+`LICENSE-cucumber`). The rules are in `ma-core`, the glue in `runtime/ma_world.rs`, on hook points main already has.
+Blocks, items, recipes and assets are the carry of the player's jar, carried with the oracle's facts of MA's batch
+(`facts-b07.json`), so each seed's `place_block` names its crop:
+
+```sh
+ATM10_DIR=... MA_WORK=<port-pack work, MA fetched, oracle/facts.json = facts-b07.json> \
+  bun run pack/scripts/mysticalagriculture.ts carry units stage build world
+```
+
+What works:
+
+- Crops: the 136 crops of `ModCrops` with their tiers, and the pack's MysticalCustomization crops and tiers read
+  from `config/mysticalcustomization/` (their crux, tier and farmland). A crop that can't grow (its crux two below,
+  or its tier's farmland when `requiresEffectiveFarmland` is on) takes no random tick; one that can grows as its
+  wheat template does. Bone meal is used up and grows nothing. A harvest drops `MysticalCropBlock.getDrops`:
+  the essence, a second one at the farmland's secondary chance (an essence farmland's base 0.1, plus 0.1 on the
+  tier's own), the seed (a second only with `secondarySeedDrops`, off in ATM10), and Fertilized Essence at
+  `fertilizedEssenceChance`. Inferium drops by the farmland's tier (1, 1 or 2, 2, 2 or 3, 3).
+- Growth Accelerators: every 9 to 11 s (`growthAcceleratorCooldown`) the first of MA's crops within reach above takes
+  `CropBlock.randomTick` (light, growth speed, the level's random).
+- The infusion altar and its eight pedestals: right clicks put one item on or take it off, the altar gives its output
+  first; a redstone signal or the wand activates it; after 100 ticks with a matching recipe the pedestals' items
+  are used (their crafting remainders stay) and the result goes to the output slot. Recipes are the world's
+  `mysticalagriculture:infusion` table, matched one item to one ingredient as NeoForge's `RecipeMatcher`.
+- Settings from ATM10's `config/mysticalagriculture-common.toml` (`pack/pack.toml` lists it for `sync-atm10.ts`).
+
+Differences from Java: the altar and pedestals draw no item above them and send no particles (no block entity
+renderer yet); an item taken off goes into the inventory, not an item entity at the player's feet; a hopper can put a
+second item into the altar's input; an accelerator is a ticking block entity, not a scheduled block tick, and only
+reaches MA's crops (Java gives any bonemealable block a random tick); its light check reads the brighter of block and
+sky light without the time of day; `transfer_components` recipes don't copy the input's components.
+
+Verified: `ma-core` has 15 unit tests (crops, tiers, drops, growth speed, infusion matching, altar steps,
+accelerator, config). The world test `tests/crops-infusion.ts` runs on a world with the carry as a dev mod:
+
+- Inferium Seeds plant `inferium_crop[age=0]` on Tertium farmland (the carry's `place_block` and the `may_place_on` hook).
+- A Growth Accelerator has its block entity and `Cooldown`; the crop grows on random ticks.
+- A survival break of a ripe Inferium crop on Tertium farmland drops 2 Inferium Essence and 1 seed.
+- Right clicks put an Unattuned Augment on the altar and one item on each of the eight pedestals; a redstone signal
+  starts the ritual; the altar crafts the Absorption I Augment, the pedestals are emptied, and a right click gives
+  the output. A screenshot of the ring is taken (`infusion-altar.png`, in the run folder).
+- ATM10's `config/mysticalagriculture-common.toml` is read (`secondarySeedDrops = false`, 12 custom crops, 1 custom tier).
+
+Not tested in a world: bone meal on a crop (its hooks are in; the harness can't see a crop's face to use an item on
+it).
+
+Not yet:
+
+- The infusion recipes: the carry from the jar holds 123 and 57 load. The other 66 are the seed recipes
+  (`recipe/seed/infusion/`), whose ingredients are of MA's own type `mysticalagriculture:crop_component` (a crop's
+  material or essence) behind `crop_enabled` and `crop_has_material` conditions; the altar leaves them out. The oracle's
+  dump of ATM10 has 195 (MA builds the seed recipes in code at load); the port-pack's `final-data` over this carry
+  is the way to bring them in, and has not been run. The world table also lacks the recipes in
+  sub-folders, so the altar reads the data files of the type as well.
+- The awakening altar and essence vessels (`awakening`), the machines (Essence Furnace, Seed Reprocessor, Soul
+  Extractor and the rest, `reprocessor`, `soul_extraction`), Fertilized Essence and Mystical Fertilizer on crops, the
+  tools, armour and augments' effects, soul jars, the Agradditions crops.
+- Of the pack's 12 MysticalCustomization crops, only `entro` and `xychorium_gem` have blocks: the others'
+  blockstates come from MysticalCustomization's generated resources, which no jar holds.
+
+### Modern Industrialization
+
+`pack/mods/modern_industrialization` ports Modern Industrialization 2.5.11 from its own MIT source (the repository's
+tag `2.5.11`, cloned into `atm10-work/mod-sources/`; the bundle's README and `LICENSE-modern-industrialization`
+credit it). MI's blocks, items, recipes, loot and assets are the carry of the player's jar, loaded as a `--dev-mod`;
+the bundle adds behaviour through hooks that exist on main (no new hook):
+
+- `mi-core`: `MachineRecipe`'s codec and checks, `CrafterComponent`'s processing loop (recipe start, the efficiency
+  ramp, chance inputs and outputs, machine locks on output slots, overlapping recipes, the 100-tick recheck),
+  `EnergyComponent` and the Forge Energy bridge, the machines' layouts, the screen's data. Unit tests:
+  `pack/scripts/modern_industrialization.ts units` (17).
+- The electric macerator, compressor and cutting machine (`MachineTier.LV`: 8 EU/t base, 32 max, 3,200 EU), on the
+  world's `modern_industrialization:macerator`, `compressor` and `cutting_machine` recipes. Item slots are the
+  engine's container in a hopper menu (inputs take any item, outputs none; hoppers put into inputs and take from
+  outputs); fluid slots, energy and the crafter live in the saved compound under MI's names (`storedEu`,
+  `usedEnergy`, `activeRecipe`, `efficiencyTicks`...; fluids in `inventory_fluids`). Forge Energy goes in at
+  `forgeEnergyPerEu` (ATM10's `config/modern_industrialization-server.toml`: 16), whole EU only; machines give none.
+- The screen is MI's `MachineScreen`: its panel, slot frames, progress, energy and efficiency bars from the jar's
+  GUI textures, and the bars', fluid slots' and progress arrow's tooltips. `/mi probe <pos>` and
+  `/mi offer_fe <pos> <fe>` are for tests; the probe also lists each recipe the input items could start and whether
+  its item inputs, fluid inputs and outputs fit (why a machine doesn't start).
+- The carry's machine blocks are on the `minecraft:andesite` template, whose use opens no menu (`interact` answers
+  ok and nothing opens). The script's `content` step copies the carry and puts each ported machine's block on the
+  `minecraft:beacon` template, as Mekanism's machines are; the world test loads that copy. Whatever builds the pack's
+  own data from the carry needs the same change for these blocks.
+
+```sh
+source atm10-work/mi-work/env-mi.sh      # MI_CARRY, MI_CONTENT, MI_STAGE, MI_TARGET, HORIZON_MIXINS, MI_ONLY=1, ATM10_DIR
+bun run pack/scripts/modern_industrialization.ts units stage build world   # world makes the content copy first
+```
+
+State: the unit tests pass (17); `horizon-mixins apply` stages the bundle (14 injections, 2 modules, the crate) and the
+staged game builds. The world test `tests/machines.ts` (`mi-machines`) passes. It holds the server and steps it, with
+ATM10's own MI recipes (of the carry's 327 macerator, 102 compressor and 126 cutting machine recipes the world reads 125,
+19 and 78; the rest name tags or items this one-mod world doesn't hold, mostly other mods' `c:` tags) and `config/modern_industrialization-server.toml`: 1,000 FE give 62 EU (992 FE taken), then the
+rest of the 3,200 EU room; an annealed copper double ingot macerates in 25 ticks and 200 EU at 8 EU/t with its output
+slot reserved from the first tick, the next starts on the following tick with efficiency 1 of 72, and the recipe is
+forgotten when the efficiency is back to 0; a drill head gives 64 and 3 tiny dusts in two slots after 50 ticks; the
+compressor makes two plates in 25 ticks; the cutting machine makes 16 glass panes from 6 glass and 1 mB of lubricant
+in 25 ticks, and starts nothing without lubricant. An oak log with lubricant matches two of ATM10's cutting recipes (the
+planks' `#minecraft:oak_logs` and the stripped log's item), a plank matches the slabs' and the sticks'
+(`#minecraft:planks`): as `CrafterComponent.overlaps` says, none starts and the screen's data says so
+(`matches_multiple_recipes`). Output slots refuse a player's item. The macerator's and the cutting machine's screens
+open on a use and draw MI's panel, slots, progress, energy and efficiency bars, with the energy bar's and a fluid
+slot's tooltips; the run's screenshots (`mi-macerator.png`, `mi-macerator-energy-tooltip.png`, `mi-cutting-machine.png`,
+`mi-cutting-machine-fluid-tooltip.png`) were looked at. The NeoForge oracle hasn't run MI yet. One difference from MI:
+the crafter's memory of the last inventory hash (`lastInvHash`, `lastForcedTick`) isn't kept between ticks, so an idle
+machine looks for a recipe every tick instead of every 100 while its inventory is unchanged.
+
+Not ported yet: the multiblock framework (`ShapeTemplate`, `ShapeMatcher`, hatches; ATM10's Star altar, auto forge,
+runic crucible and enchanter are KubeJS-registered MI multiblocks), steam machines, the other electric machines,
+upgrades, casings, redstone control, overdrive, auto-extract and the side panel, the slot lock button, fluid slots
+through pipes and buckets, the stonecutter recipes the cutting machine also runs (`stonecutterToCuttingMachine`), the
+recipe viewer's categories, MI's cables and generators.
+
+### Hostile Neural Networks
+
+`pack/mods/hostilenetworks` ports Hostile Neural Networks 6.5.1 from its source: Shadows-of-Fire/Hostile-Neural-Networks,
+branch `1.21`, commit 73979e2d (the commit "6.5.1"), MIT (`LICENSE-hostilenetworks`, Copyright (c) 2021 Brennan Ward). Its
+library Placebo, also MIT, was not needed. The blocks, items, models, textures, tiers and the jar's data models are the mod's
+carry; ATM10's 17 KubeJS data models are laid over it by `final-data` (above). `pack/scripts/hostilenetworks.ts content` puts
+the Simulation Chamber and the Loot Fabricator on `minecraft:furnace`, as Iron Furnaces' are.
+
+What exists: the rules crate `hostilenetworks-core`, translated from `ModelTier`, `ModelTierRegistry`, `DataModelInstance`,
+the data models, `SimChamberTileEntity`, `LootFabTileEntity`, `FabSelection` and `HostileConfig`, with 25 unit tests: the five
+tiers (faulty 0, basic 6, advanced 54, superior 354, self-aware 1,254 data) with a model's own overrides, the accuracy that
+climbs between tiers, the prediction roll, the chamber's inference run (240 ticks) and training run (300 ticks, 20% more FE,
+one point of data on the model), its failures and redstone modes, the fabricator (60 ticks and 256 FE a tick a drop, fixed
+and queue selections) and the numbers the two screens carry in a menu's data (16 bits a slot). `pack/scripts/hostilenetworks.ts
+units content stage build world` runs the tests, makes the content mod, stages the game with the bundles, builds it and runs the
+world test.
+
+The native bundle (`horizon-mixin.toml`, `hooks/`, `runtime/hostilenetworks_world.rs`, `hostilenetworks_ui.rs`) puts them in the game
+on hooks already on main (`world_lifecycle`, `component_types`, `block_entity`, `block_entity_ticks`, `block_entity_container`,
+`block_entity_slot_accepts`, `block_entity_tick`, `menu_button`, `fe_storage`, `fe_receive`, `screen`, `screen_draw`,
+`screen_click`, `screen_tooltip`, `register_commands`, `perform_command`): no hook of its own.
+
+- The tiers and data models are read from the game's data, every namespace (`native_data_files`), so ATM10's 17 are there with
+  the jar's; a data model, a prediction and a blank one hold their model and data in the item components
+  `hostilenetworks:data_model`, `:data` and `:iterations`, registered through `native_component_types` (API 65). The game's
+  `/give` doesn't know components of a mod's, so `/hnn give <model> [data]` (operators) makes a data model.
+- The Simulation Chamber (a hopper menu: model, matrix, base drop, prediction) and the Loot Fabricator (a nine-by-two menu:
+  prediction and sixteen outputs) take FE through `fe_receive` (caps 2,000,000 and 1,000,000), run the core's cycles and
+  keep Java's NBT keys. Both screens are drawn from the mod's own `sim_chamber`, `loot_fabricator` and `default_gui`
+  textures, with the chamber's bars, run text, redstone and mode buttons and the fabricator's drop palette, pages,
+  queue and buttons; `NOTES.md` lists where they differ from Java.
+- `tests/chamber.ts` runs it in a world: a chamber with a self-aware zombie data model, three matrices and FE makes a base drop
+  and a prediction in 240 ticks at 128 FE a tick and the model runs once; a fabricator takes the prediction, a click on its
+  palette picks rotten flesh, and 64 come out after 60 ticks at 256 FE; a training chamber adds a point of data to a basic
+  model and puts nothing out.
+
+What doesn't exist yet: the Deep Learner's data from kills, which needs a kill hook that names the mob and the killer
+(`native_mob_killed` hears only a player's melee blow; the hook comes after the upstream merge, and the core's
+`Instance::data_gained` is what it will call), the Deep Learner item and screen, the Data Center and its I/O port, the Fabrication
+Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/NOTES.md` lists what is left.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.
@@ -337,6 +730,28 @@ audited either: brewing 279, `crafting_transmute` 33, banner duplication 17, and
   derived from them out of git. Planning notes that quote pack data stay in the local handoff folder.
 - LGPL mods (AE2, Powah and others) stay in this fork and are never proposed upstream. Upstream's contributing rules forbid
   even reading LGPL code for its pull requests. Flux Networks' GUI art is CC BY-NC-SA: local only.
+- A mod's own source code. This fork's rule differs from rule 4 of `docs/modpacks.md` (upstream's, kept as it is
+  there).
+  - A mod whose code licence allows derivatives may be ported from its source: read its code at the version ATM10
+    ships, translate it to Rust and verify it against the oracle. Take the licence from the source repo at that
+    version, since a jar's `mods.toml` can be stale.
+  - **Permissive** (MIT, Apache, BSD, ISC, zlib, CC0, Unlicense). For example Mekanism, Create's code, Modern
+    Industrialization, Occultism, Apotheosis, Eternal Starlight, Industrial Foregoing, Mystical Agriculture, Refined
+    Storage, Silent Gear, Hostile Neural Networks, Flux Networks, Just Dire Things, Ender IO.
+    - The bundle keeps the mod's copyright notice and licence text in its folder (`LICENSE-<mod>`).
+    - Its README names the mod, the version and the source repo it was ported from.
+  - **Copyleft** (LGPL, GPL, AGPL, MPL). For example AE2's code, Powah, Advanced AE, ExtendedAE, Twilight Forest, the
+    Aether's code, Ars Nouveau, PneumaticCraft, Deeper and Darker.
+    - The bundle is published under the mod's licence with its source, in a repository of its own rather than this
+      fork's MIT tree.
+    - LGPL ports already in this tree (AE2, Powah) keep their licence notes.
+  - **All Rights Reserved, custom, no-derivatives or non-commercial licences, and mods with no stated licence** (FTB's
+    mods, Allthemodium, AllTheOres, Forbidden Arcanus, Iron's Spells, Productive Bees, Sophisticated Backpacks,
+    Cataclysm): behaviour only, as `docs/modpacks.md` rule 4 says.
+  - **Assets.** Whatever the code licence, assets (textures, models, sounds, lang text) are never copied. Create's,
+    Apotheosis' and the Aether's are All Rights Reserved even where their code is open. Assets still come from the
+    player's own jars at run time.
+  - Mods' sources are cloned outside the repo (`atm10-work/mod-sources/`) and never committed.
 - Native mods hook named hook points (`game/native_hooks.rs`, `native-hooks.json`). Hooks are only appended. That file holds
   no `cfg` or macros outside tests. A new hook is added in upstream's style: its `native_*` function with the placeholder
   body, a fragment in `tools/native-hook-fragments/` with its `mod_api` contract,
@@ -422,7 +837,9 @@ audited either: brewing 279, `crafting_transmute` 33, banner duplication 17, and
    opens (2b056e630); a first start now opens with about 1 GB free on 16 GB. Left: recipes held as JSON trees (656 MB),
    lazy GUI/entity textures (640 MB of GPU memory), the 319 placed features that can't run. Frame rate against Java
    was measured on 3 November (891 against about 178 fps at spawn); measure again when mods draw more.
-3. Open a world through the title screen (every run so far used `--world`), with sound on.
+3. ~~Open a world through the title screen, with sound on~~: done, `tools/atm10/pack-start.ts` (above). Left: the
+   second start through the title screen with the data file (why a title-screen start wrote none in 20 minutes), and a
+   click on the loading screen's menu before the game answers its socket (the test clicks only once it does).
 4. Fix the engine defects in the table above.
 5. ExtendedAE's next slices (`ae2/addons/extendedae/README.md`: Ex Inscriber, Charger, Molecular Assembler); Mekanism's
    chemicals and gases, then factories (`pack/mods/mekanism/NOTES.md`); bring `wip/quests` onto the head.

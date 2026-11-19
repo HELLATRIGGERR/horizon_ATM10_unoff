@@ -1,0 +1,9 @@
+[package]
+name = "occultism-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Occultism's rules (pentacles, rituals, spirit fire), translated from Occultism 1.224.6 for the pack's port"
+
+[dependencies]
+serde_json = "1"

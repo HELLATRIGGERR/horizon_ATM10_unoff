@@ -4,6 +4,7 @@
 //! them. Carry-over uses them in place of guesses: a block's template is the
 //! vanilla block of the same class and states whose shapes and sounds match
 //! best, and the declared properties are the mod's own numbers.
+use crate::classes::Behaviour;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::{
@@ -593,6 +594,9 @@ const PLAIN: &[&str] = &[
     "minecraft:chain",
     "minecraft:end_rod",
 ];
+
+/// The vanilla blocks that open a furnace's menu and cook: what a block that cooks (`Behaviour::furnace`) goes on.
+const FURNACES: &[&str] = &["minecraft:furnace", "minecraft:blast_furnace", "minecraft:smoker"];
 
 /// The most entries a selector map gets: the game tries each per state.
 const MAX_SELECTORS: usize = 128;
@@ -1184,7 +1188,30 @@ impl Facts {
         modelled: Option<&BTreeSet<String>>,
         allowed: &dyn Fn(&str) -> bool,
     ) -> Option<Choice> {
+        self.extended_with(id, guess, modelled, Behaviour::default(), allowed)
+    }
+
+    /// [`Facts::extended`] with what the block's classes in the jar say of its click (`behaviour`). A block that cooks
+    /// like a furnace (it extends `AbstractFurnaceBlock`, or its block entity extends `AbstractFurnaceBlockEntity`
+    /// or implements `RecipeCraftingHolder`) takes a furnace template when it has the furnace's `facing` and `lit`:
+    /// the engine opens a block's menu by its template's class, and a click on a carved pumpkin or a plain block opens
+    /// none. A block that opens a menu without cooking (`MenuProvider`) keeps the template it would have, one that
+    /// opens nothing of its own: a click on any template reaches a bundle's `right_click_block` hook, and a template
+    /// that opens a vanilla menu would answer an item's click before `native_use_item_on` hears it.
+    pub fn extended_with(
+        &self,
+        id: &str,
+        guess: Option<&str>,
+        modelled: Option<&BTreeSet<String>>,
+        behaviour: Behaviour,
+        allowed: &dyn Fn(&str) -> bool,
+    ) -> Option<Choice> {
         let block = self.blocks.get(id)?;
+        let cooks = behaviour.furnace
+            || block
+                .class
+                .iter()
+                .any(|c| c == "net.minecraft.world.level.block.AbstractFurnaceBlock");
         let first = block.vanilla_class();
         let chain: BTreeSet<&str> = block
             .class
@@ -1215,7 +1242,10 @@ impl Facts {
             let fitting = shape_ok && behaviour_fits(name, id, block, v);
             let guessed = guess == Some(name.as_str()) && fitting;
             let plain = PLAIN.contains(&name.as_str()) && fitting;
-            if !(kin || below || guessed || plain) {
+            // A block that cooks gets a furnace's menu, `facing` and `lit`, with no name to go by
+            // (`behaviour_fits` asks for one when only the blockstate guesses).
+            let cooking = cooks && FURNACES.contains(&name.as_str()) && shape_ok;
+            if !(kin || below || guessed || plain || cooking) {
                 continue;
             }
             let Some(td) = v.default_state() else {
@@ -1227,6 +1257,8 @@ impl Facts {
                 + ((kin && !plain_class) as i64) * 800
                 + (below as i64) * 600
                 + (guessed as i64) * 300
+                + (cooking as i64) * 10_000
+                + (cooking && name == "minecraft:furnace") as i64 * 50
                 + (fits * 500 / block.states.len().max(1)) as i64
                 + (td.sound == ours.sound) as i64 * 100
                 + (block.wood_type.is_some() && block.wood_type == v.wood_type) as i64 * 20
@@ -1256,6 +1288,11 @@ impl Facts {
         );
         if !unread.is_empty() {
             choice.differences.insert(1, format!("no model reads [{}]: not declared", unread.join(", ")));
+        }
+        if behaviour.menu && !FURNACES.contains(&template) {
+            choice.differences.push(
+                "opens a menu in Java (MenuProvider): the template opens none, a bundle's hook does".into(),
+            );
         }
         declare_states(block, t, &names, self.pack.block(id), &mut choice);
         Some(choice)
@@ -1930,10 +1967,11 @@ mod tests {
                 "probability": 0.5}]})
         );
         assert_eq!(differences, ["eating gives m:sour, which is not carried"]);
-        // An item placing a block under another id stays an item, as without the oracle.
+        // An item placing a block under another id binds it (`place_block`); `carry` drops a block of another
+        // namespace, whose own test says so.
         let (seed, differences) = facts.item("m:seed", &["m"]).unwrap();
-        assert_eq!(seed, json!({"template": "minecraft:stick"}));
-        assert_eq!(differences[0], "places m:crop, which the template does not");
+        assert_eq!(seed, json!({"template": "minecraft:stick", "place_block": "m:crop"}));
+        assert!(differences.is_empty());
         // A rarity a mod added is no rarity the game knows.
         let (relic, differences) = facts.item("m:relic", &["m"]).unwrap();
         assert_eq!(relic, json!({"template": "minecraft:stick", "max_stack_size": 1}));
@@ -2463,6 +2501,50 @@ mod tests {
         assert_eq!(c.template, "minecraft:carved_pumpkin");
         let c = facts.extended("m:iron_furnace", furnace_template, None, &any).unwrap();
         assert_eq!(c.template, "minecraft:furnace");
+    }
+
+    #[test]
+    fn a_block_that_cooks_stands_on_a_furnace_and_one_that_only_opens_a_menu_does_not() {
+        let cube = |_: &str| json!([[0, 0, 0, 1, 1, 1]]);
+        let lit: (&str, &[&str]) = ("lit", BOOL);
+        let kind: (&str, &[&str]) = ("type", &["0", "1", "2"]);
+        let entity = "net.minecraft.world.level.block.BaseEntityBlock";
+        let abstract_furnace = "net.minecraft.world.level.block.AbstractFurnaceBlock";
+        let furnace = ["net.minecraft.world.level.block.FurnaceBlock", abstract_furnace, entity, BLOCK];
+        let smoker = ["net.minecraft.world.level.block.SmokerBlock", abstract_furnace, entity, BLOCK];
+        let cooks = Behaviour { furnace: true, menu: true };
+        let opens = Behaviour { furnace: false, menu: true };
+        let facts = family(json!({
+            "minecraft:furnace": with_props(&furnace, &[FACING, lit], "facing=north,lit=false", &cube),
+            "minecraft:smoker": with_props(&smoker, &[FACING, lit], "facing=north,lit=false", &cube),
+            // Iron Furnaces: a plain `Block` with a tier of its own, whose block entity cooks.
+            "m:iron": with_props(&["m.Iron", BLOCK], &[FACING, lit, kind], "facing=north,lit=false,type=0", &cube),
+            "m:kiln": with_props(&["m.Kiln", BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+            "m:no_lit": with_props(&["m.NoLit", BLOCK], &[FACING], "facing=north", &cube),
+            "m:mixer": with_props(&["m.Mixer", BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+            "m:oven": with_props(&["m.Oven", abstract_furnace, entity, BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+            "m:smokehouse": with_props(&["m.Smokehouse", smoker[0], abstract_furnace, entity, BLOCK], &[FACING, lit], "facing=north,lit=false", &cube),
+        }));
+        let any = |_: &str| true;
+        // What its classes say, not its name: facing and lit are the furnace's own, the tier is declared.
+        let c = facts.extended_with("m:iron", None, None, cooks, &any).unwrap();
+        assert_eq!(c.template, "minecraft:furnace");
+        assert_eq!(c.declared["state_properties"], json!({"type": ["0", "1", "2"]}));
+        assert!(!c.differences.iter().any(|d| d.contains("MenuProvider")));
+        assert_eq!(facts.extended_with("m:kiln", None, None, cooks, &any).unwrap().template, "minecraft:furnace");
+        // Without the jar's classes, as before: facing is a pumpkin's.
+        assert_eq!(facts.extended("m:iron", None, None, &any).unwrap().template, "minecraft:carved_pumpkin");
+        // Cooking without the furnace's `lit` has nothing of the furnace's states to go on.
+        assert_eq!(facts.extended_with("m:no_lit", None, None, cooks, &any).unwrap().template, "minecraft:carved_pumpkin");
+        // A menu of its own is not a furnace's: the template opens none, and the report says what Java opens.
+        let c = facts.extended_with("m:mixer", None, None, opens, &any).unwrap();
+        assert_eq!(c.template, "minecraft:carved_pumpkin");
+        assert!(c.differences.iter().any(|d| d.contains("MenuProvider")));
+        let c = facts.extended_with("m:mixer", None, None, Behaviour::default(), &any).unwrap();
+        assert!(!c.differences.iter().any(|d| d.contains("MenuProvider")));
+        // A subclass of the game's furnace block is one by its own chain; a smoker's stays a smoker.
+        assert_eq!(facts.extended("m:oven", None, None, &any).unwrap().template, "minecraft:furnace");
+        assert_eq!(facts.extended("m:smokehouse", None, None, &any).unwrap().template, "minecraft:smoker");
     }
 
     #[test]

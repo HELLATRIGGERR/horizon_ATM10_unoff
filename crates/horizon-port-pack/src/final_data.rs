@@ -94,6 +94,15 @@ pub struct Summary {
     pub kubejs_assets: usize,
     /// Namespaces of mods not carried: their port will own them.
     pub kubejs_assets_left_out: usize,
+    /// Files of KubeJS's data pack laid over the carries, by kind (`neoforge/biome_modifier`, `worldgen/placed_feature`,
+    /// `data_maps`...), and those left out, by kind and why.
+    pub kubejs_data: BTreeMap<String, usize>,
+    pub kubejs_data_left_out: BTreeMap<String, usize>,
+    /// Files of KubeJS's generated data packs (`<dump>/kubejs-generated`: what `ServerEvents.generateData` scripts
+    /// make at load) laid over the carries, by kind, and those left out, by kind and why; and each pack's files.
+    pub kubejs_generated: BTreeMap<String, usize>,
+    pub kubejs_generated_left_out: BTreeMap<String, usize>,
+    pub kubejs_generated_packs: BTreeMap<String, usize>,
     pub namespaces: Vec<String>,
 }
 
@@ -557,6 +566,11 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
         kubejs_content(o, &facts, &pack, &mut sink, &mut known, &mut s)?;
         claimed.insert(PACK_ID.to_owned());
     }
+    if let Some(instance) = o.instance {
+        let mut dir_of = |ns: &str| dir_of(ns, &mut claimed).map(|(root, _)| root);
+        let (data, generated) = (instance.join("kubejs/data"), o.dump.join(GENERATED));
+        kubejs_layers(&data, &generated, &tag_dirs, &mut dir_of, &mut sink, &mut s)?;
+    }
     if let Some(jar) = o.loader
         && let Some((root, _)) = dir_of("neoforge", &mut claimed)
     {
@@ -697,6 +711,189 @@ fn loader_assets(jar: &Path, root: &Path, sink: &mut Sink) -> Result<usize, Stri
         sink.write(&root.join(name), &bytes)?;
     }
     Ok(names.len())
+}
+
+/// A tag file or data map of a data pack over the one at its path: the game merges the two (each pack's entries in
+/// turn, a later one's value winning in a data map), unless the upper one says `replace`.
+fn merged_data(under: &Value, over: &Value) -> Value {
+    if over["replace"] == json!(true) {
+        return over.clone();
+    }
+    let mut out = under.clone();
+    match (&mut out["values"], &over["values"]) {
+        (Value::Array(list), Value::Array(more)) => {
+            for v in more {
+                if !list.contains(v) {
+                    list.push(v.clone());
+                }
+            }
+        }
+        (Value::Object(map), Value::Object(more)) => map.extend(more.clone()),
+        _ => return over.clone(),
+    }
+    out
+}
+
+/// The dump's folder of KubeJS's generated data packs (the oracle's `KubeJsGenerated`): `<stage>/data/...`.
+pub const GENERATED: &str = "kubejs-generated";
+
+/// Where a data pack lies among the mods' data.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Lies {
+    /// Over them: its file replaces theirs, its tag file or data map adds to theirs.
+    Over,
+    /// Under every mod (KubeJS's `before_mods`): its file goes only where none is, its tags and data maps go under
+    /// what is there.
+    Under,
+}
+
+/// KubeJS's data packs in the order the game lays them over the mods' data (KubeJS's `ServerScriptManager`): its
+/// generated `internal`, `registries` and `after_mods` packs, then `kubejs/data`, then the generated `last`; the
+/// generated `before_mods` lies under every mod. The generated packs are what `ServerEvents.generateData` scripts make
+/// at load (rituals, data models, biome modifiers) as the oracle's server held them, in `generated`
+/// (`<dump>/kubejs-generated`) when the dump has it.
+fn kubejs_layers(
+    data: &Path,
+    generated: &Path,
+    tag_dirs: &BTreeSet<String>,
+    dir_of: &mut dyn FnMut(&str) -> Option<PathBuf>,
+    sink: &mut Sink,
+    s: &mut Summary,
+) -> Result<(), String> {
+    type DirOf<'a> = dyn FnMut(&str) -> Option<PathBuf> + 'a;
+    let stage = |name: &str, lies: Lies, s: &mut Summary, dir_of: &mut DirOf, sink: &mut Sink| {
+        let root = generated.join(name).join("data");
+        if !root.is_dir() {
+            return Ok::<(), String>(());
+        }
+        let (mut made, mut left) = (BTreeMap::new(), BTreeMap::new());
+        kubejs_data(&root, lies, tag_dirs, dir_of, sink, &mut made, &mut left)?;
+        *s.kubejs_generated_packs.entry(name.to_owned()).or_default() += made.values().sum::<usize>();
+        for (kind, n) in made {
+            *s.kubejs_generated.entry(kind).or_default() += n;
+        }
+        for (kind, n) in left {
+            *s.kubejs_generated_left_out.entry(kind).or_default() += n;
+        }
+        Ok(())
+    };
+    for name in ["internal", "registries", "after_mods"] {
+        stage(name, Lies::Over, s, dir_of, sink)?;
+    }
+    kubejs_data(data, Lies::Over, tag_dirs, dir_of, sink, &mut s.kubejs_data, &mut s.kubejs_data_left_out)?;
+    stage("last", Lies::Over, s, dir_of, sink)?;
+    stage("before_mods", Lies::Under, s, dir_of, sink)
+}
+
+/// A KubeJS data pack (`kubejs/data`, or one it generates at load): the files the dump doesn't stand for, put where
+/// the namespace lives. The dump holds the recipes, the loot tables and the tags of its registries (so those files
+/// are its); the rest is the pack's own data: biome modifiers (ATM10 turns most mods' ores off for All the Ores'),
+/// worldgen features and biome tags, data maps, advancements, loot modifiers, mods' own data (rituals, data models).
+/// Over the mods (`lies`), a file replaces the one at its path in the carry that owns the namespace, and a tag file or
+/// data map adds to it; under them, a file goes only where none is. A free namespace's go in the pack mod. Worldgen
+/// files and advancements get carry's 26.3 rewrite. Left out: a namespace of a mod that isn't carried (its port will
+/// own it), KubeJS's own folder, files that aren't JSON. Counts go in `made` and `left_out`, by kind.
+fn kubejs_data(
+    root: &Path,
+    lies: Lies,
+    tag_dirs: &BTreeSet<String>,
+    dir_of: &mut dyn FnMut(&str) -> Option<PathBuf>,
+    sink: &mut Sink,
+    made: &mut BTreeMap<String, usize>,
+    left_out: &mut BTreeMap<String, usize>,
+) -> Result<(), String> {
+    let mut stack = vec![root.to_owned()];
+    while let Some(d) = stack.pop() {
+        for f in fs::read_dir(&d).into_iter().flatten().flatten() {
+            let path = f.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let Some(rel) = path.strip_prefix(root).ok().and_then(Path::to_str).map(|r| r.replace('\\', "/")) else {
+                continue;
+            };
+            let Some((ns, inner)) = rel.split_once('/') else { continue };
+            let parts: Vec<&str> = inner.split('/').collect();
+            let kind = match parts.as_slice() {
+                [top @ ("neoforge" | "forge" | "worldgen" | "tags"), sub, _, ..] => format!("{top}/{sub}"),
+                [top, ..] => (*top).to_owned(),
+                [] => continue,
+            };
+            let theirs = |kind: &str| {
+                matches!(kind, "recipe" | "loot_table")
+                    || inner.strip_prefix("tags/").is_some_and(|t| tag_dirs.iter().any(|d| t.starts_with(&format!("{d}/"))))
+            };
+            let mut left = |why: &str| *left_out.entry(format!("{kind}: {why}")).or_default() += 1;
+            if theirs(&kind) {
+                // A loot table the pack turns off (a condition that never holds: ATM10 generates 936): the jar's file
+                // goes, as the game drops it. The dump's tables are written after these, so one it has comes back.
+                if kind == "loot_table"
+                    && turned_off(&path)
+                    && let Some(owner) = dir_of(ns)
+                    && fs::remove_file(owner.join(format!("data/{rel}"))).is_ok()
+                {
+                    *made.entry("loot_table: turned off".to_owned()).or_default() += 1;
+                }
+                continue;
+            }
+            if kind == "kubejs" {
+                left("KubeJS's own");
+                continue;
+            }
+            if !rel.ends_with(".json") {
+                left("not JSON");
+                continue;
+            }
+            let Some(owner) = dir_of(ns) else {
+                left("its mod is not carried");
+                continue;
+            };
+            let to = owner.join(format!("data/{rel}"));
+            if horizon_mods::content::check_path(&format!("data/{rel}")).is_err() {
+                left("a path the game refuses");
+                continue;
+            }
+            let merges = kind.starts_with("tags/") || kind == "data_maps";
+            if lies == Lies::Under && !merges && to.exists() {
+                left("a mod's own file lies over it");
+                continue;
+            }
+            let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let Ok(mut v) = serde_json::from_slice::<Value>(&bytes) else {
+                left("not JSON");
+                continue;
+            };
+            if let Some(("worldgen", sub)) = kind.split_once('/') {
+                crate::processors::rule_tests(sub, &mut v, &mut BTreeMap::new());
+                crate::worldgen::upgrade(sub, &mut v, &mut crate::worldgen::Upgrade::default(), &BTreeMap::new());
+            } else if kind == "advancement" {
+                crate::carry::upgrade_advancement(&mut v);
+            }
+            renamed_ids(&mut v);
+            if merges {
+                let there = fs::read(&to).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+                if let Some(there) = there {
+                    v = match lies {
+                        Lies::Over => merged_data(&there, &v),
+                        Lies::Under => merged_data(&v, &there),
+                    };
+                }
+            }
+            sink.json(&to, &v)?;
+            *made.entry(kind).or_default() += 1;
+        }
+    }
+    Ok(())
+}
+
+/// Whether a data pack file only turns the one under it off: NeoForge's `neoforge:conditions` holding
+/// `neoforge:false`, which the game reads as no file at that path.
+fn turned_off(path: &Path) -> bool {
+    let Some(v) = fs::read(path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) else {
+        return false;
+    };
+    v["neoforge:conditions"].as_array().is_some_and(|c| c.iter().any(|c| c["type"] == "neoforge:false"))
 }
 
 /// The blocks and items KubeJS's startup scripts register: declarations from the oracle's facts, as carry writes
@@ -848,6 +1045,165 @@ fn kubejs_content(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kubejs_data_lies_over_the_carries_where_the_dump_does_not() {
+        let dir = std::env::temp_dir().join(format!("port-pack-kubejs-data-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (data, m, pack) = (dir.join("kubejs/data"), dir.join("m"), dir.join("pack"));
+        let put = |path: PathBuf, text: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        // The carry's own files, from its jar.
+        put(m.join("data/m/neoforge/biome_modifier/ore_tin.json"), r#"{"type": "neoforge:add_features"}"#);
+        put(m.join("data/m/tags/worldgen/biome/hot.json"), r#"{"values": ["minecraft:desert"]}"#);
+        put(m.join("data/m/data_maps/item/fuel.json"), r#"{"values": {"m:a": 1, "m:b": 2}}"#);
+        // The pack's: an ore turned off, a feature in 1.21.1's form, tags and data maps added to, a free namespace,
+        // the dump's files, a mod not carried, KubeJS's own, a structure.
+        put(data.join("m/neoforge/biome_modifier/ore_tin.json"), r#"{"type": "neoforge:none"}"#);
+        put(
+            data.join("m/worldgen/configured_feature/ore_tin.json"),
+            r#"{"type": "minecraft:ore", "config": {"size": 5, "discard_chance_on_air_exposure": 0.0, "targets": []}}"#,
+        );
+        put(data.join("m/tags/worldgen/biome/hot.json"), r#"{"values": ["minecraft:badlands", "minecraft:desert"]}"#);
+        put(data.join("m/data_maps/item/fuel.json"), r#"{"values": {"m:b": 5}}"#);
+        put(data.join("atm10/neoforge/biome_modifier/spawns.json"), r#"{"type": "neoforge:add_spawns"}"#);
+        put(data.join("m/recipe/a.json"), "{}");
+        put(data.join("m/loot_table/blocks/a.json"), "{}");
+        put(data.join("m/tags/item/gems.json"), r#"{"values": []}"#);
+        put(data.join("powah/neoforge/biome_modifier/ore.json"), r#"{"type": "neoforge:none"}"#);
+        put(data.join("m/kubejs/recipe_schema/x.json"), "{}");
+        put(data.join("m/structure/hut.nbt"), "nbt");
+        let tag_dirs = BTreeSet::from(["item".to_owned()]);
+        let mut dir_of = |ns: &str| match ns {
+            "m" => Some(m.clone()),
+            "atm10" => Some(pack.clone()),
+            _ => None,
+        };
+        let mut s = Summary::default();
+        let mut sink = Sink { made: HashSet::new() };
+        let (made, left) = (&mut s.kubejs_data, &mut s.kubejs_data_left_out);
+        kubejs_data(&data, Lies::Over, &tag_dirs, &mut dir_of, &mut sink, made, left).unwrap();
+        let read = |p: PathBuf| serde_json::from_slice::<Value>(&fs::read(p).unwrap()).unwrap();
+        assert_eq!(read(m.join("data/m/neoforge/biome_modifier/ore_tin.json")), json!({"type": "neoforge:none"}));
+        let feature = read(m.join("data/m/worldgen/configured_feature/ore_tin.json"));
+        assert!(feature.get("config").is_none() && feature["size"] == json!(5), "{feature}");
+        assert_eq!(
+            read(m.join("data/m/tags/worldgen/biome/hot.json")),
+            json!({"values": ["minecraft:desert", "minecraft:badlands"]})
+        );
+        assert_eq!(read(m.join("data/m/data_maps/item/fuel.json")), json!({"values": {"m:a": 1, "m:b": 5}}));
+        assert!(pack.join("data/atm10/neoforge/biome_modifier/spawns.json").exists());
+        assert!(!m.join("data/m/recipe").exists() && !m.join("data/m/loot_table").exists());
+        assert!(!m.join("data/m/tags/item").exists() && !m.join("data/m/kubejs").exists());
+        assert!(!m.join("data/m/structure").exists());
+        assert_eq!(s.kubejs_data.values().sum::<usize>(), 5);
+        assert_eq!(s.kubejs_data["neoforge/biome_modifier"], 2);
+        assert_eq!(
+            s.kubejs_data_left_out,
+            BTreeMap::from([
+                ("kubejs: KubeJS's own".to_owned(), 1),
+                ("neoforge/biome_modifier: its mod is not carried".to_owned(), 1),
+                ("structure: not JSON".to_owned(), 1),
+            ])
+        );
+        // A second run changes nothing: tags and data maps don't grow.
+        let (made, left) = (&mut s.kubejs_data, &mut s.kubejs_data_left_out);
+        kubejs_data(&data, Lies::Over, &tag_dirs, &mut dir_of, &mut sink, made, left).unwrap();
+        assert_eq!(read(m.join("data/m/tags/worldgen/biome/hot.json"))["values"].as_array().unwrap().len(), 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn generated_packs_lie_where_kubejs_puts_them() {
+        let dir = std::env::temp_dir().join(format!("port-pack-kubejs-generated-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (data, generated) = (dir.join("kubejs/data"), dir.join(GENERATED));
+        let (m, pack) = (dir.join("m"), dir.join("pack"));
+        let put = |path: PathBuf, text: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        let read = |p: PathBuf| serde_json::from_slice::<Value>(&fs::read(p).unwrap()).unwrap();
+        // The carry's own files, from its jar.
+        put(m.join("data/m/neoforge/biome_modifier/ore_zinc.json"), r#"{"type": "neoforge:add_features"}"#);
+        put(m.join("data/m/tags/worldgen/biome/hot.json"), r#"{"values": ["minecraft:desert"]}"#);
+        put(m.join("data/m/loot_table/blocks/old.json"), r#"{"pools": []}"#);
+        // What scripts generate after the mods: an ore turned off, a ritual, a data model, a free namespace's ore,
+        // a loot table turned off, and the dump's own files.
+        let after = generated.join("after_mods/data");
+        put(after.join("m/neoforge/biome_modifier/ore_zinc.json"), r#"{"type": "neoforge:none"}"#);
+        put(after.join("m/hephaestus_forge/ritual/star.json"), r#"{"result": "generated"}"#);
+        put(after.join("m/data_models/zombie.json"), r#"{"entity": "minecraft:zombie"}"#);
+        put(
+            after.join("atm/worldgen/configured_feature/mining_ore.json"),
+            r#"{"type": "minecraft:ore", "config": {"size": 9, "discard_chance_on_air_exposure": 0.0, "targets": []}}"#,
+        );
+        put(after.join("m/recipe/a.json"), "{}");
+        put(after.join("m/loot_table/blocks/a.json"), "{}");
+        put(after.join("m/loot_table/blocks/old.json"), r#"{"neoforge:conditions": [{"type": "neoforge:false"}]}"#);
+        put(after.join("m/tags/item/gems.json"), r#"{"values": []}"#);
+        put(after.join("powah/data_models/x.json"), "{}");
+        // `kubejs/data` lies over `after_mods`, and `last` over both.
+        put(data.join("m/hephaestus_forge/ritual/star.json"), r#"{"result": "data pack"}"#);
+        put(data.join("m/hephaestus_forge/ritual/moon.json"), r#"{"result": "data pack"}"#);
+        put(generated.join("last/data/m/hephaestus_forge/ritual/moon.json"), r#"{"result": "last"}"#);
+        // `before_mods` lies under every mod: the jar's file stays, a new one comes in, a tag goes under the jar's.
+        let before = generated.join("before_mods/data");
+        put(before.join("m/neoforge/biome_modifier/ore_zinc.json"), r#"{"type": "neoforge:remove_features"}"#);
+        put(before.join("m/data_models/skeleton.json"), r#"{"entity": "minecraft:skeleton"}"#);
+        put(before.join("m/tags/worldgen/biome/hot.json"), r#"{"values": ["minecraft:badlands"]}"#);
+        let tag_dirs = BTreeSet::from(["item".to_owned()]);
+        let mut dir_of = |ns: &str| match ns {
+            "m" => Some(m.clone()),
+            "atm" => Some(pack.clone()),
+            _ => None,
+        };
+        let mut s = Summary::default();
+        let mut sink = Sink { made: HashSet::new() };
+        kubejs_layers(&data, &generated, &tag_dirs, &mut dir_of, &mut sink, &mut s).unwrap();
+        let mf = |p: &str| m.join("data/m").join(p);
+        assert_eq!(read(mf("neoforge/biome_modifier/ore_zinc.json")), json!({"type": "neoforge:none"}));
+        assert_eq!(read(mf("hephaestus_forge/ritual/star.json")), json!({"result": "data pack"}));
+        assert_eq!(read(mf("hephaestus_forge/ritual/moon.json")), json!({"result": "last"}));
+        assert_eq!(read(mf("data_models/zombie.json")), json!({"entity": "minecraft:zombie"}));
+        assert_eq!(read(mf("data_models/skeleton.json")), json!({"entity": "minecraft:skeleton"}));
+        let hot = json!({"values": ["minecraft:badlands", "minecraft:desert"]});
+        assert_eq!(read(mf("tags/worldgen/biome/hot.json")), hot);
+        let feature = read(pack.join("data/atm/worldgen/configured_feature/mining_ore.json"));
+        assert!(feature.get("config").is_none() && feature["size"] == json!(9), "{feature}");
+        assert!(!mf("recipe").exists() && !mf("loot_table/blocks/a.json").exists() && !mf("tags/item").exists());
+        assert!(!mf("loot_table/blocks/old.json").exists());
+        assert_eq!(
+            s.kubejs_generated,
+            BTreeMap::from([
+                ("data_models".to_owned(), 2),
+                ("hephaestus_forge".to_owned(), 2),
+                ("loot_table: turned off".to_owned(), 1),
+                ("neoforge/biome_modifier".to_owned(), 1),
+                ("tags/worldgen".to_owned(), 1),
+                ("worldgen/configured_feature".to_owned(), 1),
+            ])
+        );
+        assert_eq!(
+            s.kubejs_generated_packs,
+            BTreeMap::from([("after_mods".to_owned(), 5), ("before_mods".to_owned(), 2), ("last".to_owned(), 1)])
+        );
+        assert_eq!(
+            s.kubejs_generated_left_out,
+            BTreeMap::from([
+                ("data_models: its mod is not carried".to_owned(), 1),
+                ("neoforge/biome_modifier: a mod's own file lies over it".to_owned(), 1),
+            ])
+        );
+        assert_eq!(s.kubejs_data.values().sum::<usize>(), 2);
+        // No generated packs in the dump: `kubejs/data` alone, as before.
+        let mut s = Summary::default();
+        kubejs_layers(&data, &dir.join("none"), &tag_dirs, &mut dir_of, &mut sink, &mut s).unwrap();
+        assert!(s.kubejs_generated.is_empty() && s.kubejs_data.values().sum::<usize>() == 2);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn tags() -> HashMap<String, Vec<String>> {
         HashMap::from([("c:gems".to_owned(), vec!["m:ruby".to_owned(), "minecraft:diamond".to_owned()])])

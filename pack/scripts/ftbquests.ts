@@ -137,7 +137,7 @@ const steps: Record<string, () => Promise<void>> = {
       }
       const bundle = join(root, 'pack/mods/ftbquests');
       const ours = files(bundle).filter(f => f.endsWith('.rs')).flatMap(f => [...readFileSync(join(bundle, f), 'utf8')
-        .matchAll(/tr\(\s*"([^"]+)",\s*"([^"]*)"/g)].map(m => ({ file: f, key: m[1], fallback: m[2] })));
+        .matchAll(/(?:\btr|translate_with_fallback)\(\s*"([^"]+)",\s*"([^"]*)"/g)].map(m => ({ file: f, key: m[1], fallback: m[2] })));
       const same = ours.filter(o => o.fallback.length > 3 && theirs.has(o.fallback.trim().toLowerCase()));
       console.log(`${ours.length} fallback line(s) checked against ${theirs.size} FTB Quests lines; ${same.length} the same`);
       for (const o of same) console.log(`  ${o.file}: ${o.key} = "${o.fallback}"`);

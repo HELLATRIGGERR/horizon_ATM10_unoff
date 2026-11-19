@@ -1358,6 +1358,9 @@ pub fn carry(
     };
     if let Some(facts) = facts {
         report.oracle = true;
+        // What the block classes and their block entities' say of a click on them (cooking, a menu): a template
+        // is the engine's only way to a furnace's menu.
+        let hierarchy = crate::classes::Hierarchy::read(&mut zip, &names);
         let prefix = format!("{id}:");
         let mut declared = BTreeSet::new();
         // The mod's liquid blocks: Java draws them with the fluid renderer, not a model (`LiquidBlock`'s render
@@ -1387,9 +1390,14 @@ pub fn carry(
                 .and_then(|state| block_template(b, state))
                 .filter(|t| allowed(t));
             let modelled = blockstates.get(b).map(properties).unwrap_or_default();
+            let behaviour = block
+                .class
+                .first()
+                .map(|class| hierarchy.behaviour(class))
+                .unwrap_or_default();
             let choice = facts
                 .template(full, allowed)
-                .or_else(|| facts.extended(full, guess, Some(&modelled), allowed))
+                .or_else(|| facts.extended_with(full, guess, Some(&modelled), behaviour, allowed))
                 .or_else(|| facts.guessed(full, guess?, allowed));
             let Some(choice) = choice else {
                 let props: Vec<&str> = block.properties.keys().map(String::as_str).collect();
@@ -3424,6 +3432,14 @@ version = \"1.0\"
         .unwrap();
         zip.write_all(b"license = \"MIT\"\n[[mods]]\nmodId = \"gem\"\nversion = \"1.0\"\n")
             .unwrap();
+        // A block is carried only with a blockstate in its jar, so its seeds are too only with one.
+        zip.start_file(
+            "assets/gem/blockstates/cabbages.json",
+            zip::write::SimpleFileOptions::default(),
+        )
+        .unwrap();
+        zip.write_all(br#"{"variants": {"": {"model": "gem:block/cabbages"}}}"#)
+            .unwrap();
         zip.finish().unwrap();
         let info = crate::jar::read(&jar).unwrap();
         let block = |class: &str, item: &str| {
@@ -3442,7 +3458,8 @@ version = \"1.0\"
                 "minecraft:oak_planks": block("net.minecraft.world.level.block.Block", "minecraft:oak_planks"),
                 "gem:cabbages": block("gem.Cabbages", "gem:cabbage_seeds"),
             },
-            "items": {"gem:cabbage_seeds": seeds("gem:cabbages"), "gem:lost_seeds": seeds("gem:lost")}
+            "items": {"gem:cabbage_seeds": seeds("gem:cabbages"), "gem:lost_seeds": seeds("gem:lost"),
+                "gem:other_seeds": seeds("other:crop")}
         }))
         .unwrap();
         let pack = Pack {
@@ -3473,6 +3490,17 @@ version = \"1.0\"
             .find(|i| i.id == "gem:cabbage_seeds")
             .unwrap();
         assert_eq!(item.block.as_deref(), Some("gem:cabbages"));
+        // Another namespace's block is not bound: the item stays, placing nothing, and says so.
+        let other = content
+            .items
+            .iter()
+            .find(|i| i.id == "gem:other_seeds")
+            .unwrap();
+        assert_eq!(other.block, None);
+        assert_eq!(
+            report.differences["other_seeds"],
+            ["places other:crop, which the template does not"]
+        );
         fs::remove_dir_all(&dir).unwrap();
     }
 

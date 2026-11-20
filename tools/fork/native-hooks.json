@@ -4633,6 +4633,12 @@
       "compat": true
     },
     {
+      "name": "block_entity_types",
+      "version": 1,
+      "target": "horizon_client::game::fork_compat::compat::Game<'_>::native_block_entity_types",
+      "compat": true
+    },
+    {
       "name": "block_entity_container",
       "version": 1,
       "target": "horizon_client::game::native_hooks::base::Game<'_>::native_block_entity_container",

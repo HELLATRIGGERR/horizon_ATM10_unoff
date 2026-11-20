@@ -291,6 +291,9 @@ struct NativeDeclared {
     blocks: Vec<horizon_mod_package::content::Block>,
     items: Vec<horizon_mod_package::content::Item>,
     types: Vec<horizon_mod_package::content::BlockEntityType>,
+    /// The mixin bundles' types (the compat hook `block_entity_types`), admitted for the
+    /// blocks that loaded (`bundled_types`).
+    bundled: Vec<horizon_mod_package::content::BlockEntityType>,
     fluids: Vec<horizon_mod_package::content::FluidLook>,
 }
 
@@ -303,6 +306,12 @@ fn native_declared() -> std::borrow::Cow<'static, NativeDeclared> {
         Game::native_items(&context, &mut items);
         let mut errors = mod_api::__private::take_declaration_refusals(&context);
         let types = super::api_values::block_entity_declarations();
+        let mut bundled = Vec::new();
+        Game::native_block_entity_types(&mut bundled);
+        let bundled = bundled
+            .into_iter()
+            .map(|(id, blocks)| horizon_mod_package::content::BlockEntityType { id, blocks })
+            .collect();
         use super::api_values::TryIntoEngine;
         let mut blocks: Vec<horizon_mod_package::content::Block> = blocks
             .iter()
@@ -341,6 +350,7 @@ fn native_declared() -> std::borrow::Cow<'static, NativeDeclared> {
             blocks,
             items,
             types,
+            bundled,
             fluids,
         }
     };
@@ -357,6 +367,35 @@ fn native_declared() -> std::borrow::Cow<'static, NativeDeclared> {
         std::borrow::Cow::Owned(collect())
     }
 }
+/// The trait mods' block entity types, then the mixin bundles' with the blocks some loaded
+/// content (or a native declaration) has: a bundle staged into a game started without its
+/// content mod declares nothing, where a trait mod's type naming a missing block stays an error.
+fn bundled_types(
+    types: &[horizon_mod_package::content::BlockEntityType],
+    bundled: &[horizon_mod_package::content::BlockEntityType],
+    mods: &[horizon_client::mod_content::ContentMod],
+    declared: &[horizon_mod_package::content::Block],
+) -> Vec<horizon_mod_package::content::BlockEntityType> {
+    let loaded: std::collections::BTreeSet<&str> = mods
+        .iter()
+        .flat_map(|m| m.content.blocks.iter().map(|b| b.id.as_str()))
+        .chain(declared.iter().map(|b| b.id.as_str()))
+        .collect();
+    let admitted = bundled.iter().filter_map(|kind| {
+        let blocks: Vec<String> = kind
+            .blocks
+            .iter()
+            .filter(|block| loaded.contains(block.as_str()))
+            .cloned()
+            .collect();
+        (!blocks.is_empty()).then(|| horizon_mod_package::content::BlockEntityType {
+            id: kind.id.clone(),
+            blocks,
+        })
+    });
+    types.iter().cloned().chain(admitted).collect()
+}
+
 /// The native mods' standalone models (`native_standalone_models`), set once
 /// before the resources first load.
 pub(super) fn register_standalone_models(role: ExecutionRole) {
@@ -827,11 +866,13 @@ pub(super) fn content_overlay(
         blocks,
         items,
         types,
+        bundled,
         fluids,
     } = &*native_declared();
     if !errors.is_empty() {
         return Err(errors.join("\n").into());
     }
+    let types = &bundled_types(types, bundled, &mods, blocks);
     let declared_ids = (blocks.iter().map(|b| ("block", b.id.as_str())))
         .chain(items.iter().map(|i| ("item", i.id.as_str())))
         .chain(types.iter().map(|t| ("block entity type", t.id.as_str())))

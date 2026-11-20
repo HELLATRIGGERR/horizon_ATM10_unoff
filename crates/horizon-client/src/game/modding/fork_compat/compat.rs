@@ -244,6 +244,16 @@ impl Game<'_> {
     pub(in crate::game) fn native_item_fluid_tank(&self, item: &str, capacity: &mut Option<i32>) {
         let _ = (item, capacity);
     }
+    /// The block entity types a bundle declares (`native_block_entity_types`): push one
+    /// `(type id, its blocks)` per type. Upstream makes a mod block entity only for a block a
+    /// declared type names, and declares types only through a trait mod's `register()`
+    /// (`declare_block_entity_type`); fork main took the type from the `block_entity` hook's
+    /// answer (the block's own id). Asked once at start, with the trait mods' declarations
+    /// (`native_declared`); a type keeps the blocks some loaded content declares, so a game
+    /// staged with a bundle but started without its content mod declares none of its types.
+    pub(in crate::game) fn native_block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+        let _ = types;
+    }
 }
 
 impl Game<'_> {

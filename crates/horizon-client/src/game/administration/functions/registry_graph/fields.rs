@@ -44,6 +44,10 @@ impl Fields {
                 tag: false,
                 follow: self.follow,
             }),
+            // A 1.21.1 `ContextAwarePredicate` (a carried mod's advancement `location` or
+            // `player`) is a list of conditions that must all hold; 26.3 writes one `all_of`.
+            // Each is validated as a predicate of its own.
+            Value::Array(_) if registry == Registry::Predicate => self.set(value, registry, path),
             Value::Array(_) if matches!(registry, Registry::Modifier | Registry::Slots) => {
                 let field = if registry == Registry::Modifier {
                     "functions"

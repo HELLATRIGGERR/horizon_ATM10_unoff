@@ -44,6 +44,8 @@ impl Fields {
                 tag: false,
                 follow: self.follow,
             }),
+            // A 1.21.1 `ContextAwarePredicate` is a list of conditions, as advancements::conditions reads it.
+            Value::Array(_) if registry == Registry::Predicate => self.set(value, registry, path),
             Value::Array(_) if matches!(registry, Registry::Modifier | Registry::Slots) => {
                 let field = if registry == Registry::Modifier {
                     "functions"

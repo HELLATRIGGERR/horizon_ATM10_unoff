@@ -14,10 +14,20 @@ pub struct EntityType {
     pub id: String,
     /// one of [`super::THROWN_TEMPLATES`] or [`LIVING_TEMPLATES`].
     pub template: String,
-    /// Renderer shadow overrides; omitted values inherit the template.
-    #[serde(default, deserialize_with = "deserialize_shadow")]
+    /// Renderer shadow overrides; omitted values inherit the template. Left
+    /// out when unset, so a written declaration (a content root's summary)
+    /// reads back: `deserialize_shadow` takes a number, not null.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_shadow",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub shadow_radius: Option<f32>,
-    #[serde(default, deserialize_with = "deserialize_shadow")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_shadow",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub shadow_strength: Option<f32>,
     /// a thrown type's: one of the mod's own items, which throws it. A
     /// living type has none.

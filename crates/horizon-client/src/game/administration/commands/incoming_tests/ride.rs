@@ -53,6 +53,10 @@ fn game<'a>(resources: &'a mut Option<std::sync::Arc<crate::game::Resources>>) -
         None,
     )
     .ok()?;
+    // /ride mounts through the mod API's handle path (f7a2c6f980): it needs an open world's epoch.
+    game.reset_entity_residency();
+    game.native_lifecycle
+        .begin_open(mod_api::Authority::IntegratedServer);
     game.build_registries();
     game.set_allow_commands(true);
     for x in 0..2 {

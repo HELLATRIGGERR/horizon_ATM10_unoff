@@ -567,7 +567,7 @@ mod registry_tests;
 
 #[cfg(test)]
 #[path = "condition_log_tests.rs"]
-mod log_tests;
+pub(crate) mod log_tests;
 
 #[cfg(test)]
 mod recipe_error_tests {

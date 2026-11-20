@@ -979,6 +979,18 @@ mod tests {
         t.stack.as_ref().map_or(FluidStack::EMPTY, engine_fluid_stack)
     }
 
+    /// The mod API's keys for the fluids these tests read back: since the merge a tank's stack
+    /// is the hooks' `mod_api::FluidStack`, which names its fluid by a load-resolved key (the
+    /// game resolves them when the fluid registry loads), as `native_panel`'s tests do.
+    fn fluid_keys() {
+        mod_platform::__private::part_tests::install_parts_fixture(&[]).unwrap();
+        mod_api::__private::resolve_fluids(
+            &["minecraft:water", "minecraft:lava", "test:brine", "test:sludge"],
+            &horizon_world::fluid::FluidKind::ALL.map(|kind| kind.name()),
+        )
+        .unwrap();
+    }
+
     fn entity_with(tanks: &[Tank]) -> ModBlockEntity {
         let mut nbt = Compound::new();
         write_tanks(&mut nbt, tanks);
@@ -994,6 +1006,7 @@ mod tests {
     #[test]
     fn declared_tanks_fill_and_drain_by_their_sides_with_any_registry_fluid() {
         horizon_world::mod_fluids::register_test_fluids();
+        fluid_keys();
         let tanks = declared();
         let mut entity = entity_with(&[(None, 0), (Some("test:brine".into()), 1500)]);
         let brine = FluidStack::of("test:brine", 3000).unwrap();
@@ -1143,6 +1156,7 @@ mod tests {
     #[test]
     fn a_cauldron_moves_whole_increments_as_neoforges_wrapper() {
         horizon_world::mod_fluids::register_test_fluids();
+        fluid_keys();
         let water = cauldron_for_block("minecraft:water_cauldron").unwrap();
         let empty = cauldron_for_block("minecraft:cauldron").unwrap();
         let lava = cauldron_for_block("minecraft:lava_cauldron").unwrap();

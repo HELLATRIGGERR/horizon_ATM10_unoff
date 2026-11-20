@@ -596,6 +596,8 @@ mod mod_fluid_tests {
     use super::*;
 
     fn oil(id: &str, flowing_id: &str) -> ModFluid {
+        // The carried test fluids take the first handles, as `mod_fluids`' tests expect.
+        crate::mod_fluids::register_test_fluids();
         register_mod_fluid(ModFluidType {
             id: id.into(),
             flowing_id: flowing_id.into(),

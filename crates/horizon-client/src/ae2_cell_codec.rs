@@ -1036,7 +1036,8 @@ mod item_key_tests {
         // Level 0 is outside the persistent codec's 1..=255, so the entry drops (read_levels).
         let zero=Tag::compound([("minecraft:enchantments",Tag::compound([("minecraft:sharpness",Tag::Int(0))]))]);
         let decoded=make(&zero);assert_eq!(decoded.enchantment_level("minecraft:sharpness"),0);
-        assert_eq!(encode_components(&decoded),None);
+        // Upstream 5a3fbadb3a keeps an explicit modelled component its field reads as empty, raw.
+        assert_eq!(encode_components(&decoded),Some(zero));
     }
 }
 

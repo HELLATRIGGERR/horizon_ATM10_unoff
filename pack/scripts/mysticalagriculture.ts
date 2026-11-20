@@ -1,6 +1,6 @@
 // Builds and tests the pack's Mystical Agriculture port in a checkout of this fork: the carry of the player's own jar
 // (horizon-port-pack, with the NeoForge oracle's facts so seeds plant their crops), the core crate's unit tests, the
-// game staged with the native bundles under pack/mods (horizon-mixins apply), its build and the world tests.
+// game staged with this bundle (horizon-mixins apply through pack/scripts/hook-catalog.ts), its build and the world tests.
 // Usage: bun run pack/scripts/mysticalagriculture.ts <step>... (steps: carry, units, stage, build, world; all: every one)
 //
 // Paths default to this machine's layout beside the checkout (`<base>` = the checkout's parent folder) and can be
@@ -14,15 +14,18 @@
 //   HORIZON_MIXINS     the horizon-mixins binary        <base>/.build/target-mixins/debug/horizon-mixins
 //   AE2_RESOURCES      the prepared 26.3 resources      <base>/horizon/.local/resources/26.3
 //   MA_JOBS            cargo jobs                       2
+//   MA_FEATURES        the game's Cargo features        ae2-lab (`-p horizon-game --no-default-features`)
 // `carry` needs the work folder imported, MA's jar fetched (`horizon-port-pack fetch <work> --from <mods>
 // mysticalagriculture`) and the oracle's facts of MA's batch in `<work>/oracle/facts.json` (the pack run's
 // `facts-<batch>.json`): without them seeds carry no `place_block` and plant nothing. `world` also passes ATM10_DIR,
-// AE2_CONTENT_DIR and MA_CONFIG (a folder holding ATM10's config files the bundle reads) to the harness. Nothing a
+// AE2_CONTENT_DIR and MA_CONFIG (a folder holding ATM10's config files the bundle reads) to the harness. `stage` applies
+// this bundle alone (with HORIZON_LOCAL_BUNDLES' beside it), so the build is the game and Mystical Agriculture. Nothing a
 // step generates is committed: MA's files stay local.
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
-import { withLocalBundles } from './local-bundles';
+import { addLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -94,15 +97,20 @@ const steps: Record<string, () => Promise<void>> = {
   },
   async stage() {
     dropCrateLock();
+    // Only this bundle (and HORIZON_LOCAL_BUNDLES'): a folder of them beside the stage, without the world tests.
+    const mods = `${stage}-mods`;
+    rmSync(mods, { recursive: true, force: true });
+    cpSync(bundle, join(mods, 'mysticalagriculture'), { recursive: true, filter: path => !relative(bundle, path).split(/[\\/]/).some(part => part === 'tests' || part === 'target') });
+    addLocalBundles(mods);
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`), '--out', next]);
+    await applyBundles(command => run(command), mixins, root, mods, next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.MA_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

@@ -1,6 +1,7 @@
 //! Mystical Agriculture's rules for the pack's port, translated from its source (MIT, see the bundle's
 //! `LICENSE-mysticalagriculture` and `LICENSE-cucumber`). Nothing here depends on the engine.
 
+pub mod conditions;
 pub mod crop_table;
 pub mod crops;
 pub mod infusion;

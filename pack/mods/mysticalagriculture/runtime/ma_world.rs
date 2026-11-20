@@ -3,22 +3,19 @@
 // the crops' random ticks, bone meal and harvest, the Growth Accelerators, and the infusion altar with its
 // pedestals (their block entities, the right clicks, the recipe check on the world's `mysticalagriculture:infusion`
 // recipes). Settings come from ATM10's `config/mysticalagriculture-common.toml` and MysticalCustomization's crops
-// and tiers (`config/mysticalcustomization/`), read when a world opens. Server hooks run on the thread of the
-// `Game` that simulates the world, so the state is kept per thread.
+// and tiers (`config/mysticalcustomization/`), read when the server opens its world (`server_started`). Server hooks
+// run on the thread of the `Game` that simulates the world, so the state is kept per thread. The hooks hand the API's
+// block entity (`mod_api::ModBlockEntity`, slots of `mod_api::ItemStack`); the levels' maps hold the engine's.
 
-use super::{Game, native_lifecycle::WorldPhase};
-use horizon_client::{
-    containers::{ModBlockEntity, ModContainer},
-    first_person::Hand,
-    items::ItemStack,
-    mod_api::NativeLootDrops,
-};
-use horizon_core::random::RandomSource;
-use horizon_world::{
-    level::flags,
+use super::Game;
+use crate::game::api_values::{TryIntoApi, TryIntoEngine};
+use horizon_client::{containers::ModContainer, first_person::Hand, items::ItemStack};
+use horizon_core::{
     nbt::{Compound, JavaString, Tag},
-    registry::BlockStateId,
+    random::RandomSource,
 };
+use horizon_world::level::flags;
+use mod_api::{LootDrops, ModBlockEntity, WorldPhase};
 use ma_core::{
     accelerator,
     config::{self, Config},
@@ -102,11 +99,19 @@ fn with_state<R>(read: impl FnOnce(&State) -> R) -> R {
     STATE.with(|s| read(s.borrow_mut().get_or_insert_with(read_state)))
 }
 
-/// `native_world_lifecycle`: settings are read as a world opens and dropped as it closes.
-pub(super) fn lifecycle(phase: WorldPhase) {
-    let fresh = matches!(phase, WorldPhase::WorldOpenReady).then(read_state);
-    STATE.with(|s| *s.borrow_mut() = fresh);
+/// `native_server_started`: settings and the pack's custom crops are read as the server opens its world.
+pub(super) fn opened() {
+    let fresh = read_state();
+    STATE.with(|s| *s.borrow_mut() = Some(fresh));
     BOOK.with(|b| *b.borrow_mut() = Book::default());
+}
+
+/// `native_world_lifecycle`: settings and the recipe book are dropped as the world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        STATE.with(|s| *s.borrow_mut() = None);
+        BOOK.with(|b| *b.borrow_mut() = Book::default());
+    }
 }
 
 /// The crop a block is: MA's own, or one of the pack's MysticalCustomization crops.
@@ -157,12 +162,13 @@ pub(super) fn bonemeal_success(block: &str, success: &mut bool) {
     }
 }
 
-/// `native_loot_drops` of a crop broken: `MysticalCropBlock.getDrops` (MA's crops have no loot table).
-pub(super) fn loot_drops(game: &Game<'_>, context: &NativeLootDrops<'_>, drops: &mut Vec<ItemStack>) {
+/// `native_loot_drops` of a crop broken: `MysticalCropBlock.getDrops` (MA's crops have no loot table). The broken
+/// state is the API's: its block and `age` are read through the block metadata.
+pub(super) fn loot_drops(game: &Game<'_>, context: &LootDrops<'_>, drops: &mut Vec<ItemStack>) {
     let Some((_, state)) = context.block else { return };
-    let Some(block) = game.native_state_block(state).map(str::to_owned) else { return };
+    let Ok(block) = game.block_metadata_name(state.block()).map(str::to_owned) else { return };
     let Some(crop) = crop_of(&block) else { return };
-    let age = game.native_block_state_property(state, "age").and_then(|a| a.parse::<u32>().ok()).unwrap_or(0);
+    let age = game.block_metadata_property((&state).into(), "age").ok().flatten().and_then(|a| a.parse::<u32>().ok()).unwrap_or(0);
     let origin = context.origin.map(|v| v.floor() as i32);
     let under = game.native_block(below(origin, 1));
     let settings = with_state(|s| s.config.crops);
@@ -202,9 +208,12 @@ fn grow_by_accelerator(game: &mut Game<'_>, pos: [i32; 3], crop: &Crop) {
     let offsets = [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [1, 1], [-1, 1]];
     let same = offsets.map(|[dx, dz]| game.native_block([pos[0] + dx, pos[1], pos[2] + dz]) == block);
     let bound = crops::growth_bound(crops::growth_speed(&soil, &same));
-    let dimension = game.native_dimension();
-    let Some(random) = game.native_level_random(dimension) else { return };
-    if random.next_int_bound(bound).unwrap_or(1) == 0 {
+    // The level's own random, drawn from a copy that is stored back (`level_random` / `level_set_random`).
+    let Some(level) = game.fork_level_here() else { return };
+    let Some(mut random) = game.level_random(level) else { return };
+    let roll = random.next_int_bound(bound).unwrap_or(1);
+    game.level_set_random(level, random);
+    if roll == 0 {
         game.native_set_block_property_with(pos, "age", &(age + 1).to_string(), flags::UPDATE_CLIENTS);
     }
 }
@@ -236,9 +245,22 @@ fn write_altar(nbt: &mut Compound, a: &Altar) {
     nbt.insert(key(ACTIVE), Tag::Byte(i8::from(a.active)));
 }
 
+/// `block_entity_types`: the altar, pedestals and growth accelerators, one type per block and named after it.
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    for block in [infusion::ALTAR, infusion::PEDESTAL] {
+        types.push((block.to_owned(), vec![block.to_owned()]));
+    }
+    for tier in ["inferium", "prudentium", "tertium", "imperium", "supremium", "awakened_supremium"] {
+        let block = format!("{}:{tier}_growth_accelerator", crops::NS);
+        debug_assert!(accelerator::range(&block).is_some());
+        types.push((block.clone(), vec![block]));
+    }
+}
+
 /// `native_block_entity`: the altar and the pedestals (Cucumber's `BaseInventoryTileEntity`), and a Growth
-/// Accelerator's timer (Java schedules a block tick instead; a block entity starts on any placement here).
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+/// Accelerator's timer (Java schedules a block tick instead; a block entity starts on any placement here). The
+/// declaration owns the type id.
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     if entity.is_some() {
         return;
     }
@@ -251,7 +273,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     } else if block != infusion::PEDESTAL {
         return;
     }
-    *entity = Some((block.to_owned(), nbt));
+    *entity = Some(nbt);
 }
 
 /// `native_block_entity_ticks`: the altar and the accelerators tick, and the pedestals too (their tick does nothing;
@@ -282,6 +304,37 @@ pub(super) fn slot_accepts(block: &str, slot: usize, accepts: &mut bool) {
     if block == infusion::ALTAR && slot == 1 {
         *accepts = false;
     }
+}
+
+// ---- Recipe load conditions -----------------------------------------------------------------------------------
+
+/// One of MA's recipe load conditions (`ma_core::conditions`).
+struct LoadCondition(&'static str);
+
+impl mod_api::LoadCondition for LoadCondition {
+    fn test(&self, args: &mod_api::serde_json::Value) -> Result<bool, mod_api::ConditionError> {
+        ma_core::conditions::test(self.0, args).map_err(mod_api::ConditionError::new)
+    }
+}
+
+/// `register_load_conditions`: MA's conditions under its namespace (`ModConditionSerializers`), so its recipe files
+/// load instead of refusing the data packs. The registrar names the owner from the native mod dispatch scope, which
+/// only a trait mod's dispatch opens: the bundle opens its own for the call.
+pub(super) fn register_conditions(conditions: &mut dyn mod_api::LoadConditions) {
+    let _scope = mod_api::content::crash::enter_native_mod(mod_api::content::crash::ModCall {
+        id: crops::NS,
+        hook: "register_load_conditions",
+        part: None,
+    });
+    let mut registered = 0;
+    for name in ma_core::conditions::NAMES {
+        let Ok(id) = mod_api::Identifier::parse(&format!("{}:{name}", crops::NS)) else { continue };
+        match conditions.register(id, LoadCondition(name)) {
+            Ok(()) => registered += 1,
+            Err(error) => log::warn!("[mysticalagriculture] load condition {name}: {}", error.message),
+        }
+    }
+    log::info!("[mysticalagriculture] {registered} load conditions registered");
 }
 
 // ---- The recipes ------------------------------------------------------------
@@ -367,20 +420,27 @@ fn pedestals(game: &Game<'_>, pos: [i32; 3]) -> Vec<([i32; 3], Option<ItemStack>
         .map(|[dx, dy, dz]| [pos[0] + dx, pos[1] + dy, pos[2] + dz])
         .filter_map(|at| {
             let m = game.native_mod_block_entity(at)?;
-            (m.id == infusion::PEDESTAL).then(|| (at, m.items.first().cloned().flatten()))
+            (m.id() == infusion::PEDESTAL).then(|| (at, m.items.first().cloned().flatten()))
         })
         .collect()
 }
 
-/// `InfusionAltarTileEntity.tick`.
+/// `Item.getCraftingRemainder` of one item of `stack` (with the mods' `crafting_remainder` hook).
+fn remainder(game: &Game<'_>, stack: &ItemStack) -> Option<ItemStack> {
+    let mut one = stack.clone();
+    one.count = 1;
+    game.crafting_remainder(&one)
+}
+
+/// `InfusionAltarTileEntity.tick`. The altar's own slots hold the API's stacks: they are read as the engine's.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
-    if let Some(range) = accelerator::range(&entity.id) {
+    if let Some(range) = accelerator::range(entity.id()) {
         return accelerator_tick(game, pos, range, entity);
     }
-    if entity.id != infusion::ALTAR {
+    if entity.id() != infusion::ALTAR {
         return;
     }
-    let input = entity.items.first().cloned().flatten();
+    let input = entity.items.first().cloned().flatten().and_then(|s| s.try_into_engine(game.items()).ok());
     let before = read_altar(&entity.nbt);
     let mut altar = before;
     let signal = input.is_some() && !altar.active && game.native_neighbor_signal(game.native_dimension(), pos) > 0;
@@ -396,17 +456,17 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         && let Some(recipe) = found
     {
         for (at, stack) in &around {
-            let rest = stack.as_ref().and_then(|s| game.native_crafting_remainder(&s.item));
+            let rest = stack.as_ref().and_then(|s| remainder(game, s));
             game.native_with_mod_block_entity(*at, |m| {
                 if let Some(slot) = m.items.first_mut() {
                     *slot = rest;
                 }
             });
         }
-        let rest = input.as_ref().and_then(|s| game.native_crafting_remainder(&s.item));
+        let rest = input.as_ref().and_then(|s| remainder(game, s));
         if entity.items.len() >= 2 {
-            entity.items[0] = rest;
-            entity.items[1] = Some(recipe.result.clone());
+            entity.items[0] = rest.and_then(|r| r.try_into_api().ok());
+            entity.items[1] = recipe.result.try_into_api().ok();
         }
         log::info!("[mysticalagriculture] infusion {} at {pos:?}: {} x{}", recipe.id, recipe.result.item, recipe.result.count);
     }
@@ -504,9 +564,11 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: [i32; 3], canceled: &mut boo
     }
 }
 
-/// `native_state_block` and `native_block_state_property` of a state in the world, for the hooks that hold a
-/// `GameLevel` (the random tick and bone meal hooks read below through it).
+/// The block at `pos` in the world, for the hooks that hold a `GameLevel` (the random tick and bone meal hooks read
+/// below through it): the level's `LevelHost` reads.
 pub(super) fn level_block(level: &super::GameLevel<'_>, pos: [i32; 3]) -> String {
-    let state: BlockStateId = horizon_client::mod_api::LevelHost::block_state(level, pos);
-    level.native_state_block(state).unwrap_or("minecraft:air").to_owned()
+    mod_api::LevelHost::block_state(level, pos)
+        .and_then(|state| mod_api::LevelHost::state_block(level, state))
+        .unwrap_or("minecraft:air")
+        .to_owned()
 }

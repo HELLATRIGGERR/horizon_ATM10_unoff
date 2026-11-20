@@ -27,7 +27,8 @@ PREFIX = "horizon_client::game::native_hooks::"
 # mod hears; version 1 is the fork's contract.
 COMPAT_FILE = ROOT / "crates/horizon-client/src/game/modding/fork_compat/compat.rs"
 COMPAT_MODULE = "horizon_client::game::fork_compat::compat"
-COMPAT_HOOKS = ["mods", "settings", "settings_click", "net_from_client", "net_from_server", "item_fluid_tank"]
+COMPAT_HOOKS = ["mods", "settings", "settings_click", "net_from_client", "net_from_server", "item_fluid_tank",
+                "block_entity_types"]
 # Upstream's `native_*` functions the fork's bundles inject into that its vocabulary declares no hook for (mapping.md:
 # `block_entity_container` is a function only, its body reads the Parts' `block_container`; a bundle's HEAD
 # injection runs before that assignment).

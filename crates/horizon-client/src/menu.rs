@@ -1657,30 +1657,36 @@ impl Menu {
 
     fn may_place(&self, env: &Env, s: usize, stack: &ItemStack) -> bool {
         #[cfg(feature = "ae2-lab")]
-        if let Some(upgrade)=self.emitter_upgrade_slot {
-            let slot=self.slots[s];
-            if slot.container==MAIN {return slot.index==upgrade && matches!(stack.item.as_ref(),"ae2:fuzzy_card"|"ae2:crafting_card");}
-        }
-        #[cfg(feature = "ae2-lab")]
-        if let Some(source)=self.network_tool_slot {
-            let slot=self.slots[s];
-            if slot.container==PLAYER && slot.index==source {return false;}
-            if slot.container==MAIN && self.network_tool_main_limit.is_none_or(|end| slot.index < end) {
-                return crate::ae2_network_tool::is_card(&stack.item);
-            }
-        }
-        #[cfg(feature = "ae2-lab")]
-        if let Some(knife)=self.quartz_knife_slot {
-            let slot=self.slots[s];
-            if slot.container==PLAYER && slot.index==knife{return false;}
-            if slot.container==MAIN {return slot.index==0 && env.items.item_tags.get("ae2:metal_ingots").is_some_and(|t|t.contains(stack.item.as_ref()));}
-        }
+        if let Some(own)=self.ae2_may_place(env, s, stack) {return own;}
         if self.state.slots[s].role == Role::Hidden {
             return false;
         }
         let own = self.vanilla_may_place(env, s, stack);
         self.slot_rules(env, s, stack, own, self.vanilla_slot_max(s, stack))
             .0
+    }
+
+    /// The fork's AE2 menus' `mayPlace` for the slots they own; None leaves
+    /// the slot to its role. `equip_placement` asks it too.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_may_place(&self, env: &Env, s: usize, stack: &ItemStack) -> Option<bool> {
+        if let Some(upgrade)=self.emitter_upgrade_slot {
+            let slot=self.slots[s];
+            if slot.container==MAIN {return Some(slot.index==upgrade && matches!(stack.item.as_ref(),"ae2:fuzzy_card"|"ae2:crafting_card"));}
+        }
+        if let Some(source)=self.network_tool_slot {
+            let slot=self.slots[s];
+            if slot.container==PLAYER && slot.index==source {return Some(false);}
+            if slot.container==MAIN && self.network_tool_main_limit.is_none_or(|end| slot.index < end) {
+                return Some(crate::ae2_network_tool::is_card(&stack.item));
+            }
+        }
+        if let Some(knife)=self.quartz_knife_slot {
+            let slot=self.slots[s];
+            if slot.container==PLAYER && slot.index==knife{return Some(false);}
+            if slot.container==MAIN {return Some(slot.index==0 && env.items.item_tags.get("ae2:metal_ingots").is_some_and(|t|t.contains(stack.item.as_ref())));}
+        }
+        None
     }
 
     fn vanilla_may_place(&self, env: &Env, s: usize, stack: &ItemStack) -> bool {

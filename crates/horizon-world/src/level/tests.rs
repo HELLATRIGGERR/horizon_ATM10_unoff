@@ -891,36 +891,20 @@ fn max_chained_neighbor_updates_limits_a_chain_and_a_negative_value_lifts_it() {
 /// the ones after it are dropped without a line.
 #[test]
 fn passing_max_chained_neighbor_updates_logs_one_error_with_the_first_skipped_position() {
-    struct Lines(std::sync::Mutex<Vec<(std::thread::ThreadId, String)>>);
-    impl log::Log for Lines {
-        fn enabled(&self, metadata: &log::Metadata) -> bool {
-            metadata.level() == log::Level::Error
-        }
-        fn log(&self, record: &log::Record) {
-            if self.enabled(record.metadata()) {
-                self.0
-                    .lock()
-                    .unwrap()
-                    .push((std::thread::current().id(), record.args().to_string()));
-            }
-        }
-        fn flush(&self) {}
-    }
-    static LINES: Lines = Lines(std::sync::Mutex::new(Vec::new()));
+    // The crate's one test logger (a process takes one), shared with the conditions' log tests.
+    use crate::conditions::log_tests::{install, RECORDS};
     let Some(f) = fixture() else { return };
-    log::set_logger(&LINES).expect("no other test installs a logger");
-    log::set_max_level(log::LevelFilter::Error);
+    install();
+    // Its records are this test's thread's only: the tests of the crate run side by side.
+    RECORDS.with_borrow_mut(Vec::clear);
     wires_broken_by_updates(f, Some(1));
-    // Only this test's thread: the tests of the crate run side by side.
-    let me = std::thread::current().id();
-    let mine: Vec<String> = LINES
-        .0
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|(thread, _)| *thread == me)
-        .map(|(_, line)| line.clone())
-        .collect();
+    let mine: Vec<String> = RECORDS.with_borrow(|records| {
+        records
+            .iter()
+            .filter(|(level, _)| *level == log::Level::Error)
+            .map(|(_, line)| line.clone())
+            .collect()
+    });
     assert_eq!(
         mine,
         ["Too many chained neighbor updates. Skipping the rest. First skipped position: 1, 63, 0"]

@@ -2861,9 +2861,9 @@ fn whole_dirs_leave_out_what_the_build_writes_or_reads() {
     }
 }
 
-/// A folder mod goes into the root as links: its files show there, what the
-/// build writes (a missing blockstate, merged tags) stays out of the mod, and
-/// neither a rebuild nor deleting the root touches it.
+/// A folder mod's files are read from its folder: what the build writes (a
+/// missing blockstate, merged tags) stays out of the mod, and neither a
+/// rebuild nor deleting the root touches it.
 #[test]
 fn a_linked_folder_mod_stays_as_it_was() {
     let Some(base) = prepared() else {
@@ -2894,15 +2894,30 @@ fn a_linked_folder_mod_stays_as_it_was() {
     let root = scratch.join("root");
     for _ in 0..2 {
         build_fixture(&base, Path::new(""), std::slice::from_ref(&m), &root).unwrap();
+        // Upstream 787420c800 resolves a mod's files from its source, not from links in the root.
+        let resources = resolved_resources(
+            &base,
+            root.clone(),
+            Path::new(""),
+            std::slice::from_ref(&m),
+            scratch.join("cache"),
+        )
+        .unwrap();
         for (rel, text) in [
             ("assets/ruby/models/block/gem.json", r#"{"parent": "x"}"#),
-            ("assets/ruby/sounds.json", "{}"),
             ("data/ruby/recipe/sub/gem.json", r#"{"type": "x"}"#),
             ("data/ruby/structure/hut.nbt", "not read"),
-            ("worldgen/structure/ruby/hut.nbt", "not read"),
         ] {
-            assert_eq!(fs::read_to_string(root.join(rel)).unwrap(), text, "{rel}");
+            let from = if rel.starts_with("data/") {
+                resources.data_changes()
+            } else {
+                resources.source()
+            };
+            assert_eq!(from.read_to_string(rel).unwrap(), text, "{rel}");
+            assert!(!root.join(rel).exists(), "{rel}");
         }
+        assert!(resources.source().contains("assets/ruby/sounds.json"));
+        assert!(!root.join("worldgen/structure/ruby/hut.nbt").exists());
         assert!(root.join("assets/ruby/blockstates/gem.json").exists());
         assert!(!source.join("assets/ruby/blockstates").exists());
         // The vanilla tag merged in the root, the mod's own file untouched.
@@ -2931,7 +2946,13 @@ fn a_moved_mod_changes_the_stamp() {
     };
     // The stamp names each file of a folder mod by its path.
     let scratch = std::env::temp_dir().join(format!("horizon-moved-stamp-{}", std::process::id()));
-    let files = [("assets/ruby/lang/en_us.json", "{}")];
+    let _ = fs::remove_dir_all(&scratch);
+    // folder_mod reads the folder as a package: it needs its manifest.
+    let toml = manifest("ruby", "");
+    let files = [
+        ("horizon-mod.toml", toml.as_str()),
+        ("assets/ruby/lang/en_us.json", "{}"),
+    ];
     let (a, b) = (
         folder_mod(&scratch.join("a/ruby"), &files),
         folder_mod(&scratch.join("b/ruby"), &files),
@@ -3066,11 +3087,13 @@ fn a_packed_mod_builds_the_root_a_folder_does() {
         content: Content::read(&hmod, &package.manifest).unwrap(),
     };
     let (from_folder, from_package) = (scratch.join("from-folder"), scratch.join("from-package"));
+    let (folder, packed) = (std::slice::from_ref(&folder), std::slice::from_ref(&packed));
     assert_eq!(
-        build_fixture(&base, Path::new(""), &[folder], &from_folder).unwrap(),
-        build_fixture(&base, Path::new(""), &[packed], &from_package).unwrap()
+        build_fixture(&base, Path::new(""), folder, &from_folder).unwrap(),
+        build_fixture(&base, Path::new(""), packed, &from_package).unwrap()
     );
-    for dir in ["assets/ruby", "data/ruby", "worldgen/structure/ruby"] {
+    // Upstream 787420c800 writes no mod file (a structure template either) into the root.
+    for dir in ["assets/ruby", "data/ruby"] {
         let (a, b) = (
             files_under(&from_folder.join(dir)),
             files_under(&from_package.join(dir)),
@@ -3108,9 +3131,41 @@ fn a_packed_mod_builds_the_root_a_folder_does() {
             .to_string()
             .contains("ruby:ore")
     );
-    let files = files_under(&from_folder.join("data/ruby"));
-    assert!(files.contains_key("neoforge/loot_modifiers/global.json"));
-    assert!(!files.keys().any(|f| f.starts_with("horizon/")));
+    // The mod's own files resolve from its source, alike from a folder and a package.
+    let resolved = |mods: &[ContentMod], root: &Path| {
+        resolved_resources(
+            &base,
+            root.to_path_buf(),
+            Path::new(""),
+            mods,
+            scratch.join("cache"),
+        )
+        .unwrap()
+    };
+    let (by_folder, by_package) = (
+        resolved(folder, &from_folder),
+        resolved(packed, &from_package),
+    );
+    for (prefix, a, b) in [
+        ("assets/ruby/", by_folder.source(), by_package.source()),
+        (
+            "data/ruby/",
+            by_folder.data_changes(),
+            by_package.data_changes(),
+        ),
+    ] {
+        let names = a.list(prefix);
+        assert!(!names.is_empty(), "{prefix}");
+        assert_eq!(names, b.list(prefix), "{prefix}");
+        for name in &names {
+            assert_eq!(a.read(name).unwrap(), b.read(name).unwrap(), "{name}");
+        }
+    }
+    let files = by_folder.data_changes();
+    assert!(files.contains("data/ruby/neoforge/loot_modifiers/global.json"));
+    assert!(files.contains("data/ruby/structure/hut.nbt"));
+    assert!(files.list("data/ruby/horizon/").is_empty());
+    drop((by_folder, by_package));
     let _ = fs::remove_dir_all(&scratch);
 }
 

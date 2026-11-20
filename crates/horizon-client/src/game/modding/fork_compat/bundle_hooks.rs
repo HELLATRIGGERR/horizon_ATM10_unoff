@@ -74,6 +74,14 @@ pub(in crate::game) fn part_heard(hook: HookId) -> bool {
     mod_api::__private::has_part_hook(hook) || injected(hook)
 }
 
+/// Whether horizon-mixins applied any bundle to this tree. The HUD atlas packs the mod image
+/// slot for it as for a trait mod (`runtime/resource_tables.rs` `mod_image_slot`): fork main asked
+/// `built_with_native_mods`, which the merge dropped, and a bundle's `mod_image` (FTB Chunks' maps)
+/// needs the slot.
+pub(in crate::game) fn bundles_staged() -> bool {
+    !staged::INJECTED.is_empty()
+}
+
 /// `item_listens` for `item`, or a bundle injects into `hook` (for every item: an injection is
 /// not scoped to one).
 pub(in crate::game) fn item_heard(hook: HookId, item: &str) -> bool {

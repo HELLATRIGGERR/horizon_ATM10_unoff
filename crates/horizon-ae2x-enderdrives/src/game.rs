@@ -25,7 +25,7 @@ use horizon_client::{
     items::ItemStack,
     text::{Text, format_translation},
 };
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use std::{
     cell::RefCell,
     collections::HashSet,

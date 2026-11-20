@@ -46,6 +46,18 @@ impl Menu {
         let source = observed
             .then(|| crate::mobs::equip::source_stamp(stack))
             .flatten();
+        // The fork's AE2 menus filter and cap the slots they own (`may_place`, `slot_max`).
+        #[cfg(feature = "ae2-lab")]
+        if let Some(allowed) = self.ae2_may_place(env, slot, stack) {
+            let max = self.slot_max(env, slot, stack);
+            return EquipPlacement {
+                menu,
+                source,
+                observed,
+                allowed,
+                max,
+            };
+        }
         let (allowed, max) = if self.state.slots[slot].role == super::Role::Hidden {
             (false, 0)
         } else {

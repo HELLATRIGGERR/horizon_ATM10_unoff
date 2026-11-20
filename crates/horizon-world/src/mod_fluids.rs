@@ -828,8 +828,9 @@ mod tests {
         assert!(brine.is_source_kind() && !flowing.is_source_kind());
         assert_eq!(brine.name(), "test:brine");
         assert_eq!(flowing.name(), "test:flowing_brine");
-        assert_eq!(FluidKind::from_tick_id(9), None);
-        assert_eq!(all_kinds().count(), 9);
+        // Upstream's tests in this process register their own mod fluids after these: none carried.
+        assert_eq!(FluidKind::from_tick_id(9).and_then(FluidKind::carried), None);
+        assert_eq!(all_kinds().filter(|k| k.carried().is_some()).count(), 4);
         assert_eq!(kind_by_bucket("test:brine_bucket"), Some(brine));
         assert_eq!(kind_by_block("test:sludge"), Some(sludge));
         assert_eq!(brine.mask(), 0, "a mod fluid is in no vanilla tag mask");

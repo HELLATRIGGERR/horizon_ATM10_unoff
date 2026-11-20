@@ -121,8 +121,8 @@ pub(super) fn ordinal(dim: Dim) -> i32 {
         Dim::Nether => 1,
         Dim::End => 2,
         Dim::Spatial => 3,
-        // FORK-TODO(merge): upstream's extra dimensions have no AE2 grid ordinal yet; the
-        // fork's grids span the vanilla three and spatial storage.
+        // No grid level: AE2 networks in upstream's extra dimensions are not supported until
+        // after the merge (`ae2_global::grid_level`).
         Dim::Extra(_) => -1,
     }
 }
@@ -524,15 +524,11 @@ impl Game<'_> {
         if live.poisoned {
             return false;
         }
+        // A level with no AE2 grid (upstream's extra dimensions) has no grid address to replay
+        // at: its mutations are dropped, so they cannot hold back every other level's replay.
+        self.ae2_drop_gridless_mutations();
         for (dim, world) in self.ae2_loaded_worlds() {
-            let taken = world.block_entities.take_ae2_mutations();
-            // A level with no AE2 grid ordinal (upstream's extra dimensions)
-            // has no grid address to replay at: its mutations are dropped, so
-            // they cannot hold back every other level's ordered replay.
-            if ordinal(dim) < 0 {
-                continue;
-            }
-            match taken {
+            match world.block_entities.take_ae2_mutations() {
                 Ok(events) => live
                     .pending
                     .extend(events.into_iter().map(|event| (ordinal(dim), event))),

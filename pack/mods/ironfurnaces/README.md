@@ -42,5 +42,8 @@ back on the mod's defaults. Rules live in `ironfurnaces-core` with unit tests; n
   injection reads it with the game and does the upgrade or the augment (on the server only), a `MODIFY_ARG` one
   answers `Success` (`use_on_answer`). A tier upgrade sets the new block through `level_set_block`.
 - `screen` is `mod_api::Screen`; `screen_draw`'s batch is `draw`; sprites take a tint (`None`).
-- Engine needs (HANDOFF "S3"): `use_on` is asked only while a part listens (`has_part_hook(UseOn)`, N5), so the
-  upgrades and augments do nothing in a world yet.
+- `block_entity_types` (a fork compat hook) declares one block entity type per furnace, named after its block as
+  fork main's ids were: upstream makes a mod block entity only for a block a declared type names, and a mixin bundle
+  has no `register()`. A type keeps the blocks the loaded content declares.
+- `use_on` is asked only while a part listens (`has_part_hook(UseOn)`); N5's gates (`bundle_hooks.rs`) also open it
+  for this bundle's injections.

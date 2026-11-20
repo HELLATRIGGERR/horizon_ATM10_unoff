@@ -57,6 +57,16 @@ bindings = [
 ]
 
 [[injection]]
+id = "block-entity-types"
+hook = "block_entity_types"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_types.rs"
+bindings = [
+  { name = "types", ty = "&mut Vec<(String, Vec<String>)>", value = "&mut *types" },
+]
+
+[[injection]]
 id = "block-entity-ticks"
 hook = "block_entity_ticks"
 hook_version = 1

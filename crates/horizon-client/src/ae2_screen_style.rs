@@ -5,11 +5,9 @@
 //! by key; `Position.resolve` measures from the left and top edges, else
 //! from the right and bottom ones; `SlotGridLayout` spreads the slots of one
 //! semantic.
+use horizon_assets::resource_source::ResourceSource;
 use serde_json::{Map, Value};
-use std::{
-    collections::{BTreeMap, HashSet},
-    path::Path,
-};
+use std::collections::{BTreeMap, HashSet};
 
 /// `Position`: offsets from the screen's edges, as the style gives them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -214,8 +212,9 @@ pub struct ScreenStyle {
 const MERGED: [&str; 6] = ["slots", "text", "palette", "images", "terminalStyle", "widgets"];
 
 impl ScreenStyle {
-    /// Loads `screens/<path>` from `screens`, the folder of the styles.
-    pub fn load(screens: &Path, path: &str) -> Result<Self, String> {
+    /// Loads `screens/<path>` from `screens`, the folder of the styles (a
+    /// mod's files are read where its resources are, its jar included).
+    pub fn load(screens: &ResourceSource, path: &str) -> Result<Self, String> {
         let tree = merged(&[screens], path, &mut HashSet::new())?;
         Ok(Self::from_tree(&tree))
     }
@@ -223,7 +222,7 @@ impl ScreenStyle {
     /// Loads a style of an addon: each file from the addon's folder of styles
     /// if it is there (ExtendedAE ships `screens/ex_*.json`), else from AE2's,
     /// where its includes usually are. In the jar they share AE2's namespace.
-    pub fn load_over(addon: &Path, screens: &Path, path: &str) -> Result<Self, String> {
+    pub fn load_over(addon: &ResourceSource, screens: &ResourceSource, path: &str) -> Result<Self, String> {
         let tree = merged(&[addon, screens], path, &mut HashSet::new())?;
         Ok(Self::from_tree(&tree))
     }
@@ -326,14 +325,14 @@ fn parse_color(text: &str) -> Option<u32> {
 
 /// `loadMergedJsonTree`: the document over its includes, which resolve
 /// relative to its own folder.
-fn merged(screens: &[&Path], path: &str, loaded: &mut HashSet<String>) -> Result<Map<String, Value>, String> {
+fn merged(screens: &[&ResourceSource], path: &str, loaded: &mut HashSet<String>) -> Result<Map<String, Value>, String> {
     let path = normalize(path);
     if !loaded.insert(path.clone()) {
         return Err(format!("recursive style includes at {path}"));
     }
-    let file = screens.iter().map(|folder| folder.join(&path)).find(|file| file.exists())
+    let folder = screens.iter().find(|folder| folder.contains(&path))
         .ok_or_else(|| format!("screens/{path}: not found"))?;
-    let bytes = std::fs::read(file).map_err(|e| format!("screens/{path}: {e}"))?;
+    let bytes = folder.read(&path).map_err(|e| format!("screens/{path}: {e}"))?;
     let document: Map<String, Value> =
         serde_json::from_slice(&bytes).map_err(|e| format!("screens/{path}: {e}"))?;
     let Some(includes) = document.get("includes").and_then(Value::as_array) else {
@@ -391,6 +390,7 @@ fn normalize(path: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::Path;
 
     fn layer(v: Value) -> Map<String, Value> {
         v.as_object().unwrap().clone()
@@ -435,10 +435,11 @@ mod tests {
     /// Every style AE2 ships loads, when the prepared content is there.
     #[test]
     fn the_source_styles_load() {
-        let screens = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/ae2/assets/ae2/screens");
-        if !screens.join("inscriber.json").exists() {
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/ae2/assets/ae2/screens");
+        if !folder.join("inscriber.json").exists() {
             return;
         }
+        let screens = ResourceSource::directory(folder.clone());
         let inscriber = ScreenStyle::load(&screens, "inscriber.json").unwrap();
         assert_eq!(inscriber.size(), (176, 178));
         assert_eq!(inscriber.slot("INSCRIBER_PLATE_TOP", 0), Some((39, 23)));
@@ -446,7 +447,7 @@ mod tests {
         assert!(inscriber.palette.len() >= 8);
         let drive = ScreenStyle::load(&screens, "drive.json").unwrap();
         assert_eq!(drive.slot("STORAGE_CELL", 9), Some((89, 86)));
-        for entry in std::fs::read_dir(&screens).unwrap().flatten() {
+        for entry in std::fs::read_dir(&folder).unwrap().flatten() {
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.ends_with(".json") && name != "schema.json" {
                 ScreenStyle::load(&screens, &name).unwrap();
@@ -477,6 +478,7 @@ mod tests {
                 "slots":{"STORAGE_CELL":{"left":34,"top":16,"grid":"BREAK_AFTER_2COLS"},"EX_1":{"left":109,"top":16,"grid":"BREAK_AFTER_2COLS"}}}"#,
         )
         .unwrap();
+        let (addon, screens) = (ResourceSource::directory(addon), ResourceSource::directory(screens));
         assert!(ScreenStyle::load(&screens, "ex_drive.json").is_err());
         let style = ScreenStyle::load_over(&addon, &screens, "ex_drive.json").unwrap();
         std::fs::remove_dir_all(&root).ok();

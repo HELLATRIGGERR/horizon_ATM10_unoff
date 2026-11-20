@@ -44,10 +44,14 @@ pub fn sources_tagged(
     // `mod_loaded` asks which mods are loaded, not which namespaces
     // they own: a mod that also owns a namespace doesn't make that
     // namespace another mod.
+    // Every content mod enabled in this root counts, whichever side its
+    // manifest names: one that names none is `client`, as the AE2 add-ons'
+    // content is, and a recipe of one asking for another (ME Requester's
+    // AE2WTLib recipes) must still load.
     let inventory = horizon_mod_package::enabled::EnabledMods::read(root)?;
     let conditions = overlay
         .conditions
-        .with_mod_inventory(inventory.server_ids())
+        .with_mod_inventory(inventory.client_ids().chain(inventory.server_ids()))
         .with_diagnostics();
     for file in &horizon_world::json_folder::read(&root.join("data/minecraft/recipe"))?.files {
         sources.push((file.name.clone(), file.bytes()?.to_vec()));

@@ -83,10 +83,11 @@ struct CheckBox {
     radio: bool,
 }
 
-fn styles(resources: &std::path::Path) -> &'static [Option<ScreenStyle>; 2] {
+/// The settings' styles from `assets`, the game's resolved assets.
+fn styles(assets: &horizon_assets::resource_source::ResourceSource) -> &'static [Option<ScreenStyle>; 2] {
     static STYLES: OnceLock<[Option<ScreenStyle>; 2]> = OnceLock::new();
     STYLES.get_or_init(|| {
-        let screens = resources.join("assets/ae2/screens");
+        let screens = assets.subdirectory("assets/ae2/screens").unwrap_or_default();
         ["terminals/terminal_settings.json", "key_type_selection.json"].map(|path| {
             ScreenStyle::load(&screens, path).map_err(|error| log::warn!("AE2 terminal style {path}: {error}")).ok()
         })
@@ -172,8 +173,8 @@ impl Game<'_> {
 
     fn ae2_term_sub_style(&self, sub: Sub) -> Option<&'static ScreenStyle> {
         match sub {
-            Sub::Settings => styles(&self.options.resources)[0].as_ref(),
-            Sub::KeyTypes => styles(&self.options.resources)[1].as_ref(),
+            Sub::Settings => styles(&self.pack.source)[0].as_ref(),
+            Sub::KeyTypes => styles(&self.pack.source)[1].as_ref(),
             #[cfg(feature = "ae2-ae2wtlib")]
             Sub::Wireless => self.ae2_addon_style("ae2wtlib", super::ae2x::ae2wtlib::settings_screen::STYLE),
             #[cfg(feature = "ae2-ae2wtlib")]

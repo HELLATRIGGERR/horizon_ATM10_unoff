@@ -258,7 +258,22 @@ impl Game<'_> {
     /// `native_data` to read. Only relative paths of plain names; a world's own
     /// data packs aren't in it. API 423.
     pub(in crate::game) fn native_data_files(&self, dir: &str) -> Vec<String> {
-        data_files(&self.options.resources, dir)
+        // From the data source: since upstream's 787420c800 a mod's data stays in its layers, not
+        // in the content root (`options.resources`), which `data_files` walks.
+        let plain =
+            |p: &str| !p.is_empty() && p != "." && p != ".." && !p.contains('\\') && !p.contains(':');
+        if !dir.split('/').all(plain) {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = self
+            .pack
+            .data_source
+            .list_under("data", &[dir])
+            .into_iter()
+            .filter(|name| name.ends_with(".json"))
+            .collect();
+        out.sort();
+        out
     }
     /// What the type of the dimension in place says of its sky and air
     /// (`Level.dimensionType()`): sky light (`hasSkyLight`), a ceiling

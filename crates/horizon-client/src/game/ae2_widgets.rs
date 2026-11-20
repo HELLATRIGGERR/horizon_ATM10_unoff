@@ -6,6 +6,7 @@ use super::{
     Game,
     ae2_screens::{argb, inside},
 };
+use horizon_assets::resource_source::ResourceSource;
 use horizon_client::{
     ae2_screen_style::{Image, ScreenStyle},
     hud::{HudBatch, rgba},
@@ -134,13 +135,19 @@ pub(super) fn grouped(amount: u64) -> String {
 }
 
 impl Game<'_> {
+    /// `assets/<folder>` of the game's resolved assets (`ae2/screens`, an
+    /// addon's `<ns>/ae2/screens`): mods' files are read from their jars,
+    /// the content root holds none of them.
+    pub(super) fn ae2_asset_folder(&self, folder: &str) -> ResourceSource {
+        self.pack.source.subdirectory(&format!("assets/{folder}")).unwrap_or_default()
+    }
+
     /// A screen style by its path under `screens/`, loaded once.
     pub(super) fn ae2_style(&self, path: &'static str) -> Option<&'static ScreenStyle> {
         static STYLES: OnceLock<Mutex<HashMap<&'static str, Option<&'static ScreenStyle>>>> = OnceLock::new();
         let mut styles = STYLES.get_or_init(Default::default).lock().ok()?;
         *styles.entry(path).or_insert_with(|| {
-            let screens = self.options.resources.join("assets/ae2/screens");
-            ScreenStyle::load(&screens, path)
+            ScreenStyle::load(&self.ae2_asset_folder("ae2/screens"), path)
                 .map_err(|error| log::warn!("AE2 screen style {path}: {error}"))
                 .ok()
                 .map(|style| &*Box::leak(Box::new(style)))
@@ -153,8 +160,7 @@ impl Game<'_> {
         static STYLES: OnceLock<Mutex<HashMap<(&'static str, &'static str), Option<&'static ScreenStyle>>>> = OnceLock::new();
         let mut styles = STYLES.get_or_init(Default::default).lock().ok()?;
         *styles.entry((namespace, path)).or_insert_with(|| {
-            let assets = self.options.resources.join("assets");
-            ScreenStyle::load_over(&assets.join(namespace).join("ae2/screens"), &assets.join("ae2/screens"), path)
+            ScreenStyle::load_over(&self.ae2_asset_folder(&format!("{namespace}/ae2/screens")), &self.ae2_asset_folder("ae2/screens"), path)
                 .map_err(|error| log::warn!("{namespace} screen style {path}: {error}"))
                 .ok()
                 .map(|style| &*Box::leak(Box::new(style)))

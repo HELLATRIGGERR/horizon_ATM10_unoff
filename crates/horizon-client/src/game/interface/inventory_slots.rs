@@ -401,6 +401,17 @@ impl Game<'_> {
         if self.book_covers_menu(batch.width) {
             return None;
         }
+        // AE2's priority editor and crafting screens: a press on one of their
+        // buttons is a click on a menu entry, and the build's slot boxes do
+        // not hold those (the entries' slots sit off the screen).
+        #[cfg(feature="ae2-lab")]
+        {
+            let (ox, oy) = self.inventory_origin(batch);
+            if self.ae2_priority_ui() {return self.ae2_priority_entry_at([x-ox,y-oy]).map(|entry|300+entry);}
+            if self.ae2_craft_screen()!=0 {
+                return self.ae2_craft_entry_at([x-ox,y-oy]);
+            }
+        }
         match self.built_container(batch) {
             Some(layout) => {
                 layout
@@ -420,12 +431,6 @@ impl Game<'_> {
     /// `slot_at` from the game's state alone, without a build.
     fn slot_at_unbuilt(&self, batch: &HudBatch, x: f32, y: f32) -> Option<usize> {
         let (ox, oy) = self.inventory_origin_unbuilt(batch);
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_priority_ui() {return self.ae2_priority_entry_at([x-ox,y-oy]).map(|entry|300+entry);}
-        #[cfg(feature="ae2-lab")]
-        if self.ae2_craft_screen()!=0 {
-            return self.ae2_craft_entry_at([x-ox,y-oy]);
-        }
         self.slots().into_iter().find(|&i| {
             let (sx, sy) = self.slot_position(i);
             // AbstractContainerScreen.isHovering: the 16x16 slot grows by one

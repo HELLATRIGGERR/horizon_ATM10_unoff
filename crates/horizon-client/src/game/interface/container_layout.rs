@@ -22,6 +22,8 @@ pub(super) struct SlotInputs {
     mount: Option<(usize, bool, bool)>,
     rows: Option<usize>,
     native: Option<(u64, Option<f32>, Option<f32>)>,
+    #[cfg(feature = "ae2-lab")]
+    ae2: Option<u64>,
 }
 
 impl Game<'_> {
@@ -33,6 +35,28 @@ impl Game<'_> {
                 self.native_screen_inventory_y(),
             )
         })
+    }
+
+    /// AE2's terminal screens place the menu's slots from their own state,
+    /// which no selector above reads: the encoding panel's mode moves its
+    /// inputs (`PROCESSING_INPUTS` sit one slot right of `CRAFTING_GRID`),
+    /// a sub-screen moves the rest. The positions themselves, hashed, so a
+    /// mode switch rebuilds the boxes `slot_at` hit-tests. The Pattern Access
+    /// screen's provider slots are the rows of its `ae2:pattern_layout`, which
+    /// arrives after the window opened (the open builds the boxes at once) and
+    /// changes as providers come and go.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_slot_inputs(&self) -> Option<u64> {
+        use std::hash::{Hash, Hasher};
+        if self.ae2_term_kind().is_none() && !self.ae2_pattern_access_screen() {
+            return None;
+        }
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        for slot in self.slots() {
+            let (x, y) = self.slot_position(slot);
+            (slot, x.to_bits(), y.to_bits()).hash(&mut hash);
+        }
+        Some(hash.finish())
     }
 
     pub(super) fn container_layout(
@@ -132,6 +156,8 @@ impl Game<'_> {
                 mount: self.mount_layout_inputs(),
                 rows: self.chest_rows(),
                 native: self.native_slot_inputs(),
+                #[cfg(feature = "ae2-lab")]
+                ae2: self.ae2_slot_inputs(),
             },
             image,
             origin,

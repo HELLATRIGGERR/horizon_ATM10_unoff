@@ -89,9 +89,9 @@ pub(super) struct GuideState {
     recipes:HashMap<String,Vec<(String,Display,ItemStack)>>,
 }
 impl GuideState {
-    pub(super) fn load(root:&Path) -> Result<Self,String> {
-        let path=root.join("assets/ae2/ae2guide/compiled-guide.json");
-        let bytes=std::fs::read(&path).map_err(|e|format!("Could not read AE2 Guide: {e}"))?;
+    /// The compiled guide from `assets`, the game's resolved assets (AE2's jar).
+    pub(super) fn load(assets:&horizon_assets::resource_source::ResourceSource) -> Result<Self,String> {
+        let bytes=assets.read("assets/ae2/ae2guide/compiled-guide.json").map_err(|e|format!("Could not read AE2 Guide: {e}"))?;
         let v:Value=serde_json::from_slice(&bytes).map_err(|e|format!("Invalid AE2 Guide: {e}"))?;
         if v["version"].as_u64()!=Some(1) || v["guide_id"].as_str()!=Some("ae2:guide") { return Err("Unsupported AE2 Guide format".into()); }
         let root=string(&v,"root").to_owned();
@@ -528,7 +528,7 @@ mod tests {
             "items/tool.md":{"id":"items/tool.md","navigation":{"title":"Network Tool","parent":"index.md"},"nodes":[{"type":"heading","anchor":"controls","children":[{"type":"text","text":"Useful controls"}]}]}
         },"item_index":{"ae2:network_tool":["items/tool.md"]},"categories":{}});
         std::fs::write(pack.join("compiled-guide.json"),serde_json::to_vec(&data).unwrap()).unwrap();
-        let mut state=GuideState::load(&dir).unwrap();assert!(state.pages["items/tool.md"].search.contains("useful controls"));
+        let mut state=GuideState::load(&horizon_assets::resource_source::ResourceSource::directory(dir.clone())).unwrap();assert!(state.pages["items/tool.md"].search.contains("useful controls"));
         state.scroll=23.0;state.action(Action::Item("ae2:network_tool".into()));assert_eq!(state.current,"items/tool.md");
         state.navigate("items/tool.md",Some("controls".into()));assert_eq!(state.pending_anchor.as_deref(),Some("controls"));
         state.go_history(-1);state.go_history(-1);assert_eq!(state.current,"index.md");assert_eq!(state.scroll,23.0);

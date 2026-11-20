@@ -108,8 +108,7 @@ impl Game<'_> {
         static STYLE: OnceLock<Option<ScreenStyle>> = OnceLock::new();
         STYLE
             .get_or_init(|| {
-                let screens = self.options.resources.join("assets/ae2/screens");
-                ScreenStyle::load(&screens, "priority.json")
+                ScreenStyle::load(&self.ae2_asset_folder("ae2/screens"), "priority.json")
                     .map_err(|error| log::warn!("AE2 priority screen style: {error}"))
                     .ok()
             })

@@ -647,10 +647,11 @@ pub fn parse_pack_cells(text: &str) -> Result<Vec<InfinityCell>, String> {
         })
         .collect())
 }
-/// The pack's infinity cells from the content root `root`, once, before any
-/// world loads; none when the content has no such file.
-pub fn install_pack_cells(root: &std::path::Path) {
-    let cells = match std::fs::read_to_string(root.join(PACK_INFINITY_CELLS)) {
+/// The pack's infinity cells from `data`, the content's data (the mods'
+/// files are read where they are, not from the content root), once, before
+/// any world loads; none when the content has no such file.
+pub fn install_pack_cells(data: &horizon_assets::resource_source::ResourceSource) {
+    let cells = match data.read_to_string(PACK_INFINITY_CELLS) {
         Ok(text) => parse_pack_cells(&text).unwrap_or_else(|error| {
             log::warn!("ExtendedAE pack infinity cells: {error}");
             Vec::new()

@@ -8585,6 +8585,37 @@ impl Game<'_> {
         )
     }
 
+    /// The fork's AE2 answers to a main-hand right click on the block hit: a cell taken apart, a
+    /// crafting unit upgraded, a Memory Card used on an AE2 machine or part, the debug item
+    /// generator, a wrench. AE2's items bypass the sneak gate (`doesSneakBypassUse`), so the
+    /// caller asks before it, and SUCCESS ends the click here: no UseItem follows that would
+    /// clear a Memory Card the server has just saved.
+    #[cfg(feature = "ae2-lab")]
+    fn ae2_remote_block_reacts(
+        &mut self,
+        hit: &super::Hit,
+        held: Option<&ItemStack>,
+    ) -> Option<(InteractionResult, DryUse)> {
+        if held.is_some_and(|stack|self.ae2_predict_cell_disassembly(stack)) {return Some((InteractionResult::Success, DryUse::default()));}
+        if self.ae2_predict_crafting_upgrade(hit.pos,held){return Some((InteractionResult::Success, DryUse::default()));}
+        if held.is_some_and(|s| s.item.as_ref() == "ae2:memory_card")
+            && matches!(self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2])).name.as_ref(), "ae2:inscriber" | "ae2:io_port" | "ae2:vibration_chamber" | "ae2:pattern_provider" | "ae2:interface" | "ae2:molecular_assembler" | "ae2:condenser" | "ae2:drive" | "ae2:chest" | "ae2:cable_bus") {
+            return Some((InteractionResult::Success, DryUse::default()));
+        }
+        if held.is_some() && self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2])).name.as_ref() == "ae2:debug_item_gen" { return Some((InteractionResult::Success, DryUse::default())); }
+        if held.is_some_and(|s| self.ae2_wrench_can_disassemble(s)) {
+            let block = self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2]));
+            // The sneak the server last heard (`remote_shift_down`).
+            let alternate = self.remote_shift_down();
+            if (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && (matches!(horizon_client::ae2_world::base_id(block.name.as_ref()), "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:wireless_access_point" | "ae2:crystal_resonance_generator" | "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest" | "ae2:growth_accelerator" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:spatial_anchor" | "ae2:pattern_provider") || super::ae2x::orientation(block.name.as_ref()).is_some()))
+                || (alternate && (block.name.as_ref()=="ae2:cable_bus" || horizon_client::ae2_world::MachineKind::from_id(horizon_client::ae2_world::base_id(block.name.as_ref())).is_some_and(|kind| !matches!(kind,horizon_client::ae2_world::MachineKind::CableBus|horizon_client::ae2_world::MachineKind::Paint) && self.res.items().get(kind.id()).is_some())))
+                || (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && self.ae2_spun_part_at(hit.pos, hit.face)) {
+                return Some((InteractionResult::Success, DryUse::default()));
+            }
+        }
+        None
+    }
+
     /// Whether the block hit takes a main-hand right click with `held`
     /// (`BlockState.useItemOn`, then `useWithoutItem`), once the caller let
     /// the block react (no sneaking with full hands): a door, a button, a
@@ -8597,26 +8628,8 @@ impl Game<'_> {
         held: Option<&ItemStack>,
     ) -> (InteractionResult, DryUse) {
         #[cfg(feature = "ae2-lab")]
-        if held.is_some_and(|stack|self.ae2_predict_cell_disassembly(stack)) {return (InteractionResult::Success,DryUse::default());}
-        #[cfg(feature = "ae2-lab")]
-        if self.ae2_predict_crafting_upgrade(hit.pos,held){return (InteractionResult::Success,DryUse::default());}
-        #[cfg(feature = "ae2-lab")]
-        if held.is_some_and(|s| s.item.as_ref() == "ae2:memory_card")
-            && matches!(self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2])).name.as_ref(), "ae2:inscriber" | "ae2:io_port" | "ae2:vibration_chamber" | "ae2:pattern_provider" | "ae2:interface" | "ae2:molecular_assembler" | "ae2:condenser" | "ae2:drive" | "ae2:chest" | "ae2:cable_bus") {
-            return (InteractionResult::Success, DryUse::default());
-        }
-        #[cfg(feature = "ae2-lab")]
-        if held.is_some() && self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2])).name.as_ref() == "ae2:debug_item_gen" { return (InteractionResult::Success, DryUse::default()); }
-        #[cfg(feature = "ae2-lab")]
-        if held.is_some_and(|s| self.ae2_wrench_can_disassemble(s)) {
-            let block = self.res.facts().get(self.world.block(hit.pos[0],hit.pos[1],hit.pos[2]));
-            // The sneak the server last heard (`remote_shift_down`).
-            let alternate = self.remote_shift_down();
-            if (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && (matches!(horizon_client::ae2_world::base_id(block.name.as_ref()), "ae2:drive" | "ae2:charger" | "ae2:inscriber" | "ae2:wireless_access_point" | "ae2:crystal_resonance_generator" | "ae2:sky_stone_chest" | "ae2:smooth_sky_stone_chest" | "ae2:growth_accelerator" | "ae2:vibration_chamber" | "ae2:io_port" | "ae2:spatial_io_port" | "ae2:cell_workbench" | "ae2:chest" | "ae2:spatial_anchor" | "ae2:pattern_provider") || super::ae2x::orientation(block.name.as_ref()).is_some()))
-                || (alternate && (block.name.as_ref()=="ae2:cable_bus" || horizon_client::ae2_world::MachineKind::from_id(horizon_client::ae2_world::base_id(block.name.as_ref())).is_some_and(|kind| !matches!(kind,horizon_client::ae2_world::MachineKind::CableBus|horizon_client::ae2_world::MachineKind::Paint) && self.res.items().get(kind.id()).is_some())))
-                || (!alternate && held.is_some_and(|s| self.ae2_wrench_can_rotate(s)) && self.ae2_spun_part_at(hit.pos, hit.face)) {
-                return (InteractionResult::Success, DryUse::default());
-            }
+        if let Some(reacts) = self.ae2_remote_block_reacts(hit, held) {
+            return reacts;
         }
         // AbstractCauldronBlock.useItemOn (CauldronInteractions): a bucket,
         // bottle or dye the cauldron takes fills or lowers it, and the click

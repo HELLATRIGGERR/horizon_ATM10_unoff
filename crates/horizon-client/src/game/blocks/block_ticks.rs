@@ -343,12 +343,23 @@ impl Game<'_> {
             .then(|| self.level_players());
         #[cfg(not(feature = "ae2-lab"))]
         let anchor_players: Option<Vec<natural_spawning::LevelPlayer>> = None;
+        let anchor_allowed = |x: i32, z: i32| {
+            anchor_players.as_ref().is_none_or(|players| {
+                natural_spawning::anchor_random_tick_allowed(
+                    players,
+                    (x, z),
+                    self.ae2_anchored((x, z)),
+                    false,
+                )
+            })
+        };
         let bounds = levels.random_tick_bounds();
         out.clear();
         // The levels give the chunks that random tick already in order: the resident ones among
-        // them are the same list the scan of every resident chunk and its sort make.
+        // them are the same list the scan of every resident chunk and its sort make. The anchor
+        // gate applies to that list as it does to the scan.
         if levels.random_ticking_sorted(out) {
-            out.retain(|&(x, z)| ticking_chunk(&self.world, x, z));
+            out.retain(|&(x, z)| ticking_chunk(&self.world, x, z) && anchor_allowed(x, z));
             return;
         }
         out.extend(self.world.chunks.keys().copied().filter(|&(x, z)| {
@@ -357,16 +368,7 @@ impl Game<'_> {
             {
                 return false;
             }
-            levels.random_ticking(x, z)
-                && ticking_chunk(&self.world, x, z)
-                && anchor_players.as_ref().is_none_or(|players| {
-                    natural_spawning::anchor_random_tick_allowed(
-                        players,
-                        (x, z),
-                        self.ae2_anchored((x, z)),
-                        false,
-                    )
-                })
+            levels.random_ticking(x, z) && ticking_chunk(&self.world, x, z) && anchor_allowed(x, z)
         }));
         out.sort_unstable();
     }

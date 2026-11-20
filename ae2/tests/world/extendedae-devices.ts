@@ -33,7 +33,7 @@ try {
   await fixture.command(`fill ${at(-3, 0, -5)} ${at(17, 5, 7)} minecraft:air`);
   await fixture.command(`fill ${at(-3, -1, -5)} ${at(17, -1, 7)} minecraft:stone`);
   await fixture.command('clear @s');
-  await fixture.command('gamerule randomTickSpeed 0');
+  await fixture.command('gamerule random_tick_speed 0');
   const contents = async (pos: string) => (await fixture.command(`data get block ${pos}`)).chat?.join('\n') ?? '';
   const block = async (pos: string) => (await fixture.raw(`getblock ${pos}`)).block as string;
   const online = (pos: string) => until(() => fixture.ae(`grid status ${pos}`), view => view.online && view.powered, `online ${pos}`, 30000);

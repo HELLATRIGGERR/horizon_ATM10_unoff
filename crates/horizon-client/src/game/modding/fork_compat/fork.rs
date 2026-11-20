@@ -256,9 +256,27 @@ impl Game<'_> {
     /// `ResourceManager.listResources(dir, path -> path.endsWith(".json"))`:
     /// `data/<ns>/<dir>/<path>.json`, sub-folders too, sorted, for
     /// `native_data` to read. Only relative paths of plain names; a world's own
-    /// data packs aren't in it. API 423.
+    /// data packs aren't in it. API 423. Upstream's content root keeps a content mod's
+    /// data only for the kinds it reads itself (tags, worldgen); every content mod's
+    /// `data/` files are in the game's data source over vanilla's
+    /// (`mod_content::resolved_resources`' `with_data`), so they are listed there, with
+    /// what the root's own folder has.
     pub(in crate::game) fn native_data_files(&self, dir: &str) -> Vec<String> {
-        data_files(&self.options.resources, dir)
+        let mut files = data_files(&self.options.resources, dir);
+        let plain =
+            |p: &str| !p.is_empty() && p != "." && p != ".." && !p.contains('\\') && !p.contains(':');
+        if dir.split('/').all(plain) {
+            files.extend(
+                self.pack
+                    .data_source
+                    .list_under("data", &[dir])
+                    .into_iter()
+                    .filter(|name| name.ends_with(".json")),
+            );
+            files.sort();
+            files.dedup();
+        }
+        files
     }
     /// What the type of the dimension in place says of its sky and air
     /// (`Level.dimensionType()`): sky light (`hasSkyLight`), a ceiling

@@ -12,7 +12,7 @@ use horizon_client::{
     game::ae2_ext::{Ae2Addon, Ae2Host},
 };
 use horizon_world::chunk::BlockState;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use horizon_world::registry::BlockStateId;
 use std::any::Any;
 

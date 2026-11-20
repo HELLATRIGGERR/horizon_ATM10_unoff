@@ -14,7 +14,7 @@ use horizon_client::{
     items::ItemStack,
     save,
 };
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const NAMESPACE: &str = "enderdrives";

@@ -30,3 +30,19 @@ pack's `final-data`), loaded as a `--dev-mod`. MI's source is read from a clone 
   (slots, bars, `MachineTier.LV`).
 - `runtime/mi_world.rs`, `runtime/mi_ui.rs`: the block entity, its slots and saved compound, the world's recipes,
   Forge Energy, `/mi probe`, and the screen as `MachineScreen` draws it.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- `forgeEnergyPerEu` is read at `server_started`; it and the recipe books are dropped at `world_lifecycle`'s close
+  phases (v2).
+- `block_entity_types`: the electric machines, one type per block (the compat hook E2).
+- `block_entity` answers the compound only (the block's declaration owns the type id). The hooks hand the API's
+  `mod_api::ModBlockEntity`, whose slots hold `mod_api::ItemStack`s: the crafter reads them as the engine's stacks and
+  writes back the slots it changed (a stack that only changed count keeps its components).
+- `fe_receive` and `fe_extract` pass one `*Call`: `MODIFY_ARG` injections on the call into `fire_*`.
+- `perform_command` -> `run_mod_command` (`/mi [line:text]`, operators: the line is rebuilt from the invocation, as
+  upstream's `word` takes no `~`); `screen` -> `mod_api::Screen`, `screen_draw`'s batch is `draw`, sprites take a
+  tint (none).
+- `pack/scripts/modern_industrialization.ts stage` applies through `pack/scripts/hook-catalog.ts` (`MI_ONLY=1`: this
+  bundle alone, plus `HORIZON_LOCAL_BUNDLES`); `build` builds `-p horizon-game` with `MI_FEATURES` (`ae2-lab` by
+  default).

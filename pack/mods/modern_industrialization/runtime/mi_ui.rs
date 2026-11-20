@@ -5,8 +5,9 @@
 // `gui/container/slot_atlas.png`, `gui/progress_bar/*.png`, `gui/efficiency_bar.png`.
 // Modern Industrialization is Copyright (c) 2020 Azercoco & Technici4n, MIT; see this bundle's README.md.
 
-use super::{Game, native_hooks::NativeScreen};
+use super::Game;
 use horizon_client::hud::HudBatch;
+use mod_api::Screen;
 use horizon_world::fluid::FluidKind;
 use mi_core::{
     machines::{self, Machine},
@@ -28,7 +29,7 @@ fn inside(x: f32, y: f32, w: f32, h: f32, at: [f32; 2]) -> bool {
 /// `native_screen`: `MachineGuiParameters`' 176 by 166 panel, the item slots where MI puts them (the
 /// hopper menu's others hidden), the player inventory at 8, 84. The title and "Inventory" are vanilla's,
 /// at 8, 6 and 8, 72, as `MachineScreen.renderLabels` draws them.
-pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
+pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
     let Some(m) = machines::of_block(block) else {
         return;
     };
@@ -37,7 +38,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
     }
     let mut slots: Vec<Option<[f32; 2]>> = m.item_slots.iter().map(|[x, y]| Some([*x as f32, *y as f32])).collect();
     slots.resize(5, None);
-    *screen = Some(NativeScreen {
+    *screen = Some(Screen {
         width: 176.0,
         height: m.background_height as f32,
         slots,
@@ -45,6 +46,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         inventory_x: 8.0,
         own_labels: false,
         own_background: true,
+        ..Screen::default()
     });
 }
 
@@ -57,8 +59,8 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     let at = |x: f32, y: f32, w: f32, h: f32| [origin[0] + x, origin[1] + y, w, h];
     let (bw, bh) = (176.0, m.background_height as f32);
     // The panel: its first 4 rows from the texture's top, the rest from its bottom.
-    game.native_sprite(batch, BACKGROUND, [0.0, 256.0 - bh + 4.0, bw, bh - 4.0], at(0.0, 4.0, bw, bh - 4.0));
-    game.native_sprite(batch, BACKGROUND, [0.0, 0.0, bw, 4.0], at(0.0, 0.0, bw, 4.0));
+    game.native_sprite(batch, BACKGROUND, [0.0, 256.0 - bh + 4.0, bw, bh - 4.0], at(0.0, 4.0, bw, bh - 4.0), None);
+    game.native_sprite(batch, BACKGROUND, [0.0, 0.0, bw, 4.0], at(0.0, 0.0, bw, 4.0), None);
     draw_progress(game, m, view.progress(), batch, &at);
     draw_energy(game, m, &view, batch, &at);
     draw_efficiency(game, m, &view, batch, &at);
@@ -67,15 +69,15 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     for (i, [x, y]) in m.item_slots.iter().enumerate() {
         let reserved = i >= m.item_inputs && view.machine_locked & (1 << (i - m.item_inputs)) != 0;
         let u = if reserved { 108.0 } else { 0.0 };
-        game.native_sprite(batch, SLOT_ATLAS, [u, 0.0, 18.0, 18.0], at(*x as f32 - 1.0, *y as f32 - 1.0, 18.0, 18.0));
+        game.native_sprite(batch, SLOT_ATLAS, [u, 0.0, 18.0, 18.0], at(*x as f32 - 1.0, *y as f32 - 1.0, 18.0, 18.0), None);
     }
     for (i, [x, y]) in m.fluid_slots.iter().enumerate() {
         let f = view.fluids.get(i).copied().unwrap_or_default();
         let u = if f.locked >= 0 { 126.0 } else { 18.0 };
-        game.native_sprite(batch, SLOT_ATLAS, [u, 0.0, 18.0, 18.0], at(*x as f32 - 1.0, *y as f32 - 1.0, 18.0, 18.0));
+        game.native_sprite(batch, SLOT_ATLAS, [u, 0.0, 18.0, 18.0], at(*x as f32 - 1.0, *y as f32 - 1.0, 18.0, 18.0), None);
         // `renderSlot`: the fluid (or the one it is locked to) fills the slot.
         let shown = if f.fluid >= 0 { f.fluid } else { f.locked };
-        if let Some(kind) = u32::try_from(shown).ok().and_then(FluidKind::from_id) {
+        if let Some(kind) = u32::try_from(shown).ok().and_then(FluidKind::from_tick_id) {
             game.native_fluid_icon(batch, kind.name(), [origin[0] + *x as f32, origin[1] + *y as f32], 16.0);
         }
     }
@@ -85,32 +87,32 @@ fn draw_progress(game: &Game<'_>, m: &Machine, progress: f32, batch: &mut HudBat
     let p = m.progress;
     let texture = format!("modern_industrialization:gui/progress_bar/{}", p.kind);
     let (x, y, w, h) = (p.x as f32, p.y as f32, p.width as f32, p.height as f32);
-    game.native_sprite(batch, &texture, [0.0, 0.0, w, h], at(x, y, w, h));
+    game.native_sprite(batch, &texture, [0.0, 0.0, w, h], at(x, y, w, h), None);
     if progress > 0.0 {
         let pixels = (progress * w) as i32 as f32;
-        game.native_sprite(batch, &texture, [0.0, h, pixels, h], at(x, y, pixels, h));
+        game.native_sprite(batch, &texture, [0.0, h, pixels, h], at(x, y, pixels, h), None);
     }
 }
 
 fn draw_energy(game: &Game<'_>, m: &Machine, view: &MachineView, batch: &mut HudBatch, at: &impl Fn(f32, f32, f32, f32) -> [f32; 4]) {
     let [x, y] = [m.energy[0] as f32, m.energy[1] as f32];
     let [w, h] = ENERGY;
-    game.native_sprite(batch, SLOT_ATLAS, [230.0, 0.0, w, h], at(x, y, w, h));
+    game.native_sprite(batch, SLOT_ATLAS, [230.0, 0.0, w, h], at(x, y, w, h), None);
     let fill = if view.eu_capacity > 0 { view.eu as f32 / view.eu_capacity as f32 } else { 0.0 };
     let mut pixels = (fill * h * 0.9 + h * 0.1) as i32 as f32;
     if fill > 0.95 {
         pixels = h;
     }
-    game.native_sprite(batch, SLOT_ATLAS, [243.0, h - pixels, w, pixels], at(x, y + h - pixels, w, pixels));
+    game.native_sprite(batch, SLOT_ATLAS, [243.0, h - pixels, w, pixels], at(x, y + h - pixels, w, pixels), None);
 }
 
 fn draw_efficiency(game: &Game<'_>, m: &Machine, view: &MachineView, batch: &mut HudBatch, at: &impl Fn(f32, f32, f32, f32) -> [f32; 4]) {
     let [x, y] = [m.efficiency[0] as f32, m.efficiency[1] as f32];
     let [w, h] = EFFICIENCY;
-    game.native_sprite(batch, EFFICIENCY_BAR, [0.0, 2.0, w + 2.0, h + 2.0], at(x - 1.0, y - 1.0, w + 2.0, h + 2.0));
+    game.native_sprite(batch, EFFICIENCY_BAR, [0.0, 2.0, w + 2.0, h + 2.0], at(x - 1.0, y - 1.0, w + 2.0, h + 2.0), None);
     if view.has_active_recipe && view.max_efficiency_ticks > 0 {
         let pixels = (view.efficiency_ticks as f32 / view.max_efficiency_ticks as f32 * w) as i32 as f32;
-        game.native_sprite(batch, EFFICIENCY_BAR, [0.0, 0.0, pixels, h], at(x, y, pixels, h));
+        game.native_sprite(batch, EFFICIENCY_BAR, [0.0, 0.0, pixels, h], at(x, y, pixels, h), None);
     }
 }
 
@@ -140,7 +142,7 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         for (i, [x, y]) in m.fluid_slots.iter().enumerate() {
             if inside(*x as f32, *y as f32, 16.0, 16.0, at) {
                 let f = view.fluids.get(i).copied().unwrap_or_default();
-                let name = u32::try_from(f.fluid).ok().and_then(FluidKind::from_id).map_or_else(|| "Empty".to_owned(), fluid_name);
+                let name = u32::try_from(f.fluid).ok().and_then(FluidKind::from_tick_id).map_or_else(|| "Empty".to_owned(), fluid_name);
                 lines.push(name);
                 lines.push(format!("§7{} / {} mB", f.amount, f.capacity));
                 lines.push("§7Fluid Input, Left Click to Insert or Extract".into());

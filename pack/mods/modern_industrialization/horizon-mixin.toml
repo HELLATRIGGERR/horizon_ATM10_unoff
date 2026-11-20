@@ -2,8 +2,9 @@
 # from MI 2.5.11's own source (MIT, Copyright (c) 2020 Azercoco & Technici4n; LICENSE-modern-industrialization
 # and README.md in this folder).
 #
-# It hooks only named hook points that exist on the fork's main (world lifecycle, block entities and their
-# ticks, containers, Forge Energy 416, screens, commands): no new hook. MI's blocks, items, recipes, loot
+# It hooks only Horizon's named hook points (tools/fork/native-hooks.json: upstream's declared hooks plus the
+# fork's hooks such as fe_receive; the world, block entities and their ticks, containers, Forge Energy, screens,
+# commands): no new hook, and it pins no revision. MI's blocks, items, recipes, loot
 # and assets come from the carry of the player's own jar (horizon-port-pack), loaded with `--dev-mod`.
 [mod]
 id = "modern_industrialization"
@@ -29,11 +30,29 @@ source = "runtime/mi_ui.rs"
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/world_lifecycle.rs"
 bindings = [
-  { name = "phase", ty = "crate::game::native_lifecycle::WorldPhase", value = "phase" },
+  { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
+]
+
+[[injection]]
+id = "server-started"
+hook = "server_started"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/server_started.rs"
+bindings = []
+
+[[injection]]
+id = "block-entity-types"
+hook = "block_entity_types"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_entity_types.rs"
+bindings = [
+  { name = "types", ty = "&mut Vec<(String, Vec<String>)>", value = "&mut *types" },
 ]
 
 [[injection]]
@@ -44,7 +63,7 @@ kind = "HEAD"
 helper = "hooks/block_entity.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "entity", ty = "&mut Option<(String, horizon_world::nbt::Compound)>", value = "&mut *entity" },
+  { name = "entity", ty = "&mut Option<horizon_core::nbt::Compound>", value = "&mut *entity" },
 ]
 
 [[injection]]
@@ -91,7 +110,7 @@ helper = "hooks/block_entity_tick.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "pos", ty = "[i32; 3]", value = "pos" },
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
+  { name = "entity", ty = "&mut mod_api::ModBlockEntity", value = "&mut *entity" },
 ]
 
 [[injection]]
@@ -101,32 +120,36 @@ hook_version = 1
 kind = "HEAD"
 helper = "hooks/fe_storage.rs"
 bindings = [
-  { name = "entity", ty = "&horizon_client::containers::ModBlockEntity", value = "entity" },
-  { name = "info", ty = "&mut Option<crate::game::native_hooks::NativeFeInfo>", value = "&mut *info" },
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
+  { name = "info", ty = "&mut Option<mod_api::NativeFeInfo>", value = "&mut *info" },
 ]
 
 [[injection]]
 id = "fe-receive"
 hook = "fe_receive"
 hook_version = 1
-kind = "HEAD"
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_receive"
+require = 1
+ordinal = 0
+argument = 0
 helper = "hooks/fe_receive.rs"
 bindings = [
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
-  { name = "max", ty = "i64", value = "max" },
-  { name = "simulate", ty = "bool", value = "simulate" },
-  { name = "accepted", ty = "&mut Option<i64>", value = "&mut *accepted" },
+  { name = "call", ty = "mod_api::__private::FeReceiveCall<'_>", value = "$value" },
 ]
 
 [[injection]]
 id = "fe-extract"
 hook = "fe_extract"
 hook_version = 1
-kind = "HEAD"
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_extract"
+require = 1
+ordinal = 0
+argument = 0
 helper = "hooks/fe_extract.rs"
 bindings = [
-  { name = "entity", ty = "&mut horizon_client::containers::ModBlockEntity", value = "&mut *entity" },
-  { name = "given", ty = "&mut Option<i64>", value = "&mut *given" },
+  { name = "call", ty = "mod_api::__private::FeExtractCall<'_>", value = "$value" },
 ]
 
 [[injection]]
@@ -137,7 +160,7 @@ kind = "HEAD"
 helper = "hooks/screen.rs"
 bindings = [
   { name = "block", ty = "&str", value = "block" },
-  { name = "screen", ty = "&mut Option<crate::game::native_hooks::NativeScreen>", value = "&mut *screen" },
+  { name = "screen", ty = "&mut Option<mod_api::Screen>", value = "&mut *screen" },
 ]
 
 [[injection]]
@@ -150,7 +173,7 @@ bindings = [
   { name = "game", ty = "&crate::game::Game<'_>", value = "&*self" },
   { name = "block", ty = "&str", value = "block" },
   { name = "data", ty = "&[i32]", value = "data" },
-  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *batch" },
+  { name = "batch", ty = "&mut horizon_client::hud::HudBatch", value = "&mut *draw" },
   { name = "origin", ty = "[f32; 2]", value = "origin" },
 ]
 
@@ -170,22 +193,22 @@ bindings = [
 [[injection]]
 id = "register-commands"
 hook = "register_commands"
-hook_version = 1
+hook_version = 2
 kind = "HEAD"
 helper = "hooks/register_commands.rs"
 bindings = [
-  { name = "commands", ty = "&mut Vec<crate::game::native_server::NativeCommand>", value = "&mut *commands" },
+  { name = "commands", ty = "&mut Vec<mod_api::Command>", value = "&mut *commands" },
 ]
 
 [[injection]]
-id = "perform-command"
-hook = "perform_command"
+id = "run-mod-command"
+hook = "run_mod_command"
 hook_version = 1
 kind = "HEAD"
-helper = "hooks/perform_command.rs"
+helper = "hooks/run_mod_command.rs"
 bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "player", ty = "&crate::game::native_server::NativeServerPlayer", value = "player" },
-  { name = "command", ty = "&str", value = "command" },
+  { name = "source", ty = "&mod_api::CommandSource", value = "source" },
+  { name = "command", ty = "&mod_api::CommandInvocation", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]

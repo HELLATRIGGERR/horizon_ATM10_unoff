@@ -1,5 +1,6 @@
 // Builds and tests the pack's Modern Industrialization port in a checkout of this fork: the crate's unit tests,
-// the game staged with the native bundles under pack/mods (horizon-mixins apply), its build and the world tests.
+// the game staged with the native bundles under pack/mods (horizon-mixins apply through pack/scripts/hook-catalog.ts),
+// its build and the world tests.
 // MI's blocks, items, recipes, loot and assets are the carry of the player's own jar (horizon-port-pack's
 // `carry`, or the full pack's `final-data`), loaded as a `--dev-mod`; this script generates nothing from it.
 // Usage: bun run pack/scripts/modern_industrialization.ts <step>... (steps: units, stage, build, content, world; all: every one)
@@ -12,16 +13,19 @@
 //   MI_STAGE          the staged, modded source              <base>/stage-mi
 //   MI_TARGET         the staged game's target dir           <base>/.build/target-mi-game
 //   MI_TOOL_TARGET    target dir of the bundle's crate       <base>/.build/target-mi
-//   MI_ONLY           1: stage this bundle alone (a quicker build); unset: every bundle under pack/mods
+//   MI_ONLY           1: stage this bundle alone (a quicker build; with HORIZON_LOCAL_BUNDLES' beside it); unset:
+//                     every bundle under pack/mods
 //   HORIZON_MIXINS    the horizon-mixins binary              <base>/.build/target-mixins/debug/horizon-mixins
 //   AE2_RESOURCES     the prepared 26.3 resources            <base>/horizon/.local/resources/26.3
 //   MI_JOBS           cargo jobs                             2
+//   MI_FEATURES       the game's Cargo features              ae2-lab (`-p horizon-game --no-default-features`)
 //   MI_TESTS          world tests to run (`machines`), all of pack/mods/modern_industrialization/tests by default
 // `world` also passes ATM10_DIR (ATM10's `config/modern_industrialization-server.toml`) through to the harness.
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
-import { withLocalBundles } from './local-bundles';
+import { addLocalBundles, withLocalBundles } from './local-bundles';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -82,6 +86,7 @@ function mods(): string {
   rmSync(only, { recursive: true, force: true });
   const leftOut = new Set(['tests', 'target', 'Cargo.lock']);
   cpSync(bundle, join(only, 'modern_industrialization'), { recursive: true, filter: path => !relative(bundle, path).split(/[\\/]/).some(part => leftOut.has(part)) });
+  addLocalBundles(only);
   return only;
 }
 
@@ -96,12 +101,12 @@ const steps: Record<string, () => Promise<void>> = {
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', mods(), '--out', next]);
+    await applyBundles(command => run(command), mixins, root, mods(), next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab', '--bins', '-j', jobs, '--target-dir', target], stage);
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.MI_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   /** The carry as a content mod the world test loads. The carry's machine blocks are on a template that opens
    * no menu (`minecraft:andesite`: a use answers ok and nothing opens), so each machine the bundle ports takes

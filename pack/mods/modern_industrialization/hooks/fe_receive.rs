@@ -1,9 +1,5 @@
-// Forge Energy offered to an MI machine, taken in whole EU.
-fn mi_fe_receive(
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    max: i64,
-    simulate: bool,
-    accepted: &mut Option<i64>,
-) {
-    crate::game::mi_world::fe_receive(entity, max, simulate, accepted);
+// Forge Energy offered to an MI machine, taken in whole EU (the hook passes one call).
+fn mi_fe_receive(call: mod_api::__private::FeReceiveCall<'_>) -> mod_api::__private::FeReceiveCall<'_> {
+    crate::game::mi_world::fe_receive(&mut *call.entity, call.max, call.simulate, &mut *call.accepted);
+    call
 }

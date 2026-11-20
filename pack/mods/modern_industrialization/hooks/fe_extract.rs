@@ -1,4 +1,5 @@
-// An MI machine gives no Forge Energy.
-fn mi_fe_extract(entity: &mut horizon_client::containers::ModBlockEntity, given: &mut Option<i64>) {
-    crate::game::mi_world::fe_extract(entity, given);
+// An MI machine gives no Forge Energy (the hook passes one call).
+fn mi_fe_extract(call: mod_api::__private::FeExtractCall<'_>) -> mod_api::__private::FeExtractCall<'_> {
+    crate::game::mi_world::fe_extract(&*call.entity, &mut *call.given);
+    call
 }

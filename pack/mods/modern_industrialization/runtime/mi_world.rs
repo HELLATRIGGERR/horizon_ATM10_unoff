@@ -3,24 +3,16 @@
 // MI 2.5.11's source; this module is the glue: the block entity and its saved compound (MI's own names:
 // `storedEu`, `usedEnergy`, `activeRecipe`...), the item slots in the engine's container, the fluid
 // slots in the compound, the world's MI recipes, Forge Energy at ATM10's `forgeEnergyPerEu`, the menu's
-// data (the screen is `mi_ui`) and `/mi probe` for tests.
+// data (the screen is `mi_ui`) and `/mi probe` for tests. The hooks hand the API's block entity
+// (`mod_api::ModBlockEntity`, slots of `mod_api::ItemStack`): its slots are read and written as the engine's stacks.
 // Modern Industrialization is Copyright (c) 2020 Azercoco & Technici4n, MIT; see this bundle's README.md.
 
-use super::{
-    Game,
-    native_hooks::NativeFeInfo,
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
-use horizon_client::{
-    containers::{ModBlockEntity, ModContainer},
-    items::ItemStack,
-    text::Text,
-};
-use horizon_world::{
-    fluid::FluidKind,
-    nbt::{Compound, JavaString, Tag},
-};
+use super::Game;
+use crate::game::api_values::{TryIntoApi, TryIntoEngine};
+use horizon_client::{containers::ModContainer, items::ItemStack, text::Text};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use horizon_world::fluid::FluidKind;
+use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, ModBlockEntity, NativeFeInfo, WorldPhase};
 use mi_core::{
     crafter::{Behavior, Crafter, put_fluid_outputs, put_item_outputs, take_fluid_inputs, take_item_inputs},
     energy::{self, EnergyStore},
@@ -70,11 +62,19 @@ pub(super) fn fe_per_eu() -> i64 {
     FE_PER_EU.with(|f| *f.borrow_mut().get_or_insert_with(read_fe_per_eu))
 }
 
-/// `native_world_lifecycle`: settings and recipe books are dropped as a world opens or closes.
-pub(super) fn lifecycle(phase: WorldPhase) {
-    let fresh = matches!(phase, WorldPhase::WorldOpenReady).then(read_fe_per_eu);
-    FE_PER_EU.with(|f| *f.borrow_mut() = fresh);
+/// `native_server_started`: settings are read and the recipe books start again as the server opens its world.
+pub(super) fn opened() {
+    let fresh = read_fe_per_eu();
+    FE_PER_EU.with(|f| *f.borrow_mut() = Some(fresh));
     BOOKS.with(|b| b.borrow_mut().clear());
+}
+
+/// `native_world_lifecycle`: settings and recipe books are dropped as the world closes or fails to open.
+pub(super) fn lifecycle(phase: WorldPhase) {
+    if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
+        FE_PER_EU.with(|f| *f.borrow_mut() = None);
+        BOOKS.with(|b| b.borrow_mut().clear());
+    }
 }
 
 // ---- Recipes ----------------------------------------------------------------
@@ -277,8 +277,16 @@ fn energy_of(nbt: &Compound, machine: &Machine) -> EnergyStore {
 
 // ---- Block entities -------------------------------------------------------
 
-/// `native_block_entity`: a new, empty machine (`MachineBlockEntity`).
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+/// `block_entity_types`: the electric machines, one type per block and named after it.
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    for machine in machines::ALL {
+        let block = format!("modern_industrialization:{}", machine.id);
+        types.push((block.clone(), vec![block]));
+    }
+}
+
+/// `native_block_entity`: a new, empty machine (`MachineBlockEntity`); the declaration owns its type id.
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     let Some(machine) = machines::of_block(block) else {
         return;
     };
@@ -289,7 +297,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
     nbt.insert(key(STORED_EU), Tag::Long(0));
     write_crafter(&mut nbt, &Crafter::new());
     write_fluids(&mut nbt, &read_fluids(&Compound::new(), machine));
-    *entity = Some((block.to_owned(), nbt));
+    *entity = Some(nbt);
 }
 
 /// `native_block_entity_ticks`.
@@ -380,11 +388,17 @@ fn inventory(game: &Game<'_>, items: &[Option<ItemStack>], nbt: &Compound, machi
     inv
 }
 
-/// Writes MI's slots back into the engine's; a stack that only changed count keeps its components.
-fn write_items(entity: &mut ModBlockEntity, inv: &Inventory) {
+/// The block entity's slots as the engine's stacks (a slot the engine can't read is empty).
+fn engine_items(game: &Game<'_>, entity: &ModBlockEntity) -> Vec<Option<ItemStack>> {
+    entity.items.iter().map(|s| s.as_ref().and_then(|s| s.try_into_engine(game.items()).ok())).collect()
+}
+
+/// Writes MI's slots back into the block entity's (`items`: them as the engine's stacks before the tick); a stack
+/// that only changed count keeps its components.
+fn write_items(entity: &mut ModBlockEntity, items: &[Option<ItemStack>], inv: &Inventory) {
     let slots: Vec<&ItemSlot> = inv.item_inputs.iter().chain(&inv.item_outputs).collect();
     for (i, s) in slots.into_iter().enumerate() {
-        let old = entity.items.get(i).and_then(Option::as_ref);
+        let old = items.get(i).and_then(Option::as_ref);
         let same = match (old, &s.item) {
             (None, None) => true,
             (Some(o), Some(item)) => &*o.item == item && o.count == s.count,
@@ -401,21 +415,24 @@ fn write_items(entity: &mut ModBlockEntity, inv: &Inventory) {
         if entity.items.len() <= i {
             entity.items.resize(i + 1, None);
         }
-        entity.items[i] = new;
+        entity.items[i] = new.and_then(|stack| stack.try_into_api().ok());
     }
 }
 
+/// A fluid's number in the menu's data: its `tick_id` (vanilla's registry id, then the mods' fluids), which the
+/// screen reads back with `from_tick_id`; -1 for none.
 fn fluid_id(name: Option<&str>) -> i64 {
-    name.and_then(FluidKind::from_name).map_or(-1, |f| i64::from(f.id()))
+    name.and_then(FluidKind::from_name).map_or(-1, |f| i64::from(f.tick_id()))
 }
 
 /// `native_block_entity_tick`: `AbstractCraftingMachineBlockEntity.tick` without auto-extract.
 pub(super) fn tick(game: &mut Game<'_>, _pos: [i32; 3], entity: &mut ModBlockEntity) {
-    let Some(machine) = machines::of_block(&entity.id) else {
+    let Some(machine) = machines::of_block(entity.id()) else {
         return;
     };
     let book = book(game, machine);
-    let mut inv = inventory(game, &entity.items, &entity.nbt, machine);
+    let items = engine_items(game, entity);
+    let mut inv = inventory(game, &items, &entity.nbt, machine);
     let before = inv.clone();
     let mut crafter = read_crafter(&entity.nbt);
     let crafter_before = crafter.clone();
@@ -424,7 +441,7 @@ pub(super) fn tick(game: &mut Game<'_>, _pos: [i32; 3], entity: &mut ModBlockEnt
     crafter.tick(&book, &mut inv, &mut electric);
     let energy = electric.energy;
     if inv != before {
-        write_items(entity, &inv);
+        write_items(entity, &items, &inv);
         let fluids: Vec<FluidSlot> = inv.fluid_inputs.iter().chain(&inv.fluid_outputs).cloned().collect();
         write_fluids(&mut entity.nbt, &fluids);
         write_locks(&mut entity.nbt, &inv, machine.item_inputs);
@@ -467,7 +484,7 @@ pub(super) fn tick(game: &mut Game<'_>, _pos: [i32; 3], entity: &mut ModBlockEnt
 /// `native_fe_storage`: every side takes FE and gives none (`buildInsertable` wrapped as
 /// `IEnergyStorage`), at `forgeEnergyPerEu` FE to the EU.
 pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo>) {
-    let Some(machine) = machines::of_block(&entity.id) else {
+    let Some(machine) = machines::of_block(entity.id()) else {
         return;
     };
     if info.is_some() {
@@ -479,7 +496,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
 
 /// `native_fe_receive`: `WrappedMIStorage.receive`, whole EU only.
 pub(super) fn fe_receive(entity: &mut ModBlockEntity, max: i64, simulate: bool, accepted: &mut Option<i64>) {
-    let Some(machine) = machines::of_block(&entity.id) else {
+    let Some(machine) = machines::of_block(entity.id()) else {
         return;
     };
     if accepted.is_some() {
@@ -495,17 +512,28 @@ pub(super) fn fe_receive(entity: &mut ModBlockEntity, max: i64, simulate: bool, 
 
 /// `native_fe_extract`: a machine gives no energy.
 pub(super) fn fe_extract(entity: &ModBlockEntity, given: &mut Option<i64>) {
-    if given.is_none() && machines::of_block(&entity.id).is_some() {
+    if given.is_none() && machines::of_block(entity.id()).is_some() {
         *given = Some(0);
     }
 }
 
 // ---- /mi --------------------------------------------------------------------
 
-/// `native_register_commands`.
-pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
-    commands.push(NativeCommand::op("mi probe <pos:block_pos>", 2));
-    commands.push(NativeCommand::op("mi offer_fe <pos:block_pos> <amount:integer>", 2));
+/// `native_register_commands`: `/mi` with one `text` line (upstream's `word` takes no `~`), operators only.
+pub(super) fn commands(commands: &mut Vec<Command>) {
+    commands.push(Command::op("mi [line:text]", 2));
+}
+
+/// The command line a parsed invocation of `/mi` was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
 }
 
 fn coordinate(word: Option<&str>, from: f64) -> Option<i32> {
@@ -517,16 +545,19 @@ fn coordinate(word: Option<&str>, from: f64) -> Option<i32> {
     }
 }
 
-/// `native_perform_command`: `/mi probe x y z` answers `MI {json}` with the machine's state;
+/// `native_run_mod_command`: `/mi probe x y z` answers `MI {json}` with the machine's state;
 /// `/mi offer_fe x y z n` offers `n` FE through the engine's Forge Energy path and answers what was taken.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
+    let CommandSource::Player { player, .. } = source else { return };
+    let position = game.entity_position(player.entity()).unwrap_or_default();
+    let command = line(call);
     let mut words = command.split_whitespace();
     if *ran || words.next() != Some("mi") {
         return;
     }
     *ran = true;
     let verb = words.next();
-    let p = player.position;
+    let p = position;
     let pos = match (coordinate(words.next(), p[0]), coordinate(words.next(), p[1]), coordinate(words.next(), p[2])) {
         (Some(x), Some(y), Some(z)) => Some([x, y, z]),
         _ => None,
@@ -547,7 +578,7 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
 }
 
 fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> Value {
-    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone(), m.items.clone(), m.data.clone()));
+    let found = game.native_with_mod_block_entity(pos, |m| (m.id().to_owned(), m.nbt.clone(), m.items.clone(), m.data.clone()));
     let Some((id, nbt, items, data)) = found else {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };

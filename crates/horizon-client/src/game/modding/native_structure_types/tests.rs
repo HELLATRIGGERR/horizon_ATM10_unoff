@@ -637,19 +637,23 @@ fn structure_bad_config_refuses_at_load_but_unknown_types_do_not_convert() {
         "probe:tower".to_owned(),
         serde_json::json!({"type":"probe:kind","biomes":[],"bad":[null]}).to_string(),
     )]);
-    let error = StructureRegistry::new(
+    // This fork leaves a structure that doesn't decode out (69ad0325c8); upstream fails the load.
+    let refused = StructureRegistry::new(
         &definitions,
         &BTreeMap::new(),
         BTreeMap::new(),
         &|_| Ok(BTreeSet::new()),
         &types,
     )
-    .err()
-    .expect("refused during definition load");
-    assert_eq!(
-        error.to_string(),
-        "structure probe:tower: probe:kind: JSON-to-NBT does not accept nested null"
+    .unwrap();
+    assert!(
+        matches!(&refused.structures[0].kind, StructureKind::Unsupported(id) if id == "undecodable")
     );
+    let error = types["probe:kind"]
+        .prepare_config(&serde_json::from_str(&definitions["probe:tower"]).unwrap())
+        .err()
+        .expect("refused during definition load");
+    assert_eq!(error, "probe:kind: JSON-to-NBT does not accept nested null");
     let registry = StructureRegistry::new(
         &definitions,
         &BTreeMap::new(),

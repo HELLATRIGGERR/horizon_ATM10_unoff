@@ -14,6 +14,7 @@ horizon-ae2 = { path = "../horizon-ae2" }
 ae2-cell-core = { path = "../ae2-cell-core" }
 # The disks' NBT, the frequency packet's VarInts and the UUID strings.
 horizon-world = { path = "../horizon-world" }
+horizon-core = { path = "../horizon-core" }
 horizon-protocol = { path = "../horizon-protocol" }
 # `enderdrives-server.toml`, the `/ae2 enderdrives` replies.
 toml = "1.1"

@@ -1918,13 +1918,16 @@ mod tests {
             json!("1"),
             Value::Null,
         ] {
+            // This fork leaves a set the codec refuses out (`refused`); upstream fails the load.
             assert!(
-                try_weight_registry(placement.clone(), weight.clone()).is_err(),
+                try_weight_registry(placement.clone(), weight.clone())
+                    .map_or(true, |r| r.sets.is_empty()),
                 "{weight}"
             );
         }
         for weight in [1, i32::MAX] {
-            assert!(try_weight_registry(placement.clone(), json!(weight)).is_ok());
+            let registry = try_weight_registry(placement.clone(), json!(weight));
+            assert!(registry.is_ok_and(|r| r.sets.len() == 1));
         }
     }
 

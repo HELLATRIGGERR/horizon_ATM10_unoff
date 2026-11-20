@@ -2872,8 +2872,9 @@ impl Streaming {
     }
     /// Rank the chunks `/forceload add` over chunks `(x0, z0)..=(x1, z1)`
     /// decorates in vanilla's order (`forced_order`), after every chunk
-    /// ranked before.
-    fn rank_forced(&mut self, x0: i32, z0: i32, x1: i32, z1: i32) {
+    /// ranked before. Public for AEInfinityBooster's access points, which
+    /// force their own chunk as the fork did before the merge.
+    pub fn rank_forced(&mut self, x0: i32, z0: i32, x1: i32, z1: i32) {
         for (x, z) in horizon_world::worldgen::decoration_order::forced_order(x0, z0, x1, z1) {
             self.decoration_order.rank_or_append(x, z);
         }
@@ -4299,18 +4300,21 @@ mod tests {
         let mut f=GenerationFixture::new(0,false);
         let mut scan=GenerationScan::default();
         let _=scan.candidates(f.input(),usize::MAX);
-        // Both ticket kinds may hold the same chunk; owner removal must not
-        // drop the manual request, and vice versa.
-        f.forced.insert((40,40));f.mod_forced.insert((40,40));f.mod_forced.insert((-40,40));
+        // Since the merge, upstream folds the mods' tickets into `forced` (`Streaming::settle`,
+        // its one writer): the scan sees one set, holding (40,40) for /forceload and a mod's
+        // ticket both, and (-40,40) for the ticket alone.
+        f.forced.insert((40,40));f.forced.insert((-40,40));
         let candidates=scan.candidates(f.input(),usize::MAX).unwrap();
         assert!(candidates.iter().any(|(_,x,z)|(*x,*z)==(-40,40)));
         assert!(candidates.iter().any(|(_,x,z)|(*x,*z)==(40,40)));
         let ranges=f.input().ranges;assert_eq!(ranges.forced.len(),2);
         scan.remember(f.input().ranges,&f.world);
         assert!(scan.unchanged(&f.input().ranges,&f.world));
-        f.mod_forced.clear();assert!(!scan.unchanged(&f.input().ranges,&f.world));
+        // The mod releases its tickets: `settle` keeps (40,40) for /forceload.
+        f.forced.remove(&(-40,40));assert!(!scan.unchanged(&f.input().ranges,&f.world));
         let ranges=f.input().ranges;assert!(ranges.in_main_range(40,40,0));assert!(!ranges.in_main_range(-40,40,0));
-        f.mod_forced.insert((-40,40));f.forced.clear();
+        // /forceload removes its chunk while a mod's ticket holds the other.
+        f.forced.insert((-40,40));f.forced.remove(&(40,40));
         let ranges=f.input().ranges;assert!(ranges.in_view(-40,40));assert!(!ranges.in_view(40,40));
     }
 
@@ -4359,7 +4363,6 @@ mod tests {
         radius: i32,
         extra: Vec<((i32, i32), i32)>,
         forced: HashSet<(i32, i32)>,
-        mod_forced: HashSet<(i32, i32)>,
         generating: FxHashSet<(i32, i32)>,
         retry_at: FxHashMap<(i32, i32), std::time::Instant>,
         protos: FxHashMap<(i32, i32), Option<Proto>>,
@@ -4375,7 +4378,6 @@ mod tests {
                 radius,
                 extra: Vec::new(),
                 forced: HashSet::new(),
-                mod_forced: HashSet::new(),
                 generating: Default::default(),
                 retry_at: Default::default(),
                 protos: Default::default(),

@@ -1058,6 +1058,8 @@ mod tests {
         types[component::DAMAGE as usize] = "minecraft:damage".into();
         types[component::ENCHANTMENT_GLINT_OVERRIDE as usize] =
             "minecraft:enchantment_glint_override".into();
+        // As a real peer's: the AE2 lab's peers carry their whole patch in CUSTOM_DATA.
+        types[component::CUSTOM_DATA as usize] = "minecraft:custom_data".into();
         sync.builtin.registries.insert(
             "minecraft:data_component_type".into(),
             Ids::from_names(types),

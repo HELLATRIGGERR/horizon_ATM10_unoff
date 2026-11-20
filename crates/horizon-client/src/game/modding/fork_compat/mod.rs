@@ -29,7 +29,7 @@ mod compat;
 mod fork;
 mod renamed;
 
-pub(in crate::game) use bundle_hooks::{heard, item_heard, part_heard};
+pub(in crate::game) use bundle_hooks::{bundles_staged, heard, item_heard, part_heard};
 
 pub(in crate::game) use fork::{biome_climate, data_files, food_entry, food_of, worn_items_hurt};
 

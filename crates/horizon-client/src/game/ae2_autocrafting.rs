@@ -5078,16 +5078,16 @@ mod recursive {
                 crafting_recipe:Some("minecraft:fluid_grid".into()),grid,choices,fluid_slots:BTreeMap::from([(0,(water.clone(),1000)),(1,(water.clone(),1000))]),
                 processing:false,special:None,special_grid_version:0,fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:result.clone(),global:false};
             let step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(water.clone(),1000),(filled.clone(),1)]),outputs:Inventory::from([(result.clone(),1),(empty,1)]),runs:1};
-            let (grid,fluids)=choose_grid(&spec,&step,&recipes,&context,&|_| None,&stations).unwrap();
+            let (grid,fluids)=choose_grid(&spec,&step,&recipes,&context,&|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(&items,s),&stations).unwrap();
             assert_eq!(grid[0].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
             assert_eq!(grid[1].as_ref().unwrap().item.as_ref(),"minecraft:water_bucket");
             assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
             let mut legacy:Spec=serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
             legacy.choices[0]=vec![water.clone()];legacy.choices[1]=vec![filled];legacy.fluid_slots.remove(&1);
-            let (_,fluids)=choose_grid(&legacy,&step,&recipes,&context,&|_| None,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
+            let (_,fluids)=choose_grid(&legacy,&step,&recipes,&context,&|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(&items,s),&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water.clone(),1000))]));
             let mut value=serde_json::to_value(&legacy).unwrap();value.as_object_mut().unwrap().remove("choices");
             let oldest:Spec=serde_json::from_value(value).unwrap();
-            let (_,fluids)=choose_grid(&oldest,&step,&recipes,&context,&|_| None,&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water,1000))]));
+            let (_,fluids)=choose_grid(&oldest,&step,&recipes,&context,&|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(&items,s),&stations).unwrap();assert_eq!(fluids,BTreeMap::from([(0,(water,1000))]));
             std::fs::remove_dir_all(root).unwrap();
         }
         #[test]
@@ -5107,8 +5107,8 @@ mod recursive {
                 crafting_recipe:Some("minecraft:nonunit".into()),grid,choices,fluid_slots:BTreeMap::new(),processing:false,special:None,special_grid_version:0,
                 fluid_inputs:Vec::new(),fluid_outputs:Vec::new(),extra_outputs:Vec::new(),output:item_data::canon_stack(Some(&ItemStack::new("minecraft:oak_planks",4))),global:false};
             let mut step=ae2_crafting_core::extended::Step{pattern:"p".into(),inputs:Inventory::from([(input.clone(),4)]),outputs:Inventory::from([(output,4)]),runs:1};
-            let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&context,&|_| None,&stations).is_none());assert_eq!(step,before);
-            step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&context,&|_| None,&stations).is_some());
+            let before=step.clone();assert!(choose_grid(&spec,&step,&recipes,&context,&|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(&items,s),&stations).is_none());assert_eq!(step,before);
+            step.inputs.insert(input,1);assert!(choose_grid(&spec,&step,&recipes,&context,&|s| horizon_client::crafting::CraftingRemainder::crafting_remainder(&items,s),&stations).is_some());
             std::fs::remove_dir_all(root).unwrap();
         }
         #[test]

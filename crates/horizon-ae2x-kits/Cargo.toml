@@ -12,6 +12,8 @@ horizon-client = { path = "../horizon-client", default-features = false, feature
 horizon-ae2 = { path = "../horizon-ae2" }
 # Block states and part records.
 horizon-world = { path = "../horizon-world" }
+# NBT (horizon-core since the 2026-11-18 merge).
+horizon-core = { path = "../horizon-core" }
 
 [lints]
 workspace = true

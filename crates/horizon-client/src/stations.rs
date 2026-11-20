@@ -2643,6 +2643,8 @@ mod special_pattern_recipe_tests {
         ));
         let nested = root.join("data/example/recipe/nested/stations");
         std::fs::create_dir_all(&nested).unwrap();
+        // Stations read the crafting sources since upstream 3585177b37: they need vanilla's folder.
+        std::fs::create_dir_all(root.join("data/minecraft/recipe")).unwrap();
         std::fs::write(root.join("horizon-mod-content.json"), br#"["example"]"#).unwrap();
         // Upstream's recipe results are templates over the item's prototype: the results' defaults.
         std::fs::write(root.join("items.json"),br#"{"minecraft:golden_sword":{"minecraft:max_stack_size":1,"minecraft:max_damage":32},"minecraft:stone_slab":{"minecraft:max_stack_size":64}}"#).unwrap();

@@ -7,7 +7,7 @@ use horizon_client::ae2_key_types::{self, KeyBehaviour, KeyCodec, KeyType, KeyTy
 use horizon_client::ae2x::defs::{CellDef, Defs, add_storage_cell_cards};
 use horizon_client::game::ae2_ext::{KeyStrategyKinds, add_key_strategies};
 use horizon_client::items::ItemStack;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use std::sync::{OnceLock, RwLock};
 
 pub const NAMESPACE: &str = "appmek";

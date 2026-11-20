@@ -3019,6 +3019,13 @@ mod tests {
             .unwrap();
         received.removed.sort_unstable();
         assert_eq!(received.removed, [4, 10, 300]);
+        // The AE2 lab's peers also send the whole patch, the removals too, inside CUSTOM_DATA.
+        #[cfg(feature = "ae2-lab")]
+        assert_eq!(
+            received.added.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [component::CUSTOM_DATA]
+        );
+        #[cfg(not(feature = "ae2-lab"))]
         assert!(received.added.is_empty());
     }
 

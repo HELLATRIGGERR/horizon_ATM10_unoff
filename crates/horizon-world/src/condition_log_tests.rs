@@ -1,9 +1,11 @@
 //! Thread-local capture follows the repository's residency diagnostic tests.
+//! The crate's one test logger: `level`'s tests capture through it too.
 use super::*;
 use serde_json::json;
 use std::cell::RefCell;
 thread_local! {
-    static RECORDS: RefCell<Vec<(log::Level, String)>> = const { RefCell::new(Vec::new()) };
+    pub(crate) static RECORDS: RefCell<Vec<(log::Level, String)>> =
+        const { RefCell::new(Vec::new()) };
 }
 struct Capture;
 impl log::Log for Capture {
@@ -18,12 +20,15 @@ impl log::Log for Capture {
 }
 static CAPTURE: Capture = Capture;
 static INSTALL: std::sync::Once = std::sync::Once::new();
-#[test]
-fn foreign_unknown_after_true_is_absent_and_logged_once_at_error_level() {
+pub(crate) fn install() {
     INSTALL.call_once(|| {
         log::set_logger(&CAPTURE).unwrap();
         log::set_max_level(log::LevelFilter::Error);
     });
+}
+#[test]
+fn foreign_unknown_after_true_is_absent_and_logged_once_at_error_level() {
+    install();
     for registered in [false, true] {
         let conditions = if registered {
             LoadConditions::new(["othermod"]).with_lookup(

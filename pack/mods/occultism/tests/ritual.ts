@@ -37,7 +37,7 @@ for (const [tag, fallback] of Object.entries(TAGS)) {
   writeFileSync(file, JSON.stringify({ values }));
 }
 writeFileSync(join(tags, 'horizon-mod.toml'),
-  'id = "occultism_test_tags"\nname = "Occultism test tags"\nversion = "0.1.0"\napi = "0.2"\nside = "both"\ncapabilities = ["registries"]\nnamespaces = ["c"]\n');
+  'id = "occultism_test_tags"\nname = "Occultism test tags"\nversion = "0.1.0"\napi = "0.2"\nside = "both"\ncapabilities = ["registries"]\n');
 
 const fixture = new WorldFixture('occultism-ritual', 'server-thread', { devMods: [carry, tags] });
 const log: Record<string, unknown> = {};

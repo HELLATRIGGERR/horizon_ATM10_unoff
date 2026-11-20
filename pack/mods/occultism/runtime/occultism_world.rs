@@ -144,6 +144,22 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     }
 }
 
+/// `native_block_entity_types` (compat hook): one type per bowl and chalice, named after its block (fork main's ids).
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    let golden = [
+        "occultism:golden_sacrificial_bowl",
+        "occultism:dark_golden_sacrificial_bowl",
+        "occultism:iesnium_sacrificial_bowl",
+        "occultism:dark_iesnium_sacrificial_bowl",
+        "occultism:eldritch_chalice",
+        "occultism:celestial_chalice",
+    ];
+    for block in std::iter::once(BOWL).chain(golden) {
+        debug_assert!(block == BOWL || ritual::bowl_tier(block) > 0);
+        types.push((block.to_owned(), vec![block.to_owned()]));
+    }
+}
+
 /// `native_block_entity_ticks`: golden bowls tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
     if ritual::bowl_tier(block) > 0 {

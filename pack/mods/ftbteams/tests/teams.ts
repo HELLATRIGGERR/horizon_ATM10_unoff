@@ -21,9 +21,10 @@ async function probe(): Promise<any> {
   assert(line, `probe: ${JSON.stringify(reply.chat)}`);
   return JSON.parse(line.slice(5));
 }
-/** What the client was told (`/ftbteamsclient`, typed in chat: the client answers it itself). */
+/** What the client was told (`/ftbteamsclient`, a client command: the client answers it itself). */
 async function client(): Promise<any> {
-  const reply = await fixture.raw('chat /ftbteamsclient');
+  // The control's `command` runs a client mod's command and replies with the client's chat; `chat` on a server replies with none.
+  const reply = await fixture.raw('command ftbteamsclient');
   const line = (reply.chat ?? []).findLast((text: string) => text.startsWith('FTBTC {'));
   assert(line, `client probe: ${JSON.stringify(reply.chat)}`);
   return JSON.parse(line.slice(6));

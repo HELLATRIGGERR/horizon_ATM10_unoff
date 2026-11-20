@@ -6709,8 +6709,8 @@ impl Game<'_> {
             .as_ref()
             .is_some_and(|r| r.loaded_sent)
             .then(|| {
-                (mod_api::__private::listened(mod_api::HookId::PlayerTickPre)
-                    || mod_api::__private::listened(mod_api::HookId::PlayerTickPost))
+                (crate::game::fork_compat::heard(mod_api::HookId::PlayerTickPre)
+                    || crate::game::fork_compat::heard(mod_api::HookId::PlayerTickPost))
                 .then(|| self.local_player())
                 .flatten()
             })
@@ -7406,8 +7406,8 @@ impl Game<'_> {
         let mut cart_lerps = std::mem::take(&mut r.cart_lerps);
         let mut using = Vec::new();
         let mut mob_fx = water_fx;
-        let tick_listened = mod_api::__private::listened(mod_api::HookId::PlayerTickPre)
-            || mod_api::__private::listened(mod_api::HookId::PlayerTickPost);
+        let tick_listened = crate::game::fork_compat::heard(mod_api::HookId::PlayerTickPre)
+            || crate::game::fork_compat::heard(mod_api::HookId::PlayerTickPost);
         for (i, rain) in rain.iter().copied().enumerate() {
             let id = self.mobs[i].id;
             let player = self

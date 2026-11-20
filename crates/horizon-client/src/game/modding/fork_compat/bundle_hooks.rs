@@ -42,6 +42,21 @@ const GATES: &[(HookId, &str)] = &[
     // network/remote/client_level_tick.rs: the client's level tick.
     (HookId::LevelTickPre, "level_tick_pre"),
     (HookId::LevelTickPost, "level_tick_post"),
+    // network/lan_actions/tick.rs `guest_player_tick`; network/remote/mod.rs.
+    (HookId::PlayerTickPre, "player_tick_pre"),
+    (HookId::PlayerTickPost, "player_tick_post"),
+    // items/use_hand.rs: the block's native_use_item_on (a part hook + block_listens).
+    (HookId::UseItemOn, "use_item_on"),
+    // modding/api_values.rs `api_menu_button`.
+    (HookId::MenuButton, "menu_button"),
+    // modding/api_values.rs `api_menu_quick_move`.
+    (HookId::MenuQuickMove, "menu_quick_move"),
+    // modding/api_values.rs `api_block_entity_update_tag`.
+    (HookId::BlockEntityUpdateTag, "block_entity_update_tag"),
+    // modding/api_values.rs `api_block_entity_submit`.
+    (HookId::BlockEntitySubmit, "block_entity_submit"),
+    // native_hooks/shared.rs `screen_char_canceled`.
+    (HookId::ScreenCharTypedPre, "screen_char_typed_pre"),
 ];
 
 /// Whether `injected` (the hooks of applied injections) holds the gated hook `hook`.

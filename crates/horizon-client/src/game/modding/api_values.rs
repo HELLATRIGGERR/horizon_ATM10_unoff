@@ -1847,7 +1847,7 @@ impl super::Game<'_> {
         entity: &mut crate::containers::ModBlockEntity,
         carried: &mut Option<EngineStack>,
     ) {
-        if !mod_api::__private::has_part_hook(mod_api::HookId::MenuButton) {
+        if !crate::game::fork_compat::part_heard(mod_api::HookId::MenuButton) {
             return;
         }
         let (Ok(mut api), Ok(mut cursor)) = (entity.try_into_api(), carried.try_into_api()) else {

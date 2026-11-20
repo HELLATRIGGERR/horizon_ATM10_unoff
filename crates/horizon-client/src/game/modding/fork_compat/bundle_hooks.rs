@@ -47,6 +47,9 @@ const GATES: &[(HookId, &str)] = &[
     // native_hooks/shared.rs `BLOCK_CONTACT_HOOKS` (`any_inside`, a scoped hook; `inside_listens`, per block):
     // Occultism's spirit fire. An injection is not scoped to a block, so every block an entity is inside asks it.
     (HookId::EntityInside, "entity_inside"),
+    // modding/api_values.rs `api_menu_button` (a part hook): HNN's fabricator palette and every machine screen's
+    // buttons of a bundle (Mekanism's too).
+    (HookId::MenuButton, "menu_button"),
 ];
 
 /// Whether `injected` (the hooks of applied injections) holds the gated hook `hook`.

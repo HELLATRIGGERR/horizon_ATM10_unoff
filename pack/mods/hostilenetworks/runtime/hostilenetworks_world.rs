@@ -382,6 +382,13 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     *entity = Some(nbt);
 }
 
+/// `native_block_entity_types` (compat hook): one type per machine, named after its block (fork main's ids).
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    for block in [SIM_CHAMBER, LOOT_FABRICATOR] {
+        types.push((block.to_owned(), vec![block.to_owned()]));
+    }
+}
+
 /// `native_block_entity_ticks`: both tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
     if Kind::of(block).is_some() {

@@ -41,5 +41,8 @@ fabricator in a world. `NOTES.md` lists what is left.
   whose slots hold `mod_api::ItemStack`s: the machines read the engine's stacks (their components through
   `native_component`) and put back the slots the rules changed. `menu_button` hands a `MenuButtonContext` (its `id`).
 - `fe_receive` passes one `FeReceiveCall`: a `MODIFY_ARG` injection on the call into `fire_fe_receive`.
+- `block_entity_types` (a fork compat hook) declares the Simulation Chamber's and the Loot Fabricator's block entity
+  types, each named after its block as fork main's ids were: upstream makes a mod block entity only for a block a
+  declared type names, and a mixin bundle has no `register()`.
 - `perform_command` -> `run_mod_command`: `/hnn [line:text]` (operators; upstream's `word` takes no `:`), whose
   rules read `give <model> [data]`. `screen` is `mod_api::Screen`; text is measured on the GUI atlas.

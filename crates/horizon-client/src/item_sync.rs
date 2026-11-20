@@ -3011,7 +3011,16 @@ mod tests {
                     );
                     let mut again = Writer::new();
                     Slot::write(&sent_again, &mut again);
+                    // The AE2 lab's peers add their whole patch as CUSTOM_DATA, unnamed here.
+                    #[cfg(not(feature = "ae2-lab"))]
                     assert_eq!(again.data, w.data);
+                    #[cfg(feature = "ae2-lab")]
+                    assert_eq!(
+                        sent_again
+                            .as_ref()
+                            .and_then(|s| s.component(component::KINETIC_WEAPON)),
+                        Some(kinetic)
+                    );
                 }
             }
         }
@@ -3822,13 +3831,32 @@ mod tests {
                 "head"
             )]
         );
+        // The AE2 lab's peers also send the whole patch inside CUSTOM_DATA.
+        #[cfg(not(feature = "ae2-lab"))]
         assert_eq!(sent_on(back), vanilla.data);
+        #[cfg(feature = "ae2-lab")]
+        assert_eq!(
+            Slot::read(&mut Reader::new(&sent_on(back)))
+                .unwrap()
+                .unwrap()
+                .component(component::ATTRIBUTE_MODIFIERS),
+            stack.component(component::ATTRIBUTE_MODIFIERS)
+        );
         // The same helmet with the component removed: no modifiers at all.
         let removed = [1, 1, 0, 1, component::ATTRIBUTE_MODIFIERS as u8];
         let stack = Slot::read(&mut Reader::new(&removed)).unwrap().unwrap();
         let back = from_network(&stack, &builtin, &dynamic);
         assert!(back.default_attribute_modifiers_or(&helmet).is_empty());
+        #[cfg(not(feature = "ae2-lab"))]
         assert_eq!(sent_on(back), removed);
+        #[cfg(feature = "ae2-lab")]
+        assert_eq!(
+            Slot::read(&mut Reader::new(&sent_on(back)))
+                .unwrap()
+                .unwrap()
+                .removed,
+            [component::ATTRIBUTE_MODIFIERS]
+        );
     }
 
     /// A sign picked with its data (`SignBlockEntity.collectImplicitComponents`)

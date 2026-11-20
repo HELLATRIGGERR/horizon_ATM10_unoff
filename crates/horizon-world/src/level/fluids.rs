@@ -1093,6 +1093,8 @@ mod tests {
     use crate::fluid::{ModFluidType, register_mod_fluid};
 
     fn mod_fluid(id: &str, tick_delay: i32) -> FluidKind {
+        // The carried test fluids take the first handles, as `mod_fluids`' tests expect.
+        crate::mod_fluids::register_test_fluids();
         FluidKind::Mod(
             register_mod_fluid(ModFluidType {
                 id: format!("fluid_facts:{id}"),

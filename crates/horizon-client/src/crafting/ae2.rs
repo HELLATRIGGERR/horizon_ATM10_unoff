@@ -104,6 +104,18 @@ pub(super) fn remainders(
     size: usize,
     remainder: &dyn Fn(&ItemStack) -> Option<ItemStack>,
 ) -> Option<Vec<Option<ItemStack>>> {
+    // Only AE2's own recipes: any other recipe's remainders are asked once, by the shared loop.
+    let ae2_recipe = [
+        "ae2:storage_cell_upgrade",
+        "ae2:add_item_upgrade",
+        "ae2:remove_item_upgrade",
+    ]
+    .iter()
+    .filter_map(|kind| recipes.ae2_custom.get(*kind))
+    .any(|v| v.iter().any(|(id, _)| id == name));
+    if !ae2_recipe {
+        return None;
+    }
     let mut out = vec![None; size * size];
     for (i, stack) in grid
         .iter()

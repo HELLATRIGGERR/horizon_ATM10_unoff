@@ -19,16 +19,18 @@
 // the sorting's last look are kept here by position, not saved.
 
 use super::{
-    Game, mek_chemicals, mek_machines,
+    Game,
+    mek_chemicals,
+    mek_machines,
     mek_world::{self, ENERGY, ITEM},
-    native_hooks::NativeFeInfo,
 };
+use mod_api::{NativeFeInfo};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     items::ItemStack,
 };
 use horizon_core::{geometry::Direction as Face, random::RandomSource};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use mekanism_energy::{
     advanced::{self, ChemicalUse},
     chemical::{self, ChemicalHandler, ChemicalRegistry, ChemicalStack, ChemicalStackIngredient, ChemicalTank, SidedTanks, TankRules},
@@ -348,7 +350,7 @@ struct Saved {
     used_so_far: Vec<i64>,
 }
 
-fn key(name: &str) -> horizon_world::nbt::JavaString {
+fn key(name: &str) -> horizon_core::nbt::JavaString {
     mek_world::key(name)
 }
 
@@ -856,10 +858,10 @@ fn run_process(
         // successful roll `operations` times over, which a 200-tick recipe never
         // reaches: it runs one operation a tick at most).
         if let (Some(extra_out), Some(at)) = (recipe.max_secondary(), secondary_slot) {
-            let dimension = game.native_dimension();
             let mut made = 0;
             for _ in 0..ran.operations {
-                let roll = game.native_level_random(dimension).map_or(0.0, |r| r.next_double());
+                // The level's own random (`level.random`): the level in place is the factory's.
+                let roll = game.world.random.next_double();
                 if factory::secondary_comes(recipe.chance, roll) {
                     made += extra_out.count;
                 }
@@ -947,13 +949,13 @@ fn machine_view(saved: &Saved, store: &EnergyContainer, per_tick: u64, required:
 // ---- Energy from outside ------------------------------------------------------------
 
 pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<bool> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     let saved = read(&entity.nbt, kind);
     Some(saved.sides.takes_energy(saved.facing, face))
 }
 
 pub(super) fn offer(entity: &mut ModBlockEntity, config: &EnergyConfig, face: Direction, amount: u64, simulate: bool) -> Option<u64> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     let saved = read(&entity.nbt, kind);
     if !saved.sides.takes_energy(saved.facing, face) {
         return Some(amount);
@@ -991,7 +993,7 @@ impl StrictEnergy for Side {
 }
 
 pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return;
     };
     let saved = read(&entity.nbt, kind);
@@ -1019,7 +1021,7 @@ pub(super) fn fe_transfer(
     extract: bool,
     moved: &mut Option<i64>,
 ) {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return;
     };
     let saved = read(&entity.nbt, kind);
@@ -1055,7 +1057,7 @@ pub(super) fn chemical_handler<R>(
     registry: &ChemicalRegistry,
     use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R,
 ) -> Option<R> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     let mut tank = read_tank(&entity.nbt, kind, registry)?;
     let saved = read(&entity.nbt, kind);
     let config = saved.sides.chemicals?;
@@ -1129,7 +1131,7 @@ pub(super) fn install(game: &mut Game<'_>, pos: [i32; 3], installer: &str) -> Re
         game.native_with_mod_block_entity(pos, |m| m.items = items);
         return Err("the block didn't change".into());
     }
-    game.native_set_block_property(pos, "facing", &facing);
+    game.native_set_block_property_with(pos, "facing", &facing, horizon_world::level::flags::UPDATE_ALL);
     mek_machines::forget(dimension, pos);
     forget(dimension, pos);
     let (config, _) = mek_world::energy_config();
@@ -1185,7 +1187,7 @@ pub(super) fn install(game: &mut Game<'_>, pos: [i32; 3], installer: &str) -> Re
 /// uninstall (into the upgrade output slot, as far as it fits) and a
 /// factory's sorting tab (`toggleSorting`).
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return;
     };
     let before = read(&entity.nbt, kind);

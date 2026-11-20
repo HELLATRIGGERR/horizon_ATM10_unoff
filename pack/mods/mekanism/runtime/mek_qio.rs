@@ -11,19 +11,15 @@
 // frequency's item list into its menu data (`pack`); its screen filters, sorts and draws it on the client. The
 // frequency select screen talks to the server in mod messages (`mekanism:qio`): what it sets, deletes or colours,
 // and the list it shows, which the server answers for that player alone.
-use super::{
-    Game,
-    mek_ui::{self, Pen, Rect},
-    mek_world::{key, number},
-    native_hooks::NativeScreen,
-};
+use super::{Game, mek_ui::{self, Pen, Rect}, mek_world::{key, number}};
+use mod_api::{Screen as NativeScreen};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     hud::HudBatch,
     items::ItemStack,
     text::Text,
 };
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use mekanism_energy::{
     frequency::{COLORS, Identity, Security},
     qio::{self, Drive, DriveStatus, DriveTier, Storage},
@@ -297,7 +293,7 @@ fn flush(game: &mut Game<'_>) {
 }
 
 fn write_into(m: &mut ModBlockEntity, id: &DriveId, drive: &Drive<Key>) -> bool {
-    if m.id != DRIVE_ARRAY {
+    if m.id() != DRIVE_ARRAY {
         return false;
     }
     match m.items.get_mut(id.slot as usize) {
@@ -338,7 +334,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         write_frequency(&mut entity.nbt, None);
         freq = None;
     }
-    if entity.id == DRIVE_ARRAY {
+    if entity.id() == DRIVE_ARRAY {
         tick_array(&dim, pos, entity, freq.as_ref());
         let lights = drive_lights(&dim, pos, entity);
         if entity.nbt.get(&key("qio_lights")) != Some(&Tag::String(key(&lights))) {
@@ -351,7 +347,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     let active = freq.is_some();
     let shown = game.native_block_property(pos, "active").as_deref() == Some("true");
     if active != shown {
-        game.native_set_block_property(pos, "active", if active { "true" } else { "false" });
+        game.native_set_block_property_with(pos, "active", if active { "true" } else { "false" }, horizon_world::level::flags::UPDATE_ALL);
     }
 }
 
@@ -420,7 +416,7 @@ fn lights_of(nbt: &Compound) -> Vec<DriveStatus> {
 
 /// `native_block_entity_update_tag`: the array's lights reach the clients (`getReducedUpdateTag`'s drive status).
 pub(super) fn update_tag(entity: &ModBlockEntity, tag: &mut Option<Compound>) {
-    if entity.id != DRIVE_ARRAY {
+    if entity.id() != DRIVE_ARRAY {
         return;
     }
     if let Some(lights) = entity.nbt.get(&key("qio_lights")) {
@@ -447,11 +443,15 @@ pub(super) fn draw_block(game: &Game<'_>, pos: [i32; 3], block: &str, entity: &M
     for (slot, status) in lights_of(&entity.nbt).into_iter().enumerate().take(DRIVE_SLOTS) {
         let Some(model) = status.model() else { continue };
         let [x, y] = qio::drive_placement(slot);
-        draw.push();
-        draw.rotate_about([0.0, 1.0, 0.0], -turn, [0.5, 0.5, 0.5]);
-        draw.translate([x, y, 0.0]);
-        game.native_draw_model(draw, model, 0xFFFFFF);
-        draw.pop();
+        game.native_draw_push(draw);
+        game.native_draw_rotate_about(draw, [0.0, 1.0, 0.0], -turn, [0.5, 0.5, 0.5]);
+        game.native_draw_translate(draw, [x, y, 0.0]);
+        if let Ok(id) = mod_api::Identifier::parse(model)
+            && let Ok(model) = game.native_model(&id)
+        {
+            let _ = game.native_draw_model(draw, model, 0xFFFFFF);
+        }
+        game.native_draw_pop(draw);
     }
 }
 
@@ -597,11 +597,11 @@ fn unpack(data: &[i32]) -> View {
 /// stack (`PacketQIOItemViewerSlotTake`), half of one on a right click, or into the inventory on a shift-click
 /// (`PacketQIOItemViewerSlotShiftTake`).
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32, carried: &mut Option<ItemStack>) {
-    if !is_qio(&entity.id) {
+    if !is_qio(&entity.id()) {
         return;
     }
     let player = game.native_acting_id();
-    if entity.id != DASHBOARD || id < VIEWER {
+    if entity.id() != DASHBOARD || id < VIEWER {
         return;
     }
     let Some(freq) = frequency_of(&entity.nbt) else { return };
@@ -642,7 +642,7 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
 /// `native_menu_quick_move`: a shift-click on the player's inventory under a dashboard puts the stack into its
 /// frequency (`QIOItemViewerContainer.quickMoveStack`); nothing moves without one.
 pub(super) fn quick_move(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, container_slots: usize, slot: usize, stack: &mut ItemStack, handled: &mut bool) {
-    if entity.id != DASHBOARD || slot < container_slots {
+    if entity.id() != DASHBOARD || slot < container_slots {
         return;
     }
     *handled = true;
@@ -721,7 +721,7 @@ pub(super) fn from_client(game: &mut Game<'_>, player: u128, channel: &str, data
 
 fn set_frequency(game: &mut Game<'_>, pos: [i32; 3], id: Option<FreqId>) -> bool {
     game.native_with_mod_block_entity(pos, |m| {
-        if !is_qio(&m.id) {
+        if !is_qio(&m.id()) {
             return false;
         }
         write_frequency(&mut m.nbt, id.as_ref());
@@ -843,10 +843,10 @@ pub(super) fn screen(block: &str) -> NativeScreen {
         FOCUS.with(|f| f.set(0));
         let mut slots: Vec<Option<[f32; 2]>> = (0..DRIVE_SLOTS).map(|i| Some([34.0 + (i % 6) as f32 * 18.0, 70.0 + (i / 6) as f32 * 18.0])).collect();
         slots.extend([None; 6]);
-        return NativeScreen { width: WIDTH, height: ARRAY_HEIGHT, slots, inventory_y: ARRAY_HEIGHT - 82.0, inventory_x: 8.0, own_labels: true, own_background: false };
+        return NativeScreen { width: WIDTH, height: ARRAY_HEIGHT, slots, inventory_y: ARRAY_HEIGHT - 82.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() };
     }
     FOCUS.with(|f| f.set(1));
-    NativeScreen { width: WIDTH, height: DASH_HEIGHT, slots: vec![None; 9], inventory_y: DASH_HEIGHT - 82.0, inventory_x: 8.0, own_labels: true, own_background: false }
+    NativeScreen { width: WIDTH, height: DASH_HEIGHT, slots: vec![None; 9], inventory_y: DASH_HEIGHT - 82.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 /// The types the viewer shows, by their index in the frequency: those the search matches (`SearchQueryParser`:
@@ -1203,7 +1203,7 @@ fn select_shown(game: &Game<'_>) -> bool {
 /// `native_screen_mouse_button_pressed_pre`: every press while the select screen shows is its own (nothing under
 /// it is clicked): back, a mode, a row, the name field and its checkmark, Set, Delete, the colour (left on, right
 /// back).
-pub(super) fn select_pressed(game: &Game<'_>, screen: &horizon_client::mod_api::NativeScreenView<'_>, button: i32, canceled: &mut bool) {
+pub(super) fn select_pressed(game: &Game<'_>, screen: &mod_api::ScreenView<'_>, button: i32, canceled: &mut bool) {
     if !select_shown(game) {
         return;
     }
@@ -1250,7 +1250,7 @@ pub(super) fn select_pressed(game: &Game<'_>, screen: &horizon_client::mod_api::
 }
 
 /// `native_screen_render_post`: the select screen over its block's screen, which it darkens.
-pub(super) fn draw_select(game: &Game<'_>, batch: &mut HudBatch, screen: &horizon_client::mod_api::NativeScreenView<'_>) {
+pub(super) fn draw_select(game: &Game<'_>, batch: &mut HudBatch, screen: &mod_api::ScreenView<'_>) {
     if !select_shown(game) {
         return;
     }
@@ -1295,7 +1295,7 @@ pub(super) fn draw_select(game: &Game<'_>, batch: &mut HudBatch, screen: &horizo
     pen.text(&format!("Frequency: {}", if v.has { v.name.as_str() } else { none }), [27.0, 84.0], mek_ui::TITLE);
     pen.text(&format!("Owner: {}", if v.has && !v.owner.is_empty() { v.owner.as_str() } else { none }), [27.0, 94.0], mek_ui::TITLE);
     pen.text(&format!("Security: {}", if v.has { security.label() } else { none }), [27.0, 104.0], mek_ui::TITLE);
-    let set_w = game.native_text_width("Set:");
+    let set_w = horizon_client::hud::HudBatch::text_width(&game.gui.atlas, "Set:");
     pen.text("Set:", [NAME_FIELD[0] - 2.0 - set_w, NAME_FIELD[1] + 2.0], mek_ui::TITLE);
     let focus = FOCUS.with(Cell::get) == 2;
     NAME.with(|n| field(&mut pen, [NAME_FIELD[0], NAME_FIELD[1], NAME_FIELD[2] - CHECK[2], NAME_FIELD[3]], &n.borrow(), focus, ""));
@@ -1309,5 +1309,34 @@ pub(super) fn draw_select(game: &Game<'_>, batch: &mut HudBatch, screen: &horizo
     pen.slot("normal", None, COLOR_BUTTON[0] - 1.0, COLOR_BUTTON[1] - 1.0);
     if v.has {
         pen.fill(COLOR_BUTTON, 0xFF00_0000 | COLORS[usize::from(v.color) % COLORS.len()].1);
+    }
+}
+
+/// `native_menu_quick_move` on the hook's entity and stack. The hook's stack cannot end empty (its count is never
+/// 0), so a move that would take all of it takes all but one, which stays in the slot (HANDOFF "S3", engine needs).
+pub(super) fn api_quick_move(
+    game: &mut Game<'_>,
+    pos: [i32; 3],
+    entity: &mut mod_api::ModBlockEntity,
+    container_slots: usize,
+    slot: usize,
+    stack: &mut mod_api::ItemStack,
+    handled: &mut bool,
+) {
+    use crate::game::api_values::TryIntoEngine;
+    if entity.id() != DASHBOARD || slot < container_slots || stack.count() <= 1 {
+        if entity.id() == DASHBOARD && slot >= container_slots {
+            *handled = true;
+        }
+        return;
+    }
+    let Ok(mut engine_stack) = stack.try_into_engine(game.items()) else { return };
+    let (mut engine, _) = super::mek_world::engine_entity(entity, None);
+    let all = engine_stack.count;
+    engine_stack.count = all - 1;
+    quick_move(game, pos, &mut engine, container_slots, slot, &mut engine_stack, handled);
+    let left = engine_stack.count + 1;
+    if left != all {
+        let _ = stack.set_count(left);
     }
 }

@@ -10,22 +10,21 @@
 // (`custom_data.mekanism`), `/mek miner` and `/mek probe`.
 
 use super::{
-    Game, mek_machines,
+    Game,
+    mek_machines,
     mek_ui::{self, Pen, Rect},
     mek_world::{self, key},
-    native_hooks::{NativeFeInfo, NativeScreen},
 };
+use horizon_core::nbt::{Compound, Tag};
+use mod_api::{NativeFeInfo, Screen as NativeScreen};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     hud::HudBatch,
     items::ItemStack,
 };
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    level::flags,
-    nbt::{Compound, Tag},
-    player_inventory::EquipmentSlot,
-};
+use horizon_world::level::flags;
+use horizon_core::equipment_slot::EquipmentSlot;
 use mekanism_energy::{
     config::EnergyConfig,
     container::{Automation, EnergyContainer},
@@ -772,7 +771,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
         return;
     };
     game.native_with_mod_block_entity(pos, |m| {
-        if is_miner(&m.id) {
+        if is_miner(&m.id()) {
             for (name, tag) in saved.iter() {
                 m.nbt.insert(name.clone(), tag.clone());
             }
@@ -784,7 +783,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 
 /// Whether the miner in `entity` takes energy through its own face `face`: its bottom.
 pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<bool> {
-    is_miner(&entity.id).then_some(face == Direction::Down)
+    is_miner(&entity.id()).then_some(face == Direction::Down)
 }
 
 /// The miner whose energy port the bounding block at `at` is, touched through its side `side`: the bounding blocks
@@ -809,7 +808,7 @@ pub(super) fn port_owner(game: &Game<'_>, at: [i32; 3], side: Direction) -> Opti
 
 /// Offers `amount` Joules through `face` (any of its ports): what it didn't take.
 pub(super) fn offer(entity: &mut ModBlockEntity, config: &EnergyConfig, amount: u64, simulate: bool) -> Option<u64> {
-    if !is_miner(&entity.id) {
+    if !is_miner(&entity.id()) {
         return None;
     }
     let upgrades = super::mek_pump::read_upgrades(&entity.nbt);
@@ -847,7 +846,7 @@ impl StrictEnergy for Side {
 
 /// `native_fe_storage`: its store in whole FE through its bottom.
 pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    if !is_miner(&entity.id) {
+    if !is_miner(&entity.id()) {
         return false;
     }
     if config.blacklist_forge || face.is_some_and(|f| mek_world::mek_direction(f) != Direction::Down) {
@@ -867,7 +866,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &E
 /// `native_fe_receive` and `native_fe_extract`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Option<Face>, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    if !is_miner(&entity.id) {
+    if !is_miner(&entity.id()) {
         return false;
     }
     let open = face.is_some_and(|f| mek_world::mek_direction(f) == Direction::Down);
@@ -962,7 +961,7 @@ fn act(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32,
 /// `native_menu_button`.
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
     let held = if id == ADD_HELD {
-        game.native_acting_player()
+        mek_world::acting_player(game)
             .and_then(|p| game.native_player_equipment(p.uuid, EquipmentSlot::MainHand))
             .filter(|s| s.count > 0)
             .map(|s| s.item.to_string())
@@ -980,7 +979,7 @@ pub(super) fn command(game: &mut Game<'_>, pos: [i32; 3], words: &[&str]) -> Val
     let (config, _) = mek_world::energy_config();
     let words: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
     let done = game.native_with_mod_block_entity(pos, |m| {
-        if !is_miner(&m.id) {
+        if !is_miner(&m.id()) {
             return Err("no digital miner here".to_owned());
         }
         let mut s = read(&m.nbt, config.miner.max_radius);
@@ -1192,7 +1191,7 @@ pub(super) fn screen() -> NativeScreen {
     slots.push(Some([181.0, 39.0]));
     slots.push(Some([181.0, 61.0]));
     slots.extend([None; 6]);
-    NativeScreen { width: WIDTH, height: HEIGHT, slots, inventory_y: HEIGHT - 82.0, inventory_x: 8.0, own_labels: true, own_background: false }
+    NativeScreen { width: WIDTH, height: HEIGHT, slots, inventory_y: HEIGHT - 82.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 fn config_rect(row: usize, col: f32) -> Rect {

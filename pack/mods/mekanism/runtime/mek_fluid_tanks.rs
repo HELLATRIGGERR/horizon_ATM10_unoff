@@ -9,14 +9,12 @@
 // off (`onSneakRightClick`), and `/mek probe`. Its screen, slots, edit mode
 // and the item that keeps its fluid aren't ported.
 
-use super::{Game, mek_world, native_hooks::NativeFluidTankInfo};
+use super::{Game, mek_world};
+use horizon_core::nbt::{Compound, Tag};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::containers::ModBlockEntity;
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    fluid_stack::FluidStack,
-    level::flags,
-    nbt::{Compound, Tag},
-};
+use horizon_world::{fluid_stack::FluidStack, level::flags};
 use mekanism_energy::{
     container::Automation,
     fluid_tank::FluidTank,
@@ -47,7 +45,7 @@ pub(super) fn active(nbt: &Compound) -> bool {
 pub(super) fn toggle(game: &mut Game<'_>, pos: [i32; 3]) -> Option<bool> {
     let now = game
         .native_with_mod_block_entity(pos, |m| {
-            tier_of(&m.id)?;
+            tier_of(&m.id())?;
             let now = !active(&m.nbt);
             m.nbt.insert(mek_world::key("active_state"), Tag::Byte(i8::from(now)));
             Some(now)
@@ -76,7 +74,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     let below = [pos[0], pos[1] - 1, pos[2]];
     let below_needed = game
         .native_with_mod_block_entity(below, |m| {
-            let t = rules(tier_of(&m.id)?);
+            let t = rules(tier_of(&m.id())?);
             Some(t.capacity - mek_world::saved_tank(&m.nbt).amount().max(0))
         })
         .flatten();
@@ -96,7 +94,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
 /// `native_fluid_handler_tanks` of a fluid tank: its one tank on every side.
 /// Whether `entity` is a fluid tank.
 pub(super) fn fluid_tanks(face: Option<Face>, entity: &ModBlockEntity, tanks: &mut Option<Vec<NativeFluidTankInfo>>) -> bool {
-    let Some(tier) = tier_of(&entity.id) else {
+    let Some(tier) = tier_of(&entity.id()) else {
         return false;
     };
     let stack = mek_world::saved_tank(&entity.nbt);
@@ -109,7 +107,7 @@ pub(super) fn fluid_tanks(face: Option<Face>, entity: &ModBlockEntity, tanks: &m
 /// of another fluid; the null side's proxy is read only. Whether `entity` is
 /// a fluid tank.
 pub(super) fn fluid_fill(face: Option<Face>, entity: &mut ModBlockEntity, resource: &FluidStack, simulate: bool, filled: &mut Option<i32>) -> bool {
-    let Some(tier) = tier_of(&entity.id) else {
+    let Some(tier) = tier_of(&entity.id()) else {
         return false;
     };
     if face.is_none() || resource.is_empty() {
@@ -131,7 +129,7 @@ pub(super) fn fluid_fill(face: Option<Face>, entity: &mut ModBlockEntity, resour
 /// only of what it holds; the null side gives nothing. Whether `entity` is a
 /// fluid tank.
 pub(super) fn fluid_drain(face: Option<Face>, entity: &mut ModBlockEntity, resource: Option<&FluidStack>, max: i32, simulate: bool, drained: &mut Option<FluidStack>) -> bool {
-    let Some(tier) = tier_of(&entity.id) else {
+    let Some(tier) = tier_of(&entity.id()) else {
         return false;
     };
     let held = mek_world::saved_tank(&entity.nbt);
@@ -151,11 +149,11 @@ pub(super) fn fluid_drain(face: Option<Face>, entity: &mut ModBlockEntity, resou
 /// What `/mek probe` answers for a fluid tank.
 pub(super) fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> Option<Value> {
     game.native_with_mod_block_entity(pos, |m| {
-        let tier = tier_of(&m.id)?;
+        let tier = tier_of(&m.id())?;
         let held = mek_world::saved_tank(&m.nbt);
         let (capacity, output) = super::mek_pipes::settings().fluid_tank(tier);
         Some(json!({
-            "pos": pos, "id": m.id, "tier": tier.name(), "fluid": (!held.is_empty()).then(|| held.name()), "amount": held.amount().max(0),
+            "pos": pos, "id": m.id(), "tier": tier.name(), "fluid": (!held.is_empty()).then(|| held.name()), "amount": held.amount().max(0),
             "capacity": capacity, "output": output, "active": active(&m.nbt),
         }))
     })

@@ -8,19 +8,15 @@
 // output, their screens (`GuiLaserAmplifier`, `GuiLaserTractorBeam`), `/mek laser` (the amplifier's settings, which
 // Mekanism's screen sets in text fields) and `/mek probe`.
 
-use super::{
-    Game,
-    mek_ui::{self, Pen, Rect},
-    mek_world::{self, key},
-    native_hooks::{NativeFeInfo, NativeScreen},
-};
+use super::{Game, mek_ui::{self, Pen, Rect}, mek_world::{self, key}};
+use mod_api::{NativeFeInfo, Screen as NativeScreen};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     hud::HudBatch,
     items::ItemStack,
 };
 use horizon_core::geometry::Direction as Face;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use mekanism_energy::{
     config::{self, EnergyConfig},
     container::{Automation, EnergyContainer},
@@ -209,7 +205,7 @@ impl Beam for World<'_, '_> {
         }
         let config = self.config;
         self.game.native_with_mod_block_entity(pos, |m| {
-            let Some(kind) = kind_of(&m.id) else { return };
+            let Some(kind) = kind_of(&m.id()) else { return };
             let mut store = EnergyContainer::basic(config.capacity(kind));
             store.stored = read_energy(&m.nbt).min(store.capacity);
             let before = store.stored;
@@ -367,12 +363,12 @@ pub(super) fn block_signal(dimension: &str, block: Option<&str>, pos: [i32; 3], 
 
 /// Whether the laser in `entity` takes energy through `face`: the Laser its back.
 pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<bool> {
-    kind_of(&entity.id).map(|k| k.takes_energy(facing_of(&entity.nbt), face))
+    kind_of(&entity.id()).map(|k| k.takes_energy(facing_of(&entity.nbt), face))
 }
 
 /// Offers `amount` Joules through `face`: what it didn't take.
 pub(super) fn offer(entity: &mut ModBlockEntity, face: Direction, amount: u64, simulate: bool) -> Option<u64> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     if !kind.takes_energy(facing_of(&entity.nbt), face) {
         return Some(amount);
     }
@@ -423,7 +419,7 @@ fn side(entity: &ModBlockEntity, kind: LaserKind, face: Option<Face>) -> Side {
 
 /// `native_fe_storage`: the Laser's store through its back, the amplifier's through every side.
 pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    let Some(kind) = kind_of(&entity.id) else { return false };
+    let Some(kind) = kind_of(&entity.id()) else { return false };
     let s = side(entity, kind, face);
     if config.blacklist_forge || face.is_some() && !s.take && !s.give || kind == LaserKind::TractorBeam {
         return true;
@@ -441,7 +437,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &E
 /// `native_fe_receive` and `native_fe_extract`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Option<Face>, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    let Some(kind) = kind_of(&entity.id) else { return false };
+    let Some(kind) = kind_of(&entity.id()) else { return false };
     let mut s = side(entity, kind, face);
     if config.blacklist_forge {
         return true;
@@ -467,7 +463,7 @@ pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Opti
 pub(super) fn command(game: &mut Game<'_>, pos: [i32; 3], words: &[&str]) -> Value {
     let capacity = settings().capacity(LaserKind::Amplifier);
     let done = game.native_with_mod_block_entity(pos, |m| {
-        if kind_of(&m.id) != Some(LaserKind::Amplifier) {
+        if kind_of(&m.id()) != Some(LaserKind::Amplifier) {
             return None;
         }
         let mut a = read_amplifier(&m.nbt, capacity);
@@ -500,7 +496,7 @@ pub(super) fn command(game: &mut Game<'_>, pos: [i32; 3], words: &[&str]) -> Val
 
 /// `native_menu_button`: the amplifier's output mode button, 0 on to the next mode, 1 back to the previous one.
 pub(super) fn button(entity: &mut ModBlockEntity, id: i32) {
-    if kind_of(&entity.id) != Some(LaserKind::Amplifier) {
+    if kind_of(&entity.id()) != Some(LaserKind::Amplifier) {
         return;
     }
     let mut a = read_amplifier(&entity.nbt, settings().capacity(LaserKind::Amplifier));
@@ -549,7 +545,7 @@ pub(super) fn screen(kind: LaserKind) -> NativeScreen {
         LaserKind::TractorBeam => (0..TRACTOR_SLOTS).map(|i| Some([8.0 + 18.0 * (i % 9) as f32, 16.0 + 18.0 * (i / 9) as f32])).collect(),
         _ => vec![None; 5],
     };
-    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false }
+    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 pub(super) fn click(kind: LaserKind, at: [f32; 2], right: bool, button: &mut Option<i32>) {

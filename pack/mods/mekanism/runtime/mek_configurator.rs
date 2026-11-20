@@ -13,9 +13,14 @@
 // <mode>` sets the held one's mode: Mekanism's mode key and sneak-scroll
 // aren't ported.
 
-use super::{Game, mek_fluid_tanks, mek_transporters, mek_world};
+use super::{
+    Game,
+    mek_fluid_tanks,
+    mek_transporters,
+    mek_world,
+};
 use horizon_client::{items::ItemStack, text::Text};
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use mekanism_energy::{
     configurator::{self, Mode, Transmission},
     menu::{Button, Kind},
@@ -97,7 +102,7 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3], face
     let Some(side) = side_of(face) else { return };
     let sneaking = game.native_sneaking();
     let mode = mode_of(stack);
-    let Some((id, nbt)) = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone())) else { return };
+    let Some((id, nbt)) = game.native_with_mod_block_entity(pos, |m| (m.id().to_owned(), m.nbt.clone())) else { return };
     if !id.starts_with("mekanism") {
         return;
     }

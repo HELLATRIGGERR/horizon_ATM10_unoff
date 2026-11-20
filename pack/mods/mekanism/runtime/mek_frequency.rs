@@ -3,7 +3,7 @@
 // `level.dat` (Mekanism's `mekanism_frequencies` saved data), so a frequency outlives the blocks that use it. QIO uses
 // it (`mek_qio`); the Teleporter and the Quantum Entangloporter take the same list with their own kind. The rules
 // are `mekanism_energy::frequency`.
-use super::{Game, native_server::NativeServerPlayer};
+use super::{Game, mek_world::NativeServerPlayer};
 use mekanism_energy::frequency::{Frequencies, Identity, Security};
 use serde_json::{Value, json};
 use std::cell::RefCell;

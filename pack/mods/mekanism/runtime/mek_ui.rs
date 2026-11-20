@@ -29,7 +29,8 @@
 // It also writes a cube item's tooltip (stored energy and capacity) and its
 // energy bar, from the energy its custom data keeps (`mek_world::item_data`).
 
-use super::{Game, mek_chemicals, native_hooks::NativeScreen};
+use super::{Game, mek_chemicals};
+use mod_api::{Screen as NativeScreen};
 use horizon_client::{hud::HudBatch, items::ItemStack, text::Text};
 use horizon_world::fluid::FluidKind;
 use mekanism_energy::{
@@ -167,7 +168,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<NativeScreen>) {
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     });
 }
 
@@ -484,7 +485,7 @@ impl Pen<'_, '_> {
     pub(super) fn sprite(&mut self, name: &str, src: Rect, dst: Rect) {
         let [x, y, w, h] = dst;
         let at = [self.origin[0] + x, self.origin[1] + y, w, h];
-        self.game.native_sprite(self.batch, &format!("mekanism:gui/{name}"), src, at);
+        self.game.native_sprite(self.batch, &format!("mekanism:gui/{name}"), src, at, None);
     }
 
     pub(super) fn whole(&mut self, name: &str, size: [f32; 2], dst: Rect) {
@@ -496,7 +497,7 @@ impl Pen<'_, '_> {
     pub(super) fn sprite_from(&mut self, name: &str, src: Rect, dst: Rect) -> bool {
         let [x, y, w, h] = dst;
         let at = [self.origin[0] + x, self.origin[1] + y, w, h];
-        self.game.native_sprite(self.batch, name, src, at)
+        self.game.native_sprite(self.batch, name, src, at, None)
     }
 
     /// `blitNineSlicedSized`: the corners as they are, edges and middle
@@ -551,7 +552,7 @@ impl Pen<'_, '_> {
     }
 
     pub(super) fn centered(&mut self, text: &str, left: f32, width: f32, y: f32, rgb: u32) {
-        let w = self.game.native_text_width(text);
+        let w = horizon_client::hud::HudBatch::text_width(&self.game.gui.atlas, text);
         self.text(text, [left + ((width - w) / 2.0).floor(), y], rgb);
     }
 
@@ -770,7 +771,7 @@ fn generator_screen(kind: GeneratorKind) -> NativeScreen {
         GeneratorKind::Solar | GeneratorKind::Wind | GeneratorKind::AdvancedSolar => vec![Some([143.0, 35.0]), None, None, None, None],
         GeneratorKind::Heat | GeneratorKind::GasBurning | GeneratorKind::Bio => vec![Some([17.0, 35.0]), Some([143.0, 35.0]), None, None, None],
     };
-    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false }
+    NativeScreen { width: 176.0, height: 166.0, slots, inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 /// The tooltip of what is under `at` on a generator's screen.
@@ -803,7 +804,7 @@ fn generator_tip(kind: GeneratorKind, view: &GeneratorView, settings: &EnergyCon
 /// `text`, or when it is wider than `width`, `short` (Mekanism scales its
 /// screen's text to 0.8 and scrolls what still doesn't fit).
 fn fit(game: &Game<'_>, text: String, short: String, width: f32) -> String {
-    if game.native_text_width(&text) <= width { text } else { short }
+    if horizon_client::hud::HudBatch::text_width(&game.gui.atlas, &text) <= width { text } else { short }
 }
 
 /// Draws a generator's screen.
@@ -968,7 +969,7 @@ fn machine_screen(kind: MachineKind) -> NativeScreen {
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 
@@ -1160,7 +1161,7 @@ fn separator_hit(extra: &SeparatorView, at: [f32; 2]) -> Option<MachineHit> {
         let line = if extra.fluid_amount == 0 {
             "Empty".to_owned()
         } else {
-            let name = FluidKind::from_id(u32::from(extra.fluid)).map_or("Fluid", |f| if f == FluidKind::Water { "Water" } else { f.name() });
+            let name = FluidKind::from_tick_id(u32::from(extra.fluid)).map_or("Fluid", |f| if f == FluidKind::Water { "Water" } else { f.name() });
             format!("{name}: {} mB", display::thousands(u64::from(extra.fluid_amount)))
         };
         return Some(MachineHit::Tip(vec![line]));
@@ -1205,8 +1206,8 @@ pub(super) fn recipe_link(game: &Game<'_>, block: &str, at: [f32; 2], button: &O
     if button.is_some() || PAGE.with(Cell::get) != 0 || !kind.progresses() || kind.nucleosynthesizes() || !inside(machine_progress(kind), at) {
         return false;
     }
-    let stack = horizon_client::mod_api::NativeStack::item(block, 1);
-    game.native_show_recipes(stack, horizon_client::mod_api::NativeRecipeLookup::Uses);
+    let stack = mod_api::NativeStack::item(block, 1);
+    game.native_show_recipes(stack, mod_api::NativeRecipeLookup::Uses);
     true
 }
 
@@ -1299,7 +1300,7 @@ fn gauge(pen: &mut Pen<'_, '_>, r: Rect, level: f64, rgb: u32, scale: &str) {
 
 /// The fluid's colour in a gauge: water's, else its type's tint.
 pub(super) fn fluid_color(fluid: u16) -> u32 {
-    match FluidKind::from_id(u32::from(fluid)) {
+    match FluidKind::from_tick_id(u32::from(fluid)) {
         Some(FluidKind::Water) | Some(FluidKind::FlowingWater) | None => 0x3F76E4,
         Some(f) => horizon_world::mod_fluids::mod_fluids().iter().find(|m| m.id == f.name()).map_or(0x808080, |m| m.tint & 0xFF_FFFF),
     }

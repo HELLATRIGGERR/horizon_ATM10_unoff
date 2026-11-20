@@ -5,7 +5,7 @@ fn mek_chemical_handler_tanks(
     dimension: &str,
     pos: [i32; 3],
     face: Option<horizon_core::geometry::Direction>,
-    tanks: &mut Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>>,
+    tanks: &mut Option<Vec<mod_api::NativeChemicalTankInfo>>,
 ) {
     if tanks.is_none() {
         *tanks = crate::game::mek_chemicals::tanks(game, dimension, pos, face);

@@ -19,11 +19,12 @@ use super::{
     mek_multiblock::{self as mb, Kind},
     mek_ui::{self, Pen, Rect},
     mek_world,
-    native_hooks::{NativeFeInfo, NativeScreen},
 };
+use horizon_core::nbt::Tag;
+use mod_api::{NativeFeInfo, Screen as NativeScreen};
 use horizon_client::{containers::ModBlockEntity, hud::HudBatch, text::Text};
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{level::flags, nbt::Tag};
+use horizon_world::level::flags;
 use mekanism_energy::{
     config::{self, EnergyConfig},
     display,
@@ -130,7 +131,7 @@ pub(super) fn flush(game: &mut Game<'_>, dimension: &str) {
     });
     for (p, stored) in due {
         game.native_with_mod_block_entity(p, |m| {
-            if InductionTier::of_cell(&m.id).is_some() {
+            if InductionTier::of_cell(&m.id()).is_some() {
                 mek_world::write_energy(&mut m.nbt, stored);
             }
         });
@@ -169,7 +170,7 @@ pub(super) fn draw_energy(dimension: &str, pos: Pos, output: bool, amount: u64, 
 
 /// Whether the block at `pos` is an induction port, and its mode, for the cables and ejectors of `mek_world`.
 pub(super) fn port_at(game: &mut Game<'_>, pos: Pos) -> Option<bool> {
-    game.native_with_mod_block_entity(pos, |m| (m.id == PORT).then(|| output_mode(m))).flatten()
+    game.native_with_mod_block_entity(pos, |m| (m.id() == PORT).then(|| output_mode(m))).flatten()
 }
 
 /// A port's energy through one side (`ProxiedEnergyContainerHolder`: in while input, out while output; the null side
@@ -199,7 +200,7 @@ impl StrictEnergy for PortSide<'_> {
 
 /// `native_fe_storage` of a port: the matrix's Joules in FE. Whether `entity` was a port.
 pub(super) fn fe_storage(dimension: &str, pos: Pos, entity: &ModBlockEntity, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    if entity.id != PORT {
+    if entity.id() != PORT {
         return false;
     }
     if config.blacklist_forge {
@@ -219,7 +220,7 @@ pub(super) fn fe_storage(dimension: &str, pos: Pos, entity: &ModBlockEntity, con
 /// `native_fe_receive` and `native_fe_extract` of a port. Whether `entity` was a port.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(dimension: &str, pos: Pos, face: Option<Face>, entity: &ModBlockEntity, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    if entity.id != PORT {
+    if entity.id() != PORT {
         return false;
     }
     if config.blacklist_forge {
@@ -236,7 +237,7 @@ pub(super) fn fe_transfer(dimension: &str, pos: Pos, face: Option<Face>, entity:
 /// The Configurator's sneaking use on a port (`onSneakRightClick`): input and output swap, shown on the block.
 pub(super) fn toggle(game: &mut Game<'_>, pos: Pos) -> Option<bool> {
     let now = game.native_with_mod_block_entity(pos, |m| {
-        if m.id != PORT {
+        if m.id() != PORT {
             return None;
         }
         let now = !output_mode(m);
@@ -358,9 +359,9 @@ fn emit(game: &mut Game<'_>, dimension: &str, id: Uuid) {
 }
 
 /// What a cell's drop keeps (`energy_containers`), as an energy cube's does.
-pub(super) fn cell_drop(nbt: &horizon_world::nbt::Compound) -> Option<horizon_world::nbt::Compound> {
+pub(super) fn cell_drop(nbt: &horizon_core::nbt::Compound) -> Option<horizon_core::nbt::Compound> {
     let energy = nbt.get(&mek_world::key("energy_containers"))?;
-    let mut data = horizon_world::nbt::Compound::new();
+    let mut data = horizon_core::nbt::Compound::new();
     data.insert(mek_world::key("energy_containers"), energy.clone());
     Some(data)
 }
@@ -432,7 +433,7 @@ pub(super) fn screen() -> NativeScreen {
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 
@@ -504,7 +505,7 @@ pub(super) fn draw(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: 
     pen.whole("gauge/medium", [32.0, 54.0], [GAUGE[0] + 1.0, GAUGE[1] + 1.0, 32.0, 54.0]);
     pen.nine("inner_screen", [0.0, 0.0, 256.0, 256.0], [32.0, 32.0], SCREEN);
     for (i, line) in lines(&view, &settings, page).iter().enumerate() {
-        let w = game.native_text_width(line);
+        let w = horizon_client::hud::HudBatch::text_width(&game.gui.atlas, line);
         let line = if w > SCREEN[2] - 6.0 { line.replace(": ", ":") } else { line.clone() };
         pen.text(&line, [SCREEN[0] + 3.0, SCREEN[1] + 3.0 + 10.0 * i as f32], mek_ui::SCREEN_TEXT);
     }

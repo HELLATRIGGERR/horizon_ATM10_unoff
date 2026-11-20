@@ -1,13 +1,7 @@
-// A fluid asked of a Mekanism block (`IFluidHandler.drain`).
+// A fluid asked of a Mekanism block (`IFluidHandler.drain`; the hook passes one call).
 fn mek_fluid_handler_drain(
-    dimension: &str,
-    pos: [i32; 3],
-    face: Option<horizon_core::geometry::Direction>,
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    resource: Option<&horizon_world::fluid_stack::FluidStack>,
-    max: i32,
-    simulate: bool,
-    drained: &mut Option<horizon_world::fluid_stack::FluidStack>,
-) {
-    crate::game::mek_world::fluid_drain(dimension, pos, face, entity, resource, max, simulate, drained);
+    call: mod_api::__private::FluidHandlerDrainCall<'_>,
+) -> mod_api::__private::FluidHandlerDrainCall<'_> {
+    crate::game::mek_world::fluid_drain(call.dimension, call.pos, call.face, &mut *call.entity, call.resource, call.max, call.simulate, &mut *call.drained);
+    call
 }

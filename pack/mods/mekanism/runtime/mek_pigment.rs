@@ -10,7 +10,8 @@
 // `mek_machines`' as for the other machines.
 
 use super::{
-    Game, mek_chem_machines,
+    Game,
+    mek_chem_machines,
     mek_chem_machines::Made,
     mek_machines::{self, ItemIn, Saved},
     mek_ore_machines::{self as ore_glue, fill_chemical, number},

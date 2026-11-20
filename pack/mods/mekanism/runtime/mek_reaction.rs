@@ -12,7 +12,8 @@
 // `/mek probe` are `mek_machines`' as for the other machines.
 
 use super::{
-    Game, mek_chem_machines,
+    Game,
+    mek_chem_machines,
     mek_chem_machines::Made,
     mek_machines::{self, ItemIn, Saved},
     mek_ore_machines::{self as ore_glue, fill_chemical, drain_chemical, fluid_view, number},
@@ -414,7 +415,7 @@ fn sna_rate(game: &Game<'_>, pos: [i32; 3], config: &EnergyConfig) -> f32 {
     let Some(biome) = game.native_biome_climate(pos) else {
         return 0.0;
     };
-    let rain = biome.precipitation != super::native_hooks::NativePrecipitation::None;
+    let rain = biome.precipitation != mod_api::NativePrecipitation::None;
     let check = SolarCheck::new(biome.temperature, biome.downfall, rain);
     let kind = game.native_dimension_type();
     let (rain_level, thunder) = game.native_weather();

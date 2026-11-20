@@ -20,24 +20,17 @@
 // opens and dropped when it closes. No borrow of that state is held across a
 // call into the game.
 
-use super::{
-    Game, mek_factories, mek_machines,
-    native_hooks::{NativeFeInfo, NativeFluidTankInfo},
-    native_lifecycle::WorldPhase,
-    native_server::{NativeCommand, NativeServerPlayer},
-};
+use super::{Game, mek_factories, mek_machines};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use mod_api::{NativeFeInfo, WorldPhase};
+use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, PlayerRef};
 use horizon_client::{
-    containers::{ModBlockEntity, ModContainer},
+    containers::{ModBlockEntity, ModBlockEntityFields, ModContainer},
     items::ItemStack,
     text::Text,
 };
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    fluid::FluidKind,
-    fluid_stack::FluidStack,
-    level::flags,
-    nbt::{Compound, JavaString, Tag},
-};
+use horizon_world::{fluid::FluidKind, fluid_stack::FluidStack, level::flags};
 use mekanism_energy::{
     config::{self, EnergyConfig},
     container::{Automation, EnergyContainer},
@@ -155,10 +148,19 @@ pub(super) fn energy_config() -> (EnergyConfig, bool) {
     })
 }
 
-/// `native_world_lifecycle`: settings are read as a world opens (ATM10's
-/// files, copied by `pack/scripts/sync-atm10.ts`) and dropped as it closes.
+/// `native_server_started`: settings are read as the world opens (ATM10's files, copied by
+/// `pack/scripts/sync-atm10.ts`), and the world starts with nothing in memory.
+pub(super) fn opened() {
+    reset(Some(read_settings()));
+}
+
+/// `native_world_lifecycle`: settings are dropped as the world closes or fails to open.
 pub(super) fn lifecycle(phase: WorldPhase) {
-    let fresh = matches!(phase, WorldPhase::WorldOpenReady).then(read_settings);
+    let _ = phase;
+    reset(None);
+}
+
+fn reset(fresh: Option<Settings>) {
     SETTINGS.with(|s| *s.borrow_mut() = fresh);
     RECEIVED.with(|r| r.borrow_mut().clear());
     DROPS.with(|d| d.borrow_mut().clear());
@@ -273,7 +275,17 @@ fn write_config(nbt: &mut Compound, cube: &CubeState) {
 
 /// `native_block_entity`: a cube's entity, with the item's default config.
 /// A creative cube saves no energy, so it counts as full.
-pub(super) fn new_entity(block: &str, entity: &mut Option<(String, Compound)>) {
+pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
+    if entity.is_some() {
+        return;
+    }
+    let mut made = None;
+    new_entity_with_id(block, &mut made);
+    *entity = made.map(|(_, nbt)| nbt);
+}
+
+/// The fork's `native_block_entity` answer: the entity's id and compound (the id is the block's declaration's now).
+fn new_entity_with_id(block: &str, entity: &mut Option<(String, Compound)>) {
     if entity.is_some()
         || super::mek_transmit::new_entity(block, entity)
         || super::mek_fission::new_entity(block, entity)
@@ -473,7 +485,7 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     }
     let generator = game
         .native_with_mod_block_entity(at, |m| {
-            let kind = GeneratorKind::of_block(&m.id)?;
+            let kind = GeneratorKind::of_block(&m.id())?;
             Some(kind.exposes(generator_facing(&m.nbt), side))
         })
         .flatten();
@@ -506,7 +518,7 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
     }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
-            let tier = CubeTier::of_block(&m.id)?;
+            let tier = CubeTier::of_block(&m.id())?;
             Some(read_cube(&m.nbt, tier, config.cube(tier).0).exposes(side))
         })
         .flatten();
@@ -523,7 +535,7 @@ fn target_on(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
 /// Offers `amount` Joules to the cube on `face` of `pos`: what it didn't take.
 fn offer(game: &mut Game<'_>, config: &EnergyConfig, pos: [i32; 3], face: Direction, amount: u64, simulate: bool) -> u64 {
     let rest = game.native_with_mod_block_entity(beside(pos, face), |m| {
-        let tier = CubeTier::of_block(&m.id)?;
+        let tier = CubeTier::of_block(&m.id())?;
         let (capacity, output) = config.cube(tier);
         let mut cube = read_cube(&m.nbt, tier, capacity);
         let before = cube.stored;
@@ -633,43 +645,43 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     if super::mek_transmit::tick(game, pos, entity) {
         return;
     }
-    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+    if let Some(kind) = GeneratorKind::of_block(&entity.id()) {
         tick_generator(game, pos, entity, kind);
         return;
     }
-    if let Some(kind) = mek_factories::kind_of(&entity.id) {
+    if let Some(kind) = mek_factories::kind_of(&entity.id()) {
         mek_factories::tick(game, pos, entity, kind);
         return;
     }
-    if let Some(kind) = mek_machines::kind_of(&entity.id) {
+    if let Some(kind) = mek_machines::kind_of(&entity.id()) {
         mek_machines::tick(game, pos, entity, kind);
         return;
     }
-    if let Some(kind) = super::mek_pump::kind_of(&entity.id) {
+    if let Some(kind) = super::mek_pump::kind_of(&entity.id()) {
         super::mek_pump::tick(game, pos, entity, kind);
         return;
     }
-    if super::mek_heater::is_heater(&entity.id) {
+    if super::mek_heater::is_heater(&entity.id()) {
         super::mek_heater::tick(game, pos, entity);
         return;
     }
-    if let Some(kind) = super::mek_lasers::kind_of(&entity.id) {
+    if let Some(kind) = super::mek_lasers::kind_of(&entity.id()) {
         super::mek_lasers::tick(game, pos, entity, kind);
         return;
     }
-    if super::mek_qio::is_qio(&entity.id) {
+    if super::mek_qio::is_qio(&entity.id()) {
         super::mek_qio::tick(game, pos, entity);
         return;
     }
-    if super::mek_miner::is_miner(&entity.id) {
+    if super::mek_miner::is_miner(&entity.id()) {
         super::mek_miner::tick(game, pos, entity);
         return;
     }
-    if let Some(tier) = super::mek_tanks::tier_of(&entity.id) {
+    if let Some(tier) = super::mek_tanks::tier_of(&entity.id()) {
         super::mek_tanks::tick(game, pos, entity, tier);
         return;
     }
-    let Some(tier) = CubeTier::of_block(&entity.id) else {
+    let Some(tier) = CubeTier::of_block(&entity.id()) else {
         return;
     };
     let (config, _) = energy_config();
@@ -768,7 +780,7 @@ impl StrictEnergy for Side<'_> {
 /// The cube in `entity` and its tier's size, when it is one and `face`
 /// exposes its energy: no FE with `blacklistForge`, none on a `NONE` side.
 fn exposed(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig) -> Option<(CubeState, u64, u64)> {
-    let tier = CubeTier::of_block(&entity.id)?;
+    let tier = CubeTier::of_block(&entity.id())?;
     if config.blacklist_forge {
         return None;
     }
@@ -799,11 +811,11 @@ pub(super) fn fe_storage(
     if super::mek_matrix::fe_storage(dimension, pos, entity, &config, info) || super::mek_turbine::fe_storage(dimension, pos, entity, &config, info) {
         return;
     }
-    if mek_factories::kind_of(&entity.id).is_some() {
+    if mek_factories::kind_of(&entity.id()).is_some() {
         mek_factories::fe_storage(entity, face, &config, info);
         return;
     }
-    if mek_machines::kind_of(&entity.id).is_some() {
+    if mek_machines::kind_of(&entity.id()).is_some() {
         mek_machines::fe_storage(entity, face, &config, info);
         return;
     }
@@ -815,7 +827,7 @@ pub(super) fn fe_storage(
     {
         return;
     }
-    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+    if let Some(kind) = GeneratorKind::of_block(&entity.id()) {
         let facing = generator_facing(&entity.nbt);
         if config.blacklist_forge || face.is_some_and(|f| !kind.exposes(facing, mek_direction(f))) {
             return;
@@ -830,7 +842,7 @@ pub(super) fn fe_storage(
         });
         return;
     }
-    if CableTier::of_block(&entity.id).is_some() {
+    if CableTier::of_block(&entity.id()).is_some() {
         if config.blacklist_forge {
             return;
         }
@@ -881,11 +893,11 @@ pub(super) fn fe_transfer(
     {
         return;
     }
-    if mek_factories::kind_of(&entity.id).is_some() {
+    if mek_factories::kind_of(&entity.id()).is_some() {
         mek_factories::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
         return;
     }
-    if mek_machines::kind_of(&entity.id).is_some() {
+    if mek_machines::kind_of(&entity.id()).is_some() {
         mek_machines::fe_transfer(pos, entity, face, &config, max, simulate, extract, moved);
         return;
     }
@@ -897,7 +909,7 @@ pub(super) fn fe_transfer(
     {
         return;
     }
-    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+    if let Some(kind) = GeneratorKind::of_block(&entity.id()) {
         let facing = generator_facing(&entity.nbt);
         if config.blacklist_forge || face.is_some_and(|f| !kind.exposes(facing, mek_direction(f))) {
             return;
@@ -914,7 +926,7 @@ pub(super) fn fe_transfer(
         *moved = Some(i64::from(fe));
         return;
     }
-    if CableTier::of_block(&entity.id).is_some() {
+    if CableTier::of_block(&entity.id()).is_some() {
         if config.blacklist_forge {
             return;
         }
@@ -1005,30 +1017,30 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
     if super::mek_transmit::loaded(dimension, pos, entity) {
         return;
     }
-    if super::mek_multiblock::loaded(dimension, pos, &entity.id) {
-        if (entity.id == super::mek_matrix::PORT || entity.id == super::mek_sps::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
+    if super::mek_multiblock::loaded(dimension, pos, &entity.id()) {
+        if (entity.id() == super::mek_matrix::PORT || entity.id() == super::mek_sps::PORT || super::mek_turbine::is_valve(&entity.id())) && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
     }
-    if GeneratorKind::of_block(&entity.id).is_some() {
+    if GeneratorKind::of_block(&entity.id()).is_some() {
         forget_climate(dimension, pos);
     }
-    if let Some(tier) = super::mek_tubes::tier_of(&entity.id) {
+    if let Some(tier) = super::mek_tubes::tier_of(&entity.id()) {
         super::mek_tubes::loaded(dimension, pos, &entity.nbt, tier);
         return;
     }
-    if has_chemicals(&entity.id) {
+    if has_chemicals(&entity.id()) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some()
-        || mek_factories::kind_of(&entity.id).is_some()
-        || super::mek_pump::kind_of(&entity.id).is_some()
-        || super::mek_heater::is_heater(&entity.id)
-        || super::mek_lasers::kind_of(&entity.id).is_some()
-        || super::mek_miner::is_miner(&entity.id);
-    let Some(tier) = CableTier::of_block(&entity.id) else {
-        let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
+    let machine = mek_machines::kind_of(&entity.id()).is_some()
+        || mek_factories::kind_of(&entity.id()).is_some()
+        || super::mek_pump::kind_of(&entity.id()).is_some()
+        || super::mek_heater::is_heater(&entity.id())
+        || super::mek_lasers::kind_of(&entity.id()).is_some()
+        || super::mek_miner::is_miner(&entity.id());
+    let Some(tier) = CableTier::of_block(&entity.id()) else {
+        let energy = machine || CubeTier::of_block(&entity.id()).is_some() || GeneratorKind::of_block(&entity.id()).is_some();
         if energy && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
@@ -1047,66 +1059,66 @@ pub(super) fn entity_loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEnt
 /// Unloading, it takes what its save holds with it (`onChunkUnloaded`); broken,
 /// it takes nothing and the rest of the network keeps the energy.
 pub(super) fn entity_unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) {
-    if super::mek_qio::is_qio(&entity.id) {
-        super::mek_qio::unloaded(dimension, pos, &entity.id);
+    if super::mek_qio::is_qio(&entity.id()) {
+        super::mek_qio::unloaded(dimension, pos, &entity.id());
         return;
     }
     if removed {
-        super::mek_radiation::block_removed(dimension, pos, &entity.id, &entity.nbt);
+        super::mek_radiation::block_removed(dimension, pos, &entity.id(), &entity.nbt);
     }
     if super::mek_transmit::unloaded(dimension, pos, entity, removed) {
         return;
     }
-    if super::mek_multiblock::unloaded(dimension, pos, &entity.id, removed) {
-        if (entity.id == super::mek_matrix::PORT || entity.id == super::mek_sps::PORT || super::mek_turbine::is_valve(&entity.id)) && ANY_CABLES.get() {
+    if super::mek_multiblock::unloaded(dimension, pos, &entity.id(), removed) {
+        if (entity.id() == super::mek_matrix::PORT || entity.id() == super::mek_sps::PORT || super::mek_turbine::is_valve(&entity.id())) && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
         return;
     }
-    if let Some(kind) = GeneratorKind::of_block(&entity.id) {
+    if let Some(kind) = GeneratorKind::of_block(&entity.id()) {
         forget_climate(dimension, pos);
         if removed {
             super::mek_gen2::removed(dimension, pos, kind.id());
         }
     }
-    if let Some(kind) = mekanism_energy::machine::MachineKind::of_block(&entity.id).filter(|k| k.bounded_above()) {
+    if let Some(kind) = mekanism_energy::machine::MachineKind::of_block(&entity.id()).filter(|k| k.bounded_above()) {
         if removed {
             super::mek_gen2::removed(dimension, pos, kind.id());
         }
         super::mek_reaction::forget(dimension, pos);
     }
-    if super::mek_miner::is_miner(&entity.id) {
+    if super::mek_miner::is_miner(&entity.id()) {
         if removed {
-            super::mek_gen2::removed(dimension, pos, &entity.id);
+            super::mek_gen2::removed(dimension, pos, &entity.id());
         }
         super::mek_miner::forget(dimension, pos);
     }
-    if super::mek_tubes::tier_of(&entity.id).is_some() {
+    if super::mek_tubes::tier_of(&entity.id()).is_some() {
         super::mek_tubes::unloaded(dimension, pos, removed);
         return;
     }
-    if has_chemicals(&entity.id) {
+    if has_chemicals(&entity.id()) {
         super::mek_tubes::neighbour(dimension, pos);
     }
-    let machine = mek_machines::kind_of(&entity.id).is_some()
-        || mek_factories::kind_of(&entity.id).is_some()
-        || super::mek_pump::kind_of(&entity.id).is_some()
-        || super::mek_heater::is_heater(&entity.id)
-        || super::mek_lasers::kind_of(&entity.id).is_some()
-        || super::mek_miner::is_miner(&entity.id);
+    let machine = mek_machines::kind_of(&entity.id()).is_some()
+        || mek_factories::kind_of(&entity.id()).is_some()
+        || super::mek_pump::kind_of(&entity.id()).is_some()
+        || super::mek_heater::is_heater(&entity.id())
+        || super::mek_lasers::kind_of(&entity.id()).is_some()
+        || super::mek_miner::is_miner(&entity.id());
     if machine && !removed {
         mek_machines::forget(dimension, pos);
         mek_factories::forget(dimension, pos);
         super::mek_pump::forget(dimension, pos);
     }
-    if super::mek_heater::is_heater(&entity.id) {
+    if super::mek_heater::is_heater(&entity.id()) {
         super::mek_heater::forget(dimension, pos);
     }
-    if super::mek_lasers::kind_of(&entity.id).is_some() {
+    if super::mek_lasers::kind_of(&entity.id()).is_some() {
         super::mek_lasers::forget(dimension, pos);
     }
-    if CableTier::of_block(&entity.id).is_none() {
-        let energy = machine || CubeTier::of_block(&entity.id).is_some() || GeneratorKind::of_block(&entity.id).is_some();
+    if CableTier::of_block(&entity.id()).is_none() {
+        let energy = machine || CubeTier::of_block(&entity.id()).is_some() || GeneratorKind::of_block(&entity.id()).is_some();
         if energy && ANY_CABLES.get() {
             with_cables(dimension, |d| d.look.extend((0..6).map(|s| network::offset(pos, s))));
         }
@@ -1191,7 +1203,7 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
     let side = face.opposite();
     let generator = game
         .native_with_mod_block_entity(at, |m| {
-            let kind = GeneratorKind::of_block(&m.id)?;
+            let kind = GeneratorKind::of_block(&m.id())?;
             if !kind.exposes(generator_facing(&m.nbt), side) {
                 return Some(0);
             }
@@ -1210,19 +1222,19 @@ fn draw(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [i32; 
         return super::mek_matrix::draw_energy(dimension, at, output, amount, simulate);
     }
     let machine = |m: &mut ModBlockEntity| {
-        mek_machines::kind_of(&m.id).is_some()
-            || mek_factories::kind_of(&m.id).is_some()
-            || super::mek_pump::kind_of(&m.id).is_some()
-            || super::mek_heater::is_heater(&m.id)
-            || super::mek_lasers::kind_of(&m.id).is_some()
-            || super::mek_miner::is_miner(&m.id)
+        mek_machines::kind_of(&m.id()).is_some()
+            || mek_factories::kind_of(&m.id()).is_some()
+            || super::mek_pump::kind_of(&m.id()).is_some()
+            || super::mek_heater::is_heater(&m.id())
+            || super::mek_lasers::kind_of(&m.id()).is_some()
+            || super::mek_miner::is_miner(&m.id())
     };
     if game.native_with_mod_block_entity(at, machine) == Some(true) {
         return 0;
     }
     let cube = game
         .native_with_mod_block_entity(at, |m| {
-            let tier = CubeTier::of_block(&m.id)?;
+            let tier = CubeTier::of_block(&m.id())?;
             let (capacity, output) = config.cube(tier);
             let mut cube = read_cube(&m.nbt, tier, capacity);
             let before = cube.stored;
@@ -1351,7 +1363,7 @@ fn set_connection(game: &mut Game<'_>, pos: [i32; 3], side: &str, connection: &s
     let dimension = game.native_dimension();
     let written = game
         .native_with_mod_block_entity(pos, |m| {
-            CableTier::of_block(&m.id)?;
+            CableTier::of_block(&m.id())?;
             let mut connections = connections_of(&m.nbt);
             connections[face as usize] = connection;
             write_connections(&mut m.nbt, &connections);
@@ -1375,10 +1387,10 @@ fn set_connection(game: &mut Game<'_>, pos: [i32; 3], side: &str, connection: &s
 /// or transporter: their saved `connection`), for the Configurator.
 pub(super) fn transmitter_connection(game: &mut Game<'_>, pos: [i32; 3], side: Direction) -> Option<Connection> {
     game.native_with_mod_block_entity(pos, |m| {
-        let transmitter = CableTier::of_block(&m.id).is_some()
-            || super::mek_tubes::tier_of(&m.id).is_some()
-            || super::mek_pipes::tier_of(&m.id).is_some()
-            || super::mek_transporters::tier_of(&m.id).is_some();
+        let transmitter = CableTier::of_block(&m.id()).is_some()
+            || super::mek_tubes::tier_of(&m.id()).is_some()
+            || super::mek_pipes::tier_of(&m.id()).is_some()
+            || super::mek_transporters::tier_of(&m.id()).is_some();
         transmitter.then(|| connections_of(&m.nbt)[side as usize])
     })
     .flatten()
@@ -1393,7 +1405,7 @@ pub(super) fn set_transmitter_connection(game: &mut Game<'_>, pos: [i32; 3], sid
 pub(super) fn facing_of(game: &mut Game<'_>, pos: [i32; 3]) -> Option<Direction> {
     let (config, _) = energy_config();
     let cube = game
-        .native_with_mod_block_entity(pos, |m| CubeTier::of_block(&m.id).map(|tier| read_cube(&m.nbt, tier, config.cube(tier).0).facing))
+        .native_with_mod_block_entity(pos, |m| CubeTier::of_block(&m.id()).map(|tier| read_cube(&m.nbt, tier, config.cube(tier).0).facing))
         .flatten();
     cube.or_else(|| game.native_block_property(pos, "facing").and_then(|f| Direction::from_name(&f)))
 }
@@ -1410,7 +1422,7 @@ pub(super) fn set_facing(game: &mut Game<'_>, pos: [i32; 3], facing: Direction) 
     let (config, _) = energy_config();
     let cube = game
         .native_with_mod_block_entity(pos, |m| {
-            let tier = CubeTier::of_block(&m.id)?;
+            let tier = CubeTier::of_block(&m.id())?;
             let mut cube = read_cube(&m.nbt, tier, config.cube(tier).0);
             cube.facing = facing;
             write_config(&mut m.nbt, &cube);
@@ -1435,13 +1447,13 @@ pub(super) fn dismantle(game: &mut Game<'_>, pos: [i32; 3]) -> Option<ItemStack>
     let (config, _) = energy_config();
     let data = game
         .native_with_mod_block_entity(pos, |m| {
-            if super::mek_tanks::tier_of(&m.id).is_some() {
+            if super::mek_tanks::tier_of(&m.id()).is_some() {
                 return super::mek_tanks::drop_data(&m.nbt);
             }
-            if super::mek_matrix::is_cell(&m.id) {
+            if super::mek_matrix::is_cell(&m.id()) {
                 return super::mek_matrix::cell_drop(&m.nbt);
             }
-            let tier = CubeTier::of_block(&m.id)?;
+            let tier = CubeTier::of_block(&m.id())?;
             drop_data(&m.nbt, tier, config.cube(tier).0)
         })
         .flatten();
@@ -1498,39 +1510,39 @@ fn probe_cable(game: &mut Game<'_>, pos: [i32; 3], id: &str, tier: CableTier) ->
 /// (`mek_ui`). A changed energy side shows on the block at once: the face's
 /// property is set with `UPDATE_CLIENTS`, as Mekanism updates its model.
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
-    if super::mek_dynamic_tank::is_tank_block(&entity.id) {
+    if super::mek_dynamic_tank::is_tank_block(&entity.id()) {
         super::mek_dynamic_tank::button(game, pos, id);
         return;
     }
-    if super::mek_turbine::is_turbine_block(&entity.id) {
+    if super::mek_turbine::is_turbine_block(&entity.id()) {
         super::mek_turbine::button(game, pos, id);
         return;
     }
-    if super::mek_fission::is_reactor_block(&entity.id) || super::mek_fission::is_adapter(&entity.id) {
+    if super::mek_fission::is_reactor_block(&entity.id()) || super::mek_fission::is_adapter(&entity.id()) {
         super::mek_fission::button(game, pos, entity, id);
         return;
     }
-    if mek_factories::kind_of(&entity.id).is_some() {
+    if mek_factories::kind_of(&entity.id()).is_some() {
         mek_factories::button(game, pos, entity, id);
         return;
     }
-    if mek_machines::kind_of(&entity.id).is_some() {
+    if mek_machines::kind_of(&entity.id()).is_some() {
         mek_machines::button(game, pos, entity, id);
         return;
     }
-    if super::mek_tanks::tier_of(&entity.id).is_some() {
+    if super::mek_tanks::tier_of(&entity.id()).is_some() {
         super::mek_tanks::button(game, pos, entity, id);
         return;
     }
-    if super::mek_miner::is_miner(&entity.id) {
+    if super::mek_miner::is_miner(&entity.id()) {
         super::mek_miner::button(game, pos, entity, id);
         return;
     }
-    if super::mek_lasers::kind_of(&entity.id).is_some() {
+    if super::mek_lasers::kind_of(&entity.id()).is_some() {
         super::mek_lasers::button(entity, id);
         return;
     }
-    let (Some(tier), Some(button)) = (CubeTier::of_block(&entity.id), Button::from_id(id)) else {
+    let (Some(tier), Some(button)) = (CubeTier::of_block(&entity.id()), Button::from_id(id)) else {
         return;
     };
     let (config, _) = energy_config();
@@ -1652,7 +1664,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     if super::mek_matrix::is_cell(&stack.item) {
         if let Some(energy) = item_data(stack).and_then(|d| d.get(&key("energy_containers")).cloned()) {
             game.native_with_mod_block_entity(pos, |m| {
-                if super::mek_matrix::is_cell(&m.id) {
+                if super::mek_matrix::is_cell(&m.id()) {
                     m.nbt.insert(key("energy_containers"), energy);
                 }
             });
@@ -1667,7 +1679,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     let (config, _) = energy_config();
     let capacity = config.cube(tier).0;
     let cube = game.native_with_mod_block_entity(pos, |m| {
-        (CubeTier::of_block(&m.id) == Some(tier)).then(|| {
+        (CubeTier::of_block(&m.id()) == Some(tier)).then(|| {
             for name in ["energy_containers", "component_config"] {
                 if let Some(tag) = saved.as_ref().and_then(|s| s.get(&key(name))) {
                     m.nbt.insert(key(name), tag.clone());
@@ -1691,24 +1703,24 @@ pub(super) fn breaking(game: &mut Game<'_>, pos: [i32; 3]) {
     super::mek_turbine::breaking(game, pos);
     let (config, _) = energy_config();
     let found = game.native_with_mod_block_entity(pos, |m| {
-        if super::mek_tanks::tier_of(&m.id).is_some() {
+        if super::mek_tanks::tier_of(&m.id()).is_some() {
             // The radioactive contents radiate as the tank breaks instead of staying in its drop.
             let mut nbt = m.nbt.clone();
             if let Some(tanks) = nbt.remove(&key("chemical_tanks"))
-                && let Some(kept) = super::mek_radiation::drop_tanks(&m.id, &tanks)
+                && let Some(kept) = super::mek_radiation::drop_tanks(&m.id(), &tanks)
             {
                 nbt.insert(key("chemical_tanks"), kept);
             }
-            return Some((m.id.clone(), super::mek_tanks::drop_data(&nbt)?));
+            return Some((m.id().to_owned(), super::mek_tanks::drop_data(&nbt)?));
         }
-        if super::mek_matrix::is_cell(&m.id) {
-            return Some((m.id.clone(), super::mek_matrix::cell_drop(&m.nbt)?));
+        if super::mek_matrix::is_cell(&m.id()) {
+            return Some((m.id().to_owned(), super::mek_matrix::cell_drop(&m.nbt)?));
         }
-        if super::mek_miner::is_miner(&m.id) {
-            return Some((m.id.clone(), super::mek_miner::drop_data(&m.nbt)?));
+        if super::mek_miner::is_miner(&m.id()) {
+            return Some((m.id().to_owned(), super::mek_miner::drop_data(&m.nbt)?));
         }
-        let tier = CubeTier::of_block(&m.id)?;
-        Some((m.id.clone(), drop_data(&m.nbt, tier, config.cube(tier).0)?))
+        let tier = CubeTier::of_block(&m.id())?;
+        Some((m.id().to_owned(), drop_data(&m.nbt, tier, config.cube(tier).0)?))
     });
     if let Some(Some((item, data))) = found {
         DROPS.with(|d| d.borrow_mut().push(Drop { pos, item, data, age: 0 }));
@@ -1842,7 +1854,7 @@ fn lava_valid(stack: &FluidStack) -> bool {
 /// front; `ProxyFluidHandler`: a null side reads it and moves nothing). None
 /// for any other block, and on the front, which has no handler.
 fn heat_tank_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<Option<Face>> {
-    if GeneratorKind::of_block(&entity.id) != Some(GeneratorKind::Heat) {
+    if GeneratorKind::of_block(&entity.id()) != Some(GeneratorKind::Heat) {
         return None;
     }
     match face {
@@ -1854,7 +1866,81 @@ fn heat_tank_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<Option<
 /// `native_fluid_handler_tanks` (`IFluidHandler.getTanks`,
 /// `getFluidInTank`, `getTankCapacity`) of a heat generator: one tank,
 /// `heatTankCapacity` mB, which no other block can drain (`notExternal`).
+/// The fork's tank readback, in the world's fluid stacks (`fluid_tanks` hands it to the hook as the API's).
+#[derive(Clone, Debug)]
+pub(super) struct NativeFluidTankInfo {
+    pub stack: FluidStack,
+    pub capacity: i32,
+    pub drainable: bool,
+}
+
+/// `native_fluid_handler_tanks`: the tanks in the API's fluid stacks (an empty tank holds none).
 pub(super) fn fluid_tanks(
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Face>,
+    entity: &mod_api::ModBlockEntity,
+    tanks: &mut Option<Vec<mod_api::NativeFluidTankInfo>>,
+) {
+    if tanks.is_some() {
+        return;
+    }
+    let (engine, _) = engine_entity(entity, None);
+    let mut own = None;
+    fluid_tanks_world(dimension, pos, face, &engine, &mut own);
+    *tanks = own.map(|list| {
+        list.into_iter()
+            .map(|t| mod_api::NativeFluidTankInfo {
+                stack: api_fluid_stack(&t.stack),
+                capacity: t.capacity,
+                drainable: t.drainable,
+            })
+            .collect()
+    });
+}
+
+/// `native_fluid_handler_fill` with the API's stack.
+pub(super) fn fluid_fill(
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Face>,
+    entity: &mut mod_api::ModBlockEntity,
+    resource: &mod_api::FluidStack,
+    simulate: bool,
+    filled: &mut Option<i32>,
+) {
+    if filled.is_some() {
+        return;
+    }
+    let resource = super::machines::native_fluid_handler::engine_fluid_stack(resource);
+    let (mut engine, _) = engine_entity(entity, None);
+    fluid_fill_world(dimension, pos, face, &mut engine, &resource, simulate, filled);
+    write_back(&engine, entity, false);
+}
+
+/// `native_fluid_handler_drain` with the API's stacks: what Mekanism gives, none when it gives nothing.
+pub(super) fn fluid_drain(
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Face>,
+    entity: &mut mod_api::ModBlockEntity,
+    resource: Option<&mod_api::FluidStack>,
+    max: i32,
+    simulate: bool,
+    drained: &mut Option<mod_api::FluidStack>,
+) {
+    if drained.is_some() {
+        return;
+    }
+    let resource = resource.map(super::machines::native_fluid_handler::engine_fluid_stack);
+    let (mut engine, _) = engine_entity(entity, None);
+    let mut own = None;
+    fluid_drain_world(dimension, pos, face, &mut engine, resource.as_ref(), max, simulate, &mut own);
+    write_back(&engine, entity, false);
+    *drained = own.and_then(|stack| api_fluid_stack(&stack));
+}
+
+fn fluid_tanks_world(
     _dimension: &str,
     _pos: [i32; 3],
     face: Option<Face>,
@@ -1862,11 +1948,11 @@ pub(super) fn fluid_tanks(
     tanks: &mut Option<Vec<NativeFluidTankInfo>>,
 ) {
     if tanks.is_some()
-        || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
-        || super::mek_evaporation::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
-        || super::mek_boiler::fluid_tanks(_dimension, _pos, &entity.id, tanks)
-        || super::mek_turbine::fluid_tanks(_dimension, _pos, face, &entity.id, tanks)
-        || super::mek_fission::fluid_tanks(_dimension, _pos, &entity.id, tanks)
+        || super::mek_dynamic_tank::fluid_tanks(_dimension, _pos, face, &entity.id(), tanks)
+        || super::mek_evaporation::fluid_tanks(_dimension, _pos, face, &entity.id(), tanks)
+        || super::mek_boiler::fluid_tanks(_dimension, _pos, &entity.id(), tanks)
+        || super::mek_turbine::fluid_tanks(_dimension, _pos, face, &entity.id(), tanks)
+        || super::mek_fission::fluid_tanks(_dimension, _pos, &entity.id(), tanks)
         || super::mek_transmit::fluid_tanks(_dimension, _pos, face, entity, tanks)
         || mek_machines::fluid_tanks(entity, face, tanks)
         || super::mek_gen2::fluid_tanks(entity, face, tanks)
@@ -1887,7 +1973,7 @@ pub(super) fn fluid_tanks(
 /// `ExtendedFluidHandlerUtils.insert` and `BasicFluidTank.insert` with
 /// `AutomationType.EXTERNAL`) of a heat generator: lava, into an empty tank
 /// or one holding the same fluid, what fits.
-pub(super) fn fluid_fill(
+fn fluid_fill_world(
     _dimension: &str,
     _pos: [i32; 3],
     face: Option<Face>,
@@ -1897,12 +1983,12 @@ pub(super) fn fluid_fill(
     filled: &mut Option<i32>,
 ) {
     if filled.is_some()
-        || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
-        || super::mek_evaporation::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
-        || super::mek_boiler::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
-        || super::mek_turbine::fluid_fill(_dimension, _pos, &entity.id, filled)
-        || super::mek_fission::fluid_fill(_dimension, _pos, face, &entity.id, resource, simulate, filled)
-        || super::mek_fusion::fluid_fill(_dimension, _pos, face.is_some(), &entity.id, resource, simulate, filled)
+        || super::mek_dynamic_tank::fluid_fill(_dimension, _pos, face, &entity.id(), resource, simulate, filled)
+        || super::mek_evaporation::fluid_fill(_dimension, _pos, face, &entity.id(), resource, simulate, filled)
+        || super::mek_boiler::fluid_fill(_dimension, _pos, face, &entity.id(), resource, simulate, filled)
+        || super::mek_turbine::fluid_fill(_dimension, _pos, &entity.id(), filled)
+        || super::mek_fission::fluid_fill(_dimension, _pos, face, &entity.id(), resource, simulate, filled)
+        || super::mek_fusion::fluid_fill(_dimension, _pos, face.is_some(), &entity.id(), resource, simulate, filled)
         || super::mek_transmit::fluid_fill(_dimension, _pos, face, entity, resource, simulate, filled)
         || mek_machines::fluid_fill(entity, face, resource, simulate, filled)
         || super::mek_gen2::fluid_fill(entity, face, resource, simulate, filled)
@@ -1935,7 +2021,7 @@ pub(super) fn fluid_fill(
 /// `lavaTank` is `VariableCapacityFluidTank.input`, extractable only by the
 /// generator itself (`notExternal`), and the null side is read only, so no
 /// block drains it.
-pub(super) fn fluid_drain(
+fn fluid_drain_world(
     _dimension: &str,
     _pos: [i32; 3],
     face: Option<Face>,
@@ -1946,11 +2032,11 @@ pub(super) fn fluid_drain(
     drained: &mut Option<FluidStack>,
 ) {
     if drained.is_some()
-        || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
-        || super::mek_evaporation::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
-        || super::mek_boiler::fluid_drain(_dimension, _pos, &entity.id, drained)
-        || super::mek_turbine::fluid_drain(_dimension, _pos, face, &entity.id, resource, max, simulate, drained)
-        || super::mek_fission::fluid_drain(_dimension, _pos, &entity.id, drained)
+        || super::mek_dynamic_tank::fluid_drain(_dimension, _pos, face, &entity.id(), resource, max, simulate, drained)
+        || super::mek_evaporation::fluid_drain(_dimension, _pos, face, &entity.id(), resource, max, simulate, drained)
+        || super::mek_boiler::fluid_drain(_dimension, _pos, &entity.id(), drained)
+        || super::mek_turbine::fluid_drain(_dimension, _pos, face, &entity.id(), resource, max, simulate, drained)
+        || super::mek_fission::fluid_drain(_dimension, _pos, &entity.id(), drained)
         || super::mek_transmit::fluid_drain(_dimension, _pos, face, entity, resource, max, simulate, drained)
         || mek_machines::fluid_drain(entity, face, resource, max, simulate, drained)
         || super::mek_gen2::fluid_drain(entity, face, drained)
@@ -2102,7 +2188,7 @@ fn climate(game: &Game<'_>, dimension: &str, pos: [i32; 3], kind: GeneratorKind)
     let made = match kind {
         GeneratorKind::Solar => {
             let biome = game.native_biome_climate(pos)?;
-            let rain = biome.precipitation != super::native_hooks::NativePrecipitation::None;
+            let rain = biome.precipitation != mod_api::NativePrecipitation::None;
             Climate::Solar(SolarCheck::new(biome.temperature, biome.downfall, rain))
         }
         GeneratorKind::Heat => {
@@ -2195,7 +2281,7 @@ fn fuel_in(game: &Game<'_>, slot: Option<&ItemStack>, tank: &FluidStack) -> Opti
         count: stack.count,
         fluid,
         burn_time: game.native_burn_time(stack),
-        has_remainder: game.native_crafting_remainder(&stack.item).is_some(),
+        has_remainder: crafting_remainder(game, &stack.item).is_some(),
         takes_lava: tank.is_empty() || (tank.is(FluidKind::Lava) && tank.components().is_empty()),
     })
 }
@@ -2248,7 +2334,7 @@ fn tick_heat(game: &mut Game<'_>, config: &EnergyConfig, dimension: &str, pos: [
         }
         SlotUse::Remainder => {
             let item = entity.items.first().and_then(Option::as_ref).map(|s| s.item.clone());
-            let rest = item.and_then(|i| game.native_crafting_remainder(&i));
+            let rest = item.and_then(|i| crafting_remainder(game, &i));
             if let Some(slot) = entity.items.first_mut() {
                 *slot = rest;
             }
@@ -2401,19 +2487,59 @@ impl StrictEnergy for GeneratorSide {
 
 // ---- /mek probe -----------------------------------------------------------
 
-/// `native_register_commands`.
-pub(super) fn commands(commands: &mut Vec<NativeCommand>) {
-    commands.push(NativeCommand::op("mek probe <pos:block_pos>", 2));
-    commands.push(NativeCommand::op("mek connection <pos:block_pos> <side:word> <type:word>", 2));
-    commands.push(NativeCommand::op("mek chemical <pos:block_pos> <args:text>", 2));
-    commands.push(NativeCommand::op("mek chemicals", 2));
-    commands.push(NativeCommand::op("mek chemicals <id:word>", 2));
-    commands.push(NativeCommand::op("mek install <pos:block_pos> <installer:word>", 2));
-    commands.push(NativeCommand::op("mek multiblock <what:word>", 2));
-    commands.push(NativeCommand::op("mek heater <pos:block_pos> <usage:word>", 2));
-    commands.push(NativeCommand::op("mek radiation <args:text>", 2));
-    commands.push(NativeCommand::op("mek freq <args:text>", 2));
-    super::mek_transmit::commands(commands);
+/// `native_register_commands`: `/mek` with one `text` line (upstream's `word` takes no `~` or `:`), operators only;
+/// `perform` parses the line as the fork's commands did.
+pub(super) fn commands(commands: &mut Vec<Command>) {
+    commands.push(Command::op("mek [line:text]", 2));
+}
+
+/// The command line a parsed invocation of `/mek` was typed as: its words, then the `text`.
+fn line(call: &CommandInvocation) -> String {
+    let mut line = call.literals.join(" ");
+    for argument in &call.arguments {
+        if let CommandArgumentValue::String(text) = &argument.value {
+            line.push(' ');
+            line.push_str(text);
+        }
+    }
+    line
+}
+
+/// The fork's view of a server player (`NativeServerPlayer`), read from upstream's handle.
+#[derive(Clone, Debug)]
+pub(super) struct NativeServerPlayer {
+    pub uuid: u128,
+    pub dimension: String,
+    pub position: [f64; 3],
+    /// 0 survival, 1 creative, 2 adventure, 3 spectator.
+    pub game_mode: i32,
+    pub health: f32,
+    pub entity_id: i32,
+}
+
+/// The player behind `p`, as the fork's helpers gave it; none when they are not in a level.
+pub(super) fn server_player(game: &Game<'_>, p: PlayerRef) -> Option<NativeServerPlayer> {
+    use horizon_core::game_mode::GameMode;
+    let entity = p.entity();
+    Some(NativeServerPlayer {
+        uuid: p.uuid(),
+        dimension: game.player_dimension(p)?.to_string(),
+        position: game.entity_position(entity)?,
+        game_mode: match game.player_game_mode(p) {
+            Some(GameMode::Creative) => 1,
+            Some(GameMode::Adventure) => 2,
+            Some(GameMode::Spectator) => 3,
+            _ => 0,
+        },
+        health: game.living_health(mod_api::LivingRef::new(entity)).unwrap_or(1.0),
+        entity_id: i32::try_from(entity.id()).unwrap_or(0),
+    })
+}
+
+/// The player a hook or command runs for (`native_acting_player`).
+pub(super) fn acting_player(game: &Game<'_>) -> Option<NativeServerPlayer> {
+    let p = game.native_acting_player()?;
+    server_player(game, p)
 }
 
 /// A coordinate of the command line: a number, or `~`/`~n` from the player.
@@ -2426,9 +2552,13 @@ fn coordinate(word: Option<&str>, from: f64) -> Option<i32> {
     }
 }
 
-/// `native_perform_command`: `/mek probe x y z` answers `MEK {json}` with
+/// `native_run_mod_command`: `/mek probe x y z` answers `MEK {json}` with
 /// what the Mekanism block entity there holds.
-pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command: &str, ran: &mut bool) {
+pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &CommandInvocation, ran: &mut bool) {
+    let CommandSource::Player { player, .. } = source else { return };
+    let Some(player) = server_player(game, *player) else { return };
+    let player = &player;
+    let command = line(call);
     let mut words = command.split_whitespace();
     if *ran || words.next() != Some("mek") {
         return;
@@ -2571,7 +2701,7 @@ pub(super) fn perform(game: &mut Game<'_>, player: &NativeServerPlayer, command:
 
 fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
     let (config, from_files) = energy_config();
-    let found = game.native_with_mod_block_entity(pos, |m| (m.id.clone(), m.nbt.clone(), last_input(m), m.data.clone(), m.items.clone()));
+    let found = game.native_with_mod_block_entity(pos, |m| (m.id().to_owned(), m.nbt.clone(), last_input(m), m.data.clone(), m.items.clone()));
     let Some((id, nbt, input, data, items)) = found else {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };
@@ -2650,4 +2780,131 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> serde_json::Value {
         "energy_config": energy_config,
         "config": { "from_files": from_files, "fe_conversion_rate": config.fe_conversion_rate },
     })
+}
+
+// ---- The hook boundary --------------------------------------------------------------------------------------------
+//
+// Upstream's hooks hand the API's block entity (`mod_api::ModBlockEntity`, its slots the API's stacks) and stacks;
+// the bundle's code is written on the engine's (`horizon_client::containers::ModBlockEntity`, the one the levels'
+// maps hold). These turn one into the other at the hooks and write back what the code changed.
+
+/// A hook's block entity in the engine's form. With the registry its slots come along (and `true`); without it, or
+/// when a slot holds what the registry lacks, it has none (the energy, fluid and draw hooks read the compound only).
+pub(super) fn engine_entity(entity: &mod_api::ModBlockEntity, items: Option<&horizon_items::items::Items>) -> (ModBlockEntity, bool) {
+    use crate::game::api_values::TryIntoEngine;
+    let slots = items.and_then(|items| entity.items.try_into_engine(items).ok());
+    let converted = slots.is_some();
+    let fields = ModBlockEntityFields { nbt: entity.nbt.clone(), items: slots.unwrap_or_default(), data: entity.data.clone() };
+    (ModBlockEntity::new(entity.id().to_owned(), fields), converted)
+}
+
+/// What the bundle's code changed in the engine's form goes back into the hook's entity: its compound and data, and
+/// its slots when they came along.
+pub(super) fn write_back(engine: &ModBlockEntity, entity: &mut mod_api::ModBlockEntity, slots: bool) {
+    use crate::game::api_values::TryIntoApi;
+    if entity.nbt != engine.nbt {
+        entity.nbt = engine.nbt.clone();
+    }
+    if entity.data != engine.data {
+        entity.data = engine.data.clone();
+    }
+    if slots
+        && let Ok(api) = engine.items.try_into_api()
+        && entity.items != api
+    {
+        entity.items = api;
+    }
+}
+
+/// `native_block_entity_tick` on the hook's entity.
+pub(super) fn api_tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut mod_api::ModBlockEntity) {
+    let (mut engine, slots) = engine_entity(entity, Some(game.items()));
+    tick(game, pos, &mut engine);
+    write_back(&engine, entity, slots);
+}
+
+/// `native_block_entity_load` on the hook's entity.
+pub(super) fn api_entity_loaded(dimension: &str, pos: [i32; 3], entity: &mut mod_api::ModBlockEntity) {
+    let (engine, _) = engine_entity(entity, None);
+    entity_loaded(dimension, pos, &engine);
+}
+
+/// `native_block_entity_unload` on the hook's entity.
+pub(super) fn api_entity_unloaded(dimension: &str, pos: [i32; 3], entity: &mod_api::ModBlockEntity, removed: bool) {
+    let (engine, _) = engine_entity(entity, None);
+    entity_unloaded(dimension, pos, &engine, removed);
+}
+
+/// `native_fe_storage` on the hook's entity.
+pub(super) fn api_fe_storage(dimension: &str, pos: [i32; 3], face: Option<Face>, entity: &mod_api::ModBlockEntity, info: &mut Option<NativeFeInfo>) {
+    if info.is_some() {
+        return;
+    }
+    let (engine, _) = engine_entity(entity, None);
+    fe_storage(dimension, pos, face, &engine, info);
+}
+
+/// `native_fe_receive` / `native_fe_extract` on the hook's entity.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn api_fe_transfer(
+    dimension: &str,
+    pos: [i32; 3],
+    face: Option<Face>,
+    entity: &mut mod_api::ModBlockEntity,
+    max: i64,
+    simulate: bool,
+    extract: bool,
+    moved: &mut Option<i64>,
+) {
+    if moved.is_some() {
+        return;
+    }
+    let (mut engine, _) = engine_entity(entity, None);
+    fe_transfer(dimension, pos, face, &mut engine, max, simulate, extract, moved);
+    write_back(&engine, entity, false);
+}
+
+/// The menu button hook (`native_menu_button`, the fork's `menu_button` and `menu_button_v2` in one) on the
+/// hook's entity and cursor stack.
+pub(super) fn api_button(
+    game: &mut Game<'_>,
+    pos: [i32; 3],
+    entity: &mut mod_api::ModBlockEntity,
+    id: i32,
+    carried: &mut Option<mod_api::ItemStack>,
+) {
+    use crate::game::api_values::{TryIntoApi, TryIntoEngine};
+    let (mut engine, slots) = engine_entity(entity, Some(game.items()));
+    button(game, pos, &mut engine, id);
+    let before = carried.clone();
+    let mut held = carried.as_ref().and_then(|s| s.try_into_engine(game.items()).ok());
+    super::mek_qio::button(game, pos, &mut engine, id, &mut held);
+    write_back(&engine, entity, slots);
+    let after = match held.filter(|s| s.count > 0) {
+        Some(stack) => stack.try_into_api().ok(),
+        None => None,
+    };
+    if after != before {
+        *carried = after;
+    }
+}
+
+/// The item `item` leaves when it is used up in crafting or as fuel (a lava bucket's bucket), as the fork's
+/// `native_crafting_remainder` gave it: upstream's `crafting_remainder` of one of it.
+pub(super) fn crafting_remainder(game: &Game<'_>, item: &str) -> Option<ItemStack> {
+    game.crafting_remainder(&ItemStack::new(item, 1))
+}
+
+/// A world fluid stack as the hooks' (`mod_api`'s): none for the empty stack and a fluid the registry has no key for
+/// (as `machines::native_fluid_handler`'s, which is private to its module).
+fn api_fluid_stack(stack: &FluidStack) -> Option<mod_api::FluidStack> {
+    if stack.is_empty() {
+        return None;
+    }
+    let key = mod_api::__private::fluid_key(stack.name())?;
+    let mut api = mod_api::FluidStack::new(key, stack.amount().max(0).unsigned_abs());
+    if !stack.components().is_empty() {
+        api.components = Some(Box::new(stack.components().clone().into()));
+    }
+    Some(api)
 }

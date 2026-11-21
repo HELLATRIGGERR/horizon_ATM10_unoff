@@ -10,12 +10,9 @@
 // parts (`GuiBioGenerator`, `GuiWindGenerator`) and `/mek probe`. The rest of a generator (its store, Forge
 // Energy and cables on its energy faces, the solar screen) is `mek_world`'s and `mek_ui`'s.
 
-use super::{
-    Game,
-    mek_ui::{self, Pen},
-    mek_world::{self, key},
-    native_hooks::NativeFluidTankInfo,
-};
+use super::{Game, mek_ui::{self, Pen}, mek_world::{self, key}};
+use horizon_core::nbt::{Compound, Tag};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{containers::ModBlockEntity, items::ItemStack};
 use horizon_core::geometry::Direction as Face;
 use horizon_world::{
@@ -23,7 +20,6 @@ use horizon_world::{
     fluid::{FluidKind, FluidState},
     fluid_stack::FluidStack,
     level::flags,
-    nbt::{Compound, Tag},
 };
 use mekanism_energy::{
     bio,
@@ -189,7 +185,7 @@ fn bio_fuel_in(game: &Game<'_>, stack: &ItemStack, tank: &FluidStack) -> Fuel {
         count: stack.count,
         fluid,
         burn_time: 0,
-        has_remainder: game.native_crafting_remainder(&stack.item).is_some(),
+        has_remainder: super::mek_world::crafting_remainder(game, &stack.item).is_some(),
         takes_lava: tank.is_empty() || tank.name() == bio::BIOETHANOL,
     }
 }
@@ -227,7 +223,7 @@ fn tick_bio(
                 _ => amount = before,
             },
             SlotUse::Remainder => {
-                let rest = game.native_crafting_remainder(&stack.item);
+                let rest = super::mek_world::crafting_remainder(game, &stack.item);
                 if let Some(slot) = entity.items.first_mut() {
                     *slot = rest;
                 }
@@ -273,7 +269,7 @@ fn tick_bio(
 /// The bio-generator's tank through `face` (`FluidTankHelper.forSide(facing).addTank(bioFuelTank, LEFT, RIGHT,
 /// BACK, TOP, BOTTOM)`); the null side reads it. None for any other block, and on the front.
 fn bio_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<Option<Face>> {
-    if GeneratorKind::of_block(&entity.id) != Some(GeneratorKind::Bio) {
+    if GeneratorKind::of_block(&entity.id()) != Some(GeneratorKind::Bio) {
         return None;
     }
     match face {
@@ -401,7 +397,7 @@ fn advanced_checks(game: &Game<'_>, pos: [i32; 3]) -> Option<AdvancedSolar> {
     let mut checks = [SolarCheck::new(0.8, 0.0, false); 9];
     for (i, offset) in solar::ADVANCED_CHECKS.iter().enumerate() {
         let biome = game.native_biome_climate(beside(pos, *offset))?;
-        let rain = biome.precipitation != super::native_hooks::NativePrecipitation::None;
+        let rain = biome.precipitation != mod_api::NativePrecipitation::None;
         checks[i] = SolarCheck::new(biome.temperature, biome.downfall, rain);
     }
     let frequencies = [0_u32; 9].map(|_| 10 + (super::mek_machines::draw_random() * 21.0) as u32);

@@ -54,6 +54,21 @@ const GATES: &[(HookId, &str)] = &[
     // `capture_hit`; mobs/creatures/death_weapon.rs: Mystical Agriculture's crops have no loot table, their drops are
     // the bundle's.
     (HookId::LootDrops, "loot_drops"),
+    // network/lan_actions/tick.rs `guest_player_tick`; network/remote/mod.rs.
+    (HookId::PlayerTickPre, "player_tick_pre"),
+    (HookId::PlayerTickPost, "player_tick_post"),
+    // items/use_hand.rs: the block's native_use_item_on (a part hook + block_listens).
+    (HookId::UseItemOn, "use_item_on"),
+    // modding/api_values.rs `api_menu_quick_move`.
+    (HookId::MenuQuickMove, "menu_quick_move"),
+    // modding/api_values.rs `api_block_entity_update_tag`.
+    (HookId::BlockEntityUpdateTag, "block_entity_update_tag"),
+    // modding/api_values.rs `api_block_entity_submit`.
+    (HookId::BlockEntitySubmit, "block_entity_submit"),
+    // native_hooks/shared.rs `screen_char_canceled`.
+    (HookId::ScreenCharTypedPre, "screen_char_typed_pre"),
+    // native_hooks/shared.rs `item_use_first` (a part hook).
+    (HookId::OnItemUseFirst, "on_item_use_first"),
 ];
 
 /// Whether `injected` (the hooks of applied injections) holds the gated hook `hook`.

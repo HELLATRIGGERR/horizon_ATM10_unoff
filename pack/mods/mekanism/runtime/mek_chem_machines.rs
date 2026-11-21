@@ -12,7 +12,8 @@
 // `mek_machines`' as for the other machines.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_machines::{self, Saved},
     mek_ui::{self, Pen, Rect},
 };

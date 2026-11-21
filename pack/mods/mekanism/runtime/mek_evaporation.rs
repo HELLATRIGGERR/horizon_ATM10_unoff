@@ -19,8 +19,9 @@ use super::{
     mek_dynamic_tank::{self as tank, Fluid},
     mek_multiblock::{self as mb, Formed, Kind},
     mek_ui::{self, Pen, Rect},
-    native_hooks::{NativeFluidTankInfo, NativeScreen},
 };
+use mod_api::{Screen as NativeScreen};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{hud::HudBatch, items::ItemStack};
 use horizon_core::geometry::Direction as Face;
 use horizon_world::{
@@ -389,7 +390,7 @@ fn pack(fluids: [(&FluidStack, i32); 2], height: i32, temperature: f64, gain: f6
         out.push((v >> 16) as i32);
     };
     for (fluid, capacity) in fluids {
-        out.push(if fluid.is_empty() { -1 } else { fluid.fluid().id() as i32 });
+        out.push(if fluid.is_empty() { -1 } else { fluid.fluid().tick_id() as i32 });
         split(&mut out, fluid.amount().max(0) as u32);
         split(&mut out, capacity.max(0) as u32);
     }
@@ -452,12 +453,12 @@ pub(super) fn screen() -> NativeScreen {
         inventory_y: 84.0,
         inventory_x: 18.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 
 fn fluid_name(number: i32) -> Option<String> {
-    (number >= 0).then(|| FluidKind::from_id(number as u32)).flatten().map(|f| title_case(f.name()))
+    (number >= 0).then(|| FluidKind::from_tick_id(number as u32)).flatten().map(|f| title_case(f.name()))
 }
 
 fn title_case(id: &str) -> String {

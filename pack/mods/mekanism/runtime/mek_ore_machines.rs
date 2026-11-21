@@ -14,7 +14,8 @@
 // `mek_machines`' as for the other machines.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_chem_machines::{self, Made},
     mek_machines::{self, ItemIn, Saved},
     mek_ui::{self, Pen, Rect},
@@ -514,7 +515,7 @@ pub(super) fn number(t: &ChemicalTank, registry: &ChemicalRegistry) -> (i32, u64
 }
 
 pub(super) fn fluid_view(fluid: &FluidStack) -> (i32, u64) {
-    if fluid.is_empty() { (0, 0) } else { (fluid.fluid().id() as i32, fluid.amount().max(0) as u64) }
+    if fluid.is_empty() { (0, 0) } else { (fluid.fluid().tick_id() as i32, fluid.amount().max(0) as u64) }
 }
 
 /// A first cache takes the saved progress (`loadSavedData`); another recipe starts at 0.
@@ -932,7 +933,7 @@ pub(super) fn fluid_line(id: i32, amount: u64) -> String {
     if amount == 0 {
         return "Empty".to_owned();
     }
-    let name = FluidKind::from_id(id as u32).map_or("Fluid", |f| if f == FluidKind::Water { "Water" } else { f.name() });
+    let name = FluidKind::from_tick_id(id as u32).map_or("Fluid", |f| if f == FluidKind::Water { "Water" } else { f.name() });
     format!("{name}: {} mB", display::thousands(amount))
 }
 
@@ -977,7 +978,7 @@ pub(super) fn tip(kind: MachineKind, view: &MachineView, data: &[i32], at: [f32;
 }
 
 /// The fluid tank, for the probe.
-pub(super) fn probe_fluid(nbt: &horizon_world::nbt::Compound) -> serde_json::Value {
+pub(super) fn probe_fluid(nbt: &horizon_core::nbt::Compound) -> serde_json::Value {
     let fluid = super::mek_world::saved_tank(nbt);
     serde_json::json!({ "id": (!fluid.is_empty()).then(|| fluid.fluid().name()), "amount": fluid.amount() })
 }

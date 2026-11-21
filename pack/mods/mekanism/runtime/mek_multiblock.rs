@@ -21,12 +21,10 @@
 // game.
 
 use super::{Game, mek_world};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use mod_api::{AttachmentCodec, AttachmentError, AttachmentType, Holder};
 use horizon_client::{containers::ModContainer, items::ItemStack, particles::ParticleOptions, text::Text};
-use horizon_world::{
-    attachments::{AttachmentCodec, AttachmentError, AttachmentType, Holder},
-    fluid_stack::FluidStack,
-    nbt::{Compound, JavaString, Tag},
-};
+use horizon_world::fluid_stack::FluidStack;
 use mekanism_energy::{
     boiler,
     chemical::{ChemicalRegistry, ChemicalStack},
@@ -1122,7 +1120,7 @@ fn load_caches(game: &mut Game<'_>, dimension: &str) {
     let registry = super::mek_chemicals::registry(game);
     let mut loaded: HashMap<Kind, BTreeMap<Uuid, Cache>> = HashMap::new();
     for kind in Kind::ALL {
-        let data = game.native_attachments(Holder::Level).ok().and_then(|a| a.get_existing(kind.attachment()).ok().flatten());
+        let data = kind.attachment().get_existing(game.attachments(), Holder::Level).ok().flatten();
         let mut caches = BTreeMap::new();
         if let Some(Tag::List(list)) = data.as_ref().and_then(|d| d.get(&key("cache"))) {
             for entry in list {
@@ -1160,9 +1158,7 @@ fn save_caches(game: &mut Game<'_>, dimension: &str) {
             .collect()
     });
     for (kind, data) in out {
-        if let Ok(a) = game.native_attachments(Holder::Level)
-            && let Err(e) = a.set(kind.attachment(), data)
-        {
+        if let Err(e) = kind.attachment().set(game.attachments(), Holder::Level, data) {
             log::warn!("[mekanism] the {} caches weren't kept: {e:?}", kind.data_name());
         }
     }

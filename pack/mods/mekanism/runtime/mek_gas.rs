@@ -11,12 +11,13 @@
 // generator (its store, Forge Energy and cables on its front) is `mek_world`'s.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_ui::{self, Pen},
     mek_world::{self, key},
 };
 use horizon_client::containers::ModBlockEntity;
-use horizon_world::nbt::Tag;
+use horizon_core::nbt::Tag;
 use mekanism_energy::{
     chemical::{self, ChemicalHandler, ChemicalRegistry, ChemicalStack, ChemicalTank, Fuel, SidedTanks, TankRules},
     chemical_tank::{self, OwnTank},
@@ -180,7 +181,7 @@ pub(super) fn chemical_handler<R>(
 }
 
 /// What `/mek probe` adds for a gas-burning generator.
-pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], nbt: &horizon_world::nbt::Compound, data: &[i32], out: &mut serde_json::Value) {
+pub(super) fn probe(game: &Game<'_>, pos: [i32; 3], nbt: &horizon_core::nbt::Compound, data: &[i32], out: &mut serde_json::Value) {
     let registry = mek_chemicals::registry(game);
     let (config, _) = mek_world::energy_config();
     let stored = mek_chemicals::read_tanks(nbt, 1, &registry).pop().unwrap_or(ChemicalStack::EMPTY);
@@ -214,7 +215,7 @@ pub(super) fn draw(pen: &mut Pen<'_, '_>, data: &[i32]) {
     }
     pen.whole("gauge/wide", [64.0, 48.0], [GAUGE[0] + 1.0, GAUGE[1] + 1.0, 64.0, 48.0]);
     let rate = format!("Burn Rate: {} mB/t", view.burn_rate);
-    let w = pen.game.native_text_width(&rate);
+    let w = horizon_client::hud::HudBatch::text_width(&pen.game.gui.atlas, &rate);
     pen.text(&rate, [168.0 - w, 72.0], mek_ui::TITLE);
 }
 

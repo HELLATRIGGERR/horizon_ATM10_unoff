@@ -13,21 +13,20 @@
 // the item's tooltip and bar, and `/mek probe`.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_ui::{self, Pen, Rect},
     mek_world::{self, ITEM, key, number},
-    native_hooks::NativeScreen,
 };
+use horizon_core::nbt::{Compound, Tag};
+use mod_api::{Screen as NativeScreen};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     hud::HudBatch,
     items::ItemStack,
     text::Text,
 };
-use horizon_world::{
-    level::flags,
-    nbt::{Compound, Tag},
-};
+use horizon_world::level::flags;
 use mekanism_energy::{
     chemical::{ChemicalHandler, ChemicalRegistry, ChemicalStack, ChemicalTank},
     chemical_tank::{self, ItemTank, OwnTank, TankBlock, TankSide},
@@ -322,7 +321,7 @@ pub(super) fn chemical_handler<R>(
     registry: &ChemicalRegistry,
     use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R,
 ) -> Option<R> {
-    let tier = tier_of(&entity.id)?;
+    let tier = tier_of(&entity.id())?;
     let (config, _) = mek_world::energy_config();
     let block = block(&config, tier);
     let state = read(&entity.nbt);
@@ -372,7 +371,7 @@ fn press(sides: &mut [DataType; 6], button: Button) {
 /// `native_menu_button`: the side configuration (chemicals, items, the
 /// chemical eject) and the dump mode (`nextMode(0)`).
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
-    let (Some(tier), Some(button)) = (tier_of(&entity.id), MachineButton::from_id(id)) else {
+    let (Some(tier), Some(button)) = (tier_of(&entity.id()), MachineButton::from_id(id)) else {
         return;
     };
     let before = read(&entity.nbt);
@@ -411,7 +410,7 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) -> b
     let facing = game.native_player().map_or(Direction::North, |p| sides::placement_facing(p.yaw, 0.0));
     let saved = mekanism_data(stack);
     let done = game.native_with_mod_block_entity(pos, |m| {
-        (tier_of(&m.id) == Some(tier)).then(|| {
+        (tier_of(&m.id()) == Some(tier)).then(|| {
             for name in ["chemical_tanks", "component_config", "dumping"] {
                 if let Some(tag) = saved.as_ref().and_then(|s| s.get(&key(name))) {
                     m.nbt.insert(key(name), tag.clone());
@@ -524,7 +523,7 @@ pub(super) fn screen() -> NativeScreen {
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 

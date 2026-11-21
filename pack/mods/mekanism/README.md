@@ -657,3 +657,50 @@ assets when `mekanism-content` is given them.
   Mekanism's core does. A plain use on a transmitter doesn't toggle redstone sensitivity (not ported); block
   security and the radiation check of the wrench aren't ported; the empty mode takes every slot the block keeps,
   its upgrade holder's too.
+
+## On upstream's hooks (merge of nightly-source/2026-11-18)
+
+- Settings are read at `server_started` (and on first use) and dropped, with everything the bundle keeps in memory,
+  at `world_lifecycle` v2's close phases.
+- **The hook boundary** (`mek_world.rs`, last section): upstream's hooks hand the API's block entity
+  (`mod_api::ModBlockEntity`, slots of API stacks) where the bundle's code is written on the engine's
+  (`horizon_client::containers::ModBlockEntity`, what the levels' maps hold). `engine_entity` makes the engine's form
+  (slots converted when the hook gives the game, else none: the energy, fluid and draw hooks read the compound only)
+  and `write_back` puts back the compound, data and slots the code changed. The fluid hooks take and give
+  `mod_api::FluidStack`s (`Option` tank stacks): `fluid_tanks`, `fluid_fill` and `fluid_drain` convert at the edge
+  and the bundle keeps world `FluidStack`s inside (`mek_world::NativeFluidTankInfo` is the fork's tank readback).
+- `fe_receive`, `fe_extract`, `fluid_handler_fill` and `fluid_handler_drain` pass one `*Call`: `MODIFY_ARG`
+  injections on the call into `fire_*`. `chemical_handler_insert`/`_extract` need the game too: a HEAD injection
+  answers into a thread-local (`mek_chemicals::set_answer`) that the `MODIFY_ARG` helper reads; `use_item` likewise
+  (`mek_radiation::set_use_claimed`).
+- Renamed hooks: `perform_command` -> `run_mod_command` (`/mek [line:text]`, operators; the line is rebuilt and
+  parsed as before), `menu_button_v2` folded into `menu_button` (its context carries the position and id, its cursor
+  stack is the API's), `player_tick` -> `player_tick_post` (both sides: the dose is the server's), `tick` ->
+  `client_tick_post`, `frame` -> `render_frame_pre`, `destroy_block` -> `break_block`, `place_block` ->
+  `on_block_placed_by`, the fork's `use_item_on` -> `on_item_use_first` (`onItemUseFirst`: the item's first say,
+  before the block and also on a sneaking click; upstream's `use_item_on` is the block's own `useItemOn`, which a
+  sneaking click with an item skips); it and `right_click_block` read upstream's `BlockClick` (a click Mekanism takes
+  ends as `Success`).
+- The fork's `NativeServerPlayer` is gone: `mek_world::server_player` reads the same fields from a `PlayerRef`
+  (`acting_player` for the player a hook runs for).
+- Smaller moves: attachments are `TYPE.get_existing(game.attachments(), holder)`; text is measured on the GUI atlas,
+  sprites take a tint; a block entity draw goes through `native_draw_push`/`_translate`/...; models through
+  `native_model`; fluids' screen numbers are `FluidKind::tick_id`; `native_explode` acts in the level in place.
+- Gated targets: upstream calls `menu_button`, `menu_quick_move`, `block_entity_update_tag`, `block_entity_submit`,
+  `player_tick_post`, `on_item_use_first`, `use_item`, `on_block_placed_by`, `right_click_block`,
+  `screen_char_typed_pre` and `screen_render_post` only while a trait mod listens; N5's gates
+  (`fork_compat/bundle_hooks.rs`) also open them for this bundle's injections.
+- `block_entity_types` (a fork compat hook, E2) declares the bundle's block entity types: upstream makes a mod block
+  entity only for a block a declared type names, and a mixin bundle has no `register()`. One type per id
+  `new_entity_with_id` gives, with the blocks that give it, so the ids the runtime compares stay fork main's. The
+  candidates are `mek_world::CONTENT_BLOCKS` (the two content mods' blockstates): a block the content gains needs its
+  line there.
+- The damage types (`radiation`, `flamethrower`, `laser`, `sps`) join the server's data through `data_pack_files`
+  (`mek_radiation::DAMAGE_TYPES`): the world's mod content carries no `data/mekanism/damage_type`, and a hurt of an
+  unknown type hurts nobody. The engine resolves a hurt's type in the world's damage registry, where they are
+  (`hurt_target`, and the player's hurt continuations in `items/item_durability.rs`).
+- World suites: run them with resources made by this engine's horizon-prepare (output version 5; HANDOFF "S3", N7).
+- Engine needs (HANDOFF "S3"): `menu_quick_move`'s stack can't end empty (the API's `ItemStack` is never 0): a
+  shift-click into a QIO dashboard moves all but one item (`qio` stops at 86 of 89). A key over a chemical in JEI's
+  ingredient list carries the air placeholder (S5's E3), so U on the hydrogen in the list opens nothing
+  (`jei-chemicals`).

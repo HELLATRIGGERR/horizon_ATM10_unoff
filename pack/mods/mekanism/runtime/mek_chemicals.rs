@@ -17,11 +17,8 @@
 // (`native_chemical_handler_*`: `tanks`, `insert`, `extract` below;
 // docs/appmek.md).
 
-use super::{
-    Game, mek_machines,
-    mek_world::{key, number},
-};
-use horizon_world::nbt::{Compound, Tag};
+use super::{Game, mek_machines, mek_world::{key, number}};
+use horizon_core::nbt::{Compound, Tag};
 use mekanism_energy::{
     chemical::{Chemical, ChemicalHandler, ChemicalRegistry, ChemicalStack},
     sides::Direction,
@@ -223,11 +220,11 @@ fn shared_handler<R, F: FnOnce(&mut dyn ChemicalHandler) -> R>(game: &Game<'_>, 
 /// The handler of a block entity of the bundle's: a tank's, a gas machine's, a factory's or
 /// another machine's.
 fn entity_handler<R>(m: &mut horizon_client::containers::ModBlockEntity, face: Option<Direction>, registry: &ChemicalRegistry, use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R) -> Option<R> {
-    if super::mek_tanks::tier_of(&m.id).is_some() {
+    if super::mek_tanks::tier_of(&m.id()).is_some() {
         super::mek_tanks::chemical_handler(m, face, registry, use_it)
-    } else if super::mek_gas::is_gas(&m.id) {
+    } else if super::mek_gas::is_gas(&m.id()) {
         super::mek_gas::chemical_handler(m, face, registry, use_it)
-    } else if super::mek_factories::has_chemicals(&m.id) {
+    } else if super::mek_factories::has_chemicals(&m.id()) {
         super::mek_factories::chemical_handler(m, face, registry, use_it)
     } else {
         mek_machines::chemical_handler(m, face, registry, use_it)
@@ -244,7 +241,7 @@ struct EngineHandler<'a, 'g> {
     dimension: &'static str,
     pos: [i32; 3],
     face: Option<horizon_core::geometry::Direction>,
-    tanks: Vec<horizon_client::mod_api::NativeChemicalTankInfo>,
+    tanks: Vec<mod_api::NativeChemicalTankInfo>,
 }
 
 impl EngineHandler<'_, '_> {
@@ -319,7 +316,7 @@ impl ChemicalHandler for EngineHandler<'_, '_> {
 /// `native_chemical_handler_tanks`: the tanks of the block at `pos` through `face` (the engine's
 /// side), each with whether a simulated extraction of its chemical gives any. None on another
 /// level, a block without a handler there.
-pub(super) fn tanks(game: &Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>) -> Option<Vec<horizon_client::mod_api::NativeChemicalTankInfo>> {
+pub(super) fn tanks(game: &Game<'_>, dimension: &str, pos: [i32; 3], face: Option<horizon_core::geometry::Direction>) -> Option<Vec<mod_api::NativeChemicalTankInfo>> {
     if dimension != game.native_dimension() {
         return None;
     }
@@ -328,7 +325,7 @@ pub(super) fn tanks(game: &Game<'_>, dimension: &str, pos: [i32; 3], face: Optio
             .map(|tank| {
                 let held = h.in_tank(tank);
                 let extractable = !held.is_empty() && !h.extract_stack(&held.copy_with_amount(1), true).is_empty();
-                horizon_client::mod_api::NativeChemicalTankInfo {
+                mod_api::NativeChemicalTankInfo {
                     chemical: held.id().unwrap_or_default().to_string(),
                     amount: held.amount().max(0),
                     capacity: h.capacity(tank),
@@ -484,4 +481,19 @@ pub(super) fn registry_command(game: &Game<'_>, id: Option<&str>) -> Value {
         None => json!({ "id": id, "error": "not registered" }),
     });
     json!({ "count": registry.len(), "namespaces": namespaces, "kinds": kinds, "chemical": chemical })
+}
+
+thread_local! {
+    /// What the head of `native_chemical_handler_insert`/`_extract` answered, for the call's answer.
+    static ANSWER: std::cell::Cell<Option<i64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The head of a chemical handler call: Mekanism's answer (none: not a Mekanism block).
+pub(super) fn set_answer(answer: Option<i64>) {
+    ANSWER.set(answer);
+}
+
+/// The answer half of a chemical handler call: what the head answered (once).
+pub(super) fn take_answer() -> Option<i64> {
+    ANSWER.take()
 }

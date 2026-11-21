@@ -8,11 +8,8 @@
 // the other machines have them. Its tick is `mek_machines`' (`mekanism_energy::nucleo`); the
 // lightning between its slots (`BoltRenderer`) is not drawn.
 
-use super::{
-    Game, mek_chem_machines,
-    mek_ui::{self, MachineHit, Pen, Rect, inside},
-    native_hooks::NativeScreen,
-};
+use super::{Game, mek_chem_machines, mek_ui::{self, MachineHit, Pen, Rect, inside}};
+use mod_api::{Screen as NativeScreen};
 use horizon_client::hud::HudBatch;
 use mekanism_energy::{
     config::EnergyConfig,
@@ -59,7 +56,7 @@ pub(super) fn screen() -> NativeScreen {
         inventory_y: INVENTORY[1],
         inventory_x: INVENTORY[0],
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 

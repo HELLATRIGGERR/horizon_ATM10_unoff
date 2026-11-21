@@ -8,7 +8,7 @@
 // registers its chemical ingredient type; energy is a note in Joules.
 // The recipes are the window's own content (the `mekanism` content mod's), the same on a server's client.
 use super::{Game, mek_chemicals, mek_machines};
-use horizon_client::mod_api::{
+use mod_api::{
     NativeCategoryRecipe, NativeChanceOutput, NativeIngredientInfo, NativeRecipeCategory, NativeStack,
 };
 use horizon_world::{fluid::FluidKind, fluid_ingredient::SizedFluidIngredient};

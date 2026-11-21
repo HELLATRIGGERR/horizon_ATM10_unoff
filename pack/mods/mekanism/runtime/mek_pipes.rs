@@ -17,13 +17,11 @@
 // transporters and the fluid tanks. No borrow of this state is held across a
 // call into the game.
 
-use super::{Game, mek_world::key, native_hooks::NativeFluidTankInfo};
+use super::{Game, mek_world::key};
+use horizon_core::nbt::{Compound, Tag};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    fluid_stack::FluidStack,
-    level::flags,
-    nbt::{Compound, Tag},
-};
+use horizon_world::{fluid_stack::FluidStack, level::flags};
 use mekanism_energy::{
     config,
     network::{self, Connection, Member, Networks},
@@ -254,7 +252,7 @@ fn held(nets: &Networks, pos: [i32; 3]) -> (FluidStack, i32) {
 /// `DynamicFluidHandler` over its network's tank): one tank, none on a side
 /// cut with the Configurator. Whether `entity` is a pipe.
 pub(super) fn fluid_tanks(dimension: &str, pos: [i32; 3], face: Option<Face>, entity: &horizon_client::containers::ModBlockEntity, tanks: &mut Option<Vec<NativeFluidTankInfo>>) -> bool {
-    if tier_of(&entity.id).is_none() {
+    if tier_of(&entity.id()).is_none() {
         return false;
     }
     let side = face.map(|f| super::mek_world::mek_direction(f) as usize);
@@ -271,7 +269,7 @@ pub(super) fn fluid_tanks(dimension: &str, pos: [i32; 3], face: Option<Face>, en
 /// accepts (normal, pull), of the network's one fluid (any while it holds
 /// none). Whether `entity` is a pipe.
 pub(super) fn fluid_fill(dimension: &str, pos: [i32; 3], face: Option<Face>, entity: &horizon_client::containers::ModBlockEntity, resource: &FluidStack, simulate: bool, filled: &mut Option<i32>) -> bool {
-    if tier_of(&entity.id).is_none() {
+    if tier_of(&entity.id()).is_none() {
         return false;
     }
     let side = face.map(|f| super::mek_world::mek_direction(f) as usize);
@@ -299,7 +297,7 @@ pub(super) fn fluid_drain(
     simulate: bool,
     drained: &mut Option<FluidStack>,
 ) -> bool {
-    if tier_of(&entity.id).is_none() {
+    if tier_of(&entity.id()).is_none() {
         return false;
     }
     let side = face.map(|f| super::mek_world::mek_direction(f) as usize);
@@ -457,7 +455,7 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
 pub(super) fn set_connection(game: &mut Game<'_>, pos: [i32; 3], face: Direction, connection: Connection) -> Option<Value> {
     let dimension = game.native_dimension();
     game.native_with_mod_block_entity(pos, |m| {
-        tier_of(&m.id)?;
+        tier_of(&m.id())?;
         let mut connections = connections_of(&m.nbt);
         connections[face as usize] = connection;
         write_connections(&mut m.nbt, &connections);
@@ -476,7 +474,7 @@ pub(super) fn set_connection(game: &mut Game<'_>, pos: [i32; 3], face: Direction
 /// What `/mek probe` answers for a pipe.
 pub(super) fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> Value {
     let dimension = game.native_dimension();
-    let id = game.native_with_mod_block_entity(pos, |m| m.id.clone()).unwrap_or_default();
+    let id = game.native_with_mod_block_entity(pos, |m| m.id().to_owned()).unwrap_or_default();
     let Some(tier) = tier_of(&id) else {
         return json!({ "pos": pos, "id": id, "error": "not a pipe" });
     };

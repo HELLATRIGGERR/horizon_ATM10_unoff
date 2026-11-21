@@ -276,7 +276,7 @@ impl Game<'_> {
         hook: mod_api::HookId,
         fire: fn(&mut Self, mod_api::PlayerRef),
     ) {
-        if !mod_api::__private::listened(hook) {
+        if !crate::game::fork_compat::heard(hook) {
             return;
         }
         let (Some(epoch), Some(host)) = (self.native_lifecycle.epoch(), self.lan.as_ref()) else {

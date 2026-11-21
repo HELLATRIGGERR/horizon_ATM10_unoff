@@ -10,11 +10,8 @@
 // Mekanism draws them; the upgrade component's slots sit beside the panel's
 // right edge.
 
-use super::{
-    Game,
-    mek_ui::{self, MachineHit, Pen, Rect, inside},
-    native_hooks::NativeScreen,
-};
+use super::{Game, mek_ui::{self, MachineHit, Pen, Rect, inside}};
+use mod_api::{Screen as NativeScreen};
 use horizon_client::hud::HudBatch;
 use mekanism_energy::{
     config::EnergyConfig,
@@ -179,7 +176,7 @@ pub(super) fn screen(kind: ProcessKind) -> NativeScreen {
         inventory_y: g.inventory[1],
         inventory_x: g.inventory[0],
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 

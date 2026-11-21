@@ -24,6 +24,7 @@
 //   MEK_TOOL_TARGET  target dir of the pack's crates <base>/.build/target-mek
 //   HORIZON_MIXINS   the horizon-mixins binary       <base>/.build/target-mixins/debug/horizon-mixins
 //   MEK_JOBS         cargo jobs                      2
+//   MEK_FEATURES     the game's Cargo features       ae2-lab,ae2-appmek (`-p horizon-atm10 --no-default-features`)
 // `world` also passes ATM10_DIR (ATM10's settings), AE2_RESOURCES and AE2_CONTENT_DIR through to the harness.
 // Building native code is the player's own decision; the launcher's `native-build` is the player's route.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -31,6 +32,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
 import { withLocalBundles } from './local-bundles';
 import { runSuites, takeJobs } from '../../ae2/scripts/suites';
+import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -132,12 +134,16 @@ const steps: Record<string, () => Promise<void>> = {
     // horizon-mixins replaces an existing stage only on Linux: apply into a fresh folder, then copy what changed.
     const next = `${stage}-next`;
     rmSync(next, { recursive: true, force: true });
-    await run([mixins, 'apply', '--workspace', root, '--mods', withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`), '--out', next]);
+    await applyBundles(command => run(command), mixins, root, withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`), next, toolTarget);
     console.log(`${syncStage(next, stage)} file(s) of ${stage} changed`);
     rmSync(next, { recursive: true, force: true });
   },
   async build() {
-    await run(['cargo', 'build', '--locked', '--profile', profile, '-p', 'horizon-atm10', '--no-default-features', '--features', 'ae2-lab,ae2-appmek', '--bins', '-j', jobs, '--target-dir', target], stage);
+    // The fork's game package (docs/ae2-crates.md, D3): horizon-game's program with the AE2 crates above horizon-client
+    // installed first, Applied Mekanistics (`horizon-ae2x-appmek`) among them, so the appmek suites find their addon;
+    // `-p horizon-game` leaves them out. Its executable keeps horizon-client's name.
+    const game = gameBuild(process.env.MEK_FEATURES ?? 'ae2-lab,ae2-appmek').map(arg => (arg === 'horizon-game' ? 'horizon-atm10' : arg));
+    await run(['cargo', 'build', '--locked', '--profile', profile, ...game, '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   async world() {
     const binary = join(target, `${profile}/horizon-client${exe}`);

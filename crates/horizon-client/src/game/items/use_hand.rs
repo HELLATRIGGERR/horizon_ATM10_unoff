@@ -199,7 +199,7 @@ impl Game<'_> {
             let mut block_answer =
                 self.use_item_on_block(hit, self.hand, held.as_ref(), mod_api::UsePhase::Block);
             if block_answer.is_none()
-                && mod_api::__private::has_part_hook(mod_api::HookId::UseItemOn)
+                && crate::game::fork_compat::part_heard(mod_api::HookId::UseItemOn)
                 && api_values::block_state::block_listens(mod_api::HookId::UseItemOn, state)
                 && let Ok(snapshot) = held.try_into_api()
             {

@@ -16,12 +16,10 @@
 // transporters are taken out while it ticks.
 
 use super::{Game, mek_world::key, native_block_entity_draw::BlockEntityDraw};
+use horizon_core::nbt::{Compound, Tag};
 use horizon_assets::item_model::DisplayContext;
 use horizon_client::{containers::ModBlockEntity, items::ItemStack};
-use horizon_world::{
-    level::flags,
-    nbt::{Compound, Tag},
-};
+use horizon_world::level::flags;
 use mekanism_energy::{
     network::{self, Connection, Pos},
     sides::Direction,
@@ -448,7 +446,7 @@ fn write_client(game: &mut Game<'_>, dimension: &str, pos: Pos) {
 
 /// `native_block_entity_update_tag` of a transporter: what `write_client` wrote.
 pub(super) fn update_tag(entity: &ModBlockEntity, tag: &mut Option<Compound>) {
-    if tag.is_some() || tier_of(&entity.id).is_none() {
+    if tag.is_some() || tier_of(&entity.id()).is_none() {
         return;
     }
     let mut out = Compound::new();
@@ -467,28 +465,28 @@ pub(super) fn draw(game: &Game<'_>, pos: Pos, block: &str, entity: &ModBlockEnti
     let number = n(view, "number").unwrap_or(0);
     let first = SEEN.with(|s| {
         let mut s = s.borrow_mut();
-        let entry = s.entry(pos).or_insert((number, draw.game_time));
+        let entry = s.entry(pos).or_insert((number, game.native_draw_game_time(draw)));
         if entry.0 != number {
-            *entry = (number, draw.game_time);
+            *entry = (number, game.native_draw_game_time(draw));
         }
         entry.1
     });
-    let elapsed = (draw.game_time - first).max(0) as f32;
+    let elapsed = (game.native_draw_game_time(draw) - first).max(0) as f32;
     let speed = n(view, "speed").unwrap_or(5) as f32;
     let Some(Tag::List(stacks)) = view.get(&key("stacks")) else { return };
     for (i, entry) in stacks.iter().enumerate() {
         let Tag::Compound(c) = entry else { continue };
         let Some(stack) = c.get(&key("item")).and_then(horizon_client::save::item_from_nbt) else { continue };
         // `onUpdateClient`: the client moves it on by the speed a tick, up to 100.
-        let progress = (n(c, "progress").unwrap_or(0) as f32 + speed * (elapsed + draw.partial)).min(100.0);
+        let progress = (n(c, "progress").unwrap_or(0) as f32 + speed * (elapsed + game.native_draw_partial(draw))).min(100.0);
         let side = if progress < 50.0 { n(c, "from") } else { n(c, "to") }.unwrap_or(0).clamp(0, 5) as usize;
         let s = network::SIDES[side];
         let p = progress / 100.0 - 0.5;
-        draw.push();
-        draw.translate([0.5 + s[0] as f32 * p, 0.25 + s[1] as f32 * p, 0.5 + s[2] as f32 * p]);
-        draw.scale([0.75; 3]);
+        game.native_draw_push(draw);
+        game.native_draw_translate(draw, [0.5 + s[0] as f32 * p, 0.25 + s[1] as f32 * p, 0.5 + s[2] as f32 * p]);
+        game.native_draw_scale(draw, [0.75; 3]);
         game.native_draw_item(draw, &stack, DisplayContext::Ground, None, i as i32);
-        draw.pop();
+        game.native_draw_pop(draw);
     }
 }
 
@@ -516,7 +514,7 @@ pub(super) fn insert_from(game: &mut Game<'_>, pos: Pos, from: Pos, stack: ItemS
 pub(super) fn set_connection(game: &mut Game<'_>, pos: Pos, side: Direction, connection: Connection) -> Option<Value> {
     let dimension = game.native_dimension();
     game.native_with_mod_block_entity(pos, |m| {
-        tier_of(&m.id)?;
+        tier_of(&m.id())?;
         let mut connections = connections_of(&m.nbt);
         connections[side as usize] = connection;
         write_connections(&mut m.nbt, &connections);
@@ -545,7 +543,7 @@ pub(super) fn set_color(game: &mut Game<'_>, pos: Pos, color: Option<Color>) -> 
     // The block entity first: one placed this tick is read from it at the next.
     let saved = game
         .native_with_mod_block_entity(pos, |m| {
-            takes_color(&m.id).then_some(())?;
+            takes_color(&m.id()).then_some(())?;
             let old = color_of(&m.nbt);
             match color {
                 Some(c) => m.nbt.insert(key("color"), Tag::Int(c.id())),
@@ -589,7 +587,7 @@ pub(super) fn color_named(name: &str) -> Option<Option<Color>> {
 /// What `/mek probe` answers for a transporter.
 pub(super) fn probe(game: &mut Game<'_>, pos: Pos) -> Value {
     let dimension = game.native_dimension();
-    let id = game.native_with_mod_block_entity(pos, |m| m.id.clone()).unwrap_or_default();
+    let id = game.native_with_mod_block_entity(pos, |m| m.id().to_owned()).unwrap_or_default();
     let Some(tier) = tier_of(&id) else {
         return json!({ "pos": pos, "id": id, "error": "not a transporter" });
     };

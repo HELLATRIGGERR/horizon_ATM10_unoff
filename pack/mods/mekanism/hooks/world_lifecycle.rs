@@ -1,5 +1,5 @@
-// A world opens or closes: Mekanism's settings are read or dropped, and the radiation sources in memory with them.
-fn mek_world_lifecycle(phase: crate::game::native_lifecycle::WorldPhase) {
+// The world closes (or fails to open): Mekanism's settings are dropped, and the radiation sources in memory with them.
+fn mek_world_lifecycle(phase: mod_api::WorldPhase) {
     crate::game::mek_world::lifecycle(phase);
     crate::game::mek_radiation::lifecycle();
 }

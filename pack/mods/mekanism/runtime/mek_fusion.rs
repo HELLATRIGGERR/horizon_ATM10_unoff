@@ -12,16 +12,14 @@
 // (`kill`), heat to adjacent blocks and the ports' Forge Energy.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_multiblock::{self as mb, Formed, Kind},
     mek_world,
 };
+use horizon_core::nbt::{Compound, Tag};
 use horizon_client::items::ItemStack;
-use horizon_world::{
-    fluid_stack::FluidStack,
-    level::flags,
-    nbt::{Compound, Tag},
-};
+use horizon_world::{fluid_stack::FluidStack, level::flags};
 use mekanism_energy::{
     chemical::{ChemicalHandler, ChemicalStack},
     config, evaporation,
@@ -426,7 +424,7 @@ pub(super) fn command(game: &mut Game<'_>, pos: Pos, words: &[&str]) -> Value {
         let Some(logic) = Logic::from_name(mode) else { return json!({ "error": "logic: disabled | ready | capacity | depleted" }) };
         let cooled = rest.first() == Some(&"cooled");
         let done = game.native_with_mod_block_entity(pos, |m| {
-            (m.id == ADAPTER).then(|| {
+            (m.id() == ADAPTER).then(|| {
                 m.nbt.insert(mek_world::key("logic_type"), Tag::Int(logic.id()));
                 m.nbt.insert(mek_world::key("active_cooled"), Tag::Byte(i8::from(cooled)));
             })

@@ -1780,7 +1780,7 @@ impl super::Game<'_> {
         entity: &crate::containers::ModBlockEntity,
         tag: &mut Option<horizon_core::nbt::Compound>,
     ) {
-        if !mod_api::__private::has_part_hook(mod_api::HookId::BlockEntityUpdateTag) {
+        if !crate::game::fork_compat::part_heard(mod_api::HookId::BlockEntityUpdateTag) {
             return;
         }
         if let Ok(api) = entity.try_into_api() {
@@ -1795,7 +1795,7 @@ impl super::Game<'_> {
         entity: &crate::containers::ModBlockEntity,
         draw: &mut super::native_block_entity_draw::BlockEntityDraw,
     ) {
-        if !mod_api::__private::has_part_hook(mod_api::HookId::BlockEntitySubmit) {
+        if !crate::game::fork_compat::part_heard(mod_api::HookId::BlockEntitySubmit) {
             return;
         }
         if let Ok(api) = entity.try_into_api() {
@@ -1884,7 +1884,7 @@ impl super::Game<'_> {
         stack: &mut EngineStack,
         handled: &mut bool,
     ) {
-        if !mod_api::__private::has_part_hook(mod_api::HookId::MenuQuickMove) {
+        if !crate::game::fork_compat::part_heard(mod_api::HookId::MenuQuickMove) {
             return;
         }
         let (Ok(mut api), Ok(mut held)) = (entity.try_into_api(), stack.try_into_api()) else {

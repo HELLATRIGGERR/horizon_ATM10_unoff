@@ -8,19 +8,20 @@
 // field) and `/mek probe`.
 
 use super::{
-    Game, mek_machines,
+    Game,
+    mek_machines,
     mek_multiblock as mb,
     mek_ui::{self, Pen, Rect},
     mek_world::{self, key},
-    native_hooks::{NativeFeInfo, NativeScreen},
 };
+use mod_api::{NativeFeInfo, Screen as NativeScreen};
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     hud::HudBatch,
     items::ItemStack,
 };
 use horizon_core::geometry::Direction as Face;
-use horizon_world::nbt::{Compound, Tag};
+use horizon_core::nbt::{Compound, Tag};
 use mekanism_energy::{
     config::{self, EnergyConfig},
     container::{Automation, EnergyContainer},
@@ -260,12 +261,12 @@ fn facing(entity: &ModBlockEntity) -> Direction {
 
 /// Whether the heater in `entity` takes energy through `face`: its left and right.
 pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<bool> {
-    is_heater(&entity.id).then(|| heater::takes_energy(facing(entity), face))
+    is_heater(&entity.id()).then(|| heater::takes_energy(facing(entity), face))
 }
 
 /// Offers `amount` Joules through `face`: what it didn't take.
 pub(super) fn offer(entity: &mut ModBlockEntity, face: Direction, amount: u64, simulate: bool) -> Option<u64> {
-    if !is_heater(&entity.id) {
+    if !is_heater(&entity.id()) {
         return None;
     }
     if !heater::takes_energy(facing(entity), face) {
@@ -308,7 +309,7 @@ impl StrictEnergy for Side {
 
 /// `native_fe_storage`: its store in whole FE through its left and right.
 pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    if !is_heater(&entity.id) {
+    if !is_heater(&entity.id()) {
         return false;
     }
     if config.blacklist_forge || face.is_some_and(|f| !heater::takes_energy(facing(entity), mek_world::mek_direction(f))) {
@@ -328,7 +329,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &E
 /// `native_fe_receive` and `native_fe_extract`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Option<Face>, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    if !is_heater(&entity.id) {
+    if !is_heater(&entity.id()) {
         return false;
     }
     let open = face.is_some_and(|f| heater::takes_energy(facing(entity), mek_world::mek_direction(f)));
@@ -357,7 +358,7 @@ pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Opti
 /// its store holds 400 ticks of it, and what it held beyond that is lost.
 pub(super) fn set_usage(game: &mut Game<'_>, pos: [i32; 3], usage: u64) -> Value {
     let done = game.native_with_mod_block_entity(pos, |m| {
-        if !is_heater(&m.id) {
+        if !is_heater(&m.id()) {
             return None;
         }
         let mut h = read(&m.nbt);
@@ -415,7 +416,7 @@ const HEAT_TAB: Rect = [-26.0, 109.0, 26.0, 26.0];
 const ENERGY_SLOT_AT: [f32; 2] = [15.0, 35.0];
 
 pub(super) fn screen() -> NativeScreen {
-    NativeScreen { width: 176.0, height: 166.0, slots: vec![Some(ENERGY_SLOT_AT), None, None, None, None], inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false }
+    NativeScreen { width: 176.0, height: 166.0, slots: vec![Some(ENERGY_SLOT_AT), None, None, None, None], inventory_y: 84.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 pub(super) fn tooltip(data: &[i32], at: [f32; 2], tips: &mut Vec<String>) {
@@ -458,7 +459,7 @@ pub(super) fn draw(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: 
         let mut lines = vec![format!("Temp: {}", display::temperature(v.temperature))];
         // Mekanism scales a line down to fit its inner screen; here a long usage goes on the next line (the text
         // field that sets it below isn't there).
-        if game.native_text_width(&usage) > SCREEN[2] - 6.0 {
+        if horizon_client::hud::HudBatch::text_width(&game.gui.atlas, &usage) > SCREEN[2] - 6.0 {
             lines.extend(["Usage:".to_owned(), format!("{}/t", display::energy(v.usage, &settings))]);
         } else {
             lines.push(usage);

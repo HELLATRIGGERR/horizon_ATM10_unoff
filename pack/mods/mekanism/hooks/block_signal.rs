@@ -2,20 +2,16 @@
 // is outputting (`AttributeRedstoneEmitter`).
 fn mek_block_signal(
     level: &crate::game::GameLevel<'_>,
-    dimension: horizon_world::level::Dimension,
+    dimension: crate::game::LevelDimension,
     pos: horizon_core::position::BlockPos,
     state: horizon_world::registry::BlockStateId,
     face: horizon_core::geometry::Direction,
     direct: bool,
     signal: &mut i32,
 ) {
-    let name = match dimension {
-        horizon_world::level::Dimension::Overworld => "minecraft:overworld",
-        horizon_world::level::Dimension::Nether => "minecraft:the_nether",
-        horizon_world::level::Dimension::End => "minecraft:the_end",
-    };
+    let name = dimension.key().to_string();
     let block = level.native_state_block(state);
-    crate::game::mek_fission::block_signal(name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
-    crate::game::mek_fusion::block_signal(name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
-    crate::game::mek_lasers::block_signal(name, block, [pos.x, pos.y, pos.z], direct, signal);
+    crate::game::mek_fission::block_signal(&name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
+    crate::game::mek_fusion::block_signal(&name, block, [pos.x, pos.y, pos.z], face.normal(), direct, signal);
+    crate::game::mek_lasers::block_signal(&name, block, [pos.x, pos.y, pos.z], direct, signal);
 }

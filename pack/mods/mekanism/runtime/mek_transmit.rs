@@ -4,10 +4,18 @@
 // each of `mek_world`'s hooks asks this module once. Mekanism is MIT,
 // Copyright (c) 2017-2025 Aidan C. Brady.
 
-use super::{Game, mek_fluid_tanks, mek_pipes, mek_transporters, native_block_entity_draw::BlockEntityDraw, native_hooks::NativeFluidTankInfo};
+use super::{
+    Game,
+    mek_fluid_tanks,
+    mek_pipes,
+    mek_transporters,
+    native_block_entity_draw::BlockEntityDraw,
+};
+use horizon_core::nbt::Compound;
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::containers::ModBlockEntity;
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{fluid_stack::FluidStack, nbt::Compound};
+use horizon_world::fluid_stack::FluidStack;
 use mekanism_energy::{network::Connection, sides::Direction};
 use serde_json::Value;
 
@@ -41,7 +49,7 @@ pub(super) fn ticks(block: &str) -> bool {
 
 /// A server tick of one of these block entities: whether it was one.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) -> bool {
-    if let Some(tier) = mek_fluid_tanks::tier_of(&entity.id) {
+    if let Some(tier) = mek_fluid_tanks::tier_of(&entity.id()) {
         mek_fluid_tanks::tick(game, pos, entity, tier);
         return true;
     }
@@ -52,12 +60,12 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
 /// joins its network (and the hook is done), any other block is looked at by
 /// the pipes beside it.
 pub(super) fn loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity) -> bool {
-    if let Some(tier) = mek_pipes::tier_of(&entity.id) {
+    if let Some(tier) = mek_pipes::tier_of(&entity.id()) {
         mek_pipes::loaded(dimension, pos, &entity.nbt, tier);
         return true;
     }
-    if let Some(tier) = mek_transporters::tier_of(&entity.id) {
-        mek_transporters::loaded(dimension, pos, &entity.id, &entity.nbt, tier);
+    if let Some(tier) = mek_transporters::tier_of(&entity.id()) {
+        mek_transporters::loaded(dimension, pos, &entity.id(), &entity.nbt, tier);
         return true;
     }
     mek_pipes::neighbour(dimension, pos);
@@ -67,11 +75,11 @@ pub(super) fn loaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity) ->
 
 /// `native_block_entity_unload`.
 pub(super) fn unloaded(dimension: &str, pos: [i32; 3], entity: &ModBlockEntity, removed: bool) -> bool {
-    if mek_pipes::tier_of(&entity.id).is_some() {
+    if mek_pipes::tier_of(&entity.id()).is_some() {
         mek_pipes::unloaded(dimension, pos, removed);
         return true;
     }
-    if mek_transporters::tier_of(&entity.id).is_some() {
+    if mek_transporters::tier_of(&entity.id()).is_some() {
         mek_transporters::unloaded(dimension, pos, removed);
         return true;
     }
@@ -162,11 +170,6 @@ pub(super) fn draw(game: &Game<'_>, pos: [i32; 3], block: &str, entity: &ModBloc
 }
 
 /// The `/mek` commands of these blocks.
-pub(super) fn commands(commands: &mut Vec<super::native_server::NativeCommand>) {
-    commands.push(super::native_server::NativeCommand::op("mek color <pos:block_pos> <color:word>", 2));
-    commands.push(super::native_server::NativeCommand::op("mek configurator <mode:word>", 2));
-}
-
 /// `/mek color x y z <color|none>`: a transporter's colour, as the Configurator sets it. None for another command.
 pub(super) fn perform(game: &mut Game<'_>, words: &[&str], at: Option<[i32; 3]>) -> Option<Value> {
     match words.first().copied() {

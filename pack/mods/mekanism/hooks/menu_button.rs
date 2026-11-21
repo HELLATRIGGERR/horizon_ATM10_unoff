@@ -1,9 +1,9 @@
-// A button of a Mekanism block's screen, on the server.
+// A button of a Mekanism block's screen, on the server; the QIO item viewer's clicks take the player's cursor stack.
 fn mek_menu_button(
     game: &mut crate::game::Game<'_>,
-    pos: [i32; 3],
-    entity: &mut horizon_client::containers::ModBlockEntity,
-    id: i32,
+    context: &mod_api::item::menu::MenuButtonContext,
+    entity: &mut mod_api::ModBlockEntity,
+    carried: &mut Option<mod_api::ItemStack>,
 ) {
-    crate::game::mek_world::button(game, pos, entity, id);
+    crate::game::mek_world::api_button(game, context.pos, entity, context.id, carried);
 }

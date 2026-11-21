@@ -11,11 +11,13 @@
 // page) and `/mek probe`.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_multiblock::{self as mb, Formed, Kind},
     mek_ui::{self, Pen, Rect},
-    native_hooks::{NativeFluidTankInfo, NativeScreen},
 };
+use mod_api::{Screen as NativeScreen};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{hud::HudBatch, text::Text};
 use horizon_core::geometry::Direction as Face;
 use horizon_world::{fluid_stack::FluidStack, level::flags};
@@ -553,7 +555,7 @@ pub(super) const STATS: i32 = 7200;
 /// `native_screen` of a casing or valve: no slots of its own, the inventory moved right by its wider panel.
 pub(super) fn screen() -> NativeScreen {
     PAGE.with(|p| p.set(0));
-    NativeScreen { width: WIDTH, height: 166.0, slots: vec![None; 5], inventory_y: 84.0, inventory_x: 29.0, own_labels: true, own_background: false }
+    NativeScreen { width: WIDTH, height: 166.0, slots: vec![None; 5], inventory_y: 84.0, inventory_x: 29.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 pub(super) fn click(at: [f32; 2], button: &mut Option<i32>) {

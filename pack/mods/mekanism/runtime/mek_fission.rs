@@ -15,19 +15,17 @@
 // living entities in its core aren't irradiated yet.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_multiblock::{self as mb, Formed, Kind},
     mek_ui::{self, Pen, Rect},
-    native_explosions::NativeBlast,
-    native_hooks::{NativeFluidTankInfo, NativeScreen},
 };
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use mod_api::{Screen as NativeScreen};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{containers::ModBlockEntity, hud::HudBatch, text::Text};
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    fluid_stack::FluidStack,
-    level::flags,
-    nbt::{Compound, JavaString, Tag},
-};
+use horizon_world::{fluid_stack::FluidStack, level::flags};
 use mekanism_energy::{
     chemical::{ChemicalHandler, ChemicalRegistry, ChemicalStack},
     config, display, evaporation,
@@ -431,7 +429,8 @@ pub(super) fn level_ticked(game: &mut Game<'_>, dimension: &str) {
             let at = |lo: i32, hi: i32| lo + (draw() * f64::from(hi - lo + 1)) as i32;
             let center = [f64::from(at(m.min[0], m.max[0])), f64::from(at(m.min[1], m.max[1])), f64::from(at(m.min[2], m.max[2]))];
             let parts = mb::with_formed(dimension, m.id, |f| f.locations.clone());
-            game.native_explode(dimension, center, m.radius, true, NativeBlast::Block);
+            // The level ticking is the reactor's (`level_tick_pre`/`_post`): the blast goes off in it.
+            let _ = game.native_explode(None, center, m.radius, true, mod_api::ExplosionInteraction::Block, mod_api::ExplosionSettings::default());
             // `BlockMekanism.onBlockExploded`: a block of the reactor the blast took gives it its meltdown, and it
             // breaks then (`setRemoved`), not when its block entities go at the end of the tick.
             if let Some(parts) = parts
@@ -743,10 +742,10 @@ pub(super) fn button(game: &mut Game<'_>, pos: Pos, entity: &mut ModBlockEntity,
             });
         }
         // The adapter's own block entity is the one the hook point lends.
-        _ if (LOGIC..LOGIC + 6).contains(&id) && entity.id == ADAPTER => {
+        _ if (LOGIC..LOGIC + 6).contains(&id) && entity.id() == ADAPTER => {
             entity.nbt.insert(key("logic_type"), Tag::Int(id - LOGIC));
         }
-        CONTROL if entity.id == ADAPTER => {
+        CONTROL if entity.id() == ADAPTER => {
             let now = RedstoneControl::by_id(super::mek_world::number(entity.nbt.get(&key("control_type"))).unwrap_or(0) as i32).supported();
             entity.nbt.insert(key("control_type"), Tag::Int(now.next().id()));
         }
@@ -947,12 +946,12 @@ const CONTROL_BUTTON: Rect = [160.0, 31.0, 30.0, 16.0];
 /// `native_screen` of a casing or port: no slots of its own, a taller panel.
 pub(super) fn screen() -> NativeScreen {
     PAGE.with(|p| p.set(0));
-    NativeScreen { width: WIDTH, height: HEIGHT, slots: vec![None; 5], inventory_y: 173.0, inventory_x: 17.0, own_labels: true, own_background: false }
+    NativeScreen { width: WIDTH, height: HEIGHT, slots: vec![None; 5], inventory_y: 173.0, inventory_x: 17.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 /// `native_screen` of a logic adapter.
 pub(super) fn adapter_screen() -> NativeScreen {
-    NativeScreen { width: ADAPTER_WIDTH, height: 166.0, slots: vec![None; 5], inventory_y: 84.0, inventory_x: 18.0, own_labels: true, own_background: false }
+    NativeScreen { width: ADAPTER_WIDTH, height: 166.0, slots: vec![None; 5], inventory_y: 84.0, inventory_x: 18.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 fn mode_row(i: usize) -> Rect {

@@ -9,11 +9,14 @@
 // `GuiFluidicPlenisher`) and `/mek probe`.
 
 use super::{
-    Game, mek_machines,
+    Game,
+    mek_machines,
     mek_ui::{self, Pen},
     mek_world::{self, key},
-    native_hooks::{NativeFeInfo, NativeFluidTankInfo},
 };
+use horizon_core::nbt::{Compound, Tag};
+use mod_api::{NativeFeInfo};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     items::ItemStack,
@@ -24,7 +27,6 @@ use horizon_world::{
     fluid::FluidKind,
     fluid_stack::FluidStack,
     level::flags,
-    nbt::{Compound, Tag},
 };
 use mekanism_energy::{
     config::EnergyConfig,
@@ -310,13 +312,15 @@ impl PlenisherWorld for Level<'_, '_> {
             "minecraft:lava".to_owned()
         } else {
             match kind.mod_fluid() {
-                Some(m) if m.block != "minecraft:air" => m.block.clone(),
+                // A registered world fluid's block is its own id (`ModFluidType.id`).
+                Some(m) => m.get().id.clone(),
                 _ => return false,
             }
         };
         let ultra_warm = self.game.native_dimension_type().ultra_warm;
         let vaporizes = match kind.mod_fluid() {
-            Some(m) => m.is_vaporized_on_placement(ultra_warm),
+            // `FluidType.isVaporizedOnPlacement`: no mod fluid of the pack overrides it (false).
+            Some(_) => false,
             None => kind.is_water() && ultra_warm,
         };
         let name = self.game.native_block(pos);
@@ -355,7 +359,7 @@ fn read(data: &[i32], at: usize, pieces: usize) -> u64 {
 }
 
 fn fluid_number(fluid: Option<&str>) -> i32 {
-    fluid.and_then(FluidKind::from_name).map_or(0, |f| i32::from(f.id()))
+    fluid.and_then(FluidKind::from_name).map_or(0, |f| f.tick_id() as i32)
 }
 
 /// `native_block_entity_tick`: `tickServer`'s upgrade component, then `onUpdateServer` (the energy slot, the fluid
@@ -431,8 +435,9 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
             (used, state.active, false)
         }
         FluidMachine::Plenisher => {
-            // `inputSlot.fillTank(outputSlot)`: a container empties into the tank, of a fluid with a block.
-            let valid = |s: &FluidStack| s.fluid().mod_fluid().is_none_or(|m| m.block != "minecraft:air");
+            // `inputSlot.fillTank(outputSlot)`: a container empties into the tank, of a fluid with a block (every
+            // registered world fluid has one: its own id).
+            let valid = |_: &FluidStack| true;
             super::mek_ore_machines::fill_fluid_tank(game, entity, pump::INPUT_SLOT, pump::OUTPUT_SLOT, &mut fluid, pump::TANK, &valid);
             mek_world::write_tank(&mut entity.nbt, &fluid);
             let mut tank = read_tank(&entity.nbt);
@@ -489,13 +494,13 @@ fn back(entity: &ModBlockEntity) -> Direction {
 
 /// Whether the machine in `entity` takes energy through `face`: its back.
 pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<bool> {
-    kind_of(&entity.id)?;
+    kind_of(&entity.id())?;
     Some(back(entity) == face)
 }
 
 /// Offers `amount` Joules through `face`: what it didn't take.
 pub(super) fn offer(entity: &mut ModBlockEntity, config: &EnergyConfig, face: Direction, amount: u64, simulate: bool) -> Option<u64> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     if back(entity) != face {
         return Some(amount);
     }
@@ -534,7 +539,7 @@ impl StrictEnergy for Back {
 
 /// `native_fe_storage`: its store in whole FE through its back.
 pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return false;
     };
     if config.blacklist_forge || face.is_some_and(|f| mek_world::mek_direction(f) != back(entity)) {
@@ -554,7 +559,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &E
 /// `native_fe_receive` and `native_fe_extract`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Option<Face>, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return false;
     };
     let open = face.is_some_and(|f| mek_world::mek_direction(f) == back(entity));
@@ -581,7 +586,7 @@ pub(super) fn fe_transfer(pos: [i32; 3], entity: &mut ModBlockEntity, face: Opti
 
 /// The tank through `face`: on its top only (the null side reads it).
 fn tank_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<(FluidMachine, bool)> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     match face {
         Some(f) if pump::TANK_SIDE.direction(mek_world::generator_facing(&entity.nbt)) != mek_world::mek_direction(f) => None,
         _ => Some((kind, face.is_some())),
@@ -591,7 +596,7 @@ fn tank_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<(FluidMachin
 /// `native_fluid_handler_tanks`: the pump's tank gives (`BasicFluidTank.output`), the plenisher's takes (`input`).
 pub(super) fn fluid_tanks(entity: &ModBlockEntity, face: Option<Face>, tanks: &mut Option<Vec<NativeFluidTankInfo>>) -> bool {
     let Some((kind, _)) = tank_side(entity, face) else {
-        return kind_of(&entity.id).is_some();
+        return kind_of(&entity.id()).is_some();
     };
     *tanks = Some(vec![NativeFluidTankInfo { stack: mek_world::saved_tank(&entity.nbt), capacity: pump::TANK, drainable: kind == FluidMachine::Pump }]);
     true
@@ -601,14 +606,14 @@ pub(super) fn fluid_tanks(entity: &ModBlockEntity, face: Option<Face>, tanks: &m
 /// (`canBePlacedInLevel`).
 pub(super) fn fluid_fill(entity: &mut ModBlockEntity, face: Option<Face>, resource: &FluidStack, simulate: bool, filled: &mut Option<i32>) -> bool {
     let Some((kind, sided)) = tank_side(entity, face) else {
-        if kind_of(&entity.id).is_some() {
+        if kind_of(&entity.id()).is_some() {
             *filled = Some(0);
             return true;
         }
         return false;
     };
-    let placeable = resource.fluid().mod_fluid().is_none_or(|m| m.block != "minecraft:air");
-    if kind != FluidMachine::Plenisher || !sided || !placeable || resource.is_empty() {
+    // Every registered world fluid has a block (its own id), so any fluid can be placed.
+    if kind != FluidMachine::Plenisher || !sided || resource.is_empty() {
         *filled = Some(0);
         return true;
     }
@@ -629,7 +634,7 @@ pub(super) fn fluid_fill(entity: &mut ModBlockEntity, face: Option<Face>, resour
 /// `native_fluid_handler_drain`: only the pump's, through its top.
 pub(super) fn fluid_drain(entity: &mut ModBlockEntity, face: Option<Face>, resource: Option<&FluidStack>, max: i32, simulate: bool, drained: &mut Option<FluidStack>) -> bool {
     let Some((kind, sided)) = tank_side(entity, face) else {
-        if kind_of(&entity.id).is_some() {
+        if kind_of(&entity.id()).is_some() {
             *drained = Some(FluidStack::EMPTY);
             return true;
         }
@@ -710,15 +715,15 @@ const ARROW: mek_ui::Rect = [32.0, 39.0, 8.0, 10.0];
 /// The upgrade holder beside the panel (Mekanism shows these slots only in its upgrade window).
 const UPGRADE_HOLDER: mek_ui::Rect = [176.0, 34.0, 26.0, 48.0];
 
-pub(super) fn screen() -> super::native_hooks::NativeScreen {
-    super::native_hooks::NativeScreen {
+pub(super) fn screen() -> mod_api::Screen {
+    mod_api::Screen {
         width: 176.0,
         height: 166.0,
         slots: vec![Some([28.0, 20.0]), Some([28.0, 51.0]), Some([143.0, 35.0]), Some([181.0, 39.0]), Some([181.0, 61.0])],
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 
@@ -747,7 +752,7 @@ fn view(data: &[i32]) -> Option<View> {
 }
 
 fn fluid_name(number: u16) -> Option<String> {
-    let kind = FluidKind::from_id(u32::from(number)).filter(|k| *k != FluidKind::Empty)?;
+    let kind = FluidKind::from_tick_id(u32::from(number)).filter(|k| *k != FluidKind::Empty)?;
     let id = kind.name();
     let path = id.split(':').nth(1).unwrap_or(id);
     Some(path.split('_').map(|w| {
@@ -804,7 +809,7 @@ pub(super) fn draw(game: &Game<'_>, kind: FluidMachine, data: &[i32], batch: &mu
         }
         let mut y = INNER[1] + 4.0;
         for line in lines {
-            let short = if game.native_text_width(&line) > INNER[2] - 6.0 { line.split(':').next().unwrap_or(&line).to_owned() } else { line };
+            let short = if horizon_client::hud::HudBatch::text_width(&game.gui.atlas, &line) > INNER[2] - 6.0 { line.split(':').next().unwrap_or(&line).to_owned() } else { line };
             pen.text(&short, [INNER[0] + 3.0, y], mek_ui::SCREEN_TEXT);
             y += 11.0;
         }

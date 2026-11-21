@@ -11,19 +11,18 @@
 // dump mode button) and `/mek probe`.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_multiblock::{self as mb, Formed, Kind},
     mek_ui::{self, Pen, Rect},
     mek_world::{self, key},
-    native_hooks::{NativeFeInfo, NativeFluidTankInfo, NativeScreen},
 };
+use horizon_core::nbt::{Compound, Tag};
+use mod_api::{NativeFeInfo, Screen as NativeScreen};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{containers::ModBlockEntity, hud::HudBatch, items::ItemStack};
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    fluid::FluidKind,
-    fluid_stack::FluidStack,
-    nbt::{Compound, Tag},
-};
+use horizon_world::{fluid::FluidKind, fluid_stack::FluidStack};
 use mekanism_energy::{
     chemical::{ChemicalHandler, ChemicalRegistry, ChemicalStack},
     config::{self, EnergyConfig},
@@ -119,7 +118,7 @@ pub(super) fn clear() {
 }
 
 fn blades_at(game: &mut Game<'_>, p: Pos) -> Option<i32> {
-    game.native_with_mod_block_entity(p, |m| (m.id == ROTOR).then(|| mek_world::number(m.nbt.get(&key("blades"))).unwrap_or(0).clamp(0, 2) as i32))
+    game.native_with_mod_block_entity(p, |m| (m.id() == ROTOR).then(|| mek_world::number(m.nbt.get(&key("blades"))).unwrap_or(0).clamp(0, 2) as i32))
         .flatten()
 }
 
@@ -374,7 +373,7 @@ impl StrictEnergy for ValveEnergy<'_> {
 
 /// `native_fe_storage` of a valve: the turbine's Joules in FE. Whether `entity` was a valve.
 pub(super) fn fe_storage(dimension: &str, pos: Pos, entity: &ModBlockEntity, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    if entity.id != VALVE {
+    if entity.id() != VALVE {
         return false;
     }
     if config.blacklist_forge {
@@ -398,7 +397,7 @@ pub(super) fn fe_storage(dimension: &str, pos: Pos, entity: &ModBlockEntity, con
 /// `native_fe_receive` and `native_fe_extract` of a valve. Whether `entity` was a valve.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(dimension: &str, pos: Pos, face: Option<Face>, entity: &ModBlockEntity, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    if entity.id != VALVE {
+    if entity.id() != VALVE {
         return false;
     }
     if config.blacklist_forge {
@@ -765,7 +764,7 @@ const STATS_BUTTON: Rect = [-21.0, 10.0, 18.0, 18.0];
 /// `native_screen` of a casing, valve or vent: no slots of its own, the inventory moved right by its wider panel.
 pub(super) fn screen() -> NativeScreen {
     PAGE.with(|p| p.set(0));
-    NativeScreen { width: WIDTH, height: 166.0, slots: vec![None; 5], inventory_y: 84.0, inventory_x: 15.0, own_labels: true, own_background: false }
+    NativeScreen { width: WIDTH, height: 166.0, slots: vec![None; 5], inventory_y: 84.0, inventory_x: 15.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 pub(super) fn click(at: [f32; 2], button: &mut Option<i32>) {

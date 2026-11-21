@@ -7,13 +7,12 @@
 // Dosimeter (`ItemGeigerCounter`, `ItemDosimeter`: a right click in the air), and Mekanism's `/mek radiation`
 // (`add`, `get`, `heal`, `removeAll`, `addEntity`, `reduce`, for the player) with `/mek radiation probe` beside them.
 
-use super::{Game, mek_world, native_server::NativeServerPlayer};
+use super::{Game, mek_world};
+use horizon_core::nbt::{Compound, JavaString, Tag};
+use mod_api::{AttachmentCodec, AttachmentError, AttachmentType, Holder, PlayerRef};
+use super::mek_world::NativeServerPlayer;
 use horizon_client::{items::ItemStack, text::Text};
-use horizon_world::{
-    attachments::{AttachmentCodec, AttachmentError, AttachmentType, Holder},
-    nbt::{Compound, JavaString, Tag},
-    player_inventory::EquipmentSlot,
-};
+use horizon_core::equipment_slot::EquipmentSlot;
 use mekanism_energy::{
     chemical::{ChemicalRegistry, ChemicalStack},
     radiation::{self, BASELINE, RadiationConfig, Sources},
@@ -24,6 +23,13 @@ use std::{cell::RefCell, collections::HashMap};
 pub(super) const GEIGER: &str = "mekanism:geiger_counter";
 pub(super) const DOSIMETER: &str = "mekanism:dosimeter";
 const DAMAGE: &str = "mekanism:radiation";
+
+pub(super) const DAMAGE_TYPES: [(&str, &str); 4] = [
+    ("damage_type/mekanism:radiation", r#"{"exhaustion":0.0,"message_id":"mekanism.radiation","scaling":"when_caused_by_living_non_player"}"#),
+    ("damage_type/mekanism:flamethrower", r#"{"effects":"burning","exhaustion":0.1,"message_id":"mekanism.flamethrower","scaling":"when_caused_by_living_non_player"}"#),
+    ("damage_type/mekanism:laser", r#"{"exhaustion":0.1,"message_id":"mekanism.laser","scaling":"when_caused_by_living_non_player"}"#),
+    ("damage_type/mekanism:sps", r#"{"exhaustion":0.0,"message_id":"mekanism.sps","scaling":"when_caused_by_living_non_player"}"#),
+];
 
 fn identity(c: &Compound) -> Result<Compound, AttachmentError> {
     Ok(c.clone())
@@ -157,7 +163,7 @@ fn ensure_loaded(game: &mut Game<'_>, dimension: &str) {
     if with_dim(dimension, |d| d.loaded) {
         return;
     }
-    let data = game.native_attachments(Holder::Level).ok().and_then(|a| a.get_existing(&LEVEL_DATA).ok().flatten());
+    let data = LEVEL_DATA.get_existing(game.attachments(), Holder::Level).ok().flatten();
     let mut saved = Vec::new();
     if let Some(Tag::List(list)) = data.as_ref().and_then(|d| d.get(&key("sources"))) {
         for entry in list {
@@ -201,13 +207,12 @@ fn save(game: &mut Game<'_>, dimension: &str) {
     }) else {
         return;
     };
-    let Ok(a) = game.native_attachments(Holder::Level) else { return };
     let kept = if list.is_empty() {
-        a.remove(&LEVEL_DATA).map(|_| ())
+        LEVEL_DATA.remove(game.attachments(), Holder::Level).map(|_| ())
     } else {
         let mut data = Compound::new();
         data.insert(key("sources"), Tag::List(list));
-        a.set(&LEVEL_DATA, data).map(|_| ())
+        LEVEL_DATA.set(game.attachments(), Holder::Level, data)
     };
     if let Err(e) = kept {
         log::warn!("[mekanism] the radiation sources weren't kept: {e:?}");
@@ -251,7 +256,7 @@ fn level_at(game: &mut Game<'_>, dimension: &str, at: [i32; 3]) -> (f64, f64) {
 // ---- Doses ---------------------------------------------------------------------------------------------------------
 
 fn dose_of(game: &mut Game<'_>, uuid: u128) -> f64 {
-    let data = game.native_attachments(Holder::Player(uuid)).ok().and_then(|a| a.get_existing(&DOSE).ok().flatten());
+    let data = DOSE.get_existing(game.attachments(), Holder::Player(uuid)).ok().flatten();
     match data.as_ref().and_then(|d| d.get(&key("radiation"))) {
         Some(Tag::Double(v)) if f64::from_bits(*v) > BASELINE => f64::from_bits(*v),
         _ => BASELINE,
@@ -259,13 +264,12 @@ fn dose_of(game: &mut Game<'_>, uuid: u128) -> f64 {
 }
 
 fn set_dose(game: &mut Game<'_>, uuid: u128, dose: f64) {
-    let Ok(a) = game.native_attachments(Holder::Player(uuid)) else { return };
     let kept = if dose > BASELINE {
         let mut c = Compound::new();
         c.insert(key("radiation"), Tag::Double(dose.to_bits()));
-        a.set(&DOSE, c).map(|_| ())
+        DOSE.set(game.attachments(), Holder::Player(uuid), c)
     } else {
-        a.remove(&DOSE).map(|_| ())
+        DOSE.remove(game.attachments(), Holder::Player(uuid)).map(|_| ())
     };
     if let Err(e) = kept {
         log::warn!("[mekanism] a radiation dose wasn't kept: {e:?}");
@@ -293,12 +297,13 @@ fn block_of(position: [f64; 3]) -> [i32; 3] {
 /// `native_player_tick` (`PlayerExposure.updateEntityRadiation` for a server player): one tick in 20 the player takes
 /// an hour's share of the level they stand in (playing, less their shielding) and the dose decays; then a dose
 /// severe enough hurts (`mekanism:radiation`, on one roll in two) and tires them.
-pub(super) fn player_tick(game: &mut Game<'_>) {
+pub(super) fn player_tick(game: &mut Game<'_>, player: PlayerRef) {
     let config = config();
-    if !config.enabled {
+    // `PlayerTickEvent.Post` is heard on both sides; the dose is the server's.
+    if !config.enabled || game.remote.is_some() {
         return;
     }
-    let Some(p) = game.native_acting_player() else { return };
+    let Some(p) = mek_world::server_player(game, player) else { return };
     let draw = super::mek_machines::draw_random;
     let before = dose_of(game, p.uuid);
     let mut dose = before;
@@ -374,7 +379,7 @@ pub(super) fn use_item(game: &mut Game<'_>, stack: &ItemStack, claimed: &mut boo
     if *claimed || (item != GEIGER && item != DOSIMETER) || game.native_sneaking() {
         return;
     }
-    let Some(p) = game.native_acting_player() else { return };
+    let Some(p) = mek_world::acting_player(game) else { return };
     *claimed = true;
     let lines = if item == GEIGER { geiger_lines(game, &p.dimension, block_of(p.position)) } else { dosimeter_lines(dose_of(game, p.uuid)) };
     for line in lines {
@@ -476,4 +481,19 @@ pub(super) fn command(game: &mut Game<'_>, player: &NativeServerPlayer, words: &
         }
         _ => json!({ "error": "usage: /mek radiation add|get|heal|removeAll|addEntity|reduce|probe ..." }),
     }
+}
+
+thread_local! {
+    /// Whether the last `native_use_item` call was a Geiger Counter's or Dosimeter's reading, for the call's answer.
+    static USE_CLAIMED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `native_use_item`'s head: whether `use_item` claimed the use.
+pub(super) fn set_use_claimed(claimed: bool) {
+    USE_CLAIMED.set(claimed);
+}
+
+/// The answer half of `native_use_item`: whether the head claimed the use (once).
+pub(super) fn take_use_claimed() -> bool {
+    USE_CLAIMED.replace(false)
 }

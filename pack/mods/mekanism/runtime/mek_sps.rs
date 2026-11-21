@@ -12,15 +12,17 @@
 // lasers and the orbit effects (`RenderSPS`), the sound, entities hurt inside it (`kill`) and its advancements.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_multiblock::{self as mb, Kind},
     mek_ui::{self, Pen, Rect},
     mek_world,
-    native_hooks::{NativeFeInfo, NativeScreen},
 };
+use horizon_core::nbt::Tag;
+use mod_api::{NativeFeInfo, Screen as NativeScreen};
 use horizon_client::{containers::ModBlockEntity, hud::HudBatch, text::Text};
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{level::flags, nbt::Tag};
+use horizon_world::level::flags;
 use mekanism_energy::{
     chemical::{ChemicalHandler, ChemicalStack},
     config::{self, EnergyConfig},
@@ -152,7 +154,7 @@ pub(super) fn tick(game: &mut Game<'_>, dimension: &str, id: Uuid) {
     if !out_stack.is_empty() {
         let targets: Vec<(Pos, Direction)> = valves
             .iter()
-            .filter(|(p, _)| game.native_with_mod_block_entity(*p, |m| m.id == PORT && output_mode(m)).unwrap_or(false))
+            .filter(|(p, _)| game.native_with_mod_block_entity(*p, |m| m.id() == PORT && output_mode(m)).unwrap_or(false))
             .map(|(p, side)| (mek_world::beside(*p, *side), side.opposite()))
             .collect();
         let sent = mek_chemicals::emit_to(game, &targets, &out_stack);
@@ -168,10 +170,10 @@ pub(super) fn tick(game: &mut Game<'_>, dimension: &str, id: Uuid) {
         let joules = game
             .native_with_mod_block_entity(p, |m| {
                 let stored = mek_world::saved_energy(&m.nbt).unwrap_or(0);
-                if m.id == PORT && stored > 0 {
+                if m.id() == PORT && stored > 0 {
                     mek_world::write_energy(&mut m.nbt, 0);
                 }
-                if m.id == PORT { stored } else { 0 }
+                if m.id() == PORT { stored } else { 0 }
             })
             .unwrap_or(0);
         if joules > 0 {
@@ -185,7 +187,7 @@ pub(super) fn tick(game: &mut Game<'_>, dimension: &str, id: Uuid) {
 
 /// Whether `entity` is an SPS port, which takes energy through every side.
 pub(super) fn takes_energy(entity: &ModBlockEntity) -> Option<bool> {
-    (entity.id == PORT).then_some(true)
+    (entity.id() == PORT).then_some(true)
 }
 
 fn store(entity: &ModBlockEntity) -> EnergyContainer {
@@ -196,7 +198,7 @@ fn store(entity: &ModBlockEntity) -> EnergyContainer {
 
 /// Offers `amount` Joules to the port in `entity`: what it didn't take.
 pub(super) fn offer(entity: &mut ModBlockEntity, amount: u64, simulate: bool) -> Option<u64> {
-    if entity.id != PORT {
+    if entity.id() != PORT {
         return None;
     }
     let mut container = store(entity);
@@ -234,7 +236,7 @@ impl StrictEnergy for Side {
 
 /// `native_fe_storage` of a port: its store in whole FE.
 pub(super) fn fe_storage(entity: &ModBlockEntity, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) -> bool {
-    if entity.id != PORT {
+    if entity.id() != PORT {
         return false;
     }
     if config.blacklist_forge {
@@ -254,7 +256,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, config: &EnergyConfig, info: &
 /// `native_fe_receive` and `native_fe_extract` of a port.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fe_transfer(pos: Pos, entity: &mut ModBlockEntity, face: Option<Face>, config: &EnergyConfig, max: i64, simulate: bool, extract: bool, moved: &mut Option<i64>) -> bool {
-    if entity.id != PORT {
+    if entity.id() != PORT {
         return false;
     }
     if config.blacklist_forge {
@@ -360,7 +362,7 @@ pub(super) fn chemical_handler<R>(dimension: &str, pos: Pos, block: &str, face: 
 /// mode it had (`InputOutput.of(oldMode)`, as Mekanism 10.7.19 does).
 pub(super) fn toggle(game: &mut Game<'_>, pos: Pos) -> Option<bool> {
     let old = game.native_with_mod_block_entity(pos, |m| {
-        if m.id != PORT {
+        if m.id() != PORT {
             return None;
         }
         let old = output_mode(m);
@@ -433,7 +435,7 @@ const SCREEN: Rect = [27.0, 17.0, 122.0, 60.0];
 const BAR: Rect = [7.0, 79.0, 160.0, 8.0];
 
 pub(super) fn screen() -> NativeScreen {
-    NativeScreen { width: WIDTH, height: HEIGHT, slots: vec![None; 5], inventory_y: 100.0, inventory_x: 8.0, own_labels: true, own_background: false }
+    NativeScreen { width: WIDTH, height: HEIGHT, slots: vec![None; 5], inventory_y: 100.0, inventory_x: 8.0, own_labels: true, own_background: false, ..Default::default() }
 }
 
 /// The inner screen's lines: its status, and while active the Joules it took and its rate.
@@ -538,6 +540,6 @@ pub(super) fn probe(game: &mut Game<'_>, dimension: &str, id: Uuid) -> Value {
 
 /// `/mek probe` of an SPS port standing alone: its store.
 pub(super) fn port_probe(game: &mut Game<'_>, pos: Pos) -> Option<Value> {
-    game.native_with_mod_block_entity(pos, |m| (m.id == PORT).then(|| json!({ "sps_port": { "energy": mek_world::saved_energy(&m.nbt).unwrap_or(0), "output": output_mode(m) } })))
+    game.native_with_mod_block_entity(pos, |m| (m.id() == PORT).then(|| json!({ "sps_port": { "energy": mek_world::saved_energy(&m.nbt).unwrap_or(0), "output": output_mode(m) } })))
         .flatten()
 }

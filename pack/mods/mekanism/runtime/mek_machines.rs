@@ -24,22 +24,17 @@
 // Mekanism keeps them in its block entity. No borrow of that state is held
 // across a call into the game.
 
-use super::{
-    Game, mek_chemicals,
-    mek_world::{self, ENERGY, ITEM},
-    native_hooks::{NativeFeInfo, NativeFluidTankInfo},
-};
+use super::{Game, mek_chemicals, mek_world::{self, ENERGY, ITEM}};
+use horizon_core::nbt::{Compound, Tag};
+use mod_api::{NativeFeInfo};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{
     containers::{ModBlockEntity, ModContainer},
     crafting::Cooking,
     items::ItemStack,
 };
 use horizon_core::geometry::Direction as Face;
-use horizon_world::{
-    fluid_ingredient::SizedFluidIngredient,
-    fluid_stack::FluidStack,
-    nbt::{Compound, Tag},
-};
+use horizon_world::{fluid_ingredient::SizedFluidIngredient, fluid_stack::FluidStack};
 use mekanism_energy::{
     advanced::{self, ChemicalUse, Rng},
     chemical::{self, ChemicalHandler, ChemicalRegistry, ChemicalStack, ChemicalStackIngredient, ChemicalTank, SidedTanks, TankRules},
@@ -576,7 +571,7 @@ pub(super) struct Saved {
     pub(super) mode: bool,
 }
 
-fn key(name: &str) -> horizon_world::nbt::JavaString {
+fn key(name: &str) -> horizon_core::nbt::JavaString {
     mek_world::key(name)
 }
 
@@ -1471,7 +1466,7 @@ fn separator_view(saved: &Saved, tanks: &[ChemicalTank], fluid: &FluidStack, reg
     let tank = |i: usize| tanks.get(i).map_or((0, 0), |t| (registry.number(t.stored.id()), t.stored().max(0) as u64));
     let ((left, left_amount), (right, right_amount)) = (tank(0), tank(1));
     SeparatorView {
-        fluid: if fluid.is_empty() { 0 } else { fluid.fluid().id() },
+        fluid: if fluid.is_empty() { 0 } else { fluid.fluid().tick_id() as u16 },
         fluid_amount: fluid.amount().max(0) as u32,
         left,
         left_amount,
@@ -1564,7 +1559,7 @@ pub(super) fn eject_items(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBl
 /// Whether the machine in `entity` takes energy through its absolute face
 /// `face` (its energy config's `INPUT` there).
 pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<bool> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     let saved = read(&entity.nbt, kind);
     Some(saved.sides.takes_energy(saved.facing, face))
 }
@@ -1572,7 +1567,7 @@ pub(super) fn takes_energy(entity: &ModBlockEntity, face: Direction) -> Option<b
 /// Offers `amount` Joules to the machine in `entity` through `face`: what it
 /// didn't take (`insertEnergy` from outside, up to its capacity).
 pub(super) fn offer(entity: &mut ModBlockEntity, config: &EnergyConfig, face: Direction, amount: u64, simulate: bool) -> Option<u64> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     let saved = read(&entity.nbt, kind);
     if !saved.sides.takes_energy(saved.facing, face) {
         return Some(amount);
@@ -1613,7 +1608,7 @@ impl StrictEnergy for MachineSide {
 /// `native_fe_storage` of a machine: its store in whole FE on a face its
 /// energy config opens.
 pub(super) fn fe_storage(entity: &ModBlockEntity, face: Option<Face>, config: &EnergyConfig, info: &mut Option<NativeFeInfo>) {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return;
     };
     let saved = read(&entity.nbt, kind);
@@ -1642,7 +1637,7 @@ pub(super) fn fe_transfer(
     extract: bool,
     moved: &mut Option<i64>,
 ) {
-    let Some(kind) = kind_of(&entity.id) else {
+    let Some(kind) = kind_of(&entity.id()) else {
         return;
     };
     let saved = read(&entity.nbt, kind);
@@ -1678,7 +1673,7 @@ pub(super) fn chemical_handler<R>(
     registry: &ChemicalRegistry,
     use_it: impl FnOnce(&mut dyn ChemicalHandler) -> R,
 ) -> Option<R> {
-    let kind = kind_of(&entity.id)?;
+    let kind = kind_of(&entity.id())?;
     let saved = read(&entity.nbt, kind);
     let config = saved.sides.chemicals?;
     let mut tanks = read_chemicals(&entity.nbt, kind, registry);
@@ -1745,7 +1740,7 @@ pub(super) fn chemical_handler<R>(
 /// a closed side; else its kind, its saved state and whether that side is a
 /// real one (not the null side, which reads and changes nothing).
 fn fluid_side(entity: &ModBlockEntity, face: Option<Face>) -> Option<(MachineKind, Saved, bool)> {
-    let kind = kind_of(&entity.id).filter(|k| k.separates() || k.washes() || k.rotates() || k.reacts() || k.liquifies())?;
+    let kind = kind_of(&entity.id()).filter(|k| k.separates() || k.washes() || k.rotates() || k.reacts() || k.liquifies())?;
     let saved = read(&entity.nbt, kind);
     let fluids = saved.sides.fluids?;
     match face {
@@ -1836,7 +1831,7 @@ pub(super) fn fluid_drain(entity: &mut ModBlockEntity, face: Option<Face>, resou
 /// the infuser's dump (`IHasDumpButton.dump`: its tank emptied) and the
 /// separator's dump modes (`nextMode`).
 pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
-    let (Some(kind), Some(button)) = (kind_of(&entity.id), MachineButton::from_id(id)) else {
+    let (Some(kind), Some(button)) = (kind_of(&entity.id()), MachineButton::from_id(id)) else {
         return;
     };
     let before = read(&entity.nbt, kind);

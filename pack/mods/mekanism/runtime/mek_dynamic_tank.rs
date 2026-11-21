@@ -12,12 +12,14 @@
 // (`GuiDynamicTank`, with the edit mode tab) and `/mek probe`.
 
 use super::{
-    Game, mek_chemicals,
+    Game,
+    mek_chemicals,
     mek_multiblock::{self as mb, Kind},
     mek_ui::{self, Pen, Rect},
     mek_world,
-    native_hooks::{NativeFluidTankInfo, NativeScreen},
 };
+use mod_api::{Screen as NativeScreen};
+use super::mek_world::NativeFluidTankInfo;
 use horizon_client::{hud::HudBatch, items::ItemStack};
 use horizon_core::geometry::Direction as Face;
 use horizon_world::fluid_stack::FluidStack;
@@ -542,7 +544,7 @@ pub(super) fn view(game: &Game<'_>, dimension: &str, id: Uuid) -> Vec<i32> {
     let (fluid, chemical) = held(dimension, id);
     let mode = mb::with_cache(dimension, Kind::Tank, id, |c| c.edit_mode).unwrap_or(0);
     if !fluid.is_empty() {
-        return pack(1, i32::from(fluid.fluid().id()), fluid.amount().max(0) as u64, fluid_cap.max(0) as u64, mode, volume);
+        return pack(1, fluid.fluid().tick_id() as i32, fluid.amount().max(0) as u64, fluid_cap.max(0) as u64, mode, volume);
     }
     if !chemical.is_empty() {
         let number = mek_chemicals::registry(game).number(chemical.id());
@@ -568,7 +570,7 @@ pub(super) fn screen() -> NativeScreen {
         inventory_y: 84.0,
         inventory_x: 8.0,
         own_labels: true,
-        own_background: false,
+        own_background: false, ..Default::default()
     }
 }
 
@@ -597,7 +599,7 @@ pub(super) fn button(game: &mut Game<'_>, pos: Pos, id: i32) {
 
 fn stored_name(view: &View) -> Option<String> {
     match view.current {
-        1 => horizon_world::fluid::FluidKind::from_id(view.number as u32).map(|f| title_case(f.name())),
+        1 => horizon_world::fluid::FluidKind::from_tick_id(view.number as u32).map(|f| title_case(f.name())),
         2 => mek_chemicals::loaded().as_deref().and_then(|r| r.by_number(view.number).map(mek_chemicals::name)),
         _ => None,
     }
@@ -642,7 +644,7 @@ pub(super) fn tooltip(data: &[i32], at: [f32; 2], tips: &mut Vec<String>) {
 
 fn color(game: &Game<'_>, view: &View) -> u32 {
     match view.current {
-        1 => match horizon_world::fluid::FluidKind::from_id(view.number as u32) {
+        1 => match horizon_world::fluid::FluidKind::from_tick_id(view.number as u32) {
             Some(horizon_world::fluid::FluidKind::Lava) => 0xD45A12,
             Some(f) if f.name() != "minecraft:water" => {
                 horizon_world::mod_fluids::mod_fluids().iter().find(|m| m.id == f.name()).map_or(0x3F76E4, |m| m.tint & 0xFF_FFFF)

@@ -250,7 +250,7 @@ impl Game<'_> {
     ) -> bool {
         // Resolve the damage registry at the shared command/API boundary before
         // any target-specific path can mutate state or map it to a DamageKind.
-        if self.motion.health.damage.id(ty).is_none() {
+        if self.health_resources.damage.id(ty).is_none() {
             return false;
         }
         let attacker = cause.or(by).and_then(|t| self.network_entity_id(t));

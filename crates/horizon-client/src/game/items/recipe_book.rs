@@ -209,11 +209,11 @@ impl Game<'_> {
             return None;
         }
         match self.container_kind() {
+            // A server's crafting table menu is a grid menu: its screen has the book, as CraftingScreen.
             None if self.container.is_none()
-                && self
-                    .remote
-                    .as_ref()
-                    .is_none_or(|r| r.menu.as_ref().is_none()) =>
+                && self.remote.as_ref().is_none_or(|r| {
+                    r.menu.as_ref().is_none_or(|m| m.1 == "minecraft:crafting")
+                }) =>
             {
                 Some(BookType::Crafting)
             }

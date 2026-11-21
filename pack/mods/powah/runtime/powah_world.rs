@@ -211,8 +211,9 @@ pub(super) fn placed(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
 }
 
 /// The fuel slot's next item, gone: what it is worth. An item that leaves
-/// something behind (a lava bucket) leaves it in the slot. The slots hold the API's stacks: the burn time and the
-/// remainder are asked of the engine's.
+/// something behind (a lava bucket) leaves it in the slot (`Item.getCraftingRemainder`, with the mods'
+/// `crafting_remainder` answers: the engine's `crafting_remainder`). The slots hold the API's stacks: the burn time
+/// and the remainder are asked of the engine's.
 fn take_fuel(game: &Game<'_>, entity: &mut ModBlockEntity, energy_per_fuel_tick: i64) -> Option<i64> {
     use crate::game::api_values::{TryIntoApi, TryIntoEngine};
     let slot = entity.items.get_mut(FUEL_SLOT)?;
@@ -223,11 +224,7 @@ fn take_fuel(game: &Game<'_>, entity: &mut ModBlockEntity, energy_per_fuel_tick:
     }
     *slot = match slot.take().and_then(|stack| stack.shrink(1)) {
         Some(rest) => Some(rest),
-        None => {
-            let mut remainder = None;
-            game.native_crafting_remainder(&engine, &mut remainder);
-            remainder.and_then(|r| r.try_into_api().ok())
-        }
+        None => game.crafting_remainder(&engine).and_then(|r| r.try_into_api().ok()),
     };
     Some(furnator::fuel_value(burn, energy_per_fuel_tick))
 }

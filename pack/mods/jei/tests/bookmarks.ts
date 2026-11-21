@@ -19,7 +19,8 @@ type Probe = { loaded: boolean; query: string; bookmarks: Bookmarks; recipes: { 
 type Button = { label: string; x: number; y: number; w: number; h: number };
 
 async function jei(): Promise<Probe> {
-  const reply = await fixture.raw('chat /jeiclient');
+  // The control's `command` runs a client mod's command and replies with the client's chat; `chat` on a server replies with none.
+  const reply = await fixture.raw('command jeiclient');
   const line = (reply.chat ?? []).findLast((t: string) => t.startsWith('JEI {'));
   assert(line, `client probe: ${JSON.stringify(reply.chat)}`);
   return JSON.parse(line.slice(4));

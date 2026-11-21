@@ -304,10 +304,13 @@ if (!help(usage)) {
     report.pack_kubejs_items = rows.length;
   }
 
+  // side = "both": the addon declares registries and data the server loads. A manifest that names no side is
+  // `client`, and the server's `mod_loaded` conditions see only both- and server-side mods: ME Requester's
+  // AE2WTLib recipes ask for ae2wtlib.
   writeFileSync(join(out, 'horizon-mod.toml'), [
     `id = "${ns}"`, `name = "${content.name}"`, `version = "${manifest.version}"`,
     `description = "${content.description}"`, `authors = ${JSON.stringify(content.authors)}`,
-    'api = "0.2"', 'capabilities = ["registries"]', ''].join('\n'));
+    'api = "0.2"', 'side = "both"', 'capabilities = ["registries"]', ''].join('\n'));
   writeFileSync(join(out, 'ATTRIBUTION.md'), `# Attribution\n\nGenerated locally from ${manifest.name} ${manifest.version} (${manifest.jar.file}, SHA-256 ${manifest.jar.sha256}), `
     + `source ${manifest.source.url} tag ${manifest.source.tag}, commit ${manifest.source.commit}.\n\n`
     + `${manifest.name} code: ${manifest.source.license}. Its assets: ${manifest.assets_license}, https://creativecommons.org/licenses/by-nc-sa/3.0/ ; `

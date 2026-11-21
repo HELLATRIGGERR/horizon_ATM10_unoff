@@ -6,8 +6,9 @@ use horizon_client::{chunk::Chunk, hud::{HudBatch, rgba}, mesher::Vertex, world:
 use horizon_core::position::BlockPos;
 use horizon_world::{chunk::BlockState, registry::BlockStateId};
 use horizon_core::nbt::{Tag, parse_snbt};
+use horizon_assets::resource_source::ResourceSource;
 use serde_json::Value;
-use std::{cell::RefCell, collections::{BTreeMap, HashSet, VecDeque}, path::{Component, Path, PathBuf}, sync::{Arc, Weak}, time::SystemTime};
+use std::{cell::RefCell, collections::{BTreeMap, HashSet, VecDeque}, hash::{DefaultHasher, Hash, Hasher}, path::{Component, Path}, sync::{Arc, Weak}};
 
 /// Reader-owned offsets, keyed by the compiler's stable scene_id.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -39,7 +40,9 @@ pub(super) struct GuideSceneResult {
 struct StructureBlock { pos: [i32;3], state: String, nbt: Option<Tag> }
 #[derive(Clone)]
 struct Structure { blocks: Vec<StructureBlock>, entities: usize }
-struct Cached { path: PathBuf, modified: Option<SystemTime>, len: u64, structure: Arc<Structure> }
+/// A structure of one resource generation: its source's identity, and whether
+/// that source is still open (a reload opens a new one), without keeping it.
+struct Cached { generation: u64, alive: Box<dyn Fn()->bool>, name: String, structure: Arc<Structure> }
 thread_local! { static CACHE: RefCell<VecDeque<Cached>> = const { RefCell::new(VecDeque::new()) }; }
 
 fn tag_int(tag: &Tag) -> Option<i32> { match tag { Tag::Int(n)=>Some(*n),Tag::Short(n)=>Some(i32::from(*n)),Tag::Byte(n)=>Some(i32::from(*n)),_=>None } }
@@ -84,23 +87,22 @@ fn parse_structure(raw:&str) -> Result<Structure,String> {
     }
     Ok(Structure{blocks,entities:tag_list(tag.get("entities")).map_or(0,|v|v.len())})
 }
-fn structure(root:&Path, asset:&str) -> Result<Arc<Structure>,String> {
+/// `assets/ae2/ae2guide/<asset>` of `assets`, the game's resolved assets
+/// (AE2's jar), at most 4 MiB.
+fn structure(assets:&ResourceSource, asset:&str) -> Result<Arc<Structure>,String> {
     let path=Path::new(asset);
     if path.as_os_str().is_empty() || path.components().any(|c|!matches!(c,Component::Normal(_))) {return Err("invalid guide asset path".into())}
-    let root=root.canonicalize().map_err(|e|format!("guide asset root: {e}"))?;
-    let path=root.join(path).canonicalize().map_err(|e|format!("guide structure {asset}: {e}"))?;
-    if !path.starts_with(&root) {return Err("guide asset escapes its root".into())}
-    let meta=std::fs::metadata(&path).map_err(|e|format!("guide structure {}: {e}",asset))?;
-    if !meta.is_file() || meta.len()>4*1024*1024 {return Err("guide structure is not a bounded file".into())}
-    let modified=meta.modified().ok();
+    let name=format!("assets/ae2/ae2guide/{asset}");
+    let generation={let mut hash=DefaultHasher::new();assets.hash(&mut hash);hash.finish()};
     if let Some(found)=CACHE.with(|cache| {
         let mut cache=cache.borrow_mut();
-        let at=cache.iter().position(|e|e.path==path && e.modified==modified && e.len==meta.len())?;
+        let at=cache.iter().position(|e|e.generation==generation && (e.alive)() && e.name==name)?;
         let entry=cache.remove(at)?;let value=entry.structure.clone();cache.push_front(entry);Some(value)
     }) {return Ok(found)}
-    let text=std::fs::read_to_string(&path).map_err(|e|format!("guide structure {}: {e}",asset))?;
+    let bytes=assets.read_limited(&name,4*1024*1024).map_err(|e|format!("guide structure {asset}: {e}"))?;
+    let text=String::from_utf8(bytes).map_err(|e|format!("guide structure {asset}: {e}"))?;
     let result=Arc::new(parse_structure(&text)?);
-    CACHE.with(|cache| {let mut cache=cache.borrow_mut();cache.push_front(Cached{path,modified,len:meta.len(),structure:result.clone()});while cache.len()>32 {cache.pop_back();}});
+    CACHE.with(|cache| {let mut cache=cache.borrow_mut();cache.push_front(Cached{generation,alive:Box::new(assets.liveness()),name,structure:result.clone()});while cache.len()>32 {cache.pop_back();}});
     Ok(result)
 }
 fn descriptor(input:&str) -> Result<BlockState,String> {
@@ -353,11 +355,11 @@ impl Game<'_> {
         let mut result=GuideSceneResult{scene_id:id,interactive,tooltip:None,diagnostics:Vec::new(),blocks:0,multipart_parts:0};
         if !valid_rect(viewport) || !valid_rect(clip) {return Ok(result)}
         let Some(visible)=intersect(viewport,clip) else {return Ok(result)};
-        let root=self.options.resources.join("assets/ae2/ae2guide");let mut sources=Vec::new();
+        let assets=&self.pack.source;let mut sources=Vec::new();
         let mut yaw=225.0;let mut pitch=30.0;let mut roll=0.0;
         for child in children {match child.get("name").and_then(Value::as_str) {
             Some("ImportStructure")=>{let asset=child.get("asset").and_then(Value::as_str).ok_or("guide scene has no structure path")?;
-                sources.push(structure(&root,asset)?);}
+                sources.push(structure(assets,asset)?);}
             Some("IsometricCamera")=>{yaw=number(child,"yaw",0.0);pitch=number(child,"pitch",0.0);roll=number(child,"roll",0.0);}
             _=>{}
         }}
@@ -450,6 +452,8 @@ mod tests {
     fn guide_scene_all_referenced_structures_parse() {
         let Ok(root)=std::env::var("AE2_GUIDE_TEST_ROOT") else {return};
         let root=std::path::Path::new(&root);
+        // The guide's folder is `assets/ae2/ae2guide` of the resources it is read from.
+        let source=ResourceSource::directory(root.ancestors().nth(3).expect("assets/ae2/ae2guide").to_path_buf());
         let document:serde_json::Value=serde_json::from_slice(&std::fs::read(root.join("compiled-guide.json")).expect("compiled Guide")).expect("valid compiled Guide");
         let mut assets=std::collections::BTreeSet::<String>::new();
         fn collect(value:&Value,assets:&mut std::collections::BTreeSet<String>) {
@@ -468,7 +472,7 @@ mod tests {
         assert_eq!(assets.len(),115,"pinned unique scene imports");
         let mut errors=Vec::new();let (mut blocks,mut entities)=(0usize,0usize);
         for asset in &assets {
-            match structure(root,asset) {
+            match structure(&source,asset) {
                 Ok(scene)=>{blocks+=scene.blocks.len();entities+=scene.entities;
                     for block in &scene.blocks {if let Err(error)=descriptor(&block.state) {errors.push(format!("{asset}: {}: {error}",block.state));}}
                 }

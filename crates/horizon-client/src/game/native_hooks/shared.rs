@@ -2207,11 +2207,14 @@ impl Game<'_> {
         if !path.starts_with("data/") || !path.split('/').all(plain) {
             return None;
         }
-        // Fork: a content mod's data files are in the game's data source, not in upstream's
-        // content root folder (which keeps the kinds it reads itself); see `native_data_files`.
-        fs::read(self.options.resources.join(path))
-            .or_else(|_| self.pack.data_source.read(path))
+        // The data source has the game's and the mods' data since upstream's 787420c800 (a mod's
+        // data stays in its layers); the content root's own folder is the fallback, as
+        // `native_data_files` lists both.
+        self.pack
+            .data_source
+            .read(path)
             .ok()
+            .or_else(|| fs::read(self.options.resources.join(path)).ok())
     }
     pub(super) fn native_block_collision_in(
         &self,

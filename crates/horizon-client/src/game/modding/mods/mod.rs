@@ -1044,7 +1044,7 @@ pub(super) fn content_root(
     register_carried_fluids(overlay.root.prepared(), &overlay.mods);
     // ExtendedAE's infinity cells of the pack (All the Mods 10's KubeJS ones).
     #[cfg(feature = "ae2-extendedae")]
-    horizon_client::ae2x::extendedae::install_pack_cells(overlay.root.prepared());
+    horizon_client::ae2x::extendedae::install_pack_cells(overlay.root.data());
     register_block_entity_types(overlay.root.prepared(), &overlay.mods)?;
     if overlay.announce {
         horizon_protocol::mod_list::set_local(overlay.announced);

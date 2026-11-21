@@ -24,7 +24,7 @@ pub(in crate::game) const SYNC: &str = "megacells:get_compression_chain";
 /// goes to (`CompressionCutoffHost.ACTION_SET_COMPRESSION_LIMIT`), beside
 /// the filters' places; button 1 is backwards (`isHandlingRightClick`).
 pub(in crate::game) const CUTOFF_PLACE: i16 = 99;
-/// The data map's file under the resources' or a data pack's root.
+/// The data map's file in the content's data or a data pack's root.
 const OVERRIDES: &str = "data/megacells/data_maps/item/compression_overrides.json";
 
 /// What a server keeps of its chains: the recipe table they were gathered
@@ -147,7 +147,7 @@ impl Game<'_> {
         let mut map = std::collections::BTreeMap::new();
         let tags = ItemTagRegistries(&self.items().item_tags);
         let conditions = horizon_world::conditions::LoadConditions::default();
-        if let Ok(bytes) = std::fs::read(self.options.resources.join(OVERRIDES)) {
+        if let Ok(bytes) = self.pack.data_source.read(OVERRIDES) {
             if let Ok(file) = serde_json::from_slice::<Value>(&bytes) {
                 crate::game::native_data_maps::apply_file(&mut map, &file, "minecraft:item", &tags, &conditions, OVERRIDES);
             }

@@ -568,7 +568,7 @@ impl Game<'_> {
                     Some(item_render::WrappedKey::Fluid(id)) => if let Some(state)=self.pack.item_renderer.ae2_wrapped_fluid(display,&id) {return state;},
                     Some(item_render::WrappedKey::Other(typed)) => {
                         // A type drawn as a sprite in a tint (Applied Mekanistics' chemicals).
-                        let read=|path:&str| std::fs::read(self.options.resources.join(path)).ok();
+                        let read=|path:&str| self.pack.data_source.read(path).ok();
                         if let Some((sprite,tint))=horizon_client::ae2_key_types::sprite(typed.key_type).and_then(|sprite|sprite(&typed.key,&read))
                             && self.gui.atlas.sprites.contains_key(&sprite) {
                             return self.pack.item_renderer.ae2_wrapped_sprite(display,&sprite,tint&0xff_ffff);

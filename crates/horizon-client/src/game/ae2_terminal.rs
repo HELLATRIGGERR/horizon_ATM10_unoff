@@ -1269,7 +1269,7 @@ impl Game<'_> {
         let visible=self.ae2_view_filtered(&all,session.part);
         let mut craftable=self.ae2_craftable_outputs(pos);
         craftable.extend(self.ae2_craftable_fluids(pos).iter().map(fluid_marker));
-        let language=horizon_client::lang::current().unwrap_or_else(||Arc::new(horizon_client::lang::Language::load(&[&self.options.resources],"en_us")));
+        let language=horizon_client::lang::current().unwrap_or_else(||Arc::new(horizon_client::lang::Language::load(&[&self.pack.source],"en_us")));
         let filtered=terminal_filter_entries(&visible,&craftable,session.sort,session.descending,session.view,&session.search.value,
             &|key|self.ae2_terminal_display_name(key,&language),
             &|key,query|self.ae2_terminal_search_matches(key,query,session.search_mod_name,&language));
@@ -2320,7 +2320,7 @@ impl Game<'_> {
             return true;
         };
         let locale=host.hub.guests.iter().find(|guest|guest.conn==conn).map(|guest|search_language_code(&guest.info.language)).unwrap_or("en_us");
-        let search_language=Arc::new(horizon_client::lang::Language::load(&[&self.options.resources],locale));
+        let search_language=Arc::new(horizon_client::lang::Language::load(&[&self.pack.source],locale));
         let play=host.play.entry(conn).or_default();
         let pinned=play.ae2_pins.clone();
         play.ae2_terminal = Some(GuestTerminal {
@@ -2448,7 +2448,7 @@ impl Game<'_> {
         let include_mod=value.get("search_mod_name").and_then(|v|v.as_bool()).unwrap_or(false);
         let locale=value.get("language").and_then(|v|v.as_str()).map(search_language_code).map(str::to_owned);
         let language=locale.as_deref().filter(|code|host.play.get(&conn).and_then(|p|p.ae2_terminal.as_ref()).is_some_and(|t|t.search_language.code!=*code))
-            .map(|code|Arc::new(horizon_client::lang::Language::load(&[&self.options.resources],code)));
+            .map(|code|Arc::new(horizon_client::lang::Language::load(&[&self.pack.source],code)));
         let Some(play)=host.play.get_mut(&conn) else{return};
         play.ae2_pins=pins.clone();
         let Some(t)=play.ae2_terminal.as_mut()

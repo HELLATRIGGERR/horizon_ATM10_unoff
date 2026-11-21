@@ -102,22 +102,16 @@ impl Ae2Addon for Booster {
                 seen.insert(key, point);
             } else if point.forced {
                 // setRemoved: its own chunk, released.
-                host.streaming().forced.remove(&(key.1.0 >> 4, key.1.2 >> 4));
+                host.streaming().set_forced(key.1.0 >> 4, key.1.2 >> 4, false);
             }
         }
         for (pos, card) in present {
             let chunk = (pos.0 >> 4, pos.2 >> 4);
             let key = (dim.clone(), pos);
             let streaming = host.streaming();
-            let point = next(seen.get(&key).copied(), card, enabled, |force| {
-                if force {
-                    let changed = streaming.forced.insert(chunk);
-                    streaming.rank_forced(chunk.0, chunk.1, chunk.0, chunk.1);
-                    changed
-                } else {
-                    streaming.forced.remove(&chunk)
-                }
-            });
+            // `ServerLevel.setChunkForced`: `/forceload`'s own set (saved with the level, and what
+            // `/forceload query` reads), which ranks a new chunk for decoration.
+            let point = next(seen.get(&key).copied(), card, enabled, |force| streaming.set_forced(chunk.0, chunk.1, force));
             seen.insert(key, point);
         }
         self.0.borrow_mut().seen = seen;

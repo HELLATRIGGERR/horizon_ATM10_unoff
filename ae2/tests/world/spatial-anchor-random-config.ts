@@ -23,7 +23,7 @@ try {
   };
   await fixture.command(`fill ${at(0, -1, 0)} ${at(12, -1, 8)} minecraft:stone`);
   await fixture.command(`fill ${at(0, 0, 0)} ${at(12, 4, 8)} minecraft:air`);
-  await fixture.command('gamerule randomTickSpeed 0');
+  await fixture.command('gamerule random_tick_speed 0');
   await fixture.command(`setblock ${anchor} ae2:spatial_anchor`);
   await fixture.command(`setblock ${power} ae2:creative_energy_cell`);
   await fixture.command(`setblock ${charger} ae2:charger[facing=north]`);
@@ -43,7 +43,7 @@ try {
   // off exactly one block and make the initially identical halves differ.
   await fixture.command(`fill ${x} ${sectionY} ${z} ${x + 15} ${sectionY + 15} ${z + 15} minecraft:redstone_ore[lit=true]`);
   assert(await sectionHalvesEqual());
-  await fixture.command('gamerule randomTickSpeed 1');
+  await fixture.command('gamerule random_tick_speed 1');
   await fixture.stepServer(1);
   assert(await sectionHalvesEqual(), 'disabled anchor keeps the entire remote section unchanged');
   fixture.mark('a full remote section receives no random selection when the anchor setting is disabled');
@@ -52,7 +52,7 @@ try {
   await until(() => fixture.ae(`power ${charger} east`), s => s.fe?.capacity === 800, 'anchor setting reloaded', 10000);
   await fixture.stepServer(1);
   assert(!(await sectionHalvesEqual()), 'one guaranteed selection changes the full random-tickable section');
-  await fixture.command('gamerule randomTickSpeed 0');
+  await fixture.command('gamerule random_tick_speed 0');
   await fixture.hold(false); await fixture.restart();
   // Until the restored world loads the anchor's chunk the command finds no anchor there.
   await until(() => fixture.ae(`anchor status ${anchor}`).catch(() => ({ count: 0 })), s => s.count >= 1, 'owned remote chunk restored', 30000);

@@ -1,0 +1,9 @@
+[package]
+name = "justdirethings-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Just Dire Things' rules (goo spreading, the Generator T1, redstone control) for the pack's port"
+
+[dependencies]
+serde_json = "1"

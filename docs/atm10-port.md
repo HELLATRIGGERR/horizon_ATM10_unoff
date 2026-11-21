@@ -723,6 +723,27 @@ What doesn't exist yet: the Deep Learner's data from kills, which needs a kill h
 `Instance::data_gained` is what it will call), the Deep Learner item and screen, the Data Center and its I/O port, the Fabrication
 Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/NOTES.md` lists what is left.
 
+### Just Dire Things
+
+`pack/mods/justdirethings` ports Just Dire Things 1.5.7 from its source: Direwolf20-MC/JustDireThings, tag `v1.5.7` (commit
+8390e0ef), MIT (`LICENSE-justdirethings`, Copyright (c) 2023 Direwolf20-MC). The blocks, items, models, recipes and tags
+are the mod's carry; `pack/scripts/justdirethings.ts content` puts the Generator T1 and the Block Breaker T1 on
+`minecraft:furnace`, as Hostile Neural Networks' machines are, and leaves the goo blocks on their template. Its steps `units content stage build world`
+build and test the bundle, on hooks already on main and no new one.
+
+What runs: the goo blocks of the four tiers, which convert the blocks on their sides by the world's spreading recipes
+(`justdirethings:goospread` and `goospread_tag`, ATM10's KubeJS ones included) in the recipe's duration over the tier's
+step (an iron block becomes raw ferricore ore in 2,401, 1,201, 481 and 241 ticks), may die as they finish one (10%) and
+come alive again with their tier's revive item; and the Generator T1, which burns furnace fuel (the mod's coals faster)
+into a 1,000,000 FE buffer at 15 FE a burn tick, four times a furnace's speed, offers it to its neighbours, gives it to
+cables, follows its redstone mode and has its screen from the mod's own textures; and the Block Breaker T1, which mines
+the block in front of it on its 20-tick clock at its tool's speed (an iron pickaxe takes 8 ticks for stone), with the
+tool's drops and wear, and has its own screen. The rules crate has unit tests of the config, the recipes, the goo's
+tick, the redstone modes, the generator, the breaker and the screen's data; the world tests `tests/goo.ts`,
+`tests/generator.ts` and `tests/breaker.ts` check them in game time. Not ported yet: the goo soils, the Paradox
+Machine, the time crystals, the fluid generator and fuels, the other machines, the tools, armour and abilities;
+`NOTES.md` lists them with the differences from Java.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

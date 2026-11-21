@@ -50,6 +50,10 @@ const GATES: &[(HookId, &str)] = &[
     // modding/api_values.rs `api_menu_button` (a part hook): HNN's fabricator palette and every machine screen's
     // buttons of a bundle (Mekanism's too).
     (HookId::MenuButton, "menu_button"),
+    // native_hooks/shared/loot.rs `native_block_loot`, `native_use_drops`; native_hooks/living_death.rs
+    // `capture_hit`; mobs/creatures/death_weapon.rs: Mystical Agriculture's crops have no loot table, their drops are
+    // the bundle's.
+    (HookId::LootDrops, "loot_drops"),
 ];
 
 /// Whether `injected` (the hooks of applied injections) holds the gated hook `hook`.
@@ -100,6 +104,12 @@ mod tests {
         // A hook outside the gated set is never asked about, even when injected.
         assert!(!injected_in(&injected, HookId::ServerTick));
         assert!(!injected_in(&[], HookId::RightClickBlock));
+    }
+
+    #[test]
+    fn a_bundles_loot_drops_opens_the_loot_gate() {
+        assert!(injected_in(&["loot_drops"], HookId::LootDrops));
+        assert!(!injected_in(&["right_click_block"], HookId::LootDrops));
     }
 
     #[test]

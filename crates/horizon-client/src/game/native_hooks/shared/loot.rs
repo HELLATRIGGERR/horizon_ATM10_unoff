@@ -11,7 +11,7 @@ impl Game<'_> {
         explosion: Option<f32>,
         drops: &mut Vec<ItemStack>,
     ) {
-        if !mod_api::__private::listened(mod_api::HookId::LootDrops) {
+        if !crate::game::fork_compat::heard(mod_api::HookId::LootDrops) {
             return;
         }
         let Ok(snapshot) = tool.try_into_api() else {
@@ -54,7 +54,7 @@ impl Game<'_> {
         tool: Option<&ItemStack>,
         drops: &mut Vec<ItemStack>,
     ) {
-        if !mod_api::__private::listened(mod_api::HookId::LootDrops) {
+        if !crate::game::fork_compat::heard(mod_api::HookId::LootDrops) {
             return;
         }
         let Ok(snapshot) = tool.try_into_api() else {

@@ -39,7 +39,7 @@ pub(super) fn capture_hit(
     attack: &Attack,
 ) -> Option<horizon_client::health::AcceptedHit> {
     let death = mod_api::__private::listened(mod_api::HookId::LivingDeath);
-    let loot = mod_api::__private::listened(mod_api::HookId::LootDrops);
+    let loot = crate::game::fork_compat::heard(mod_api::HookId::LootDrops);
     if !death && !loot {
         return None;
     }

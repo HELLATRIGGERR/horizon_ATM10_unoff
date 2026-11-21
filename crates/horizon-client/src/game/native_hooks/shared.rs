@@ -2598,7 +2598,7 @@ impl Game<'_> {
         {
             return Some(answer);
         }
-        if !mod_api::__private::has_part_hook(mod_api::HookId::OnItemUseFirst) {
+        if !crate::game::fork_compat::part_heard(mod_api::HookId::OnItemUseFirst) {
             return None;
         }
         let snapshot = stack.try_into_api().ok()?;

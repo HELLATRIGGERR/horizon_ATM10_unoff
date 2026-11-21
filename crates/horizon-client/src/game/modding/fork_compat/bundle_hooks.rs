@@ -57,6 +57,8 @@ const GATES: &[(HookId, &str)] = &[
     (HookId::BlockEntitySubmit, "block_entity_submit"),
     // native_hooks/shared.rs `screen_char_canceled`.
     (HookId::ScreenCharTypedPre, "screen_char_typed_pre"),
+    // native_hooks/shared.rs `item_use_first` (a part hook).
+    (HookId::OnItemUseFirst, "on_item_use_first"),
 ];
 
 /// Whether `injected` (the hooks of applied injections) holds the gated hook `hook`.

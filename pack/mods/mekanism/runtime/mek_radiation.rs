@@ -24,6 +24,13 @@ pub(super) const GEIGER: &str = "mekanism:geiger_counter";
 pub(super) const DOSIMETER: &str = "mekanism:dosimeter";
 const DAMAGE: &str = "mekanism:radiation";
 
+pub(super) const DAMAGE_TYPES: [(&str, &str); 4] = [
+    ("damage_type/mekanism:radiation", r#"{"exhaustion":0.0,"message_id":"mekanism.radiation","scaling":"when_caused_by_living_non_player"}"#),
+    ("damage_type/mekanism:flamethrower", r#"{"effects":"burning","exhaustion":0.1,"message_id":"mekanism.flamethrower","scaling":"when_caused_by_living_non_player"}"#),
+    ("damage_type/mekanism:laser", r#"{"exhaustion":0.1,"message_id":"mekanism.laser","scaling":"when_caused_by_living_non_player"}"#),
+    ("damage_type/mekanism:sps", r#"{"exhaustion":0.0,"message_id":"mekanism.sps","scaling":"when_caused_by_living_non_player"}"#),
+];
+
 fn identity(c: &Compound) -> Result<Compound, AttachmentError> {
     Ok(c.clone())
 }

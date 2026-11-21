@@ -288,6 +288,16 @@ bindings = [
 ]
 
 [[injection]]
+id = "data-pack-files"
+hook = "data_pack_files"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/data_pack_files.rs"
+bindings = [
+  { name = "files", ty = "&mut Vec<(String, Vec<u8>)>", value = "&mut *files" },
+]
+
+[[injection]]
 id = "block-entity"
 hook = "block_entity"
 hook_version = 1

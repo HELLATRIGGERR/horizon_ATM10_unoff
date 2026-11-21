@@ -686,8 +686,17 @@ assets when `mekanism-content` is given them.
 - Smaller moves: attachments are `TYPE.get_existing(game.attachments(), holder)`; text is measured on the GUI atlas,
   sprites take a tint; a block entity draw goes through `native_draw_push`/`_translate`/...; models through
   `native_model`; fluids' screen numbers are `FluidKind::tick_id`; `native_explode` acts in the level in place.
-- Engine needs (HANDOFF "S3"): most of the gated targets (N5 and "N5 for Mekanism": `menu_button`, `menu_quick_move`,
-  `block_entity_update_tag`, `block_entity_submit`, `player_tick_post`, `on_item_use_first`, `use_item`,
-  `on_block_placed_by`, `right_click_block`, `screen_char_typed_pre`, `screen_render_post`) are only called while a
-  trait mod listens, so those injections don't run yet. `menu_quick_move`'s stack can't end empty (its count is
-  never 0): a shift-click into a QIO dashboard moves all but one item.
+- Gated targets: upstream calls `menu_button`, `menu_quick_move`, `block_entity_update_tag`, `block_entity_submit`,
+  `player_tick_post`, `on_item_use_first`, `use_item`, `on_block_placed_by`, `right_click_block`,
+  `screen_char_typed_pre` and `screen_render_post` only while a trait mod listens; N5's gates
+  (`fork_compat/bundle_hooks.rs`) also open them for this bundle's injections.
+- `block_entity_types` (a fork compat hook, E2) declares the bundle's block entity types: upstream makes a mod block
+  entity only for a block a declared type names, and a mixin bundle has no `register()`. One type per id
+  `new_entity_with_id` gives, with the blocks that give it, so the ids the runtime compares stay fork main's. The
+  candidates are `mek_world::CONTENT_BLOCKS` (the two content mods' blockstates): a block the content gains needs its
+  line there.
+- The damage types (`radiation`, `flamethrower`, `laser`, `sps`) join the server's data through `data_pack_files`
+  (`mek_radiation::DAMAGE_TYPES`): the world's mod content carries no `data/mekanism/damage_type`, and a hurt of an
+  unknown type hurts nobody.
+- Engine needs (HANDOFF "S3"): `menu_quick_move`'s stack can't end empty (the API's `ItemStack` is never 0): a
+  shift-click into a QIO dashboard moves all but one item.

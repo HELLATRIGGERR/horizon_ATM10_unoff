@@ -284,6 +284,105 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     *entity = made.map(|(_, nbt)| nbt);
 }
 
+/// Every block of the two content mods (their blockstates, ATM10's Mekanism 10.7 and Generators): the candidates
+/// `block_entity_types` asks `new_entity_with_id` about.
+const CONTENT_BLOCKS: &[&str] = &[
+    "mekanism:advanced_bin", "mekanism:advanced_bounding_block", "mekanism:advanced_chemical_tank",
+    "mekanism:advanced_combining_factory", "mekanism:advanced_compressing_factory",
+    "mekanism:advanced_crushing_factory", "mekanism:advanced_energy_cube", "mekanism:advanced_enriching_factory",
+    "mekanism:advanced_fluid_tank", "mekanism:advanced_induction_cell", "mekanism:advanced_induction_provider",
+    "mekanism:advanced_infusing_factory", "mekanism:advanced_injecting_factory",
+    "mekanism:advanced_logistical_transporter", "mekanism:advanced_mechanical_pipe",
+    "mekanism:advanced_pressurized_tube", "mekanism:advanced_purifying_factory", "mekanism:advanced_sawing_factory",
+    "mekanism:advanced_smelting_factory", "mekanism:advanced_thermodynamic_conductor",
+    "mekanism:advanced_universal_cable", "mekanism:antiprotonic_nucleosynthesizer", "mekanism:basic_bin",
+    "mekanism:basic_chemical_tank", "mekanism:basic_combining_factory", "mekanism:basic_compressing_factory",
+    "mekanism:basic_crushing_factory", "mekanism:basic_energy_cube", "mekanism:basic_enriching_factory",
+    "mekanism:basic_fluid_tank", "mekanism:basic_induction_cell", "mekanism:basic_induction_provider",
+    "mekanism:basic_infusing_factory", "mekanism:basic_injecting_factory", "mekanism:basic_logistical_transporter",
+    "mekanism:basic_mechanical_pipe", "mekanism:basic_pressurized_tube", "mekanism:basic_purifying_factory",
+    "mekanism:basic_sawing_factory", "mekanism:basic_smelting_factory", "mekanism:basic_thermodynamic_conductor",
+    "mekanism:basic_universal_cable", "mekanism:block_bio_fuel", "mekanism:block_bronze", "mekanism:block_charcoal",
+    "mekanism:block_fluorite", "mekanism:block_lead", "mekanism:block_osmium", "mekanism:block_raw_lead",
+    "mekanism:block_raw_osmium", "mekanism:block_raw_tin", "mekanism:block_raw_uranium",
+    "mekanism:block_refined_glowstone", "mekanism:block_refined_obsidian", "mekanism:block_salt",
+    "mekanism:block_steel", "mekanism:block_tin", "mekanism:block_uranium", "mekanism:boiler_casing",
+    "mekanism:boiler_valve", "mekanism:bounding_block", "mekanism:brine", "mekanism:cardboard_box",
+    "mekanism:chargepad", "mekanism:chemical_crystallizer", "mekanism:chemical_dissolution_chamber",
+    "mekanism:chemical_infuser", "mekanism:chemical_injection_chamber", "mekanism:chemical_oxidizer",
+    "mekanism:chemical_washer", "mekanism:chlorine", "mekanism:combiner", "mekanism:creative_bin",
+    "mekanism:creative_chemical_tank", "mekanism:creative_energy_cube", "mekanism:creative_fluid_tank",
+    "mekanism:crusher", "mekanism:deepslate_fluorite_ore", "mekanism:deepslate_lead_ore",
+    "mekanism:deepslate_osmium_ore", "mekanism:deepslate_tin_ore", "mekanism:deepslate_uranium_ore",
+    "mekanism:digital_miner", "mekanism:dimensional_stabilizer", "mekanism:diversion_transporter",
+    "mekanism:dynamic_tank", "mekanism:dynamic_valve", "mekanism:electric_pump", "mekanism:electrolytic_separator",
+    "mekanism:elite_bin", "mekanism:elite_chemical_tank", "mekanism:elite_combining_factory",
+    "mekanism:elite_compressing_factory", "mekanism:elite_crushing_factory", "mekanism:elite_energy_cube",
+    "mekanism:elite_enriching_factory", "mekanism:elite_fluid_tank", "mekanism:elite_induction_cell",
+    "mekanism:elite_induction_provider", "mekanism:elite_infusing_factory", "mekanism:elite_injecting_factory",
+    "mekanism:elite_logistical_transporter", "mekanism:elite_mechanical_pipe", "mekanism:elite_pressurized_tube",
+    "mekanism:elite_purifying_factory", "mekanism:elite_sawing_factory", "mekanism:elite_smelting_factory",
+    "mekanism:elite_thermodynamic_conductor", "mekanism:elite_universal_cable", "mekanism:energized_smelter",
+    "mekanism:enrichment_chamber", "mekanism:ethene", "mekanism:fluidic_plenisher", "mekanism:fluorite_ore",
+    "mekanism:formulaic_assemblicator", "mekanism:fuelwood_heater", "mekanism:heavy_water",
+    "mekanism:hydrofluoric_acid", "mekanism:hydrogen", "mekanism:hydrogen_chloride", "mekanism:induction_casing",
+    "mekanism:induction_port", "mekanism:industrial_alarm", "mekanism:isotopic_centrifuge", "mekanism:laser",
+    "mekanism:laser_amplifier", "mekanism:laser_tractor_beam", "mekanism:lead_ore", "mekanism:lithium",
+    "mekanism:logistical_sorter", "mekanism:metallurgic_infuser", "mekanism:modification_station",
+    "mekanism:nutritional_liquifier", "mekanism:nutritional_paste", "mekanism:oredictionificator",
+    "mekanism:osmium_compressor", "mekanism:osmium_ore", "mekanism:oxygen", "mekanism:painting_machine",
+    "mekanism:personal_barrel", "mekanism:personal_chest", "mekanism:pigment_extractor", "mekanism:pigment_mixer",
+    "mekanism:precision_sawmill", "mekanism:pressure_disperser", "mekanism:pressurized_reaction_chamber",
+    "mekanism:purification_chamber", "mekanism:qio_dashboard", "mekanism:qio_drive_array", "mekanism:qio_exporter",
+    "mekanism:qio_importer", "mekanism:qio_redstone_adapter", "mekanism:quantum_entangloporter",
+    "mekanism:radioactive_waste_barrel", "mekanism:resistive_heater", "mekanism:restrictive_transporter",
+    "mekanism:rotary_condensentrator", "mekanism:security_desk", "mekanism:seismic_vibrator", "mekanism:sodium",
+    "mekanism:solar_neutron_activator", "mekanism:sps_casing", "mekanism:sps_port", "mekanism:steam",
+    "mekanism:steel_casing", "mekanism:structural_glass", "mekanism:sulfur_dioxide", "mekanism:sulfur_trioxide",
+    "mekanism:sulfuric_acid", "mekanism:supercharged_coil", "mekanism:superheated_sodium",
+    "mekanism:superheating_element", "mekanism:teleporter", "mekanism:teleporter_frame",
+    "mekanism:thermal_evaporation_block", "mekanism:thermal_evaporation_controller",
+    "mekanism:thermal_evaporation_valve", "mekanism:tin_ore", "mekanism:ultimate_bin",
+    "mekanism:ultimate_chemical_tank", "mekanism:ultimate_combining_factory",
+    "mekanism:ultimate_compressing_factory", "mekanism:ultimate_crushing_factory", "mekanism:ultimate_energy_cube",
+    "mekanism:ultimate_enriching_factory", "mekanism:ultimate_fluid_tank", "mekanism:ultimate_induction_cell",
+    "mekanism:ultimate_induction_provider", "mekanism:ultimate_infusing_factory",
+    "mekanism:ultimate_injecting_factory", "mekanism:ultimate_logistical_transporter",
+    "mekanism:ultimate_mechanical_pipe", "mekanism:ultimate_pressurized_tube",
+    "mekanism:ultimate_purifying_factory", "mekanism:ultimate_sawing_factory", "mekanism:ultimate_smelting_factory",
+    "mekanism:ultimate_thermodynamic_conductor", "mekanism:ultimate_universal_cable",
+    "mekanism:uranium_hexafluoride", "mekanism:uranium_ore", "mekanism:uranium_oxide",
+    "mekanismgenerators:advanced_solar_generator", "mekanismgenerators:bio_generator",
+    "mekanismgenerators:bioethanol", "mekanismgenerators:control_rod_assembly", "mekanismgenerators:deuterium",
+    "mekanismgenerators:electromagnetic_coil", "mekanismgenerators:fission_fuel_assembly",
+    "mekanismgenerators:fission_reactor_casing", "mekanismgenerators:fission_reactor_logic_adapter",
+    "mekanismgenerators:fission_reactor_port", "mekanismgenerators:fusion_fuel",
+    "mekanismgenerators:fusion_reactor_controller", "mekanismgenerators:fusion_reactor_frame",
+    "mekanismgenerators:fusion_reactor_logic_adapter", "mekanismgenerators:fusion_reactor_port",
+    "mekanismgenerators:gas_burning_generator", "mekanismgenerators:heat_generator",
+    "mekanismgenerators:laser_focus_matrix", "mekanismgenerators:reactor_glass",
+    "mekanismgenerators:rotational_complex", "mekanismgenerators:saturating_condenser",
+    "mekanismgenerators:solar_generator", "mekanismgenerators:superheating_element", "mekanismgenerators:tritium",
+    "mekanismgenerators:turbine_casing", "mekanismgenerators:turbine_rotor", "mekanismgenerators:turbine_valve",
+    "mekanismgenerators:turbine_vent", "mekanismgenerators:wind_generator",
+];
+
+/// `native_block_entity_types` (the fork's compat hook, E2): one type per id `new_entity_with_id` gives, with the
+/// blocks that give it. Upstream makes a mod block entity only for a block a declared type names, and a mixin bundle
+/// has no `register()`; fork main took the id from the `block_entity` answer, so the ids the runtime compares
+/// (ports, adapters, the drive array, ...) stay the same.
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    let mut by_id: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for block in CONTENT_BLOCKS {
+        let mut made = None;
+        new_entity_with_id(block, &mut made);
+        if let Some((id, _)) = made {
+            by_id.entry(id).or_default().push((*block).to_owned());
+        }
+    }
+    types.extend(by_id);
+}
+
 /// The fork's `native_block_entity` answer: the entity's id and compound (the id is the block's declaration's now).
 fn new_entity_with_id(block: &str, entity: &mut Option<(String, Compound)>) {
     if entity.is_some()

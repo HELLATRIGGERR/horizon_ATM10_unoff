@@ -951,6 +951,18 @@ pub const LIVING_TEMPLATES: [&str; 81] = [
     "minecraft:zombified_piglin",
 ];
 
+/// vanilla's `MobCategory` names: a living type's `category` is one of them.
+pub const MOB_CATEGORIES: [&str; 8] = [
+    "monster",
+    "creature",
+    "ambient",
+    "axolotls",
+    "underground_water_creature",
+    "water_creature",
+    "water_ambient",
+    "misc",
+];
+
 /// whether a mod's entity type may copy `template`: one of
 /// [`THROWN_TEMPLATES`] or [`LIVING_TEMPLATES`].
 pub fn is_entity_template(template: &str) -> bool {
@@ -2013,12 +2025,19 @@ impl Content {
                         return Err(format!("{name}: passenger attachments are finite numbers"));
                     }
                 }
+                file.validate_own_kind(&name)?;
                 self.entity_types.push(EntityType { id: kind, ..file });
                 continue;
             }
             if !file.attributes.is_empty() || file.texture.is_some() {
                 return Err(format!(
                     "{name}: only a living type has attributes or a texture (its template is {})",
+                    file.template
+                ));
+            }
+            if file.has_own_kind() {
+                return Err(format!(
+                    "{name}: only a living type has a category, a size or fire immunity of its own (its template is {})",
                     file.template
                 ));
             }
@@ -3870,6 +3889,64 @@ capabilities = ["registries"]
                 ("data/ruby/horizon/item/x.json", br#"{"template": "minecraft:stick"}"#),
             ];
             let e = hmod("textured", MANIFEST_TEXT, files).unwrap_err().to_string();
+            assert!(e.contains(why), "{file}: {e}");
+        }
+    }
+
+    #[test]
+    fn living_entity_types_have_their_own_category_size_and_fire_immunity() {
+        let files: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/imp.json",
+            br#"{"template": "minecraft:zombie", "category": "creature", "width": 0.4,
+                 "height": 0.9, "eye_height": 0.8, "fire_immune": true}"#,
+        )];
+        let content = hmod("sized", MANIFEST_TEXT, files).unwrap();
+        let imp = &content.entity_types[0];
+        assert_eq!(imp.category.as_deref(), Some("creature"));
+        assert_eq!(
+            (imp.width, imp.height, imp.eye_height),
+            (Some(0.4), Some(0.9), Some(0.8))
+        );
+        assert_eq!(imp.fire_immune, Some(true));
+        // a written declaration reads back, without the fields it leaves out.
+        let text = serde_json::to_string(imp).unwrap();
+        assert_eq!(
+            serde_json::from_str::<super::EntityType>(&text)
+                .unwrap()
+                .fire_immune,
+            Some(true)
+        );
+        let plain: &[(&str, &[u8])] = &[(
+            "data/ruby/horizon/entity_type/imp.json",
+            br#"{"template": "minecraft:zombie"}"#,
+        )];
+        let plain = hmod("plain", MANIFEST_TEXT, plain).unwrap();
+        let text = serde_json::to_string(&plain.entity_types[0]).unwrap();
+        assert!(
+            !text.contains("category") && !text.contains("eye_height"),
+            "{text}"
+        );
+        for (file, why) in [
+            (
+                r#"{"template": "minecraft:zombie", "category": "boss"}"#,
+                "category \"boss\" is one of",
+            ),
+            (r#"{"template": "minecraft:zombie", "width": 0}"#, "more than 0"),
+            (r#"{"template": "minecraft:zombie", "height": -1}"#, "more than 0"),
+            (r#"{"template": "minecraft:zombie", "eye_height": -1}"#, "0 or more"),
+            (
+                r#"{"template": "minecraft:snowball", "item": "ruby:x", "fire_immune": true}"#,
+                "only a living type has a category, a size or fire immunity",
+            ),
+        ] {
+            let files: &[(&str, &[u8])] = &[
+                ("data/ruby/horizon/entity_type/imp.json", file.as_bytes()),
+                (
+                    "data/ruby/horizon/item/x.json",
+                    br#"{"template": "minecraft:stick"}"#,
+                ),
+            ];
+            let e = hmod("sized", MANIFEST_TEXT, files).unwrap_err().to_string();
             assert!(e.contains(why), "{file}: {e}");
         }
     }

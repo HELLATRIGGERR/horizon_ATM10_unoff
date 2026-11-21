@@ -41,6 +41,16 @@ pub struct Facts {
     /// What the pack's client run says of its fluids (`client-facts.json`), or none.
     #[serde(skip)]
     pub client: Option<crate::fluids::ClientFacts>,
+    /// The entity types of the namespaces and vanilla's (`EntityFacts`); empty in facts from before they were
+    /// exported, and filled by an entities-only run's `entity-facts.json`.
+    #[serde(default)]
+    pub entity_types: BTreeMap<String, crate::mobs::EntityFacts>,
+    /// Each spawn egg of the namespaces and the type it spawns.
+    #[serde(default)]
+    pub spawn_eggs: BTreeMap<String, String>,
+    /// The game's entity types (`entity-types.json`), so a mob keeps only its template's attributes.
+    #[serde(skip)]
+    pub vanilla_entities: BTreeMap<String, Value>,
 }
 
 /// What `tools/neoforge_oracle.py pack` writes to `pack-facts.json`: what no vanilla table can say of an item or a

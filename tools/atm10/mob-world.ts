@@ -1,30 +1,52 @@
-/** Mod mobs as data, slice 1 (docs/mobs.md): carries whose entity types copy a vanilla mob template, in a real world.
- * A spawn egg and `/summon` spawn them; they tick and move with the template's AI; a screenshot shows them drawn
- * with their template's model (and their own texture where they have one); killed, they drop their own loot table.
+/** Mod mobs as data (docs/mobs.md): carries whose entity types copy a vanilla mob template, in a real world.
+ * A spawn egg and `/summon` spawn them; they tick and move with the template's AI; they have the health the carry
+ * declares (the oracle's `max_health`); a screenshot shows them drawn with their template's model (and their own
+ * texture where they have one); killed, they drop their own loot table.
  *
  *   bun run tools/atm10/mob-world.ts
  *
- * - MOB_CARRIES: a folder of carries with `data/<ns>/horizon/entity_type/` declarations (`mob-audit.py --declare`
- *   writes them beside copies of the carries; never into the generated ones). The test wants Merrymaking's and
- *   Occultism's: `merrymaking:christmas_creeper` (a creeper with its own texture, its own spawn egg) and Occultism's
+ * - MOB_CARRIES: the carries `horizon-port-pack carry` wrote with the oracle's entity facts (its work folder's
+ *   `mods`, each carry in `<key>/carry`), or a folder of carries (`<key>/horizon-mod.toml`). MOB_MODS picks the
+ *   carries to load (default `merrymaking,occultism`; `all`: every carry that declares a living type; an entry may also
+ *   be a carry's own folder, outside MOB_CARRIES). The test
+ *   wants Merrymaking's `christmas_creeper` (a creeper with its own texture, its own spawn egg) and Occultism's
  *   `possessed_skeleton`, `wild_zombie` and `wild_spider` (drawn by their template's own renderer).
+ * - MOB_ALL=1: then `/summon`s every living type the loaded carries declare, one at a time, and prints how many
+ *   spawned (`spawned N of M declared types`) with their health against the declared `max_health`.
  * - The screenshot is `mobs.png` in the fixture's run folder (printed): look at it. */
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const { WorldFixture, until } = await import('../../ae2/tests/world/harness');
 const carries = resolve(process.env.MOB_CARRIES ?? '');
 assert(process.env.MOB_CARRIES && existsSync(carries), 'MOB_CARRIES names the folder of carries to load');
-const mods = readdirSync(carries, { withFileTypes: true })
-  .filter(d => d.isDirectory() && existsSync(join(carries, d.name, 'horizon-mod.toml')))
-  .map(d => d.name).sort();
-for (const id of ['merrymaking', 'occultism']) assert(mods.includes(id), `MOB_CARRIES has the ${id} carry`);
+const carryOf = (id: string) => [join(carries, id, 'carry'), join(carries, id), resolve(id)]
+  .find(dir => existsSync(join(dir, 'horizon-mod.toml')));
+// A carry's living types: its `data/<ns>/horizon/entity_type/<path>.json` declarations with a living template.
+const declaredIn = (dir: string): string[] => existsSync(join(dir, 'data')) ? readdirSync(join(dir, 'data')).flatMap(ns => {
+  const types = join(dir, 'data', ns, 'horizon', 'entity_type');
+  return existsSync(types) ? readdirSync(types).filter(f => f.endsWith('.json'))
+    .filter(f => JSON.parse(readFileSync(join(types, f), 'utf8')).template !== 'minecraft:snowball')
+    .map(f => `${ns}:${f.slice(0, -'.json'.length)}`) : [];
+}) : [];
+const wanted = process.env.MOB_MODS === 'all'
+  ? readdirSync(carries).filter(id => { const dir = carryOf(id); return dir && declaredIn(dir).length > 0; }).sort()
+  : (process.env.MOB_MODS ?? 'merrymaking,occultism').split(',').filter(Boolean);
+const folders = wanted.map(carryOf);
+for (const [i, id] of wanted.entries()) assert(folders[i], `MOB_CARRIES has the ${id} carry`);
+// A declaration's `minecraft:max_health` is the health a new mob has.
+const declared = (type: string) => {
+  const [ns, path] = type.split(':');
+  const file = folders.map(dir => join(dir!, 'data', ns, 'horizon', 'entity_type', `${path}.json`)).find(existsSync);
+  assert(file, `${type} is declared`);
+  return JSON.parse(readFileSync(file, 'utf8'));
+};
 process.env.AE2_TEST_STARTUP_MS = String(Math.max(Number(process.env.AE2_TEST_STARTUP_MS ?? 0), 900_000));
 
 const EGGED = 'merrymaking:christmas_creeper';
 const SUMMONED = ['occultism:possessed_skeleton', 'occultism:wild_zombie', 'occultism:wild_spider'];
-const fixture = new WorldFixture('mob-world', 'server-thread', { devMods: mods.map(id => join(carries, id)) });
+const fixture = new WorldFixture('mob-world', 'server-thread', { devMods: folders as string[] });
 const mobs = async (type?: string) =>
   ((await fixture.raw(type ? `entities 24 ${type}` : 'entities 24')).entities ?? []).filter((e: any) => e.kind === 'mob');
 try {
@@ -50,12 +72,17 @@ try {
   await fixture.select(0, `${EGGED}_spawn_egg`);
   for (const dx of [-2, 2]) await fixture.aimedInteract(`${x + dx} ${y - 1} ${z}`);
   const egged = await until(() => mobs(EGGED), list => list.length >= 2, `${EGGED} from its spawn egg`);
-  fixture.mark(`${egged.length} ${EGGED} from the spawn egg`);
+  const eggHealth = declared(EGGED).attributes?.['minecraft:max_health'];
+  for (const m of egged) if (eggHealth !== undefined) assert.equal(m.health, eggHealth, `${EGGED} has its declared max_health`);
+  fixture.mark(`${egged.length} ${EGGED} from the spawn egg, health ${egged.map((m: any) => m.health).join(', ')}`);
   for (const [i, type] of SUMMONED.entries()) await fixture.command(`summon ${type} ${x - 3 + 3 * i} ${y} ${z + 3}`);
   const all = [EGGED, ...SUMMONED];
   for (const type of SUMMONED) {
     const [m] = await until(() => mobs(type), list => list.length === 1, `${type} summoned`);
     assert(m.health > 0, `${type} is alive`);
+    const health = declared(type).attributes?.['minecraft:max_health'];
+    if (health !== undefined) assert.equal(m.health, health, `${type} has its declared max_health`);
+    fixture.mark(`${type}: health ${m.health}${health === undefined ? ' (its template\'s)' : ' as declared'}`);
   }
   fixture.mark(`summoned ${SUMMONED.join(', ')}`);
 
@@ -85,6 +112,28 @@ try {
   fixture.mark(`the possessed skeleton dropped ${items.map((e: any) => e.item?.item).join(', ')}`);
   for (const type of all) await fixture.command(`kill @e[type=${type}]`);
   await until(() => mobs(), list => list.length === 0, 'every mob dead');
+
+  // Every declared living type of the loaded carries, by `/summon`, one at a time: what spawns, with what health.
+  if (process.env.MOB_ALL) {
+    const types = [...new Set(folders.flatMap(dir => declaredIn(dir!)))].sort();
+    const spawned: string[] = [], missing: string[] = [], otherHealth: string[] = [];
+    for (const type of types) {
+      await fixture.command(`summon ${type} ${x} ${y} ${z + 3}`);
+      const list = await until(() => mobs(type), l => l.length >= 1, `${type} summoned`, 8_000).catch(() => []);
+      if (list.length === 0) {
+        missing.push(type);
+        continue;
+      }
+      spawned.push(type);
+      const health = declared(type).attributes?.['minecraft:max_health'];
+      if (health !== undefined && list[0].health !== health) otherHealth.push(`${type} ${list[0].health} (declared ${health})`);
+      await fixture.command(`kill @e[type=${type}]`);
+      await until(() => mobs(type), l => l.length === 0, `${type} gone`, 8_000).catch(() => []);
+    }
+    console.log(`not spawned: ${missing.join(', ') || 'none'}`);
+    console.log(`health other than declared: ${otherHealth.join('; ') || 'none'}`);
+    fixture.mark(`spawned ${spawned.length} of ${types.length} declared types of ${wanted.length} carries`);
+  }
   fixture.report('passed');
 } catch (error) {
   fixture.report('failed', error);

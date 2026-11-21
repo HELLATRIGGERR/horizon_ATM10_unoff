@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
-# Reads content mods the way the game's content_root does (horizon-mods' Package::read,
+# Reads content mods the way the game's content_root does (horizon-mod-package's Package::read,
 # Content::read, content::clash), without building the game.
 [dependencies]
-horizon-mods = { path = "../../../crates/horizon-mods", default-features = false }
+horizon-mod-package = { path = "../../../crates/horizon-mod-package", default-features = false }
+serde_json = "1"
 
 [workspace]

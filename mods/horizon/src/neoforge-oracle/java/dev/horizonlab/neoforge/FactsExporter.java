@@ -119,6 +119,29 @@ public final class FactsExporter {
             server.halt(false);
             return;
         }
+        if (Boolean.getBoolean("horizon.oracle.entities_only")) {
+            // Only the entity types of every namespace and their spawn eggs (EntityFacts, docs/mobs.md), no dump and
+            // no batches: the mob declarations' facts in the few minutes the pack takes to start.
+            try {
+                try (Writer w = Files.newBufferedWriter(out, StandardCharsets.UTF_8);
+                        JsonWriter json = new JsonWriter(w)) {
+                    json.beginObject();
+                    json.name("schema").value(1);
+                    json.name("minecraft").value(net.minecraft.SharedConstants.getCurrentVersion().getName());
+                    new EntityFacts(server.overworld(), id -> true, json).write();
+                    json.endObject();
+                }
+                if (dump != null) {
+                    Files.writeString(Path.of(dump, "summary.json"), "{\"entities_only\": true}\n");
+                }
+            } catch (Throwable e) {
+                e.printStackTrace();
+                Runtime.getRuntime().halt(3);
+            }
+            System.out.println("horizon-oracle: wrote " + out);
+            server.halt(false);
+            return;
+        }
         if (Boolean.getBoolean("horizon.oracle.fluids_only")) {
             // Only the server's fluid facts of every namespace (FluidFacts: fluids, types, cauldrons), no dump and
             // no batches: a few minutes for a fluid probe instead of the whole pack's facts. The summary only says so.
@@ -252,6 +275,7 @@ public final class FactsExporter {
             json.endArray();
             items();
             new FluidFacts(level, this::ours, json).write();
+            new EntityFacts(level, this::ours, json).write();
             recipes();
             tags();
             json.name("skipped");

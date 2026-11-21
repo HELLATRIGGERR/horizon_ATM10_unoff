@@ -17,6 +17,11 @@ rm -f oracle/client-facts.json
 # its fluids and types over each batch's (where a type vaporizes, the cauldrons).
 rm -f oracle/fluid-facts.json
 [ -f "$ATM10_DATA/dump/fluid-facts.json" ] && cp "$ATM10_DATA/dump/fluid-facts.json" oracle/fluid-facts.json
+# An entities-only run of the server's oracle (`horizon.oracle.entities_only`: every entity type and spawn egg, for the
+# mob declarations), when there is one: dump/entity-facts.json, or the file ATM10_ENTITY_FACTS names.
+rm -f oracle/entity-facts.json
+entity_facts="${ATM10_ENTITY_FACTS:-$ATM10_DATA/dump/entity-facts.json}"
+[ -f "$entity_facts" ] && cp "$entity_facts" oracle/entity-facts.json
 # Lists written on Windows may end their lines with CR.
 keys() { tr -d '\015' < "$1"; }
 for k in $(keys all-keys.txt); do mkdir -p "mods/$k/carry"; done

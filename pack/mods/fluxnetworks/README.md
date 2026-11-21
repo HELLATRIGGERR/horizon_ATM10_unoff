@@ -25,10 +25,12 @@ offers create and disconnect, and looks nothing like the original GUI.
 - `fe_receive` passes one `FeReceiveCall`: a `MODIFY_ARG` injection on the call into `fire_fe_receive`.
 - `right_click_block` on its `BlockClick`: a device's click is cancelled and answered `Success`. `place_block` ->
   `on_block_placed_by` (HEAD, reading the call). `perform_command` -> `run_mod_command` (`/flux [line:text]`).
-- Engine needs (HANDOFF "S3"): `right_click_block` and `on_block_placed_by` fire only while a trait mod listens
-  (N5), so the device menu does not open from a click and a placed device does not take its item's settings yet.
-  `pack/scripts/fluxnetworks.ts stage` stages every bundle under `pack/mods`, so it passes only once Mekanism is
-  on upstream's hooks too.
+- `block_entity_types` (a fork compat hook) declares one block entity type per device (plug, point, controller and
+  the three storages), named after its block as fork main's ids were: upstream makes a mod block entity only for a
+  block a declared type names, and a mixin bundle has no `register()`.
+- `right_click_block` and `on_block_placed_by` fire only while a trait mod listens; N5's gates (`bundle_hooks.rs`)
+  also open them for this bundle's injections. `pack/scripts/fluxnetworks.ts stage` stages every bundle under
+  `pack/mods`, so it passes only once Mekanism is on upstream's hooks too.
 
 ## Licences
 

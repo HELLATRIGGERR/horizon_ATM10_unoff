@@ -335,6 +335,23 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     *entity = Some(nbt);
 }
 
+/// The devices, each its own block entity type: every Flux block but `flux_block` (`is_device`).
+const DEVICES: [&str; 6] = [
+    "fluxnetworks:flux_plug",
+    "fluxnetworks:flux_point",
+    "fluxnetworks:flux_controller",
+    "fluxnetworks:basic_flux_storage",
+    "fluxnetworks:herculean_flux_storage",
+    "fluxnetworks:gargantuan_flux_storage",
+];
+
+/// `native_block_entity_types` (compat hook): one type per device, named after its block (fork main's ids).
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    for id in DEVICES.into_iter().filter(|id| is_device(id)) {
+        types.push((id.to_owned(), vec![id.to_owned()]));
+    }
+}
+
 /// `native_block_entity_ticks`: plugs and points tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
     if Kind::of_block(block).is_some() {

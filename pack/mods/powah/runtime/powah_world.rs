@@ -145,6 +145,14 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     *entity = Some(nbt);
 }
 
+/// `native_block_entity_types` (compat hook): one type per Furnator, named after its block (fork main's ids).
+pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
+    for tier in Tier::ALL {
+        let id = format!("powah:furnator_{}", tier.name());
+        types.push((id.clone(), vec![id]));
+    }
+}
+
 /// `native_block_entity_ticks`: Furnators tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
     if Tier::of_furnator(block).is_some() {

@@ -33,6 +33,9 @@ engine.
 - `fe_receive` and `fe_extract` pass one `*Call`: `MODIFY_ARG` injections on the call into `fire_*`.
 - `place_block` -> `on_block_placed_by` (a HEAD injection reading the call); `perform_command` -> `run_mod_command`
   (`/powah [line:text]`, operators).
-- Engine needs (HANDOFF "S3"): `on_block_placed_by` fires only for items a trait mod's part listens on (N5), so a
-  placed Furnator does not take its item's energy back yet. `pack/scripts/powah.ts stage` stages every bundle under
-  `pack/mods`, so it passes only once Mekanism is on upstream's hooks too.
+- `block_entity_types` (a fork compat hook) declares one block entity type per Furnator, named after its block as
+  fork main's ids were: upstream makes a mod block entity only for a block a declared type names, and a mixin bundle
+  has no `register()`. A type keeps the blocks the loaded content declares.
+- `on_block_placed_by` fires only for items a trait mod's part listens on; N5's gates (`bundle_hooks.rs`) also open
+  it for this bundle's injection. `pack/scripts/powah.ts stage` stages every bundle under `pack/mods`, so it passes
+  only once Mekanism is on upstream's hooks too.

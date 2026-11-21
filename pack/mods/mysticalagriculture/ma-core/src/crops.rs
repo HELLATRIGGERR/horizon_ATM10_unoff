@@ -154,8 +154,8 @@ impl Crop {
 /// The crop of a block id (`mysticalagriculture:<name>_crop`), from MA's own table.
 pub fn builtin(block: &str) -> Option<Crop> {
     let name = block.strip_prefix("mysticalagriculture:")?.strip_suffix("_crop")?;
-    let (name, tier) = CROPS.iter().find(|(n, _)| *n == name)?;
-    Some(Crop::new(name, tier.info()))
+    let row = CROPS.iter().find(|row| row.name == name)?;
+    Some(Crop::new(row.name, row.tier.info()))
 }
 
 /// A MysticalCustomization tier file (`tiers/<name>.json`) as `CustomTierLoader` reads it.

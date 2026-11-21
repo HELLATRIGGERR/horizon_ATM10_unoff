@@ -31,7 +31,7 @@ fn own(id: &str) -> Option<&str> {
 /// counts as enabled, since the loaded mods are not known here; the pack's MysticalCustomization crops are read
 /// with the world, after the data packs.
 fn crop(id: &str) -> bool {
-    own(id).is_some_and(|name| CROPS.iter().any(|(n, _)| *n == name))
+    own(id).is_some_and(|name| CROPS.iter().any(|row| row.name == name))
 }
 
 /// `ICondition.test` of `name` on its entry's arguments (the JSON object without `type`).

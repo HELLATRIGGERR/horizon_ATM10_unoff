@@ -5,6 +5,7 @@ pub mod conditions;
 pub mod crop_table;
 pub mod crops;
 pub mod infusion;
+pub mod ingredient;
 
 pub use crops::Tier;
 

@@ -8,10 +8,15 @@
  *   `mysticalagriculture:augment/absorption_i` (an Unattuned Augment, 4 golden apples, 4 Inferium Essence) in
  *   100 ticks: the pedestals are emptied and a right click gives the Absorption I Augment.
  *
+ * - A seed recipe, whose ingredients are MA's own `mysticalagriculture:crop_component` (resolved from the crop table):
+ *   `mysticalagriculture:seed/infusion/stone` takes a Prosperity Seed Base on the altar (the resource crops' crafting
+ *   seed), 4 Stone (the crop's material) and 4 Inferium Essence (its tier's) on the pedestals and gives Stone Seeds.
+ *   The game's log says how many of the carry's 123 infusion recipes the altar read.
+ *
  * A screenshot of the ritual goes to the run folder (`infusion-altar.png`). Needs MA_CARRY (the carry);
  * ATM10_DIR, when set, gives ATM10's `config/mysticalagriculture-common.toml` and MysticalCustomization's files. */
 import assert from 'node:assert/strict';
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorldFixture, until } from '../../../../ae2/tests/world/harness';
 
@@ -138,6 +143,46 @@ try {
   await until(() => fixture.raw('inventory'), v => count(v, 'mysticalagriculture:absorption_i_augment') === 1, 'a right click takes the output');
   assert(!(await saved(altar)).includes('absorption_i_augment'), 'the output slot is empty');
   fixture.mark('a right click gives the Absorption I Augment');
+
+  // ---- A seed recipe: crop_component ingredients ---------------------------------------------------------------------
+  // The signal is taken away first, so the altar starts when the ring is full, as in the first ritual.
+  await fixture.command(`setblock ${ax} ${y - 1} ${az} minecraft:stone`);
+  await fixture.replace('hotbar.0', 'mysticalagriculture:prosperity_seed_base', 1);
+  await fixture.replace('hotbar.1', 'minecraft:stone', 4);
+  await fixture.replace('hotbar.2', 'mysticalagriculture:inferium_essence', 4);
+  await fixture.select(0, 'mysticalagriculture:prosperity_seed_base');
+  await fixture.raw(`interact ${altar} up`);
+  await until(() => saved(altar), s => s.includes('mysticalagriculture:prosperity_seed_base'), 'the seed base goes on the altar');
+  for (const [i, [dx, dz]] of offsets.entries()) {
+    const item = i % 2 === 0 ? 'minecraft:stone' : 'mysticalagriculture:inferium_essence';
+    await fixture.select(i % 2 === 0 ? 1 : 2, item);
+    const at = `${ax + dx} ${y} ${az + dz}`;
+    await fixture.raw(`interact ${at} up`);
+    await until(() => saved(at), s => s.includes(item), `${item} on the pedestal at ${at}`);
+  }
+  await Bun.sleep(1500);
+  assert.match(await saved(altar), /Progress: ?0/, 'no signal, no progress');
+  await fixture.command(`setblock ${ax} ${y - 1} ${az} minecraft:redstone_block`);
+  const seeds = await until(() => saved(altar), s => s.includes('mysticalagriculture:stone_seeds'), 'the altar crafts the seed', 30000);
+  log.seedAltar = seeds;
+  assert(!seeds.includes('prosperity_seed_base'), `the seed base is used: ${seeds}`);
+  for (const [dx, dz] of offsets) {
+    const left = await saved(`${ax + dx} ${y} ${az + dz}`);
+    assert(!/stone|inferium_essence/.test(left), `the pedestal is emptied: ${left}`);
+  }
+  await fixture.raw(`interact ${altar} up`);
+  await until(() => fixture.raw('inventory'), v => count(v, 'mysticalagriculture:stone_seeds') === 1, 'a right click takes the Stone Seeds');
+  fixture.mark('the seed recipe (crop_component ingredients) crafts Stone Seeds on the altar');
+
+  // How much of the carry's 123 infusion recipes the altar read (logged when it first looked at them).
+  const gameLog = readFileSync(join(fixture.run, 'game-1.log'), 'utf8');
+  const books = [...gameLog.matchAll(/\[mysticalagriculture\] (\d+) infusion recipes, (\d+) left out/g)].map(m => [Number(m[1]), Number(m[2])]);
+  assert(books.length > 0, 'the altar logs its recipe count');
+  const [read, left] = books[books.length - 1];
+  log.recipes = { read, left };
+  assert.equal(read + left, 123, `the carry's infusion recipes: ${read} read, ${left} left out`);
+  assert(read > 57, `the seed recipes load (${read} of 123 read; 57 before)`);
+  fixture.mark(`the altar read ${read} of the carry's 123 infusion recipes (${left} left out)`);
 
   fixture.assertHidden(await fixture.raw('status'));
   console.log('MA crops-infusion', JSON.stringify(log));

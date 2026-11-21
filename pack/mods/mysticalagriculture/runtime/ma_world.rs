@@ -19,8 +19,10 @@ use mod_api::{LootDrops, ModBlockEntity, WorldPhase};
 use ma_core::{
     accelerator,
     config::{self, Config},
+    crop_table::Accepts,
     crops::{self, Crop, Soil},
     infusion::{self, Altar, Step},
+    ingredient,
 };
 use serde_json::Value;
 use std::{cell::RefCell, collections::HashSet, rc::Rc, time::Instant};
@@ -38,6 +40,8 @@ struct Book {
     stamp: (usize, usize),
     recipes: Vec<Rc<infusion::Recipe<ItemStack>>>,
     skipped: usize,
+    /// The first few recipes left out, for the log.
+    left_out: Vec<String>,
 }
 
 thread_local! {
@@ -340,9 +344,23 @@ pub(super) fn register_conditions(conditions: &mut dyn mod_api::LoadConditions) 
 // ---- The recipes ------------------------------------------------------------
 
 /// An ingredient's JSON as MA's 1.21.1 recipes write it, resolved to the items it accepts: `{item}`, `{tag}`, a
-/// list, or NeoForge's shapes as the engine's own recipe loader reads them.
+/// list, MA's own `mysticalagriculture:crop_component` (a crop's essence, seed or material, from its crop table) or
+/// NeoForge's shapes as the engine's own recipe loader reads them. One that takes no item here (an unknown crop, an
+/// absent item, an empty tag) is none, as the recipe could never match.
 fn items_of(game: &Game<'_>, v: &Value) -> Option<HashSet<String>> {
     let one = |s: String| game.native_recipe_ingredient(&Value::String(s)).map(|i| i.items);
+    if let Some(read) = ingredient::read(v) {
+        let accepts = read.and_then(|c| ingredient::resolve(&c));
+        let items = match accepts {
+            Ok(Accepts::Item(id)) => one(id),
+            Ok(Accepts::Tag(tag)) => one(format!("#{tag}")),
+            Err(error) => {
+                log::warn!("[mysticalagriculture] {error}");
+                None
+            }
+        };
+        return items.filter(|items| !items.is_empty());
+    }
     match v {
         Value::String(s) => one(s.clone()),
         Value::Array(list) => {
@@ -398,10 +416,15 @@ fn recipes(game: &Game<'_>) -> Vec<Rc<infusion::Recipe<ItemStack>>> {
         });
         match read {
             Some(recipe) => book.recipes.push(Rc::new(recipe)),
-            None => book.skipped += 1,
+            None => {
+                book.skipped += 1;
+                if book.left_out.len() < 8 {
+                    book.left_out.push(id.clone());
+                }
+            }
         }
     }
-    log::info!("[mysticalagriculture] {} infusion recipes, {} left out", book.recipes.len(), book.skipped);
+    log::info!("[mysticalagriculture] {} infusion recipes, {} left out {:?}", book.recipes.len(), book.skipped, book.left_out);
     let out = book.recipes.clone();
     BOOK.with(|b| *b.borrow_mut() = book);
     out

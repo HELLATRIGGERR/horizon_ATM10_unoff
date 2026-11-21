@@ -590,17 +590,28 @@ What works:
 - The infusion altar and its eight pedestals: right clicks put one item on or take it off, the altar gives its output
   first; a redstone signal or the wand activates it; after 100 ticks with a matching recipe the pedestals' items
   are used (their crafting remainders stay) and the result goes to the output slot. Recipes are the world's
-  `mysticalagriculture:infusion` table, matched one item to one ingredient as NeoForge's `RecipeMatcher`.
+  `mysticalagriculture:infusion` table and the data files of the type, matched one item to one ingredient as
+  NeoForge's `RecipeMatcher`. The seed recipes' ingredients are MA's own `mysticalagriculture:crop_component`
+  (`ma_core::ingredient`): one resolves from the crop table as `CropComponentIngredient.initMatchingStacks` asks the
+  crop registry, to its tier's essence (Tertium Essence for Iron, Inferium for the elemental crops), its crop type's
+  crafting seed (the Prosperity Seed Base, or the Soulium Seed Base for a mob crop) or its crafting material (an item,
+  a tag whose items the game gives, a Soul Jar, the Experience Capsule). The table holds each of the 136 crops'
+  type and material as `ModCrops` declares them.
 - Settings from ATM10's `config/mysticalagriculture-common.toml` (`pack/pack.toml` lists it for `sync-atm10.ts`).
 
 Differences from Java: the altar and pedestals draw no item above them and send no particles (no block entity
 renderer yet); an item taken off goes into the inventory, not an item entity at the player's feet; a hopper can put a
 second item into the altar's input; an accelerator is a ticking block entity, not a scheduled block tick, and only
 reaches MA's crops (Java gives any bonemealable block a random tick); its light check reads the brighter of block and
-sky light without the time of day; `transfer_components` recipes don't copy the input's components.
+sky light without the time of day; `transfer_components` recipes don't copy the input's components; a Soul Jar or an
+Experience Capsule that is a recipe's material is taken by its item, whatever souls or experience it holds (soul jars
+are not ported); the load conditions of the data files the altar reads itself are not asked, so a recipe whose
+material item is absent or whose tag is empty is left out for having nothing to match; the pack's
+MysticalCustomization crops have no `crop_component` (their type and ingredient are not read).
 
-Verified: `ma-core` has 15 unit tests (crops, tiers, drops, growth speed, infusion matching, altar steps,
-accelerator, config). The world test `tests/crops-infusion.ts` runs on a world with the carry as a dev mod:
+Verified: `ma-core` has 23 unit tests (crops, tiers, drops, growth speed, infusion matching, altar steps,
+accelerator, config, the `crop_component` ingredient: its codec, each component of each of the 136 crops, an iron seed
+recipe read, resolved and matched, and with `MA_CARRY` set the carry's 66 seed recipes). The world test `tests/crops-infusion.ts` runs on a world with the carry as a dev mod:
 
 - Inferium Seeds plant `inferium_crop[age=0]` on Tertium farmland (the carry's `place_block` and the `may_place_on` hook).
 - A Growth Accelerator has its block entity and `Cooldown`; the crop grows on random ticks.
@@ -608,6 +619,14 @@ accelerator, config). The world test `tests/crops-infusion.ts` runs on a world w
 - Right clicks put an Unattuned Augment on the altar and one item on each of the eight pedestals; a redstone signal
   starts the ritual; the altar crafts the Absorption I Augment, the pedestals are emptied, and a right click gives
   the output. A screenshot of the ring is taken (`infusion-altar.png`, in the run folder).
+- A seed recipe, whose ingredients are `crop_component`s: a Prosperity Seed Base on the altar, 4 Stone (Stone's
+  material) and 4 Inferium Essence (its tier's) on the pedestals make `seed/infusion/stone`'s Stone Seeds.
+- The altar's recipe book (`[mysticalagriculture] 103 infusion recipes, 20 left out` in the game's log) holds 103 of the
+  carry's 123 on a world that has only the carry. The 20 are the 2 soulium daggers (their ingredients ask for a
+  Soul Jar's own component, `neoforge:components`) and 18 seed recipes whose material comes from a mod the world
+  lacks: 11 items (Astral Sorcery's, Twilight Forest's, Integrated Dynamics', Refined Storage's, Powah's,
+  EnderIO's) and 7 item tags that hold nothing there (`c:ingots/draconium`, `c:ingots/enderium`,
+  `c:ingots/hop_graphite`, `c:ingots/yellorium`, `c:rubber`, MA's `material/limestone` and `material/marble`).
 - ATM10's `config/mysticalagriculture-common.toml` is read (`secondarySeedDrops = false`, 12 custom crops, 1 custom tier).
 
 Not tested in a world: bone meal on a crop (its hooks are in; the harness can't see a crop's face to use an item on
@@ -615,12 +634,12 @@ it).
 
 Not yet:
 
-- The infusion recipes: the carry from the jar holds 123 and 57 load. The other 66 are the seed recipes
-  (`recipe/seed/infusion/`), whose ingredients are of MA's own type `mysticalagriculture:crop_component` (a crop's
-  material or essence) behind `crop_enabled` and `crop_has_material` conditions; the altar leaves them out. The oracle's
-  dump of ATM10 has 195 (MA builds the seed recipes in code at load); the port-pack's `final-data` over this carry
-  is the way to bring them in, and has not been run. The world table also lacks the recipes in
-  sub-folders, so the altar reads the data files of the type as well.
+- The infusion recipes: the carry from the jar holds 123 (66 of them the seed recipes in `recipe/seed/infusion/`) and
+  the altar reads all whose items exist; the full pack's (every mod's items and tags) has not been run, nor has a
+  seed of a mob crop (Soul Jar components are not compared). The oracle's dump of ATM10 has 195 (MA builds the
+  rest of the seed recipes in code at load); the port-pack's `final-data` over this carry is the way to bring them
+  in, and has not been run. The world table also lacks the recipes in sub-folders, so the altar reads the data files
+  of the type as well. The two soulium daggers need the Soul Jar's `mysticalagriculture:soul_jar` component.
 - The awakening altar and essence vessels (`awakening`), the machines (Essence Furnace, Seed Reprocessor, Soul
   Extractor and the rest, `reprocessor`, `soul_extraction`), Fertilized Essence and Mystical Fertilizer on crops, the
   tools, armour and augments' effects, soul jars, the Agradditions crops.

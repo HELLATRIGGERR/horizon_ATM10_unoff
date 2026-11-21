@@ -697,6 +697,10 @@ assets when `mekanism-content` is given them.
   line there.
 - The damage types (`radiation`, `flamethrower`, `laser`, `sps`) join the server's data through `data_pack_files`
   (`mek_radiation::DAMAGE_TYPES`): the world's mod content carries no `data/mekanism/damage_type`, and a hurt of an
-  unknown type hurts nobody.
+  unknown type hurts nobody. The engine resolves a hurt's type in the world's damage registry, where they are
+  (`hurt_target`, and the player's hurt continuations in `items/item_durability.rs`).
+- World suites: run them with resources made by this engine's horizon-prepare (output version 5; HANDOFF "S3", N7).
 - Engine needs (HANDOFF "S3"): `menu_quick_move`'s stack can't end empty (the API's `ItemStack` is never 0): a
-  shift-click into a QIO dashboard moves all but one item.
+  shift-click into a QIO dashboard moves all but one item (`qio` stops at 86 of 89). A key over a chemical in JEI's
+  ingredient list carries the air placeholder (S5's E3), so U on the hydrogen in the list opens nothing
+  (`jei-chemicals`).

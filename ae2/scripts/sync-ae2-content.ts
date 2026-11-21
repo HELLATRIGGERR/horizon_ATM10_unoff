@@ -435,7 +435,10 @@ for (const p of walk(join(assets,'models')).filter(p=>p.endsWith('.json'))) { tr
 // Include the validated, source-preserving Guide assets in clean projections.
 syncGuideAssets(reference, content);
 report.counts = { advancement_files:advancementFiles, singleton_items:report.items.filter((x:any)=>x.max_stack_size===1).length, blocks:report.blocks.length,items:report.items.length,block_items:blockItems.size,errors:report.errors.length,excluded:report.excluded.length,model_loader_files:report.unsupported_model_loaders.length };
-writeFileSync(join(content,'horizon-mod.toml'),`id = "ae2"\nname = "AE2 Content Experiment"\nversion = "0.2.0"\ndescription = "AE2 source visual catalog; native behavior is separately implemented and incomplete."\nauthors = ["Team Applied Energistics", "Adam's Codex experiment"]\napi = "0.2"\ncapabilities = ["registries"]\n`);
+// side = "both": the content declares registries and data the server loads. A manifest that names no side is
+// `client`, and the server's `mod_loaded` conditions see only both- and server-side mods (horizon-port-pack's carries
+// say "both" too).
+writeFileSync(join(content,'horizon-mod.toml'),`id = "ae2"\nname = "AE2 Content Experiment"\nversion = "0.2.0"\ndescription = "AE2 source visual catalog; native behavior is separately implemented and incomplete."\nauthors = ["Team Applied Energistics", "Adam's Codex experiment"]\napi = "0.2"\nside = "both"\ncapabilities = ["registries"]\n`);
 writeFileSync(join(content,'ATTRIBUTION.md'),`# Attribution\n\nAssets generated locally from Applied Energistics 2, 1.21.1 branch, commit db17504a86128fdf3dae31f5fb7a112a646e0b93: https://github.com/AppliedEnergistics/Applied-Energistics-2\n\nAE2 textures and models: © 2020 Ridanisaurus Rid; © 2013–2020 AlgorithmX2 et al., Creative Commons Attribution-NonCommercial-ShareAlike 3.0: https://creativecommons.org/licenses/by-nc-sa/3.0/ . Language text and translations: CC0 per upstream README. Source code LGPL-3.0-or-later. Distribution and use must observe the applicable licenses.\n`);
 put(join(content,'content-inventory.json'),report);
 appendAttribution();

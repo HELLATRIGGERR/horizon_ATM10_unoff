@@ -948,6 +948,29 @@ mod tests {
     }
 
     #[test]
+    fn a_block_named_as_a_carried_fluids_without_level_holds_no_fluid() {
+        register_test_fluids();
+        // A carry can name a fluid's block that is no liquid block (Modern Industrialization's
+        // template blocks): no `level`, so it holds no fluid instead of failing the state table.
+        let bare = crate::chunk::BlockState {
+            name: "test:brine".into(),
+            properties: Default::default(),
+        };
+        assert_eq!(FluidState::from_block(&bare).unwrap(), FluidState::EMPTY);
+        assert_eq!(crate::fluid::mod_fluid_of_block(&bare).unwrap(), None);
+        // With `level` it is the fluid's liquid block again.
+        let liquid = crate::chunk::BlockState {
+            name: "test:brine".into(),
+            properties: [("level".to_owned(), "0".to_owned())]
+                .into_iter()
+                .collect(),
+        };
+        let brine = FluidKind::from_name("test:brine").unwrap();
+        assert_eq!(FluidState::from_block(&liquid).unwrap().kind(), brine);
+        assert!(crate::fluid::mod_fluid_of_block(&liquid).unwrap().is_some());
+    }
+
+    #[test]
     fn fluid_tags_resolve_references_and_drop_unknown_fluids() {
         let dir = std::env::temp_dir().join(format!("horizon-fluid-tags-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);

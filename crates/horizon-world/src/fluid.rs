@@ -419,7 +419,14 @@ impl FluidState {
     }
     pub fn from_block(state: &BlockState) -> io::Result<Self> {
         let water = state.name == "minecraft:water";
-        let mod_fluid = mod_fluid_of_block_name(&state.name);
+        // A carried fluid's liquid block is a copy of water's or lava's, with `level`; a block
+        // the carry names as a fluid's without it (a template's, Modern Industrialization's 72)
+        // holds none, as on fork main.
+        let mod_fluid = state
+            .properties
+            .contains_key("level")
+            .then(|| mod_fluid_of_block_name(&state.name))
+            .flatten();
         if water || state.name == "minecraft:lava" || mod_fluid.is_some() {
             let level = state
                 .properties
@@ -479,11 +486,12 @@ impl FluidState {
         }
     }
 }
-/// `state`'s fluid when its block is a mod fluid's, whose rows copy a vanilla liquid's.
+/// `state`'s fluid when its block is a mod fluid's, whose rows copy a vanilla liquid's (with
+/// `level`, as [`FluidState::from_block`] asks).
 pub fn mod_fluid_of_block(state: &BlockState) -> io::Result<Option<FluidState>> {
     match mod_fluid_of_block_name(&state.name) {
-        Some(_) => FluidState::from_block(state).map(Some),
-        None => Ok(None),
+        Some(_) if state.properties.contains_key("level") => FluidState::from_block(state).map(Some),
+        _ => Ok(None),
     }
 }
 /// Queries required by fluid surface height and camera immersion. The caller

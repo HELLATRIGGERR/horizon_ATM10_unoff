@@ -28,7 +28,7 @@ impl Game<'_> {
             .ok_or("missing damage target")?
             .start_hurt(
                 crate::game::entity::damage_level_of!(self, attack),
-                &self.motion.health,
+                &self.health_resources,
                 rules,
                 source,
                 amount,
@@ -51,7 +51,7 @@ impl Game<'_> {
             .ok_or("missing damage target")?
             .select_equipment_hurt(
                 crate::game::entity::damage_level_of!(self, attack),
-                &self.motion.health,
+                &self.health_resources,
                 rules,
                 &mut hit,
             )?;
@@ -65,7 +65,7 @@ impl Game<'_> {
             .ok_or("missing damage target")?
             .finish_hurt(
                 crate::game::entity::damage_level_of!(self, attack),
-                &self.motion.health,
+                &self.health_resources,
                 rules,
                 hit,
             )

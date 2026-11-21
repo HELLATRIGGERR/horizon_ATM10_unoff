@@ -932,6 +932,11 @@ pub enum PanelEvent {
         key: String,
         /// The item the pointer was on.
         stack: Stack,
+        /// The entry's index in `panel_items`' list when the pointer was on
+        /// the panel's list, as `Clicked` names it (a fluid's or another
+        /// ingredient's `stack` is the item drawn for it); none on a slot of
+        /// the screen's or of a recipe.
+        index: Option<u32>,
     },
     /// A click on a slot of a recipe the panel shows: the recipe's index in
     /// `native_panel_recipes`' list and the slot's in it (the results come

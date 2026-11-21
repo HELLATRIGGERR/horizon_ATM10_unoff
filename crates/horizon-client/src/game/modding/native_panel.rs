@@ -1177,8 +1177,9 @@ impl Game<'_> {
         }
     }
     /// The item under the pointer on a container screen, for the mods' keys
-    /// (the `Key` event): the panel's, else a slot's.
-    pub(super) fn mod_browser_pointed(&mut self) -> Option<BrowserStack> {
+    /// (the `Key` event): the panel's, else a slot's; with the entry's index
+    /// in the panel's list when it is one of the list's.
+    pub(super) fn mod_browser_pointed(&mut self) -> Option<(BrowserStack, Option<u32>)> {
         let batch = self.browser_batch()?;
         let stack = match self
             .browser_sync()
@@ -1186,18 +1187,20 @@ impl Game<'_> {
         {
             // The panel's stacks as the mod sent them.
             Some(layout) if inside(self.cursor, layout.area) => {
-                return Some(self.browser_pointed_stack(&layout)?.0);
+                let index = self.browser_hovered(&layout).map(|(index, _)| index as u32);
+                return Some((self.browser_pointed_stack(&layout)?.0, index));
             }
             _ => {
                 let slot = self.slot_at(&batch, self.cursor.0, self.cursor.1)?;
                 self.slot_view(slot)?
             }
         };
-        Some(BrowserStack {
+        let stack = BrowserStack {
             item: mod_api::__private::item_key(&stack.item)?,
             count: stack.count,
             components: super::native_recipes::components(&stack),
-        })
+        };
+        Some((stack, None))
     }
     /// A key `key` (`key.keyboard.r`) went down: over an item on a container
     /// screen, a native mod's panel hears it as a `Key` event.
@@ -1211,9 +1214,9 @@ impl Game<'_> {
         let Some(owner) = self.browser_sync() else {
             return;
         };
-        if let Some(stack) = self.mod_browser_pointed() {
+        if let Some((stack, index)) = self.mod_browser_pointed() {
             let key = key.to_owned();
-            self.panel_event(&owner, BrowserEvent::Key { key, stack });
+            self.panel_event(&owner, BrowserEvent::Key { key, stack, index });
         }
     }
 }

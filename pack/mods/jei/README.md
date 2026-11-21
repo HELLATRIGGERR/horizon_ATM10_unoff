@@ -46,7 +46,8 @@ Build and test: `bun run pack/scripts/jei.ts units stage build world`.
   folder at `server_started` and forget it at `world_lifecycle`'s close phases.
 - `panel_event` carries upstream's `PanelEvent`, whose stacks are `ItemKey`s: `jei_world::NativePanelEvent` is the
   fork's shape again (`NativePanelEvent::of`), the stack's id read from its key (a fluid or a mod's ingredient on the
-  panel arrives as the item drawn for it; upstream has no `Catalyst` event).
+  panel arrives as the item drawn for it; upstream has no `Catalyst` event). A `Key` over the list names its entry
+  by `index`, as `Clicked` does: a fluid or a chemical there is read from JEI's own list by it.
 - The mod list row (`mods`), the settings page (`settings`, `settings_click`) are the fork's compat hooks, which
   nothing in the merged engine fires: upstream declares mod settings as data (`content/mod_settings.rs`,
   `setting_changed`). Until JEI's settings are declared that way, its page is missing from Options > Mods.

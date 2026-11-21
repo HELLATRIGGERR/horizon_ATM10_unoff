@@ -293,6 +293,21 @@ fn native_stack(stack: &mod_api::Stack) -> NativeStack {
     }
 }
 
+/// The entry at `index` of the panel's list when it is a fluid or a mod's ingredient, by its kind and id (upstream's
+/// `Stack` of it is the item drawn for it); None for an item, whose `Stack` names it already.
+fn list_entry(index: u32) -> Option<NativeStack> {
+    let guard = state();
+    let s = guard.as_ref()?;
+    let &n = s.shown.get(index as usize)?;
+    let kind = s.list.kind(n);
+    (!kind.is_empty()).then(|| NativeStack {
+        item: s.list.id(n).to_owned(),
+        count: 1,
+        components: String::new(),
+        kind: kind.to_owned(),
+    })
+}
+
 impl NativePanelEvent {
     /// Upstream's `PanelEvent` (`panel_event`) as the fork's; None for one the fork had no variant for.
     pub(super) fn of(event: &mod_api::PanelEvent) -> Option<Self> {
@@ -300,7 +315,9 @@ impl NativePanelEvent {
         Some(match event {
             E::Clicked { index, right } => Self::Clicked { index: *index, right: *right },
             E::Search(text) => Self::Search(text.clone()),
-            E::Key { key, stack } => Self::Key { key: key.clone(), stack: native_stack(stack) },
+            E::Key { key, stack, index } => {
+                Self::Key { key: key.clone(), stack: index.and_then(list_entry).unwrap_or_else(|| native_stack(stack)) }
+            }
             E::SlotClicked { recipe, slot, stack, right } => {
                 Self::SlotClicked { recipe: *recipe, slot: *slot, stack: native_stack(stack), right: *right }
             }

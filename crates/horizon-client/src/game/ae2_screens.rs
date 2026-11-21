@@ -1153,11 +1153,10 @@ impl Game<'_> {
         if wide != (menu == "minecraft:generic_9x6") {
             return None;
         }
-        let assets = self.options.resources.join("assets");
         // An addon keeps its files of AE2's namespace under its own (`<ns>/ae2/`):
         // its style first, its includes from AE2's.
         let namespace = block.split(':').next().unwrap_or("ae2");
-        let style = ScreenStyle::load_over(&assets.join(namespace).join("ae2/screens"), &assets.join("ae2/screens"), layout.style);
+        let style = ScreenStyle::load_over(&self.ae2_asset_folder(&format!("{namespace}/ae2/screens")), &self.ae2_asset_folder("ae2/screens"), layout.style);
         let mut style = match style {
             Ok(style) => style,
             Err(error) => {
@@ -1306,8 +1305,7 @@ impl Game<'_> {
             return false;
         }
         let style = STYLE.get_or_init(|| {
-            let screens = self.options.resources.join("assets/ae2/screens");
-            ScreenStyle::load(&screens, "sky_chest.json").map_err(|error| log::warn!("AE2 sky chest style: {error}")).ok()
+            ScreenStyle::load(&self.ae2_asset_folder("ae2/screens"), "sky_chest.json").map_err(|error| log::warn!("AE2 sky chest style: {error}")).ok()
         });
         let Some(style) = style.as_ref() else {
             return false;

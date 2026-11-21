@@ -2204,7 +2204,9 @@ impl Game<'_> {
         if !path.starts_with("data/") || !path.split('/').all(plain) {
             return None;
         }
-        fs::read(self.options.resources.join(path)).ok()
+        // The content root holds only generated tables since upstream's 787420c800 (passive jar
+        // data stays in its layers): the data source has the game's and the mods' data.
+        self.pack.data_source.read(path).ok()
     }
     pub(super) fn native_block_collision_in(
         &self,

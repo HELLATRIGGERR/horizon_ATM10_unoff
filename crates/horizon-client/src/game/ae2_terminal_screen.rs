@@ -290,10 +290,11 @@ impl Layout {
     }
 }
 
-fn styles(resources: &std::path::Path) -> &'static [Option<ScreenStyle>; 4] {
+/// The terminals' styles from `assets`, the game's resolved assets.
+fn styles(assets: &horizon_assets::resource_source::ResourceSource) -> &'static [Option<ScreenStyle>; 4] {
     static STYLES: OnceLock<[Option<ScreenStyle>; 4]> = OnceLock::new();
     STYLES.get_or_init(|| {
-        let screens = resources.join("assets/ae2/screens");
+        let screens = assets.subdirectory("assets/ae2/screens").unwrap_or_default();
         ["terminals/terminal.json", "terminals/wireless_terminal.json", "terminals/crafting_terminal.json", "terminals/pattern_encoding_terminal.json"]
             .map(|path| {
                 ScreenStyle::load(&screens, path)
@@ -507,7 +508,7 @@ impl Game<'_> {
     pub(super) fn ae2_term_layout(&self) -> Option<Layout> {
         let kind = self.ae2_term_kind()?;
         let wireless = self.ae2_term_view().is_some_and(|v| v.types.is_some());
-        let styles = styles(&self.options.resources);
+        let styles = styles(&self.pack.source);
         let style = match kind {
             Kind::Terminal if wireless => styles[1].as_ref(),
             Kind::Terminal => styles[0].as_ref(),

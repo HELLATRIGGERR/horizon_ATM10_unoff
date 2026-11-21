@@ -4607,6 +4607,7 @@ pub(crate) mod tests {
         assert_eq!(step(&after, "minecraft:cow", Step), own);
         assert_eq!(step(&after, "minecraft:player", Place), own);
         // Fall, trample, jump and the ender teleport read it as well.
+        let jumps_before = JUMPS.load(std::sync::atomic::Ordering::Relaxed);
         let landing = |context: &LoopContext| {
             let (mut distance, mut multiplier, mut cancel) = (3.0, 1.0, false);
             crate::landing::native_living_fall(
@@ -4639,7 +4640,7 @@ pub(crate) mod tests {
             landing(&after),
             (4.0, 2.0, false, true, [1.0, 3.0, 3.0], true)
         );
-        assert_eq!(JUMPS.load(std::sync::atomic::Ordering::Relaxed), 2);
+        assert_eq!(JUMPS.load(std::sync::atomic::Ordering::Relaxed) - jumps_before, 2);
         // Heal, breathe and drown read it as well.
         let health = |context: &LoopContext| {
             let (mut amount, mut cancel) = (2.0, false);

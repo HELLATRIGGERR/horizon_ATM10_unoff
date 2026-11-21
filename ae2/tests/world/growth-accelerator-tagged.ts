@@ -27,7 +27,7 @@ try {
   await fixture.command(`fill ${at(-3, 0, -3)} ${at(3, 4, 3)} minecraft:air`);
   await fixture.command(`tp @s ${x + 2.5} ${y} ${z + 2.5}`);
   await until(() => fixture.raw('status'), s => Math.abs(s.player.position[0] - (x + 2.5)) < 0.2, 'fixture teleport');
-  await fixture.command('gamerule randomTickSpeed 0');
+  await fixture.command('gamerule random_tick_speed 0');
   await fixture.command(`setblock ${at(0, -2, -1)} minecraft:stone`);
   await fixture.command(`setblock ${at(0, -1, -1)} minecraft:sand`);
   await fixture.command(`setblock ${at(0, -1, -2)} minecraft:water`);

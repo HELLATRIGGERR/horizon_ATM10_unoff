@@ -2872,9 +2872,8 @@ impl Streaming {
     }
     /// Rank the chunks `/forceload add` over chunks `(x0, z0)..=(x1, z1)`
     /// decorates in vanilla's order (`forced_order`), after every chunk
-    /// ranked before. Public for AEInfinityBooster's access points, which
-    /// force their own chunk as the fork did before the merge.
-    pub fn rank_forced(&mut self, x0: i32, z0: i32, x1: i32, z1: i32) {
+    /// ranked before.
+    fn rank_forced(&mut self, x0: i32, z0: i32, x1: i32, z1: i32) {
         for (x, z) in horizon_world::worldgen::decoration_order::forced_order(x0, z0, x1, z1) {
             self.decoration_order.rank_or_append(x, z);
         }

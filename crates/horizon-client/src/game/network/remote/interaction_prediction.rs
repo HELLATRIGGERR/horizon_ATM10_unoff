@@ -230,6 +230,19 @@ impl Game<'_> {
                 && held.is_some()
                 && vanilla_block
                 && self.shelf_hit(&hit).is_some();
+            // The fork's AE2 answers come ahead of the sneak gate, as they did inside
+            // `remote_block_reacts` before useBlock moved the gate here: a sneaking Memory Card
+            // save on an AE2 machine or part ends the click, and no UseItem clears the card.
+            #[cfg(feature = "ae2-lab")]
+            let ae2_sneak_use = (hand == Hand::Main
+                && !spectator
+                && canceled.is_none()
+                && use_block == TriState::Default
+                && !block_used)
+                .then(|| self.ae2_remote_block_reacts(&hit, held.as_ref()))
+                .flatten();
+            #[cfg(not(feature = "ae2-lab"))]
+            let ae2_sneak_use: Option<(InteractionResult, DryUse)> = None;
             let (result, changes) = if let Some(answer) = block_answer {
                 if let Some(result) = crate::game::native_hooks::block_use_result(answer) {
                     (result, DryUse::default())
@@ -238,6 +251,8 @@ impl Game<'_> {
                 } else {
                     (InteractionResult::Pass, DryUse::default())
                 }
+            } else if let Some(reacts) = ae2_sneak_use {
+                reacts
             } else if hand == Hand::Main && !spectator && vanilla_block {
                 self.remote_block_reacts(&hit, held.as_ref())
             } else {

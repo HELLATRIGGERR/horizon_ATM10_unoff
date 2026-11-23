@@ -163,10 +163,12 @@ fn dimension(
 }
 
 /// The whole report for the world whose generator data and seed are given
-/// and whose content root is `root`.
-pub fn audit(data: &Arc<GeneratorData>, seed: i64, root: &Path, dims: &[&str], options: Options) -> Value {
+/// and whose content root is `root`. `scan_dirs` are the carries (dev mod
+/// directories) scanned for the raw `data/<ns>/neoforge/biome_modifier/`
+/// files; pass `&[]` to scan `root/data/` instead (the unit test path).
+pub fn audit(data: &Arc<GeneratorData>, seed: i64, root: &Path, scan_dirs: &[&Path], dims: &[&str], options: Options) -> Value {
     let started = std::time::Instant::now();
-    let modifiers = crate::mod_content::biome_modifier_census(root).unwrap_or_else(|e| json!({ "error": e.to_string() }));
+    let modifiers = crate::mod_content::biome_modifier_census(root, scan_dirs).unwrap_or_else(|e| json!({ "error": e.to_string() }));
     let added: BTreeMap<String, String> = modifiers["added_features"]
         .as_object()
         .map(|o| o.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or_default().to_owned())).collect())

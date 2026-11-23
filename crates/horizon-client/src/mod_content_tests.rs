@@ -6725,7 +6725,7 @@ fn biome_modifier_census_counts_present_read_and_applied() {
     for entry in fs::read_dir(&src).unwrap().flatten() {
         fs::copy(entry.path(), dst.join(entry.file_name())).unwrap();
     }
-    let census = biome_modifier_census(&out).unwrap();
+    let census = biome_modifier_census(&out, &[]).unwrap();
     assert_eq!(census["present"], 4, "{census:#}");
     assert_eq!(census["read"], 2);
     assert_eq!(census["none"], 1);

@@ -3669,16 +3669,12 @@ pub fn biome_modifiers_over_packs(
 /// audit (`worldgen_audit`): every modifier file in its data, which of them
 /// Horizon reads (NeoForge's feature, spawn and `none` types), and which of
 /// those apply to the root's biomes, applied again as the root applied them.
-pub fn biome_modifier_census(root: &Path) -> Result<serde_json::Value> {
+/// `scan_dirs` are additional directories (the carries) scanned for the raw
+/// `data/<ns>/neoforge/biome_modifier/` files; when empty, `root/data/` is
+/// scanned instead (the unit test copies the files there for that path).
+pub fn biome_modifier_census(root: &Path, scan_dirs: &[&Path]) -> Result<serde_json::Value> {
     use serde_json::json;
     let mut files = Vec::new();
-    let data = root.join("data");
-    let mut namespaces: Vec<_> = fs::read_dir(&data)
-        .map_err(|e| format!("{}: {e}", data.display()))?
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    namespaces.sort();
     fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, std::path::PathBuf)>) {
         let Ok(entries) = fs::read_dir(dir) else {
             return;
@@ -3696,12 +3692,35 @@ pub fn biome_modifier_census(root: &Path) -> Result<serde_json::Value> {
             }
         }
     }
-    for ns in &namespaces {
-        for folder in ["neoforge/biome_modifier", "forge/biome_modifier"] {
-            let mut found = Vec::new();
-            walk(&data.join(ns).join(folder), &format!("data/{ns}/{folder}"), &mut found);
-            files.extend(found.into_iter().map(|(rel, path)| (ns.clone(), rel, path)));
+    // Collect the namespaces and biome_modifier files from the scan directories
+    // (carries) or, when none are given, from root/data/ (unit test path).
+    let mut seen_ns: std::collections::BTreeSet<String> = Default::default();
+    let scan: Vec<&Path> = if scan_dirs.is_empty() {
+        vec![root]
+    } else {
+        scan_dirs.to_vec()
+    };
+    for dir in &scan {
+        let data = dir.join("data");
+        let Ok(rd) = fs::read_dir(&data) else { continue };
+        let mut namespaces: Vec<_> = rd.flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        namespaces.sort();
+        for ns in &namespaces {
+            seen_ns.insert(ns.clone());
+            for folder in ["neoforge/biome_modifier", "forge/biome_modifier"] {
+                let mut found = Vec::new();
+                walk(&data.join(ns).join(folder), &format!("data/{ns}/{folder}"), &mut found);
+                files.extend(found.into_iter().map(|(rel, path)| (ns.clone(), rel, path)));
+            }
         }
+    }
+    // Deduplicate: keep only the first occurrence of each rel path (a carry
+    // that the content root already processed will appear only in scan_dirs).
+    {
+        let mut seen = std::collections::BTreeSet::new();
+        files.retain(|(_, rel, _)| seen.insert(rel.clone()));
     }
     let mut by_type: BTreeMap<String, u64> = BTreeMap::new();
     let mut not_read: BTreeMap<String, u64> = BTreeMap::new();

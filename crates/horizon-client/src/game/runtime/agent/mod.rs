@@ -1346,10 +1346,13 @@ impl Game<'_> {
                     .as_ref()
                     .and_then(|server| server.terrain("minecraft:overworld"))
                     .ok_or("no overworld generator: an integrated world of the vanilla generator is needed")?;
+                let dev_dirs: Vec<std::path::PathBuf> = self.options.mods.dev_dirs().to_vec();
+                let scan_refs: Vec<&std::path::Path> = dev_dirs.iter().map(|p| p.as_path()).collect();
                 let report = horizon_client::worldgen_audit::audit(
                     terrain.generator_data(),
                     terrain.seed(),
                     &self.options.resources,
+                    &scan_refs,
                     &horizon_client::worldgen_audit::DIMENSIONS,
                     options,
                 );

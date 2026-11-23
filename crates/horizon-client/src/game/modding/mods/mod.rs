@@ -116,6 +116,12 @@ pub(super) struct ModsState {
 }
 
 impl ModsState {
+    /// The `--dev-mod` directories: the carries the worldgen audit scans for
+    /// raw `data/<ns>/neoforge/biome_modifier/` files.
+    pub(crate) fn dev_dirs(&self) -> &[std::path::PathBuf] {
+        &self.dev
+    }
+
     pub(super) fn capture_code_switches(&mut self, disabled: &std::collections::BTreeSet<String>) {
         self.code_switches = Some(Arc::new(CodeSwitches {
             disabled: disabled.clone(),

@@ -106,6 +106,78 @@ impl MachineView {
     }
 }
 
+/// What a crafting multiblock's controller screen shows: `CraftingMultiblockGui.Data` (the recipe's numbers only while the
+/// shape is valid and a recipe is active, as MI sends them) and `ShapeSelection`'s line (the active shape).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct MultiblockView {
+    pub shape_valid: bool,
+    pub matches_multiple_recipes: bool,
+    pub has_active_recipe: bool,
+    /// `getProgress` in parts of `PROGRESS_SCALE`.
+    pub progress: i64,
+    pub efficiency_ticks: i64,
+    pub max_efficiency_ticks: i64,
+    pub current_recipe_eu: i64,
+    pub base_recipe_eu: i64,
+    pub active_shape: i64,
+}
+
+const MULTIBLOCK_FIELDS: usize = 9;
+
+impl MultiblockView {
+    pub fn pack_into(&self, out: &mut Vec<i32>) {
+        for v in [
+            i64::from(self.shape_valid),
+            i64::from(self.matches_multiple_recipes),
+            i64::from(self.has_active_recipe),
+            self.progress,
+            self.efficiency_ticks,
+            self.max_efficiency_ticks,
+            self.current_recipe_eu,
+            self.base_recipe_eu,
+            self.active_shape,
+        ] {
+            put(out, v);
+        }
+    }
+
+    /// The view in `data`; an empty one until the menu's data has all come.
+    pub fn unpack(data: &[i32]) -> MultiblockView {
+        if data.len() < MULTIBLOCK_FIELDS * PIECES {
+            return MultiblockView::default();
+        }
+        let n = |i: usize| get(data, i * PIECES);
+        MultiblockView {
+            shape_valid: n(0) != 0,
+            matches_multiple_recipes: n(1) != 0,
+            has_active_recipe: n(2) != 0,
+            progress: n(3),
+            efficiency_ticks: n(4),
+            max_efficiency_ticks: n(5),
+            current_recipe_eu: n(6),
+            base_recipe_eu: n(7),
+            active_shape: n(8),
+        }
+    }
+}
+
+/// `TextHelper.getAmount`: a number as MI writes one (under 100,000 whole, above in k, M... with a decimal).
+pub fn amount(v: i64) -> String {
+    if v < 100_000 {
+        return v.to_string();
+    }
+    let (div, unit) = if v >= 1_000_000_000_000 {
+        (1e12, "T")
+    } else if v >= 1_000_000_000 {
+        (1e9, "G")
+    } else if v >= 1_000_000 {
+        (1e6, "M")
+    } else {
+        (1e3, "k")
+    };
+    format!("{:.1}{unit}", v as f64 / div)
+}
+
 /// `TextHelper.getMaxedAmount`'s units: the amount and its maximum in k, M... by the maximum's size.
 pub fn maxed_amount(amount: i64, max: i64) -> (String, String, &'static str) {
     let (div, unit) = if max >= 1_000_000_000 {
@@ -149,6 +221,26 @@ mod tests {
         assert_eq!(MachineView::unpack(&out), v);
         assert_eq!(MachineView::unpack(&out[..3]), MachineView::default());
         assert!((v.progress() - 0.32).abs() < 1e-6);
+    }
+
+    #[test]
+    fn multiblock_view_round_trips() {
+        let v = MultiblockView {
+            shape_valid: true,
+            matches_multiple_recipes: false,
+            has_active_recipe: true,
+            progress: 4321,
+            efficiency_ticks: 3,
+            max_efficiency_ticks: 60,
+            current_recipe_eu: 14,
+            base_recipe_eu: 2,
+            active_shape: 1,
+        };
+        let mut out = Vec::new();
+        v.pack_into(&mut out);
+        assert_eq!(MultiblockView::unpack(&out), v);
+        assert_eq!(MultiblockView::unpack(&out[..4]), MultiblockView::default());
+        assert_eq!((amount(8), amount(12_800), amount(250_000)), ("8".into(), "12800".into(), "250.0k".into()));
     }
 
     #[test]

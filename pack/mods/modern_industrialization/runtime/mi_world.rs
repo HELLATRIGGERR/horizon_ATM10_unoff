@@ -41,7 +41,7 @@ fn seed() -> u64 {
 }
 
 /// `ThreadLocalRandom.nextFloat`'s stand-in: xorshift64*, 24 bits.
-fn next_float() -> f32 {
+pub(super) fn next_float() -> f32 {
     RNG.with(|r| {
         let mut x = *r.borrow();
         x ^= x >> 12;
@@ -67,6 +67,7 @@ pub(super) fn opened() {
     let fresh = read_fe_per_eu();
     FE_PER_EU.with(|f| *f.borrow_mut() = Some(fresh));
     BOOKS.with(|b| b.borrow_mut().clear());
+    super::mi_multiblock::forget();
 }
 
 /// `native_world_lifecycle`: settings and recipe books are dropped as the world closes or fails to open.
@@ -74,6 +75,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
     if matches!(phase, WorldPhase::WorldCloseFinal | WorldPhase::WorldCloseFailed | WorldPhase::WorldOpenFailed) {
         FE_PER_EU.with(|f| *f.borrow_mut() = None);
         BOOKS.with(|b| b.borrow_mut().clear());
+        super::mi_multiblock::forget();
     }
 }
 
@@ -119,15 +121,20 @@ fn ingredient_fluids(v: &Value) -> Option<Vec<String>> {
 
 /// The recipe book of `machine`'s type, read again when the world's table changes (a `/reload`).
 pub(super) fn book(game: &Game<'_>, machine: &Machine) -> Rc<RecipeBook> {
-    let table = game.native_recipes_of_type(machine.recipe_type);
+    book_of(game, machine.recipe_type, machine.rules)
+}
+
+/// The recipe book of a recipe type, with the type's rules.
+pub(super) fn book_of(game: &Game<'_>, recipe_type: &'static str, rules: recipe::RecipeTypeRules) -> Rc<RecipeBook> {
+    let table = game.native_recipes_of_type(recipe_type);
     let stamp = (table.as_ptr() as usize, table.len());
-    if let Some(book) = BOOKS.with(|b| b.borrow().get(machine.recipe_type).filter(|(s, _)| *s == stamp).map(|(_, b)| b.clone())) {
+    if let Some(book) = BOOKS.with(|b| b.borrow().get(recipe_type).filter(|(s, _)| *s == stamp).map(|(_, b)| b.clone())) {
         return book;
     }
     let mut refused = 0;
     let recipes: Vec<_> = table
         .iter()
-        .filter_map(|r| match recipe::parse(&r.id, &r.json, machine.rules, |v| ingredient_items(game, v), ingredient_fluids) {
+        .filter_map(|r| match recipe::parse(&r.id, &r.json, rules, |v| ingredient_items(game, v), ingredient_fluids) {
             Ok(recipe) => Some(recipe),
             Err(e) => {
                 refused += 1;
@@ -136,19 +143,19 @@ pub(super) fn book(game: &Game<'_>, machine: &Machine) -> Rc<RecipeBook> {
             }
         })
         .collect();
-    log::info!("[mi] {}: {} recipes, {refused} left out", machine.recipe_type, recipes.len());
+    log::info!("[mi] {recipe_type}: {} recipes, {refused} left out", recipes.len());
     let book = Rc::new(RecipeBook::new(recipes));
-    BOOKS.with(|b| b.borrow_mut().insert(machine.recipe_type, (stamp, book.clone())));
+    BOOKS.with(|b| b.borrow_mut().insert(recipe_type, (stamp, book.clone())));
     book
 }
 
 // ---- The saved compound, in MI's names -------------------------------------
 
-fn key(name: &str) -> JavaString {
+pub(super) fn key(name: &str) -> JavaString {
     JavaString::from(name)
 }
 
-fn number(tag: Option<&Tag>) -> i64 {
+pub(super) fn number(tag: Option<&Tag>) -> i64 {
     match tag {
         Some(Tag::Byte(v)) => i64::from(*v),
         Some(Tag::Short(v)) => i64::from(*v),
@@ -160,19 +167,19 @@ fn number(tag: Option<&Tag>) -> i64 {
     }
 }
 
-fn string(tag: Option<&Tag>) -> Option<String> {
+pub(super) fn string(tag: Option<&Tag>) -> Option<String> {
     match tag {
         Some(Tag::String(s)) => Some(s.to_string_lossy()).filter(|s| !s.is_empty()),
         _ => None,
     }
 }
 
-const STORED_EU: &str = "storedEu";
+pub(super) const STORED_EU: &str = "storedEu";
 const FLUIDS: &str = "inventory_fluids";
 const LOCKS: &str = "inventory_locks";
 
 /// The crafter's fields (`CrafterComponent.readNbt`).
-fn read_crafter(nbt: &Compound) -> Crafter {
+pub(super) fn read_crafter(nbt: &Compound) -> Crafter {
     let get = |name: &str| number(nbt.get(&key(name)));
     Crafter {
         used_energy: get("usedEnergy").max(0),
@@ -186,7 +193,7 @@ fn read_crafter(nbt: &Compound) -> Crafter {
     .loaded()
 }
 
-fn write_crafter(nbt: &mut Compound, c: &Crafter) {
+pub(super) fn write_crafter(nbt: &mut Compound, c: &Crafter) {
     nbt.insert(key("usedEnergy"), Tag::Long(c.used_energy));
     nbt.insert(key("recipeEnergy"), Tag::Long(c.recipe_energy));
     nbt.insert(key("recipeMaxEu"), Tag::Long(c.recipe_max_eu));
@@ -207,10 +214,15 @@ fn compound_list(nbt: &Compound, name: &str) -> Vec<Compound> {
 
 /// The fluid slots (inputs, then outputs), each `{fluid, amount, locked, machineLocked}`.
 fn read_fluids(nbt: &Compound, machine: &Machine) -> Vec<FluidSlot> {
+    fluid_slots(nbt, machine.fluid_slots(), machine.fluid_capacity())
+}
+
+/// `count` fluid slots of `capacity` mB from `inventory_fluids`.
+pub(super) fn fluid_slots(nbt: &Compound, count: usize, capacity: i64) -> Vec<FluidSlot> {
     let saved = compound_list(nbt, FLUIDS);
-    (0..machine.fluid_slots())
+    (0..count)
         .map(|i| {
-            let mut slot = FluidSlot::standard(machine.fluid_capacity());
+            let mut slot = FluidSlot::standard(capacity);
             if let Some(c) = saved.get(i) {
                 slot.fluid = string(c.get(&key("fluid"))).filter(|f| FluidKind::from_name(f).is_some());
                 slot.amount = if slot.fluid.is_some() { number(c.get(&key("amount"))).clamp(0, slot.capacity) } else { 0 };
@@ -225,7 +237,7 @@ fn read_fluids(nbt: &Compound, machine: &Machine) -> Vec<FluidSlot> {
         .collect()
 }
 
-fn write_fluids(nbt: &mut Compound, slots: &[FluidSlot]) {
+pub(super) fn write_fluids(nbt: &mut Compound, slots: &[FluidSlot]) {
     let list = slots
         .iter()
         .map(|s| {
@@ -244,7 +256,7 @@ fn write_fluids(nbt: &mut Compound, slots: &[FluidSlot]) {
 }
 
 /// The item output slots' machine locks: `{slot, item}` for each reserved slot.
-fn read_locks(nbt: &Compound) -> Vec<(usize, String)> {
+pub(super) fn read_locks(nbt: &Compound) -> Vec<(usize, String)> {
     compound_list(nbt, LOCKS)
         .iter()
         .filter_map(|c| Some((number(c.get(&key("slot"))).clamp(0, 63) as usize, string(c.get(&key("item")))?)))
@@ -252,8 +264,12 @@ fn read_locks(nbt: &Compound) -> Vec<(usize, String)> {
 }
 
 fn write_locks(nbt: &mut Compound, inv: &Inventory, first_output: usize) {
-    let list: Vec<Tag> = inv
-        .item_outputs
+    write_item_locks(nbt, &inv.item_outputs, first_output);
+}
+
+/// The machine locks of `slots`, the first being slot `first` of the block entity.
+pub(super) fn write_item_locks(nbt: &mut Compound, slots: &[ItemSlot], first_output: usize) {
+    let list: Vec<Tag> = slots
         .iter()
         .enumerate()
         .filter(|(_, s)| s.machine_locked)
@@ -277,18 +293,20 @@ fn energy_of(nbt: &Compound, machine: &Machine) -> EnergyStore {
 
 // ---- Block entities -------------------------------------------------------
 
-/// `block_entity_types`: the electric machines, one type per block and named after it.
+/// `block_entity_types`: the electric machines, one type per block and named after it, then the hatches and the
+/// multiblocks' controllers.
 pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
     for machine in machines::ALL {
         let block = format!("modern_industrialization:{}", machine.id);
         types.push((block.clone(), vec![block]));
     }
+    super::mi_multiblock::block_entity_types(types);
 }
 
 /// `native_block_entity`: a new, empty machine (`MachineBlockEntity`); the declaration owns its type id.
 pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     let Some(machine) = machines::of_block(block) else {
-        return;
+        return super::mi_multiblock::new_entity(block, entity);
     };
     if entity.is_some() {
         return;
@@ -302,7 +320,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
 
 /// `native_block_entity_ticks`.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if machines::of_block(block).is_some() {
+    if machines::of_block(block).is_some() || super::mi_multiblock::ticks(block) {
         *ticks = true;
     }
 }
@@ -312,7 +330,7 @@ pub(super) fn ticks(block: &str, ticks: &mut bool) {
 /// outputs (`pipesExtract`), through every face.
 pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     let Some(machine) = machines::of_block(block) else {
-        return;
+        return super::mi_multiblock::container(block, container);
     };
     if container.is_some() {
         return;
@@ -332,10 +350,12 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
 /// `native_block_entity_slot_accepts`: inputs take any item (`standardInputSlot`); outputs and the
 /// hidden slots take none (`playerInsert` and `pipesInsert` are off).
 pub(super) fn slot_accepts(block: &str, slot: usize, _fuel: bool, accepts: &mut bool) {
-    if let Some(machine) = machines::of_block(block)
-        && slot >= machine.item_inputs
-    {
-        *accepts = false;
+    if let Some(machine) = machines::of_block(block) {
+        if slot >= machine.item_inputs {
+            *accepts = false;
+        }
+    } else {
+        super::mi_multiblock::slot_accepts(block, slot, accepts);
     }
 }
 
@@ -364,13 +384,15 @@ impl Behavior for Electric<'_, '_> {
     }
 }
 
+/// An engine stack as an MI slot: its item, count and stack size.
+pub(super) fn item_slot(game: &Game<'_>, stack: Option<&ItemStack>) -> ItemSlot {
+    let item = stack.map(|s| &*s.item);
+    ItemSlot::new(item, stack.map_or(0, |s| s.count), item.and_then(|i| game.native_max_stack_size(i)).unwrap_or(64))
+}
+
 /// The engine's item slots as MI's: each slot's item, count and stack size, with the reserved outputs.
 fn inventory(game: &Game<'_>, items: &[Option<ItemStack>], nbt: &Compound, machine: &Machine) -> Inventory {
-    let slot = |i: usize| {
-        let stack = items.get(i).and_then(Option::as_ref);
-        let item = stack.map(|s| &*s.item);
-        ItemSlot::new(item, stack.map_or(0, |s| s.count), item.and_then(|i| game.native_max_stack_size(i)).unwrap_or(64))
-    };
+    let slot = |i: usize| item_slot(game, items.get(i).and_then(Option::as_ref));
     let mut inv = Inventory {
         item_inputs: (0..machine.item_inputs).map(slot).collect(),
         item_outputs: (machine.item_inputs..machine.item_slots()).map(slot).collect(),
@@ -396,7 +418,18 @@ fn engine_items(game: &Game<'_>, entity: &ModBlockEntity) -> Vec<Option<ItemStac
 /// Writes MI's slots back into the block entity's (`items`: them as the engine's stacks before the tick); a stack
 /// that only changed count keeps its components.
 fn write_items(entity: &mut ModBlockEntity, items: &[Option<ItemStack>], inv: &Inventory) {
-    let slots: Vec<&ItemSlot> = inv.item_inputs.iter().chain(&inv.item_outputs).collect();
+    for (i, new) in changed_stacks(items, inv.item_inputs.iter().chain(&inv.item_outputs)) {
+        if entity.items.len() <= i {
+            entity.items.resize(i + 1, None);
+        }
+        entity.items[i] = new.and_then(|stack| stack.try_into_api().ok());
+    }
+}
+
+/// The slots that changed against `items` (the engine's stacks before), as the engine's stacks: a stack that only changed
+/// count keeps its components.
+pub(super) fn changed_stacks<'a>(items: &[Option<ItemStack>], slots: impl IntoIterator<Item = &'a ItemSlot>) -> Vec<(usize, Option<ItemStack>)> {
+    let mut out = Vec::new();
     for (i, s) in slots.into_iter().enumerate() {
         let old = items.get(i).and_then(Option::as_ref);
         let same = match (old, &s.item) {
@@ -412,23 +445,21 @@ fn write_items(entity: &mut ModBlockEntity, items: &[Option<ItemStack>], inv: &I
             (Some(item), Some(o)) if &*o.item == item => Some(ItemStack { count: s.count, ..o.clone() }),
             (Some(item), _) => Some(ItemStack::new(item, s.count)),
         };
-        if entity.items.len() <= i {
-            entity.items.resize(i + 1, None);
-        }
-        entity.items[i] = new.and_then(|stack| stack.try_into_api().ok());
+        out.push((i, new));
     }
+    out
 }
 
 /// A fluid's number in the menu's data: its `tick_id` (vanilla's registry id, then the mods' fluids), which the
 /// screen reads back with `from_tick_id`; -1 for none.
-fn fluid_id(name: Option<&str>) -> i64 {
+pub(super) fn fluid_id(name: Option<&str>) -> i64 {
     name.and_then(FluidKind::from_name).map_or(-1, |f| i64::from(f.tick_id()))
 }
 
 /// `native_block_entity_tick`: `AbstractCraftingMachineBlockEntity.tick` without auto-extract.
-pub(super) fn tick(game: &mut Game<'_>, _pos: [i32; 3], entity: &mut ModBlockEntity) {
+pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
     let Some(machine) = machines::of_block(entity.id()) else {
-        return;
+        return super::mi_multiblock::tick(game, pos, entity);
     };
     let book = book(game, machine);
     let items = engine_items(game, entity);
@@ -485,7 +516,7 @@ pub(super) fn tick(game: &mut Game<'_>, _pos: [i32; 3], entity: &mut ModBlockEnt
 /// `IEnergyStorage`), at `forgeEnergyPerEu` FE to the EU.
 pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo>) {
     let Some(machine) = machines::of_block(entity.id()) else {
-        return;
+        return super::mi_multiblock::fe_storage(entity, info);
     };
     if info.is_some() {
         return;
@@ -497,7 +528,7 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
 /// `native_fe_receive`: `WrappedMIStorage.receive`, whole EU only.
 pub(super) fn fe_receive(entity: &mut ModBlockEntity, max: i64, simulate: bool, accepted: &mut Option<i64>) {
     let Some(machine) = machines::of_block(entity.id()) else {
-        return;
+        return super::mi_multiblock::fe_receive(entity, max, simulate, accepted);
     };
     if accepted.is_some() {
         return;
@@ -512,7 +543,7 @@ pub(super) fn fe_receive(entity: &mut ModBlockEntity, max: i64, simulate: bool, 
 
 /// `native_fe_extract`: a machine gives no energy.
 pub(super) fn fe_extract(entity: &ModBlockEntity, given: &mut Option<i64>) {
-    if given.is_none() && machines::of_block(entity.id()).is_some() {
+    if given.is_none() && (machines::of_block(entity.id()).is_some() || super::mi_multiblock::fe_extract(entity)) {
         *given = Some(0);
     }
 }
@@ -564,6 +595,7 @@ pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &Comman
     };
     let answer = match (verb, pos) {
         (Some("probe"), Some(pos)) => probe(game, pos),
+        (Some("shape"), Some(pos)) => super::mi_multiblock::shape(game, pos),
         (Some("offer_fe"), Some(pos)) => match words.next().and_then(|n| n.parse::<i64>().ok()) {
             Some(amount) => {
                 let dimension = game.native_dimension();
@@ -583,7 +615,8 @@ fn probe(game: &mut Game<'_>, pos: [i32; 3]) -> Value {
         return serde_json::json!({ "pos": pos, "error": "no mod block entity here" });
     };
     let Some(machine) = machines::of_block(&id) else {
-        return serde_json::json!({ "pos": pos, "id": id, "error": "not a ported MI machine" });
+        return super::mi_multiblock::probe(game, pos, &id, &nbt, &items)
+            .unwrap_or_else(|| serde_json::json!({ "pos": pos, "id": id, "error": "not a ported MI machine" }));
     };
     let c = read_crafter(&nbt);
     let energy = energy_of(&nbt, machine);

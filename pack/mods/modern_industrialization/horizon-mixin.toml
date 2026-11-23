@@ -27,6 +27,12 @@ file = "crates/horizon-client/src/game.rs"
 name = "mi_ui"
 source = "runtime/mi_ui.rs"
 
+[[module]]
+id = "multiblock"
+file = "crates/horizon-client/src/game.rs"
+name = "mi_multiblock"
+source = "runtime/mi_multiblock.rs"
+
 [[injection]]
 id = "lifecycle"
 hook = "world_lifecycle"
@@ -188,6 +194,27 @@ bindings = [
   { name = "data", ty = "&[i32]", value = "data" },
   { name = "at", ty = "[f32; 2]", value = "at" },
   { name = "lines", ty = "&mut Vec<String>", value = "&mut *lines" },
+]
+
+[[injection]]
+id = "block-changed"
+hook = "block_changed"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/block_changed.rs"
+bindings = [
+  { name = "pos", ty = "horizon_core::position::BlockPos", value = "pos" },
+]
+
+[[injection]]
+id = "on-block-placed-by"
+hook = "on_block_placed_by"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/on_block_placed_by.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "call", ty = "&super::fire::OnBlockPlacedByCall<'_>", value = "&call" },
 ]
 
 [[injection]]

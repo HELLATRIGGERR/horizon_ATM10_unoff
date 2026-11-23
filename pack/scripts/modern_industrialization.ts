@@ -109,14 +109,20 @@ const steps: Record<string, () => Promise<void>> = {
     await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.MI_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   /** The carry as a content mod the world test loads. The carry's machine blocks are on a template that opens
-   * no menu (`minecraft:andesite`: a use answers ok and nothing opens), so each machine the bundle ports takes
-   * the `minecraft:beacon` template, as Mekanism's machines do; nothing else of the carry changes. */
+   * no menu (`minecraft:andesite`: a use answers ok and nothing opens), so each machine, hatch and multiblock
+   * controller the bundle ports takes the `minecraft:beacon` template, as Mekanism's machines do; nothing else of the
+   * carry changes. */
   async content() {
     if (!existsSync(join(carry, 'horizon-mod.toml'))) throw new Error(`No carry of Modern Industrialization at ${carry} (MI_CARRY).`);
     rmSync(content, { recursive: true, force: true });
     cpSync(carry, content, { recursive: true });
-    const machines = [...readFileSync(join(bundle, 'mi-core/src/machines.rs'), 'utf8').matchAll(/^\s+id: "(electric_\w+)",$/gm)].map(m => m[1]);
-    if (machines.length === 0) throw new Error('No machine ids found in mi-core/src/machines.rs');
+    const ids = (file: string, pattern: RegExp) => [...readFileSync(join(bundle, 'mi-core/src', file), 'utf8').matchAll(pattern)].map(m => m[1]);
+    const machines = [
+      ...ids('machines.rs', /^\s+id: "(electric_\w+)",$/gm),
+      ...ids('hatches.rs', /^\s+(?:item|fluid|energy)\("(\w+_hatch)",/gm),
+      ...ids('multiblocks.rs', /^\s+id: "(\w+)",$/gm),
+    ];
+    if (machines.length === 0) throw new Error('No machine ids found in mi-core/src');
     for (const id of machines) {
       const file = join(content, `data/modern_industrialization/horizon/block/${id}.json`);
       if (!existsSync(file)) throw new Error(`The carry has no block definition for ${id}: ${file}`);

@@ -6687,6 +6687,57 @@ fn configured_features_load_from_the_26_3_path() {
     fs::remove_dir_all(scratch).unwrap();
 }
 
+/// The worldgen audit's census of a root's biome modifiers: every file
+/// present, the ones read (a mod's own type is not), the ones that apply (one
+/// naming a feature nobody registers does not), and the features they add.
+#[test]
+fn biome_modifier_census_counts_present_read_and_applied() {
+    let base = biome_base("biome-modifier-census");
+    let scratch = base.parent().unwrap().to_owned();
+    let m = zinc_mod(
+        &scratch.join("zinc"),
+        &[
+            (
+                "add_zinc",
+                r##"{"type":"neoforge:add_features","biomes":"#minecraft:is_overworld",
+                    "features":"zinc:ore_zinc","step":"underground_ores"}"##,
+            ),
+            (
+                "add_missing",
+                r##"{"type":"neoforge:add_features","biomes":"#minecraft:is_overworld",
+                    "features":"zinc:ore_nowhere","step":"underground_ores"}"##,
+            ),
+            (
+                "own_type",
+                r##"{"type":"zinc:oregen","biomes":"#minecraft:is_overworld","feature":"zinc:ore_zinc"}"##,
+            ),
+            ("nothing", r#"{"type":"neoforge:none"}"#),
+        ],
+    );
+    let out = scratch.join("out");
+    build_fixture(&base, &base.join("jars"), &[m], &out).unwrap();
+    // build_with_conditions processes modifiers into biome-modifiers.json but does not
+    // write raw data/<ns>/neoforge/biome_modifier/ files to out; census reads both.
+    let mod_dir = scratch.join("zinc");
+    let src = mod_dir.join("data/zinc/neoforge/biome_modifier");
+    let dst = out.join("data/zinc/neoforge/biome_modifier");
+    fs::create_dir_all(&dst).unwrap();
+    for entry in fs::read_dir(&src).unwrap().flatten() {
+        fs::copy(entry.path(), dst.join(entry.file_name())).unwrap();
+    }
+    let census = biome_modifier_census(&out).unwrap();
+    assert_eq!(census["present"], 4, "{census:#}");
+    assert_eq!(census["read"], 2);
+    assert_eq!(census["none"], 1);
+    assert_eq!(census["not_read_types"]["zinc:oregen"], 1);
+    assert_eq!(census["applied"], 1);
+    assert_eq!(census["unresolved"].as_array().unwrap().len(), 1);
+    assert!(census["biomes_changed"].as_u64().unwrap() > 0);
+    assert_eq!(census["by_namespace"]["zinc"], serde_json::json!({"present": 4, "read": 2, "applied": 1}));
+    assert_eq!(census["added_features"], serde_json::json!({"zinc:ore_zinc": "zinc"}));
+    let _ = fs::remove_dir_all(&scratch);
+}
+
 /// A world's data pack that replaces a vanilla biome (Terralith's plains)
 /// keeps the mods' modifier features, and a pack's own biome its tag puts
 /// under the modifier's selector gets them: modifiers apply after

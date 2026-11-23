@@ -26,6 +26,9 @@ pub struct Config {
     pub assembler: MachineSettings,
     pub foundry: MachineSettings,
     pub centrifuge: MachineSettings,
+    pub furnace: MachineSettings,
+    /// `furnaceData.speedMultiplier`: the powered furnace's time against vanilla's (0.5: twice as fast).
+    pub furnace_speed: f64,
     pub basic_generator: MachineSettings,
     pub bio_generator: MachineSettings,
     /// `additiveAddons`: addon bonuses add up (true) or multiply.
@@ -47,6 +50,8 @@ impl Default for Config {
             assembler: MachineSettings::new(50_000, 128 * 8, 0, 128),
             foundry: MachineSettings::new(50_000, 128 * 8, 0, 128),
             centrifuge: MachineSettings::new(10_000, 64 * 8, 0, 64),
+            furnace: MachineSettings::new(10_000, 32 * 8, 0, 32),
+            furnace_speed: 0.5,
             basic_generator: MachineSettings::new(50_000, 0, 32 * 8, 32),
             bio_generator: MachineSettings::new(100_000, 0, 64 * 8, 64),
             additive_addons: true,
@@ -71,6 +76,7 @@ impl Config {
             Kind::Assembler => self.assembler,
             Kind::Foundry => self.foundry,
             Kind::Centrifuge => self.centrifuge,
+            Kind::PoweredFurnace => self.furnace,
             Kind::BasicGenerator => self.basic_generator,
             Kind::BioGenerator => self.bio_generator,
         }
@@ -83,6 +89,7 @@ impl Config {
             "assemblerData" => Some(&mut self.assembler),
             "foundryData" => Some(&mut self.foundry),
             "centrifugeData" => Some(&mut self.centrifuge),
+            "furnaceData" => Some(&mut self.furnace),
             "basicGeneratorData" => Some(&mut self.basic_generator),
             "bioGeneratorData" => Some(&mut self.bio_generator),
             _ => None,
@@ -103,6 +110,10 @@ impl Config {
             let Some((key, value)) = line.split_once('=') else { continue };
             let (key, value) = (key.trim(), value.trim());
             let last = section.rsplit('.').next().unwrap_or_default().to_owned();
+            if last == "furnaceData" && key == "speedMultiplier" {
+                c.furnace_speed = value.parse().unwrap_or(c.furnace_speed);
+                continue;
+            }
             if let Some(m) = c.machine_mut(&last) {
                 let Ok(v) = value.parse::<i64>() else { continue };
                 match key {
@@ -137,6 +148,7 @@ mod tests {
         assert_eq!(c.fragment_forge, MachineSettings::new(50_000, 2048, 0, 256));
         assert_eq!((c.assembler.energy_per_tick, c.foundry.energy_per_tick), (128, 128));
         assert_eq!(c.centrifuge, MachineSettings::new(10_000, 512, 0, 64));
+        assert_eq!((c.furnace, c.furnace_speed), (MachineSettings::new(10_000, 256, 0, 32), 0.5));
         assert_eq!(c.basic_generator, MachineSettings::new(50_000, 0, 256, 32));
         assert_eq!(c.bio_generator, MachineSettings::new(100_000, 0, 512, 64));
         assert!(c.additive_addons && !c.layered_extenders);
@@ -161,6 +173,7 @@ mod tests {
         assert_eq!(c.assembler, MachineSettings::new(50_000, 1024, 0, 128));
         assert_eq!(c.foundry, MachineSettings::new(50_000, 1024, 0, 256));
         assert_eq!(c.centrifuge, MachineSettings::new(10_000, 512, 0, 128));
+        assert_eq!((c.furnace, c.furnace_speed), (MachineSettings::new(10_000, 256, 0, 64), 0.5));
         assert_eq!(c.basic_generator, MachineSettings::new(50_000, 0, 256, 64));
         assert_eq!(c.bio_generator, MachineSettings::new(400_000, 0, 2048, 256));
         assert!(c.additive_addons);

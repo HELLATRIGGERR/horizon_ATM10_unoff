@@ -1,7 +1,7 @@
 //! The ported processing machines: each one's block, recipe type, slots (`InventorySlotAssignment`), screen slots
 //! (`getGuiSlots`), machine cores (`getCorePositions`) and what it does after a craft. From `PulverizerBlockEntity`,
 //! `FragmentForgeBlockEntity`, `AssemblerBlockEntity`, `FoundryBlockEntity`, `CentrifugeBlockEntity` (item recipes
-//! only: no fluid addon), `BasicGeneratorEntity` and `BioGeneratorEntity`.
+//! only: no fluid addon), `PoweredFurnaceBlockEntity`, `BasicGeneratorEntity` and `BioGeneratorEntity`.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
@@ -10,6 +10,7 @@ pub enum Kind {
     Assembler,
     Foundry,
     Centrifuge,
+    PoweredFurnace,
     BasicGenerator,
     BioGenerator,
 }
@@ -170,6 +171,22 @@ pub static CENTRIFUGE: Spec = Spec {
     outputs: &[],
 };
 
+/// `PoweredFurnaceBlockEntity`: the world's smelting recipes (a cooking time instead of the mod's `time`), one core above.
+pub static POWERED_FURNACE: Spec = Spec {
+    kind: Kind::PoweredFurnace,
+    block: "oritech:powered_furnace_block",
+    recipe_type: "minecraft:smelting",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 1 },
+    inventory_size: 2,
+    gui_slots: &[slot(0, 56, 38), out(1, 117, 38)],
+    cores: &[[0, 1, 0]],
+    addon_slots: &[[0, -1, 0]],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
 /// `BasicGeneratorEntity.getOutputTargets`: every side (the one below is given the face `DOWN`, as Java has it).
 const AROUND: &[([i32; 3], Face)] = &[
     ([0, 1, 0], Face::Down),
@@ -225,7 +242,7 @@ pub static BIO_GENERATOR: Spec = Spec {
     outputs: BIO_AROUND,
 };
 
-pub static ALL: [&Spec; 7] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &BASIC_GENERATOR, &BIO_GENERATOR];
+pub static ALL: [&Spec; 8] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &POWERED_FURNACE, &BASIC_GENERATOR, &BIO_GENERATOR];
 
 /// The machine of a block id.
 pub fn of_block(block: &str) -> Option<&'static Spec> {
@@ -250,6 +267,7 @@ mod tests {
         }
         assert_eq!(of_block("oritech:fragment_forge_block").map(|s| s.recipe_type), Some("oritech:grinder"));
         assert!(of_block("oritech:atomic_forge_block").is_none());
+        assert_eq!(of_block("oritech:powered_furnace_block").map(|s| s.recipe_type), Some("minecraft:smelting"));
         assert_eq!(of_block("oritech:centrifuge_block").map(|s| s.cores.len()), Some(1));
         assert!(of_block("oritech:basic_generator_block").is_some_and(|s| s.generator && s.recipe_type.is_empty()));
         assert!(!PULVERIZER.is_multiblock() && FOUNDRY.is_multiblock() && FRAGMENT_FORGE.cores.len() == 7);

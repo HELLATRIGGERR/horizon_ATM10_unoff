@@ -391,6 +391,24 @@ mod tests {
         assert_eq!((slots[1].clone(), slots[2].clone()), (st("a:dust", 3), st("a:small_dust", 1)), "ten small dusts: nine became one dust");
     }
 
+    /// The powered furnace: a 200-tick smelt at its 0.5 speed multiplier takes 100 ticks, and the 32 RF a tick it
+    /// costs (the config's 32, halved, over the speed) is 3,200 RF.
+    #[test]
+    fn the_powered_furnace_smelts_twice_as_fast() {
+        use crate::machine::POWERED_FURNACE;
+        let book = RecipeBook::new(vec![recipe("stone", 200, &[&["minecraft:cobblestone"]], &[("minecraft:stone", 1)])]);
+        let c = ctx(&book, 16);
+        let mut m = Machine::new(Energy { amount: 10_000, capacity: 10_000, max_insert: 256, max_extract: 0 });
+        m.addons.speed = 0.5;
+        let mut slots = vec![st("minecraft:cobblestone", 2), None];
+        for _ in 0..99 {
+            m.tick(&POWERED_FURNACE, &mut slots, &c);
+        }
+        assert_eq!(slots[1], None);
+        m.tick(&POWERED_FURNACE, &mut slots, &c);
+        assert_eq!((slots[0].clone(), slots[1].clone(), m.energy.amount), (st("minecraft:cobblestone", 1), st("minecraft:stone", 1), 10_000 - 3200));
+    }
+
     /// The current recipe keeps its place while it matches, though another matches too; a switch starts again.
     #[test]
     fn the_current_recipe_sticks() {

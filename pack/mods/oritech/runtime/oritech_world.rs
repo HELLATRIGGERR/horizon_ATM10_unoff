@@ -142,6 +142,24 @@ fn load_books(game: &Game<'_>, stamp: Vec<(usize, usize)>) -> Books {
         let table = game.native_recipes_of_type(spec.recipe_type);
         let mut read = Vec::new();
         for r in table.iter() {
+            if spec.kind == Kind::PoweredFurnace {
+                // `RecipeType.SMELTING`: one ingredient, one result, the cooking time for the time.
+                if let ([ingredient], [result]) = (r.ingredients.as_slice(), r.results.as_slice()) {
+                    let mut items: Vec<String> = ingredient.items.iter().cloned().collect();
+                    items.sort();
+                    if !items.is_empty() {
+                        read.push(recipe::Recipe {
+                            id: r.id.clone(),
+                            kind: r.kind.clone(),
+                            time: r.cooking_time.unwrap_or(200) as i32,
+                            inputs: vec![recipe::Ingredient { items }],
+                            results: vec![Stack::new(&result.item.to_string(), result.count)],
+                            fluids: false,
+                        });
+                    }
+                }
+                continue;
+            }
             match recipe::parse(&r.id, &r.json, |v| items_of(game, v)) {
                 // Java's codec fails a result of an item the game doesn't have.
                 Ok(p) if !p.fluids && p.results.iter().all(|s| game.native_max_stack_size(&s.item).is_some()) => read.push(p),
@@ -384,6 +402,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     m.burst = live.burst;
     m.last_worked_at = live.last_worked_at;
     m.addons = AddonData::default();
+    if spec.kind == Kind::PoweredFurnace {
+        // `getSpeedMultiplier` is the addons' times `furnaceData.speedMultiplier`.
+        m.addons.speed = cfg.furnace_speed as f32;
+    }
     let held = engine_items(game, entity);
     let before = core_slots(&held, spec.inventory_size);
     let mut slots = before.clone();
@@ -392,7 +414,8 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         let compact = |small: &str, base: &str| compacts(game, &books, small, base);
         let ctx = Ctx {
             book: &book,
-            energy_per_tick: cfg.machine(spec.kind).energy_per_tick,
+            // `calculateEnergyUsage` of the furnace halves it (its speed multiplier already counts in the division).
+            energy_per_tick: cfg.machine(spec.kind).energy_per_tick / if spec.kind == Kind::PoweredFurnace { 2 } else { 1 },
             burst_speed_multiplier: cfg.burst_speed_multiplier as f32,
             burst_throttle_multiplier: cfg.burst_throttle_multiplier as f32,
             game_time: 0,
@@ -559,8 +582,10 @@ pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &Comman
     let reply = match words.next() {
         Some("recipes") => {
             let b = books(game);
+            // The powered furnace's vanilla smelting recipes are not Oritech's own.
+            let own = b.counts.iter().filter(|(t, _)| t.starts_with("oritech:"));
+            let (total, read) = own.fold((0, 0), |a, (_, c)| (a.0 + c.0, a.1 + c.1));
             let parts: Vec<String> = b.counts.iter().map(|(t, (total, read))| format!("{t} {read}/{total}")).collect();
-            let (total, read) = b.counts.values().fold((0, 0), |a, c| (a.0 + c.0, a.1 + c.1));
             format!("Oritech recipes read: {read} of {total} ({})", parts.join(", "))
         }
         _ => "usage: /oritech recipes".to_owned(),

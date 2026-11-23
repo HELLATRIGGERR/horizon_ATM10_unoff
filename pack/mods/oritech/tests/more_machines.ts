@@ -5,6 +5,7 @@
  * - A centrifuge (one core above) turns a sculk block into enderic compound in 400 ticks at 64 FE/t.
  * - A fragment forge (seven cores) grinds a bone into 8 bone meal in 40 ticks at 256 FE/t.
  * - A foundry (three cores) melts two iron gems into 3 iron ingots in 80 ticks at 128 FE/t.
+ * - A powered furnace (one core above) smelts cobblestone into stone in 100 ticks at 32 FE/t.
  * - A basic generator burns a coal and fills the pulverizer beside it; a bio generator (a core above) burns packed
  *   wheat and fills its own.
  *
@@ -103,6 +104,22 @@ try {
   assert(/count: ?3/.test(nbt), `three iron ingots: ${nbt.slice(0, 500)}`);
   assert.equal(energy(nbt), 50000 - 80 * 128, 'the energy of 80 ticks at 128 FE/t');
   fixture.mark(`the foundry made 3 iron ingots in ${foundryTicks} ticks, ${energy(nbt)} FE left`);
+
+  // --- Powered furnace (one core above): cobblestone → stone, 200 ticks of smelting at 0.5 speed, 32 FE/t ---
+  const ux = x + 20;
+  const furnace = `${ux} ${y} ${z}`;
+  await place(furnace, 'oritech:powered_furnace_block[facing=north]');
+  await place(`${ux} ${y + 1} ${z}`, 'oritech:machine_core_1');
+  await fixture.command(`data merge block ${furnace} {"oritech.machine_energy":10000L}`);
+  nbt = await until(() => saved(furnace), s => s.includes('connectedCores') && !/connectedCores: ?\[\]/.test(s), 'the powered furnace assembles', 20000);
+  await fixture.command(`data modify block ${furnace} Items set value [{id:"minecraft:cobblestone",count:1,Slot:0b}]`);
+  const u0 = await gametime();
+  nbt = await until(() => saved(furnace), s => s.includes('minecraft:stone') && progress(s) === 0, 'the powered furnace finishes', 60000);
+  const furnaceTicks = (await gametime()) - u0;
+  log.furnaceTicks = furnaceTicks;
+  assert(furnaceTicks >= 98 && furnaceTicks <= 140, `a smelt takes about 100 ticks: ${furnaceTicks}`);
+  assert.equal(energy(nbt), 10000 - 100 * 32, 'the energy of 100 ticks at 32 FE/t');
+  fixture.mark(`the powered furnace smelted stone in ${furnaceTicks} ticks, ${energy(nbt)} FE left`);
 
   // --- Basic generator beside a pulverizer: a coal burns 1600 ticks at 32 FE/t and the pulverizer fills ---
   const gx = x + 12;

@@ -635,6 +635,10 @@ impl VanillaTerrain {
     pub fn set_old_world(&self, world: Arc<dyn horizon_world::worldgen::blending::OldWorld>) {
         self.generator.set_old_world(world);
     }
+    /// The world's seed, as the generator was built with it.
+    pub fn seed(&self) -> i64 {
+        self.seed
+    }
     /// The generator's resources, for what reads saved chunks the way it does.
     pub fn generator_data(&self) -> &Arc<GeneratorData> {
         self.generator.data()

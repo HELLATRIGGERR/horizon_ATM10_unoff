@@ -1806,6 +1806,8 @@ pub(super) struct WorkerState {
     heights: HashMap<(i32, i32, u8), i32>,
     /// Decorate with structure pieces only (for structure parity checks).
     pub(super) structures_only: bool,
+    /// Count each placed-feature root's runs in `DecorateStats::roots`.
+    pub(super) count_features: bool,
     pub(super) structure_mobs: Option<Arc<dyn StructureMobs>>,
     /// The world's surface rule compiled once for this worker's chunks: a
     /// `CompiledSurfaceRule` of the pipeline's random.
@@ -2950,6 +2952,7 @@ impl OverworldGenerator {
                 structure_biomes: HashMap::new(),
                 timings: StageTimings::default(),
                 structures_only: false,
+                count_features: false,
                 structure_mobs: None,
                 heights: HashMap::new(),
                 surface_rule: None,
@@ -3123,6 +3126,11 @@ impl GeneratorWorker {
     /// (for structure placement parity checks).
     pub fn set_structures_only(&mut self, only: bool) {
         self.state.structures_only = only;
+    }
+    /// Count each placed-feature root's runs in `DecorateStats::roots` (the
+    /// worldgen audit); off by default, as it costs a map lookup per root.
+    pub fn set_count_features(&mut self, on: bool) {
+        self.state.count_features = on;
     }
     pub fn set_structure_mobs(&mut self, mobs: Arc<dyn StructureMobs>) {
         self.state.structure_mobs = Some(mobs);

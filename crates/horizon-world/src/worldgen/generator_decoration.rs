@@ -453,6 +453,7 @@ impl Decoration {
             Err(e) => return Err(resource(e.to_string())),
         };
         let structures_only = worker.structures_only;
+        let count_features = worker.count_features;
         let references = region[4].structure_starts.clone();
         let mut block_entities = Vec::new();
         for chunk in region.iter_mut() {
@@ -566,6 +567,15 @@ impl Decoration {
                 if placed.is_err() {
                     stats.failed += 1;
                     stats.skipped.insert(self.names[id.0 as usize].clone());
+                }
+                if count_features {
+                    let name = &self.names[id.0 as usize];
+                    let counts = match stats.roots.get_mut(name) {
+                        Some(counts) => counts,
+                        None => stats.roots.entry(name.clone()).or_default(),
+                    };
+                    counts[0] += 1;
+                    counts[1] += u32::from(matches!(placed, Ok(true)));
                 }
                 Ok(placed.unwrap_or(false))
             },

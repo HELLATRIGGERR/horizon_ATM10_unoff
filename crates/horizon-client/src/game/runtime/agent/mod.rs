@@ -1324,6 +1324,57 @@ impl Game<'_> {
                     "machine_by_type": report["machines"]["by_type"],
                 }))
             }
+            // `worldgen-audit PATH [RADIUS] [THREADS] [START_RADIUS]`: what this world's generators make, counted by mod
+            // (horizon_client::worldgen_audit): a square of chunks of each vanilla dimension generated off the world,
+            // biome and structure surveys, the placed features that can't run and the biome modifiers; the whole
+            // report written to PATH. tools/atm10/worldgen-audit.ts runs it over the full pack.
+            "worldgen-audit" => {
+                self.need_world()?;
+                let path = *a.pos.first().ok_or("worldgen-audit PATH [RADIUS] [THREADS] [START_RADIUS]")?;
+                let mut options = horizon_client::worldgen_audit::Options::default();
+                if let Some(r) = a.pos.get(1) {
+                    options.radius = r.parse()?;
+                }
+                if let Some(t) = a.pos.get(2) {
+                    options.threads = t.parse()?;
+                }
+                if let Some(r) = a.pos.get(3) {
+                    options.start_radius = r.parse()?;
+                }
+                let terrain = self
+                    .integrated
+                    .as_ref()
+                    .and_then(|server| server.terrain("minecraft:overworld"))
+                    .ok_or("no overworld generator: an integrated world of the vanilla generator is needed")?;
+                let report = horizon_client::worldgen_audit::audit(
+                    terrain.generator_data(),
+                    terrain.seed(),
+                    &self.options.resources,
+                    &horizon_client::worldgen_audit::DIMENSIONS,
+                    options,
+                );
+                std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+                let dims = report["dimensions"].as_object().map(|d| {
+                    d.iter()
+                        .map(|(k, v)| {
+                            (k.clone(), json!({
+                                "chunks": v["chunks"], "ores_by_namespace": v["ores_by_namespace"],
+                                "cannot_run": v["cannot_run"]["total"], "error": v["error"],
+                            }))
+                        })
+                        .collect::<serde_json::Map<_, _>>()
+                });
+                ok(json!({
+                    "path": path,
+                    "seconds": report["seconds"],
+                    "biome_modifiers": {
+                        "present": report["biome_modifiers"]["present"],
+                        "read": report["biome_modifiers"]["read"],
+                        "applied": report["biome_modifiers"]["applied"],
+                    },
+                    "dimensions": dims,
+                }))
+            }
             "state" => ok(self.state_value()),
             "looking-at" | "target" => {
                 self.need_world()?;

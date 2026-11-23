@@ -41,16 +41,15 @@ the player's own jar through `horizon-port-pack carry`. The sources are read fro
   `ma_core::conditions`) are registered under its namespace; the registrar names the owner from the native mod
   dispatch scope, which the bundle opens itself (`enter_native_mod`). Upstream refuses a data load whose `recipe/`
   files carry unknown conditions, so without them the world does not open. The engine answers the conditions of an
-  owner that is not a trait mod `false` (HANDOFF "S3", N10): those recipe files are left out, as fork main left them.
+  owner that is not a trait mod `false` (HANDOFF "S3", N10), in the server's load and in the client's startup
+  (world-rest) load alike (E5): those recipe files are left out, as fork main left them.
 - The infusion altar reads its recipes from the world's `mysticalagriculture:infusion` table and the data files of the
   type. The seed recipes' ingredients are MA's own `mysticalagriculture:crop_component` (`ma_core::ingredient`): the
   runtime resolves one from the crop table, as `CropComponentIngredient` asks the crop registry, to the items it takes
   (the tier's essence, the crop type's crafting seed, the crop's material, a tag's items asked of the game).
-- The merged engine's own checks stop a world test of this bundle at three places that are not the bundle's: the
-  `loot_drops` gate (N5 for a staged bundle: the crops' drops), `recipe_sources` refusing a load whose `recipe/`
-  files carry load conditions nobody answers (the startup load builds its `LoadConditions` without the registered
-  handlers), and a recipe type written bare, as the jar's data writes `crafting_shaped` (the recipe loader wants
-  `minecraft:crafting_shaped`; the carry needs it).
+- The crops' drops are this bundle's `loot_drops` injection (the crops have no loot table); N5's gates open
+  `loot_drops` for it. A recipe type written bare, as the jar's data writes `crafting_shaped`, stops the world's
+  load (the recipe loader wants `minecraft:crafting_shaped`): the carry needs the namespace.
 - The carry's seeds name their crop with upstream's item field `block` (the fork's `place_block` before the merge):
   a carry made before the merge needs carrying again.
 - `pack/scripts/mysticalagriculture.ts stage` applies this bundle alone (plus `HORIZON_LOCAL_BUNDLES`) through

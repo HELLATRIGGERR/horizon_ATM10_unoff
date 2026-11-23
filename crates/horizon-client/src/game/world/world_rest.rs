@@ -32,7 +32,8 @@ pub(super) fn load_world_rest(
         .into_iter()
         .collect::<Vec<_>>();
     let inventory = horizon_mod_package::enabled::EnabledMods::read(root)?;
-    let conditions = horizon_world::conditions::LoadConditions::new(inventory.server_ids());
+    // E5 (fork): the registered handlers answer their conditions, as in the server's load.
+    let conditions = crate::game::fork_compat::startup_load_conditions(&inventory)?;
     let overlay = &horizon_world::loot::PackOverlay {
         conditions: &conditions,
         files: &files,

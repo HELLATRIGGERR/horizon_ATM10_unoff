@@ -770,6 +770,20 @@ pub(in crate::game) fn quick_move_emptied() -> bool {
     QUICK_MOVE_TOOK_ALL.replace(false)
 }
 
+/// E5: the load conditions of a load that runs before the game has its mods state, the
+/// client's world-rest load (`world_rest.rs`): the server's own view (`conditions_for_mods`),
+/// with no candidate and no saved switches yet. The registered handlers' conditions, a staged
+/// bundle's too (Mystical Agriculture's `crop_enabled`), are answered as on the server, where
+/// `LoadConditions::new` alone left them unknown and the recipe load refused them.
+pub(in crate::game) fn startup_load_conditions(
+    inventory: &horizon_mod_package::enabled::EnabledMods,
+) -> Result<horizon_world::conditions::LoadConditions, String> {
+    crate::game::load_conditions::conditions_for_mods(
+        &crate::game::mods::ModsState::default(),
+        inventory,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     /// N9: the signal is read once, by the call that ran the hook; a call no bundle signalled

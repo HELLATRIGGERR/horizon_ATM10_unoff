@@ -51,8 +51,8 @@ try {
   const [px, py, pz] = start.player.position;
   const x = Math.floor(px) + 2, y = Math.floor(py), z = Math.floor(pz);
   await fixture.command('time set day');
-  await fixture.command('gamerule doDaylightCycle false');
-  await fixture.command('gamerule randomTickSpeed 0');
+  await fixture.command('gamerule advance_time false');
+  await fixture.command('gamerule random_tick_speed 0');
   await fixture.command(`fill ${x - 6} ${y} ${z - 6} ${x + 10} ${y + 4} ${z + 6} minecraft:air`);
   await fixture.command(`fill ${x - 6} ${y - 3} ${z - 6} ${x + 10} ${y - 1} ${z + 6} minecraft:stone`);
 
@@ -76,10 +76,10 @@ try {
   assert.match(String(log.accelerator), /Cooldown: ?\d+/, 'the accelerator has its timer');
   fixture.mark('the Growth Accelerator has its block entity and timer');
 
-  await fixture.command('gamerule randomTickSpeed 1000');
+  await fixture.command('gamerule random_tick_speed 1000');
   // Growth on random ticks is the wheat template's odds; two ages show it, then the crop is set ripe.
   const grown = await until(() => fixture.raw(`block ${crop}`), v => age(v) >= 2, 'the crop grows on random ticks', 170000);
-  await fixture.command('gamerule randomTickSpeed 0');
+  await fixture.command('gamerule random_tick_speed 0');
   log.grown = grown.state;
   fixture.mark(`the crop grows on random ticks (${grown.state})`);
   await fixture.command(`setblock ${crop} mysticalagriculture:inferium_crop[age=7]`);

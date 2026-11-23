@@ -88,7 +88,7 @@ function makeContent(): void {
   rmSync(content, { recursive: true, force: true });
   cpSync(carry, content, { recursive: true });
   const blocks = join(content, 'data/justdirethings/horizon/block');
-  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json'].includes(f))) {
+  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json', 'droppert1.json', 'fluidplacert1.json', 'sensort1.json', 'generatorfluidt1.json'].includes(f))) {
     const path = join(blocks, file);
     const decl = JSON.parse(readFileSync(path, 'utf8'));
     decl.template = 'minecraft:furnace';

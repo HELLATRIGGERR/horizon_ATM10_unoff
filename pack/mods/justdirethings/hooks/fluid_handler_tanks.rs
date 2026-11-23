@@ -8,7 +8,9 @@ fn justdirethings_fluid_handler_tanks(
     }
     if entity.id() == crate::game::justdirethings_time::PARADOX {
         crate::game::justdirethings_time::fluid_tanks(entity, tanks);
-    } else if entity.id() == crate::game::justdirethings_machines::COLLECTOR {
+    } else if entity.id() == crate::game::justdirethings_machines::COLLECTOR || entity.id() == crate::game::justdirethings_more::FLUID_PLACER {
         crate::game::justdirethings_machines::fluid_tanks(entity, tanks);
+    } else if entity.id() == crate::game::justdirethings_more::FLUID_GEN {
+        crate::game::justdirethings_more::fluid_tanks(entity, tanks);
     }
 }

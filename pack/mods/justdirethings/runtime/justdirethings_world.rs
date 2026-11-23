@@ -33,6 +33,7 @@ pub(super) const GENERATOR: &str = "justdirethings:generatort1";
 pub(super) const BREAKER: &str = "justdirethings:blockbreakert1";
 pub(super) const PARADOX: &str = super::justdirethings_time::PARADOX;
 use super::justdirethings_machines::{self as machines, COLLECTOR, ITEM_COLLECTOR, PLACER};
+use super::justdirethings_more::{self as more, DROPPER, FLUID_GEN, FLUID_PLACER, SENSOR};
 
 // ---- Settings and the recipe book ------------------------------------------------------------------------------
 
@@ -75,6 +76,7 @@ pub(super) fn opened() {
     BREAKERS.with(|b| b.borrow_mut().clear());
     super::justdirethings_time::reset();
     machines::reset();
+    more::reset();
 }
 
 /// `native_world_lifecycle` v2: settings and the recipe book are dropped as the world closes or fails to open.
@@ -85,6 +87,7 @@ pub(super) fn lifecycle(phase: WorldPhase) {
         BREAKERS.with(|b| b.borrow_mut().clear());
         super::justdirethings_time::reset();
         machines::reset();
+        more::reset();
     }
 }
 
@@ -266,7 +269,7 @@ fn write_breaker(nbt: &mut Compound, b: &Breaker) {
 
 /// `native_block_entity_types` (compat hook): one type per goo tier and the generator's, named after their blocks.
 pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
-    for block in Tier::ALL.map(Tier::block).into_iter().chain([GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR]) {
+    for block in Tier::ALL.map(Tier::block).into_iter().chain([GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR, DROPPER, FLUID_PLACER, SENSOR, FLUID_GEN]) {
         types.push((block.to_owned(), vec![block.to_owned()]));
     }
 }
@@ -288,6 +291,8 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
         put(&mut nbt, "direction", 0);
     } else if block == PARADOX {
         super::justdirethings_time::new_entity(&mut nbt);
+    } else if more::owns(block) {
+        more::new_entity(block, &mut nbt);
     } else if machines::owns(block) {
         machines::new_entity(&mut nbt);
     } else {
@@ -298,7 +303,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
 
 /// `native_block_entity_ticks`: goo and the generator tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if Tier::of_block(block).is_some() || block == GENERATOR || block == BREAKER || block == PARADOX || machines::owns(block) {
+    if Tier::of_block(block).is_some() || block == GENERATOR || block == BREAKER || block == PARADOX || machines::owns(block) || more::owns(block) {
         *ticks = true;
     }
 }
@@ -315,6 +320,8 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         super::justdirethings_time::tick(game, pos, entity);
     } else if machines::owns(entity.id()) {
         machines::tick(game, pos, entity);
+    } else if more::owns(entity.id()) {
+        more::tick(game, pos, entity);
     }
 }
 
@@ -432,6 +439,10 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
         super::justdirethings_time::container(container);
         return;
     }
+    if more::owns(block) && container.is_none() {
+        more::container(block, container);
+        return;
+    }
     if machines::owns(block) && container.is_none() {
         machines::container(block, container);
         return;
@@ -462,6 +473,8 @@ pub(super) fn slot_accepts(block: &str, slot: usize, fuel: bool, accepts: &mut b
         *accepts = false;
     } else if machines::owns(block) {
         machines::slot_accepts(block, slot, accepts);
+    } else if more::owns(block) {
+        more::slot_accepts(slot, accepts);
     }
 }
 
@@ -547,6 +560,10 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         machines::button(game, pos, entity, id);
         return;
     }
+    if more::owns(entity.id()) {
+        more::button(game, pos, entity, id);
+        return;
+    }
     if !(0..4).contains(&id) {
         return;
     }
@@ -567,6 +584,10 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
         super::justdirethings_time::fe_storage(entity, info);
         return;
     }
+    if entity.id() == FLUID_GEN && info.is_none() {
+        more::fe_storage(entity, info);
+        return;
+    }
     if entity.id() != GENERATOR || info.is_some() {
         return;
     }
@@ -580,6 +601,10 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
 
 /// `native_fe_extract`: what the buffer has, up to `max`.
 pub(super) fn fe_extract(entity: &mut ModBlockEntity, max: i64, simulate: bool, given: &mut Option<i64>) {
+    if entity.id() == FLUID_GEN && given.is_none() {
+        more::fe_extract(entity, max, simulate, given);
+        return;
+    }
     if entity.id() != GENERATOR || given.is_some() {
         return;
     }

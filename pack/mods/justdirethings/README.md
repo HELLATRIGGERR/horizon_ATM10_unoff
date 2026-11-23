@@ -16,7 +16,9 @@ The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlo
 `RedstoneControlData`, `Config`, `GeneratorT1Screen`, `BlockBreakerT1Screen`, `BaseMachineScreen`, `FluidDropRecipe`,
 `EntityEvents`, `TimeCrystalBuddingBlock`, `TimeCrystalCluster`, `ParadoxMachineBE`, `ParadoxMachine`,
 `ParadoxMachineScreen`, `AreaAffectingBE`, `AreaAffectingData`, `BlockPlacerT1BE`, `BlockPlacerT1Screen`,
-`FluidCollectorT1BE`, `FluidCollectorT1Screen`, `ItemCollectorBE`, `ItemCollectorScreen`, `FilterableBE`, `FilterData`),
+`FluidCollectorT1BE`, `FluidCollectorT1Screen`, `ItemCollectorBE`, `ItemCollectorScreen`, `FilterableBE`, `FilterData`,
+`DropperT1BE`, `DropperT1Screen`, `FluidPlacerT1BE`, `SensorT1BE`, `SensorT1`, `SensorT1Screen`, `GeneratorFluidT1BE`,
+`GeneratorFluidT1Screen`, `RefinedFuel`),
 not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
@@ -71,12 +73,30 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   offset buttons) into the inventory it faces, as far as they fit, through its nine filter slots (a denylist by
   default; allowlist and compare-NBT buttons) and its respect-pickup-delay setting. Screen: the area, filter, redstone,
   particles, pickup delay, render area and tick speed buttons.
+- **Dropper T1**: one slot; on its clock (20 ticks by default) or on a pulse it throws `dropCount` (1 to 64) of its slot's
+  item as one item entity from the centre of the block in front of it, 0.3 blocks a tick the way its direction button
+  points (down by default), with its pickup delay. Screen: the slot, the redstone, direction, tick speed, count and
+  delay buttons.
+- **Fluid Placer T1**: one slot and an 8,000 mB tank. Each tick the slot's full bucket (or a mod's container) fills the
+  tank with its fluid (the tank holds one fluid) and the bucket comes back empty; on its clock it places a bucket of the
+  tank's fluid as a source block in front of it where the block can be replaced and is no liquid source. Water in the
+  Nether hisses away. Fluid pipes reach the tank. Screen: the slot, the fluid bar, the redstone and tick speed buttons.
+- **Sensor T1**: one filter slot; on its clock (20 ticks) it counts what is in the block in front of it (blocks, air,
+  hostile mobs, passive mobs, adult or baby animals, players, any living entity or items, by the target button) that the
+  filter lets through (a denylist by default; the allowlist button) and gives 15 on every side but its front while there
+  is more than none. Its strong signal button makes the signal reach through solid blocks. The filter is an item for a
+  block (a bucket for a liquid) and a spawn egg for an entity.
+- **Fluid Generator T1**: one slot and a 4,000 mB tank of refined fuel only (tiers 2, 3 and 4: 450, 1,300 and 4,000 FE
+  a mB; `fuel_tier*_fe_per_mb`), burning a millibucket a tick while its 5,000,000 FE buffer has room for all of it, and
+  offering ten times its 5,000 FE a tick to each neighbour. Redstone control from its button. Screen: the slot, the
+  energy and fluid bars, the redstone button.
 - The settings come from `config/justdirethings-server.toml` (`goo`, `generator_t1`, `time_crystal`,
   `paradox_machine`, `minimum_machine_tick_speed` is 1).
 
 `justdirethings-core` holds the rules with unit tests; `tests/goo.ts`, `tests/generator.ts`, `tests/breaker.ts`,
-`tests/fluid.ts`, `tests/crystal.ts`, `tests/paradox.ts`, `tests/placer.ts`, `tests/collector.ts` and
-`tests/itemcollector.ts` run them in a world.
+`tests/fluid.ts`, `tests/crystal.ts`, `tests/paradox.ts`, `tests/placer.ts`, `tests/collector.ts`,
+`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts` and `tests/fluidgen.ts` run them in a
+world.
 `NOTES.md` lists the differences from Java and what is left.
 
 ## On upstream's hooks (merge of nightly-source/2026-11-18)
@@ -87,5 +107,5 @@ hook: one type per goo tier and per machine, named after the block), `block_enti
 `MODIFY_ARG` on the call into `fire_fe_extract`), `fe_receive`, `menu_button`, `use_on` v2 (a `HEAD` injection reads the call with
 the game, a `MODIFY_ARG` one answers it), `use_item_on`, `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
 `entity_tick_listened`, `entity_tick_post` (the fluid drop), `random_tick` (the budding block) and
-`fluid_handler_tanks`, `fluid_handler_fill` and `fluid_handler_drain` (the Paradox Machine's and the Fluid
-Collector's tanks).
+`fluid_handler_tanks`, `fluid_handler_fill` and `fluid_handler_drain` (the tanks of the Paradox Machine, the Fluid
+Collector, the Fluid Placer and the Fluid Generator), `block_signal` and `is_signal_source` (the Sensor's redstone).

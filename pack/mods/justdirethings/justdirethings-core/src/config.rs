@@ -10,6 +10,7 @@ pub struct Config {
     /// `goo.goo_death_chance` (0 to 1): the chance it does.
     pub goo_death_chance: f64,
     pub generator: GeneratorSettings,
+    pub fluid_generator: FluidGeneratorSettings,
     pub crystal: CrystalSettings,
     pub paradox: ParadoxSettings,
 }
@@ -74,6 +75,25 @@ pub struct GeneratorSettings {
     pub fe_per_tick: i32,
 }
 
+/// `generator_fluid_t1.*`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FluidGeneratorSettings {
+    /// The buffer.
+    pub max_fe: i32,
+    /// FE a tick it hands to each neighbour (it offers ten times this).
+    pub fe_per_tick: i32,
+    /// FE for each millibucket of tier 2, 3 and 4 refined fuel.
+    pub tier2: i32,
+    pub tier3: i32,
+    pub tier4: i32,
+}
+
+impl Default for FluidGeneratorSettings {
+    fn default() -> Self {
+        Self { max_fe: 5_000_000, fe_per_tick: 5000, tier2: 450, tier3: 1300, tier4: 4000 }
+    }
+}
+
 impl Default for GeneratorSettings {
     fn default() -> Self {
         Self { fe_per_fuel_tick: 15, burn_speed_multiplier: 4, max_fe: 1_000_000, fe_per_tick: 1000 }
@@ -86,6 +106,7 @@ impl Default for Config {
             goo_can_die: true,
             goo_death_chance: 0.1,
             generator: GeneratorSettings::default(),
+            fluid_generator: FluidGeneratorSettings::default(),
             crystal: CrystalSettings::default(),
             paradox: ParadoxSettings::default(),
         }
@@ -139,6 +160,7 @@ impl Config {
         };
         let g = d.generator;
         let p = d.paradox;
+        let f = d.fluid_generator;
         let boolean = |key: &str, default: bool| match values.get(key) {
             Some(Value::Bool(b)) => *b,
             _ => default,
@@ -165,6 +187,13 @@ impl Config {
                 burn_speed_multiplier: int("generator_t1.generator_t1_burn_speed_multiplier", g.burn_speed_multiplier, 1, 1000),
                 max_fe: int("generator_t1.generator_t1_max_fe", g.max_fe, 1, i32::MAX),
                 fe_per_tick: int("generator_t1.generator_t1_fe_per_tick", g.fe_per_tick, 1, i32::MAX),
+            },
+            fluid_generator: FluidGeneratorSettings {
+                max_fe: int("generator_fluid_t1.generator_fluid_t1_max_fe", f.max_fe, 1, i32::MAX),
+                fe_per_tick: int("generator_fluid_t1.generator_fluid_t1_fe_per_tick", f.fe_per_tick, 1, i32::MAX),
+                tier2: int("generator_fluid_t1.fuel_tier2_fe_per_mb", f.tier2, 1, i32::MAX),
+                tier3: int("generator_fluid_t1.fuel_tier3_fe_per_mb", f.tier3, 1, i32::MAX),
+                tier4: int("generator_fluid_t1.fuel_tier4_fe_per_mb", f.tier4, 1, i32::MAX),
             },
             crystal: CrystalSettings {
                 custom_dimensions: boolean("time_crystal.time_crystal_custom_dimensions", false),

@@ -10,7 +10,8 @@ JUSTDIRETHINGS_CARRY=<carry> bun run pack/scripts/justdirethings.ts units conten
 ```
 
 `units` runs the rules crate's tests. `content` makes the content mod from the carry: the Generator T1, the Block
-Breaker T1, the Block Placer T1, the Fluid Collector T1, the Item Collector and the Paradox Machine go from the diamond
+Breaker T1, the Block Placer T1, the Fluid Collector T1, the Item Collector, the Dropper T1, the Fluid Placer T1, the
+Sensor T1, the Fluid Generator T1 and the Paradox Machine go from the diamond
 block template (no block entity, no menu) onto `minecraft:furnace` (block entity, menu, `facing`, `lit`), as Hostile
 Neural Networks' machines do (the breaker keeps its own `active`); the goo blocks keep their template, since a declared block entity type is made for
 any block. `stage` applies this bundle alone (and `HORIZON_LOCAL_BUNDLES`), `build` builds `-p horizon-game` with
@@ -64,6 +65,22 @@ the v5 resources and the empty content mod in AE2's place.
   (`native_insert_item`); menu buttons 0 to 3 redstone, 9 render area, 10 to 21 the area, 22 and 23 the tick speed, 24
   allowlist, 25 compare NBT, 26 respect pickup delay, 27 show particles.
 
+- Dropper T1 (`justdirethings_more`): Java's keys (`dropCount`, `pickupDelay`, `direction`, the clock's); the one slot is the
+  hopper menu's first. The item entity is made as `new ItemEntity(.., stack)` then given 0.3 of the direction as motion.
+  Menu buttons 4 to 9 the direction, 22 and 23 the tick speed, 28 and 29 the count, 30 and 31 the delay.
+- Fluid Placer T1: Java's keys (the clock's, `direction`, the tank `Fluid`); the bucket in its slot is read before the
+  tick (one whole bucket at a time) and comes back empty; the block placed is the fluid's block (`..._source` becomes
+  `..._block`) at level 0, set with neighbour updates and the bucket's sound. Its tank is the collector's 8,000 mB one,
+  so the same fluid handler hooks serve it.
+- Sensor T1: Java's keys (`senseTarget`, `strongSignal`, `senseAmount`, `equality`, `allowlist`, `compareNBT`,
+  `blockStateProps`, the clock's); whether it emits is kept per thread by dimension and position (Java doesn't save it
+  either) and the `block_signal` and `is_signal_source` hooks read it. A change tells the six neighbours and their
+  neighbours (`neighborChanged`, `updateNeighborsAtExceptFromFacing`). Menu buttons 24 allowlist, 32 target (the next),
+  33 strong or weak, 22 and 23 tick speed.
+- Fluid Generator T1: Java's keys for the redstone and the tank (`Fluid`), `energy` for its buffer (an attachment in
+  Java); its slot is the hopper menu's first, the tank is 4,000 mB of the refined fuels only, the buffer is
+  `generator_fluid_t1_max_fe` and it pushes ten times `generator_fluid_t1_fe_per_tick` to each side, as the Generator T1.
+
 ## Differences from Java
 
 - The goo's client side: the block entity renderer that shows the block being converted and the particles when a side
@@ -99,15 +116,30 @@ the v5 resources and the empty content mod in AE2's place.
   control on the number buttons (10 and 64 at a time) are not ported.
 - Block Placer T1: the place checks of Java's fake player (`mayInteract`, the block-place event) are not asked, and
   its item components are not applied to the placed block entity (a named or filled block item places a plain block).
-- Fluid Collector T1: the screen's fluid is water's or lava's still texture, any other fluid the mod's fluid texture.
+- Fluid Collector T1: the screen's fluid is the water's or lava's still texture where the GUI atlas holds it, else the mod's
+  fluid texture in the fluid's tint (blue for water, orange for lava).
 - Item Collector: the filter slots hold real items (Java's are ghost slots that copy one of the stack the cursor
   holds and keep nothing), so a filter item is put in and taken out as in any container and drops when the block is
   broken; the flow particles (`showParticles`) and the area render are not drawn; items go in as a hopper puts them
   (into the first slot that takes them, one at a time), where Java's `insertItemStacked` fills partial stacks first.
 
+- Dropper T1: the pickup delay and count buttons step by 1 (Java's shift and control steps are not ported).
+- Fluid Placer T1: a container that holds less than a bucket, or one that gives less than the tank would take, is not drained in
+  parts (a bucket is whole or nothing as in Java; a mod's canister would give what it holds); the place checks of the
+  fake player (`canBreakAndPlaceAt`: spawn protection, claims) are not asked; the vaporizing of water in the Nether is
+  the bucket's hiss with no smoke; the Fluid Placer's screen text is the bundle's English.
+- Sensor T1: the block state filter (`blockStateProps`, the T1's scrolling list of properties) is not ported (the key is saved
+  empty): the filter slot matches a block by its item's name, a liquid by its bucket's; an entity by its spawn egg (the
+  creature catcher is not ported); the count test (`senseAmount`, `equality`) is the T2's, kept at 0 and more-than; the area is
+  the one block in front. Compare NBT has no button.
+- Fluid Generator T1: a bucket in its slot is drained whole (4,000 mB holds four buckets); the fluid bars of the Fluid
+  Placer and the Fluid Generator are drawn as the Fluid Collector's.
+
 ## What is left
 
 See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Clicker T1 (it needs an engine helper for a
-fake player's clicks), the Sensor, Dropper and Fluid Placer T1, the Block Swapper, the T2 machines, the Fluid
-Generator T1 and the refined fuels, the goo soils, the paradox entity and the time wand, the energy transmitter, the
-tools, armour and their abilities, the Fuel Canister and the Pocket Generator, the portal gun and the wands.
+fake player's clicks: the use of the held item on a block or entity in front of it, and left or right click with a hold,
+through the same path as a player's `use_item_on`, which the engine gates on a trait mod's Part), the Block Swapper,
+the T2 machines, the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
+accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the
+Pocket Generator, the portal gun and the wands.

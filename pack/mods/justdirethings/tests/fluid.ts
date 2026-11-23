@@ -72,6 +72,9 @@ try {
   await fixture.command('gamemode survival @s');
   await fixture.replace('hotbar.0', 'minecraft:bucket', 1);
   await fixture.select(0, 'minecraft:bucket');
+  // The terrain around the basin is the world's own: a clear spot to stand on, two blocks and a half south of it.
+  await fixture.command(`fill ${x - 1} ${y + 1} ${z + 1} ${x + 1} ${y + 4} ${z + 4} minecraft:air`);
+  await fixture.command(`fill ${x - 1} ${y} ${z + 1} ${x + 1} ${y} ${z + 4} minecraft:stone`);
   await fixture.command(`tp @s ${x + 0.5} ${y + 1} ${z + 2.5}`);
   await fixture.raw(`look-at ${x + 0.5} ${y + 0.5} ${z + 0.5}`);
   await fixture.raw('use-item');

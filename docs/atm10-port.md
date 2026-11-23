@@ -728,7 +728,8 @@ Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/N
 `pack/mods/justdirethings` ports Just Dire Things 1.5.7 from its source: Direwolf20-MC/JustDireThings, tag `v1.5.7` (commit
 8390e0ef), MIT (`LICENSE-justdirethings`, Copyright (c) 2023 Direwolf20-MC). The blocks, items, models, recipes and tags
 are the mod's carry; `pack/scripts/justdirethings.ts content` puts the machines (the Generator T1, the Block Breaker
-T1, the Block Placer T1, the Fluid Collector T1, the Item Collector and the Paradox Machine) on `minecraft:furnace`, as
+T1, the Block Placer T1, the Fluid Collector T1, the Item Collector, the Dropper T1, the Fluid Placer T1, the Sensor T1,
+the Fluid Generator T1 and the Paradox Machine) on `minecraft:furnace`, as
 Hostile Neural Networks' machines are, and leaves the goo blocks on their template. Its steps `units content stage build world`
 build and test the bundle, on hooks already on main and no new one.
 
@@ -746,12 +747,17 @@ in the Nether, 3 in the End) and its clusters at stage 3, and the Paradox Machin
 its area on its screen's button and restores what is missing on a redstone pulse, for 250,000 FE and 50 mB of time
 fluid each, with its own screen. Of the T1 machines, the Block Placer T1 places the block item of its slot in front of
 it, the Fluid Collector T1 takes fluid sources in front into its tank and fills buckets from it, and the Item
-Collector takes the items of its area into the inventory it faces through its filter, each with its screen. The rules
+Collector takes the items of its area into the inventory it faces through its filter, each with its screen. The Dropper
+T1 throws its slot's item in front of it on its clock (a count, a pickup delay, a direction), the Fluid Placer T1 puts its
+tank's fluid down as a source block in front of it a bucket at a time, the Sensor T1 counts blocks, air, mobs, players or
+items in front of it and gives redstone (strong when set) while the count test holds, and the Fluid Generator T1 burns the
+refined fuels (tier 2, 3 and 4: 450, 1,300 and 4,000 FE a mB) into a 5,000,000 FE buffer it offers to its neighbours. The rules
 crate has unit tests of the config, the recipes, the goo's tick, the redstone modes, the generator, the breaker, the
 fluid drop, the crystal's growth, the Paradox Machine, the placer and the collectors and the screens' data; the world
 tests in `tests/` (`goo`, `generator`, `breaker`, `fluid`, `crystal`, `paradox`, `placer`, `collector`,
-`itemcollector`) check them in game time. Not ported yet: the Clicker and the other machines, the fluid generator
-and fuels, the goo soils, the paradox entity, the tools, armour and abilities; `NOTES.md` lists them with the
+`itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`) check them in game time. Not ported yet: the Clicker (it needs
+an engine helper for a fake player's clicks and the `use_item_on` gating), the Block Swapper and the T2 machines, the goo
+soils, the paradox entity and the time wand, the tools, armour and abilities; `NOTES.md` lists them with the
 differences from Java.
 
 ## Porting rules

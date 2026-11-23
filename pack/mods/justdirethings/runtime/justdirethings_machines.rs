@@ -32,10 +32,10 @@ pub(super) fn owns(block: &str) -> bool {
 }
 
 /// The one slot (`MACHINE_SLOTS = 1`), the hopper menu's first.
-const SLOT: usize = 0;
-const HOPPER_SLOTS: usize = 5;
+pub(super) const SLOT: usize = 0;
+pub(super) const HOPPER_SLOTS: usize = 5;
 /// `minimum_machine_tick_speed`'s default.
-const MIN_TICK_SPEED: i32 = 1;
+pub(super) const MIN_TICK_SPEED: i32 = 1;
 
 thread_local! {
     /// The machines' operation clocks (`operationTicks`, which Java doesn't save), by dimension and position.
@@ -50,11 +50,11 @@ pub(super) fn reset() {
     BLOCK_ITEMS.with(|b| b.borrow_mut().clear());
 }
 
-fn key(name: &str) -> JavaString {
+pub(super) fn key(name: &str) -> JavaString {
     JavaString::from(name)
 }
 
-fn int(nbt: &Compound, name: &str) -> i32 {
+pub(super) fn int(nbt: &Compound, name: &str) -> i32 {
     match nbt.get(&key(name)) {
         Some(Tag::Int(v)) => *v,
         Some(Tag::Short(v)) => i32::from(*v),
@@ -64,11 +64,11 @@ fn int(nbt: &Compound, name: &str) -> i32 {
     }
 }
 
-fn put(nbt: &mut Compound, name: &str, v: i32) {
+pub(super) fn put(nbt: &mut Compound, name: &str, v: i32) {
     nbt.insert(key(name), Tag::Int(v));
 }
 
-fn put_flag(nbt: &mut Compound, name: &str, v: bool) {
+pub(super) fn put_flag(nbt: &mut Compound, name: &str, v: bool) {
     nbt.insert(key(name), Tag::Byte(i8::from(v)));
 }
 
@@ -81,12 +81,12 @@ fn double(nbt: &Compound, name: &str) -> f64 {
     }
 }
 
-fn center(pos: [i32; 3]) -> [f64; 3] {
+pub(super) fn center(pos: [i32; 3]) -> [f64; 3] {
     [f64::from(pos[0]) + 0.5, f64::from(pos[1]) + 0.5, f64::from(pos[2]) + 0.5]
 }
 
 /// `saveRedstoneSettings` and `tickspeed`: the clock's saved half.
-fn read_clock(nbt: &Compound) -> Clock {
+pub(super) fn read_clock(nbt: &Compound) -> Clock {
     Clock {
         redstone: Redstone {
             mode: Mode::from_index(int(nbt, "redstoneMode")),
@@ -98,7 +98,7 @@ fn read_clock(nbt: &Compound) -> Clock {
     }
 }
 
-fn write_clock(nbt: &mut Compound, c: &Clock) {
+pub(super) fn write_clock(nbt: &mut Compound, c: &Clock) {
     put(nbt, "redstoneMode", c.redstone.mode.index());
     nbt.insert(key("pulsed"), Tag::Byte(i8::from(c.redstone.pulsed)));
     nbt.insert(key("receivingRedstone"), Tag::Byte(i8::from(c.redstone.receiving)));
@@ -106,7 +106,7 @@ fn write_clock(nbt: &mut Compound, c: &Clock) {
 }
 
 /// The collector's tank, `{Fluid: {id, amount}}` as `FluidTank.writeToNBT` writes it (no `Fluid` while empty).
-fn read_tank(nbt: &Compound) -> Tank {
+pub(super) fn read_tank(nbt: &Compound) -> Tank {
     let Some(Tag::Compound(f)) = nbt.get(&key("Fluid")) else { return Tank::default() };
     let Some(Tag::String(id)) = f.get(&key("id")) else { return Tank::default() };
     let amount = int(f, "amount").clamp(0, COLLECTOR_CAPACITY);
@@ -116,7 +116,7 @@ fn read_tank(nbt: &Compound) -> Tank {
     Tank { fluid: Some(id.to_string_lossy()), amount }
 }
 
-fn write_tank(nbt: &mut Compound, t: &Tank) {
+pub(super) fn write_tank(nbt: &mut Compound, t: &Tank) {
     match t.fluid.as_deref().filter(|_| t.amount > 0) {
         Some(fluid) => {
             let mut f = Compound::new();
@@ -166,20 +166,20 @@ pub(super) fn slot_accepts(block: &str, slot: usize, accepts: &mut bool) {
     *accepts = *accepts && if block == ITEM_COLLECTOR { slot < FILTER_SLOTS } else { slot == SLOT };
 }
 
-fn facing(game: &Game<'_>, pos: [i32; 3]) -> usize {
+pub(super) fn facing(game: &Game<'_>, pos: [i32; 3]) -> usize {
     game.native_block_property(pos, "facing").and_then(|f| SIDE_NAMES.iter().position(|n| *n == f)).unwrap_or(2)
 }
 
-fn beside(pos: [i32; 3], side: usize) -> [i32; 3] {
+pub(super) fn beside(pos: [i32; 3], side: usize) -> [i32; 3] {
     let [dx, dy, dz] = Direction::ALL[side].normal();
     [pos[0] + dx, pos[1] + dy, pos[2] + dz]
 }
 
-fn slot_stack(game: &Game<'_>, entity: &ModBlockEntity) -> Option<ItemStack> {
+pub(super) fn slot_stack(game: &Game<'_>, entity: &ModBlockEntity) -> Option<ItemStack> {
     entity.items.get(SLOT).and_then(|s| s.as_ref()).and_then(|s| s.try_into_engine(game.items()).ok()).filter(|s| s.count > 0)
 }
 
-fn set_slot(entity: &mut ModBlockEntity, stack: Option<ItemStack>) {
+pub(super) fn set_slot(entity: &mut ModBlockEntity, stack: Option<ItemStack>) {
     if entity.items.len() < HOPPER_SLOTS {
         entity.items.resize(HOPPER_SLOTS, None);
     }
@@ -187,7 +187,7 @@ fn set_slot(entity: &mut ModBlockEntity, stack: Option<ItemStack>) {
 }
 
 /// The clock of the machine at `pos` with its transient tick count.
-fn clock_at(dimension: &'static str, pos: [i32; 3], nbt: &Compound) -> Clock {
+pub(super) fn clock_at(dimension: &'static str, pos: [i32; 3], nbt: &Compound) -> Clock {
     let mut c = read_clock(nbt);
     if let Some(ticks) = CLOCKS.with(|m| m.borrow().get(&(dimension, pos)).copied()) {
         c.operation_ticks = ticks;
@@ -195,7 +195,7 @@ fn clock_at(dimension: &'static str, pos: [i32; 3], nbt: &Compound) -> Clock {
     c
 }
 
-fn keep_clock(dimension: &'static str, pos: [i32; 3], nbt: &mut Compound, before: &Clock, c: &Clock) {
+pub(super) fn keep_clock(dimension: &'static str, pos: [i32; 3], nbt: &mut Compound, before: &Clock, c: &Clock) {
     CLOCKS.with(|m| m.borrow_mut().insert((dimension, pos), c.operation_ticks));
     if (c.redstone, c.tick_speed) != (before.redstone, before.tick_speed) {
         write_clock(nbt, c);
@@ -380,7 +380,7 @@ impl Container for Around<'_, '_> {
 }
 
 /// What the screen's fluid bar draws: 0 nothing, 1 water, 2 lava, 3 another fluid.
-fn fluid_code(t: &Tank) -> i32 {
+pub(super) fn fluid_code(t: &Tank) -> i32 {
     match t.fluid.as_deref().filter(|_| t.amount > 0) {
         None => 0,
         Some("minecraft:water") => 1,

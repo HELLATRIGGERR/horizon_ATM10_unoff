@@ -11,6 +11,7 @@
 use super::{
     Game,
     justdirethings_machines::{COLLECTOR, ITEM_COLLECTOR, PLACER},
+    justdirethings_more::{DROPPER, FLUID_GEN, FLUID_PLACER, SENSOR},
     justdirethings_world::{BREAKER, GENERATOR, PARADOX},
 };
 use horizon_client::hud::HudBatch;
@@ -93,7 +94,7 @@ pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
         });
         return;
     }
-    if !(block == GENERATOR || block == BREAKER || block == PLACER || block == COLLECTOR) {
+    if !(block == GENERATOR || block == BREAKER || block == PLACER || block == COLLECTOR || super::justdirethings_more::owns(block)) {
         return;
     }
     let mut slots = vec![Some(FUEL_SLOT)];
@@ -173,8 +174,20 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         draw_placer(game, data, batch, origin);
         return;
     }
-    if block == COLLECTOR {
-        draw_collector(game, data, batch, origin);
+    if block == COLLECTOR || block == FLUID_PLACER {
+        draw_collector(game, block, data, batch, origin);
+        return;
+    }
+    if block == DROPPER {
+        draw_dropper(game, data, batch, origin);
+        return;
+    }
+    if block == SENSOR {
+        draw_sensor(game, data, batch, origin);
+        return;
+    }
+    if block == FLUID_GEN {
+        draw_fluid_generator(game, data, batch, origin);
         return;
     }
     if block == ITEM_COLLECTOR {
@@ -260,18 +273,11 @@ fn draw_placer(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32
     labels(&mut pen, data.first().copied().unwrap_or(0), "Block Placer T1");
 }
 
-/// The Fluid Collector T1's screen (`FluidCollectorT1Screen` on `BaseMachineScreen`): its slot, the fluid bar where
-/// an unpowered machine has it (`topSectionLeft + 5`), its fluid's still texture in its tint (`renderFluid`), the
-/// redstone and tick speed buttons. The data is the redstone mode, whether the slot holds an item, the tick speed, the
-/// fluid (0 none, 1 water, 2 lava, 3 another), the amount and the capacity.
-fn draw_collector(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
-    let mut pen = Pen { game, batch, origin };
-    frame(&mut pen);
-    pen.slot(FUEL_SLOT);
-    let bar = ENERGY;
-    let u = game.native_sprite_size(FLUIDBAR).map_or(1.0, |[w, _]| w / 36.0);
+/// A machine's fluid bar at `bar`: the frame, the fluid's texture (`renderFluid`: water in its tint) up to its level, the
+/// frame's front. `code`: 0 none, 1 water, 2 lava, 3 another.
+fn fluid_bar(pen: &mut Pen<'_, '_>, bar: [f32; 4], code: i32, amount: i32, capacity: i32) {
+    let u = pen.game.native_sprite_size(FLUIDBAR).map_or(1.0, |[w, _]| w / 36.0);
     pen.sprite(FLUIDBAR, [0.0, 0.0, 18.0 * u, 72.0], bar);
-    let (code, amount, capacity) = (data.get(3).copied().unwrap_or(0), data.get(4).copied().unwrap_or(0), data.get(5).copied().unwrap_or(0));
     let rows = (if capacity > 0 { (i64::from(amount) * 70 / i64::from(capacity)) as i32 } else { 0 }).clamp(0, 70) as f32;
     if rows > 0.0 {
         let (texture, tint) = match code {
@@ -285,14 +291,27 @@ fn draw_collector(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [
             let h = left.min(16.0);
             y -= h;
             if !pen.tinted(texture, [0.0, 0.0, 16.0, h], [bar[0] + 1.0, y, 16.0, h], tint) {
-                pen.tinted(POWERBAR, [19.0 * (34.0 / 36.0), 0.0, 16.0 * (34.0 / 36.0), h], [bar[0] + 1.0, y, 16.0, h], Some(0xFF3F_76E4));
+                // The GUI atlas holds the mod's own fluid texture, not the game's block textures: tinted as the fluid.
+                let colour = if code == 2 { 0xFFE0_6A12 } else { 0xFF3F_76E4 };
+                pen.tinted("justdirethings:block/fluid_source", [0.0, 0.0, 16.0, h], [bar[0] + 1.0, y, 16.0, h], Some(colour));
             }
             left -= h;
         }
     }
     pen.sprite(FLUIDBAR, [18.0 * u, 0.0, 18.0 * u, 72.0], bar);
+}
+
+/// The Fluid Collector T1's screen (`FluidCollectorT1Screen` on `BaseMachineScreen`): its slot, the fluid bar where
+/// an unpowered machine has it (`topSectionLeft + 5`), its fluid's still texture in its tint (`renderFluid`), the
+/// redstone and tick speed buttons. The data is the redstone mode, whether the slot holds an item, the tick speed, the
+/// fluid (0 none, 1 water, 2 lava, 3 another), the amount and the capacity.
+fn draw_collector(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    frame(&mut pen);
+    pen.slot(FUEL_SLOT);
+    fluid_bar(&mut pen, ENERGY, data.get(3).copied().unwrap_or(0), data.get(4).copied().unwrap_or(0), data.get(5).copied().unwrap_or(0));
     tick_speed(&mut pen, data.get(2).copied().unwrap_or(20));
-    labels_at(&mut pen, data.first().copied().unwrap_or(0), REDSTONE_BASE, "Fluid Collector T1");
+    labels_at(&mut pen, data.first().copied().unwrap_or(0), REDSTONE_BASE, if block == FLUID_PLACER { "Fluid Placer T1" } else { "Fluid Collector T1" });
 }
 
 /// The redstone button (left: the next mode), the placer's direction button (left the next, right the one before:
@@ -321,7 +340,7 @@ fn tooltip_machine(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<Stri
         lines.push(format!("Ticks: {ticks}"));
     } else if block == PLACER && inside(DIRECTION, at) {
         lines.push(DIRECTIONS[data.get(2).copied().unwrap_or(0).clamp(0, 5) as usize].1.into());
-    } else if block == COLLECTOR && inside(ENERGY, at) {
+    } else if (block == COLLECTOR || block == FLUID_PLACER) && inside(ENERGY, at) {
         let name = match data.get(3).copied().unwrap_or(0) {
             0 => "Empty",
             1 => "Water",
@@ -338,8 +357,12 @@ pub(super) fn click(_game: &Game<'_>, block: &str, data: &[i32], at: [f32; 2], r
         super::justdirethings_paradox_ui::click(data, at, right, button);
         return;
     }
-    if block == PLACER || block == COLLECTOR {
+    if block == PLACER || block == COLLECTOR || block == FLUID_PLACER {
         click_machine(block, data, at, right, button);
+        return;
+    }
+    if super::justdirethings_more::owns(block) {
+        click_more(block, data, at, right, button);
         return;
     }
     if block == ITEM_COLLECTOR {
@@ -366,8 +389,12 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
         super::justdirethings_paradox_ui::tooltip(data, at, lines);
         return;
     }
-    if block == PLACER || block == COLLECTOR {
+    if block == PLACER || block == COLLECTOR || block == FLUID_PLACER {
         tooltip_machine(block, data, at, lines);
+        return;
+    }
+    if super::justdirethings_more::owns(block) {
+        tooltip_more(block, data, at, lines);
         return;
     }
     if block == ITEM_COLLECTOR {
@@ -513,4 +540,162 @@ fn tooltip_item_collector(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
         return;
     };
     lines.push(line);
+}
+
+// ---- The Dropper T1's, Sensor T1's and Fluid Generator T1's screens ----------------------------------------------
+
+/// The Dropper T1's drop count (`getGuiLeft() + 50`, `topSectionTop + 41`) and pickup delay (`+ 27`) number buttons, 24x12.
+const COUNT: [f32; 4] = [50.0, 61.0, 24.0, 12.0];
+const DELAY: [f32; 4] = [50.0, 47.0, 24.0, 12.0];
+/// The Sensor T1's strong or weak signal, allowlist and target buttons (`topSectionTop + 38`).
+const STRONG: [f32; 4] = [20.0, 58.0, 16.0, 16.0];
+const SENSOR_ALLOW: [f32; 4] = [38.0, 58.0, 16.0, 16.0];
+const TARGET: [f32; 4] = [56.0, 58.0, 16.0, 16.0];
+/// `SENSOR_TARGET_TEXTURES`, in the target's ordinal order, with their tooltips.
+const TARGETS: [(&str, &str); 9] = [
+    ("filter-block", "Target: blocks"),
+    ("filter-air", "Target: air"),
+    ("mobscanner", "Target: hostile mobs"),
+    ("passivemob", "Target: passive mobs"),
+    ("passivemob-adult", "Target: adult animals"),
+    ("passivemob-child", "Target: baby animals"),
+    ("player", "Target: players"),
+    ("glowing", "Target: living entities"),
+    ("item", "Target: items"),
+];
+/// The fluid generator's fluid bar sits beside the energy bar (`getFluidBarOffset`: 24 when powered).
+const GEN_FLUID: [f32; 4] = [24.0, 25.0, 18.0, 72.0];
+
+/// A number button (`NumberButton`): its value on a plain button.
+fn number(pen: &mut Pen<'_, '_>, at: [f32; 4], value: i32) {
+    pen.whole("justdirethings:gui/buttons/blank", at);
+    let text = value.to_string();
+    let w = HudBatch::text_width(&pen.game.gui.atlas, &text);
+    pen.text(&text, at[0] + 12.0 - (w / 2.0).floor(), at[1] + 2.0, LABEL);
+}
+
+/// The Dropper T1's screen (`DropperT1Screen`). The data is the redstone mode, whether the slot holds an item, the
+/// direction, the tick speed, the drop count and the pickup delay.
+fn draw_dropper(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    frame(&mut pen);
+    pen.slot(FUEL_SLOT);
+    let direction = d(data, 2).clamp(0, 5) as usize;
+    pen.whole(DIRECTIONS[direction].0, DIRECTION);
+    tick_speed(&mut pen, data.get(3).copied().unwrap_or(20));
+    pen.text("Delay", 8.0, 49.0, LABEL);
+    pen.text("Count", 8.0, 63.0, LABEL);
+    number(&mut pen, DELAY, d(data, 5));
+    number(&mut pen, COUNT, d(data, 4).max(1));
+    labels(&mut pen, d(data, 0), "Dropper T1");
+}
+
+/// The Sensor T1's screen (`SensorT1Screen`). The data is the target, strong signal, allowlist, whether the filter slot
+/// holds an item and the tick speed.
+fn draw_sensor(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    frame(&mut pen);
+    pen.slot(FUEL_SLOT);
+    let strong = d(data, 1) != 0;
+    pen.whole(if strong { "justdirethings:gui/buttons/redstonehigh" } else { "justdirethings:gui/buttons/redstonelow" }, STRONG);
+    pen.whole(if d(data, 2) != 0 { "justdirethings:gui/buttons/allowlisttrue" } else { "justdirethings:gui/buttons/allowlistfalse" }, SENSOR_ALLOW);
+    pen.whole(&format!("justdirethings:gui/buttons/{}", TARGETS[d(data, 0).clamp(0, 8) as usize].0), TARGET);
+    tick_speed(&mut pen, data.get(4).copied().unwrap_or(20));
+    let title = pen.game.native_screen_title().unwrap_or_else(|| "Sensor T1".into());
+    let w = HudBatch::text_width(&pen.game.gui.atlas, &title);
+    pen.text(&title, 88.0 - (w / 2.0).floor(), 6.0, LABEL);
+}
+
+/// The Fluid Generator T1's screen (`GeneratorFluidT1Screen`): the slot, the energy and fluid bars, the redstone button.
+/// The data is the redstone mode, whether the slot holds an item, the fluid, the amount, the capacity, the energy and
+/// its buffer.
+fn draw_fluid_generator(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    frame(&mut pen);
+    pen.slot(FUEL_SLOT);
+    let u = 34.0 / 36.0;
+    pen.sprite(POWERBAR, [0.0, 0.0, 18.0 * u, 72.0], ENERGY);
+    let (energy, max) = (d(data, 5), d(data, 6));
+    let rows = (if max > 0 { i64::from(energy) * 70 / i64::from(max) } else { 0 }).clamp(0, 70) as f32;
+    pen.sprite(POWERBAR, [19.0 * u, 69.0 - rows, 17.0 * u, rows + 1.0], [ENERGY[0] + 1.0, ENERGY[1] + 70.0 - rows, 17.0, rows + 1.0]);
+    fluid_bar(&mut pen, GEN_FLUID, d(data, 2), d(data, 3), d(data, 4));
+    labels(&mut pen, d(data, 0), "Fluid Generator T1");
+}
+
+/// The Dropper's and Sensor's and fluid generator's menu button a press is on: the redstone button cycles (right click
+/// back), the dropper's direction goes on (right back), the number buttons and the tick speed step up on a left click.
+fn click_more(block: &str, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    let mode = Mode::from_index(d(data, 0));
+    let cycle = Some(if right { Mode::from_index((mode.index() + 3) % 4) } else { mode.next() }.index());
+    if block == DROPPER {
+        *button = if inside(REDSTONE, at) {
+            cycle
+        } else if inside(DIRECTION, at) {
+            Some(4 + (d(data, 2).clamp(0, 5) + if right { 5 } else { 1 }) % 6)
+        } else if inside(TICK_SPEED, at) {
+            Some(if right { 23 } else { 22 })
+        } else if inside(COUNT, at) {
+            Some(if right { 29 } else { 28 })
+        } else if inside(DELAY, at) {
+            Some(if right { 31 } else { 30 })
+        } else {
+            None
+        };
+    } else if block == SENSOR {
+        *button = if right {
+            inside(TICK_SPEED, at).then_some(23)
+        } else if inside(STRONG, at) {
+            Some(33)
+        } else if inside(SENSOR_ALLOW, at) {
+            Some(24)
+        } else if inside(TARGET, at) {
+            Some(32)
+        } else if inside(TICK_SPEED, at) {
+            Some(22)
+        } else {
+            None
+        };
+    } else if inside(REDSTONE, at) {
+        *button = cycle;
+    }
+}
+
+fn tooltip_more(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    if block == DROPPER {
+        if inside(REDSTONE, at) {
+            lines.push(redstone_line(Mode::from_index(d(data, 0))).into());
+        } else if inside(DIRECTION, at) {
+            lines.push(DIRECTIONS[d(data, 2).clamp(0, 5) as usize].1.into());
+        } else if inside(TICK_SPEED, at) {
+            lines.push(format!("Ticks: {}", d(data, 3)));
+        } else if inside(COUNT, at) {
+            lines.push(format!("Drop count: {}", d(data, 4)));
+        } else if inside(DELAY, at) {
+            lines.push(format!("Pickup delay: {}", d(data, 5)));
+        }
+    } else if block == SENSOR {
+        if inside(STRONG, at) {
+            lines.push((if d(data, 1) != 0 { "Strong redstone signal" } else { "Weak redstone signal" }).into());
+        } else if inside(SENSOR_ALLOW, at) {
+            lines.push((if d(data, 2) != 0 { "Allow List" } else { "Deny List" }).into());
+        } else if inside(TARGET, at) {
+            lines.push(TARGETS[d(data, 0).clamp(0, 8) as usize].1.into());
+        } else if inside(TICK_SPEED, at) {
+            lines.push(format!("Ticks: {}", d(data, 4)));
+        }
+    } else if block == FLUID_GEN {
+        if inside(REDSTONE, at) {
+            lines.push(redstone_line(Mode::from_index(d(data, 0))).into());
+        } else if inside(ENERGY, at) {
+            lines.push(format!("{} / {} FE", d(data, 5), d(data, 6)));
+        } else if inside(GEN_FLUID, at) {
+            let name = match d(data, 2) {
+                0 => "Empty",
+                1 => "Water",
+                2 => "Lava",
+                _ => "Fluid",
+            };
+            lines.push(format!("{name}: {} / {} mB", d(data, 3), d(data, 4)));
+        }
+    }
 }

@@ -2,14 +2,18 @@
 //! matched (`MultiblockInventoryComponent.rebuild`, `AbstractElectricCraftingMultiblockBlockEntity.consumeEu` and its
 //! `Behavior`, `AbstractCraftingMultiblockBlockEntity.tick`'s operating states), and the Electric Blast Furnace
 //! (`ElectricBlastFurnaceBlockEntity`): one shape for each coil tier, and the recipes a tier bans.
+//! ATM10 registers more multiblocks through MI's KubeJS API; their shapes are read from the player's own instance when
+//! the bundle is staged, and built here from that JSON ([`parse_kubejs`]).
 
 use crate::crafter::{Behavior, Crafter};
 use crate::energy::EnergyStore;
 use crate::hatches::{Hatch, HatchKind};
 use crate::inventory::{FluidSlot, Inventory, ItemSlot};
 use crate::machines::Tier;
-use crate::multiblock::{Builder, HatchFlags, HatchType, Pos, ShapeTemplate, SimpleMember};
+use crate::multiblock::{Builder, HatchFlags, HatchType, LayeredBuilder, Pos, ShapeTemplate, SimpleMember};
 use crate::recipe::{MachineRecipe, RecipeBook, RecipeTypeRules};
+use serde_json::Value;
+use std::sync::OnceLock;
 
 /// `MachineTier.MULTIBLOCK`: base 8 and at most 128 EU a tick.
 pub const MULTIBLOCK: Tier = Tier { name: "multiblock", base_eu: 8, max_eu: 128, eu_capacity: 12_800 };
@@ -66,12 +70,107 @@ pub const ELECTRIC_BLAST_FURNACE: MultiblockMachine = MultiblockMachine {
     shapes: &[("Cupronickel", 32), ("Kanthal", 128)],
 };
 
-pub const ALL: [MultiblockMachine; 1] = [ELECTRIC_BLAST_FURNACE];
+
+/// The multiblocks the player's own ATM10 instance registers through MI's KubeJS API (its startup scripts), as the
+/// pack scripts' stage step read them into `mi-core/data/kubejs_multiblocks.json` of the staged bundle; build.rs
+/// embeds that file (an empty list when the stage wrote none). The repository holds none of their shapes.
+const KUBEJS_JSON: &str = include_str!(concat!(env!("OUT_DIR"), "/kubejs_multiblocks.json"));
+
+/// A multiblock read from the instance's scripts, with its shape.
+#[derive(Clone, Debug)]
+pub struct KubeMultiblock {
+    pub machine: MultiblockMachine,
+    pub shape: ShapeTemplate,
+}
+
+fn leak(s: &str) -> &'static str {
+    Box::leak(s.to_owned().into_boxed_str())
+}
+
+fn str_field<'a>(v: &'a Value, key: &str) -> Result<&'a str, String> {
+    v.get(key).and_then(Value::as_str).ok_or_else(|| format!("no string {key}"))
+}
+
+/// One entry of the JSON the stage step writes: `id`, `name`, `recipe_type`, `rules`, `hatch_casing`, `layers`, `keys`.
+fn kube_multiblock(v: &Value) -> Result<KubeMultiblock, String> {
+    let id = str_field(v, "id")?;
+    let recipe_type = str_field(v, "recipe_type")?;
+    let recipe_type = if recipe_type.contains(':') { recipe_type.to_owned() } else { format!("modern_industrialization:{recipe_type}") };
+    let rule = |k: &str| v.get("rules").and_then(|r| r.get(k)).and_then(Value::as_bool).unwrap_or(false);
+    let rules = RecipeTypeRules { item_inputs: rule("item_inputs"), fluid_inputs: rule("fluid_inputs"), item_outputs: rule("item_outputs"), fluid_outputs: rule("fluid_outputs") };
+    let layers: Vec<Vec<String>> = v
+        .get("layers")
+        .and_then(Value::as_array)
+        .ok_or("no layers")?
+        .iter()
+        .map(|l| l.as_array().ok_or("a layer is not a list").map(|rows| rows.iter().filter_map(|r| r.as_str().map(str::to_owned)).collect()))
+        .collect::<Result<_, _>>()?;
+    let mut shape = LayeredBuilder::new(str_field(v, "hatch_casing")?, &layers)?;
+    let keys = v.get("keys").and_then(Value::as_object).ok_or("no keys")?;
+    for (key, entry) in keys {
+        let mut chars = key.chars();
+        let (Some(c), None) = (chars.next(), chars.next()) else { return Err(format!("key {key:?} is not one character")) };
+        let flags = match entry.get("hatches") {
+            None | Some(Value::Null) => None,
+            Some(list) => {
+                let mut types = Vec::new();
+                for t in list.as_array().ok_or("hatches is not a list")? {
+                    let name = t.as_str().ok_or("a hatch type is not a string")?;
+                    types.push(HatchType::of_id(name).ok_or_else(|| format!("unknown hatch type {name}"))?);
+                }
+                Some(HatchFlags::of(&types))
+            }
+        };
+        shape = shape.key(c, SimpleMember::block(str_field(entry, "block")?), flags)?;
+    }
+    let name = leak(str_field(v, "name")?);
+    let shapes: &'static [(&'static str, i64)] = Box::leak(vec![(name, MULTIBLOCK.max_eu)].into_boxed_slice());
+    let machine = MultiblockMachine { id: leak(id), recipe_type: leak(&recipe_type), rules, tier: MULTIBLOCK, shapes };
+    Ok(KubeMultiblock { machine, shape: shape.build()? })
+}
+
+/// The multiblocks of a `kubejs_multiblocks.json`, and one line for each entry it could not build (left out).
+pub fn parse_kubejs(json: &str) -> Result<(Vec<KubeMultiblock>, Vec<String>), String> {
+    let root: Value = serde_json::from_str(json).map_err(|e| format!("kubejs_multiblocks.json: {e}"))?;
+    let list = root.get("multiblocks").and_then(Value::as_array).ok_or("kubejs_multiblocks.json: no multiblocks list")?;
+    let (mut built, mut skipped) = (Vec::<KubeMultiblock>::new(), Vec::new());
+    for entry in list {
+        let id = entry.get("id").and_then(Value::as_str).unwrap_or("?");
+        match kube_multiblock(entry) {
+            Ok(m) if m.machine.id == ELECTRIC_BLAST_FURNACE.id || built.iter().any(|b| b.machine.id == m.machine.id) => skipped.push(format!("{id}: the id is taken")),
+            Ok(m) => built.push(m),
+            Err(e) => skipped.push(format!("{id}: {e}")),
+        }
+    }
+    Ok((built, skipped))
+}
+
+fn kubejs() -> &'static [KubeMultiblock] {
+    static LOADED: OnceLock<Vec<KubeMultiblock>> = OnceLock::new();
+    LOADED.get_or_init(|| match parse_kubejs(KUBEJS_JSON) {
+        Ok((built, skipped)) => {
+            for line in skipped {
+                eprintln!("mi-core: KubeJS multiblock left out: {line}");
+            }
+            built
+        }
+        Err(e) => {
+            eprintln!("mi-core: {e}");
+            Vec::new()
+        }
+    })
+}
+
+/// Every multiblock: the EBF, then the instance's.
+pub fn all() -> &'static [MultiblockMachine] {
+    static ALL: OnceLock<Vec<MultiblockMachine>> = OnceLock::new();
+    ALL.get_or_init(|| std::iter::once(ELECTRIC_BLAST_FURNACE).chain(kubejs().iter().map(|k| k.machine)).collect())
+}
 
 /// The multiblock a block is the controller of.
 pub fn of_block(block: &str) -> Option<&'static MultiblockMachine> {
     let path = block.strip_prefix("modern_industrialization:")?;
-    ALL.iter().find(|m| m.id == path)
+    all().iter().find(|m| m.id == path)
 }
 
 impl MultiblockMachine {
@@ -79,7 +178,7 @@ impl MultiblockMachine {
     pub fn templates(&self) -> Vec<ShapeTemplate> {
         match self.id {
             "electric_blast_furnace" => EBF_TIERS.iter().map(ebf_shape).collect(),
-            _ => Vec::new(),
+            id => kubejs().iter().filter(|k| k.machine.id == id).map(|k| k.shape.clone()).collect(),
         }
     }
     /// `banRecipe`: past the machine's `getMaxRecipeEu` (no upgrades yet), or past the active shape's tier.
@@ -274,6 +373,77 @@ mod tests {
         }
         fn block_entity(&mut self, pos: Pos) -> BlockEntityAt {
             self.hatches.get(&pos).copied().unwrap_or(BlockEntityAt::None)
+        }
+    }
+
+    /// An invented JSON of the shape the stage step writes: a 3 by 3 by 2 structure with made-up blocks.
+    const TOY: &str = r##"{"multiblocks":[
+      {"id":"toy_press","name":"Toy Press","recipe_type":"toy_press",
+       "rules":{"item_inputs":true,"item_outputs":false,"fluid_inputs":false,"fluid_outputs":true},
+       "hatch_casing":"toy_casing",
+       "layers":[["wpw","w#w","www"],["wlw","   ","www"]],
+       "keys":{"w":{"block":"test:wall","hatches":null},"l":{"block":"test:lamp","hatches":null},
+               "p":{"block":"test:wall","hatches":["item_input","energy_input"]}}},
+      {"id":"broken","name":"Broken","recipe_type":"x","rules":{},"hatch_casing":"c","layers":[["a#"]],"keys":{}},
+      {"id":"electric_blast_furnace","name":"Dup","recipe_type":"x","rules":{},"hatch_casing":"c","layers":[["#"]],"keys":{}}
+    ]}"##;
+
+    #[test]
+    fn kubejs_json_becomes_a_machine_and_its_shape() {
+        let (built, skipped) = parse_kubejs(TOY).unwrap();
+        assert_eq!(built.len(), 1);
+        assert_eq!(skipped.len(), 2, "{skipped:?}");
+        assert!(skipped[0].starts_with("broken: Missing keys"), "{skipped:?}");
+        assert!(skipped[1].contains("the id is taken"));
+        let KubeMultiblock { machine, shape } = &built[0];
+        assert_eq!((machine.id, machine.recipe_type), ("toy_press", "modern_industrialization:toy_press"));
+        assert_eq!(machine.rules, RecipeTypeRules { item_inputs: true, fluid_inputs: false, item_outputs: false, fluid_outputs: true });
+        assert_eq!(machine.shapes, &[("Toy Press", 128)]);
+        // 3x3 and 3x3 layers, the controller one block of the first layer: 17 members.
+        assert_eq!(shape.len(), 8 + 6, "layer 0 without the controller, layer 1 without its blank middle row");
+        assert_eq!(shape.hatch_casing, "toy_casing");
+        // The controller is layer 0, row 1, column 1: rows go up from its row, later layers stand further to the front.
+        assert_eq!(shape.member([0, -1, 0]), Some(&SimpleMember::block("test:wall")));
+        assert!(shape.member([0, 0, 0]).is_none());
+        assert_eq!(shape.member([0, -1, -1]), Some(&SimpleMember::block("test:lamp")));
+        assert!(shape.hatch_flags([0, -1, 0]).unwrap().allows(HatchType::EnergyInput));
+        assert!(!shape.hatch_flags([0, -1, 0]).unwrap().allows(HatchType::FluidInput));
+        assert_eq!(shape.hatch_flags([1, -1, 0]), None);
+    }
+
+    #[test]
+    fn kubejs_json_errors_are_reported() {
+        assert!(parse_kubejs("{").is_err());
+        assert!(parse_kubejs("{}").is_err());
+        let bad_key = TOY.replace(r#""w":{"block":"test:wall","hatches":null}"#, r#""ww":{"block":"test:wall","hatches":null}"#);
+        assert!(parse_kubejs(&bad_key).unwrap().1[0].contains("not one character"));
+        let bad_hatch = TOY.replace("energy_input", "no_such_hatch");
+        assert!(parse_kubejs(&bad_hatch).unwrap().1[0].contains("unknown hatch type"));
+        // Nothing embedded in this build: only the EBF, and its own shapes are untouched.
+        assert!(all().first().is_some_and(|m| m.id == "electric_blast_furnace"));
+    }
+
+    /// Every multiblock of the file named by MI_KUBEJS_MULTIBLOCKS (the stage step's output from the player's own
+    /// instance; unset: nothing to check), built block by block in every facing: it forms, and loses a member when one
+    /// is taken away.
+    #[test]
+    fn staged_kubejs_multiblocks_form() {
+        let Some(path) = std::env::var_os("MI_KUBEJS_MULTIBLOCKS").filter(|p| !p.is_empty()) else { return };
+        let (built, skipped) = parse_kubejs(&std::fs::read_to_string(path).unwrap()).unwrap();
+        assert!(skipped.is_empty(), "{skipped:?}");
+        for KubeMultiblock { machine, shape } in &built {
+            for facing in Facing::ALL {
+                let c = [0, 64, 0];
+                let m = ShapeMatcher::new(c, facing, shape);
+                let mut w = World { blocks: HashMap::new(), hatches: HashMap::new() };
+                for (p, member) in &m.members {
+                    w.blocks.insert(*p, member.preview(facing).0);
+                }
+                assert!(m.rematch(&mut w).ok, "{} {facing:?}", machine.id);
+                let (gone, _) = m.members[0].clone();
+                w.blocks.remove(&gone);
+                assert!(!m.rematch(&mut w).ok, "{} {facing:?}: a missing member must not match", machine.id);
+            }
         }
     }
 

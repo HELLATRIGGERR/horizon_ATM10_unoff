@@ -81,7 +81,7 @@ pub(super) fn menu_slots(count: usize) -> (usize, &'static str) {
 
 /// `block_entity_types`: each hatch and controller, one type per block and named after it.
 pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
-    for id in hatches::ALL.iter().map(|h| h.id).chain(multiblocks::ALL.iter().map(|m| m.id)) {
+    for id in hatches::ALL.iter().map(|h| h.id).chain(multiblocks::all().iter().map(|m| m.id)) {
         let block = format!("modern_industrialization:{id}");
         types.push((block.clone(), vec![block]));
     }

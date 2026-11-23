@@ -676,8 +676,7 @@ slot's tooltips; the run's screenshots (`mi-macerator.png`, `mi-macerator-energy
 the crafter's memory of the last inventory hash (`lastInvHash`, `lastForcedTick`) isn't kept between ticks, so an idle
 machine looks for a recipe every tick instead of every 100 while its inventory is unchanged.
 
-Not ported yet: the multiblock framework (`ShapeTemplate`, `ShapeMatcher`, hatches; ATM10's Star altar, auto forge,
-runic crucible and enchanter are KubeJS-registered MI multiblocks), steam machines, the other electric machines,
+Not ported yet: steam machines, the other electric machines,
 upgrades, casings, redstone control, overdrive, auto-extract and the side panel, the slot lock button, fluid slots
 through pipes and buckets, the stonecutter recipes the cutting machine also runs (`stonecutterToCuttingMachine`), the
 recipe viewer's categories, MI's cables and generators.

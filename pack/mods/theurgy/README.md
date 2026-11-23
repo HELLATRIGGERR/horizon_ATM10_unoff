@@ -3,7 +3,7 @@
 A port of **Theurgy 1.78.0** (`theurgy-1.21.1-neoforge-1.78.0.jar`, the version All the Mods 10 ships) to
 this fork of Horizon. It is the native bundle in this folder (`horizon-mixin.toml`, `hooks/`, `runtime/`) and
 a crate of pure rules (`theurgy-core`). `pack/scripts/theurgy.ts` builds and tests them;
-`docs/atm10-port.md` ("Theurgy") says where the work stands.
+`docs/atm10-port.md` says where the work stands.
 
 ## What it covers
 

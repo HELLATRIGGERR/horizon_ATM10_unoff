@@ -378,6 +378,87 @@ terminals' `combine` and `upgrade`) and Mekanism's `mek_data` 74. Another 347 re
 audited either: brewing 279, `crafting_transmute` 33, banner duplication 17, and the special crafting recipes.
 
 
+### Worldgen in the full pack
+
+The audit generates one world (all 288 carries as `--dev-mod`, the AE2 content; 33x33 chunks per dimension,
+radius 16) and counts what the engine placed: mod ore blocks, features that ran, biome modifiers that applied,
+and structure starts (a wider survey at radius 64).
+
+```sh
+ATM10_CARRIES=<carries> bun run tools/atm10/worldgen-audit.ts
+bun run tools/atm10/worldgen-audit.ts --summary <report.json>
+bun run tools/atm10/worldgen-audit.ts --compare <before.json> <after.json>
+```
+
+The carries hold worldgen data in 26.3's form: `worldgen/feature/` (unwrapped), `worldgen/carver/`,
+`worldgen/placed_feature/` and `worldgen/biome/` with 26.3's attributes. `carry` writes them this way, and
+`horizon-port-pack refresh-features <carries>` upgrades old carries. A fresh carry needs no refresh pass:
+`a_fresh_carry_writes_worldgen_in_26_3s_form` (port-pack) and `refresh_rewrites_old_carries_without_writing_through_links`
+(worldgen) prove it.
+
+ATM10 8.4, 288 carries, seed 1234, 1,089 chunks per dimension:
+
+| | Before (1.21.1 form) | After (26.3 form) |
+|---|--:|--:|
+| Biome modifiers present | 481 | 481 |
+| Biome modifiers read | 359 | 359 |
+| Biome modifiers applied | 296 | 296 |
+| Vanilla biomes changed | 67 | 67 |
+| Registered mod biomes | 0 | 0 |
+| **Overworld** | | |
+| Mod ore blocks | 0 | 2,200,862 |
+| Mods with ores | 0 | 14 |
+| Mod features placing | 0 | 82 |
+| Placed features that can't run | 319 | 181 |
+| Mod structure starts (survey) | 354 | 354 |
+| **The End** | | |
+| Mod ore blocks | 0 | 61,737 |
+| Mods with ores | 0 | 5 |
+| Mod features placing | 0 | 27 |
+| Placed features that can't run | 69 | 5 |
+| **The Nether** | | |
+| Mod ore blocks | 0 | 702,596 |
+| Mods with ores | 0 | 6 |
+| Mod features placing | 0 | 30 |
+| Placed features that can't run | 70 | 5 |
+
+Overworld ores by mod: All the Ores 987K, Modern Industrialization 585K, Railcraft 233K, Silent Gems 100K,
+Oritech 81K, XyCraft World 70K, Occultism 49K, Theurgy 36K, Evilcraft 22K, Silent Gear 16K, Ice and Fire 11K,
+Forbidden Arcanus 8K, Iron's Spellbooks 2K, Draconic Evolution 381. Vanilla ores: 296K. Features placing:
+MI 20, All the Ores 17, Silent Gems 13, Railcraft 9, XyCraft World 7, Forbidden Arcanus 4, Evilcraft 3,
+Oritech 2, and one each from Occultism, Silent Gear, Theurgy, Ice and Fire, Iron's Spellbooks.
+
+Overworld structures (survey, radius 64): MVS 95, Better Dungeons 72, Formations Overworld 41,
+Repurposed Structures 26, Ad Astra 22, Mo' Structures 13, AE2 12, Dungeons Arise 12, Tombstone 11,
+Ars Additions 9, Structory 8, CTOV 7, Towns and Towers 7.
+
+What still can't run, and why:
+
+- **181 overworld features** (of 263 that the modifiers declare): `basic feature type` 101 (the engine
+  doesn't have the mod's feature type: Yung's Extras 62, Pamhc2trees 50, and others), `radius` 50
+  (Pamhc2trees' trees: NeoForge's 1.21.1 radius integer, not ported), `below_trunk_provider` 13
+  (Ice and Fire 8, Herbs and Harvest 5: a tree part the engine doesn't read), and a few others.
+- **5 End features**: Draconic Evolution 2 (basic feature type), Merrymaking 2, Immersive Engineering 1.
+- **5 Nether features**: Natures Aura 2, Create 1, Immersive Engineering 1, Railcraft 1.
+- **0 mod biomes**: all 67 registered biomes are vanilla. Mod biomes need TerraBlender regions or mod
+  dimensions: 245 biome files in the carries (Regions Unexplored 71, BWG 55, Eternal Starlight 23,
+  Twilight Forest 22, Undergarden 20, and others) define biomes no generator picks.
+- **122 biome modifiers not read**: mods' own modifier types that the engine doesn't have
+  (Aquaculture fish_spawn 36, Productive Bees nest 25, Repurposed Structures 23, Farmer's Delight 9,
+  Apotheosis 6, Actually Additions 5, Big Reactors 3). Translating these to `neoforge:add_features` in
+  the carry, as `lithostitched.rs` does, would bring them in.
+- **63 unresolved modifiers**: mostly Allthemodium's modifiers naming biomes of its own dimension (The Other)
+  and mods naming entity types of uncarried mods.
+
+```sh
+ATM10_CARRIES=<carries> bun run tools/atm10/worldgen-ores.ts
+```
+
+The world test (`worldgen-ores.ts`) loads All the Ores and Modern Industrialization as dev mods, teleports
+300 chunks from spawn to chunks no one has generated, waits for four chunks, and counts ore blocks in them.
+Both mods must have ore blocks there: the test fails if either has zero.
+
+
 ### Pack logic: ATM10's KubeJS
 
 No JavaScript runs here. What ATM10's `kubejs/` does (215 scripts: 19 startup, 180 server, 16 client; a data pack, a

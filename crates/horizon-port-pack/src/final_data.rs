@@ -849,7 +849,8 @@ fn kubejs_data(
                 left("its mod is not carried");
                 continue;
             };
-            let to = owner.join(format!("data/{rel}"));
+            // 26.3's registry folder, where the carry put the mod's own file (`feature` for `configured_feature`).
+            let to = owner.join(crate::worldgen::path_26_3(&format!("data/{rel}")).unwrap_or_else(|| format!("data/{rel}")));
             if horizon_mod_package::content::check_path(&format!("data/{rel}")).is_err() {
                 left("a path the game refuses");
                 continue;
@@ -1087,8 +1088,10 @@ mod tests {
         kubejs_data(&data, Lies::Over, &tag_dirs, &mut dir_of, &mut sink, made, left).unwrap();
         let read = |p: PathBuf| serde_json::from_slice::<Value>(&fs::read(p).unwrap()).unwrap();
         assert_eq!(read(m.join("data/m/neoforge/biome_modifier/ore_tin.json")), json!({"type": "neoforge:none"}));
-        let feature = read(m.join("data/m/worldgen/configured_feature/ore_tin.json"));
+        // In 26.3's folder, where the carry writes the mod's own features.
+        let feature = read(m.join("data/m/worldgen/feature/ore_tin.json"));
         assert!(feature.get("config").is_none() && feature["size"] == json!(5), "{feature}");
+        assert!(!m.join("data/m/worldgen/configured_feature").exists());
         assert_eq!(
             read(m.join("data/m/tags/worldgen/biome/hot.json")),
             json!({"values": ["minecraft:desert", "minecraft:badlands"]})
@@ -1171,8 +1174,9 @@ mod tests {
         assert_eq!(read(mf("data_models/skeleton.json")), json!({"entity": "minecraft:skeleton"}));
         let hot = json!({"values": ["minecraft:badlands", "minecraft:desert"]});
         assert_eq!(read(mf("tags/worldgen/biome/hot.json")), hot);
-        let feature = read(pack.join("data/atm/worldgen/configured_feature/mining_ore.json"));
+        let feature = read(pack.join("data/atm/worldgen/feature/mining_ore.json"));
         assert!(feature.get("config").is_none() && feature["size"] == json!(9), "{feature}");
+        assert!(!pack.join("data/atm/worldgen/configured_feature").exists());
         assert!(!mf("recipe").exists() && !mf("loot_table/blocks/a.json").exists() && !mf("tags/item").exists());
         assert!(!mf("loot_table/blocks/old.json").exists());
         assert_eq!(

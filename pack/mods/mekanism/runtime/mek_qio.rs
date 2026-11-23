@@ -1313,7 +1313,7 @@ pub(super) fn draw_select(game: &Game<'_>, batch: &mut HudBatch, screen: &mod_ap
 }
 
 /// `native_menu_quick_move` on the hook's entity and stack. The hook's stack cannot end empty (its count is never
-/// 0), so a move that would take all of it takes all but one, which stays in the slot (HANDOFF "S3", engine needs).
+/// 0): a move that takes all of it says so through `fork_compat::quick_move_took_all` (N9), and the slot empties.
 pub(super) fn api_quick_move(
     game: &mut Game<'_>,
     pos: [i32; 3],
@@ -1324,19 +1324,16 @@ pub(super) fn api_quick_move(
     handled: &mut bool,
 ) {
     use crate::game::api_values::TryIntoEngine;
-    if entity.id() != DASHBOARD || slot < container_slots || stack.count() <= 1 {
-        if entity.id() == DASHBOARD && slot >= container_slots {
-            *handled = true;
-        }
+    if entity.id() != DASHBOARD || slot < container_slots {
         return;
     }
     let Ok(mut engine_stack) = stack.try_into_engine(game.items()) else { return };
     let (mut engine, _) = super::mek_world::engine_entity(entity, None);
     let all = engine_stack.count;
-    engine_stack.count = all - 1;
     quick_move(game, pos, &mut engine, container_slots, slot, &mut engine_stack, handled);
-    let left = engine_stack.count + 1;
-    if left != all {
-        let _ = stack.set_count(left);
+    if engine_stack.count == 0 {
+        crate::game::fork_compat::quick_move_took_all();
+    } else if engine_stack.count != all {
+        let _ = stack.set_count(engine_stack.count);
     }
 }

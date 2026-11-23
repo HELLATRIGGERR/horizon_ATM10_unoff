@@ -1893,6 +1893,8 @@ impl super::Game<'_> {
         let revision = api.revision();
         let original = held.clone();
         let mut candidate_handled = *handled;
+        // N9 (fork): a bundle that moved all of `held` says so (`fork_compat::quick_move_took_all`).
+        crate::game::fork_compat::quick_move_emptied();
         self.native_menu_quick_move(
             pos,
             &mut api,
@@ -1901,6 +1903,7 @@ impl super::Game<'_> {
             &mut held,
             &mut candidate_handled,
         );
+        let emptied = crate::game::fork_compat::quick_move_emptied();
         let held = if held == original {
             Ok(None)
         } else {
@@ -1918,6 +1921,9 @@ impl super::Game<'_> {
         ) {
             if let Some(held) = held {
                 *stack = held;
+            }
+            if emptied && candidate_handled {
+                stack.count = 0;
             }
             *handled = candidate_handled;
         }

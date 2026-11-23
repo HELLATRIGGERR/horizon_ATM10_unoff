@@ -31,7 +31,10 @@ mod renamed;
 
 pub(in crate::game) use bundle_hooks::{bundles_staged, heard, injected, item_heard, part_heard};
 
-pub(in crate::game) use fork::{biome_climate, data_files, food_entry, food_of, worn_items_hurt};
+pub(in crate::game) use fork::{
+    biome_climate, data_files, food_entry, food_of, quick_move_emptied, quick_move_took_all,
+    worn_items_hurt,
+};
 
 use horizon_client::{
     block_entities::Pos,

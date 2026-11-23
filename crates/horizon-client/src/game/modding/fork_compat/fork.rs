@@ -750,3 +750,35 @@ impl Game<'_> {
         self.native_chunk_ticket(Dim::from_id(dimension), owner, chunk, hold)
     }
 }
+
+// N9: a `menu_quick_move` that moved the whole stack.
+thread_local! {
+    static QUICK_MOVE_TOOK_ALL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// N9: a bundle's `menu_quick_move` injection that moved all of `stack` calls this, and sets
+/// `handled`: the clicked slot then empties. Upstream's `stack` is a `mod_api::ItemStack`,
+/// whose count is never 0, so the hook's own arguments cannot say it. `api_menu_quick_move`
+/// reads it once the hook has run.
+pub(in crate::game) fn quick_move_took_all() {
+    QUICK_MOVE_TOOK_ALL.set(true);
+}
+
+/// Whether the `menu_quick_move` call that just ran said [`quick_move_took_all`]; clears it
+/// for the next call.
+pub(in crate::game) fn quick_move_emptied() -> bool {
+    QUICK_MOVE_TOOK_ALL.replace(false)
+}
+
+#[cfg(test)]
+mod tests {
+    /// N9: the signal is read once, by the call that ran the hook; a call no bundle signalled
+    /// reads false.
+    #[test]
+    fn a_quick_move_that_took_all_is_read_once() {
+        assert!(!super::quick_move_emptied());
+        super::quick_move_took_all();
+        assert!(super::quick_move_emptied());
+        assert!(!super::quick_move_emptied());
+    }
+}

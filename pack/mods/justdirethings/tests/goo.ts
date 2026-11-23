@@ -50,7 +50,7 @@ try {
   const x = Math.floor(px) + 3, y = Math.floor(py) + 1, z = Math.floor(pz) - 3;
   await fixture.command(`fill ${x - 1} ${y} ${z - 3} ${x + 14} ${y + 3} ${z + 7} minecraft:air`);
   await fixture.command(`fill ${x - 1} ${y - 1} ${z - 3} ${x + 14} ${y - 1} ${z + 7} minecraft:stone`);
-  await fixture.command('gamerule doDaylightCycle false');
+  await fixture.command('gamerule advance_time false');
 
   // Four living goo blocks, one of each tier, an iron block on each.
   const tiers = [1, 2, 3, 4];

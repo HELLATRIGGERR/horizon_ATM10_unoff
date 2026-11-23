@@ -1,4 +1,5 @@
-# Just Dire Things' goo blocks and Generator T1 as a native mod of this fork (horizon-mixins bundle).
+# Just Dire Things' goo blocks, machines, fluid drop, time crystals and Paradox Machine as a native mod of this fork
+# (horizon-mixins bundle).
 # Just Dire Things is MIT; see this folder's README.md and LICENSE-justdirethings. The code here is translated to Rust
 # from its source at 1.5.7 (the version All the Mods 10 ships).
 #
@@ -20,6 +21,24 @@ id = "world"
 file = "crates/horizon-client/src/game.rs"
 name = "justdirethings_world"
 source = "runtime/justdirethings_world.rs"
+
+[[module]]
+id = "time"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_time"
+source = "runtime/justdirethings_time.rs"
+
+[[module]]
+id = "machines"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_machines"
+source = "runtime/justdirethings_machines.rs"
+
+[[module]]
+id = "paradox-ui"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_paradox_ui"
+source = "runtime/justdirethings_paradox_ui.rs"
 
 [[module]]
 id = "ui"
@@ -231,4 +250,111 @@ bindings = [
   { name = "data", ty = "&[i32]", value = "data" },
   { name = "at", ty = "[f32; 2]", value = "at" },
   { name = "lines", ty = "&mut Vec<String>", value = "&mut *lines" },
+]
+
+# The fluid drop (`EntityEvents.entityTick` on `EntityTickEvent.Post`): the game tells entity ticks only while a mod
+# listens, so the bundle listens and acts on the item entities.
+[[injection]]
+id = "entity-tick-listened"
+hook = "entity_tick_listened"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/entity_tick_listened.rs"
+bindings = [
+  { name = "listened", ty = "&mut bool", value = "&mut *listened" },
+]
+
+[[injection]]
+id = "entity-tick-post"
+hook = "entity_tick_post"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/entity_tick_post.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "entity", ty = "u32", value = "entity" },
+  { name = "kind", ty = "&str", value = "kind" },
+]
+
+# The time crystal's budding block grows its own way (`TimeCrystalBuddingBlock.randomTick`), not as its template.
+[[injection]]
+id = "random-tick"
+hook = "random_tick"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/random_tick.rs"
+bindings = [
+  { name = "level", ty = "&mut crate::game::GameLevel<'_>", value = "&mut *self" },
+  { name = "ticks", ty = "&mut horizon_world::level::Ticks", value = "&mut *ticks" },
+  { name = "dimension", ty = "horizon_core::dimension::Dimension", value = "dimension" },
+  { name = "pos", ty = "horizon_core::position::BlockPos", value = "pos" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "handled", ty = "&mut bool", value = "&mut *handled" },
+]
+
+# The Paradox Machine: buckets on it, its Forge Energy and its time fluid tank; the Fluid Collector T1's tank.
+[[injection]]
+id = "use-item-on"
+hook = "use_item_on"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/use_item_on.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "click", ty = "&mod_api::BlockClick<'_>", value = "click" },
+  { name = "answer", ty = "&mut Option<mod_api::InteractionResult>", value = "&mut *answer" },
+]
+
+[[injection]]
+id = "fe-receive"
+hook = "fe_receive"
+hook_version = 1
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_receive"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/fe_receive.rs"
+bindings = [
+  { name = "call", ty = "mod_api::__private::FeReceiveCall<'_>", value = "$value" },
+]
+
+[[injection]]
+id = "fluid-handler-tanks"
+hook = "fluid_handler_tanks"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fluid_handler_tanks.rs"
+bindings = [
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
+  { name = "tanks", ty = "&mut Option<Vec<mod_api::NativeFluidTankInfo>>", value = "&mut *tanks" },
+]
+
+[[injection]]
+id = "fluid-handler-fill"
+hook = "fluid_handler_fill"
+hook_version = 1
+kind = "MODIFY_ARG"
+selector = "self.fire_fluid_handler_fill"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/fluid_handler_fill.rs"
+bindings = [
+  { name = "call", ty = "mod_api::__private::FluidHandlerFillCall<'_>", value = "$value" },
+]
+
+[[injection]]
+id = "fluid-handler-drain"
+hook = "fluid_handler_drain"
+hook_version = 1
+kind = "MODIFY_ARG"
+selector = "self.fire_fluid_handler_drain"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/fluid_handler_drain.rs"
+bindings = [
+  { name = "call", ty = "mod_api::__private::FluidHandlerDrainCall<'_>", value = "$value" },
 ]

@@ -13,8 +13,11 @@ it in the game (`horizon-mixin.toml`, `hooks/`, `runtime/`). `pack/scripts/justd
 
 The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlockBE_Base`, `GooBlockBE_Tier1..4`,
 `GooSpreadRecipe`, `GooSpreadRecipeTag`, `GeneratorT1BE`, `BlockBreakerT1BE`, `BaseMachineBE`, `RedstoneControlledBE`,
-`RedstoneControlData`, `Config`, `GeneratorT1Screen`, `BlockBreakerT1Screen`, `BaseMachineScreen`), not written from the mod's behaviour
-alone, and it is licensed under the same MIT. The source is cloned outside this repository
+`RedstoneControlData`, `Config`, `GeneratorT1Screen`, `BlockBreakerT1Screen`, `BaseMachineScreen`, `FluidDropRecipe`,
+`EntityEvents`, `TimeCrystalBuddingBlock`, `TimeCrystalCluster`, `ParadoxMachineBE`, `ParadoxMachine`,
+`ParadoxMachineScreen`, `AreaAffectingBE`, `AreaAffectingData`, `BlockPlacerT1BE`, `BlockPlacerT1Screen`,
+`FluidCollectorT1BE`, `FluidCollectorT1Screen`, `ItemCollectorBE`, `ItemCollectorScreen`, `FilterableBE`, `FilterData`),
+not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
 No asset or file of the mod is committed: blocks, items, models, textures, language files, recipes and tags come from
@@ -42,16 +45,47 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   tool's drops and the tool takes a point of wear. A block that changes, a tool taken out or the signal lost drops the
   progress. Its `active` state follows the redstone; its screen has the tool slot (the mod's pickaxe outline while
   empty) and the redstone button.
-- The settings come from `config/justdirethings-server.toml` (`goo`, `generator_t1`).
+- **Fluid drop** (`justdirethings:fluiddrop`, the world's recipes, ATM10's KubeJS ones included): an item entity of a
+  recipe's catalyst in a source block of the recipe's input fluid turns it into the output and is one item less.
+  Polymorphic catalyst in water makes polymorphic fluid; a time crystal in polymorphic fluid makes time fluid. The
+  fluids, their buckets and their flow are the carry's.
+- **Time crystal**: a living tier 4 goo turns budding amethyst (or a time crystal block) into the time crystal budding
+  block (the goo recipes `budding_time_*`). A random tick moves its `stage` on by its dimension (to 1 outside the
+  Nether and the End, 2 in the Nether, 3 in the End, or the config's lists); at stage 3 it grows time crystal clusters
+  facing away from it, small to full size, one random tick in five, and each growth has a 5% chance to send it back to
+  stage 0. Budding amethyst's own growth does not run on it.
+- **Paradox Machine**: a 10,000,000 FE buffer and a 16,000 mB tank of time fluid (fluid pipes and energy cables fill it; a
+  bucket held on it does not yet, see NOTES); its area (the block in front by default, radius and offset buttons) is snapshotted on
+  its screen's button: the blocks of the tag `justdirethings:paradox_allow` and the living entities (no player, none
+  of `justdirethings:paradox_deny` or `c:teleporting_not_supported`), with their data. On its redstone (pulse by
+  default) it restores what is missing since, over ten ticks a block or entity, for 250,000 FE and 50 mB each, and
+  gains 0.25 paradox energy each. Its screen has the energy, fluid and paradox bars, the area buttons, the target
+  (blocks, entities or both), render, snapshot, redstone and tick speed buttons.
+- **Block Placer T1**: one slot; on its clock (20 ticks by default) it places the block item of its slot in front of
+  it where the block there can be replaced, as its fake player would, clicking the face its direction button names
+  (down by default: a log stands). Screen: the slot, the redstone, direction and tick speed buttons.
+- **Fluid Collector T1**: on its clock it takes the source block of a fluid in front of it into its 8,000 mB tank a
+  bucket at a time (the tank holds one fluid), and fills the fluid container in its slot from the tank. Fluid pipes
+  reach the tank. Screen: the slot, the fluid bar, the redstone and tick speed buttons.
+- **Item Collector**: on its clock it takes the items lying in its area (the block behind it by default; radius and
+  offset buttons) into the inventory it faces, as far as they fit, through its nine filter slots (a denylist by
+  default; allowlist and compare-NBT buttons) and its respect-pickup-delay setting. Screen: the area, filter, redstone,
+  particles, pickup delay, render area and tick speed buttons.
+- The settings come from `config/justdirethings-server.toml` (`goo`, `generator_t1`, `time_crystal`,
+  `paradox_machine`, `minimum_machine_tick_speed` is 1).
 
-`justdirethings-core` holds the rules with unit tests; `tests/goo.ts`, `tests/generator.ts` and `tests/breaker.ts` run
-them in a world.
+`justdirethings-core` holds the rules with unit tests; `tests/goo.ts`, `tests/generator.ts`, `tests/breaker.ts`,
+`tests/fluid.ts`, `tests/crystal.ts`, `tests/paradox.ts`, `tests/placer.ts`, `tests/collector.ts` and
+`tests/itemcollector.ts` run them in a world.
 `NOTES.md` lists the differences from Java and what is left.
 
 ## On upstream's hooks (merge of nightly-source/2026-11-18)
 
 Hooks, all on main (no new fork hook): `world_lifecycle` v2, `server_started`, `block_entity_types` (the fork's compat
-hook: one type per goo tier, the generator's and the breaker's, named after the block), `block_entity`, `block_entity_ticks`,
+hook: one type per goo tier and per machine, named after the block), `block_entity`, `block_entity_ticks`,
 `block_entity_tick`, `block_entity_container`, `block_entity_slot_accepts`, `fe_storage`, `fe_extract` (a
-`MODIFY_ARG` on the call into `fire_fe_extract`), `menu_button`, `use_on` v2 (a `HEAD` injection reads the call with
-the game, a `MODIFY_ARG` one answers it), `screen`, `screen_draw`, `screen_click` and `screen_tooltip`.
+`MODIFY_ARG` on the call into `fire_fe_extract`), `fe_receive`, `menu_button`, `use_on` v2 (a `HEAD` injection reads the call with
+the game, a `MODIFY_ARG` one answers it), `use_item_on`, `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
+`entity_tick_listened`, `entity_tick_post` (the fluid drop), `random_tick` (the budding block) and
+`fluid_handler_tanks`, `fluid_handler_fill` and `fluid_handler_drain` (the Paradox Machine's and the Fluid
+Collector's tanks).

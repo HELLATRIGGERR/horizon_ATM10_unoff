@@ -80,15 +80,15 @@ function syncStage(from: string, to: string): number {
   return written;
 }
 
-/** The carry's Generator T1 and Block Breaker T1 sit on the diamond block template, which has no block entity or menu:
- * the content mod is the carry with them on the furnace template (the block entity, the menu, `facing` and `lit`, as Hostile Neural Networks'
+/** The carry's Generator T1, Block Breaker T1, Block Placer T1, Fluid Collector T1, Item Collector and Paradox Machine sit on the diamond block template, which has no block
+ * entity or menu: the content mod is the carry with them on the furnace template (the block entity, the menu, `facing` and `lit`, as Hostile Neural Networks'
  * machines and Iron Furnaces' furnaces), minus what that template already has. The goo blocks keep their template: a
  * block entity of a declared type is made for any block. A local copy of the player's own jar's content; never committed. */
 function makeContent(): void {
   rmSync(content, { recursive: true, force: true });
   cpSync(carry, content, { recursive: true });
   const blocks = join(content, 'data/justdirethings/horizon/block');
-  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json'].includes(f))) {
+  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json'].includes(f))) {
     const path = join(blocks, file);
     const decl = JSON.parse(readFileSync(path, 'utf8'));
     decl.template = 'minecraft:furnace';
@@ -96,8 +96,15 @@ function makeContent(): void {
       for (const owned of ['lit', 'facing']) delete decl[field]?.[owned];
     }
     for (const field of ['default_state', 'placement']) delete decl[field];
+    // The shapes select on `facing`, which the furnace template owns: the content mod keeps the furnace's full cube.
+    for (const field of ['collision_boxes', 'outline_boxes']) delete decl[field];
     writeFileSync(path, JSON.stringify(decl, null, 2));
   }
+  // The time crystal's budding block ticks randomly (Java's `randomTicks()`); its carry declaration does not say so.
+  const budding = join(blocks, 'time_crystal_budding_block.json');
+  const decl = JSON.parse(readFileSync(budding, 'utf8'));
+  decl.properties = { ...decl.properties, random_ticks: true };
+  writeFileSync(budding, JSON.stringify(decl, null, 2));
   console.log(`${content}: ${readdirSync(blocks).length} block declarations`);
 }
 

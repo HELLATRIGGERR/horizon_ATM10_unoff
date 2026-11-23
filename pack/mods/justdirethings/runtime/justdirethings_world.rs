@@ -1,5 +1,7 @@
-// Just Dire Things' goo blocks and Generator T1 in the game (support module `crate::game::justdirethings_world` of the
-// `justdirethings` native bundle). The rules are the bundle's crate `justdirethings_core`; this module is the glue: the
+// Just Dire Things' goo blocks, Generator T1 and Block Breaker T1 in the game (support module
+// `crate::game::justdirethings_world` of the `justdirethings` native bundle), and the dispatch of the shared block
+// entity hooks to the Paradox Machine's module (`justdirethings_time`) and the Block Placer T1's, Fluid Collector
+// T1's and Item Collector's (`justdirethings_machines`). The rules are the bundle's crate `justdirethings_core`; this module is the glue: the
 // spreading recipes read from the world's tables, the block entities and their saved compounds (Java's keys), the
 // goo's neighbours, its `alive` state and revival, the generator's fuel slot, container, Forge Energy and redstone, and
 // the data its screen reads. Server hooks run on the thread of the `Game` that simulates the world, so the settings and
@@ -29,6 +31,8 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 pub(super) const GENERATOR: &str = "justdirethings:generatort1";
 pub(super) const BREAKER: &str = "justdirethings:blockbreakert1";
+pub(super) const PARADOX: &str = super::justdirethings_time::PARADOX;
+use super::justdirethings_machines::{self as machines, COLLECTOR, ITEM_COLLECTOR, PLACER};
 
 // ---- Settings and the recipe book ------------------------------------------------------------------------------
 
@@ -69,6 +73,8 @@ pub(super) fn opened() {
     SETTINGS.with(|s| *s.borrow_mut() = Some(fresh));
     BOOK.with(|b| *b.borrow_mut() = None);
     BREAKERS.with(|b| b.borrow_mut().clear());
+    super::justdirethings_time::reset();
+    machines::reset();
 }
 
 /// `native_world_lifecycle` v2: settings and the recipe book are dropped as the world closes or fails to open.
@@ -77,12 +83,14 @@ pub(super) fn lifecycle(phase: WorldPhase) {
         SETTINGS.with(|s| *s.borrow_mut() = None);
         BOOK.with(|b| *b.borrow_mut() = None);
         BREAKERS.with(|b| b.borrow_mut().clear());
+        super::justdirethings_time::reset();
+        machines::reset();
     }
 }
 
 /// The block state `spec` names: the block's default with the properties it gives (`BlockState.CODEC`); none for a
 /// block the game doesn't have, or a property or value it doesn't.
-fn resolve(game: &Game<'_>, spec: &StateSpec) -> Option<BlockStateId> {
+pub(super) fn resolve(game: &Game<'_>, spec: &StateSpec) -> Option<BlockStateId> {
     let registry = game.pack.assets.registry;
     let default = game.native_default_state(&spec.name)?;
     let mut state = registry.state(default)?.clone();
@@ -258,7 +266,7 @@ fn write_breaker(nbt: &mut Compound, b: &Breaker) {
 
 /// `native_block_entity_types` (compat hook): one type per goo tier and the generator's, named after their blocks.
 pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
-    for block in Tier::ALL.map(Tier::block).into_iter().chain([GENERATOR, BREAKER]) {
+    for block in Tier::ALL.map(Tier::block).into_iter().chain([GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR]) {
         types.push((block.to_owned(), vec![block.to_owned()]));
     }
 }
@@ -278,6 +286,10 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     } else if block == BREAKER {
         write_breaker(&mut nbt, &Breaker::default());
         put(&mut nbt, "direction", 0);
+    } else if block == PARADOX {
+        super::justdirethings_time::new_entity(&mut nbt);
+    } else if machines::owns(block) {
+        machines::new_entity(&mut nbt);
     } else {
         return;
     }
@@ -286,7 +298,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
 
 /// `native_block_entity_ticks`: goo and the generator tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if Tier::of_block(block).is_some() || block == GENERATOR || block == BREAKER {
+    if Tier::of_block(block).is_some() || block == GENERATOR || block == BREAKER || block == PARADOX || machines::owns(block) {
         *ticks = true;
     }
 }
@@ -299,6 +311,10 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         tick_generator(game, pos, entity);
     } else if entity.id() == BREAKER {
         tick_breaker(game, pos, entity);
+    } else if entity.id() == PARADOX {
+        super::justdirethings_time::tick(game, pos, entity);
+    } else if machines::owns(entity.id()) {
+        machines::tick(game, pos, entity);
     }
 }
 
@@ -412,6 +428,14 @@ const FUEL: usize = 0;
 /// `native_block_entity_container`: the generator's fuel slot or the breaker's tool slot, which hoppers fill from every
 /// side.
 pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
+    if block == PARADOX && container.is_none() {
+        super::justdirethings_time::container(container);
+        return;
+    }
+    if machines::owns(block) && container.is_none() {
+        machines::container(block, container);
+        return;
+    }
     if !(block == GENERATOR || block == BREAKER) || container.is_some() {
         return;
     }
@@ -433,6 +457,11 @@ pub(super) fn slot_accepts(block: &str, slot: usize, fuel: bool, accepts: &mut b
     } else if block == BREAKER {
         // The tool slot takes any item, as Java's machine handler does.
         *accepts = *accepts && slot == TOOL;
+    } else if block == PARADOX {
+        // The Paradox Machine's menu has no slot of its own.
+        *accepts = false;
+    } else if machines::owns(block) {
+        machines::slot_accepts(block, slot, accepts);
     }
 }
 
@@ -509,7 +538,15 @@ fn tick_generator(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntit
 }
 
 /// `native_menu_button`: the redstone button (ids 0 to 3, the mode it sets; `setRedstoneSettings`).
-pub(super) fn button(_game: &mut Game<'_>, entity: &mut ModBlockEntity, id: i32) {
+pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, id: i32) {
+    if entity.id() == PARADOX {
+        super::justdirethings_time::button(game, pos, entity, id);
+        return;
+    }
+    if machines::owns(entity.id()) {
+        machines::button(game, pos, entity, id);
+        return;
+    }
     if !(0..4).contains(&id) {
         return;
     }
@@ -526,6 +563,10 @@ pub(super) fn button(_game: &mut Game<'_>, entity: &mut ModBlockEntity, id: i32)
 
 /// `native_fe_storage`: every side gives and none takes (`EnergyStorageNoReceive`).
 pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo>) {
+    if entity.id() == PARADOX && info.is_none() {
+        super::justdirethings_time::fe_storage(entity, info);
+        return;
+    }
     if entity.id() != GENERATOR || info.is_some() {
         return;
     }

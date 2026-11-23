@@ -1,0 +1,9 @@
+[package]
+name = "theurgy-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Theurgy's spagyrics rules (heat, the crafting clock, the recipes of its core apparatus) for the pack's port"
+
+[dependencies]
+serde_json = "1"

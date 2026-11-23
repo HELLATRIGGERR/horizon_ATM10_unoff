@@ -56,8 +56,9 @@ pub struct Ctx<'a> {
     pub active: bool,
     /// An item's `getMaxStackSize`.
     pub max_stack: &'a dyn Fn(&str) -> u32,
-    /// What nine of an item make in a 3x3 crafting grid (`combineSmallDusts`' crafting lookup), if anything.
-    pub compact: &'a dyn Fn(&str) -> Option<String>,
+    /// `combineSmallDusts`' crafting lookup: whether nine of the first item in a 3x3 crafting grid make the second
+    /// (any of the crafting recipes that take them).
+    pub compact: &'a dyn Fn(&str, &str) -> bool,
 }
 
 impl Machine {
@@ -231,7 +232,7 @@ fn combine_small_dusts(spec: &Spec, slots: &mut [Option<Stack>], ctx: &Ctx<'_>) 
     if small.count < 9 || base.count >= (ctx.max_stack)(&base.item) {
         return;
     }
-    if (ctx.compact)(&small.item).as_deref() == Some(base.item.as_str()) {
+    if (ctx.compact)(&small.item, &base.item) {
         let small_slot = slots[s.output_start + 1].as_mut().expect("held");
         small_slot.count -= 9;
         if small_slot.count == 0 {
@@ -266,8 +267,8 @@ mod tests {
         64
     }
 
-    fn nothing(_: &str) -> Option<String> {
-        None
+    fn nothing(_: &str, _: &str) -> bool {
+        false
     }
 
     fn ctx<'a>(book: &'a RecipeBook, per_tick: i64) -> Ctx<'a> {
@@ -379,7 +380,7 @@ mod tests {
     #[test]
     fn small_dusts_are_combined() {
         let book = RecipeBook::new(vec![recipe("r", 1, &[&["a:ore"]], &[("a:dust", 1), ("a:small_dust", 5)])]);
-        let compact = |item: &str| (item == "a:small_dust").then(|| "a:dust".to_owned());
+        let compact = |small: &str, base: &str| small == "a:small_dust" && base == "a:dust";
         let mut c = ctx(&book, 1);
         c.compact = &compact;
         let mut m = pulverizer(1000);

@@ -849,3 +849,24 @@ Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/N
    against the Java baseline as you go.
 
 Coverage today, by a count over the registries with judged weights: AE2 86.6%, Mekanism 7.5%, ATM10 as a whole about 5%.
+
+## Theurgy
+
+Theurgy 1.78.0 (MIT, <https://github.com/klikli-dev/theurgy>, tag `release/v1.21.1-1.78.0`): ATM10 has 1,734 of its
+recipes and 43 quest tasks. The native bundle `pack/mods/theurgy` translates its code (credits and licence in the
+bundle's `README.md` and `LICENSE-theurgy`); the carry (`fullpack/carries/theurgy`) brings its blocks, items, recipes
+and assets.
+
+```
+bun run pack/scripts/theurgy.ts content units stage build world
+```
+
+Slice 1 is the core spagyrics chain: the pyromantic brazier, the calcination oven, the liquefaction cauldron, the
+distiller, the incubator with its three vessels, and the sal ammoniac accumulator and tank. They run 652 of the 1,734
+recipes: 86 calcination, 43 distillation, 297 liquefaction, 222 incubation and 4 accumulation. Not run yet: 483
+reformation, 259 fermentation, 31 digestion, 4 divination rod and 2 catalysation recipes.
+
+- The accumulator keeps Theurgy's quirk: its crafting total time starts at 0, so the first tick after a bucket of
+  water crafts at once; later crafts take the recipe's 100 ticks.
+- A world test per apparatus is in `pack/mods/theurgy/tests`; the player stands on a block of its own
+  (`stand`), and the two-block apparatus are clicked on their upper half.

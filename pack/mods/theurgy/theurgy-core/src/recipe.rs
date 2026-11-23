@@ -70,7 +70,7 @@ fn time(json: &Value) -> i32 {
     json.get("time").and_then(Value::as_i64).and_then(|t| i32::try_from(t).ok()).unwrap_or(DEFAULT_TIME)
 }
 
-fn field<'a>(json: &'a Value, name: &str) -> Result<&'a Value, String> {
+pub(crate) fn field<'a>(json: &'a Value, name: &str) -> Result<&'a Value, String> {
     json.get(name).ok_or_else(|| format!("no {name}"))
 }
 

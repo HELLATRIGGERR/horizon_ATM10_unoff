@@ -4,6 +4,7 @@
 use serde_json::Value;
 use std::{collections::BTreeMap, fs, path::Path};
 use theurgy_core::recipe::{self, Accumulation, Calcination, Incubation, Liquefaction, RecipeResult};
+use theurgy_core::vat::{self, VatKind, VatRecipe};
 
 fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else { return };
@@ -57,6 +58,13 @@ fn every_recipe_of_the_ported_types_parses() {
                 Ok(r) => (true, r.solute.as_ref().is_none_or(|s| s.supported()) && r.evaporant.as_ref().is_none_or(|e| e.ingredient.supported()), false),
                 Err(e) => { errors.push(e); (false, false, false) }
             },
+            vat::FERMENTATION | vat::DIGESTION => {
+                let which = if kind == vat::FERMENTATION { VatKind::Fermentation } else { VatKind::Digestion };
+                match VatRecipe::parse(which, &id, &json) {
+                    Ok(r) => (true, r.fluid.ingredient.supported() && r.ingredients.iter().all(|i| i.ingredient.supported()), false),
+                    Err(e) => { errors.push(e); (false, false, false) }
+                }
+            }
             _ => continue,
         };
         row[1] += usize::from(parsed);
@@ -66,7 +74,7 @@ fn every_recipe_of_the_ported_types_parses() {
     let mut ported = [0usize; 4];
     for (kind, row) in &counts {
         println!("THEURGY recipes {kind}: {} files, {} parsed, {} with every ingredient read, {} tag results", row[0], row[1], row[2], row[3]);
-        if [recipe::CALCINATION, recipe::DISTILLATION, recipe::LIQUEFACTION, recipe::INCUBATION, recipe::ACCUMULATION].contains(&kind.as_str()) {
+        if [recipe::CALCINATION, recipe::DISTILLATION, recipe::LIQUEFACTION, recipe::INCUBATION, recipe::ACCUMULATION, vat::FERMENTATION, vat::DIGESTION].contains(&kind.as_str()) {
             for i in 0..4 {
                 ported[i] += row[i];
             }

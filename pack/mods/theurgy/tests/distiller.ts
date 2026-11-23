@@ -5,7 +5,7 @@
  * - A picture of the lit distiller goes to the run folder (`distiller.png`). */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { arena, carried, hand, handCount, isBlock, saved, slotCount, slotItem, theurgyFixture, until } from './support/common';
+import { arena, carried, hand, handCount, isBlock, saved, slotCount, slotItem, theurgyFixture, until, stand } from './support/common';
 
 const f = theurgyFixture('theurgy-distiller');
 const log: Record<string, unknown> = {};
@@ -16,6 +16,7 @@ try {
   const distillerUpper = at(0, 2, 0);
 
   await f.command(`setblock ${brazier} theurgy:pyromantic_brazier`);
+  await stand(f, x + 0.5, y + 1, z + 2.5, 180, 30);
   await hand(f, 'minecraft:coal', 64);
   await f.raw(`interact ${brazier} up`);
   await until(() => isBlock(f, brazier, 'theurgy:pyromantic_brazier[lit=true]'), ok => ok, 'brazier lights', 20_000);
@@ -24,9 +25,9 @@ try {
   await f.command(`setblock ${distillerUpper} theurgy:distiller[half=upper]`);
 
   // The distillation of beef needs 2 beef.
-  await f.command(`tp @s ${x + 0.5} ${y} ${z + 2.5} 180 10`);
+  await stand(f, x + 0.5, y + 1, z + 2.5, 180, 10);
   await hand(f, 'minecraft:beef', 2);
-  await f.raw(`interact ${distiller} up`);
+  await f.raw(`interact ${distillerUpper} south`);
   await until(() => handCount(f), h => h.count === 0, 'beef taken', 5_000);
   f.mark('2 beef clicked into the distiller');
 
@@ -44,11 +45,11 @@ try {
 
   // An empty hand takes the output.
   await hand(f);
-  await f.raw(`interact ${distiller} up`);
+  await f.raw(`interact ${distillerUpper} south`);
   await until(() => carried(f, 'theurgy:mercury_shard'), n => n >= 1, 'output taken');
   f.mark('empty hand takes the mercury shard');
 
-  await f.command(`tp @s ${x + 0.5} ${y + 1} ${z + 3.5} 180 25`);
+  await stand(f, x + 0.5, y + 1, z + 3.5, 180, 25);
   await Bun.sleep(1500);
   const shot = join(f.run, 'distiller.png');
   await f.raw(`screenshot ${shot}`);

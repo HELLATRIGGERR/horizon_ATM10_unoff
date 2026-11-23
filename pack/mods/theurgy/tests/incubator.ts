@@ -5,7 +5,7 @@
  * - A picture of the working incubator goes to the run folder (`incubator.png`). */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { arena, carried, hand, handCount, isBlock, saved, slotCount, slotItem, theurgyFixture, until } from './support/common';
+import { arena, carried, hand, handCount, isBlock, saved, slotCount, slotItem, theurgyFixture, until, stand } from './support/common';
 
 const f = theurgyFixture('theurgy-incubator');
 const log: Record<string, unknown> = {};
@@ -21,6 +21,7 @@ try {
 
   // Light the brazier.
   await f.command(`setblock ${brazier} theurgy:pyromantic_brazier`);
+  await stand(f, x + 0.5, y + 1, z + 2.5, 180, 30);
   await hand(f, 'minecraft:coal', 64);
   await f.raw(`interact ${brazier} up`);
   await until(() => isBlock(f, brazier, 'theurgy:pyromantic_brazier[lit=true]'), ok => ok, 'brazier lights', 20_000);
@@ -32,13 +33,16 @@ try {
   await f.command(`setblock ${salt} theurgy:incubator_salt_vessel`);
   await f.command(`setblock ${sulfur} theurgy:incubator_sulfur_vessel`);
 
-  await f.command(`tp @s ${x + 0.5} ${y} ${z + 3.5} 180 10`);
+  await stand(f, x + 0.5, y + 1, z + 3.5, 180, 10);
 
-  // Fill the vessels: click one of each ingredient into its vessel.
+  // Fill the vessels: click one of each ingredient into its vessel. The mercury vessel is behind the incubator from
+  // here: that one is clicked from the north.
+  await stand(f, x + 0.5, y + 1, z - 3.5, 0, 10);
   await hand(f, 'theurgy:mercury_shard', 1);
   await f.raw(`interact ${mercury} up`);
   await until(() => handCount(f), h => h.count === 0, 'mercury placed', 5_000);
 
+  await stand(f, x + 0.5, y + 1, z + 3.5, 180, 10);
   await hand(f, 'theurgy:alchemical_salt_plant', 1);
   await f.raw(`interact ${salt} up`);
   await until(() => handCount(f), h => h.count === 0, 'salt placed', 5_000);
@@ -69,11 +73,11 @@ try {
 
   // An empty hand takes the output.
   await hand(f);
-  await f.raw(`interact ${incubator} up`);
+  await f.raw(`interact ${incubatorUpper} south`);
   await until(() => carried(f, 'minecraft:acacia_log'), n => n >= 1, 'output taken');
   f.mark('empty hand takes the acacia_log');
 
-  await f.command(`tp @s ${x + 0.5} ${y + 2} ${z + 4.5} 180 30`);
+  await stand(f, x + 0.5, y + 2, z + 4.5, 180, 30);
   await Bun.sleep(1500);
   const shot = join(f.run, 'incubator.png');
   await f.raw(`screenshot ${shot}`);

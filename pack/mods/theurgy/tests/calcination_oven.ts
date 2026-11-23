@@ -6,7 +6,7 @@
  * - A picture of the lit oven goes to the run folder (`calcination_oven.png`). */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { arena, carried, field, hand, handCount, isBlock, saved, slotCount, slotItem, tank, theurgyFixture, until } from './support/common';
+import { arena, carried, field, hand, handCount, isBlock, saved, slotCount, slotItem, tank, theurgyFixture, until, stand } from './support/common';
 
 const f = theurgyFixture('theurgy-calcination-oven');
 const log: Record<string, unknown> = {};
@@ -18,6 +18,7 @@ try {
 
   // Place the brazier, light it with two coal, then the oven on top.
   await f.command(`setblock ${brazier} theurgy:pyromantic_brazier`);
+  await stand(f, x + 0.5, y + 1, z + 2.5, 180, 30);
   await hand(f, 'minecraft:coal', 2);
   await f.raw(`interact ${brazier} up`);
   await until(() => isBlock(f, brazier, 'theurgy:pyromantic_brazier[lit=true]'), ok => ok, 'brazier lights', 20_000);
@@ -31,9 +32,9 @@ try {
   assert(await isBlock(f, ovenUpper, 'theurgy:calcination_oven[half=upper]'), 'upper half placed');
 
   // Click in beef (calcination: beef → alchemical_salt_creature).
-  await f.command(`tp @s ${x + 0.5} ${y} ${z + 2.5} 180 10`);
+  await stand(f, x + 0.5, y + 2, z + 2.5, 180, 40);
   await hand(f, 'minecraft:beef', 1);
-  await f.raw(`interact ${oven} up`);
+  await f.raw(`interact ${ovenUpper} up`);
   await until(() => handCount(f), h => h.count === 0, 'beef taken', 5_000);
   f.mark('beef clicked into the oven');
 
@@ -51,11 +52,11 @@ try {
 
   // An empty hand takes the output.
   await hand(f);
-  await f.raw(`interact ${oven} up`);
+  await f.raw(`interact ${ovenUpper} up`);
   await until(() => carried(f, 'theurgy:alchemical_salt_creature'), n => n >= 1, 'output taken');
   f.mark('empty hand takes the output');
 
-  await f.command(`tp @s ${x + 0.5} ${y + 1} ${z + 3.5} 180 25`);
+  await stand(f, x + 0.5, y + 1, z + 3.5, 180, 25);
   await Bun.sleep(1500);
   const shot = join(f.run, 'calcination_oven.png');
   await f.raw(`screenshot ${shot}`);

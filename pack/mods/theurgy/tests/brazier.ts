@@ -8,7 +8,7 @@
  * - A picture of the lit brazier goes to the run folder (`brazier.png`). */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { arena, carried, field, hand, handCount, isBlock, saved, slotCount, slotItem, theurgyFixture, until } from './support/common';
+import { arena, carried, field, hand, handCount, isBlock, saved, slotCount, slotItem, theurgyFixture, until, stand } from './support/common';
 
 const f = theurgyFixture('theurgy-brazier');
 const log: Record<string, unknown> = {};
@@ -16,7 +16,7 @@ try {
   const { x, y, z, at } = await arena(f);
   const pos = at(0, 0, 0);
   await f.command(`setblock ${pos} theurgy:pyromantic_brazier`);
-  await f.command(`tp @s ${x + 0.5} ${y} ${z + 2.5} 180 30`);
+  await stand(f, x + 0.5, y + 1, z + 2.5, 180, 30);
 
   // A diamond is no fuel: it stays in the hand.
   await hand(f, 'minecraft:diamond', 1);
@@ -47,7 +47,8 @@ try {
   // Out after its 1,600 ticks: held, then stepped.
   await f.hold();
   const before = field(await saved(f, pos), 'remainingLitTime');
-  await f.stepServer(before - 2);
+  // One step is at most 1,000 ticks.
+  for (let rest = before - 2; rest > 0; rest -= 1000) await f.stepServer(Math.min(rest, 1000));
   assert(await isBlock(f, pos, 'theurgy:pyromantic_brazier[lit=true]'), `still lit with 2 of ${before} ticks left`);
   await f.stepServer(4);
   assert(await isBlock(f, pos, 'theurgy:pyromantic_brazier[lit=false]'), 'out once the coal has burnt');
@@ -69,7 +70,7 @@ try {
   assert.equal(await carried(f, 'minecraft:bucket'), 1);
   f.mark('a lava bucket burns 20,000 ticks and leaves its bucket, which the next click takes out');
 
-  await f.command(`tp @s ${x + 1.5} ${y + 1} ${z + 3.5} 180 35`);
+  await stand(f, x + 1.5, y + 1, z + 3.5, 180, 35);
   await Bun.sleep(1500);
   const shot = join(f.run, 'brazier.png');
   await f.raw(`screenshot ${shot}`);

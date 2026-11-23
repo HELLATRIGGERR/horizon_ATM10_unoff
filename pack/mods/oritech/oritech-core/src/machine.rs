@@ -13,6 +13,8 @@ pub enum Kind {
     PoweredFurnace,
     BasicGenerator,
     BioGenerator,
+    AtomicForge,
+    LaserArm,
 }
 
 /// `InventorySlotAssignment(inputStart, inputCount, outputStart, outputCount)`.
@@ -242,7 +244,40 @@ pub static BIO_GENERATOR: Spec = Spec {
     outputs: BIO_AROUND,
 };
 
-pub static ALL: [&Spec; 8] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &POWERED_FURNACE, &BASIC_GENERATOR, &BIO_GENERATOR];
+/// `AtomicForgeBlockEntity`: a ring of eight cores. The recipe's energy comes from the laser arm only (no insertion).
+pub static ATOMIC_FORGE: Spec = Spec {
+    kind: Kind::AtomicForge,
+    block: "oritech:atomic_forge_block",
+    recipe_type: "oritech:atomic_forge",
+    slots: Slots { input_start: 0, input_count: 3, output_start: 3, output_count: 1 },
+    inventory_size: 4,
+    gui_slots: &[slot(0, 50, 36), slot(1, 74, 17), slot(2, 74, 55), out(3, 117, 36)],
+    cores: &[[1, 0, 1], [1, 0, 0], [1, 0, -1], [0, 0, 1], [0, 0, -1], [-1, 0, 1], [-1, 0, 0], [-1, 0, -1]],
+    addon_slots: &[],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
+/// `LaserArmBlockEntity`: one core behind it (the controller's opposite facing), the laser head in front. Its three
+/// slots are outputs only: what the laser mines. The recipe type is the laser's block-to-item recipes.
+pub static LASER_ARM: Spec = Spec {
+    kind: Kind::LaserArm,
+    block: "oritech:laser_arm_block",
+    recipe_type: "oritech:laser",
+    slots: Slots { input_start: 0, input_count: 0, output_start: 0, output_count: 3 },
+    inventory_size: 3,
+    gui_slots: &[out(0, 117, 20), out(1, 117, 38), out(2, 117, 56)],
+    cores: &[[1, 0, 0]],
+    addon_slots: &[[-1, 0, 0]],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
+pub static ALL: [&Spec; 10] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &POWERED_FURNACE, &BASIC_GENERATOR, &BIO_GENERATOR, &ATOMIC_FORGE, &LASER_ARM];
 
 /// The machine of a block id.
 pub fn of_block(block: &str) -> Option<&'static Spec> {
@@ -266,7 +301,9 @@ mod tests {
             assert!(spec.inventory_size <= 5, "every machine fits the hopper menu");
         }
         assert_eq!(of_block("oritech:fragment_forge_block").map(|s| s.recipe_type), Some("oritech:grinder"));
-        assert!(of_block("oritech:atomic_forge_block").is_none());
+        assert!(of_block("oritech:atomic_forge_block").is_some_and(|s| s.cores.len() == 8 && s.slots.input_count == 3));
+        assert!(of_block("oritech:laser_arm_block").is_some_and(|s| s.slots.output_count == 3 && s.cores == [[1, 0, 0]]));
+        assert!(of_block("oritech:refinery_block").is_none());
         assert_eq!(of_block("oritech:powered_furnace_block").map(|s| s.recipe_type), Some("minecraft:smelting"));
         assert_eq!(of_block("oritech:centrifuge_block").map(|s| s.cores.len()), Some(1));
         assert!(of_block("oritech:basic_generator_block").is_some_and(|s| s.generator && s.recipe_type.is_empty()));

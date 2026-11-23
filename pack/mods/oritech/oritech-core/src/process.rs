@@ -198,7 +198,7 @@ pub fn can_output(spec: &Spec, slots: &[Option<Stack>], recipe: &Recipe, max_sta
 
 /// `MachineBlockEntity.craftItem`: each result onto its output slot, then one item of each ingredient from the inputs,
 /// starting one slot further along after each (so equal stacks drain evenly).
-fn craft_once(spec: &Spec, slots: &mut [Option<Stack>], recipe: &Recipe) {
+pub(crate) fn craft_once(spec: &Spec, slots: &mut [Option<Stack>], recipe: &Recipe) {
     let s = spec.slots;
     for (i, result) in recipe.results.iter().enumerate().take(s.output_count) {
         let slot = &mut slots[s.output_start + i];

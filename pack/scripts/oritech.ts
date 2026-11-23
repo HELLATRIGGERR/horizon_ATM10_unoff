@@ -80,7 +80,8 @@ function syncStage(from: string, to: string): number {
  * content; never committed. */
 function makeContent(): void {
   rmSync(content, { recursive: true, force: true });
-  cpSync(carry, content, { recursive: true });
+  // A content mod refuses scripts and binaries (the jar carries a texture-colour helper script).
+  cpSync(carry, content, { recursive: true, filter: path => !/\.(sh|bat|cmd|exe|ps1|py)$/i.test(path) });
   const blocks = join(content, 'data/oritech/horizon/block');
   const machines = ['pulverizer_block.json', 'fragment_forge_block.json', 'assembler_block.json', 'foundry_block.json'];
   for (const file of machines) {

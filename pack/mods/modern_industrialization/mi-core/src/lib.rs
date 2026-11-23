@@ -9,5 +9,6 @@ pub mod crafter;
 pub mod energy;
 pub mod inventory;
 pub mod machines;
+pub mod multiblock;
 pub mod recipe;
 pub mod view;

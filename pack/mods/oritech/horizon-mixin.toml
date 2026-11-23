@@ -123,6 +123,20 @@ bindings = [
 ]
 
 [[injection]]
+id = "fe-extract"
+hook = "fe_extract"
+hook_version = 1
+kind = "MODIFY_ARG"
+selector = "self.fire_fe_extract"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/fe_extract.rs"
+bindings = [
+  { name = "call", ty = "mod_api::__private::FeExtractCall<'_>", value = "$value" },
+]
+
+[[injection]]
 id = "fe-receive"
 hook = "fe_receive"
 hook_version = 1

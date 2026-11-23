@@ -225,7 +225,7 @@ mod tests {
 
     /// ATM10's own recipes, when `ORITECH_ATM10_DUMP` names the full pack's dump (`recipes.jsonl`, `tags.jsonl` and
     /// `registries.json` of the oracle's run; ATM10's data, read in place and never committed): every recipe of the
-    /// four ported types reads with its tags resolved to registered items, except Productive Bees' five bee
+    /// ported types reads with its tags resolved to registered items, except Productive Bees' five bee
     /// conversions, whose `productivebees:component` ingredients match a spawn egg's components.
     #[test]
     fn atm10s_recipes_resolve() {
@@ -277,7 +277,17 @@ mod tests {
             }
         }
         let got: Vec<(&str, usize, usize)> = counts.iter().map(|(k, (t, p))| (k.as_str(), *t, *p)).collect();
-        assert_eq!(got, vec![("oritech:assembler", 28, 28), ("oritech:foundry", 30, 26), ("oritech:grinder", 108, 107), ("oritech:pulverizer", 115, 115)]);
+        assert_eq!(
+            got,
+            vec![
+                ("oritech:assembler", 28, 28),
+                ("oritech:bio_generator", 7, 7),
+                ("oritech:centrifuge", 15, 15),
+                ("oritech:foundry", 30, 26),
+                ("oritech:grinder", 108, 107),
+                ("oritech:pulverizer", 115, 115)
+            ]
+        );
         assert_eq!(all, 469, "ATM10's recipes of Oritech's own types");
         println!("ATM10: {} of {all} recipes of Oritech's types run on a ported machine", got.iter().map(|g| g.2).sum::<usize>());
     }

@@ -9,12 +9,14 @@
 use super::Game;
 use crate::game::api_values::{TryIntoApi, TryIntoEngine};
 use horizon_client::{containers::ModContainer, items::ItemStack, text::Text};
+use horizon_core::geometry::Direction;
 use horizon_core::nbt::{Compound, JavaString, Tag};
 use mod_api::{Command, CommandArgumentValue, CommandInvocation, CommandSource, ModBlockEntity, NativeFeInfo, WorldPhase};
 use oritech_core::{
     config::Config,
     energy::Energy,
-    machine::{self, Kind, Spec},
+    generator::{GenCtx, Generator},
+    machine::{self, Face, Kind, Spec},
     multiblock::{self, Facing},
     process::{AddonData, Ctx, Machine},
     recipe::{self, RecipeBook, Stack},
@@ -124,6 +126,7 @@ fn stamp(game: &Game<'_>) -> Vec<(usize, usize)> {
     machine::ALL
         .iter()
         .map(|s| s.recipe_type)
+        .filter(|t| !t.is_empty())
         .chain(["minecraft:crafting"])
         .map(|t| {
             let s = game.native_recipes_of_type(t);
@@ -135,7 +138,7 @@ fn stamp(game: &Game<'_>) -> Vec<(usize, usize)> {
 fn load_books(game: &Game<'_>, stamp: Vec<(usize, usize)>) -> Books {
     let mut books = HashMap::new();
     let mut counts = BTreeMap::new();
-    for spec in machine::ALL {
+    for spec in machine::ALL.iter().filter(|s| !s.recipe_type.is_empty()) {
         let table = game.native_recipes_of_type(spec.recipe_type);
         let mut read = Vec::new();
         for r in table.iter() {
@@ -186,6 +189,8 @@ const PROGRESS: &str = "oritech.machine_progress";
 const ENERGY: &str = "oritech.machine_energy";
 const INPUT_MODE: &str = "oritech.machine_input_mode";
 const REDSTONE: &str = "oritech.redstone";
+/// `UpgradableGeneratorBlockEntity`'s `currentMaxBurnTime`.
+const STORED_BURN: &str = "storedBurn";
 const CORES: &str = "connectedCores";
 const QUALITY: &str = "coreQuality";
 
@@ -282,6 +287,9 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
     nbt.insert(key(ENERGY), Tag::Long(0));
     nbt.insert(key(INPUT_MODE), Tag::Short(0));
     nbt.insert(key(REDSTONE), Tag::Byte(0));
+    if spec.generator {
+        nbt.insert(key(STORED_BURN), Tag::Int(0));
+    }
     if spec.is_multiblock() {
         put_cores(&mut nbt, &[], 1.0);
     }
@@ -360,6 +368,9 @@ fn check_cores(game: &Game<'_>, pos: [i32; 3], spec: &Spec, nbt: &mut Compound) 
 /// screen shows.
 pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
     let Some(spec) = machine::of_block(entity.id()) else { return };
+    if spec.generator {
+        return generator_tick(game, pos, entity, spec);
+    }
     let cfg = settings();
     let books = books(game);
     let Some(book) = books.books.get(&spec.kind).cloned() else { return };
@@ -418,9 +429,68 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     });
 }
 
+/// The direction of a neighbour's face the energy goes in by.
+fn direction(face: Face) -> Direction {
+    match face {
+        Face::Down => Direction::Down,
+        Face::North => Direction::North,
+        Face::South => Direction::South,
+        Face::West => Direction::West,
+        Face::East => Direction::East,
+    }
+}
+
+/// One server tick of a generator (`UpgradableGeneratorBlockEntity.serverTick`): burn, then give the buffer to the
+/// blocks around (`outputEnergy`), then what its screen shows.
+fn generator_tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, spec: &'static Spec) {
+    let cfg = settings();
+    let books = books(game);
+    let book = books.books.get(&spec.kind).cloned().unwrap_or_default();
+    let (active, missing) = if spec.is_multiblock() { check_cores(game, pos, spec, &mut entity.nbt) } else { (true, 0) };
+    let mut g = Generator::new(energy_of(&cfg, spec, &entity.nbt));
+    g.progress = number(&entity.nbt, PROGRESS) as i32;
+    g.max_burn = number(&entity.nbt, STORED_BURN) as i32;
+    g.disabled_via_redstone = number(&entity.nbt, REDSTONE) != 0;
+    let held = engine_items(game, entity);
+    let before = core_slots(&held, spec.inventory_size);
+    let mut slots = before.clone();
+    let fuel = |item: &str| game.native_burn_time(&ItemStack::new(item, 1));
+    let ctx = GenCtx { energy_per_tick: cfg.machine(spec.kind).energy_per_tick, speed: 1.0, efficiency: 1.0, active, fuel: &fuel, book: &book };
+    let burnt = g.tick(spec, &mut slots, &ctx);
+    let produced = Generator::produced(&ctx).round() as i64;
+    let dimension = game.native_dimension();
+    let moved = g.output(spec.outputs.len(), &mut |target, amount| {
+        let (offset, face) = spec.outputs[target];
+        let at = [pos[0] + offset[0], pos[1] + offset[1], pos[2] + offset[2]];
+        game.native_fe_offer(dimension, at, Some(direction(face)), amount, false, false)
+    });
+    entity.data = MachineView {
+        energy: g.energy.amount,
+        capacity: g.energy.capacity,
+        insert: g.energy.max_extract,
+        usage: produced,
+        progress: g.max_burn - g.progress,
+        total: g.max_burn,
+        speed: 100,
+        efficiency: 100,
+        active,
+        missing,
+    }
+    .pack();
+    if burnt || moved {
+        if slots != before {
+            put_back(entity, &held, &before, &slots);
+        }
+        entity.nbt.insert(key(PROGRESS), Tag::Int(g.progress));
+        entity.nbt.insert(key(STORED_BURN), Tag::Int(g.max_burn));
+        entity.nbt.insert(key(ENERGY), Tag::Long(g.energy.amount));
+    }
+}
+
 // ---- Forge Energy -----------------------------------------------------------------------------------------------
 
-/// `native_fe_storage`: every side takes (`getEnergyStorage(direction)` is the one buffer) and none gives.
+/// `native_fe_storage`: every side takes (`getEnergyStorage(direction)` is the one buffer) and none gives; a
+/// generator gives and takes none.
 pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo>) {
     let Some(spec) = machine::of_block(entity.id()) else { return };
     if info.is_some() {
@@ -428,6 +498,20 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
     }
     let e = energy_of(&settings(), spec, &entity.nbt);
     *info = Some(NativeFeInfo { stored: e.amount, capacity: e.capacity, can_receive: e.max_insert > 0, can_extract: e.max_extract > 0 });
+}
+
+/// `native_fe_extract`: `DynamicEnergyStorage.extract`, up to `maxExtract` a call (a generator's).
+pub(super) fn fe_extract(entity: &mut ModBlockEntity, max: i64, simulate: bool, given: &mut Option<i64>) {
+    let Some(spec) = machine::of_block(entity.id()) else { return };
+    if given.is_some() {
+        return;
+    }
+    let mut e = energy_of(&settings(), spec, &entity.nbt);
+    let gave = e.extract(max.max(0), simulate);
+    if gave > 0 && !simulate {
+        entity.nbt.insert(key(ENERGY), Tag::Long(e.amount));
+    }
+    *given = Some(gave);
 }
 
 /// `native_fe_receive`: `DynamicEnergyStorage.insert`, up to `maxInsert` a call and the room left.

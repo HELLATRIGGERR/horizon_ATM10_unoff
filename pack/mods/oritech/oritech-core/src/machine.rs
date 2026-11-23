@@ -1,6 +1,7 @@
 //! The ported processing machines: each one's block, recipe type, slots (`InventorySlotAssignment`), screen slots
 //! (`getGuiSlots`), machine cores (`getCorePositions`) and what it does after a craft. From `PulverizerBlockEntity`,
-//! `FragmentForgeBlockEntity`, `AssemblerBlockEntity` and `FoundryBlockEntity`.
+//! `FragmentForgeBlockEntity`, `AssemblerBlockEntity`, `FoundryBlockEntity`, `CentrifugeBlockEntity` (item recipes
+//! only: no fluid addon), `BasicGeneratorEntity` and `BioGeneratorEntity`.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
@@ -8,6 +9,9 @@ pub enum Kind {
     FragmentForge,
     Assembler,
     Foundry,
+    Centrifuge,
+    BasicGenerator,
+    BioGenerator,
 }
 
 /// `InventorySlotAssignment(inputStart, inputCount, outputStart, outputCount)`.
@@ -64,6 +68,21 @@ pub struct Spec {
     pub compacts_dust: bool,
     /// `inputOptionsEnabled`: the input mode button on the screen.
     pub input_options: bool,
+    /// A generator (`UpgradableGeneratorBlockEntity`): it burns its input for energy instead of crafting.
+    pub generator: bool,
+    /// Where a generator pushes its energy (`getOutputTargets`): the block's offset and the face of that block the
+    /// energy goes in by. Empty for a processing machine.
+    pub outputs: &'static [([i32; 3], Face)],
+}
+
+/// A block face by name (the side of a neighbour that energy enters by).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Face {
+    Down,
+    North,
+    South,
+    West,
+    East,
 }
 
 impl Spec {
@@ -86,6 +105,8 @@ pub static PULVERIZER: Spec = Spec {
     addon_slots: &[[1, 0, 0]],
     compacts_dust: true,
     input_options: false,
+    generator: false,
+    outputs: &[],
 };
 
 pub static FRAGMENT_FORGE: Spec = Spec {
@@ -99,6 +120,8 @@ pub static FRAGMENT_FORGE: Spec = Spec {
     addon_slots: &[[0, 0, 2], [1, 0, 2], [2, 0, 0], [1, 0, -1], [-1, 0, 1]],
     compacts_dust: true,
     input_options: false,
+    generator: false,
+    outputs: &[],
 };
 
 pub static ASSEMBLER: Spec = Spec {
@@ -112,6 +135,8 @@ pub static ASSEMBLER: Spec = Spec {
     addon_slots: &[[0, 0, -1], [0, 0, 2], [1, 0, 0]],
     compacts_dust: false,
     input_options: true,
+    generator: false,
+    outputs: &[],
 };
 
 pub static FOUNDRY: Spec = Spec {
@@ -125,9 +150,82 @@ pub static FOUNDRY: Spec = Spec {
     addon_slots: &[[0, 0, -1], [0, 0, 2]],
     compacts_dust: false,
     input_options: true,
+    generator: false,
+    outputs: &[],
 };
 
-pub static ALL: [&Spec; 4] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY];
+/// `CentrifugeBlockEntity`: one core above. Its fluid mode (a fluid addon) is not ported.
+pub static CENTRIFUGE: Spec = Spec {
+    kind: Kind::Centrifuge,
+    block: "oritech:centrifuge_block",
+    recipe_type: "oritech:centrifuge",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 2 },
+    inventory_size: 3,
+    gui_slots: &[slot(0, 56, 38), out(1, 113, 38), out(2, 113, 56)],
+    cores: &[[0, 1, 0]],
+    addon_slots: &[[0, 0, -1], [0, 0, 1]],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
+/// `BasicGeneratorEntity.getOutputTargets`: every side (the one below is given the face `DOWN`, as Java has it).
+const AROUND: &[([i32; 3], Face)] = &[
+    ([0, 1, 0], Face::Down),
+    ([0, -1, 0], Face::Down),
+    ([1, 0, 0], Face::West),
+    ([0, 0, 1], Face::North),
+    ([-1, 0, 0], Face::East),
+    ([0, 0, -1], Face::South),
+];
+
+/// Burns any fuel (the furnace's burn times), no recipes.
+pub static BASIC_GENERATOR: Spec = Spec {
+    kind: Kind::BasicGenerator,
+    block: "oritech:basic_generator_block",
+    recipe_type: "",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 0 },
+    inventory_size: 1,
+    gui_slots: &[slot(0, 80, 21)],
+    cores: &[],
+    addon_slots: &[],
+    compacts_dust: false,
+    input_options: false,
+    generator: true,
+    outputs: AROUND,
+};
+
+/// `BioGeneratorEntity.getOutputTargets`.
+const BIO_AROUND: &[([i32; 3], Face)] = &[
+    ([0, 2, 0], Face::Down),
+    ([0, -1, 0], Face::Down),
+    ([1, 0, 0], Face::West),
+    ([1, 1, 0], Face::West),
+    ([0, 0, 1], Face::North),
+    ([0, 1, 1], Face::North),
+    ([-1, 0, 0], Face::East),
+    ([-1, 1, 0], Face::East),
+    ([0, 0, -1], Face::South),
+    ([0, 1, -1], Face::South),
+];
+
+pub static BIO_GENERATOR: Spec = Spec {
+    kind: Kind::BioGenerator,
+    block: "oritech:bio_generator_block",
+    recipe_type: "oritech:bio_generator",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 0 },
+    inventory_size: 1,
+    gui_slots: &[slot(0, 80, 21)],
+    cores: &[[0, 1, 0]],
+    addon_slots: &[[1, 0, 0], [1, 1, 0]],
+    compacts_dust: false,
+    input_options: false,
+    generator: true,
+    outputs: BIO_AROUND,
+};
+
+pub static ALL: [&Spec; 7] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &BASIC_GENERATOR, &BIO_GENERATOR];
 
 /// The machine of a block id.
 pub fn of_block(block: &str) -> Option<&'static Spec> {
@@ -151,7 +249,9 @@ mod tests {
             assert!(spec.inventory_size <= 5, "every machine fits the hopper menu");
         }
         assert_eq!(of_block("oritech:fragment_forge_block").map(|s| s.recipe_type), Some("oritech:grinder"));
-        assert!(of_block("oritech:centrifuge_block").is_none());
+        assert!(of_block("oritech:atomic_forge_block").is_none());
+        assert_eq!(of_block("oritech:centrifuge_block").map(|s| s.cores.len()), Some(1));
+        assert!(of_block("oritech:basic_generator_block").is_some_and(|s| s.generator && s.recipe_type.is_empty()));
         assert!(!PULVERIZER.is_multiblock() && FOUNDRY.is_multiblock() && FRAGMENT_FORGE.cores.len() == 7);
     }
 }

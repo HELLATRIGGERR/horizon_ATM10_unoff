@@ -25,6 +25,9 @@ pub struct Config {
     pub fragment_forge: MachineSettings,
     pub assembler: MachineSettings,
     pub foundry: MachineSettings,
+    pub centrifuge: MachineSettings,
+    pub basic_generator: MachineSettings,
+    pub bio_generator: MachineSettings,
     /// `additiveAddons`: addon bonuses add up (true) or multiply.
     pub additive_addons: bool,
     /// `layeredExtenders`.
@@ -43,6 +46,9 @@ impl Default for Config {
             fragment_forge: MachineSettings::new(50_000, 256 * 8, 0, 256),
             assembler: MachineSettings::new(50_000, 128 * 8, 0, 128),
             foundry: MachineSettings::new(50_000, 128 * 8, 0, 128),
+            centrifuge: MachineSettings::new(10_000, 64 * 8, 0, 64),
+            basic_generator: MachineSettings::new(50_000, 0, 32 * 8, 32),
+            bio_generator: MachineSettings::new(100_000, 0, 64 * 8, 64),
             additive_addons: true,
             layered_extenders: false,
             burst_speed_multiplier: 8.0,
@@ -64,6 +70,9 @@ impl Config {
             Kind::FragmentForge => self.fragment_forge,
             Kind::Assembler => self.assembler,
             Kind::Foundry => self.foundry,
+            Kind::Centrifuge => self.centrifuge,
+            Kind::BasicGenerator => self.basic_generator,
+            Kind::BioGenerator => self.bio_generator,
         }
     }
 
@@ -73,6 +82,9 @@ impl Config {
             "fragmentForgeData" => Some(&mut self.fragment_forge),
             "assemblerData" => Some(&mut self.assembler),
             "foundryData" => Some(&mut self.foundry),
+            "centrifugeData" => Some(&mut self.centrifuge),
+            "basicGeneratorData" => Some(&mut self.basic_generator),
+            "bioGeneratorData" => Some(&mut self.bio_generator),
             _ => None,
         }
     }
@@ -124,6 +136,9 @@ mod tests {
         assert_eq!(c.pulverizer, MachineSettings::new(25_000, 256, 0, 32));
         assert_eq!(c.fragment_forge, MachineSettings::new(50_000, 2048, 0, 256));
         assert_eq!((c.assembler.energy_per_tick, c.foundry.energy_per_tick), (128, 128));
+        assert_eq!(c.centrifuge, MachineSettings::new(10_000, 512, 0, 64));
+        assert_eq!(c.basic_generator, MachineSettings::new(50_000, 0, 256, 32));
+        assert_eq!(c.bio_generator, MachineSettings::new(100_000, 0, 512, 64));
         assert!(c.additive_addons && !c.layered_extenders);
     }
 
@@ -145,6 +160,9 @@ mod tests {
         assert_eq!(c.fragment_forge, MachineSettings::new(50_000, 2048, 0, 512));
         assert_eq!(c.assembler, MachineSettings::new(50_000, 1024, 0, 128));
         assert_eq!(c.foundry, MachineSettings::new(50_000, 1024, 0, 256));
+        assert_eq!(c.centrifuge, MachineSettings::new(10_000, 512, 0, 128));
+        assert_eq!(c.basic_generator, MachineSettings::new(50_000, 0, 256, 64));
+        assert_eq!(c.bio_generator, MachineSettings::new(400_000, 0, 2048, 256));
         assert!(c.additive_addons);
     }
 }

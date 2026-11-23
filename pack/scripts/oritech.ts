@@ -83,7 +83,7 @@ function makeContent(): void {
   // A content mod refuses scripts and binaries (the jar carries a texture-colour helper script).
   cpSync(carry, content, { recursive: true, filter: path => !/\.(sh|bat|cmd|exe|ps1|py)$/i.test(path) });
   const blocks = join(content, 'data/oritech/horizon/block');
-  const machines = ['pulverizer_block.json', 'fragment_forge_block.json', 'assembler_block.json', 'foundry_block.json'];
+  const machines = ['pulverizer_block.json', 'fragment_forge_block.json', 'assembler_block.json', 'foundry_block.json', 'centrifuge_block.json', 'basic_generator_block.json', 'bio_generator_block.json'];
   for (const file of machines) {
     const path = join(blocks, file);
     if (!existsSync(path)) { console.warn(`${file} not in carry`); continue; }

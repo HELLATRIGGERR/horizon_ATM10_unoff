@@ -20,6 +20,12 @@ const HEIGHT: f32 = 166.0;
 const ENERGY: [f32; 4] = [8.0, 24.0, 16.0, 54.0];
 /// `getIndicatorConfiguration`: the arrow at (80, 35), 29 by 16.
 const ARROW: [f32; 4] = [80.0, 35.0, 29.0, 16.0];
+/// A generator's burn indicator: under its one slot at (80, 21).
+const BURN: [f32; 4] = [80.0, 43.0, 29.0, 16.0];
+
+fn arrow(generator: bool) -> [f32; 4] {
+    if generator { BURN } else { ARROW }
+}
 /// `LabelWidget.DARK_TEXT` and the panel's colours.
 const DARK: u32 = 0x404040;
 const PANEL: u32 = 0xFFC6C6C6;
@@ -130,11 +136,12 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
         pen.sprite(COMPONENTS, [0.0, src_y, 24.0, 96.0 - src_y], [ex, ey + eh - filled, ew, filled]);
     }
     // `ProgressDisplayWidget`: the empty arrow, then the full one from the left.
-    pen.sprite(ARROW_EMPTY, [0.0, 0.0, 29.0, 16.0], ARROW);
+    let arrow = arrow(spec.generator);
+    pen.sprite(ARROW_EMPTY, [0.0, 0.0, 29.0, 16.0], arrow);
     let share = v.progress_share();
-    let w = (ARROW[2] * share).floor();
+    let w = (arrow[2] * share).floor();
     if w > 0.0 {
-        pen.sprite(ARROW_FULL, [0.0, 0.0, (29.0 * share).floor(), 16.0], [ARROW[0], ARROW[1], w, ARROW[3]]);
+        pen.sprite(ARROW_FULL, [0.0, 0.0, (29.0 * share).floor(), 16.0], [arrow[0], arrow[1], w, arrow[3]]);
     }
     // A multiblock whose cores aren't all there: Java's controller says so in chat on the click that would open it.
     if spec.is_multiblock() && !v.active {
@@ -145,15 +152,18 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
 /// `native_screen_tooltip`: the energy bar's (`EnergyDataSource`: stored of capacity, the use a tick and the most it
 /// takes a tick) and the arrow's (the progress).
 pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
-    if machine::of_block(block).is_none() {
-        return;
-    }
+    let Some(spec) = machine::of_block(block) else { return };
     let Some(v) = MachineView::unpack(data) else { return };
     if inside(ENERGY, at) {
         lines.push(format!("{} / {} RF", v.energy, v.capacity));
-        lines.push(format!("§7Usage: {} RF/t", v.usage));
-        lines.push(format!("§7Max input: {} RF/t", v.insert));
-    } else if inside(ARROW, at) && v.total > 0 {
+        if spec.generator {
+            lines.push(format!("§7Production: {} RF/t", v.usage));
+            lines.push(format!("§7Max output: {} RF/t", v.insert));
+        } else {
+            lines.push(format!("§7Usage: {} RF/t", v.usage));
+            lines.push(format!("§7Max input: {} RF/t", v.insert));
+        }
+    } else if inside(arrow(spec.generator), at) && v.total > 0 {
         lines.push(format!("{}%", (v.progress_share() * 100.0).round() as i32));
     }
 }

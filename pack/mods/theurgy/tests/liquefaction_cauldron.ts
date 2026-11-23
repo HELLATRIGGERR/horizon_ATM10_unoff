@@ -6,7 +6,7 @@
  * - A picture of the lit cauldron goes to the run folder (`liquefaction_cauldron.png`). */
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { arena, carried, field, hand, handCount, isBlock, saved, slotCount, slotItem, tank, theurgyFixture, until } from './support/common';
+import { arena, carried, field, hand, handCount, isBlock, saved, slotCount, slotItem, tank, theurgyFixture, until, stand } from './support/common';
 
 const f = theurgyFixture('theurgy-liquefaction-cauldron');
 const log: Record<string, unknown> = {};
@@ -24,7 +24,7 @@ try {
   await f.command(`setblock ${cauldron} theurgy:liquefaction_cauldron[half=lower]`);
   await f.command(`setblock ${cauldronUpper} theurgy:liquefaction_cauldron[half=upper]`);
 
-  await f.command(`tp @s ${x + 0.5} ${y} ${z + 2.5} 180 10`);
+  await stand(f, x + 0.5, y + 1, z + 2.5, 180, 10);
 
   // Fill the solvent tank: a bucket of sal_ammoniac.
   await hand(f, 'theurgy:sal_ammoniac_bucket', 1);
@@ -61,7 +61,7 @@ try {
   assert(afterTank.amount < filled.amount, `the solvent was consumed: ${afterTank.amount} < ${filled.amount}`);
   f.mark('liquefaction produced alchemical_sulfur_acacia_log, solvent consumed');
 
-  await f.command(`tp @s ${x + 0.5} ${y + 1} ${z + 3.5} 180 25`);
+  await stand(f, x + 0.5, y + 1, z + 3.5, 180, 25);
   await Bun.sleep(1500);
   const shot = join(f.run, 'liquefaction_cauldron.png');
   await f.raw(`screenshot ${shot}`);

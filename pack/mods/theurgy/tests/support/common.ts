@@ -65,6 +65,12 @@ export async function arena(f: WorldFixture) {
   return { x, y, z, at };
 }
 
+/** Stands the player at (x, y, z) on a stone block of its own, so the eye can look down on a block at floor level. */
+export async function stand(f: WorldFixture, x: number, y: number, z: number, yaw: number, pitch: number): Promise<void> {
+  await f.command(`setblock ${Math.floor(x)} ${Math.floor(y) - 1} ${Math.floor(z)} minecraft:stone`);
+  await f.command(`tp @s ${x} ${y} ${z} ${yaw} ${pitch}`);
+}
+
 /** Puts `count` of `item` in the hand (hotbar 0, selected); none for an empty hand. */
 export async function hand(f: WorldFixture, item?: string, count = 1): Promise<void> {
   if (item) {

@@ -136,6 +136,21 @@ impl Crafter {
         is_active
     }
 
+    /// `tryContinueRecipe`: a multiblock matched again resumes its recipe once the outputs fit, and reserves their
+    /// slots again; true with nothing to resume.
+    pub fn try_continue(&mut self, book: &RecipeBook, inv: &mut Inventory, behavior: &mut impl Behavior) -> bool {
+        let Some(recipe) = self.load_active(book) else {
+            return true;
+        };
+        if put_item_outputs(&recipe, inv, true, false, behavior) && put_fluid_outputs(&recipe, inv, true, false, behavior) {
+            put_item_outputs(&recipe, inv, true, true, behavior);
+            put_fluid_outputs(&recipe, inv, true, true, behavior);
+            true
+        } else {
+            false
+        }
+    }
+
     /// `decreaseEfficiencyTicks`.
     pub fn decrease_efficiency_ticks(&mut self) {
         self.efficiency_ticks = (self.efficiency_ticks - 1).max(0);

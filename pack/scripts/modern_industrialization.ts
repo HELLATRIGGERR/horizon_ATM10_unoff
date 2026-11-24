@@ -17,6 +17,9 @@
 //                     every bundle under pack/mods
 //   HORIZON_MIXINS    the horizon-mixins binary              <base>/.build/target-mixins/debug/horizon-mixins
 //   AE2_RESOURCES     the prepared 26.3 resources            <base>/horizon/.local/resources/26.3
+//   ATM10_DIR         the player's ATM10 instance: `stage` reads its kubejs/startup_scripts/Modern-Industrialization/multiblocks/*.js
+//                     into the staged bundle's mi-core/data/kubejs_multiblocks.json (never into this repository)
+//                     C:/Users/<you>/curseforge/minecraft/Instances/All the Mods 10 - ATM10
 //   MI_JOBS           cargo jobs                             2
 //   MI_FEATURES       the game's Cargo features              ae2-lab (`-p horizon-game --no-default-features`)
 //   MI_TESTS          world tests to run (`machines`), all of pack/mods/modern_industrialization/tests by default
@@ -24,8 +27,9 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { profile } from '../../ae2/scripts/common';
-import { addLocalBundles, withLocalBundles } from './local-bundles';
+import { addLocalBundles } from './local-bundles';
 import { applyBundles, gameBuild, gameBuildEnv } from './hook-catalog';
+import { readInstance, writeData } from './mi-kubejs';
 
 const root = resolve(import.meta.dir, '../..');
 const base = resolve(root, '..');
@@ -39,6 +43,9 @@ const target = env('MI_TARGET', join(base, '.build/target-mi-game'));
 const toolTarget = env('MI_TOOL_TARGET', join(base, '.build/target-mi'));
 const mixins = env('HORIZON_MIXINS', join(base, `.build/target-mixins/debug/horizon-mixins${exe}`));
 const jobs = process.env.MI_JOBS ?? '2';
+const instance = env('ATM10_DIR', join(process.env.USERPROFILE ?? process.env.HOME ?? '', 'curseforge/minecraft/Instances/All the Mods 10 - ATM10'));
+/** The multiblocks of the instance's scripts, as the staged bundle's data file holds them (step `stage` writes it). */
+const kubejsData = join(stage + '-mods', 'modern_industrialization', 'mi-core/data/kubejs_multiblocks.json');
 const prepared = (path: string) => existsSync(join(root, path)) ? join(root, path) : join(base, 'horizon', path);
 const resources = process.env.AE2_RESOURCES ?? prepared('.local/resources/26.3');
 const cargoEnv = { ...process.env, CARGO_INCREMENTAL: '0', CARGO_PROFILE_DEV_DEBUG: '0', CARGO_PROFILE_TEST_DEBUG: '0', CARGO_PROFILE_FAST_DEBUG: '0', CARGO_PROFILE_FAST_INCREMENTAL: 'false' };
@@ -79,21 +86,40 @@ function syncStage(from: string, to: string): number {
   return written;
 }
 
-/** The bundles to apply: all of pack/mods, or with MI_ONLY this one alone. */
+/** Reads the instance's multiblock scripts into the staged copy of the bundle: one line for each script left out. */
+function stageKubejs(mods: string): void {
+  const { multiblocks, skipped } = readInstance(instance);
+  for (const line of skipped) console.log(`KubeJS multiblock script skipped: ${line}`);
+  const file = writeData(join(mods, 'modern_industrialization'), multiblocks);
+  console.log(`${multiblocks.length} KubeJS multiblock(s) read from ${instance} into ${file}: ${multiblocks.map(m => m.id).join(', ')}`);
+}
+
+/** The bundles to apply, in a scratch copy under the stage (the KubeJS data is written into it, not into the
+ * repository): all of pack/mods, or with MI_ONLY this one alone. */
 function mods(): string {
-  if (process.env.MI_ONLY !== '1') return withLocalBundles(join(root, 'pack/mods'), `${stage}-mods`);
-  const only = `${stage}-mods`;
+  const scratch = `${stage}-mods`;
+  if (process.env.MI_ONLY !== '1') {
+    rmSync(scratch, { recursive: true, force: true });
+    const leftOut = new Set(['tests', 'target', 'Cargo.lock', '.git']);
+    cpSync(join(root, 'pack/mods'), scratch, { recursive: true, filter: path => !relative(join(root, 'pack/mods'), path).split(/[\\/]/).some(part => leftOut.has(part)) });
+    addLocalBundles(scratch);
+    stageKubejs(scratch);
+    return scratch;
+  }
+  const only = scratch;
   rmSync(only, { recursive: true, force: true });
   const leftOut = new Set(['tests', 'target', 'Cargo.lock']);
   cpSync(bundle, join(only, 'modern_industrialization'), { recursive: true, filter: path => !relative(bundle, path).split(/[\\/]/).some(part => leftOut.has(part)) });
   addLocalBundles(only);
+  stageKubejs(only);
   return only;
 }
 
 const steps: Record<string, () => Promise<void>> = {
   async units() {
     try {
-      await run(['cargo', 'test', '--offline', '-j', jobs, '--manifest-path', join(bundle, 'mi-core/Cargo.toml'), '--target-dir', toolTarget]);
+      // Against the staged KubeJS data when a stage has written it: the test that forms each multiblock then runs.
+      await run(['cargo', 'test', '--offline', '-j', jobs, '--manifest-path', join(bundle, 'mi-core/Cargo.toml'), '--target-dir', toolTarget], root, { ...cargoEnv, MI_KUBEJS_MULTIBLOCKS: existsSync(kubejsData) ? kubejsData : '' });
     } finally { dropCrateLock(); }
   },
   async stage() {
@@ -109,22 +135,32 @@ const steps: Record<string, () => Promise<void>> = {
     await run(['cargo', 'build', '--locked', '--profile', profile, ...gameBuild(process.env.MI_FEATURES ?? 'ae2-lab'), '-j', jobs, '--target-dir', target], stage, gameBuildEnv(root, cargoEnv));
   },
   /** The carry as a content mod the world test loads. The carry's machine blocks are on a template that opens
-   * no menu (`minecraft:andesite`: a use answers ok and nothing opens), so each machine the bundle ports takes
-   * the `minecraft:beacon` template, as Mekanism's machines do; nothing else of the carry changes. */
+   * no menu (`minecraft:andesite`: a use answers ok and nothing opens), so each machine, hatch and multiblock
+   * controller the bundle ports takes the `minecraft:beacon` template, as Mekanism's machines do; nothing else of the
+   * carry changes. */
   async content() {
     if (!existsSync(join(carry, 'horizon-mod.toml'))) throw new Error(`No carry of Modern Industrialization at ${carry} (MI_CARRY).`);
     rmSync(content, { recursive: true, force: true });
     cpSync(carry, content, { recursive: true });
-    const machines = [...readFileSync(join(bundle, 'mi-core/src/machines.rs'), 'utf8').matchAll(/^\s+id: "(electric_\w+)",$/gm)].map(m => m[1]);
-    if (machines.length === 0) throw new Error('No machine ids found in mi-core/src/machines.rs');
+    const ids = (file: string, pattern: RegExp) => [...readFileSync(join(bundle, 'mi-core/src', file), 'utf8').matchAll(pattern)].map(m => m[1]);
+    const machines = [
+      ...ids('machines.rs', /^\s+id: "(electric_\w+)",$/gm),
+      ...ids('hatches.rs', /^\s+(?:item|fluid|energy)\("(\w+_hatch)",/gm),
+      ...ids('multiblocks.rs', /^\s+id: "(\w+)",$/gm),
+      ...(existsSync(kubejsData) ? (JSON.parse(readFileSync(kubejsData, 'utf8')).multiblocks as { id: string }[]).map(m => m.id) : []),
+    ];
+    if (machines.length === 0) throw new Error('No machine ids found in mi-core/src');
+    const applied: string[] = [], skipped: string[] = [];
     for (const id of machines) {
       const file = join(content, `data/modern_industrialization/horizon/block/${id}.json`);
-      if (!existsSync(file)) throw new Error(`The carry has no block definition for ${id}: ${file}`);
+      if (!existsSync(file)) { skipped.push(id); continue; } // KubeJS-registered machines are not in the static carry
       const block = JSON.parse(readFileSync(file, 'utf8'));
       block.template = 'minecraft:beacon';
       writeFileSync(file, JSON.stringify(block, null, 2) + '\n');
+      applied.push(id);
     }
-    console.log(`${machines.length} machine block(s) of ${content} on the beacon template: ${machines.join(', ')}`);
+    if (skipped.length > 0) console.log(`${skipped.length} machine(s) skipped (KubeJS-registered, not in carry): ${skipped.join(', ')}`);
+    console.log(`${applied.length} machine block(s) of ${content} on the beacon template: ${applied.join(', ')}`);
   },
   async world() {
     await steps.content();

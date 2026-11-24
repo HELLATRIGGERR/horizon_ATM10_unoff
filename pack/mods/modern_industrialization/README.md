@@ -31,6 +31,18 @@ pack's `final-data`), loaded as a `--dev-mod`. MI's source is read from a clone 
 - `runtime/mi_world.rs`, `runtime/mi_ui.rs`: the block entity, its slots and saved compound, the world's recipes,
   Forge Energy, `/mi probe`, and the screen as `MachineScreen` draws it.
 
+## KubeJS multiblocks
+
+ATM10 registers more multiblocks through MI's KubeJS API (`kubejs/startup_scripts/Modern-Industrialization/multiblocks/*.js` of the
+player's instance). Their scripts are the pack author's, so none of their shapes, keys or block lists is in this
+repository: the `stage` step of `pack/scripts/modern_industrialization.ts` reads the declarative calls (`memberOfBlock`,
+`hatchOf`, `noHatch`, `layeredShape(...).key(...)`, `simpleElectricCraftingMultiBlock`, `register(...).with*()`) with
+`pack/scripts/mi-kubejs.ts` and writes them into the staged copy of this crate as `mi-core/data/kubejs_multiblocks.json`.
+`mi-core/build.rs` embeds that file and `multiblocks::parse_kubejs` builds each `ShapeTemplate` from it through
+`LayeredBuilder`. A script that uses another form is skipped, with one line naming it when it is staged; a stage with
+no instance builds no KubeJS multiblock. `bun test pack/scripts/mi-kubejs.test.ts` tests the reader; `units` runs
+`multiblocks::staged_kubejs_multiblocks_form` against the staged file.
+
 ## On upstream's hooks (merge of nightly-source/2026-11-18)
 
 - `forgeEnergyPerEu` is read at `server_started`; it and the recipe books are dropped at `world_lifecycle`'s close

@@ -446,16 +446,31 @@ pub fn renamed_assets(v: &mut Value) -> bool {
 /// A 1.21.1 advancement in 26.3's shape, in place: an `enter_block`
 /// criterion names its block as `blocks`, which 26.3 reads as a block list.
 /// 26.3 skips the old `block` field, so the criterion matched any block the
-/// player entered (Regions Unexplored's "Downer" on the first dive).
+/// player entered (Regions Unexplored's "Downer" on the first dive). An entity
+/// predicate written where a criterion reads its entities' conditions is one
+/// `entity_properties` condition ([`wrap_entity_predicate`]).
 pub fn upgrade_advancement(v: &mut Value) -> bool {
     let mut changed = false;
     let criteria = v.get_mut("criteria").and_then(Value::as_object_mut);
     for c in criteria.into_iter().flat_map(|o| o.values_mut()) {
-        let trigger = c.get("trigger").and_then(Value::as_str);
-        if !matches!(trigger, Some("minecraft:enter_block" | "enter_block")) {
+        let trigger = c.get("trigger").and_then(Value::as_str).unwrap_or_default();
+        let trigger = trigger.trim_start_matches("minecraft:").to_owned();
+        let Some(conditions) = c.get_mut("conditions").and_then(Value::as_object_mut) else {
             continue;
+        };
+        for field in std::iter::once("player").chain(criterion_entities(&trigger).iter().copied()) {
+            if let Some(p) = conditions.get_mut(field) {
+                changed |= wrap_entity_predicate(p);
+            }
         }
-        if let Some(conditions) = c.get_mut("conditions").and_then(Value::as_object_mut)
+        if matches!(trigger.as_str(), "channeled_lightning" | "killed_by_arrow")
+            && let Some(Value::Array(victims)) = conditions.get_mut("victims")
+        {
+            for p in victims {
+                changed |= wrap_entity_predicate(p);
+            }
+        }
+        if trigger == "enter_block"
             && !conditions.contains_key("blocks")
             && let Some(block) = conditions.remove("block")
         {
@@ -464,6 +479,83 @@ pub fn upgrade_advancement(v: &mut Value) -> bool {
         }
     }
     changed
+}
+
+/// The fields of a criterion of `trigger` besides `player` that hold the
+/// conditions of an entity (1.21.1's `EntityPredicate.ADVANCEMENT_CODEC`).
+fn criterion_entities(trigger: &str) -> &'static [&'static str] {
+    match trigger {
+        "bred_animals" => &["parent", "partner", "child"],
+        "cured_zombie_villager" => &["zombie", "villager"],
+        "effects_changed" => &["source"],
+        "fall_after_explosion" => &["cause"],
+        "lightning_strike" => &["lightning", "bystander"],
+        "target_hit" => &["projectile"],
+        "villager_trade" => &["villager"],
+        "fishing_rod_hooked"
+        | "player_killed_entity"
+        | "entity_killed_player"
+        | "kill_mob_near_sculk_catalyst"
+        | "thrown_item_picked_up_by_entity"
+        | "thrown_item_picked_up_by_player"
+        | "player_hurt_entity"
+        | "player_interacted_with_entity"
+        | "player_sheared_equipment"
+        | "summoned_entity"
+        | "tame_animal" => &["entity"],
+        _ => &[],
+    }
+}
+
+/// The loot condition types of 26.3 and 1.21.1, by which a condition written
+/// with `type` is told from an entity predicate naming its entity's `type`.
+const CONDITION_TYPES: [&str; 23] = [
+    "all_of",
+    "any_of",
+    "block_state_property",
+    "damage_source_properties",
+    "enchantment_active_check",
+    "entity_properties",
+    "entity_scores",
+    "environment_attribute_check",
+    "float_value_check",
+    "int_value_check",
+    "inverted",
+    "killed_by_player",
+    "location_check",
+    "match_block",
+    "match_tool",
+    "random_chance",
+    "random_chance_with_enchanted_bonus",
+    "reference",
+    "survives_explosion",
+    "table_bonus",
+    "time_check",
+    "value_check",
+    "weather_check",
+];
+
+/// 1.21.1 read an advancement's entity conditions as a list of loot conditions
+/// or as one bare entity predicate (`{"location": ...}`, Nullscape's and
+/// Auroral's advancements); 26.3 reads one condition and refuses the bare
+/// predicate, and with it the whole data load. The predicate becomes the
+/// `entity_properties` condition on the entity itself that 1.21.1 made of it
+/// (`EntityPredicate.wrap`), in 26.3's shape. A list or a condition stays.
+fn wrap_entity_predicate(p: &mut Value) -> bool {
+    let Some(o) = p.as_object() else {
+        return false;
+    };
+    let condition_type = o
+        .get("type")
+        .and_then(Value::as_str)
+        .is_some_and(|t| CONDITION_TYPES.contains(&t.trim_start_matches("minecraft:")));
+    if o.contains_key("condition") || condition_type {
+        return false;
+    }
+    let mut predicate = p.take();
+    upgrade_entity_predicate(&mut predicate);
+    *p = json!({"type": "minecraft:entity_properties", "entity": "this", "predicate": predicate});
+    true
 }
 
 /// A 1.21.1 loot table in 26.3's shape, in place: `conditions` lists become
@@ -484,6 +576,19 @@ pub fn upgrade_loot(v: &mut Value) {
                 && let Some(Value::String(tag)) = o.remove("name")
             {
                 o.insert("items".to_owned(), json!(format!("#{}", tag.trim_start_matches('#'))));
+            }
+            // An entry of 1.21.1's empty table (`BuiltInLootTables.EMPTY`, which no file
+            // defines): 26.3 binds an entry's tables as holders, finds no `minecraft:empty`
+            // and refuses the whole data load. An `empty` entry drops the same nothing.
+            let kind = o.get("type").and_then(Value::as_str).unwrap_or_default();
+            if matches!(kind, "minecraft:loot_table" | "loot_table")
+                && matches!(
+                    o.get("value").and_then(Value::as_str),
+                    Some("minecraft:empty" | "empty")
+                )
+            {
+                o.remove("value");
+                o.insert("type".to_owned(), json!("minecraft:empty"));
             }
             if let Some(Value::Array(pools)) = o.get_mut("pools") {
                 for pool in pools {
@@ -2406,6 +2511,58 @@ mod tests {
         // Already 26.3's: unchanged.
         assert!(!upgrade_advancement(&mut a));
         assert!(!upgrade_advancement(&mut json!({"parent": "m:root"})));
+    }
+
+    #[test]
+    fn bare_entity_predicates_of_criteria_are_entity_conditions() {
+        let mut a = json!({"criteria": {
+            "visit": {"trigger": "minecraft:location",
+                "conditions": {"player": {"location": {"biomes": "m:peaks"}}}},
+            "ride": {"trigger": "minecraft:started_riding",
+                "conditions": {"player": {"vehicle": {"type": "minecraft:pig"}}}},
+            "kill": {"trigger": "minecraft:player_killed_entity",
+                "conditions": {"entity": {"type": "minecraft:wither"}}},
+            "listed": {"trigger": "minecraft:tick", "conditions": {"player": [
+                {"condition": "minecraft:entity_properties", "entity": "this",
+                    "predicate": {"location": {"biomes": "m:peaks"}}}]}},
+            "typed": {"trigger": "minecraft:tick", "conditions": {"player":
+                {"type": "minecraft:inverted", "term": "m:any"}}}}});
+        assert!(upgrade_advancement(&mut a));
+        let condition = |predicate: Value| json!({"type": "minecraft:entity_properties", "entity": "this", "predicate": predicate});
+        assert_eq!(
+            a["criteria"]["visit"]["conditions"]["player"],
+            condition(json!({"minecraft:location": {"biomes": "m:peaks"}}))
+        );
+        assert_eq!(
+            a["criteria"]["ride"]["conditions"]["player"],
+            condition(json!({"minecraft:vehicle": {"minecraft:entity_type": "minecraft:pig"}}))
+        );
+        assert_eq!(
+            a["criteria"]["kill"]["conditions"]["entity"],
+            condition(json!({"minecraft:entity_type": "minecraft:wither"}))
+        );
+        // A list of conditions and a condition stay; a second pass changes nothing.
+        assert!(a["criteria"]["listed"]["conditions"]["player"].is_array());
+        assert_eq!(
+            a["criteria"]["typed"]["conditions"]["player"]["type"],
+            "minecraft:inverted"
+        );
+        assert!(!upgrade_advancement(&mut a));
+    }
+
+    #[test]
+    fn entries_of_the_empty_table_are_empty_entries() {
+        let mut table = json!({"pools": [{"rolls": 1.0, "entries": [
+            {"type": "minecraft:loot_table", "value": "minecraft:empty", "weight": 3},
+            {"type": "minecraft:loot_table", "value": "m:chests/tower"},
+            {"type": "minecraft:item", "name": "minecraft:paper"}]}]});
+        upgrade_loot(&mut table);
+        assert_eq!(
+            table["pools"][0]["entries"],
+            json!([{"type": "minecraft:empty", "weight": 3},
+                {"type": "minecraft:loot_table", "value": "m:chests/tower"},
+                {"type": "minecraft:item", "name": "minecraft:paper"}])
+        );
     }
 
     #[test]

@@ -1,0 +1,9 @@
+[package]
+name = "oritech-core"
+version = "0.1.0"
+edition = "2024"
+license = "CC0-1.0"
+description = "Oritech 1.2.13's processing machine rules (recipes, the machine tick, energy, multiblock cores), translated from its CC0 source"
+
+[dependencies]
+serde_json = "1"

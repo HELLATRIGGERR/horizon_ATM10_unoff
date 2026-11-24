@@ -1,7 +1,8 @@
 /** Just Dire Things' Block Swapper T1, as the `justdirethings` native bundle and the content mod made from the carry of the
  * player's jar (the swapper on the furnace template) make it.
  *
- * - Two swappers and a Ferricore Wrench: the wrench used (sneaking) on one, then on the other, binds them (`boundTo` saved on both).
+ * - Two swappers and a Ferricore Wrench: the wrench used on one, then on the other (plain clicks, as Java: the machine passes the
+ *   wrench's click on to it instead of opening its menu), binds them (`boundTo` saved on both) and opens no menu.
  * - A pulse (a redstone block set beside the first): the blocks in front of the two trade places.
  * - The entity button (one right click: "all"): a cow standing in front of the first is in front of the second after the
  *   next pulse.
@@ -53,12 +54,14 @@ try {
 
   // The wrench binds them.
   await fixture.replace('hotbar.0', 'justdirethings:ferricore_wrench', 1);
-  await fixture.sneakInteract(`${a} south`);
+  await fixture.raw(`interact ${a} south`);
   await Bun.sleep(600);
-  await fixture.sneakInteract(`${b} south`);
+  assert.notEqual((await fixture.raw('screen')).screen, 'container', 'the wrench opens no menu');
+  await fixture.raw(`interact ${b} south`);
   await until(() => saved(a), s => s.includes('boundTo'), 'the first swapper is bound');
   await until(() => saved(b), s => s.includes('boundTo'), 'the second swapper is bound');
-  fixture.mark('the wrench used on the two swappers binds them');
+  assert.notEqual((await fixture.raw('screen')).screen, 'container', 'the wrench opens no menu');
+  fixture.mark('the wrench used (plain clicks) on the two swappers binds them, and no menu opens');
 
   // A pulse: the blocks trade places.
   await power(true);

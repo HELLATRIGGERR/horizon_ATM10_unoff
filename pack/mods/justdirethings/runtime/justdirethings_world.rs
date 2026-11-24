@@ -402,6 +402,23 @@ pub(super) fn take_use() -> bool {
     USE_TAKEN.with(|u| u.replace(false))
 }
 
+/// The machines (`BaseMachineBlock`'s), all on the furnace template, which opens their menu on a click.
+const MACHINES: &[&str] = &[
+    GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR, DROPPER, FLUID_PLACER, SENSOR, FLUID_GEN, SWAPPER,
+];
+
+/// `BaseMachineBlock.useWithoutItem` on the server: with the Ferricore Wrench or the Machine Settings Copier in the main hand
+/// the machine passes (`InteractionResult.PASS`), so the item's `useOn` gets the click instead of the menu opening.
+pub(super) fn use_without_item(game: &mut Game<'_>, state: BlockStateId, answer: &mut Option<mod_api::InteractionResult>) {
+    if answer.is_some() || game.remote.is_some() || !game.native_state_block(state).is_some_and(|b| MACHINES.contains(&b)) {
+        return;
+    }
+    let item = game.native_used_stack().as_ref().map(|s| s.item.to_string());
+    if matches!(item.as_deref(), Some("justdirethings:ferricore_wrench" | "justdirethings:machinesettingscopier")) {
+        *answer = Some(mod_api::InteractionResult::Pass);
+    }
+}
+
 /// `GooBlock_Base.useItemOn`: a dead goo fed an item of its tier's revive tag comes alive, with the sculk's spread
 /// sound, and the item is used up unless the player is in creative. On the server only: a client leaves the world to
 /// the server.
@@ -410,8 +427,8 @@ pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     if game.remote.is_some() {
         return;
     }
-    // The Ferricore Wrench binds two swappers (`FerricoreWrench.useOn`). A swapper's own menu answers a plain click first, so
-    // the wrench reaches the item with a sneaking click.
+    // The Ferricore Wrench binds two swappers (`FerricoreWrench.useOn`): a machine passes its click on to the wrench
+    // (`use_without_item`).
     swapper::wrench(game, &stack.item, pos);
     if swapper::take_use() {
         USE_TAKEN.with(|u| u.set(true));

@@ -4,7 +4,9 @@
  * - Its screen opens on a click with no slot of its own; the radius button on X widens the area (the row in front of
  *   it) to three blocks, and the snapshot button keeps the ores there (the tag `justdirethings:paradox_allow`; stone
  *   is left out) and the pig standing in it.
- * - The ores mined and the pig killed, the machine holds Forge Energy and time fluid (set in its saved compound). On its redstone pulse (its default mode) it restores the two ores and the pig (same UUID) after 30 ticks,
+ * - The ores mined and the pig killed, a bucket of time fluid used on the machine (survival) fills its tank and leaves the empty
+ *   bucket in the hand, with no menu opening (`ParadoxMachine.useItemOn`); with Forge Energy set in its saved compound, on
+ *   its redstone pulse (its default mode) it restores the two ores and the pig (same UUID) after 30 ticks,
  *   for 750,000 FE and 150 mB, and holds 0.75 paradox energy.
  * - A picture of the screen goes to the run folder (`paradox.png`).
  *
@@ -82,9 +84,19 @@ try {
   await until(() => pig(), v => !v, 'the pig is gone');
   await fixture.command('kill @e[type=minecraft:item]');
 
-  // The bucket's own route (`ParadoxMachine.useItemOn`) needs `use_item_on`, which the engine gates on a trait mod's Part: see NOTES.
-  await fixture.command(`data merge block ${pos} {energy:10000000, timeFluid:1000}`);
-  nbt = await until(() => saved(pos), s => field(s, 'timeFluid') === 1000, 'the tank holds the time fluid');
+  // A bucket of time fluid used on the machine: its `useItemOn` (the bundle's `use_item_on`) moves it into the tank, the empty
+  // bucket comes back to the hand in survival, and the click ends there (no menu).
+  await fixture.command('gamemode survival @s');
+  await fixture.replace('hotbar.0', 'justdirethings:time_fluid_bucket', 1);
+  await fixture.raw(`interact ${pos} south`);
+  nbt = await until(() => saved(pos), s => field(s, 'timeFluid') === 1000, 'the bucket fills the tank');
+  await until(() => fixture.raw('inventory'), v => v.hotbar?.[0]?.item === 'minecraft:bucket', 'the empty bucket is in the hand');
+  await Bun.sleep(500);
+  assert.notEqual((await fixture.raw('screen')).screen, 'container', 'the bucket opens no menu');
+  fixture.mark('a bucket of time fluid used on the machine fills its tank (1,000 mB) and leaves the empty bucket in the hand');
+  await fixture.command('item replace entity @s hotbar.0 with minecraft:air');
+  await fixture.command(`data merge block ${pos} {energy:10000000}`);
+  nbt = await until(() => saved(pos), s => field(s, 'energy') === 10000000 && field(s, 'timeFluid') === 1000, 'the tank holds the time fluid');
   assert.equal(field(nbt, 'energy'), 10000000);
   await Bun.sleep(2000);
   assert(await is(iron, 'minecraft:air'), 'no pulse, no run');

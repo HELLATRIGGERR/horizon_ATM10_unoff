@@ -125,12 +125,10 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
 5. `tools/atm10/load-check` reads them as the game does; `tools/atm10/play-atm10.ts` passes each carry to the game as a
    `--dev-mod` (`measure-load.ps1` measures a start).
 
-A carry gives each block a vanilla template, and the engine reads a click on it through the template. A bundle's
-`native_right_click_block` hooks (API 21 and v2) hear every click on every block, whatever the template, before the
-block's own use. A menu opens only through a template whose class opens one (`use_without_item`: furnaces, chests,
-barrels, hoppers...), with the block entity's container (hook 417) behind it; and an item's click reaches
-`native_use_item_on` (424) only when the template's own use passed, so a template that opens a menu answers it first.
-So the carry reads each block's class and its block entity's from the jar (`classes::Hierarchy`: names, superclasses
+A carry gives each block a vanilla template, and the engine reads a click on it through the template, with the bundles'
+hooks in vanilla's order ("A click on a mod block" below). A template whose class opens a menu (furnaces, chests,
+barrels, hoppers...) opens it with the block entity's container (hook 417) behind it, before the item's `useOn`. So the
+carry reads each block's class and its block entity's from the jar (`classes::Hierarchy`: names, superclasses
 and interfaces, never a method body) and chooses by what Java does on a click. A block that cooks (it extends
 `AbstractFurnaceBlock`, or its block entity extends `AbstractFurnaceBlockEntity` or implements `RecipeCraftingHolder`)
 and has the furnace's `facing` and `lit` takes `minecraft:furnace` (a smoker's or blast furnace's own class keeps that
@@ -139,9 +137,46 @@ template it would have, one that opens nothing, and `carry-report.json` says Jav
 template. Iron Furnaces' thirteen furnaces are on `minecraft:furnace` in a carry made so (the heater stays on
 `iron_block`), and the bundle's `furnace` world test passes on that carry as it is. Powah's furnators are not cookers
 and their block entity is not a `MenuProvider` (it implements `IInventoryHolder`), so they stay on the carved pumpkin.
-Only a menu-opening template opens a mod block entity's container on a click, so a machine that opens a menu without
-cooking (Powah's furnators; a mod's own `MenuProvider`s) gets its screen from a bundle's content step, which moves it to
-one, until the engine opens a mod container from the click itself.
+A block whose template opens no menu opens its block entity container's own (`ModContainer.menu`) when the template's
+use passes, so a machine that opens a menu without cooking (a mod's own `MenuProvider`s) needs no menu template; Powah's
+content step still moves its furnators to one.
+
+### A click on a mod block
+
+A right click on a block runs `ServerPlayerGameMode.useItemOn`'s steps (26.3, NeoForge's events where it has them), on
+the server thread and in-frame alike (`items/use_hand.rs`):
+
+1. `right_click_block` (`PlayerInteractEvent.RightClickBlock`) hears every click on every block; it can answer for the
+   block and the item, or deny or force either. Then the held item's `on_item_use_first`.
+2. Unless the player sneaks with something in either hand (or `right_click_block` forced the block), the block's
+   `useItemOn`: a bundle's `use_item_on`, then, for a block a bundle names with `fluid_interact_on_use`, a fluid container
+   in the hand (a bucket, a mod's container) filled from the block entity's fluid handler through the side clicked, or
+   else emptied into it, as `FluidUtil.interactWithFluidHandler` (`native_fluid_interact`: the fluid's bucket sound, the
+   container swapped in survival and kept in creative), then the template's. An answer that consumes the click ends it.
+3. On `TryWithEmptyHand` (the default), main hand only, `useWithoutItem`: a bundle's `use_without_item`, then the
+   template's, then, where that passes, the menu of the block entity's container (`native_block_entity_container`).
+4. The item's `useOn` (`use_item_on_block` in its item phase, `use_on`, then vanilla's), and `Item.use` after it.
+
+`use_item_on`, `use_without_item` and `use_item_on_block` run for a staged bundle's injection (`fork_compat::GATES`)
+as for a trait mod's part; an injection is not scoped to a block, so every block's use asks it and the helper checks the
+block itself. A Ferricore Wrench on a Just Dire Things machine (`use_without_item` passes) reaches the wrench's `useOn`;
+a bucket on the Paradox Machine (`use_item_on`) or an Oritech machine (`fluid_interact_on_use`, the fork's compat hook)
+fills its tank. A client predicts SUCCESS (the hand swings, no `UseItem` follows) for a fluid container on a block a
+bundle names with `fluid_interact_on_use` and for a mod container's menu; the server's `use_item_on` and
+`use_without_item` stay the server's, so a machine on the furnace template is predicted by that template's menu.
+NeoForge's `doesSneakBypassUse` is not modelled: a bundle whose item uses a block while sneaking forces the block
+(`use_block`) in `right_click_block`.
+
+`native_world_recipes()` reads every recipe of the world as `native_recipes()` does, and also on a server's `Game`
+(the server thread, a dedicated server), which has no player: a bundle builds its index at `server_started`
+(woodworking's station).
+
+Not built: a fake player for the Clicker (Just Dire Things). The design: a server-side `native_fake_use(pos, face, hand,
+stack, action)` that builds a `BlockClick` for a fake player (a UUID of its own, the machine's position and facing, the
+stack as the hand) and runs steps 1 to 4 above through `as_guest`'s swap (`lan_actions.rs`) with that player in place
+of a guest, for `Use` (right click), `Attack` (left click: `tick_mining` against the block in front, `break_block` when
+done) and `Hold` (repeating `Use` while held, `releaseUsing` at the end); the stack comes back changed (a used bucket, a
+worn tool) and the result says what consumed it.
 
 What ATM10 8.4 gives (2 November 2026): 287 carries, 40,557 blocks with 873,394 states (plus vanilla's and AE2's,
 about 910,000 of `MAX_STATES`' 1,048,576), 14,218 items; the load check has 289 mods on and none refused. A block
@@ -791,7 +826,7 @@ crate has unit tests of the config, the recipes, the goo's tick, the redstone mo
 fluid drop, the crystal's growth, the Paradox Machine, the placer and the collectors and the screens' data; the world
 tests in `tests/` (`goo`, `generator`, `breaker`, `fluid`, `crystal`, `paradox`, `placer`, `collector`,
 `itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`, `swapper`, `tools`) check them in game time. Not ported yet: the Clicker (it needs
-an engine helper for a fake player's clicks and the `use_item_on` gating), the T2 machines and the Energy Transmitter, the goo
+an engine helper for a fake player's clicks), the T2 machines and the Energy Transmitter, the goo
 soils, the paradox entity and the time wand, the tools, armour and abilities; `NOTES.md` lists them with the
 differences from Java.
 
@@ -830,12 +865,12 @@ Over the full pack's recipe graph the generator makes 19,064 recipes in about 0.
 tools and signposts, whose recipes are not plain crafting from wood, make up about 1,300 of the missing ones. The extra ones are
 generic shapes (a framed cube, cups, shelves) offered to families the reference set leaves out.
 
-**Container and screen.** A right click on the station (`right_click_block`) opens its menu; the block's own data
-declares none. The station has a nine-slot `generic_9x1` container. Slot 0 is the input and slot 1 the output
+**Container and screen.** A click on the station opens its container's menu: the block's template opens none, and the
+engine opens a mod block entity container's own menu there ("A click on a mod block" above). The station has a nine-slot `generic_9x1` container. Slot 0 is the input and slot 1 the output
 (read-only); the screen hides the other seven. `entity.data` carries the recipe count, the selected recipe and the input
 item id, two bytes per value because menu data reaches the client as 16-bit values. The client's `screen_draw` reads it
-to draw a 4 × 3 grid of recipe icons. The recipes are read with a player in place, so the first right click builds the
-index, once per world, and the window's client and its server thread share it. A left click on a cell crafts it:
+to draw a 4 × 3 grid of recipe icons. The server builds the index from its recipes when it opens the world (`native_world_recipes`, which needs no
+player); the window's client shares it, and a client in another process builds its own on first use. A left click on a cell crafts it:
 one input is consumed and the result lands in the output slot. A right click or the scroll button (id `-2`) moves the
 grid.
 

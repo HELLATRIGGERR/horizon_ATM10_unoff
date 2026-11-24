@@ -105,10 +105,9 @@ the v5 resources and the empty content mod in AE2's place.
   order.
 - Fluid drop: a fluid the output's fluid type vaporizes where it lands (Java's `isVaporizedOnPlacement`, water in the
   Nether) stays; Java turns it to air with its vaporize effect.
-- Paradox Machine: a bucket held on it does not fill or empty the tank: the engine calls `use_item_on` only when a trait
-  mod's Part listens to it, so a native bundle's mixin on it never runs (the world test sets `timeFluid` in the saved
-  compound). Fluid pipes use the tank handler hooks and work. The way out is a `listened` gate for it, as
-  `entity_tick_listened`, or the item-side `use_on` v2 as Iron Furnaces uses it.
+- Paradox Machine: a fluid container used on it moves fluid by NeoForge's `FluidUtil.interactWithFluidHandler` rules (the
+  engine's `native_fluid_interact`: a bucket whole, the fluid's bucket sounds), where Java's own `useItemOn` plays the
+  bucket-fill sound and fills a container in part.
 - Paradox Machine: the paradox itself (the entity a full paradox energy spawns) is not ported, so paradox energy stays
   at its most once full; the area and paradox renders (`renderArea`, `renderParadox`) are saved but not drawn.
   The fluid in its screen's bar is drawn in a plain green tint.
@@ -138,8 +137,8 @@ the v5 resources and the empty content mod in AE2's place.
   place; a swapper bound across dimensions reads as missing); a block with a block entity (a chest, a machine) is not
   swapped (no engine helper moves a block entity's contents between positions; Java moves them with their NBT); the
   swap writes both states with neighbour and client updates (flags 3), where Java writes with 51 and then validates the
-  blocks (`canSurvive`, `updateFromNeighbourShapes`); no particles; the bind is by a sneaking click of the wrench (the
-  swapper's menu answers a plain click before the item does, and `use_item_on` is gated, see the Paradox note), the
+  blocks (`canSurvive`, `updateFromNeighbourShapes`); no particles; the bind is by a plain click of the wrench, as Java's (the machine passes the
+  wrench's click on, `use_without_item`; a sneaking click does nothing, where Java's wrench turns the block), the
   first swapper clicked is remembered by the game (not on the wrench: no foil, no tooltip) and the messages Java shows
   ("Bound to", "Binding Removed") are not shown; the entity filter is by kind only (the T2's filter slots are not ported).
 - Tools and armour: celestigem's and eclipse alloy's attribute modifiers come from the content step (the carry has none);
@@ -150,7 +149,7 @@ the v5 resources and the empty content mod in AE2's place.
 
 See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Clicker T1 (it needs an engine helper for a
 fake player's clicks: the use of the held item on a block or entity in front of it, and left or right click with a hold,
-through the same path as a player's `use_item_on`, which the engine gates on a trait mod's Part), the Block Swapper's
+through the same path as a player's use; `docs/atm10-port.md` has a design), the Block Swapper's
 cross-dimension swap and block entities, the T2 machines (area, filter slots and a 100,000 FE buffer on each; the Block
 Placer T2 and Block Breaker T2 are the nearest), the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
 accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the

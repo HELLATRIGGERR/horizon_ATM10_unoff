@@ -1,6 +1,7 @@
 /** Woodworking station: a stonecutter-like interface over an external station block.
  *
- * - Opening the station brings up a 2-slot screen (input=0, output=1) with a 4x3 recipe grid.
+ * - A click on the station with oak logs in hand opens its 2-slot screen (input=0, output=1) with a 4x3 recipe grid: the
+ *   block's template opens no menu, the engine opens its container's, and no log is placed against it.
  * - Placing an oak log in the input slot populates the grid with oak-family recipes.
  * - Clicking the first recipe cell selects and executes a recipe: one log is consumed and the
  *   output slot fills; taking the output moves it to the inventory.
@@ -22,6 +23,7 @@ const fixture = new WorldFixture('woodworking-station', 'server-thread', { devMo
 const slot = (view: any, n: number) => (view.slots as any[] | undefined)?.find(s => s.slot === n);
 const ownSlots = (view: any) => (view.slots as any[] | undefined)
   ?.filter(s => s.slot >= 300 && s.slot < 400).map(s => s.slot - 300) ?? [];
+const passed = (reply: any) => (reply.chat ?? []).some((line: string) => /Test passed/i.test(line));
 
 try {
   const start = await fixture.start();
@@ -34,11 +36,14 @@ try {
   await fixture.command(`setblock ${pos} ${stationBlock}`);
   await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 2.5}`);
   await until(() => fixture.raw(`block ${pos}`), v => v.block === stationBlock, `${stationBlock} loads on the client`);
+  await fixture.replace('hotbar.0', 'minecraft:oak_log', 4);
   await fixture.raw(`interact ${pos} south`);
 
   const opened = await until(() => fixture.raw('screen'), v => v.screen === 'container', 'woodworking screen opens');
   assert.deepEqual(ownSlots(opened), [0, 1], 'only input (0) and output (1) own slots');
-  fixture.mark('woodworking station screen opens with 2 own slots');
+  await Bun.sleep(500);
+  assert(passed(await fixture.command(`execute if block ${x} ${y} ${z + 1} minecraft:air`)), 'no log placed against the station');
+  fixture.mark('a click with logs in hand opens the station screen with 2 own slots, and places no log');
 
   await fixture.replace('hotbar.0', 'minecraft:oak_log', 4);
   await fixture.raw('click-slot 0');

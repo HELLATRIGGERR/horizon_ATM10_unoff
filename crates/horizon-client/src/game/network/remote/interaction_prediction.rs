@@ -229,6 +229,16 @@ impl Game<'_> {
                 None
             };
             let vanilla_block = block_used && block_answer.is_none();
+            // A mod block whose useItemOn starts with FluidUtil's container transfer
+            // (`fluid_interact_on_use`), with a fluid container in this hand: the server's transfer
+            // answers SUCCESS where fluid moves. This client has no tank to try it on, so it
+            // predicts that, and sends no UseItem that would pour the bucket out beside the block.
+            let fluid_use = !spectator
+                && vanilla_block
+                && held
+                    .as_ref()
+                    .is_some_and(|stack| self.native_item_fluid(stack).is_some())
+                && self.fluid_interact_on_use(self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]));
             let seq = self.next_sequence();
             // ShelfBlock.useItemOn consumes a nonempty main-hand click client-side
             // without predicting the inventory swap or swinging.
@@ -259,6 +269,8 @@ impl Game<'_> {
                 }
             } else if let Some(reacts) = ae2_sneak_use {
                 reacts
+            } else if fluid_use {
+                (InteractionResult::Success, DryUse::default())
             } else if hand == Hand::Main && !spectator && vanilla_block {
                 self.remote_block_reacts(&hit, held.as_ref())
             } else {

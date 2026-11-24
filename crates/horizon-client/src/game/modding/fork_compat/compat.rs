@@ -254,6 +254,17 @@ impl Game<'_> {
     pub(in crate::game) fn native_block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
         let _ = types;
     }
+    /// Whether the block `block` (its id) starts its use with NeoForge's
+    /// `FluidUtil.interactWithFluidHandler(player, hand, level, pos, side)`, as Oritech's and
+    /// Just Dire Things' machines do in `useItemOn`: set `takes`. Then a fluid container used on
+    /// it (a bucket, a mod's container) fills from its block entity's fluid handler through the
+    /// side clicked, or else empties into it, with the bucket's sound, swapped in survival and
+    /// kept in creative (`native_fluid_interact`), and the click ends there; one that moves
+    /// nothing goes on to the block's other uses. Asked on both sides (a client predicts the
+    /// use) for each mod block a player uses with something in hand.
+    pub(in crate::game) fn native_fluid_interact_on_use(&self, block: &str, takes: &mut bool) {
+        let _ = (block, takes);
+    }
 }
 
 impl Game<'_> {

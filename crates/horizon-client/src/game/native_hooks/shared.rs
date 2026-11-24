@@ -2329,6 +2329,16 @@ impl Game<'_> {
         self.player.as_ref()?;
         self.made_recipes()
     }
+    /// `native_recipes` on either side: a server's `Game` (the server thread, a dedicated
+    /// server, a LAN host's) has no player of its own and reads its own tables, so a mod builds an
+    /// index of them at world open (`native_server_started`, `native_world_lifecycle`), in a
+    /// server tick or in a server hook. On a client, as `native_recipes`: none without a player.
+    pub(super) fn native_world_recipes(&mut self) -> Option<Arc<NativeRecipes>> {
+        if self.outside_world() {
+            return None;
+        }
+        self.made_recipes()
+    }
 }
 
 /// A mob's kind as the hook points name it (`minecraft:zombie`).
@@ -2569,7 +2579,7 @@ impl Game<'_> {
         stack: Option<&ItemStack>,
         phase: UsePhase,
     ) -> Option<mod_api::InteractionResult> {
-        if !mod_api::__private::listened(mod_api::HookId::UseItemOnBlock) {
+        if !crate::game::fork_compat::heard(mod_api::HookId::UseItemOnBlock) {
             return None;
         }
         let snapshot = stack.try_into_api().ok()?;

@@ -176,7 +176,7 @@ on the panel's page as a column of slots left of them, as JEI draws a category's
 until the mod sets them again. A recipe's slots beyond its layout's are drawn as more outputs after the result, and a
 `note` of several lines (`\n`) takes a row each. Bundles need `"hooks": @API:panel_catalysts@`.
 
-Since API 422 every fluid of the registry is (a content mod's too), and AE2's buses and `native_fluid_interact` reach these tanks through the fluid handler dispatcher.
+Since API 422 every fluid of the registry is (a content mod's too), and AE2's buses and `native_fluid_interact` reach these tanks through the fluid handler dispatcher. A bundle names the blocks whose use starts with it through the fork's compat hook `fluid_interact_on_use(block, takes)`: the engine then moves fluid between the container in hand and the block on a click, and a client predicts that click (docs/atm10-port.md, "A click on a mod block").
 
 API 416 adds [Forge Energy](#forge-energy) on a mod block's block entity, by side, as NeoForge 1.21.1's `IEnergyStorage` capability: the hook points `native_fe_storage`, `native_fe_receive` and `native_fe_extract` answer for your block entities, and the helpers `native_fe_info`, `native_fe_offer` and `native_fe_draw` reach any block with energy in any open level: other mods' (their hooks, or the buffer a block declares through `native_block_entity_energy`) and the game's own machines. Upstream's `native_energy`, `native_energy_insert`, `native_energy_extract` and `native_move_energy` reach the same blocks in the level in place. Bundles that use them need "hooks": 416.
 

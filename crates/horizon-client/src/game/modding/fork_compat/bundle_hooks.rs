@@ -57,8 +57,14 @@ const GATES: &[(HookId, &str)] = &[
     // network/lan_actions/tick.rs `guest_player_tick`; network/remote/mod.rs.
     (HookId::PlayerTickPre, "player_tick_pre"),
     (HookId::PlayerTickPost, "player_tick_post"),
-    // items/use_hand.rs: the block's native_use_item_on (a part hook + block_listens).
+    // items/use_hand.rs: the block's native_use_item_on (a part hook + block_listens, `block_heard`): Just Dire
+    // Things' Paradox Machine takes a bucket.
     (HookId::UseItemOn, "use_item_on"),
+    // items/use_hand.rs: the block's native_use_without_item (`block_heard`): Just Dire Things' machines pass a
+    // click with the Ferricore Wrench on to the item's `useOn` instead of opening their menu.
+    (HookId::UseWithoutItem, "use_without_item"),
+    // native_hooks/shared.rs `use_item_on_block`: the broadcast `UseItemOnBlockEvent` of each phase.
+    (HookId::UseItemOnBlock, "use_item_on_block"),
     // modding/api_values.rs `api_menu_quick_move`.
     (HookId::MenuQuickMove, "menu_quick_move"),
     // modding/api_values.rs `api_block_entity_update_tag`.
@@ -80,7 +86,118 @@ fn injected_in(injected: &[&str], hook: HookId) -> bool {
 
 /// Whether a bundle applied to this tree injects into the gated hook `hook`.
 pub(in crate::game) fn injected(hook: HookId) -> bool {
+    #[cfg(test)]
+    if TEST_INJECTED.with_borrow(|names| injected_in(names, hook)) {
+        return true;
+    }
     injected_in(staged::INJECTED, hook)
+}
+
+/// A block-scoped part hook as upstream gates it (`has_part_hook` and a part on `state`'s block,
+/// `block_listens`), or a bundle injects into `hook`: an injection is not scoped to a block, so
+/// every block's use asks it and the bundle's helper picks its own blocks.
+pub(in crate::game) fn block_heard(hook: HookId, state: horizon_world::registry::BlockStateId) -> bool {
+    (mod_api::__private::has_part_hook(hook)
+        && crate::game::api_values::block_state::block_listens(hook, state))
+        || injected(hook)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The hooks a unit test says a bundle injects into ([`with_injected`]), beside the stage's.
+    static TEST_INJECTED: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Runs `f` as if a staged bundle injected into `hooks` (catalog names), as a unit test can't
+/// apply one.
+#[cfg(test)]
+pub(in crate::game) fn with_injected<R>(hooks: &[&'static str], f: impl FnOnce() -> R) -> R {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_INJECTED.with_borrow_mut(Vec::clear);
+        }
+    }
+    TEST_INJECTED.with_borrow_mut(|names| *names = hooks.to_vec());
+    let _reset = Reset;
+    f()
+}
+
+/// A bundle as a unit test injects it: the hook points it stands for call it first (under
+/// `cfg(test)`), as horizon-mixins puts a HEAD helper first. It answers by block name and
+/// records each call, so a test sees which hooks a click reached and in what order.
+#[cfg(test)]
+pub(in crate::game) mod test_bundle {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    pub(in crate::game) struct Bundle {
+        /// `use_item_on`'s answer, by block.
+        pub use_item_on: HashMap<String, mod_api::InteractionResult>,
+        /// `use_without_item`'s answer, by block.
+        pub use_without_item: HashMap<String, mod_api::InteractionResult>,
+        /// The blocks `fluid_interact_on_use` takes containers on.
+        pub fluid_interact_on_use: Vec<String>,
+        /// Each hook asked, with the block.
+        pub calls: Vec<(&'static str, String)>,
+    }
+
+    thread_local! {
+        static BUNDLE: RefCell<Option<Bundle>> = const { RefCell::new(None) };
+    }
+
+    /// Runs `f` with `bundle` injected (its hooks and `with_injected`'s gates), and hands the
+    /// bundle back with its calls.
+    pub(in crate::game) fn with_bundle<R>(bundle: Bundle, f: impl FnOnce() -> R) -> (R, Bundle) {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                BUNDLE.with_borrow_mut(|b| *b = None);
+            }
+        }
+        BUNDLE.with_borrow_mut(|b| *b = Some(bundle));
+        let _reset = Reset;
+        let out = super::with_injected(
+            &["use_item_on", "use_without_item", "use_item_on_block"],
+            f,
+        );
+        let bundle = BUNDLE.with_borrow_mut(Option::take).expect("the bundle");
+        (out, bundle)
+    }
+
+    fn answer(
+        hook: &'static str,
+        block: &str,
+        pick: impl FnOnce(&Bundle) -> Option<mod_api::InteractionResult>,
+        answer: &mut Option<mod_api::InteractionResult>,
+    ) {
+        BUNDLE.with_borrow_mut(|b| {
+            if let Some(b) = b {
+                b.calls.push((hook, block.to_owned()));
+                if answer.is_none() {
+                    *answer = pick(b);
+                }
+            }
+        });
+    }
+
+    pub(in crate::game) fn use_item_on(block: &str, out: &mut Option<mod_api::InteractionResult>) {
+        answer("use_item_on", block, |b| b.use_item_on.get(block).copied(), out);
+    }
+
+    pub(in crate::game) fn use_without_item(block: &str, out: &mut Option<mod_api::InteractionResult>) {
+        answer("use_without_item", block, |b| b.use_without_item.get(block).copied(), out);
+    }
+
+    pub(in crate::game) fn fluid_interact_on_use(block: &str, takes: &mut bool) {
+        BUNDLE.with_borrow_mut(|b| {
+            if let Some(b) = b {
+                b.calls.push(("fluid_interact_on_use", block.to_owned()));
+                *takes |= b.fluid_interact_on_use.iter().any(|n| n == block);
+            }
+        });
+    }
 }
 
 /// `listened`, or a bundle injects into `hook`.
@@ -125,6 +242,22 @@ mod tests {
     fn a_bundles_loot_drops_opens_the_loot_gate() {
         assert!(injected_in(&["loot_drops"], HookId::LootDrops));
         assert!(!injected_in(&["right_click_block"], HookId::LootDrops));
+    }
+
+    #[test]
+    fn the_block_use_gates_open_for_a_bundles_injection() {
+        assert!(injected_in(&["use_item_on"], HookId::UseItemOn));
+        assert!(injected_in(&["use_without_item"], HookId::UseWithoutItem));
+        assert!(injected_in(&["use_item_on_block"], HookId::UseItemOnBlock));
+        assert!(!injected_in(&["use_item_on"], HookId::UseWithoutItem));
+        assert!(!injected_in(&["use_on"], HookId::UseItemOn));
+        // Every block asks an injection, with no part on it: the bundle picks its blocks itself.
+        let any = horizon_world::registry::BlockStateId(1);
+        with_injected(&["use_item_on", "use_without_item", "use_item_on_block"], || {
+            assert!(block_heard(HookId::UseItemOn, any));
+            assert!(block_heard(HookId::UseWithoutItem, any));
+            assert!(heard(HookId::UseItemOnBlock));
+        });
     }
 
     #[test]

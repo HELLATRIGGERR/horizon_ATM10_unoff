@@ -44,11 +44,12 @@ pub(super) fn take_use() -> bool {
     TAKEN.with(|t| t.replace(false))
 }
 
-/// `FerricoreWrench.useOn` on a swapper (a sneaking click: the swapper's menu answers a plain one first): the first one
-/// clicked is remembered, the second is bound to it (a pair already bound is unbound). The use ends as `Success`.
+/// `FerricoreWrench.useOn` on a swapper, not sneaking (`specialBlockHandling`; the swapper passes the click on to the wrench,
+/// `world::use_without_item`): the first one clicked is remembered, the second is bound to it (a pair already bound is
+/// unbound). The use ends as `Success`. A sneaking click would turn the block (not ported).
 pub(super) fn wrench(game: &mut Game<'_>, item: &str, pos: [i32; 3]) {
     TAKEN.with(|t| t.set(false));
-    if game.remote.is_some() || item != WRENCH || game.native_block(pos) != SWAPPER {
+    if game.remote.is_some() || item != WRENCH || game.native_block(pos) != SWAPPER || game.native_sneaking() {
         return;
     }
     let here = Bound { dimension: game.native_dimension().to_owned(), pos };

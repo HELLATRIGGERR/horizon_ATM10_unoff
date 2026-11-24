@@ -318,6 +318,20 @@ bindings = [
   { name = "answer", ty = "&mut Option<mod_api::InteractionResult>", value = "&mut *answer" },
 ]
 
+# `BaseMachineBlock.useWithoutItem`: a Ferricore Wrench or a Machine Settings Copier in the main hand goes on to the item's
+# `useOn` (the wrench binds a Block Swapper) instead of opening the machine's menu, which the furnace template would.
+[[injection]]
+id = "use-without-item"
+hook = "use_without_item"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/use_without_item.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
+  { name = "answer", ty = "&mut Option<mod_api::InteractionResult>", value = "&mut *answer" },
+]
+
 [[injection]]
 id = "fe-receive"
 hook = "fe_receive"

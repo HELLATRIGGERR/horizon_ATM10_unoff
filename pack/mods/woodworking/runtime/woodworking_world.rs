@@ -4,8 +4,9 @@
 // game's own crafting and stonecutting recipes, and a one-click craft that consumes
 // one input item and places the chosen output in the second slot.
 //
-// The recipes need a player to be read, so the index is built on the first click on a station and
-// cleared whenever the world closes or fails to open.
+// The server builds the index when it opens its world (`native_world_recipes` needs no player); a client that is not in
+// the same process builds its own on first use. It is cleared whenever the world closes or fails to open. The block's
+// template opens no menu, and the engine opens its container's (`native_block_entity_container`) on a click.
 
 use super::{Game, native_hooks::{NativeRecipeKind, NativeRecipes}};
 use crate::game::api_values::{TryIntoApi, TryIntoEngine};
@@ -65,7 +66,7 @@ fn station_block() -> &'static str {
 // ---- Wood index (built on first use, shared by client and server) -----------------------------------------
 
 /// The recipe index, shared by the window's client and its server thread: both read the same world
-/// data, and either may build it first (a server tick has no player to build it with).
+/// data, and the server builds it at world open.
 static WOOD_INDEX: Mutex<Option<Arc<WoodIndex>>> = Mutex::new(None);
 
 fn index_slot() -> std::sync::MutexGuard<'static, Option<Arc<WoodIndex>>> {
@@ -105,14 +106,14 @@ fn collect_gen_recipes(tables: &NativeRecipes) -> Vec<GenRecipe> {
 }
 
 fn build_index(game: &mut Game<'_>) -> Option<WoodIndex> {
-    let tables = game.native_recipes()?;
+    let tables = game.native_world_recipes()?;
     let recipes = collect_gen_recipes(&tables);
     let items: Vec<String> = tables.items.iter().map(|item| item.id.clone()).collect();
     let generated = generate(&items, &recipes, |id| game.native_max_stack_size(id).unwrap_or(64));
     Some(WoodIndex::build(generated))
 }
 
-/// The index, built on first use when the game can read its recipes (it needs a player).
+/// The index, built on first use when the game can read its recipes (a server's always; a client's once it has a player).
 fn index(game: &mut Game<'_>) -> Option<Arc<WoodIndex>> {
     if let Some(built) = index_slot().clone() {
         return Some(built);
@@ -127,9 +128,12 @@ fn with_index<R>(game: &mut Game<'_>, f: impl FnOnce(Option<&WoodIndex>) -> R) -
     f(built.as_deref())
 }
 
-/// `native_server_started`: drop the old index so it is rebuilt from the new world's tags.
-pub(super) fn opened() {
+/// `native_server_started`: the old index goes, and the new world's is built from its recipes and tags.
+pub(super) fn opened(game: &mut Game<'_>) {
     *index_slot() = None;
+    if !station_block().is_empty() {
+        index(game);
+    }
 }
 
 /// `native_world_lifecycle` v2: drop on close.
@@ -200,29 +204,6 @@ pub(super) fn slot_accepts(block: &str, slot: usize, accepts: &mut bool) {
     if slot != INPUT {
         *accepts = false;
     }
-}
-
-// ---- Use ----------------------------------------------------------------------------------------
-
-/// `native_right_click_block`: a click on the station opens its menu on the server, as a container
-/// block's use does; crouching with something in hand places it instead. True when the click is the
-/// station's.
-pub(super) fn right_click(game: &mut Game<'_>, click: &mod_api::BlockClick<'_>) -> bool {
-    let pos = click.pos;
-    if station_block().is_empty() || game.native_block(pos) != station_block() {
-        return false;
-    }
-    if game.native_sneaking() && click.stack.is_some() {
-        return false;
-    }
-    // Either side may be first to have a player to read the recipes with: the screen draws
-    // from the same index the server crafts from.
-    index(game);
-    if !matches!(click.side, mod_api::LogicalSide::Server) {
-        return false;
-    }
-    game.open_block_effect_menu(pos);
-    true
 }
 
 // ---- Tick ---------------------------------------------------------------------------------------

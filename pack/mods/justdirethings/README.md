@@ -90,7 +90,7 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   a mB; `fuel_tier*_fe_per_mb`), burning a millibucket a tick while its 5,000,000 FE buffer has room for all of it, and
   offering ten times its 5,000 FE a tick to each neighbour. Redstone control from its button. Screen: the slot, the
   energy and fluid bars, the redstone button.
-- **Block Swapper T1** (`blockswappert1`): two swappers bound with a Ferricore Wrench (a sneaking click on each; see NOTES)
+- **Block Swapper T1** (`blockswappert1`): two swappers bound with a Ferricore Wrench (a click on each: a machine passes the wrench's click on to it)
   trade the block in front of each (and, by the entity button, the hostile, passive, adult, baby, player, living, item or
   all entities standing in that block) on a pulse, or its clock on ignore, where both are in the same dimension; the
   blocks that the tags `c:relocation_not_supported` and `justdirethings:swapperdeny` name and unbreakable ones stay.
@@ -115,7 +115,8 @@ Hooks, all on main (no new fork hook): `world_lifecycle` v2, `server_started`, `
 hook: one type per goo tier and per machine, named after the block), `block_entity`, `block_entity_ticks`,
 `block_entity_tick`, `block_entity_container`, `block_entity_slot_accepts`, `fe_storage`, `fe_extract` (a
 `MODIFY_ARG` on the call into `fire_fe_extract`), `fe_receive`, `menu_button`, `use_on` v2 (a `HEAD` injection reads the call with
-the game, a `MODIFY_ARG` one answers it), `use_item_on`, `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
+the game, a `MODIFY_ARG` one answers it), `use_item_on` (the Paradox Machine's buckets), `use_without_item` (the machines pass the
+Ferricore Wrench and the Machine Settings Copier on to the item), `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
 `entity_tick_listened`, `entity_tick_post` (the fluid drop), `random_tick` (the budding block) and
 `fluid_handler_tanks`, `fluid_handler_fill` and `fluid_handler_drain` (the tanks of the Paradox Machine, the Fluid
 Collector, the Fluid Placer and the Fluid Generator), `block_signal` and `is_signal_source` (the Sensor's redstone).

@@ -88,7 +88,7 @@ function makeContent(): void {
   rmSync(content, { recursive: true, force: true });
   cpSync(carry, content, { recursive: true });
   const blocks = join(content, 'data/justdirethings/horizon/block');
-  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json', 'droppert1.json', 'fluidplacert1.json', 'sensort1.json', 'generatorfluidt1.json'].includes(f))) {
+  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json', 'droppert1.json', 'fluidplacert1.json', 'sensort1.json', 'generatorfluidt1.json', 'blockswappert1.json'].includes(f))) {
     const path = join(blocks, file);
     const decl = JSON.parse(readFileSync(path, 'utf8'));
     decl.template = 'minecraft:furnace';
@@ -108,10 +108,50 @@ function makeContent(): void {
   console.log(`${content}: ${readdirSync(blocks).length} block declarations`);
 }
 
+/** Celestigem's and Eclipse Alloy's tools and armour carry no attribute modifiers (the jar makes them from `GooTier` and
+ * `ArmorTiers` in code): the content mod adds the same numbers, as `createAttributes(tier, base damage, speed)` and the armour
+ * materials make them. Ferricore's and Blazegold's come with the carry. */
+function addToolStats(): void {
+  const items = join(content, 'data/justdirethings/horizon/item');
+  const damage: Record<string, number> = { celestigem: 4.0, eclipsealloy: 5.0 };
+  // [base damage, attack speed] by tool, as the mod's item classes pass them.
+  const tools: Record<string, [number, number]> = { sword: [3, -2.0], pickaxe: [1.0, -2.8], paxel: [1.0, -2.8], axe: [7.0, -2.5], shovel: [1.5, -3.0], hoe: [-2.0, -1.0] };
+  const armour: Record<string, { toughness: number; knockback: number }> = { celestigem: { toughness: 2.0, knockback: 0 }, eclipsealloy: { toughness: 3.0, knockback: 0.1 } };
+  const pieces: Record<string, [number, string, string]> = { helmet: [3, 'head', 'helmet'], chestplate: [8, 'chest', 'chestplate'], leggings: [6, 'legs', 'leggings'], boots: [3, 'feet', 'boots'] };
+  const modifier = (type: string, id: string, amount: number, slot: string) => ({ amount, id, operation: 'add_value', slot, type });
+  let changed = 0;
+  for (const tier of Object.keys(damage)) {
+    for (const [tool, [base, speed]] of Object.entries(tools)) {
+      const path = join(items, `${tier}_${tool}.json`);
+      if (!existsSync(path)) continue;
+      const decl = JSON.parse(readFileSync(path, 'utf8'));
+      decl.components['minecraft:attribute_modifiers'] = [
+        modifier('minecraft:attack_damage', 'minecraft:base_attack_damage', base + damage[tier], 'mainhand'),
+        modifier('minecraft:attack_speed', 'minecraft:base_attack_speed', speed, 'mainhand'),
+      ];
+      writeFileSync(path, JSON.stringify(decl, null, 2));
+      changed++;
+    }
+    for (const [piece, [points, slot, name]] of Object.entries(pieces)) {
+      const path = join(items, `${tier}_${piece}.json`);
+      if (!existsSync(path)) continue;
+      const decl = JSON.parse(readFileSync(path, 'utf8'));
+      const id = `minecraft:armor.${name}`;
+      const mods = [modifier('minecraft:armor', id, points, slot), modifier('minecraft:armor_toughness', id, armour[tier].toughness, slot)];
+      if (armour[tier].knockback > 0) mods.push(modifier('minecraft:knockback_resistance', id, armour[tier].knockback, slot));
+      decl.components['minecraft:attribute_modifiers'] = mods;
+      writeFileSync(path, JSON.stringify(decl, null, 2));
+      changed++;
+    }
+  }
+  console.log(`${changed} celestigem and eclipse alloy tool and armour declarations given their attribute modifiers`);
+}
+
 const steps: Record<string, () => Promise<void>> = {
   async content() {
     if (!existsSync(carry)) throw new Error(`No carry of Just Dire Things at ${carry} (JUSTDIRETHINGS_CARRY).`);
     makeContent();
+    addToolStats();
   },
   async units() {
     try {

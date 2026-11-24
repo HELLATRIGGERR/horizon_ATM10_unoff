@@ -134,12 +134,24 @@ the v5 resources and the empty content mod in AE2's place.
   the one block in front. Compare NBT has no button.
 - Fluid Generator T1: a bucket in its slot is drained whole (4,000 mB holds four buckets); the fluid bars of the Fluid
   Placer and the Fluid Generator are drawn as the Fluid Collector's.
+- Block Swapper T1: both swappers must be in the dimension the game simulates (the engine writes blocks only in the level in
+  place; a swapper bound across dimensions reads as missing); a block with a block entity (a chest, a machine) is not
+  swapped (no engine helper moves a block entity's contents between positions; Java moves them with their NBT); the
+  swap writes both states with neighbour and client updates (flags 3), where Java writes with 51 and then validates the
+  blocks (`canSurvive`, `updateFromNeighbourShapes`); no particles; the bind is by a sneaking click of the wrench (the
+  swapper's menu answers a plain click before the item does, and `use_item_on` is gated, see the Paradox note), the
+  first swapper clicked is remembered by the game (not on the wrench: no foil, no tooltip) and the messages Java shows
+  ("Bound to", "Binding Removed") are not shown; the entity filter is by kind only (the T2's filter slots are not ported).
+- Tools and armour: celestigem's and eclipse alloy's attribute modifiers come from the content step (the carry has none);
+  every ability (the toggles, FE, the paxel's, ore scanning, the hammer, flight...), the Pocket Generator, Fuel and
+  Fluid Canisters, the wands and the bows are items the carry declares as plain items: they exist and do nothing special.
 
 ## What is left
 
 See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Clicker T1 (it needs an engine helper for a
 fake player's clicks: the use of the held item on a block or entity in front of it, and left or right click with a hold,
-through the same path as a player's `use_item_on`, which the engine gates on a trait mod's Part), the Block Swapper,
-the T2 machines, the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
+through the same path as a player's `use_item_on`, which the engine gates on a trait mod's Part), the Block Swapper's
+cross-dimension swap and block entities, the T2 machines (area, filter slots and a 100,000 FE buffer on each; the Block
+Placer T2 and Block Breaker T2 are the nearest), the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
 accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the
 Pocket Generator, the portal gun and the wands.

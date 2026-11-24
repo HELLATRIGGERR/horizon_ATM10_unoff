@@ -729,7 +729,7 @@ Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/N
 8390e0ef), MIT (`LICENSE-justdirethings`, Copyright (c) 2023 Direwolf20-MC). The blocks, items, models, recipes and tags
 are the mod's carry; `pack/scripts/justdirethings.ts content` puts the machines (the Generator T1, the Block Breaker
 T1, the Block Placer T1, the Fluid Collector T1, the Item Collector, the Dropper T1, the Fluid Placer T1, the Sensor T1,
-the Fluid Generator T1 and the Paradox Machine) on `minecraft:furnace`, as
+the Fluid Generator T1, the Block Swapper T1 and the Paradox Machine) on `minecraft:furnace`, as
 Hostile Neural Networks' machines are, and leaves the goo blocks on their template. Its steps `units content stage build world`
 build and test the bundle, on hooks already on main and no new one.
 
@@ -751,12 +751,15 @@ Collector takes the items of its area into the inventory it faces through its fi
 T1 throws its slot's item in front of it on its clock (a count, a pickup delay, a direction), the Fluid Placer T1 puts its
 tank's fluid down as a source block in front of it a bucket at a time, the Sensor T1 counts blocks, air, mobs, players or
 items in front of it and gives redstone (strong when set) while the count test holds, and the Fluid Generator T1 burns the
-refined fuels (tier 2, 3 and 4: 450, 1,300 and 4,000 FE a mB) into a 5,000,000 FE buffer it offers to its neighbours. The rules
+refined fuels (tier 2, 3 and 4: 450, 1,300 and 4,000 FE a mB) into a 5,000,000 FE buffer it offers to its neighbours. The
+Block Swapper T1 trades the blocks (and, by setting, the entities) in front of two swappers a Ferricore Wrench bound, in one
+dimension. The tools and armour of the four tiers are the carry's items; the content step gives celestigem's and eclipse
+alloy's the attribute modifiers the jar makes in code. The rules
 crate has unit tests of the config, the recipes, the goo's tick, the redstone modes, the generator, the breaker, the
 fluid drop, the crystal's growth, the Paradox Machine, the placer and the collectors and the screens' data; the world
 tests in `tests/` (`goo`, `generator`, `breaker`, `fluid`, `crystal`, `paradox`, `placer`, `collector`,
-`itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`) check them in game time. Not ported yet: the Clicker (it needs
-an engine helper for a fake player's clicks and the `use_item_on` gating), the Block Swapper and the T2 machines, the goo
+`itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`, `swapper`, `tools`) check them in game time. Not ported yet: the Clicker (it needs
+an engine helper for a fake player's clicks and the `use_item_on` gating), the T2 machines and the Energy Transmitter, the goo
 soils, the paradox entity and the time wand, the tools, armour and abilities; `NOTES.md` lists them with the
 differences from Java.
 

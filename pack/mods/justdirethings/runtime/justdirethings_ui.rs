@@ -12,6 +12,7 @@ use super::{
     Game,
     justdirethings_machines::{COLLECTOR, ITEM_COLLECTOR, PLACER},
     justdirethings_more::{DROPPER, FLUID_GEN, FLUID_PLACER, SENSOR},
+    justdirethings_swapper::SWAPPER,
     justdirethings_world::{BREAKER, GENERATOR, PARADOX},
 };
 use horizon_client::hud::HudBatch;
@@ -86,6 +87,20 @@ pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
             width: 176.0,
             height: 166.0 + TOP + 2.0,
             slots: (0..9).map(|i| Some([8.0 + 18.0 * i as f32, 54.0 + TOP])).collect(),
+            inventory_x: INVENTORY[0],
+            inventory_y: INVENTORY[1],
+            own_labels: true,
+            own_background: true,
+            ..Screen::default()
+        });
+        return;
+    }
+    if block == SWAPPER {
+        // No slot of its own: the menu is only the player's inventory.
+        *screen = Some(Screen {
+            width: 176.0,
+            height: 166.0 + TOP + 2.0,
+            slots: vec![None; 5],
             inventory_x: INVENTORY[0],
             inventory_y: INVENTORY[1],
             own_labels: true,
@@ -188,6 +203,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if block == FLUID_GEN {
         draw_fluid_generator(game, data, batch, origin);
+        return;
+    }
+    if block == SWAPPER {
+        draw_swapper(game, data, batch, origin);
         return;
     }
     if block == ITEM_COLLECTOR {
@@ -361,6 +380,10 @@ pub(super) fn click(_game: &Game<'_>, block: &str, data: &[i32], at: [f32; 2], r
         click_machine(block, data, at, right, button);
         return;
     }
+    if block == SWAPPER {
+        click_swapper(data, at, right, button);
+        return;
+    }
     if super::justdirethings_more::owns(block) {
         click_more(block, data, at, right, button);
         return;
@@ -391,6 +414,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
     }
     if block == PLACER || block == COLLECTOR || block == FLUID_PLACER {
         tooltip_machine(block, data, at, lines);
+        return;
+    }
+    if block == SWAPPER {
+        tooltip_swapper(data, at, lines);
         return;
     }
     if super::justdirethings_more::owns(block) {
@@ -697,5 +724,65 @@ fn tooltip_more(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>
             };
             lines.push(format!("{name}: {} / {} mB", d(data, 3), d(data, 4)));
         }
+    }
+}
+
+// ---- The Block Swapper T1's screen (`BlockSwapperT1Screen` on `BaseMachineScreen`) -----------------------------------
+
+/// Its buttons on the top section's button row (`topSectionTop + 38`): the partner's icon, the blocks and entity buttons and
+/// the redstone button.
+const PARTNER: [f32; 4] = [70.0, 58.0, 16.0, 16.0];
+const SWAP_BLOCKS: [f32; 4] = [88.0, 58.0, 16.0, 16.0];
+const SWAP_ENTITIES: [f32; 4] = [106.0, 58.0, 16.0, 16.0];
+const SWAP_REDSTONE: [f32; 4] = [124.0, 58.0, 16.0, 16.0];
+/// `SWAPPER_ENTITY_TEXTURES`, in the order of `SWAP_ENTITY_TYPE`.
+const SWAP_ENTITY_BUTTONS: [(&str, &str); 9] = [
+    ("justdirethings:gui/buttons/entity-none", "Entities: none"),
+    ("justdirethings:gui/buttons/mobscanner", "Entities: hostile"),
+    ("justdirethings:gui/buttons/passivemob", "Entities: passive"),
+    ("justdirethings:gui/buttons/passivemob-adult", "Entities: adults"),
+    ("justdirethings:gui/buttons/passivemob-child", "Entities: children"),
+    ("justdirethings:gui/buttons/player", "Entities: players"),
+    ("justdirethings:gui/buttons/glowing", "Entities: living"),
+    ("justdirethings:gui/buttons/item", "Entities: items"),
+    ("justdirethings:gui/buttons/entity-all", "Entities: all"),
+];
+
+/// The data is the redstone mode, whether blocks swap, the entity setting, whether the partner stands and whether it is bound.
+fn draw_swapper(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    frame(&mut pen);
+    let blocks = d(data, 1) != 0;
+    pen.whole(if blocks { "justdirethings:gui/buttons/filter-block" } else { "justdirethings:gui/buttons/filter-air" }, SWAP_BLOCKS);
+    pen.whole(SWAP_ENTITY_BUTTONS[d(data, 2).clamp(0, 8) as usize].0, SWAP_ENTITIES);
+    pen.whole(if d(data, 3) != 0 { "justdirethings:gui/buttons/active" } else { "justdirethings:gui/buttons/inactive" }, PARTNER);
+    labels_at(&mut pen, d(data, 0), SWAP_REDSTONE, "Simple Swapper");
+}
+
+fn click_swapper(data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    if inside(SWAP_REDSTONE, at) {
+        if !right {
+            *button = Some(Mode::from_index(d(data, 0)).next().index());
+        }
+    } else if inside(SWAP_BLOCKS, at) {
+        *button = Some(4);
+    } else if inside(SWAP_ENTITIES, at) {
+        *button = Some(5 + (d(data, 2).clamp(0, 8) + if right { 8 } else { 1 }) % 9);
+    }
+}
+
+fn tooltip_swapper(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    if inside(SWAP_REDSTONE, at) {
+        lines.push(redstone_line(Mode::from_index(d(data, 0))).into());
+    } else if inside(SWAP_BLOCKS, at) {
+        lines.push(if d(data, 1) != 0 { "Swaps blocks" } else { "Leaves blocks" }.into());
+    } else if inside(SWAP_ENTITIES, at) {
+        lines.push(SWAP_ENTITY_BUTTONS[d(data, 2).clamp(0, 8) as usize].1.into());
+    } else if inside(PARTNER, at) {
+        lines.push(match (d(data, 4) != 0, d(data, 3) != 0) {
+            (true, true) => "Bound to a swapper",
+            (true, false) => "Bound to (MISSING BLOCK)",
+            _ => "Not bound: use a Ferricore Wrench on two swappers",
+        }.into());
     }
 }

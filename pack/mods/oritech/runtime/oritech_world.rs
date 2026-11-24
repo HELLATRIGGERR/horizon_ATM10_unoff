@@ -17,6 +17,7 @@ use oritech_core::{
     energy::Energy,
     generator::{GenCtx, Generator},
     machine::{self, Face, Kind, Spec},
+    laser::{self, Behavior, Cell, Laser, LaserCtx, LaserWorld},
     multiblock::{self, Facing},
     process::{AddonData, Ctx, Machine},
     recipe::{self, RecipeBook, Stack},
@@ -211,6 +212,14 @@ const REDSTONE: &str = "oritech.redstone";
 const STORED_BURN: &str = "storedBurn";
 const CORES: &str = "connectedCores";
 const QUALITY: &str = "coreQuality";
+/// The atomic forge's buffer, which its recipe sizes (Java keeps it in the energy storage's capacity).
+const FORGE_CAP: &str = "oritech.forge_capacity";
+/// The laser arm's search direction and target (`BlockPos.asLong`; absent for none), the break energy the target needs,
+/// and a flag set when a new direction came in, so the next tick looks for a target at once.
+const LASER_DIRECTION: &str = "oritech.laser_direction";
+const LASER_TARGET: &str = "oritech.laser_target";
+const LASER_NEEDED: &str = "oritech.laser_needed";
+const LASER_FRESH: &str = "oritech.laser_fresh";
 
 fn key(name: &str) -> JavaString {
     JavaString::from(name)
@@ -354,13 +363,19 @@ pub(super) fn slot_accepts(block: &str, slot: usize, accepts: &mut bool) {
 /// The settings' energy buffer of a machine with what its compound holds.
 fn energy_of(cfg: &Config, spec: &Spec, nbt: &Compound) -> Energy {
     let m = cfg.machine(spec.kind);
-    Energy { amount: number(nbt, ENERGY), capacity: m.energy_capacity, max_insert: m.max_energy_insertion, max_extract: m.max_energy_extraction }
+    let mut capacity = m.energy_capacity;
+    if spec.kind == Kind::AtomicForge && number(nbt, FORGE_CAP) > 0 {
+        capacity = number(nbt, FORGE_CAP);
+    }
+    Energy { amount: number(nbt, ENERGY), capacity, max_insert: m.max_energy_insertion, max_extract: m.max_energy_extraction }
 }
 
 /// A multiblock's cores: `(assembled, missing)`. The controller assembles once every core position holds a machine
 /// core (`initMultiblock`, the quality their average) and comes apart when one is gone (`onCoreBroken`).
 fn check_cores(game: &Game<'_>, pos: [i32; 3], spec: &Spec, nbt: &mut Compound) -> (bool, i32) {
     let facing = game.native_block_property(pos, "facing").as_deref().and_then(Facing::from_name).unwrap_or(Facing::North);
+    // `getFacingForMultiblock` of the laser arm is the opposite of its `FACING`.
+    let facing = if spec.kind == Kind::LaserArm { opposite(facing) } else { facing };
     let positions = multiblock::core_positions(pos, facing, spec.cores);
     let found: Vec<Option<f32>> = positions.iter().map(|p| multiblock::core_quality(&game.native_block(*p))).collect();
     let missing = found.iter().filter(|q| q.is_none()).count() as i32;
@@ -388,6 +403,9 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
     let Some(spec) = machine::of_block(entity.id()) else { return };
     if spec.generator {
         return generator_tick(game, pos, entity, spec);
+    }
+    if spec.kind == Kind::LaserArm {
+        return laser_tick(game, pos, entity, spec);
     }
     let cfg = settings();
     let books = books(game);
@@ -423,15 +441,16 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
             max_stack: &max,
             compact: &compact,
         };
-        let changed = m.tick(spec, &mut slots, &ctx);
+        let changed = if spec.kind == Kind::AtomicForge { m.tick_forge(spec, &mut slots, &ctx) } else { m.tick(spec, &mut slots, &ctx) };
         let total = m.current.as_deref().and_then(|id| book.get(id)).map_or(0, |r| (r.time as f32 * m.speed_multiplier(&ctx)).ceil() as i32);
         entity.data = MachineView {
             energy: m.energy.amount,
             capacity: m.energy.capacity,
             insert: m.energy.max_insert,
             usage: m.energy_usage(&ctx).round() as i64,
-            progress: m.progress,
-            total,
+            // The forge's bar is its buffer: a recipe's energy is its time.
+            progress: if spec.kind == Kind::AtomicForge { forge_percent(&m) } else { m.progress },
+            total: if spec.kind == Kind::AtomicForge { i32::from(m.energy.capacity > 10) * 100 } else { total },
             speed: (m.speed_multiplier(&ctx) * 100.0).round() as i32,
             efficiency: (m.efficiency_multiplier(&ctx) * 100.0).round() as i32,
             active,
@@ -446,10 +465,251 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         }
         entity.nbt.insert(key(PROGRESS), Tag::Int(m.progress));
         entity.nbt.insert(key(ENERGY), Tag::Long(m.energy.amount));
+        if spec.kind == Kind::AtomicForge {
+            entity.nbt.insert(key(FORGE_CAP), Tag::Long(m.energy.capacity));
+        }
     }
     LIVE.with(|l| {
         l.borrow_mut().insert(at, Live { current: m.current, burst: m.burst, last_worked_at: m.last_worked_at });
     });
+}
+
+fn core_quality_of(block: &str) -> Option<f32> {
+    multiblock::core_quality(block)
+}
+
+fn forge_percent(m: &Machine) -> i32 {
+    if m.energy.capacity > 10 { (m.energy.amount * 100 / m.energy.capacity).clamp(0, 100) as i32 } else { 0 }
+}
+
+fn opposite(f: Facing) -> Facing {
+    match f {
+        Facing::North => Facing::South,
+        Facing::South => Facing::North,
+        Facing::West => Facing::East,
+        Facing::East => Facing::West,
+    }
+}
+
+// ---- The laser arm ----------------------------------------------------------------------------------------------
+
+fn long_pos(nbt: &Compound, name: &str) -> Option<[i32; 3]> {
+    match nbt.get(&key(name)) {
+        Some(Tag::Long(v)) => Some(laser::unpack(*v)),
+        _ => None,
+    }
+}
+
+fn put_pos(nbt: &mut Compound, name: &str, pos: Option<[i32; 3]>) {
+    match pos {
+        Some(p) => nbt.insert(key(name), Tag::Long(laser::pack(p))),
+        None => nbt.insert(key(name), Tag::Long(0)),
+    };
+}
+
+fn is_air(block: &str) -> bool {
+    matches!(block, "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air")
+}
+
+/// The level a laser reads and acts on (`LaserWorld`), with the drops of what it broke.
+struct Beam<'a, 'g> {
+    game: &'a mut Game<'g>,
+    book: &'a RecipeBook,
+    drops: Vec<Stack>,
+}
+
+impl Beam<'_, '_> {
+    fn passes(&self, block: &str) -> bool {
+        is_air(block)
+            || matches!(block, "minecraft:water" | "minecraft:lava" | "minecraft:bubble_column")
+            || self.game.native_block_name_in_tag(block, "oritech:laser_passthrough").unwrap_or(false)
+    }
+
+    /// The controller of the machine whose assembled cores include `pos`.
+    fn controller(&self, pos: [i32; 3]) -> Option<[i32; 3]> {
+        core_quality_of(&self.game.native_block(pos))?;
+        for dx in -2..=2 {
+            for dy in -2..=2 {
+                for dz in -2..=2 {
+                    let at = [pos[0] + dx, pos[1] + dy, pos[2] + dz];
+                    let Some((spec, nbt)) = self.machine_at(at) else { continue };
+                    if !spec.is_multiblock() || cores(&nbt).is_empty() {
+                        continue;
+                    }
+                    let facing = self.game.native_block_property(at, "facing").as_deref().and_then(Facing::from_name).unwrap_or(Facing::North);
+                    let facing = if spec.kind == Kind::LaserArm { opposite(facing) } else { facing };
+                    if multiblock::core_positions(at, facing, spec.cores).contains(&pos) {
+                        return Some(at);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    fn machine_at(&self, pos: [i32; 3]) -> Option<(&'static Spec, Compound)> {
+        let entity = self.game.native_mod_block_entity(pos)?;
+        Some((machine::of_block(entity.id())?, entity.nbt.clone()))
+    }
+}
+
+impl LaserWorld for Beam<'_, '_> {
+    fn cell(&self, pos: [i32; 3]) -> Cell {
+        let block = self.game.native_block(pos);
+        if block == "minecraft:target" {
+            Cell::Terminator
+        } else if self.passes(&block) {
+            Cell::Pass
+        } else {
+            Cell::Solid
+        }
+    }
+    fn controller_of(&self, pos: [i32; 3]) -> Option<[i32; 3]> {
+        self.controller(pos)
+    }
+    fn hardness(&self, pos: [i32; 3]) -> f32 {
+        self.game.native_destroy_speed(pos).unwrap_or(-1.0)
+    }
+    fn is_air(&self, pos: [i32; 3]) -> bool {
+        is_air(&self.game.native_block(pos))
+    }
+    fn behavior(&self, pos: [i32; 3]) -> Behavior {
+        let block = self.game.native_block(pos);
+        if block == "minecraft:target" || block == "minecraft:bedrock" {
+            Behavior::Noop
+        } else if self.machine_at(pos).is_some_and(|(s, _)| s.kind != Kind::LaserArm) {
+            Behavior::Energy
+        } else if block == "minecraft:budding_amethyst" || self.game.native_block_name_in_tag(&block, "oritech:laser_accelerated").unwrap_or(false) {
+            Behavior::Accelerated
+        } else if self.passes(&block) {
+            Behavior::PassThrough
+        } else {
+            Behavior::Break
+        }
+    }
+    fn energy_of(&self, pos: [i32; 3]) -> Option<(i64, i64)> {
+        let (spec, nbt) = self.machine_at(pos)?;
+        let e = energy_of(&settings(), spec, &nbt);
+        Some((e.amount, e.capacity))
+    }
+    fn insert_energy(&mut self, pos: [i32; 3], amount: i64) -> i64 {
+        let cfg = settings();
+        self.game
+            .native_with_mod_block_entity(pos, |m| {
+                let spec = machine::of_block(m.id())?;
+                let e = energy_of(&cfg, spec, &m.nbt);
+                // `insertIgnoringLimit`: only the room limits it.
+                let took = amount.min(e.capacity - e.amount).max(0);
+                m.nbt.insert(key(ENERGY), Tag::Long(e.amount + took));
+                Some(took)
+            })
+            .flatten()
+            .unwrap_or(0)
+    }
+    fn break_block(&mut self, pos: [i32; 3]) {
+        let block = self.game.native_block(pos);
+        let mut dropped: Vec<Stack> = self
+            .game
+            .native_machine_destroy_block(pos, None, true)
+            .unwrap_or_default()
+            .iter()
+            .map(|s| Stack::new(&s.item.to_string(), s.count))
+            .collect();
+        // `tryGetRecipeOfBlock`: a block with a laser recipe gives that recipe's item instead.
+        if let Some(r) = self.book.recipes.iter().find(|r| r.inputs.first().is_some_and(|i| i.items.contains(&block))) {
+            if let Some(result) = r.results.first() {
+                dropped = vec![Stack::new(&result.item, 1)];
+            }
+        }
+        self.drops.extend(dropped);
+    }
+}
+
+/// The laser's inventory takes a stack into the first stack of its item with room, else an empty slot; what doesn't
+/// fit is lost (`finishBlockBreaking`: "this will discard items that wont fit anymore").
+fn store(slots: &mut [Option<Stack>], stack: Stack, max: u32) {
+    let mut left = stack.count;
+    for slot in slots.iter_mut().flatten() {
+        if slot.item == stack.item && slot.count < max {
+            let moved = left.min(max - slot.count);
+            slot.count += moved;
+            left -= moved;
+        }
+    }
+    for slot in slots.iter_mut() {
+        if left == 0 {
+            break;
+        }
+        if slot.is_none() {
+            let moved = left.min(max);
+            *slot = Some(Stack::new(&stack.item, moved));
+            left -= moved;
+        }
+    }
+}
+
+/// One server tick of a laser arm (`LaserArmBlockEntity.serverTick`).
+fn laser_tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, spec: &'static Spec) {
+    let cfg = settings();
+    let books = books(game);
+    let book = books.books.get(&spec.kind).cloned().unwrap_or_default();
+    let (active, missing) = check_cores(game, pos, spec, &mut entity.nbt);
+    let facing = game.native_block_property(pos, "facing").as_deref().and_then(Facing::from_name).unwrap_or(Facing::North);
+    let off = multiblock::rotate([-1, 0, 0], facing);
+    let head = [pos[0] + off[0], pos[1] + off[1], pos[2] + off[2]];
+    let mut l = Laser::new(energy_of(&cfg, spec, &entity.nbt));
+    l.progress = number(&entity.nbt, PROGRESS) as i32;
+    l.target = long_pos(&entity.nbt, LASER_TARGET).filter(|p| *p != [0, 0, 0]);
+    l.direction = long_pos(&entity.nbt, LASER_DIRECTION).filter(|p| *p != [0, 0, 0]);
+    l.needed = match number(&entity.nbt, LASER_NEEDED) {
+        0 => 1024,
+        n => n as i32,
+    };
+    l.disabled_via_redstone = number(&entity.nbt, REDSTONE) != 0;
+    let held = engine_items(game, entity);
+    let before = core_slots(&held, spec.inventory_size);
+    let mut slots = before.clone();
+    let fresh = number(&entity.nbt, LASER_FRESH) != 0;
+    let time = game.native_day_time();
+    let ctx = LaserCtx { settings: &cfg.laser, hardness_exponent: cfg.hardness_exponent, pos, head, game_time: time, speed: 1.0, efficiency: 1.0 };
+    let mut beam = Beam { game, book: &book, drops: Vec::new() };
+    let mut changed = false;
+    if active {
+        if fresh {
+            l.find_next(&ctx, &beam);
+            changed = true;
+        }
+        changed |= l.tick(&ctx, &mut beam);
+    }
+    let drops = std::mem::take(&mut beam.drops);
+    for stack in drops {
+        let max = game.native_max_stack_size(&stack.item).unwrap_or(64);
+        store(&mut slots, stack, max);
+        changed = true;
+    }
+    entity.data = MachineView {
+        energy: l.energy.amount,
+        capacity: l.energy.capacity,
+        insert: l.energy.max_insert,
+        usage: Laser::to_fire(&ctx),
+        progress: l.progress,
+        total: l.needed,
+        speed: 100,
+        efficiency: 100,
+        active,
+        missing,
+    }
+    .pack();
+    if changed {
+        if slots != before {
+            put_back(entity, &held, &before, &slots);
+        }
+        entity.nbt.insert(key(PROGRESS), Tag::Int(l.progress));
+        entity.nbt.insert(key(ENERGY), Tag::Long(l.energy.amount));
+        entity.nbt.insert(key(LASER_NEEDED), Tag::Int(l.needed));
+        put_pos(&mut entity.nbt, LASER_TARGET, l.target);
+        entity.nbt.insert(key(LASER_FRESH), Tag::Byte(0));
+    }
 }
 
 /// The direction of a neighbour's face the energy goes in by.
@@ -588,7 +848,25 @@ pub(super) fn perform(game: &mut Game<'_>, source: &CommandSource, call: &Comman
             let parts: Vec<String> = b.counts.iter().map(|(t, (total, read))| format!("{t} {read}/{total}")).collect();
             format!("Oritech recipes read: {read} of {total} ({})", parts.join(", "))
         }
-        _ => "usage: /oritech recipes".to_owned(),
+        // The target designator's job: `/oritech aim <laser x y z> <target x y z>` points a laser arm at a block.
+        Some("aim") => {
+            let n: Vec<i32> = words.filter_map(|w| w.parse().ok()).collect();
+            match n.as_slice() {
+                [x, y, z, tx, ty, tz] => {
+                    let set = game.native_with_mod_block_entity([*x, *y, *z], |m| {
+                        let laser = machine::of_block(m.id()).is_some_and(|s| s.kind == Kind::LaserArm);
+                        if laser {
+                            put_pos(&mut m.nbt, LASER_DIRECTION, Some([*tx, *ty, *tz]));
+                            m.nbt.insert(key(LASER_FRESH), Tag::Byte(1));
+                        }
+                        laser
+                    });
+                    if set == Some(true) { "laser arm aimed".to_owned() } else { "no laser arm there".to_owned() }
+                }
+                _ => "usage: /oritech aim <x y z> <target x y z>".to_owned(),
+            }
+        }
+        _ => "usage: /oritech recipes | aim".to_owned(),
     };
     game.native_feedback(Text::literal(reply));
 }

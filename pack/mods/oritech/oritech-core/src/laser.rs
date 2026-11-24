@@ -35,6 +35,10 @@ pub trait LaserWorld {
     /// `defaultDestroyTime`: negative for an unbreakable block, 0 for air.
     fn hardness(&self, pos: [i32; 3]) -> f32;
     fn is_air(&self, pos: [i32; 3]) -> bool;
+    /// The controller a used machine core belongs to (`trySetNewTarget` aims at it instead of the core).
+    fn controller_of(&self, _pos: [i32; 3]) -> Option<[i32; 3]> {
+        None
+    }
     fn behavior(&self, pos: [i32; 3]) -> Behavior;
     /// A block with energy: `(stored, capacity)`.
     fn energy_of(&self, pos: [i32; 3]) -> Option<(i64, i64)>;
@@ -174,17 +178,19 @@ impl Laser {
         let dir = [d[0] / len, d[1] / len, d[2] / len];
         let center = [f64::from(head[0]) + 0.5, f64::from(head[1]) + 0.5, f64::from(head[2]) + 0.5];
         let from = [center[0] + dir[0] * 1.5, center[1] + dir[1] * 1.5, center[2] + dir[2] * 1.5];
-        self.target = raycast(world, from, dir, ctx.settings.range, 0.45).filter(|p| self.set_target(ctx, world, *p));
+        self.target = raycast(world, from, dir, ctx.settings.range, 0.45).and_then(|p| self.set_target(ctx, world, p));
     }
 
     /// `trySetNewTarget` (`alsoSetDirection` false): in range, breakable and not air; the energy a break costs.
-    fn set_target(&mut self, ctx: &LaserCtx<'_>, world: &dyn LaserWorld, pos: [i32; 3]) -> bool {
-        let hardness = world.hardness(pos);
-        if manhattan(pos, ctx.pos) > ctx.settings.range || hardness < 0.0 || world.is_air(pos) {
-            return false;
+    fn set_target(&mut self, ctx: &LaserCtx<'_>, world: &dyn LaserWorld, found: [i32; 3]) -> Option<[i32; 3]> {
+        // A core is a machine's: the target is the controller, with the core's own hardness (as Java reads it).
+        let pos = world.controller_of(found).unwrap_or(found);
+        let hardness = world.hardness(found);
+        if manhattan(pos, ctx.pos) > ctx.settings.range || hardness < 0.0 || world.is_air(found) {
+            return None;
         }
         self.needed = (ctx.settings.block_break_energy_base as f64 * f64::from(hardness).powf(ctx.hardness_exponent) * f64::from(ctx.efficiency)) as i32;
-        true
+        Some(pos)
     }
 
     /// `setTargetFromDesignator`: the search direction and the block itself.
@@ -329,6 +335,43 @@ mod tests {
         l.energy.amount = 5000;
         l.disabled_via_redstone = true;
         assert!(!l.tick(&ctx(&s, 0), &mut g));
+    }
+
+    #[test]
+    fn a_core_aims_the_beam_at_its_controller() {
+        struct Cored(Grid);
+        impl LaserWorld for Cored {
+            fn cell(&self, p: [i32; 3]) -> Cell {
+                self.0.cell(p)
+            }
+            fn hardness(&self, p: [i32; 3]) -> f32 {
+                self.0.hardness(p)
+            }
+            fn is_air(&self, p: [i32; 3]) -> bool {
+                self.0.is_air(p)
+            }
+            fn controller_of(&self, p: [i32; 3]) -> Option<[i32; 3]> {
+                (p == [0, 0, -5]).then_some([0, 0, -6])
+            }
+            fn behavior(&self, p: [i32; 3]) -> Behavior {
+                self.0.behavior(p)
+            }
+            fn energy_of(&self, p: [i32; 3]) -> Option<(i64, i64)> {
+                self.0.energy_of(p)
+            }
+            fn insert_energy(&mut self, p: [i32; 3], a: i64) -> i64 {
+                self.0.insert_energy(p, a)
+            }
+            fn break_block(&mut self, p: [i32; 3]) {
+                self.0.break_block(p)
+            }
+        }
+        let mut g = Grid::default();
+        g.solid.insert([0, 0, -5], block(1.0, Behavior::Break));
+        let s = settings();
+        let mut l = laser(1000);
+        l.find_next(&ctx(&s, 0), &Cored(g));
+        assert_eq!(l.target, Some([0, 0, -6]), "the controller, not the core");
     }
 
     #[test]

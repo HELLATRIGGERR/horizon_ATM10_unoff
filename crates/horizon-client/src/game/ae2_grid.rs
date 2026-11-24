@@ -76,43 +76,46 @@ pub(super) fn kind(m: &Machine) -> Option<DeviceKind> {
         _ => return None,
     })
 }
+/// The items a use attaches to a cable bus as a part (`PartItem.useOn`): AE2's buses,
+/// terminals, monitors, planes, tunnels and the other parts, and the addons'. Cables are
+/// `ae2_parts::cable_item`.
+pub(super) fn attachable_part(id: &str) -> bool {
+    matches!(
+        horizon_client::ae2_world::base_id(id),
+        "ae2:terminal"
+            | "ae2:crafting_terminal"
+            | "ae2:pattern_encoding_terminal"
+            | "ae2:pattern_access_terminal"
+            | "ae2:import_bus"
+            | "ae2:export_bus"
+            | "ae2:storage_bus"
+            | "ae2:level_emitter"
+            | "ae2:energy_level_emitter"
+            | "ae2:toggle_bus"
+            | "ae2:inverted_toggle_bus"
+            | "ae2:annihilation_plane"
+            | "ae2:formation_plane"
+            | "ae2:me_p2p_tunnel"
+            | "ae2:item_p2p_tunnel"
+            | "ae2:fluid_p2p_tunnel"
+            | "ae2:fe_p2p_tunnel"
+            | "ae2:redstone_p2p_tunnel"
+            | "ae2:light_p2p_tunnel"
+            | "ae2:cable_energy_acceptor"
+            | "ae2:cable_anchor"
+            | "ae2:quartz_fiber"
+            | "ae2:monitor"
+            | "ae2:semi_dark_monitor"
+            | "ae2:dark_monitor"
+            | "ae2:storage_monitor"
+            | "ae2:conversion_monitor"
+            | "ae2:cable_interface"
+            | "ae2:cable_pattern_provider"
+    ) || horizon_client::ae2x::defs::get().part(id).is_some()
+}
 impl Game<'_> {
     pub(super) fn ae2_try_attach_part(&mut self, pos: WorldPos, face: &str) -> bool {
-        if !matches!(
-            self.held().map(|s| horizon_client::ae2_world::base_id(s.item.as_ref())),
-            Some(
-                "ae2:terminal"
-                    | "ae2:crafting_terminal"
-                    | "ae2:pattern_encoding_terminal"
-                    | "ae2:pattern_access_terminal"
-                    | "ae2:import_bus"
-                    | "ae2:export_bus"
-                    | "ae2:storage_bus"
-                    | "ae2:level_emitter"
-                    | "ae2:energy_level_emitter"
-                    | "ae2:toggle_bus"
-                    | "ae2:inverted_toggle_bus"
-                    | "ae2:annihilation_plane"
-                    | "ae2:formation_plane"
-                    | "ae2:me_p2p_tunnel"
-                    | "ae2:item_p2p_tunnel"
-                    | "ae2:fluid_p2p_tunnel"
-                    | "ae2:fe_p2p_tunnel"
-                    | "ae2:redstone_p2p_tunnel"
-                    | "ae2:light_p2p_tunnel"
-                    | "ae2:cable_energy_acceptor"
-                    | "ae2:cable_anchor"
-                    | "ae2:quartz_fiber"
-                    | "ae2:monitor"
-                    | "ae2:semi_dark_monitor"
-                    | "ae2:dark_monitor"
-                    | "ae2:storage_monitor"
-                    | "ae2:conversion_monitor"
-                    | "ae2:cable_interface"
-                    | "ae2:cable_pattern_provider"
-            )
-        ) && !self.held().is_some_and(|s| horizon_client::ae2x::defs::get().part(&s.item).is_some())
-        {
+        if !self.held().is_some_and(|s| attachable_part(&s.item)) {
             return false;
         }
         let mut target = pos;
@@ -1441,39 +1444,7 @@ impl Game<'_> {
                     return Err("face must name a block side".into());
                 }
                 let held = self.held().cloned().ok_or("hold an AE2 part")?;
-                if !matches!(
-                    horizon_client::ae2_world::base_id(&held.item),
-                    "ae2:terminal"
-                        | "ae2:crafting_terminal"
-                        | "ae2:pattern_encoding_terminal"
-                        | "ae2:pattern_access_terminal"
-                        | "ae2:import_bus"
-                        | "ae2:export_bus"
-                        | "ae2:storage_bus"
-                        | "ae2:level_emitter"
-                        | "ae2:energy_level_emitter"
-                        | "ae2:toggle_bus"
-                        | "ae2:inverted_toggle_bus"
-                        | "ae2:annihilation_plane"
-                        | "ae2:formation_plane"
-                        | "ae2:me_p2p_tunnel"
-                        | "ae2:item_p2p_tunnel"
-                        | "ae2:fluid_p2p_tunnel"
-                        | "ae2:fe_p2p_tunnel"
-                        | "ae2:redstone_p2p_tunnel"
-                        | "ae2:light_p2p_tunnel"
-                        | "ae2:cable_energy_acceptor"
-                        | "ae2:cable_anchor"
-                        | "ae2:quartz_fiber"
-                        | "ae2:monitor"
-                        | "ae2:semi_dark_monitor"
-                        | "ae2:dark_monitor"
-                        | "ae2:storage_monitor"
-                        | "ae2:conversion_monitor"
-                        | "ae2:cable_interface"
-                        | "ae2:cable_pattern_provider"
-                ) && horizon_client::ae2x::defs::get().part(&held.item).is_none()
-                {
+                if !attachable_part(&held.item) {
                     return Err("unsupported part".into());
                 }
                 // ToggleBusPart.addToWorld samples the real host signal before

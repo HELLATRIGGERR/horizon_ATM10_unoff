@@ -38,7 +38,7 @@ pub mod sdk;
 pub mod selection;
 
 pub use content::Content;
-pub use manifest::{Capability, Manifest, Package, find};
+pub use manifest::{Capability, Manifest, Package, find, read_packages};
 /// A build's surface (`surface.json`) and a mod's uses table: the SDK's records the fit test
 /// compares.
 #[cfg(feature = "prebuilt")]

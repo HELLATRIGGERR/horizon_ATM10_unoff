@@ -288,8 +288,12 @@ async function run(label: string, index: number, create: boolean): Promise<void>
     await g.quit();
     if (launch.exit !== '0') throw new Error(`the game exited with ${launch.exit} after quit`);
   } catch (error) {
-    launch.error = String(error);
-    throw error;
+    // A game that died during a step: its exit code (a Windows crash is an NTSTATUS such as 0xc0000005).
+    const code = await Promise.race([g.child.exited, Bun.sleep(10_000).then(() => null)]);
+    if (code === null) { launch.error = String(error); throw error; }
+    launch.exit = String(code);
+    launch.error = `${error} (the game's exit code ${code}, 0x${(code >>> 0).toString(16)})`;
+    throw new Error(launch.error);
   } finally {
     g.close();
   }

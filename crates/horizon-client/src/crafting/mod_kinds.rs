@@ -93,7 +93,42 @@ impl CarriedKinds {
             }
         })
     }
+    /// Leaves out of `sources` a carried root's recipes of [`REPLACED_VANILLA_SERIALIZERS`], each
+    /// said in the log: a pack made for 1.21.1 (ATM10's KubeJS dump) still holds its copies of
+    /// vanilla's special recipes that 26.3 replaced with recipes of its own, which craft the same
+    /// things. Vanilla leaves out a recipe file it cannot parse; every other unregistered
+    /// serializer still refuses the load, and a root that carries no content keeps them all.
+    pub fn leave_out_replaced_vanilla(&self, sources: &mut Vec<(String, Value)>) {
+        if self.parts.is_none() {
+            return;
+        }
+        sources.retain(|(name, file)| {
+            let Some(serializer) = file["type"]
+                .as_str()
+                .filter(|s| REPLACED_VANILLA_SERIALIZERS.contains(s))
+            else {
+                return true;
+            };
+            log::warn!(
+                "recipe {}: {serializer} is 1.21.1's, and 26.3's own recipes replace it; left out",
+                source_path(name)
+            );
+            false
+        });
+    }
 }
+
+/// 1.21.1's special crafting serializers that 26.3 no longer has, with what replaced them in
+/// 26.3's own data: armor dyeing (`crafting_dye`: `leather_*_dyed`), map cloning and shulker
+/// box colouring (`crafting_transmute`), suspicious stew (a shapeless recipe for each flower),
+/// tipped arrows (`crafting_imbue`).
+const REPLACED_VANILLA_SERIALIZERS: [&str; 5] = [
+    "minecraft:crafting_special_armordye",
+    "minecraft:crafting_special_mapcloning",
+    "minecraft:crafting_special_shulkerboxcoloring",
+    "minecraft:crafting_special_suspiciousstew",
+    "minecraft:crafting_special_tippedarrow",
+];
 
 #[cfg(test)]
 pub(super) fn load(file: &str, json: &Value) -> Option<Recipe> {

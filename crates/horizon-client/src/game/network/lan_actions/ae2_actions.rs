@@ -332,7 +332,10 @@ impl Game<'_> {
                 g.ae2_try_remove_facade(pos, face)
                     || g.ae2_try_facade_cycle(pos, face, true)
                     || g.ae2_try_remove_part(pos, face)
-                    || g.ae2_try_facade(pos, face)
+                    || {
+                        let placed = g.ae2_try_facade(pos, face);
+                        g.ae2_placed(placed)
+                    }
             });
             if let Some((true, lines)) = facade {
                 tell(host, conn, lines, true);
@@ -358,7 +361,10 @@ impl Game<'_> {
             }
             if self
                 .ae2_guest(host, conn, |g| {
-                    g.with_hand(hand, |g| g.ae2_try_place_cable(pos, face))
+                    g.with_hand(hand, |g| {
+                        let placed = g.ae2_try_place_cable(pos, face);
+                        g.ae2_placed(placed)
+                    })
                 })
                 .unwrap_or(false)
             {
@@ -369,7 +375,10 @@ impl Game<'_> {
             if let Some(name) = face_name(face_i)
                 && self
                     .ae2_guest(host, conn, |g| {
-                        g.with_hand(hand, |g| g.ae2_try_attach_part(at, name))
+                        g.with_hand(hand, |g| {
+                            let placed = g.ae2_try_attach_part(at, name);
+                            g.ae2_placed(placed)
+                        })
                     })
                     .unwrap_or(false)
             {

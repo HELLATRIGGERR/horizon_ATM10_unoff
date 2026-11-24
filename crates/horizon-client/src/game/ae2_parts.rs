@@ -100,10 +100,18 @@ impl Game<'_> {
             if !self
                 .set_state_named(target, "ae2:cable_bus", &[])
                 .unwrap_or(false)
-                || !self.ae2_ensure_machine(pos)
             {
                 return false;
             }
+            // PartHelper.getOrPlacePartHost: a new cable bus with no part and no cable, which the
+            // cable then goes into as a centre added (`addPart`), as into any part-only host. A
+            // legacy host (no centre stored) would leave the grid's event replay unable to tell
+            // what the centre change replaces, and pause every ordered grid event.
+            let mut machine = Machine::new(MachineKind::CableBus);
+            machine.config.insert("ae2_centerless".into(), Tag::Byte(1));
+            self.world
+                .block_entities
+                .insert(pos, BlockEntity::Ae2(Box::new(machine)));
         }
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
             return false;
@@ -128,6 +136,147 @@ impl Game<'_> {
         self.world.modified.insert((pos.0 >> 4, pos.2 >> 4));
         true
     }
+
+    /// `PartItem.useOn` (`PartPlacement.place`) on this client, for the item `stack` used on
+    /// the block hit once that block passed: None for an item that is no AE2 cable or part
+    /// (the use goes on), else whether it goes in (SUCCESS: the hand swings) or not (FAIL).
+    /// Either answer ends the click. What this client sees of a cable bus is the server's
+    /// render projection (`ae2_visual_cache`); the server places it as
+    /// `ae2_try_place_cable` and `ae2_try_attach_part` do.
+    pub(super) fn ae2_predict_part_use(&self, stack: &ItemStack, hit: &super::Hit) -> Option<bool> {
+        let cable = cable_item(&stack.item).is_some();
+        if !cable && !super::ae2_grid::attachable_part(&stack.item) {
+            return None;
+        }
+        let Some(side) = side_name(hit.face) else {
+            return Some(false);
+        };
+        let (at, beside) = (
+            self.ae2_host_view(hit.pos),
+            self.ae2_host_view(hit.beside()),
+        );
+        Some(part_fits(cable, &at, &beside, side))
+    }
+
+    /// `FacadeItem.onItemUseFirst` on this client: whether the facade `stack` goes on the face
+    /// hit (SUCCESS, the hand swings and the click ends there), as `ae2_try_facade` places it.
+    pub(super) fn ae2_predict_facade_use(&self, stack: &ItemStack, hit: &super::Hit) -> bool {
+        stack.item.as_ref() == "ae2:facade"
+            && horizon_client::item_tooltip::ae2_facade_texture(stack)
+                .is_some_and(|id| id != "minecraft:air")
+            && side_name(hit.face)
+                .is_some_and(|side| facade_fits(&self.ae2_host_view(hit.pos), side))
+    }
+
+    /// The block at `pos` as this client sees it, for a part item's use.
+    fn ae2_host_view(&self, pos: [i32; 3]) -> HostView<'_> {
+        let name = &self
+            .res
+            .facts()
+            .get(self.world.block(pos[0], pos[1], pos[2]))
+            .name;
+        HostView {
+            host: name.as_ref() == "ae2:cable_bus",
+            air: takes_new_host(name),
+            visual: self.ae2_visual_cache.get(&(pos[0], pos[1], pos[2])),
+        }
+    }
+
+    /// A guest's cable, part or facade went in: SUCCESS, whose swing its own client
+    /// predicted (`ae2_predict_part_use`), so the server shows it to the others only.
+    pub(super) fn ae2_placed(&mut self, placed: bool) -> bool {
+        if placed {
+            self.swing_arm_predicted();
+        }
+        placed
+    }
+}
+
+/// A block a part item is used on or beside, as a client sees it: a cable bus (with what the
+/// server's render projection says it holds), or air a new cable bus may take.
+pub(super) struct HostView<'a> {
+    host: bool,
+    air: bool,
+    visual: Option<&'a super::ae2_visual_sync::Visual>,
+}
+
+impl HostView<'_> {
+    /// A cable in the centre of this cable bus.
+    fn centre(&self) -> bool {
+        self.visual.is_some_and(|v| v.cable.is_some())
+    }
+    /// No part on `side` of this cable bus.
+    fn side_free(&self, side: &str) -> bool {
+        !self
+            .visual
+            .is_some_and(|v| v.parts.iter().any(|p| p.face == side))
+    }
+}
+
+/// The blocks a use turns into a new cable bus (`PartHelper.canPlacePartHost`).
+fn takes_new_host(name: &str) -> bool {
+    matches!(
+        name,
+        "minecraft:air" | "minecraft:cave_air" | "minecraft:void_air"
+    )
+}
+
+/// The side name of the unit vector `face`.
+fn side_name(face: [i32; 3]) -> Option<&'static str> {
+    Some(match face {
+        [0, -1, 0] => "down",
+        [0, 1, 0] => "up",
+        [0, 0, -1] => "north",
+        [0, 0, 1] => "south",
+        [-1, 0, 0] => "west",
+        [1, 0, 0] => "east",
+        _ => return None,
+    })
+}
+
+fn opposite(side: &str) -> &'static str {
+    match side {
+        "down" => "up",
+        "up" => "down",
+        "north" => "south",
+        "south" => "north",
+        "west" => "east",
+        _ => "west",
+    }
+}
+
+/// Whether a cable (`cable`) or another part used on `side` of the block `at`, with `beside`
+/// the block that side leads to, goes in: a cable into a cable bus that has none in its centre
+/// (the one hit first, then the one beside) or into air beside; a part on the free `side` of
+/// the cable bus hit, else on the free facing side of the cable bus beside, or into air beside.
+pub(super) fn part_fits(cable: bool, at: &HostView, beside: &HostView, side: &str) -> bool {
+    if cable {
+        if at.host && !at.centre() {
+            return true;
+        }
+        return if beside.host {
+            !beside.centre()
+        } else {
+            beside.air
+        };
+    }
+    if at.host {
+        return at.side_free(side);
+    }
+    if beside.host {
+        return beside.side_free(opposite(side));
+    }
+    beside.air
+}
+
+/// Whether a facade goes on `side` of the block `at`: a cable bus with a cable in its centre
+/// and no facade on that side (`FacadeItem.canPlaceFacade`).
+pub(super) fn facade_fits(at: &HostView, side: &str) -> bool {
+    at.host
+        && at.centre()
+        && at
+            .visual
+            .is_some_and(|v| v.facades.len() < 6 && !v.facades.iter().any(|f| f.face == side))
 }
 #[cfg(test)]
 mod tests {
@@ -147,6 +296,79 @@ mod tests {
             Some((DeviceKind::CoveredCable, CableColor::Red))
         );
         assert_eq!(cable_item("ae2:bogus_glass_cable"), None);
+    }
+
+    fn view(json: &str) -> super::super::ae2_visual_sync::Visual {
+        serde_json::from_str(json).expect("visual")
+    }
+
+    #[test]
+    fn a_part_item_fits_where_the_server_places_it() {
+        let empty = view(
+            r#"{"pos":[0,0,0],"kind":"ae2:cable_bus","slots":[],"parts":[],"cable":null,"powered":false}"#,
+        );
+        let cabled = view(
+            r#"{"pos":[0,0,0],"kind":"ae2:cable_bus","slots":[],"parts":[{"id":"ae2:terminal","face":"north"}],"cable":"ae2:fluix_glass_cable","powered":false}"#,
+        );
+        let host = |v| HostView {
+            host: true,
+            air: false,
+            visual: Some(v),
+        };
+        let air = HostView {
+            host: false,
+            air: true,
+            visual: None,
+        };
+        let stone = HostView {
+            host: false,
+            air: false,
+            visual: None,
+        };
+        // A cable on stone goes into the air beside; against stone, or into a cable bus with a
+        // centre cable, it doesn't.
+        assert!(part_fits(true, &stone, &air, "up"));
+        assert!(!part_fits(true, &stone, &stone, "up"));
+        assert!(!part_fits(true, &stone, &host(&cabled), "up"));
+        // A cable into a cable bus that holds only parts, hit or beside.
+        assert!(part_fits(true, &host(&empty), &stone, "up"));
+        assert!(part_fits(true, &stone, &host(&empty), "up"));
+        // A cable used on a cabled bus goes beside it.
+        assert!(part_fits(true, &host(&cabled), &air, "south"));
+        // A terminal on a free side of the bus hit, not on the side its terminal takes.
+        assert!(part_fits(false, &host(&cabled), &air, "south"));
+        assert!(!part_fits(false, &host(&cabled), &air, "north"));
+        // A terminal on stone: into the air beside, or on the facing side of the bus beside.
+        assert!(part_fits(false, &stone, &air, "east"));
+        assert!(part_fits(false, &stone, &host(&cabled), "north"));
+        assert!(!part_fits(false, &stone, &host(&cabled), "south"));
+        assert!(!part_fits(false, &stone, &stone, "east"));
+    }
+
+    #[test]
+    fn a_facade_fits_a_cabled_bus_side_without_one() {
+        let cabled = view(
+            r#"{"pos":[0,0,0],"kind":"ae2:cable_bus","slots":[],"parts":[],"cable":"ae2:fluix_glass_cable","powered":false,"facades":[{"face":"up","block":"minecraft:stone"}]}"#,
+        );
+        let partless = view(
+            r#"{"pos":[0,0,0],"kind":"ae2:cable_bus","slots":[],"parts":[{"id":"ae2:terminal","face":"up"}],"cable":null,"powered":false}"#,
+        );
+        let host = |v| HostView {
+            host: true,
+            air: false,
+            visual: Some(v),
+        };
+        assert!(facade_fits(&host(&cabled), "north"));
+        assert!(!facade_fits(&host(&cabled), "up"));
+        assert!(!facade_fits(&host(&partless), "north"));
+        assert!(!facade_fits(
+            &HostView {
+                host: false,
+                air: false,
+                visual: None
+            },
+            "north"
+        ));
     }
 }
 

@@ -4,7 +4,7 @@ spawn, which can be drawn, and what the engine does with them today. Reads the j
 the pack oracle's registries and the carries; runs no Java.
 
     python tools/atm10/mob-audit.py --pack <work>/pack.json --dump <dump> --carries <carries> \
-        --species crates/horizon-client/src/mobs/species.rs --out mob-audit.json [--declare <dir>]
+        --species crates/horizon-client/src/mobs/species.rs --out mob-audit.json
 
 - registered: `minecraft:entity_type` in the oracle's registries.json (the pack on NeoForge).
 - class: the entity class, from the registration's bytecode (`EntityType.Builder.of(Ghoul::new, ...)` beside the name
@@ -20,8 +20,8 @@ the pack oracle's registries and the carries; runs no Java.
 - today: the carries' `data/<ns>/horizon/entity_type/` declarations (what the engine registers).
 - slice1: template + the template's own vanilla renderer, or a vanilla renderer or model + a texture found.
 
-With --declare, writes each slice-1 type's declaration as `<dir>/<carry key>/data/<ns>/horizon/entity_type/<path>.json`
-(`template`, `texture`, its `attributes` are left to the oracle), for a test overlay of the carries; never into them.
+This is the pack-wide census. The carries' declarations are `horizon-port-pack carry`'s, with the same reading of the
+classes in Rust (`crates/horizon-port-pack/src/classes.rs`, `mob_code`) and the oracle's entity facts (`mobs.rs`).
 """
 import argparse, json, os, re, struct, sys, zipfile
 from collections import Counter, defaultdict
@@ -270,7 +270,6 @@ def main():
     ap.add_argument('--carries', required=True)
     ap.add_argument('--species', required=True)
     ap.add_argument('--out', required=True)
-    ap.add_argument('--declare')
     ap.add_argument('--jobs', type=int, default=4)
     a = ap.parse_args()
 
@@ -499,22 +498,6 @@ def main():
     }
     with open(a.out, 'w', encoding='utf8', newline='\n') as f:
         json.dump(report, f, indent=1, sort_keys=False)
-    if a.declare:
-        n = 0
-        for t, r in rows.items():
-            if not (r['slice1'] and r['carry']):
-                continue
-            ns, p = t.split(':', 1)
-            decl = {'template': r['template']}
-            if r['render'] != 'template renderer':
-                tx = r['texture'].split(':', 1)
-                decl['texture'] = f"{tx[0]}:{tx[1].removeprefix('textures/').removesuffix('.png')}"
-            d = os.path.join(a.declare, r['carry'], 'data', ns, 'horizon', 'entity_type')
-            os.makedirs(os.path.join(d, os.path.dirname(p)), exist_ok=True)
-            with open(os.path.join(d, p + '.json'), 'w', encoding='utf8', newline='\n') as f:
-                json.dump(decl, f)
-            n += 1
-        print(f'declared {n} types under {a.declare}')
     s = report['summary']
     print(' '.join(f'{k}={v}' for k, v in s.items()))
     print('render:', dict(report['render'].most_common()))

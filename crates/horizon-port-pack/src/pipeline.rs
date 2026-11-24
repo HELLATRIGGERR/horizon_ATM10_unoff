@@ -126,6 +126,15 @@ pub fn carry(
         {
             probe.lay_over(&mut f);
         }
+        // An entities-only run's facts (`entity-facts.json`): the mob declarations' types and spawn eggs.
+        if let Some(probe) = crate::mobs::EntityProbe::read(&work.join("oracle/entity-facts.json"))? {
+            probe.lay_over(&mut f);
+        }
+        if let Some(r) = resources {
+            f.vanilla_entities = read_json(&r.join("entity-types.json"))
+                .inspect_err(|e| log(format!("mobs declared without the game's entity types: {e}")))
+                .unwrap_or_default();
+        }
         log(format!(
             "oracle facts: {} blocks, {} items",
             f.blocks.len(),

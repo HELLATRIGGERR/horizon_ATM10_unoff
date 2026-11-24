@@ -145,6 +145,8 @@ pub struct Report {
     pub worldgen_types: crate::worldgen::Upgrade,
     /// The loader's convention biome tags the structures name, carried.
     pub convention_biome_tags: usize,
+    /// The mod's living entity types declared on vanilla templates, and those left out (oracle only).
+    pub mobs: crate::mobs::Mobs,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -1067,9 +1069,22 @@ pub fn carry(
         .chain(report.namespaces.iter().map(String::as_str))
         .collect();
     let mut budget = crate::entry::Budget::archive();
+    // The jar's classes, when the oracle names entity types of its namespaces: their mob declarations.
+    let ours = |t: &str| t.split_once(':').is_some_and(|(ns, _)| owned.contains(&ns));
+    let mobs_here = facts.is_some_and(|f| f.entity_types.keys().any(|t| ours(t)));
+    let mut classes: BTreeMap<String, crate::classes::ClassCode> = BTreeMap::new();
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
         let name = entry.name().map_err(|e| e.to_string())?.into_owned();
+        if mobs_here && name.ends_with(".class") && !name.starts_with("META-INF/") {
+            let mut bytes = Vec::new();
+            if std::io::Read::read_to_end(&mut entry, &mut bytes).is_ok()
+                && let Some(c) = crate::classes::parse_code(&bytes)
+            {
+                classes.insert(c.name.clone(), c);
+            }
+            continue;
+        }
         let (name, renamed) = match rename(&name) {
             Some(new) => (new, true),
             None => (name, false),
@@ -1538,6 +1553,14 @@ pub fn carry(
             unknown: &mut report.fluids_unknown,
         };
         fluids(facts, id, &inside, &write_decl, (&report.blocks, &report.blocks_unknown), left)?;
+        if mobs_here {
+            let pngs: Vec<String> = names
+                .iter()
+                .filter(|n| n.contains("/textures/entity/") && n.ends_with(".png"))
+                .cloned()
+                .collect();
+            report.mobs = crate::mobs::declare(facts, &owned, &classes, &pngs, &inside)?;
+        }
         // 26.3 draws worn armour from an equipment asset per material, in the mod's own namespaces.
         let mut materials = BTreeSet::new();
         for (full, item) in facts.items.range(prefix.clone()..) {

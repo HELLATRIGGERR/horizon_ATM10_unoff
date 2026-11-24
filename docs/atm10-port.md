@@ -112,8 +112,14 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
    all): one server run, about 16 minutes at `-Xmx5G` on the 16 GB PC.
    Then `tools/atm10/oracle-client.sh`: the pack on NeoForge's client, hidden, for what only a client knows of its
    fluids (textures, tints, render layers, bucket colours: `client-facts.json`, docs/mod-fluids.md), about 2.5 minutes.
+   The batch facts hold each namespace's entity types and spawn eggs (`EntityFacts`); facts written before that get
+   them from an entities-only run: `neoforge_oracle.py pack` as `oracle-pack.sh` runs it, with
+   `-Dhorizon.oracle.entities_only=true` in `HORIZON_ORACLE_JVM`, no `--batches` (with them the run deletes the
+   dump's batch facts) and an `--out` of its own, writes every type of the pack (its `facts.json`, 4.5 MB: copy it
+   to `dump/entity-facts.json`) in about 9 minutes (docs/mobs.md).
 3. `tools/atm10/carry-with-facts.sh`: each batch carried with its facts and the client's (about 10 minutes for all);
-   the mods' fluids are declared from both.
+   the mods' fluids are declared from both, and their mobs from the entity facts (`ATM10_ENTITY_FACTS`, else
+   `dump/entity-facts.json`, when there is one).
 4. `horizon-port-pack final-data <carries> --dump <dump> --work <work> --resources <26.3> --instance <ATM10> --also content/ae2`
    writes each namespace's data into the carry that owns it. The rest goes in `atm10-pack`, whose mod id is `kubejs`.
 5. `tools/atm10/load-check` reads them as the game does; `tools/atm10/play-atm10.ts` passes each carry to the game as a

@@ -46,6 +46,23 @@ pub(super) fn mod_entity_row(
     if let Some(texture) = &t.texture {
         fields.insert("texture".into(), to_raw_value(texture).map_err(fail)?);
     }
+    // Its own category, size and fire immunity over the template's: `MobTypes`,
+    // the spawners' categories and the boxes read them from the row.
+    if let Some(category) = &t.category {
+        fields.insert("category".into(), to_raw_value(category).map_err(fail)?);
+    }
+    for (key, value) in [
+        ("width", t.width),
+        ("height", t.height),
+        ("eye_height", t.eye_height),
+    ] {
+        if let Some(value) = value {
+            fields.insert(key.into(), to_raw_value(&value).map_err(fail)?);
+        }
+    }
+    if let Some(immune) = t.fire_immune {
+        fields.insert("fire_immune".into(), to_raw_value(&immune).map_err(fail)?);
+    }
     if t.sounds != Default::default() {
         fields.insert("sounds".into(), to_raw_value(&t.sounds).map_err(fail)?);
     }

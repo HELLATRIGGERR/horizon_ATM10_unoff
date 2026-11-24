@@ -54,6 +54,24 @@ pub struct EntityType {
     /// template's.
     #[serde(default)]
     pub texture: Option<String>,
+    /// a living type's `MobCategory` when it isn't its template's (one of
+    /// [`super::MOB_CATEGORIES`]): what its natural spawns count against.
+    /// None keeps the template's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// a living type's size when it isn't its template's
+    /// (`EntityType.Builder.sized`, `eyeHeight`): its box and where its eyes
+    /// are. None keeps the template's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eye_height: Option<f32>,
+    /// whether fire and lava hurt it, when that isn't as for its template
+    /// (`EntityType.Builder.fireImmune`). None keeps the template's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fire_immune: Option<bool>,
 }
 
 fn deserialize_passenger_attachments<'de, D: serde::Deserializer<'de>>(
@@ -103,6 +121,42 @@ impl EntityType {
     /// whether the type copies a living mob ([`LIVING_TEMPLATES`]).
     pub fn is_living(&self) -> bool {
         LIVING_TEMPLATES.contains(&self.template.as_str())
+    }
+
+    /// whether it sets a category, a size or fire immunity of its own: a
+    /// living type's only.
+    pub fn has_own_kind(&self) -> bool {
+        self.category.is_some()
+            || self.width.is_some()
+            || self.height.is_some()
+            || self.eye_height.is_some()
+            || self.fire_immune.is_some()
+    }
+
+    /// a living type's own category and size are ones the game has: a
+    /// vanilla `MobCategory`, a box wider and taller than nothing, eyes at 0
+    /// or above.
+    pub fn validate_own_kind(&self, name: &str) -> Result<(), String> {
+        if let Some(category) = &self.category
+            && !super::MOB_CATEGORIES.contains(&category.as_str())
+        {
+            return Err(format!(
+                "{name}: category {category:?} is one of {:?}",
+                super::MOB_CATEGORIES
+            ));
+        }
+        for size in [self.width, self.height].into_iter().flatten() {
+            if !(size.is_finite() && size > 0.0) {
+                return Err(format!("{name}: width and height are more than 0"));
+            }
+        }
+        if self
+            .eye_height
+            .is_some_and(|e| !(e.is_finite() && e >= 0.0))
+        {
+            return Err(format!("{name}: eye_height is 0 or more"));
+        }
+        Ok(())
     }
 }
 

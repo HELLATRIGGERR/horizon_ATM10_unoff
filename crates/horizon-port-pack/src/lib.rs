@@ -20,6 +20,7 @@ pub mod inventory;
 pub mod jar;
 pub(crate) mod legacy_structure_mods;
 mod lithostitched;
+pub mod mobs;
 pub mod modrinth;
 pub mod net;
 pub mod oracle;

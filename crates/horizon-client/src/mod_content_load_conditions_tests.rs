@@ -11,6 +11,11 @@ fn worldgen_entry_reads_the_feature_folder() {
         worldgen_entry("data/zinc/worldgen/biome/foo.json"),
         Some(("worldgen/biomes.json", "zinc:foo".to_owned()))
     );
+    // NeoForge's data maps of biomes are not biomes.
+    assert_eq!(
+        worldgen_entry("data/zinc/data_maps/worldgen/biome/lethality.json"),
+        None
+    );
     // Vanilla's biomes are not read from mods.
     assert_eq!(
         worldgen_entry("data/minecraft/worldgen/biome/plains.json"),

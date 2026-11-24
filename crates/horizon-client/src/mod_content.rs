@@ -3289,8 +3289,9 @@ const COMMAND_REGISTRIES: [(&str, &str); 7] = [
 
 /// A mod file that adds to a worldgen bundle: (bundle, id).
 fn worldgen_entry(file: &str) -> Option<(&'static str, String)> {
-    let (ns, rest) = file.strip_prefix("data/")?.split_once("/worldgen/")?;
-    let (kind, path) = rest.split_once('/')?;
+    // `data/<ns>/worldgen/<kind>/...` only: a data map's `data/<ns>/data_maps/worldgen/biome/x.json` is not a biome.
+    let (ns, rest) = file.strip_prefix("data/")?.split_once('/')?;
+    let (kind, path) = rest.strip_prefix("worldgen/")?.split_once('/')?;
     if kind == "biome" && ns == "minecraft" {
         return None;
     }

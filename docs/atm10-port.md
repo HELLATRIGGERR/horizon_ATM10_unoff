@@ -171,12 +171,17 @@ NeoForge's `doesSneakBypassUse` is not modelled: a bundle whose item uses a bloc
 (the server thread, a dedicated server), which has no player: a bundle builds its index at `server_started`
 (woodworking's station).
 
-Not built: a fake player for the Clicker (Just Dire Things). The design: a server-side `native_fake_use(pos, face, hand,
-stack, action)` that builds a `BlockClick` for a fake player (a UUID of its own, the machine's position and facing, the
-stack as the hand) and runs steps 1 to 4 above through `as_guest`'s swap (`lan_actions.rs`) with that player in place
-of a guest, for `Use` (right click), `Attack` (left click: `tick_mining` against the block in front, `break_block` when
-done) and `Hold` (repeating `Use` while held, `releaseUsing` at the end); the stack comes back changed (a used bucket, a
-worn tool) and the result says what consumed it.
+A machine's fake player (Just Dire Things' Clicker): `native_fake_use` (`game/modding/native_fake_use.rs`) gives a fake
+player its own UUID, stands it at the machine's face looking the machine's way with the machine's stack in its main hand
+(upstream's scoped fake action, `scoped_fake_turn` in `native_server.rs`, keeps the fake's own state aside), and runs the
+click through a guest's turn on the server: `Use` (right click: steps 1 to 4 above on a block, then the item's `useItem`
+when nothing consumed it, as Click Machine does; the item's use in the air; `interactOn` on an entity), `Attack` (left
+click: an entity attacked; a block hit as `START_DESTROY_BLOCK` hits it, the left-click hook and the block's `attack`,
+then broken through `destroyBlock` once the digging the caller counts finishes it, else cracked) and `Hold` (the use
+started, one tick of it a call, `releaseUsing` after the ticks asked; a use held over several calls keeps its state by
+machine). The stack the click left (a filled bucket, a worn sword), the fake's other stacks and the outcome (consumed,
+passed, an effect stopped such as a menu, or refused) come back to the caller. In-frame play has no server to run it on:
+the click is refused and the stack comes back as it went.
 
 What ATM10 8.4 gives (2 November 2026): 287 carries, 40,557 blocks with 873,394 states (plus vanilla's and AE2's,
 about 910,000 of `MAX_STATES`' 1,048,576), 14,218 items; the load check has 289 mods on and none refused. A block

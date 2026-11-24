@@ -825,12 +825,14 @@ impl Package {
             }
             check_folder_file(path, MANIFEST)?;
             has_wasm = std::fs::symlink_metadata(path.join(WASM)).is_ok();
-            let (files, stamp) = crate::content::folder_files_stamped(path)?;
-            if !checked_folder(path, stamp) {
-                for (name, _) in &files {
-                    check_folder_file(path, name)?;
+            if !dev_folder(path) {
+                let (files, stamp) = crate::content::folder_files_stamped(path)?;
+                if !checked_folder(path, stamp) {
+                    for (name, _) in &files {
+                        check_folder_file(path, name)?;
+                    }
+                    remember_checked_folder(path, stamp);
                 }
-                remember_checked_folder(path, stamp);
             }
             let mut text = String::new();
             std::fs::File::open(path.join(MANIFEST))
@@ -1339,6 +1341,38 @@ fn remember_checked_folder(root: &Path, stamp: u64) {
     if let Ok(mut checked) = CHECKED_FOLDERS.lock() {
         checked.insert(root.to_owned(), stamp);
     }
+}
+
+/// Mod folders the player named with `--dev-mod` (`selection::LaunchArguments::parse`), as given
+/// and canonical. The player chose each, so [`Package::read`] checks its manifest, project files
+/// and icon but not each of its files: that pass opens every file, and on a cold disk a pack's
+/// hundreds of thousands of files keep the window away for minutes. Installed and downloaded
+/// packages, and archives, keep the full pass.
+static DEV_FOLDERS: std::sync::Mutex<std::collections::BTreeSet<PathBuf>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Marks `path`, a folder the player named with `--dev-mod`, for this process.
+pub fn trust_dev_folder(path: &Path) {
+    let real = std::fs::canonicalize(path).ok();
+    if let Ok(mut dev) = DEV_FOLDERS.lock() {
+        dev.insert(path.to_owned());
+        dev.extend(real);
+    }
+}
+
+/// Whether the player named `path` with `--dev-mod`, by this spelling or another of the same
+/// folder.
+pub(crate) fn dev_folder(path: &Path) -> bool {
+    match DEV_FOLDERS.lock() {
+        Ok(dev) if dev.contains(path) => return true,
+        Ok(dev) if dev.is_empty() => return false,
+        Ok(_) => {}
+        Err(_) => return false,
+    }
+    let Ok(real) = std::fs::canonicalize(path) else {
+        return false;
+    };
+    DEV_FOLDERS.lock().is_ok_and(|dev| dev.contains(&real))
 }
 
 /// [`Package::read`] for each of `paths`, in their order, on up to 8 threads: the first read
@@ -2162,6 +2196,39 @@ issues = \"http://example.org/issues\"
         assert!(Package::read(&root).is_ok());
         std::fs::write(root.join("assets/ruby/a.json"), b"\x7fELF and more").unwrap();
         assert!(refused(&root).contains("unsupported executable"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn a_folder_named_with_dev_mod_keeps_its_manifest_check_but_not_the_pass_over_its_files() {
+        let root = std::env::temp_dir().join(format!("horizon-dev-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let folder = |name: &str, manifest: &str| {
+            let dir = root.join(name);
+            std::fs::create_dir_all(dir.join("assets/ruby")).unwrap();
+            std::fs::write(dir.join(MANIFEST), manifest).unwrap();
+            std::fs::write(dir.join("assets/ruby/tool.txt"), b"#!/bin/sh").unwrap();
+            dir
+        };
+        let refused = |dir: &Path| Package::read(dir).err().unwrap_or_default();
+        // Installed or downloaded: every file is checked, and the script is refused.
+        let installed = folder("installed", EXAMPLE);
+        assert!(refused(&installed).contains("unsupported executable"));
+        // Named with --dev-mod: the player chose it, and its files are not opened one by one.
+        let dev = folder("dev", EXAMPLE);
+        assert!(refused(&dev).contains("unsupported executable"));
+        trust_dev_folder(&dev);
+        assert!(Package::read(&dev).is_ok());
+        // Another spelling of the same folder is the same folder.
+        assert!(dev_folder(&root.join("dev/../dev")));
+        assert!(Package::read(&root.join("dev/../dev")).is_ok());
+        // Its manifest is still checked.
+        let shebang = folder("dev-manifest", &format!("#!/bin/sh\n{EXAMPLE}"));
+        trust_dev_folder(&shebang);
+        assert!(refused(&shebang).contains("unsupported executable"));
+        // The installed one next to them keeps the full pass.
+        assert!(!dev_folder(&installed));
+        assert!(refused(&installed).contains("unsupported executable"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

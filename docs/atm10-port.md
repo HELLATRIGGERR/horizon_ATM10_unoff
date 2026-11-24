@@ -741,6 +741,43 @@ What doesn't exist yet: the Deep Learner's data from kills, which needs a kill h
 `Instance::data_gained` is what it will call), the Deep Learner item and screen, the Data Center and its I/O port, the Fabrication
 Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/NOTES.md` lists what is left.
 
+### Just Dire Things
+
+`pack/mods/justdirethings` ports Just Dire Things 1.5.7 from its source: Direwolf20-MC/JustDireThings, tag `v1.5.7` (commit
+8390e0ef), MIT (`LICENSE-justdirethings`, Copyright (c) 2023 Direwolf20-MC). The blocks, items, models, recipes and tags
+are the mod's carry; `pack/scripts/justdirethings.ts content` puts the machines (the Generator T1, the Block Breaker
+T1, the Block Placer T1, the Fluid Collector T1, the Item Collector, the Dropper T1, the Fluid Placer T1, the Sensor T1,
+the Fluid Generator T1 and the Paradox Machine) on `minecraft:furnace`, as
+Hostile Neural Networks' machines are, and leaves the goo blocks on their template. Its steps `units content stage build world`
+build and test the bundle, on hooks already on main and no new one.
+
+What runs: the goo blocks of the four tiers, which convert the blocks on their sides by the world's spreading recipes
+(`justdirethings:goospread` and `goospread_tag`, ATM10's KubeJS ones included) in the recipe's duration over the tier's
+step (an iron block becomes raw ferricore ore in 2,401, 1,201, 481 and 241 ticks), may die as they finish one (10%) and
+come alive again with their tier's revive item; and the Generator T1, which burns furnace fuel (the mod's coals faster)
+into a 1,000,000 FE buffer at 15 FE a burn tick, four times a furnace's speed, offers it to its neighbours, gives it to
+cables, follows its redstone mode and has its screen from the mod's own textures; and the Block Breaker T1, which mines
+the block in front of it on its 20-tick clock at its tool's speed (an iron pickaxe takes 8 ticks for stone), with the
+tool's drops and wear, and has its own screen. Chapter 2's way to the Paradox Machine runs too: the fluid drop
+(`justdirethings:fluiddrop`: polymorphic catalyst in water makes polymorphic fluid, a time crystal in it time fluid),
+the time crystal budding block a tier 4 goo makes from budding amethyst, its stages by dimension (1 in the Overworld, 2
+in the Nether, 3 in the End) and its clusters at stage 3, and the Paradox Machine, which snapshots the ores and mobs of
+its area on its screen's button and restores what is missing on a redstone pulse, for 250,000 FE and 50 mB of time
+fluid each, with its own screen. Of the T1 machines, the Block Placer T1 places the block item of its slot in front of
+it, the Fluid Collector T1 takes fluid sources in front into its tank and fills buckets from it, and the Item
+Collector takes the items of its area into the inventory it faces through its filter, each with its screen. The Dropper
+T1 throws its slot's item in front of it on its clock (a count, a pickup delay, a direction), the Fluid Placer T1 puts its
+tank's fluid down as a source block in front of it a bucket at a time, the Sensor T1 counts blocks, air, mobs, players or
+items in front of it and gives redstone (strong when set) while the count test holds, and the Fluid Generator T1 burns the
+refined fuels (tier 2, 3 and 4: 450, 1,300 and 4,000 FE a mB) into a 5,000,000 FE buffer it offers to its neighbours. The rules
+crate has unit tests of the config, the recipes, the goo's tick, the redstone modes, the generator, the breaker, the
+fluid drop, the crystal's growth, the Paradox Machine, the placer and the collectors and the screens' data; the world
+tests in `tests/` (`goo`, `generator`, `breaker`, `fluid`, `crystal`, `paradox`, `placer`, `collector`,
+`itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`) check them in game time. Not ported yet: the Clicker (it needs
+an engine helper for a fake player's clicks and the `use_item_on` gating), the Block Swapper and the T2 machines, the goo
+soils, the paradox entity and the time wand, the tools, armour and abilities; `NOTES.md` lists them with the
+differences from Java.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

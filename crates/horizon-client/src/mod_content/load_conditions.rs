@@ -368,6 +368,11 @@ pub fn build_with_conditions(
         overlay.write(BIOME_TAGS, &serde_json::to_vec(&doc)?)?;
         biome_tag_doc = Some(doc);
     }
+    keep_known_carvers(
+        biomes::carver_ids(&base.join(CARVERS))?,
+        &mut worldgen,
+        &mut warnings,
+    );
     // Structures and the pools, sets, processors and features they use, then
     // what mods add to sets, pools and lists, by priority, then in mod and
     // file order.

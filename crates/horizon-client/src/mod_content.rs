@@ -3251,10 +3251,13 @@ const TAG_BUNDLES: [&str; 2] = ["block-tags.json", "worldgen/block_tags.json"];
 const BIOME_TAGS: &str = "worldgen/biome_tags.json";
 /// Worldgen registries a content mod may add to, and the bundle the
 /// worldgen loader reads each from (id → the file's text): what structure
-/// mods hold, and a mod's own biomes (never vanilla's: `worldgen_entry`).
-/// Noise and density functions change the terrain and are not read from mods.
-const WORLDGEN_BUNDLES: [(&str, &str); 7] = [
+/// mods hold, and a mod's own biomes (never vanilla's: `worldgen_entry`) with
+/// the carvers they name (a biome naming a carver the bundle lacks stops the
+/// world's generator). Noise and density functions change the terrain and are
+/// not read from mods.
+const WORLDGEN_BUNDLES: [(&str, &str); 8] = [
     ("biome", BIOMES),
+    ("carver", CARVERS),
     ("structure", "worldgen/structures.json"),
     ("structure_set", "worldgen/structure_sets.json"),
     ("template_pool", "worldgen/template_pools.json"),
@@ -3289,13 +3292,79 @@ const COMMAND_REGISTRIES: [(&str, &str); 7] = [
 
 /// A mod file that adds to a worldgen bundle: (bundle, id).
 fn worldgen_entry(file: &str) -> Option<(&'static str, String)> {
-    let (ns, rest) = file.strip_prefix("data/")?.split_once("/worldgen/")?;
+    // `data/<ns>/worldgen/` only: a NeoForge data map for a worldgen registry
+    // (`data/<ns>/data_maps/worldgen/biome/<map>.json`) is no entry of it.
+    let (ns, rest) = file.strip_prefix("data/")?.split_once('/')?;
+    let rest = rest.strip_prefix("worldgen/")?;
     let (kind, path) = rest.split_once('/')?;
     if kind == "biome" && ns == "minecraft" {
         return None;
     }
     let (_, bundle) = WORLDGEN_BUNDLES.iter().find(|(k, _)| *k == kind)?;
     Some((bundle, format!("{ns}:{}", path.strip_suffix(".json")?)))
+}
+
+/// Leaves out of the mods' worldgen entries what the worldgen loader would
+/// refuse a world over: a mod's carver it can't decode (a type Horizon doesn't
+/// have, such as Twilight Forest's `twilightforest:tf_caves` or Ad Astra's
+/// `ad_astra:crater`), and each carver a mod's biome names that neither the
+/// base root (`base_carvers`) nor a mod holds.
+fn keep_known_carvers(
+    mut known: BTreeSet<String>,
+    worldgen: &mut BTreeMap<&str, Vec<(String, String)>>,
+    warnings: &mut Vec<String>,
+) {
+    if let Some(carvers) = worldgen.get_mut(CARVERS) {
+        carvers.retain(
+            |(id, text)| match horizon_world::worldgen::carver::WorldCarver::from_json(text) {
+                Ok(_) => {
+                    known.insert(id.clone());
+                    true
+                }
+                Err(e) => {
+                    warnings.push(format!("carver {id} left out: {e}"));
+                    false
+                }
+            },
+        );
+    }
+    for (id, text) in worldgen.get_mut(BIOMES).into_iter().flatten() {
+        let Ok(mut biome) = serde_json::from_str::<J>(text) else {
+            continue;
+        };
+        let Some(named) = biome.get_mut("carvers") else {
+            continue;
+        };
+        if let J::Str(one) = named
+            && !one.starts_with('#')
+        {
+            *named = J::Arr(vec![J::Str(one.clone())]);
+        }
+        let J::Arr(list) = named else {
+            continue;
+        };
+        let before = list.len();
+        list.retain(|carver| {
+            let J::Str(carver) = carver else {
+                return true;
+            };
+            let held = match carver.contains(':') {
+                true => known.contains(carver),
+                false => known.contains(&format!("minecraft:{carver}")),
+            };
+            if !held {
+                warnings.push(format!(
+                    "biome {id}: carver {carver} is no carver here; left out"
+                ));
+            }
+            held
+        });
+        if list.len() != before
+            && let Ok(edited) = serde_json::to_string(&biome)
+        {
+            *text = edited;
+        }
+    }
 }
 
 /// The key of a mod's structure set, template pool or processor list file

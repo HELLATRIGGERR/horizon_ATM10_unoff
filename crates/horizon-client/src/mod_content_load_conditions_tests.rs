@@ -16,12 +16,71 @@ fn worldgen_entry_reads_the_feature_folder() {
         worldgen_entry("data/minecraft/worldgen/biome/plains.json"),
         None
     );
-    for folder in ["configured_feature", "nope"] {
+    // A mod's carvers, which its biomes name (Ars Elemental's vexing caves).
+    assert_eq!(
+        worldgen_entry("data/zinc/worldgen/carver/zinc_cave.json"),
+        Some(("worldgen/carvers.json", "zinc:zinc_cave".to_owned()))
+    );
+    // Twilight Forest's data map for biomes is no biome.
+    assert_eq!(
+        worldgen_entry("data/twilightforest/data_maps/worldgen/biome/magic_map_color.json"),
+        None
+    );
+    for folder in ["configured_feature", "configured_carver", "nope"] {
         assert_eq!(
             worldgen_entry(&format!("data/zinc/worldgen/{folder}/ore_zinc.json")),
             None
         );
     }
+}
+
+/// A mod's carver of a type Horizon doesn't have is left out, and so is each
+/// carver a mod's biome names that no bundle holds; the rest stay as they were.
+#[test]
+fn carvers_the_worldgen_loader_would_refuse_are_left_out() {
+    let cave = r#"{"type":"cave","probability":1,"y":{"absolute":8},"count":0,"thickness":1,"room_vertical_radius_multiplier":1,"horizontal_radius_multiplier":1,"vertical_radius_multiplier":1,"floor_level":-1}"#;
+    let crater = r#"{"type":"zinc:crater","probability":1}"#;
+    let mut worldgen: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+    worldgen.insert(
+        CARVERS,
+        vec![
+            ("zinc:cave".to_owned(), cave.to_owned()),
+            ("zinc:crater".to_owned(), crater.to_owned()),
+        ],
+    );
+    let kept = r#"{"carvers":["cave","zinc:cave"],"temperature":0.5}"#;
+    worldgen.insert(
+        BIOMES,
+        vec![
+            (
+                "zinc:moon".to_owned(),
+                r#"{"carvers":["minecraft:cave","zinc:crater","zinc:cave","zinc:nowhere"],"temperature":0.5}"#.to_owned(),
+            ),
+            ("zinc:one".to_owned(), r#"{"carvers":"zinc:crater"}"#.to_owned()),
+            ("zinc:kept".to_owned(), kept.to_owned()),
+            ("zinc:tagged".to_owned(), r##"{"carvers":"#zinc:caves"}"##.to_owned()),
+        ],
+    );
+    let mut warnings = Vec::new();
+    keep_known_carvers(
+        BTreeSet::from(["minecraft:cave".to_owned()]),
+        &mut worldgen,
+        &mut warnings,
+    );
+    assert_eq!(worldgen[CARVERS].len(), 1);
+    assert_eq!(worldgen[CARVERS][0].0, "zinc:cave");
+    let biomes: BTreeMap<&str, &str> = worldgen[BIOMES]
+        .iter()
+        .map(|(id, text)| (id.as_str(), text.as_str()))
+        .collect();
+    assert_eq!(
+        biomes["zinc:moon"],
+        r#"{"carvers":["minecraft:cave","zinc:cave"],"temperature":0.5}"#
+    );
+    assert_eq!(biomes["zinc:one"], r#"{"carvers":[]}"#);
+    assert_eq!(biomes["zinc:kept"], kept);
+    assert_eq!(biomes["zinc:tagged"], r##"{"carvers":"#zinc:caves"}"##);
+    assert_eq!(warnings.len(), 4, "{warnings:?}");
 }
 
 #[test]

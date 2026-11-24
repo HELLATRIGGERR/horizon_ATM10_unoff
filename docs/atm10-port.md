@@ -125,6 +125,24 @@ A carry is one mod's content converted from its jar. Carries are generated on yo
 5. `tools/atm10/load-check` reads them as the game does; `tools/atm10/play-atm10.ts` passes each carry to the game as a
    `--dev-mod` (`measure-load.ps1` measures a start).
 
+### NeoForge's own data
+
+NeoForge's universal jar defines the common tags: `c:crops` (`#c:crops/wheat`...), `c:seeds`, `c:eggs` and about
+280 more item tags, the `c:is_*` biome tags, the `neoforge` tags and its additions to vanilla's tags. No mod jar
+defines them, and mods' tags and recipes name them. `horizon-port-pack final-data` carries them from the player's
+own jar (`<work>/loader/`, or beside the instance: CurseForge's `Install/libraries/net/neoforged/neoforge/<version>/`)
+into one more carry, `neoforge` (`crates/horizon-port-pack/src/loader_data.rs`; `carry-loader <work>` makes it alone).
+- Every tag file is an addition (`replace` is never set), so vanilla's tags and the mods' gain members.
+- The shared tags it defines keep the dump's final values in that carry, not in `atm10-pack`. So a bundle's world that
+  loads its own carry and `neoforge` has `c:crops` with the members its mods register.
+- Its namespace's damage type `neoforge:poison` comes along. Left in the jar: vanilla's recipes, loot tables and
+  advancements in NeoForge's 1.21.1 form (the game keeps 26.3's own, and the content fence refuses them), its data maps
+  of vanilla's values (fuel, compost, waxing...: the game keeps 26.3's) and its global loot modifiers (code-backed).
+
+`tools/atm10/shared-tags.py --carries <carries> --resources <26.3> --dump <dump> --instance <ATM10> --each [--extra <carries>/neoforge]`
+counts the `c:` item tags recipes and quests ask for that are empty in a world but not in Java, and the recipes they
+block: in the world of all carries, and in each carry's own world.
+
 A carry gives each block a vanilla template, and the engine reads a click on it through the template. A bundle's
 `native_right_click_block` hooks (API 21 and v2) hear every click on every block, whatever the template, before the
 block's own use. A menu opens only through a template whose class opens one (`use_without_item`: furnaces, chests,

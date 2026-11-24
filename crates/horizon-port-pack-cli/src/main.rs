@@ -34,6 +34,9 @@
 //! - `final-data <carries> --dump <dir> --work <work> --resources <prepared> [--instance <dir>] [--also <mod>...]`:
 //!   a pack's final recipes, tags and loot tables (`tools/neoforge_oracle.py pack`) over its carried folders, and the
 //!   rest in one more folder, `atm10-pack`. Counts in `<work>/final-data.json`.
+//! - `carry-loader <work> [--instance <dir>] [<out>]`: the loader's own data (NeoForge's `c` tags, its tags and
+//!   its additions to vanilla's) from its universal jar into the folder mod `neoforge` (`<out>`, by default
+//!   `<work>/mods/neoforge/carry`). `final-data` makes it among the carries itself.
 //! - `upgrade-datapack <pack> <out> | --world <world>`: a 26.2 data pack
 //!   (zip or folder) with its world generation rewritten in 26.3's formats
 //!   (`docs/datapack-upgrade.md`), into the folder `<out>`, or into
@@ -50,7 +53,7 @@ use std::{
     process::ExitCode,
 };
 
-const USAGE: &str = "usage: horizon-port-pack import <pack> <work> | inventory <work> [--offline] | fetch <work> [--from <folder>] [<mod id>...] | carry <work> [--resources <prepared>] [<mod id>...] | report <work> | check <jar> <out> | port <pack> <work> [--from <folder>] [--resources <prepared>] | upgrade-datapack <pack> (<out> | --world <world>) | refresh-features <carries> | events <jar or folder> [--hooks <hook-counterparts.json>]";
+const USAGE: &str = "usage: horizon-port-pack import <pack> <work> | inventory <work> [--offline] | fetch <work> [--from <folder>] [<mod id>...] | carry <work> [--resources <prepared>] [<mod id>...] | carry-loader <work> [--instance <dir>] [<out>] | report <work> | check <jar> <out> | port <pack> <work> [--from <folder>] [--resources <prepared>] | upgrade-datapack <pack> (<out> | --world <world>) | refresh-features <carries> | events <jar or folder> [--hooks <hook-counterparts.json>]";
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -112,12 +115,7 @@ fn main() -> ExitCode {
                 if let Some(instance) = &instance {
                     mods.extend(horizon_port_pack::final_data::instance_mods(instance));
                 }
-                // The loader's universal jar, as `import` keeps it.
-                let loader = std::fs::read_dir(work.join("loader")).ok().and_then(|dir| {
-                    dir.flatten()
-                        .map(|e| e.path())
-                        .find(|p| p.to_string_lossy().ends_with("-universal.jar"))
-                });
+                let loader = loader_jar(work, instance.as_deref());
                 let summary = horizon_port_pack::final_data::apply(&horizon_port_pack::final_data::Options {
                     carries,
                     dump: dump.as_deref().ok_or(USAGE)?,
@@ -130,6 +128,20 @@ fn main() -> ExitCode {
                 let text = serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?;
                 std::fs::write(work.join("final-data.json"), &text).map_err(|e| e.to_string())?;
                 println!("{text}");
+                Ok(())
+            }
+            Some("carry-loader") => {
+                // carry-loader <work> [--instance DIR] [<out>]
+                let work = path(1)?;
+                let jar = loader_jar(work, instance.as_deref())
+                    .ok_or("no NeoForge universal jar in <work>/loader/ or beside the instance")?;
+                let out = match args.get(2) {
+                    Some(out) => PathBuf::from(out),
+                    None => work.join("mods").join(horizon_port_pack::loader_data::FOLDER).join("carry"),
+                };
+                let carried = horizon_port_pack::loader_data::carry(&jar, &out)?;
+                println!("{}", serde_json::to_string_pretty(&carried).map_err(|e| e.to_string())?);
+                println!("{}", out.display());
                 Ok(())
             }
             Some("report") => {
@@ -209,6 +221,17 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// The loader's universal jar: the one `fetch` keeps in `<work>/loader/`, or the player's own install beside the
+/// instance, at the version `import` read (`<work>/pack.json`).
+fn loader_jar(work: &Path, instance: Option<&Path>) -> Option<PathBuf> {
+    use horizon_port_pack::loader_data::{installed_jar, work_jar};
+    work_jar(work).or_else(|| {
+        let pack: serde_json::Value = serde_json::from_slice(&std::fs::read(work.join("pack.json")).ok()?).ok()?;
+        let version = pack["loader_version"].as_str()?;
+        (pack["loader"] == "neoforge").then(|| installed_jar(instance?, version)).flatten()
+    })
 }
 
 /// Removes `--name <value>` from `args`.

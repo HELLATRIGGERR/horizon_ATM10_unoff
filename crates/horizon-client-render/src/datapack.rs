@@ -842,6 +842,83 @@ pub fn registry_files(
     Ok(files)
 }
 
+/// The `data/<ns>/<kind>/` folders `DataStore` reads.
+const DATA_KINDS: [&str; 18] = [
+    "advancement",
+    "damage_type",
+    "data_maps",
+    "dialog",
+    "dimension_type",
+    "enchantment",
+    "function",
+    "instrument",
+    "item_modifier",
+    "jukebox_song",
+    "loot_table",
+    "predicate",
+    "recipe",
+    "recipe_filter",
+    "slot_source",
+    "tags",
+    "trade_set",
+    "villager_trade",
+];
+
+/// Whether `file` is a command resource `DataStore` parses: a function, a function or slot
+/// source tag, a predicate, an item modifier or a slot source.
+fn command_resource(file: &str) -> bool {
+    resource_id(file, "function", ".mcfunction").is_some()
+        || [
+            "tags/function",
+            "predicate",
+            "item_modifier",
+            "tags/slot_source",
+            "slot_source",
+        ]
+        .iter()
+        .any(|kind| resource_id(file, kind, ".json").is_some())
+}
+
+/// Each `(pack, file)`'s bytes, in their order, read on up to 8 threads: a world's first data
+/// load opens every data file of every pack, and with cold caches each open waits on the disk
+/// and the virus scanner while the CPU idles (about 300 files a second on one thread).
+fn read_files(files: &[(&DataPack, &str)]) -> Vec<Option<Vec<u8>>> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(8)
+            .min(files.len());
+        if threads > 1 {
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let mut read: Vec<(usize, Option<Vec<u8>>)> = std::thread::scope(|scope| {
+                let workers: Vec<_> = (0..threads)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            let mut out = Vec::new();
+                            loop {
+                                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some((pack, file)) = files.get(i) else {
+                                    break;
+                                };
+                                out.push((i, pack.read(file)));
+                            }
+                            out
+                        })
+                    })
+                    .collect();
+                workers
+                    .into_iter()
+                    .flat_map(|worker| worker.join().expect("data file reader"))
+                    .collect()
+            });
+            read.sort_by_key(|(i, _)| *i);
+            return read.into_iter().map(|(_, bytes)| bytes).collect();
+        }
+    }
+    files.iter().map(|(pack, file)| pack.read(file)).collect()
+}
+
 impl DataStore {
     pub fn load(packs: &[&DataPack]) -> Self {
         Self::load_impl(packs, None)
@@ -859,45 +936,49 @@ impl DataStore {
         conditions: Option<&horizon_world::conditions::LoadConditions>,
     ) -> Self {
         let mut s = Self::default();
-        for pack in packs {
-            // `tags` walks the whole tags tree, so a `tags/function` file is
-            // listed by both kinds: handle every file once.
-            let mut seen = std::collections::BTreeSet::new();
+        // Every listed file of every pack, each once: `tags` walks the whole tags tree, so a
+        // `tags/function` file is listed by both kinds.
+        let listed: Vec<(&DataPack, Vec<String>)> = packs
+            .iter()
+            .map(|pack| {
+                let mut seen = std::collections::BTreeSet::new();
+                let files = pack
+                    .list_kinds(&DATA_KINDS)
+                    .into_iter()
+                    .filter(|f| seen.insert(f.clone()))
+                    .collect();
+                (*pack, files)
+            })
+            .collect();
+        // The files used below, read side by side ([`read_files`]) and taken in the listed order.
+        let wanted = |pack: &DataPack, f: &str| {
+            (pack.id != "vanilla" && content_id(f).is_some()) || command_resource(f)
+        };
+        let reads: Vec<(&DataPack, &str)> = listed
+            .iter()
+            .flat_map(|(pack, files)| files.iter().map(move |f| (*pack, f.as_str())))
+            .filter(|(pack, f)| wanted(pack, f))
+            .collect();
+        let mut read = read_files(&reads).into_iter();
+        for (pack, files) in &listed {
             let builtin = pack.id == "vanilla";
-            for f in pack.list_kinds(&[
-                "advancement",
-                "damage_type",
-                "data_maps",
-                "dialog",
-                "dimension_type",
-                "enchantment",
-                "function",
-                "instrument",
-                "item_modifier",
-                "jukebox_song",
-                "loot_table",
-                "predicate",
-                "recipe",
-                "recipe_filter",
-                "slot_source",
-                "tags",
-                "trade_set",
-                "villager_trade",
-            ]) {
-                if !seen.insert(f.clone()) {
-                    continue;
-                }
+            for f in files {
+                let bytes = if wanted(pack, f) {
+                    read.next().flatten()
+                } else {
+                    None
+                };
                 // Preserve JSON stacks independently of the command views
                 // below. World-table readers evaluate the winning resource's
                 // conditions using their captured server inventory.
                 if !builtin
-                    && let Some(id) = content_id(&f)
-                    && let Some(bytes) = pack.read(&f)
+                    && let Some(id) = content_id(f)
+                    && let Some(bytes) = &bytes
                 {
-                    s.files.entry(id).or_default().push(bytes);
+                    s.files.entry(id).or_default().push(bytes.clone());
                 }
-                if let Some(id) = resource_id(&f, "function", ".mcfunction")
-                    && let Some(bytes) = pack.read(&f)
+                if let Some(id) = resource_id(f, "function", ".mcfunction")
+                    && let Some(bytes) = &bytes
                 {
                     match parse_function(&id, &String::from_utf8_lossy(&bytes)) {
                         Ok(func) => {
@@ -905,8 +986,8 @@ impl DataStore {
                         }
                         Err(e) => s.errors.push((id, e)),
                     }
-                } else if let Some(id) = resource_id(&f, "tags/function", ".json")
-                    && let Some(bytes) = pack.read(&f)
+                } else if let Some(id) = resource_id(f, "tags/function", ".json")
+                    && let Some(bytes) = &bytes
                     && let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes)
                 {
                     let mut entries = tag_entries(&v);
@@ -922,18 +1003,18 @@ impl DataStore {
                         slot.clear();
                     }
                     slot.extend(entries);
-                } else if let Some(id) = resource_id(&f, "predicate", ".json")
-                    && let Some(bytes) = pack.read(&f)
+                } else if let Some(id) = resource_id(f, "predicate", ".json")
+                    && let Some(bytes) = &bytes
                     && let Ok(v) = serde_json::from_slice(&bytes)
                 {
                     s.predicates.insert(id, v);
-                } else if let Some(id) = resource_id(&f, "item_modifier", ".json")
-                    && let Some(bytes) = pack.read(&f)
+                } else if let Some(id) = resource_id(f, "item_modifier", ".json")
+                    && let Some(bytes) = &bytes
                     && let Ok(v) = serde_json::from_slice(&bytes)
                 {
                     s.item_modifiers.insert(id, v);
-                } else if let Some(id) = resource_id(&f, "tags/slot_source", ".json")
-                    && let Some(bytes) = pack.read(&f)
+                } else if let Some(id) = resource_id(f, "tags/slot_source", ".json")
+                    && let Some(bytes) = &bytes
                     && let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes)
                 {
                     let mut entries = tag_entries(&v);
@@ -949,8 +1030,8 @@ impl DataStore {
                         slot.clear();
                     }
                     slot.extend(entries);
-                } else if let Some(id) = resource_id(&f, "slot_source", ".json")
-                    && let Some(bytes) = pack.read(&f)
+                } else if let Some(id) = resource_id(f, "slot_source", ".json")
+                    && let Some(bytes) = &bytes
                     && let Ok(v) = serde_json::from_slice(&bytes)
                 {
                     s.slot_sources.insert(id, v);
@@ -1954,6 +2035,84 @@ mod tests {
             .function_tags
             .insert("d:40".into(), vec![("t:deep".into(), true, false)]);
         assert_eq!(store.tag_functions("d:0"), ["t:deep"]);
+    }
+
+    #[test]
+    fn data_files_read_side_by_side_keep_each_packs_order() {
+        let root =
+            std::env::temp_dir().join(format!("horizon-data-side-by-side-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let write = |path: std::path::PathBuf, text: String| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        let mut packs = Vec::new();
+        for name in ["low", "high"] {
+            let folder = root.join(name);
+            for i in 0..40 {
+                let data = folder.join("data/demo");
+                write(
+                    data.join(format!("recipe/r{i}.json")),
+                    format!(r#"{{"layer":"{name}","i":{i}}}"#),
+                );
+                write(
+                    data.join(format!("predicate/p{i}.json")),
+                    format!(r#"{{"layer":"{name}"}}"#),
+                );
+                write(
+                    data.join(format!("function/f{i}.mcfunction")),
+                    format!("say {name} {i}"),
+                );
+            }
+            // The high pack's function tag replaces the low one's.
+            let tag = if name == "low" {
+                r#"{"values":["demo:f1","demo:f2"]}"#
+            } else {
+                r#"{"replace":true,"values":["demo:f3"]}"#
+            };
+            write(folder.join("data/demo/tags/function/t.json"), tag.into());
+            packs.push(DataPack::from_source(
+                name.into(),
+                ResourceSource::directory(folder),
+            ));
+        }
+        let refs: Vec<_> = packs.iter().collect();
+        let store = DataStore::load(&refs);
+        for i in 0..40 {
+            let versions = &store.files[&format!("recipe/demo:r{i}")];
+            let layers: Vec<_> = versions
+                .iter()
+                .map(|bytes| serde_json::from_slice::<serde_json::Value>(bytes).unwrap())
+                .map(|v| {
+                    (
+                        v["layer"].as_str().unwrap().to_owned(),
+                        v["i"].as_i64().unwrap(),
+                    )
+                })
+                .collect();
+            assert_eq!(layers, [("low".into(), i), ("high".into(), i)]);
+            assert_eq!(store.predicates[&format!("demo:p{i}")]["layer"], "high");
+            assert!(store.functions.contains_key(&format!("demo:f{i}")));
+        }
+        let tag: Vec<_> = store.function_tags["demo:t"]
+            .iter()
+            .map(|(id, ..)| id.as_str())
+            .collect();
+        assert_eq!(tag, ["demo:f3"]);
+        // In the order asked, a missing file as None, whatever thread read it.
+        let mut asked: Vec<(&DataPack, String)> = (0..40)
+            .map(|i| (&packs[i % 2], format!("data/demo/recipe/r{i}.json")))
+            .collect();
+        asked.insert(17, (&packs[0], "data/demo/recipe/missing.json".into()));
+        let asked: Vec<(&DataPack, &str)> = asked.iter().map(|(p, f)| (*p, f.as_str())).collect();
+        let read = read_files(&asked);
+        assert_eq!(read.len(), asked.len());
+        for ((pack, file), bytes) in asked.iter().zip(&read) {
+            assert_eq!(bytes, &pack.read(file), "{file}");
+        }
+        assert!(read[17].is_none());
+        assert!(read_files(&[]).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -18,7 +18,7 @@ The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlo
 `ParadoxMachineScreen`, `AreaAffectingBE`, `AreaAffectingData`, `BlockPlacerT1BE`, `BlockPlacerT1Screen`,
 `FluidCollectorT1BE`, `FluidCollectorT1Screen`, `ItemCollectorBE`, `ItemCollectorScreen`, `FilterableBE`, `FilterData`,
 `DropperT1BE`, `DropperT1Screen`, `FluidPlacerT1BE`, `SensorT1BE`, `SensorT1`, `SensorT1Screen`, `GeneratorFluidT1BE`,
-`GeneratorFluidT1Screen`, `RefinedFuel`),
+`GeneratorFluidT1Screen`, `RefinedFuel`, `BlockSwapperT1BE`, `BlockSwapperT1Screen`, `FerricoreWrench`, `GooTier`, `ArmorTiers`),
 not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
@@ -90,13 +90,23 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   a mB; `fuel_tier*_fe_per_mb`), burning a millibucket a tick while its 5,000,000 FE buffer has room for all of it, and
   offering ten times its 5,000 FE a tick to each neighbour. Redstone control from its button. Screen: the slot, the
   energy and fluid bars, the redstone button.
+- **Block Swapper T1** (`blockswappert1`): two swappers bound with a Ferricore Wrench (a sneaking click on each; see NOTES)
+  trade the block in front of each (and, by the entity button, the hostile, passive, adult, baby, player, living, item or
+  all entities standing in that block) on a pulse, or its clock on ignore, where both are in the same dimension; the
+  blocks that the tags `c:relocation_not_supported` and `justdirethings:swapperdeny` name and unbreakable ones stay.
+  Screen: the partner's icon, the blocks, entity and redstone buttons.
+- **Tool and armour tiers**: ferricore, blazegold, celestigem and eclipse alloy tools, armour and the wrench are items of the
+  carry (their tool rules, durability and repair, equipment assets). The carry holds no attribute modifiers for
+  celestigem's and eclipse alloy's, so the content step adds the mod's own: `GooTier`'s damage bonus (celestigem 4,
+  eclipse alloy 5) over each tool's base damage and speed as `createAttributes` gives them, and `ArmorTiers`' armour points,
+  toughness (2 and 3) and eclipse alloy's 0.1 knockback resistance. Their abilities are not ported.
 - The settings come from `config/justdirethings-server.toml` (`goo`, `generator_t1`, `time_crystal`,
   `paradox_machine`, `minimum_machine_tick_speed` is 1).
 
 `justdirethings-core` holds the rules with unit tests; `tests/goo.ts`, `tests/generator.ts`, `tests/breaker.ts`,
 `tests/fluid.ts`, `tests/crystal.ts`, `tests/paradox.ts`, `tests/placer.ts`, `tests/collector.ts`,
-`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts` and `tests/fluidgen.ts` run them in a
-world.
+`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts`, `tests/fluidgen.ts`, `tests/swapper.ts` and
+`tests/tools.ts` run them in a world.
 `NOTES.md` lists the differences from Java and what is left.
 
 ## On upstream's hooks (merge of nightly-source/2026-11-18)

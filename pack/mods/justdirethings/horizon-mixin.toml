@@ -41,6 +41,12 @@ name = "justdirethings_more"
 source = "runtime/justdirethings_more.rs"
 
 [[module]]
+id = "swapper"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_swapper"
+source = "runtime/justdirethings_swapper.rs"
+
+[[module]]
 id = "paradox-ui"
 file = "crates/horizon-client/src/game.rs"
 name = "justdirethings_paradox_ui"

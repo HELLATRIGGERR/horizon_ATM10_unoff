@@ -1089,8 +1089,10 @@ the mercurial reformation array adds 483, so 1,425 recipes have a machine.
   within 16 blocks. A mercury catalyst holding a mercury shard (the 2 catalysation recipes) feeds flux to an adjacent
   emitter every 20 ticks. Not ported: mercury pipes and wands, the catalyst's redstone state, the pick outlines, and the
   catalyser and divination rod blocks.
-- The `c:crops`, `c:eggs`, `c:seeds` and `c:sugars` tags have no members, so the fermentation recipes that ask for them
-  cannot craft.
+- In Theurgy's own test world (its carry alone) the `c:crops`, `c:eggs`, `c:seeds` and `c:sugars` tags have no
+  members, so the fermentation recipes that ask for them cannot craft there. The `neoforge` carry ("NeoForge's own
+  data") gives `c:crops`, `c:eggs` and `c:seeds` their members; `c:sugars` comes from the pack's other mods, through
+  `atm10-pack`.
 
 - The accumulator keeps Theurgy's quirk: its crafting total time starts at 0, so the first tick after a bucket of
   water crafts at once; later crafts take the recipe's 100 ticks.

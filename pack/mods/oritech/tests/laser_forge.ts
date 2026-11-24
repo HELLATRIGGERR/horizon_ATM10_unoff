@@ -78,7 +78,8 @@ try {
   await until(() => saved(miner), assembled, 'the miner assembles', 20000);
   await fixture.command(`oritech aim ${miner} ${mx} ${y} ${z - 6}`);
   nbt = await until(() => saved(miner), s => s.includes('cobblestone'), 'the laser mines the stone', 60000);
-  assert.equal((await fixture.raw(`block ${mx} ${y} ${z - 6}`)).block, 'minecraft:air', 'the stone is gone');
+  // The test's view of the world follows the server's by a few ticks: wait for it.
+  await until(() => fixture.raw(`block ${mx} ${y} ${z - 6}`), v => v.block === 'minecraft:air', 'the stone is gone', 10000);
   const tp = `tp @s ${mx + 0.5} ${y} ${z + 2.5}`;
   await fixture.command(tp);
   await fixture.raw(`interact ${miner} south`);
@@ -89,7 +90,7 @@ try {
   log.screenshotLaser = shot;
   await fixture.raw('close');
   nbt = await until(() => saved(miner), s => s.includes('oritech:fluxite'), 'the laser mines the cluster into fluxite', 90000);
-  assert.equal((await fixture.raw(`block ${mx} ${y} ${z - 9}`)).block, 'minecraft:air', 'the cluster is gone');
+  await until(() => fixture.raw(`block ${mx} ${y} ${z - 9}`), v => v.block === 'minecraft:air', 'the cluster is gone', 10000);
   fixture.mark('the laser mined the stone into cobblestone and the amethyst cluster into fluxite');
 
   fixture.assertHidden(await fixture.raw('status'));

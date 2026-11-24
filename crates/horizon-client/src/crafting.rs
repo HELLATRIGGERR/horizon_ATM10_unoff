@@ -1545,6 +1545,7 @@ impl ResolvedSources {
         context: &horizon_world::native_load_context::LoadContext,
         carried: mod_kinds::CarriedKinds,
     ) -> Result<Self> {
+        carried.leave_out_replaced_vanilla(&mut sources);
         // Every consumer keeps vanilla's resource-file registration order.
         sources.sort_by_cached_key(|(name, _)| registration_key(name));
         for (name, file) in &sources {

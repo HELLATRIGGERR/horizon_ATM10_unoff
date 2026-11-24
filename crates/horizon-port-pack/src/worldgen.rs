@@ -153,6 +153,146 @@ pub struct Upgrade {
     pub modifiers_left: BTreeMap<String, usize>,
 }
 
+/// 26.3's name of a 1.21.1 worldgen registry folder: configured features
+/// and carvers became `feature` and `carver`. The game reads a mod's
+/// features from `worldgen/feature/` only, so a carry that keeps
+/// `configured_feature/` places none of them.
+pub fn registry_26_3(kind: &str) -> &str {
+    match kind {
+        "configured_feature" => "feature",
+        "configured_carver" => "carver",
+        kind => kind,
+    }
+}
+
+/// Where a `data/<ns>/worldgen/<kind>/<path>` file goes in 26.3, when its
+/// registry folder was renamed ([`registry_26_3`]); `None` for any other.
+pub fn path_26_3(path: &str) -> Option<String> {
+    let (head, rest) = path.split_once("/worldgen/")?;
+    let ns = head.strip_prefix("data/")?;
+    if ns.is_empty() || ns.contains('/') {
+        return None;
+    }
+    let (kind, file) = rest.split_once('/')?;
+    let new = registry_26_3(kind);
+    (new != kind).then(|| format!("{head}/worldgen/{new}/{file}"))
+}
+
+/// What [`refresh_features`] did.
+#[derive(Debug, Default)]
+pub struct Refresh {
+    /// Configured and placed features, carvers and biomes read.
+    pub read: usize,
+    /// Files whose content changed to 26.3's.
+    pub rewritten: usize,
+    /// Files moved to 26.3's registry folder (`feature`, `carver`).
+    pub moved: usize,
+    /// Feature types left as they are, with how many.
+    pub left: BTreeMap<String, usize>,
+}
+
+/// Brings the worldgen of every carry in `carries` (a folder of carry
+/// folders, each with a `horizon-mod.toml`) to the form the carry writes
+/// now: configured features, placed features, carvers and biomes rewritten
+/// by [`upgrade`], and configured features and carvers moved to 26.3's
+/// `feature` and `carver` folders. For carries made before the carry
+/// wrote that form; a fresh carry needs none of it. A file that changes is
+/// written beside and renamed over, never written through, and a moved one
+/// is unlinked from its old name: a carries folder copied with hard links
+/// keeps the original's files as they are.
+pub fn refresh_features(carries: &Path) -> std::io::Result<Refresh> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let path = e.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if path.extension().is_some_and(|x| x == "json") {
+                out.push(path);
+            }
+        }
+    }
+    /// Removes the folders under `dir` (and `dir`) left empty.
+    fn prune(dir: &Path) {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if e.path().is_dir() {
+                prune(&e.path());
+            }
+        }
+        let _ = std::fs::remove_dir(dir);
+    }
+    let mut out = Refresh::default();
+    let mut report = Upgrade::default();
+    let none = BTreeMap::new();
+    let mut mods: Vec<PathBuf> = std::fs::read_dir(carries)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.join("horizon-mod.toml").is_file())
+        .collect();
+    mods.sort();
+    for carry in mods {
+        let Ok(namespaces) = std::fs::read_dir(carry.join("data")) else {
+            continue;
+        };
+        for ns in namespaces.flatten() {
+            let worldgen = ns.path().join("worldgen");
+            for kind in ["configured_feature", "placed_feature", "configured_carver", "biome"] {
+                let from = worldgen.join(kind);
+                let to = worldgen.join(registry_26_3(kind));
+                let mut files = Vec::new();
+                walk(&from, &mut files);
+                if from != to {
+                    walk(&to, &mut files);
+                }
+                for file in files {
+                    let bytes = std::fs::read(&file)?;
+                    let target = match file.strip_prefix(&from) {
+                        Ok(rel) => to.join(rel),
+                        Err(_) => file.clone(),
+                    };
+                    let mut changed = false;
+                    let text = match serde_json::from_slice::<Value>(&bytes) {
+                        Ok(mut v) => {
+                            out.read += 1;
+                            changed = upgrade(kind, &mut v, &mut report, &none);
+                            match changed {
+                                true => {
+                                    out.rewritten += 1;
+                                    serde_json::to_vec_pretty(&v).map_err(std::io::Error::other)?
+                                }
+                                false => bytes,
+                            }
+                        }
+                        // Kept as it is, in the folder the carry would write it to.
+                        Err(_) => bytes,
+                    };
+                    let moved = target != file;
+                    if !moved && !changed {
+                        continue;
+                    }
+                    if let Some(parent) = target.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    let tmp = target.with_extension("json.refresh");
+                    std::fs::write(&tmp, text)?;
+                    std::fs::rename(&tmp, &target)?;
+                    if moved {
+                        std::fs::remove_file(&file)?;
+                        out.moved += 1;
+                    }
+                }
+                if from != to {
+                    prune(&from);
+                }
+            }
+        }
+    }
+    out.left = report.unsupported;
+    Ok(out)
+}
+
 /// Where a mod's additions to other sets and pools go in its carry:
 /// `data/<id>/worldgen/<kind>/horizon_added/<name>.json`.
 pub const ADDED: &str = "horizon_added";
@@ -177,9 +317,10 @@ pub fn upgrade(
     upgrade_types(kind, v, report, set_tags) || states || features || dropped || renamed
 }
 
-/// A 1.21.1 configured or placed feature in 26.3's form, as world packs get
-/// it ([`crate::upgrade`]): `config` unwrapped (26.3 skips a feature that
-/// keeps it), patches and placements rewritten. Whether it changed.
+/// A 1.21.1 configured or placed feature, carver or biome in 26.3's form, as
+/// world packs get it ([`crate::upgrade`]): `config` unwrapped (26.3 skips a
+/// feature that keeps it), patches and placements rewritten, a biome's spawns,
+/// carvers and colours moved to its attributes. Whether it changed.
 fn features(kind: &str, v: &mut Value, report: &mut Upgrade) -> bool {
     let mut r = crate::upgrade::Report::default();
     let new = match kind {
@@ -188,6 +329,9 @@ fn features(kind: &str, v: &mut Value, report: &mut Upgrade) -> bool {
             crate::upgrade::features::feature(v, &mut r)
         }
         "placed_feature" => crate::upgrade::features::placed(v, &mut r),
+        // Every 1.21.1 configured carver has `config`; 26.3's has none.
+        "configured_carver" if v.get("config").is_some() => crate::upgrade::carver(v, &mut r),
+        "biome" if biome_1_21_1(v) => crate::upgrade::biome(v, &mut r),
         _ => return false,
     };
     for (t, n) in r.unknown {
@@ -196,6 +340,28 @@ fn features(kind: &str, v: &mut Value, report: &mut Upgrade) -> bool {
     let changed = new != *v;
     *v = new;
     changed
+}
+
+/// Whether a biome is in 1.21.1's form: spawns in `spawners`, carvers by
+/// step, sky and fog colours or sounds in `effects`. 26.3 keeps none of them
+/// there, so a biome already in its form is left as it is.
+fn biome_1_21_1(v: &Value) -> bool {
+    const MOVED: [&str; 7] = [
+        "sky_color",
+        "fog_color",
+        "water_fog_color",
+        "music",
+        "mood_sound",
+        "ambient_sound",
+        "additions_sound",
+    ];
+    ["spawners", "spawn_costs", "creature_spawn_probability"]
+        .iter()
+        .any(|k| v.get(k).is_some())
+        || v["carvers"].is_object()
+        || v["effects"]
+            .as_object()
+            .is_some_and(|e| MOVED.iter().any(|k| e.contains_key(*k)))
 }
 
 /// Takes the processors written in Java (any type outside `minecraft:` and
@@ -1354,6 +1520,101 @@ mod tests {
         ));
         assert_eq!(report.block_states, 2);
         assert_eq!(report.mapped, 0);
+    }
+
+    /// An old carry (made before the carry wrote 26.3's form) is brought to
+    /// it: its features move to `worldgen/feature/` unwrapped, its carvers to
+    /// `worldgen/carver/`, its biomes get 26.3's attributes, and a hard-linked
+    /// copy's original keeps its files.
+    #[test]
+    fn refresh_rewrites_old_carries_without_writing_through_links() {
+        let dir = std::env::temp_dir().join(format!("refresh-features-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let worldgen = dir.join("carries/zinc/data/zinc/worldgen");
+        let put = |rel: &str, text: &str| {
+            let path = worldgen.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        std::fs::create_dir_all(dir.join("carries/zinc")).unwrap();
+        std::fs::write(dir.join("carries/zinc/horizon-mod.toml"), "id = \"zinc\"\n").unwrap();
+        let old = r#"{"type":"minecraft:ore","config":{"size":9,"discard_chance_on_air_exposure":0.0,"targets":[]}}"#;
+        put("configured_feature/ores/ore_zinc.json", old);
+        put(
+            "configured_carver/zinc_cave.json",
+            r##"{"type":"minecraft:cave","config":{"probability":0.1,"y":{"absolute":0},"yScale":1.0,
+                "horizontal_radius_multiplier":1.0,"vertical_radius_multiplier":1.0,"floor_level":-0.7,
+                "lava_level":{"above_bottom":8},"replaceable":"#minecraft:overworld_carver_replaceables"}}"##,
+        );
+        put(
+            "biome/zinc_hills.json",
+            r#"{"has_precipitation":true,"temperature":0.8,"downfall":0.4,"effects":{"sky_color":7907327,
+                "fog_color":12638463,"water_color":4159204,"water_fog_color":329011},
+                "spawners":{"monster":[{"type":"minecraft:zombie","weight":100,"minCount":4,"maxCount":4}]},
+                "spawn_costs":{},"carvers":{"air":["zinc:zinc_cave"]},"features":[]}"#,
+        );
+        put("placed_feature/ore_zinc.json", r#"{"feature":"zinc:ores/ore_zinc","placement":[]}"#);
+        // A second name for the same file, as a hard-linked copy of the carries has.
+        let link = dir.join("original.json");
+        std::fs::hard_link(worldgen.join("configured_feature/ores/ore_zinc.json"), &link).unwrap();
+        let r = refresh_features(&dir.join("carries")).unwrap();
+        assert_eq!((r.read, r.rewritten, r.moved), (4, 3, 2), "{r:?}");
+        let read = |rel: &str| -> Value { serde_json::from_slice(&std::fs::read(worldgen.join(rel)).unwrap()).unwrap() };
+        let ore = read("feature/ores/ore_zinc.json");
+        assert_eq!(ore.get("config"), None, "{ore}");
+        assert_eq!(ore["size"], 9);
+        assert!(!worldgen.join("configured_feature").exists());
+        assert!(!worldgen.join("configured_carver").exists());
+        let cave = read("carver/zinc_cave.json");
+        assert_eq!((cave.get("config"), &cave["probability"]), (None, &json!(0.1)), "{cave}");
+        let biome = read("biome/zinc_hills.json");
+        assert_eq!(biome.get("spawners"), None, "{biome}");
+        assert_eq!(biome["carvers"], json!(["zinc:zinc_cave"]));
+        let spawns = &biome["attributes"]["minecraft:gameplay/natural_mob_spawns"]["argument"];
+        assert_eq!(spawns["spawns_by_category"]["monster"][0]["count"], 4, "{biome}");
+        assert_eq!(biome["attributes"]["minecraft:visual/sky_color"], "#78a7ff");
+        assert_eq!(read("placed_feature/ore_zinc.json")["feature"], "zinc:ores/ore_zinc");
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), old);
+        // Once in 26.3's form it stays as it is.
+        let again = refresh_features(&dir.join("carries")).unwrap();
+        assert_eq!((again.read, again.rewritten, again.moved), (4, 0, 0), "{again:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renamed_registries_are_26_3s() {
+        assert_eq!(
+            path_26_3("data/zinc/worldgen/configured_feature/ores/a.json").as_deref(),
+            Some("data/zinc/worldgen/feature/ores/a.json")
+        );
+        assert_eq!(
+            path_26_3("data/zinc/worldgen/configured_carver/c.json").as_deref(),
+            Some("data/zinc/worldgen/carver/c.json")
+        );
+        for kept in [
+            "data/zinc/worldgen/placed_feature/a.json",
+            "data/zinc/worldgen/feature/a.json",
+            "data/zinc/tags/worldgen/configured_feature/a.json",
+            "assets/zinc/worldgen/configured_feature/a.json",
+        ] {
+            assert_eq!(path_26_3(kept), None, "{kept}");
+        }
+    }
+
+    /// A biome already in 26.3's form is not touched; a 1.21.1 one is.
+    #[test]
+    fn biomes_get_26_3s_form_once() {
+        let mut report = Upgrade::default();
+        let mut new = json!({"has_precipitation": false, "temperature": 2.0, "downfall": 0.0,
+            "effects": {"water_color": 4159204}, "attributes": {}, "carvers": [], "features": []});
+        assert!(!upgrade("biome", &mut new, &mut report, &NO_TAGS));
+        let mut old = json!({"has_precipitation": false, "temperature": 2.0, "downfall": 0.0,
+            "effects": {"water_color": 4159204, "fog_color": 12638463}, "spawners": {}, "spawn_costs": {},
+            "carvers": {}, "features": []});
+        assert!(upgrade("biome", &mut old, &mut report, &NO_TAGS));
+        assert_eq!(old["carvers"], json!([]));
+        assert_eq!(old["attributes"]["minecraft:visual/fog_color"], "#c0d8ff");
+        assert!(!upgrade("biome", &mut old, &mut report, &NO_TAGS), "{old}");
     }
 
     /// A mod's 1.21.1 configured feature keeps its fields under `config`;

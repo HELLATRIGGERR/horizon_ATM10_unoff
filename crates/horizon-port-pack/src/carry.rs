@@ -1102,7 +1102,8 @@ pub fn carry(
         }
         let dest = if keep {
             report.copied += 1;
-            inside.join(&name)
+            // 26.3's registry folders: `configured_feature` is `feature`, `configured_carver` is `carver`.
+            inside.join(crate::worldgen::path_26_3(&name).unwrap_or_else(|| name.clone()))
         } else {
             report.outside.push(name.clone());
             outside.join(&name)
@@ -1199,6 +1200,7 @@ pub fn carry(
                 let modifier =
                     modifier.and_then(|v| crate::lithostitched::modifier(&v, loaded, types));
                 if let Some(("biome_modifier", file)) = &modifier {
+                    crate::worldgen::convention_tags(&file["biomes"], &mut biome_conventions);
                     let to = format!("data/{id}/neoforge/biome_modifier/lithostitched/{path}");
                     write(
                         &inside.join(to),
@@ -1235,6 +1237,15 @@ pub fn carry(
             } else if rel.starts_with("tags/worldgen/biome/") && name.starts_with("data/") {
                 if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
                     crate::worldgen::convention_tags(&v, &mut biome_conventions);
+                }
+            } else if (rel.starts_with("neoforge/biome_modifier/")
+                || rel.starts_with("forge/biome_modifier/"))
+                && name.starts_with("data/")
+            {
+                // The convention tags a modifier's biomes name (All the Ores' ores go to
+                // `#c:is_overworld`): without them it applies to no biome.
+                if let Ok(v) = serde_json::from_slice::<Value>(&bytes) {
+                    crate::worldgen::convention_tags(&v["biomes"], &mut biome_conventions);
                 }
             } else if rel.starts_with("advancement/")
                 && name.starts_with("data/")
@@ -3501,6 +3512,117 @@ version = \"1.0\"
             report.differences["other_seeds"],
             ["places other:crop, which the template does not"]
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A fresh carry writes a mod's worldgen in 26.3's form: configured
+    /// features unwrapped in `worldgen/feature/` (the only folder the game reads
+    /// a mod's features from), carvers in `worldgen/carver/`, placed features'
+    /// placements and biomes as 26.3 has them. No refresh pass is needed.
+    #[test]
+    fn a_fresh_carry_writes_worldgen_in_26_3s_form() {
+        let dir =
+            std::env::temp_dir().join(format!("horizon-port-pack-wg-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let jar = dir.join("zinc-1.0.jar");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&jar).unwrap());
+        for (name, text) in [
+            (
+                "META-INF/neoforge.mods.toml",
+                "license = \"MIT\"\n[[mods]]\nmodId = \"zinc\"\nversion = \"1.0\"\n",
+            ),
+            (
+                "data/zinc/worldgen/configured_feature/ore_zinc.json",
+                r#"{"type": "minecraft:ore", "config": {"size": 9, "discard_chance_on_air_exposure": 0.0,
+                    "targets": [{"target": {"predicate_type": "minecraft:tag_match",
+                    "tag": "minecraft:stone_ore_replaceables"}, "state": {"Name": "zinc:zinc_ore"}}]}}"#,
+            ),
+            (
+                "data/zinc/worldgen/placed_feature/ore_zinc.json",
+                r#"{"feature": "zinc:ore_zinc", "placement": [{"type": "minecraft:count", "count": 8},
+                    {"type": "minecraft:random_offset", "xz_spread": 1, "y_spread": 0}]}"#,
+            ),
+            (
+                "data/zinc/worldgen/configured_carver/zinc_canyon.json",
+                r##"{"type": "minecraft:canyon", "config": {"probability": 0.01, "y": {"absolute": 20},
+                    "yScale": 3.0, "lava_level": {"above_bottom": 8},
+                    "replaceable": "#minecraft:overworld_carver_replaceables",
+                    "vertical_rotation": 0.0, "shape": {"distance_factor": 1.0, "thickness": 2.0,
+                    "width_smoothness": 3, "horizontal_radius_factor": 1.0,
+                    "vertical_radius_default_factor": 1.0, "vertical_radius_center_factor": 0.0}}}"##,
+            ),
+            (
+                "data/zinc/worldgen/biome/zinc_hills.json",
+                r#"{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4,
+                    "effects": {"sky_color": 7907327, "fog_color": 12638463, "water_color": 4159204,
+                    "water_fog_color": 329011}, "spawners": {"creature": [{"type": "minecraft:sheep",
+                    "weight": 12, "minCount": 4, "maxCount": 4}]}, "spawn_costs": {},
+                    "carvers": {"air": ["zinc:zinc_canyon"]}, "features": [[], [], [], [], [], [], ["zinc:ore_zinc"]]}"#,
+            ),
+            (
+                "data/zinc/neoforge/biome_modifier/add_zinc.json",
+                r##"{"type": "neoforge:add_features", "biomes": "#c:is_overworld",
+                    "features": "zinc:ore_zinc", "step": "underground_ores"}"##,
+            ),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+        let info = crate::jar::read(&jar).unwrap();
+        let out = dir.join("work/mods/zinc");
+        let pack = Pack {
+            loaded: &|_| true,
+            mods: &|_| false,
+        };
+        // The loader's convention biome tags (`<work>/loader/`): the modifier names one, which names another.
+        let conventions = BTreeMap::from([
+            ("is_overworld".to_owned(), json!({"values": ["#minecraft:is_overworld", "#c:is_cave"]})),
+            ("is_cave".to_owned(), json!({"values": ["minecraft:dripstone_caves"]})),
+            ("is_end".to_owned(), json!({"values": ["#minecraft:is_end"]})),
+        ]);
+        carry(&jar, &info, &out, None, &|_| true, &pack, &conventions).unwrap();
+        let worldgen = out.join("carry/data/zinc/worldgen");
+        let read = |rel: &str| -> Value {
+            serde_json::from_slice(&fs::read(worldgen.join(rel)).unwrap()).unwrap()
+        };
+        assert!(!worldgen.join("configured_feature").exists());
+        assert!(!worldgen.join("configured_carver").exists());
+        assert_eq!(
+            read("feature/ore_zinc.json"),
+            json!({"type": "minecraft:ore", "size": 9, "discard_chance_on_air_exposure": 0.0,
+                "targets": [{"target": {"predicate_type": "minecraft:tag_match",
+                "tag": "minecraft:stone_ore_replaceables"}, "state": {"id": "zinc:zinc_ore"}}]})
+        );
+        assert_eq!(
+            read("placed_feature/ore_zinc.json")["placement"][1],
+            json!({"type": "minecraft:offset", "x": 1, "y": 0, "z": 1})
+        );
+        let canyon = read("carver/zinc_canyon.json");
+        assert_eq!(canyon.get("config"), None, "{canyon}");
+        assert_eq!(canyon["shape"]["y_scale"], 3.0);
+        let biome = read("biome/zinc_hills.json");
+        assert_eq!(biome.get("spawners"), None, "{biome}");
+        assert_eq!(biome["carvers"], json!(["zinc:zinc_canyon"]));
+        assert_eq!(
+            biome["attributes"]["minecraft:gameplay/natural_mob_spawns"]["argument"]
+                ["spawns_by_category"]["creature"][0]["count"],
+            4
+        );
+        // The modifier stays NeoForge's: the game reads it as it is, with the convention tags it names.
+        assert!(out.join("carry/data/zinc/neoforge/biome_modifier/add_zinc.json").exists());
+        let tags = out.join("carry/data/c/tags/worldgen/biome");
+        assert!(tags.join("is_overworld.json").exists() && tags.join("is_cave.json").exists());
+        assert!(!tags.join("is_end.json").exists());
+        // What a fresh carry wrote is what a refresh writes: a refresh pass changes nothing.
+        let carries = dir.join("carries");
+        fs::create_dir_all(&carries).unwrap();
+        fs::rename(out.join("carry"), carries.join("zinc")).unwrap();
+        fs::write(carries.join("zinc/horizon-mod.toml"), "id = \"zinc\"\n").unwrap();
+        let r = crate::worldgen::refresh_features(&carries).unwrap();
+        assert_eq!((r.read, r.rewritten, r.moved), (4, 0, 0), "{r:?}");
         fs::remove_dir_all(&dir).unwrap();
     }
 

@@ -1,6 +1,9 @@
 //! Requests and results of the generator's queries (`/place jigsaw`, `/locate biome`) and
 //! the search orders they walk, moved out of `generator.rs` unchanged.
-use std::{collections::BTreeSet, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// A `JigsawPlacement.generateJigsaw` request (`/place jigsaw`).
 pub struct JigsawQuery<'a> {
@@ -91,4 +94,8 @@ pub struct DecorateStats {
     pub failed: usize,
     /// Identifiers of skipped or failed roots, for diagnostics.
     pub skipped: BTreeSet<String>,
+    /// Per placed-feature root, when the worker counts them
+    /// (`GeneratorWorker::set_count_features`): how many times it ran and
+    /// how many of those placed something. Empty otherwise.
+    pub roots: BTreeMap<String, [u32; 2]>,
 }

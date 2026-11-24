@@ -26,7 +26,7 @@
  *   failed; it is written after every step.
  *
  * One full-pack game at a time: hold the machine's full-pack lock. */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { WorldFixture, until } from '../../../ae2/tests/world/harness';
 import { addonContents } from '../../../ae2/scripts/common';
@@ -34,8 +34,9 @@ import { addonContents } from '../../../ae2/scripts/common';
 const carriesDir = resolve(process.env.ATM10_CARRIES ?? '');
 const list = (name: string) => (process.env[name] ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const only = list('PACK_START_ONLY'), without = new Set(list('PACK_START_WITHOUT'));
+// A carry may be a link (a junction) to another carries folder's: the game gets its real folder.
 const carries = only.includes('none') ? [] : readdirSync(carriesDir, { withFileTypes: true })
-  .filter(d => d.isDirectory() && existsSync(join(carriesDir, d.name, 'horizon-mod.toml')))
+  .filter(d => (d.isDirectory() || d.isSymbolicLink()) && existsSync(join(carriesDir, d.name, 'horizon-mod.toml')))
   .map(d => d.name)
   .sort()
   .filter(id => (only.length ? only.includes(id) : true) && !without.has(id));
@@ -44,7 +45,7 @@ process.env.AE2_TEST_STARTUP_MS = String(Math.max(Number(process.env.AE2_TEST_ST
 const steps = process.argv.slice(2).length ? process.argv.slice(2) : ['cable', 'survival-cable', 'network', 'parts'];
 
 const mode = process.env.FULLPACK_AE2_MODE === 'in-frame' ? 'in-frame' : 'server-thread';
-const fixture = new WorldFixture('fullpack-ae2', mode, { addons, devMods: carries.map(id => join(carriesDir, id)) });
+const fixture = new WorldFixture('fullpack-ae2', mode, { addons, devMods: carries.map(id => realpathSync(join(carriesDir, id))) });
 const out = join(fixture.run, 'fullpack-ae2.json');
 const results: Record<string, any> = { carries: carries.length, addons, steps: {} };
 const save = () => writeFileSync(out, JSON.stringify(results, null, 2) + '\n');

@@ -100,10 +100,18 @@ impl Game<'_> {
             if !self
                 .set_state_named(target, "ae2:cable_bus", &[])
                 .unwrap_or(false)
-                || !self.ae2_ensure_machine(pos)
             {
                 return false;
             }
+            // PartHelper.getOrPlacePartHost: a new cable bus with no part and no cable, which the
+            // cable then goes into as a centre added (`addPart`), as into any part-only host. A
+            // legacy host (no centre stored) would leave the grid's event replay unable to tell
+            // what the centre change replaces, and pause every ordered grid event.
+            let mut machine = Machine::new(MachineKind::CableBus);
+            machine.config.insert("ae2_centerless".into(), Tag::Byte(1));
+            self.world
+                .block_entities
+                .insert(pos, BlockEntity::Ae2(Box::new(machine)));
         }
         let Some(BlockEntity::Ae2(m)) = self.world.block_entities.get_mut(&pos) else {
             return false;

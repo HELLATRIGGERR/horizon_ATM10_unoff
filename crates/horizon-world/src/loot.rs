@@ -345,8 +345,8 @@ pub struct LootData {
     enchantments: Vec<Enchantment>,
     /// Tag files' layers by (registry, tag id).
     tags: HashMap<(String, String), crate::tag_layers::TagLayers>,
-    /// Smelting recipes in recipe id order: (ingredient, result, result count).
-    smelting: Vec<(Value, String, i32)>,
+    /// Smelting recipes in recipe id order: (recipe id, ingredient, result, result count).
+    smelting: Vec<(String, Value, String, i32)>,
 }
 
 /// An entity a loot context names (`this`, `attacker`, `direct_attacker`,
@@ -939,12 +939,12 @@ impl LootData {
         ids.sort();
         let smelting = ids
             .into_iter()
-            .map(|id| &recipes[id])
-            .filter(|r| r["type"] == "minecraft:smelting")
-            .filter_map(|r| {
+            .map(|id| (id, &recipes[id]))
+            .filter(|(_, r)| r["type"] == "minecraft:smelting")
+            .filter_map(|(id, r)| {
                 let result = recipe_result_id(&r["result"])?.to_owned();
                 let count = r["result"]["count"].as_i64().unwrap_or(1) as i32;
-                Some((r["ingredient"].clone(), result, count))
+                Some((id.clone(), r["ingredient"].clone(), result, count))
             })
             .collect();
         let binding = holder_sets::Binding::load(root, overlay, &items, &enchantments)?;
@@ -1766,10 +1766,10 @@ impl<R: RandomSource> Context<'_, R> {
             }
             "minecraft:furnace_smelt" => {
                 if !stack.is_empty()
-                    && let Some((_, result, count)) = data
+                    && let Some((_, _, result, count)) = data
                         .smelting
                         .iter()
-                        .find(|(ingredient, _, _)| data.item_in(&stack.item, ingredient))
+                        .find(|(_, ingredient, _, _)| data.item_in(&stack.item, ingredient))
                 {
                     let input = if f["use_input_count"].as_bool().unwrap_or(true) {
                         stack.count

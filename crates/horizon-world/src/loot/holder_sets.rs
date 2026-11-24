@@ -1,6 +1,44 @@
 //! Bind only engine-owned holder-set fields, before publishing a loot snapshot.
 use super::*;
 
+/// A smelting ingredient in 1.21.1's shapes, which the packs' recipes still
+/// write, as the recipe loader reads them (`crafting/ingredient.rs`): an
+/// `{item}` or `{tag}` object with no kind is that id or `#tag`, and a list
+/// holding objects is any of its children. `None`: already in 26.3's shape.
+fn legacy_ingredient(value: &Value) -> Option<Value> {
+    match value {
+        Value::Array(list) if list.iter().any(Value::is_object) => Some(serde_json::json!({
+            "type": "neoforge:or",
+            "values": list
+                .iter()
+                .map(|child| legacy_ingredient(child).unwrap_or_else(|| child.clone()))
+                .collect::<Vec<_>>(),
+        })),
+        Value::Object(o)
+            if !o.contains_key("type")
+                && !o.contains_key("neoforge:ingredient_type")
+                && (o.contains_key("item") || o.contains_key("tag")) =>
+        {
+            let mut ids: Vec<Value> = [
+                o.get("item").and_then(Value::as_str).map(str::to_owned),
+                o.get("tag")
+                    .and_then(Value::as_str)
+                    .map(|tag| format!("#{tag}")),
+            ]
+            .into_iter()
+            .flatten()
+            .map(Value::String)
+            .collect();
+            match ids.len() {
+                0 => None,
+                1 => ids.pop(),
+                _ => Some(serde_json::json!({"type": "neoforge:or", "values": ids})),
+            }
+        }
+        _ => None,
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Binding {
     universes: HashMap<&'static str, Vec<String>>,
@@ -276,13 +314,18 @@ impl Binding {
                 )?;
             }
         }
-        for (i, (ingredient, _, _)) in data.smelting.iter_mut().enumerate() {
-            self.field(
-                &format!("smelting[{i}].ingredient"),
-                "item",
-                ingredient,
-                &data.tags,
-            )?;
+        // furnace_smelt's recipes. One whose ingredient still can't be read is
+        // left out with a warning, as the recipe manager leaves out a recipe it
+        // can't read: one recipe never costs every loot table.
+        for (id, mut ingredient, result, count) in std::mem::take(&mut data.smelting) {
+            if let Some(shape) = legacy_ingredient(&ingredient) {
+                ingredient = shape;
+            }
+            let owner = format!("smelting recipe {id}.ingredient");
+            match self.field(&owner, "item", &mut ingredient, &data.tags) {
+                Ok(_) => data.smelting.push((id, ingredient, result, count)),
+                Err(error) => log::warn!("loot: furnace_smelt leaves a recipe out: {error}"),
+            }
         }
         Ok(())
     }
@@ -377,6 +420,133 @@ mod tests {
                 && error.contains("items")
                 && error.contains("no values"),
             "{error}"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn smelting_ingredients_in_1_21_1_shapes_read_as_the_recipe_loader_reads_them() {
+        assert_eq!(
+            legacy_ingredient(&json!({"item": "zinc:ore"})),
+            Some(json!("zinc:ore"))
+        );
+        assert_eq!(
+            legacy_ingredient(&json!({"tag": "c:dusts/zinc"})),
+            Some(json!("#c:dusts/zinc"))
+        );
+        assert_eq!(
+            legacy_ingredient(&json!([{"item": "zinc:raw"}, {"tag": "c:gems/zinc"}, "zinc:gem"])),
+            Some(
+                json!({"type": "neoforge:or", "values": ["zinc:raw", "#c:gems/zinc", "zinc:gem"]})
+            )
+        );
+        for modern in [
+            json!("zinc:ore"),
+            json!("#c:ores/zinc"),
+            json!(["zinc:raw", "zinc:gem"]),
+            json!({"type": "neoforge:any"}),
+            json!({"type": "zinc:charged", "item": "zinc:gem"}),
+            json!({"neoforge:ingredient_type": "neoforge:components", "items": "zinc:gem"}),
+        ] {
+            assert_eq!(legacy_ingredient(&modern), None, "{modern}");
+        }
+    }
+
+    #[test]
+    fn a_smelting_recipe_that_cannot_be_read_is_left_out_and_the_loot_tables_load() {
+        let root = std::env::temp_dir().join(format!(
+            "loot-smelting-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let smelting = |ingredient: Value, result: &str, count: i32| json!({"type": "minecraft:smelting", "ingredient": ingredient, "result": {"id": result, "count": count}});
+        let pool = |item: &str| {
+            json!({"rolls": 1, "entries": [{"type": "minecraft:item", "name": item,
+                "modifier": [{"type": "minecraft:furnace_smelt"}]}]})
+        };
+        for (path, value) in [
+            (
+                "items.json",
+                json!({"zinc:ore": {}, "zinc:dust": {}, "zinc:raw": {}, "zinc:gem": {},
+                    "zinc:ingot": {}, "zinc:nugget": {}, "zinc:block": {}}),
+            ),
+            (
+                "data/c/tags/item/dusts/zinc.json",
+                json!({"values": ["zinc:dust"]}),
+            ),
+            // A mod's own ingredient kind, first in id order: it is left out,
+            // and the recipes after it still smelt.
+            (
+                "data/zinc/recipe/a_charged.json",
+                smelting(
+                    json!({"type": "zinc:charged", "item": "zinc:gem"}),
+                    "zinc:block",
+                    1,
+                ),
+            ),
+            (
+                "data/zinc/recipe/dust.json",
+                smelting(json!({"tag": "c:dusts/zinc"}), "zinc:ingot", 2),
+            ),
+            (
+                "data/zinc/recipe/ore.json",
+                smelting(json!({"item": "zinc:ore"}), "zinc:ingot", 1),
+            ),
+            (
+                "data/zinc/recipe/pieces.json",
+                smelting(
+                    json!([{"item": "zinc:raw"}, {"item": "zinc:gem"}]),
+                    "zinc:nugget",
+                    1,
+                ),
+            ),
+            (
+                "data/test/loot_table/smelt.json",
+                json!({"pools": [pool("zinc:ore"), pool("zinc:dust"), pool("zinc:raw"), pool("zinc:gem")]}),
+            ),
+        ] {
+            let path = root.join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, value.to_string()).unwrap();
+        }
+        let defaults = crate::item_defaults::read(&root).unwrap();
+        let data = LootData::load(&root, &PackOverlay::NONE, &defaults).unwrap();
+        let kept: Vec<_> = data
+            .smelting
+            .iter()
+            .map(|(id, ingredient, result, count)| {
+                (id.as_str(), ingredient.clone(), result.as_str(), *count)
+            })
+            .collect();
+        assert_eq!(
+            kept,
+            [
+                ("zinc:dust", json!("#c:dusts/zinc"), "zinc:ingot", 2),
+                ("zinc:ore", json!("zinc:ore"), "zinc:ingot", 1),
+                (
+                    "zinc:pieces",
+                    json!(["zinc:raw", "zinc:gem"]),
+                    "zinc:nugget",
+                    1
+                ),
+            ]
+        );
+        let drops: Vec<_> = data
+            .roll("test:smelt", &mut LegacyRandom::new(1), 0.0, None, None)
+            .into_iter()
+            .map(|stack| (stack.item, stack.count))
+            .collect();
+        assert_eq!(
+            drops,
+            [
+                ("zinc:ingot".to_owned(), 1),
+                ("zinc:ingot".to_owned(), 2),
+                ("zinc:nugget".to_owned(), 1),
+                ("zinc:nugget".to_owned(), 1),
+            ]
         );
         fs::remove_dir_all(root).unwrap();
     }

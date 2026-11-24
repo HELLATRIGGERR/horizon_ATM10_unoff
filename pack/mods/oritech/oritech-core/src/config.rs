@@ -44,6 +44,13 @@ pub struct Config {
     /// `atomicForgeData`: the buffer is resized by the recipe, `energy_per_tick` is the energy a recipe tick costs.
     pub atomic_forge: MachineSettings,
     pub laser: LaserSettings,
+    /// `refineryData`, `coolerData`, `fuelGeneratorData` and `lavaGeneratorData`.
+    pub refinery: MachineSettings,
+    pub cooler: MachineSettings,
+    pub fuel_generator: MachineSettings,
+    pub lava_generator: MachineSettings,
+    /// `centrifugeData.tankSizeInBuckets`.
+    pub centrifuge_tank_buckets: i64,
     /// `blockBreakHardnessExponentialFactor`.
     pub hardness_exponent: f64,
     /// `additiveAddons`: addon bonuses add up (true) or multiply.
@@ -71,6 +78,11 @@ impl Default for Config {
             bio_generator: MachineSettings::new(100_000, 0, 64 * 8, 64),
             atomic_forge: MachineSettings::new(1024, 0, 0, 1024),
             laser: LaserSettings { energy_capacity: 20_000, max_energy_insertion: 128 * 8, energy_per_tick: 128, block_break_energy_base: 1024, range: 128 },
+            refinery: MachineSettings::new(50_000, 64 * 8, 0, 64),
+            cooler: MachineSettings::new(50_000, 32 * 8, 0, 32),
+            fuel_generator: MachineSettings::new(250_000, 0, 256 * 8, 256),
+            lava_generator: MachineSettings::new(100_000, 0, 64 * 8, 64),
+            centrifuge_tank_buckets: 8,
             hardness_exponent: 0.5,
             additive_addons: true,
             layered_extenders: false,
@@ -99,6 +111,12 @@ impl Config {
             Kind::BioGenerator => self.bio_generator,
             Kind::AtomicForge => self.atomic_forge,
             Kind::LaserArm => MachineSettings::new(self.laser.energy_capacity, self.laser.max_energy_insertion, 0, self.laser.energy_per_tick),
+            Kind::Refinery => self.refinery,
+            Kind::Cooler => self.cooler,
+            Kind::FuelGenerator => self.fuel_generator,
+            Kind::LavaGenerator => self.lava_generator,
+            // A module has no energy.
+            Kind::RefineryModule => MachineSettings::new(0, 0, 0, 0),
         }
     }
 
@@ -113,6 +131,10 @@ impl Config {
             "basicGeneratorData" => Some(&mut self.basic_generator),
             "bioGeneratorData" => Some(&mut self.bio_generator),
             "atomicForgeData" => Some(&mut self.atomic_forge),
+            "refineryData" => Some(&mut self.refinery),
+            "coolerData" => Some(&mut self.cooler),
+            "fuelGeneratorData" => Some(&mut self.fuel_generator),
+            "lavaGeneratorData" => Some(&mut self.lava_generator),
             _ => None,
         }
     }
@@ -131,6 +153,10 @@ impl Config {
             let Some((key, value)) = line.split_once('=') else { continue };
             let (key, value) = (key.trim(), value.trim());
             let last = section.rsplit('.').next().unwrap_or_default().to_owned();
+            if last == "centrifugeData" && key == "tankSizeInBuckets" {
+                c.centrifuge_tank_buckets = value.parse().unwrap_or(c.centrifuge_tank_buckets).clamp(0, 1_000_000);
+                // the machine's own keys follow below
+            }
             if last == "furnaceData" && key == "speedMultiplier" {
                 c.furnace_speed = value.parse().unwrap_or(c.furnace_speed);
                 continue;
@@ -192,11 +218,12 @@ mod tests {
 
     #[test]
     fn a_pack_file_overrides_what_it_names() {
-        let text = "additiveAddons = true\n[machineSettings]\n\t[machineSettings.processingMachines]\n\t\t[machineSettings.processingMachines.pulverizerData]\n\t\t\t#Energy capacity\n\t\t\tenergyCapacity = 25000\n\t\t\tmaxEnergyInsertion = 256\n\t\t\tenergyPerTick = 64\n\t\t[machineSettings.processingMachines.foundryData]\n\t\t\tenergyPerTick = 256\n\t\t[machineSettings.processingMachines.refineryData]\n\t\t\tenergyPerTick = 999\n";
+        let text = "additiveAddons = true\n[machineSettings]\n\t[machineSettings.processingMachines]\n\t\t[machineSettings.processingMachines.pulverizerData]\n\t\t\t#Energy capacity\n\t\t\tenergyCapacity = 25000\n\t\t\tmaxEnergyInsertion = 256\n\t\t\tenergyPerTick = 64\n\t\t[machineSettings.processingMachines.foundryData]\n\t\t\tenergyPerTick = 256\n\t\t[machineSettings.processingMachines.refineryData]\n\t\t\tenergyPerTick = 999\n\t\t[machineSettings.processingMachines.centrifugeData]\n\t\t\ttankSizeInBuckets = 3\n";
         let c = Config::parse(text);
         assert_eq!(c.pulverizer, MachineSettings::new(25_000, 256, 0, 64));
         assert_eq!(c.foundry.energy_per_tick, 256);
         assert_eq!(c.assembler, Config::default().assembler, "a section it doesn't name stays");
+        assert_eq!((c.refinery.energy_per_tick, c.centrifuge_tank_buckets), (999, 3));
     }
 
     /// ATM10's own file, when `ORITECH_CONFIG` names it (`config/oritech-common.toml` of the instance).

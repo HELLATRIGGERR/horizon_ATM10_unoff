@@ -256,6 +256,8 @@ mod tests {
             inputs: inputs.iter().map(|i| Ingredient { items: i.iter().map(|s| s.to_string()).collect() }).collect(),
             results: results.iter().map(|(i, c)| Stack::new(i, *c)).collect(),
             fluids: false,
+            fluid_in: None,
+            fluid_out: Vec::new(),
         }
     }
 

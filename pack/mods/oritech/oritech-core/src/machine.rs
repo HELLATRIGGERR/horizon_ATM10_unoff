@@ -15,6 +15,11 @@ pub enum Kind {
     BioGenerator,
     AtomicForge,
     LaserArm,
+    Refinery,
+    RefineryModule,
+    Cooler,
+    FuelGenerator,
+    LavaGenerator,
 }
 
 /// `InventorySlotAssignment(inputStart, inputCount, outputStart, outputCount)`.
@@ -277,7 +282,106 @@ pub static LASER_ARM: Spec = Spec {
     outputs: &[],
 };
 
-pub static ALL: [&Spec; 10] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &POWERED_FURNACE, &BASIC_GENERATOR, &BIO_GENERATOR, &ATOMIC_FORGE, &LASER_ARM];
+/// `RefineryBlockEntity`: nine cores (a block high, two deep, behind and to the right), one fluid input slot and one
+/// output slot for its catalyst items; the fluid tanks are in the entity.
+pub static REFINERY: Spec = Spec {
+    kind: Kind::Refinery,
+    block: "oritech:refinery_block",
+    recipe_type: "oritech:refinery",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 1 },
+    inventory_size: 2,
+    gui_slots: &[slot(0, 62, 8), out(1, 62, 61)],
+    cores: &[[0, 1, 0], [0, 0, -1], [0, 1, -1], [1, 0, -1], [1, 1, -1], [1, 0, 0], [1, 1, 0], [2, 0, -1], [2, 1, -1]],
+    addon_slots: &[],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
+/// `RefineryModuleBlockEntity`: a multiblock of five cores with no inventory and no energy; its tank is one of the
+/// refinery's (the delegating storage).
+pub static REFINERY_MODULE: Spec = Spec {
+    kind: Kind::RefineryModule,
+    block: "oritech:refinery_module_block",
+    recipe_type: "",
+    slots: Slots { input_start: 0, input_count: 0, output_start: 0, output_count: 0 },
+    inventory_size: 0,
+    gui_slots: &[],
+    cores: &[[0, 0, -1], [1, 0, -1], [1, 0, 0], [2, 0, -1], [2, 0, 0]],
+    addon_slots: &[],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
+/// `CoolerBlockEntity`: one core beside it, no input slot and one output slot; water or lava from its tank.
+pub static COOLER: Spec = Spec {
+    kind: Kind::Cooler,
+    block: "oritech:cooler_block",
+    recipe_type: "oritech:cooler",
+    slots: Slots { input_start: 0, input_count: 0, output_start: 0, output_count: 1 },
+    inventory_size: 1,
+    gui_slots: &[out(0, 117, 36)],
+    cores: &[[0, 0, -1]],
+    addon_slots: &[[0, 0, -2]],
+    compacts_dust: false,
+    input_options: false,
+    generator: false,
+    outputs: &[],
+};
+
+/// `FuelGeneratorEntity`: seventeen cores in a block three long, two high and three wide. Its two outputs depend on
+/// its facing (`outputs` is empty: the glue lists them).
+pub static FUEL_GENERATOR: Spec = Spec {
+    kind: Kind::FuelGenerator,
+    block: "oritech:fuel_generator_block",
+    recipe_type: "oritech:fuel_generator",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 1 },
+    inventory_size: 2,
+    gui_slots: &[slot(0, 55, 35), out(1, 112, 35)],
+    cores: &[
+        [0, 0, 1], [0, 0, -1], [-1, 0, 1], [-1, 0, 0], [-1, 0, -1], [-2, 0, 1], [-2, 0, 0], [-2, 0, -1],
+        [0, 1, 1], [0, 1, 0], [0, 1, -1], [-1, 1, 1], [-1, 1, 0], [-1, 1, -1], [-2, 1, 1], [-2, 1, 0], [-2, 1, -1],
+    ],
+    addon_slots: &[[1, 0, 0], [-3, 0, 0]],
+    compacts_dust: false,
+    input_options: false,
+    generator: true,
+    outputs: &[],
+};
+
+/// `LavaGeneratorEntity.getOutputTargets`.
+const LAVA_AROUND: &[([i32; 3], Face)] = &[
+    ([0, 2, 0], Face::Down),
+    ([0, -1, 0], Face::Down),
+    ([1, 0, 0], Face::West),
+    ([1, 1, 0], Face::West),
+    ([0, 0, 1], Face::North),
+    ([0, 1, 1], Face::North),
+    ([-1, 0, 0], Face::East),
+    ([-1, 1, 0], Face::East),
+    ([0, 0, -1], Face::South),
+    ([0, 1, -1], Face::South),
+];
+
+pub static LAVA_GENERATOR: Spec = Spec {
+    kind: Kind::LavaGenerator,
+    block: "oritech:lava_generator_block",
+    recipe_type: "oritech:lava_generator",
+    slots: Slots { input_start: 0, input_count: 1, output_start: 1, output_count: 1 },
+    inventory_size: 2,
+    gui_slots: &[slot(0, 55, 35), out(1, 112, 35)],
+    cores: &[[0, 1, 0]],
+    addon_slots: &[[1, 0, 0], [1, 1, 0]],
+    compacts_dust: false,
+    input_options: false,
+    generator: true,
+    outputs: LAVA_AROUND,
+};
+
+pub static ALL: [&Spec; 15] = [&PULVERIZER, &FRAGMENT_FORGE, &ASSEMBLER, &FOUNDRY, &CENTRIFUGE, &POWERED_FURNACE, &BASIC_GENERATOR, &BIO_GENERATOR, &ATOMIC_FORGE, &LASER_ARM, &REFINERY, &REFINERY_MODULE, &COOLER, &FUEL_GENERATOR, &LAVA_GENERATOR];
 
 /// The machine of a block id.
 pub fn of_block(block: &str) -> Option<&'static Spec> {
@@ -303,7 +407,8 @@ mod tests {
         assert_eq!(of_block("oritech:fragment_forge_block").map(|s| s.recipe_type), Some("oritech:grinder"));
         assert!(of_block("oritech:atomic_forge_block").is_some_and(|s| s.cores.len() == 8 && s.slots.input_count == 3));
         assert!(of_block("oritech:laser_arm_block").is_some_and(|s| s.slots.output_count == 3 && s.cores == [[1, 0, 0]]));
-        assert!(of_block("oritech:refinery_block").is_none());
+        assert!(of_block("oritech:refinery_block").is_some_and(|s| s.cores.len() == 9));
+        assert!(of_block("oritech:fuel_generator_block").is_some_and(|s| s.cores.len() == 17 && s.generator));
         assert_eq!(of_block("oritech:powered_furnace_block").map(|s| s.recipe_type), Some("minecraft:smelting"));
         assert_eq!(of_block("oritech:centrifuge_block").map(|s| s.cores.len()), Some(1));
         assert!(of_block("oritech:basic_generator_block").is_some_and(|s| s.generator && s.recipe_type.is_empty()));

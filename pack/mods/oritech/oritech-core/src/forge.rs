@@ -51,6 +51,8 @@ mod tests {
             inputs: vec![Ingredient { items: vec!["a:unit".into()] }, Ingredient { items: vec!["a:wafer".into()] }, Ingredient { items: vec!["a:wafer".into()] }],
             results: vec![Stack::new("a:engine", 1)],
             fluids: false,
+            fluid_in: None,
+            fluid_out: Vec::new(),
         }])
     }
 

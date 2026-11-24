@@ -596,6 +596,17 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
             s.recipes_vanilla += 1;
             return Ok(());
         }
+        // 1.21.1's special recipes that 26.3 removed or replaced with recipes of its own (armor dye, shulker box
+        // colouring, suspicious stew, one banner duplication per colour). Vanilla's 26.3 files stand for them, and
+        // the game refuses a serializer it doesn't have.
+        if ns == "minecraft"
+            && json["type"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("minecraft:crafting_special_"))
+        {
+            s.recipes_vanilla += 1;
+            return Ok(());
+        }
         let in_also = also_owned.contains(ns)
             && o.also.iter().any(|d| d.join(format!("data/{ns}/recipe/{path}.json")).exists());
         if in_also {
@@ -1321,6 +1332,8 @@ mod tests {
             row("m:gem", "m:gem"),
             row("minecraft:stick", "minecraft:stick"),
             row("minecraft:added_by_a_script", "m:gem"),
+            json!({"id": "minecraft:armor_dye", "json": {"type": "minecraft:crafting_special_armordye", "category": "misc"}})
+                .to_string(),
             row("kubejs:made_up", "minecraft:stick"),
             row("ae2:own", "minecraft:stick"),
             row("ae2:more", "minecraft:stick"),
@@ -1397,7 +1410,7 @@ mod tests {
         assert!(nowhere.unwrap_err().contains("not a whole pack dump"));
         fs::write(
             dump.join("summary.json"),
-            json!({"recipes": {"encoded": 9, "from_file": 0, "failed": 0},
+            json!({"recipes": {"encoded": 10, "from_file": 0, "failed": 0},
                 "loot_tables": {"encoded": 4, "failed": 0}, "tags": {"minecraft:item": 3, "minecraft:block": 1,
                 "minecraft:worldgen/biome": 1}})
             .to_string(),
@@ -1420,7 +1433,7 @@ mod tests {
             loader: None,
         })
         .unwrap();
-        assert_eq!((s.recipes_in_dump, s.recipes_vanilla, s.recipes_of_also, s.recipes_failed), (9, 1, 1, 1));
+        assert_eq!((s.recipes_in_dump, s.recipes_vanilla, s.recipes_of_also, s.recipes_failed), (10, 2, 1, 1));
         assert_eq!((s.recipes_in_carries, s.recipes_in_pack), (1, 4));
         assert_eq!(s.recipes_unknown_result, BTreeMap::from([("powah".to_owned(), 1)]));
         assert_eq!(
@@ -1441,6 +1454,7 @@ mod tests {
         assert!(pack.join("data/atm10_pack/recipe/powah/cable.json").exists());
         assert!(pack.join("data/atm10_pack/recipe/ae2/more.json").exists());
         assert!(pack.join("data/atm10_pack/recipe/minecraft/added_by_a_script.json").exists());
+        assert!(!pack.join("data/atm10_pack/recipe/minecraft/armor_dye.json").exists());
         assert!(pack.join("data/c/tags/item/gems.json").exists());
         assert!(pack.join("data/minecraft/tags/block/logs.json").exists());
         assert!(pack.join("data/kubejs/loot_table/blocks/x.json").exists());

@@ -7,7 +7,8 @@
 //!   point at them). Recipes and non-worldgen tags are all replaced, which is how a recipe KubeJS removed goes away.
 //! - everything else goes in one mod, the folder `atm10-pack`, with the id `kubejs` (its items' ids must stay
 //!   `kubejs:...`, and a mod declares items only under its id). It owns the namespaces no mod of the pack has, and
-//!   holds `c` and `minecraft` tags.
+//!   holds `c` and `minecraft` tags, but those the loader's own data defines (`c:crops`...): with the loader's jar,
+//!   that data is one more carry, `neoforge` (`loader_data`), and those tags' final values go there.
 //! - a recipe of a mod that is in the pack but not carried (a native port will own that namespace, and a clash would
 //!   refuse this mod) is `atm10_pack:<namespace>/<path>`.
 //!
@@ -72,6 +73,11 @@ pub struct Summary {
     pub tags_in_pack: usize,
     pub tags_worldgen_left: usize,
     pub tags_left_out: BTreeMap<String, usize>,
+    /// Shared tags (`c`, `minecraft`) the loader's data defines: their final values go in its carry (counted in
+    /// `tags_in_carries` too), not in the pack mod.
+    pub tags_in_loader: usize,
+    /// The loader's data carried from its jar (`loader_data`), when the jar was given.
+    pub loader_data: Option<crate::loader_data::Carried>,
     pub loot_in_dump: usize,
     pub loot_in_carries: usize,
     pub loot_in_pack: usize,
@@ -305,6 +311,26 @@ fn split_id(id: &str) -> Option<(&str, &str)> {
     Some((ns, path))
 }
 
+/// The shared tag files (`data/c/tags/...`, `data/minecraft/tags/...`) a carry holds, by path.
+fn shared_tag_files(carry: &Path) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for ns in ["c", "minecraft"] {
+        let root = carry.join(format!("data/{ns}/tags"));
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            for f in fs::read_dir(&dir).into_iter().flatten().flatten() {
+                let path = f.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else if let Some(rel) = path.strip_prefix(&root).ok().and_then(Path::to_str) {
+                    out.insert(format!("data/{ns}/tags/{}", rel.replace('\\', "/")));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Every item a declaration folder gives: its blocks with an item, and its items.
 fn declared_items(carry: &Path, id: &str, out: &mut HashSet<String>) {
     let decl = carry.join(format!("data/{id}/horizon"));
@@ -416,6 +442,14 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
     ));
     let _ = fs::remove_dir_all(&pack);
     let _ = fs::remove_dir_all(&outside);
+    // The loader's data (`c` tags and the rest, `loader_data`) as one more carry, made fresh from the jar. The shared
+    // tags it defines keep their final values in it, so a world that loads a few carries and this one (a bundle's)
+    // has them; the others go in the pack mod.
+    let loader_dir = o.carries.join(crate::loader_data::FOLDER);
+    if let Some(jar) = o.loader {
+        s.loader_data = Some(crate::loader_data::carry(jar, &loader_dir)?);
+    }
+    let loader_shared = shared_tag_files(&loader_dir);
     // Who owns what, and every item there is.
     let mut owner: HashMap<String, PathBuf> = HashMap::new();
     let mut known: HashSet<String> = HashSet::new();
@@ -485,14 +519,22 @@ pub fn apply(o: &Options) -> Result<Summary, String> {
             return Ok(());
         }
         let shared = ns == "minecraft" || ns == "c";
-        let target = if shared { Some((pack.clone(), true)) } else { dir_of(ns, &mut claimed) };
+        let rel = format!("data/{ns}/tags/{}/{path}.json", tag_dir(registry));
+        let target = if shared && loader_shared.contains(&rel) {
+            s.tags_in_loader += 1;
+            Some((loader_dir.clone(), false))
+        } else if shared {
+            Some((pack.clone(), true))
+        } else {
+            dir_of(ns, &mut claimed)
+        };
         let Some((root, in_pack)) = target else {
             *s.tags_left_out.entry(ns.to_owned()).or_default() += 1;
             return Ok(());
         };
         let mut values = row["values"].clone();
         renamed_ids(&mut values);
-        let file = root.join(format!("data/{ns}/tags/{}/{path}.json", tag_dir(registry)));
+        let file = root.join(&rel);
         sink.json(&file, &json!({"values": values}))?;
         if in_pack {
             s.tags_in_pack += 1;
@@ -1475,6 +1517,164 @@ mod tests {
         assert!(
             horizon_mod_package::content::clash(("kubejs", &content.namespaces), ("m", &own.namespaces)).is_none()
         );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_loaders_shared_tags_keep_their_final_values_in_its_carry() {
+        use std::io::Write;
+        let dir =
+            std::env::temp_dir().join(format!("horizon-port-pack-loader-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let (carries, dump, res) = (dir.join("carries"), dir.join("dump"), dir.join("res"));
+        for d in [&carries, &dump, &res] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(
+            res.join("items.json"),
+            r#"{"minecraft:wheat": {}, "minecraft:stick": {}}"#,
+        )
+        .unwrap();
+        fs::create_dir_all(res.join("data/minecraft/recipe")).unwrap();
+        fs::write(res.join("data/minecraft/recipe/stick.json"), "{}").unwrap();
+        let m = carries.join("m");
+        fs::create_dir_all(m.join("data/m/horizon/item")).unwrap();
+        fs::write(
+            m.join("horizon-mod.toml"),
+            "id = \"m\"\nname = \"m\"\nversion = \"1\"\napi = \"0.2\"\nside = \"both\"\ncapabilities = [\"registries\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            m.join("data/m/horizon/item/grain.json"),
+            r#"{"template": "minecraft:stick"}"#,
+        )
+        .unwrap();
+        // The jar's own: c:crops names its sub-tag, a biome tag, a tag of its own namespace, vanilla's recipe.
+        let jar = dir.join("neoforge-1.2.3-universal.jar");
+        let mut z = zip::ZipWriter::new(fs::File::create(&jar).unwrap());
+        for (name, text) in [
+            (
+                "data/c/tags/item/crops.json",
+                r##"{"values": ["#c:crops/wheat"]}"##,
+            ),
+            (
+                "data/c/tags/item/crops/wheat.json",
+                r#"{"values": ["minecraft:wheat"]}"#,
+            ),
+            ("data/c/tags/item/not_in_java.json", r#"{"values": []}"#),
+            (
+                "data/c/tags/worldgen/biome/is_hot.json",
+                r#"{"values": ["minecraft:desert"]}"#,
+            ),
+            ("data/neoforge/tags/item/fuels.json", r#"{"values": []}"#),
+            ("data/minecraft/recipe/stick.json", "{}"),
+        ] {
+            z.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            z.write_all(text.as_bytes()).unwrap();
+        }
+        z.finish().unwrap();
+        let row =
+            |r: &str, id: &str, v: Value| json!({"registry": r, "id": id, "values": v}).to_string();
+        let tags = [
+            row(
+                "minecraft:item",
+                "c:crops",
+                json!(["minecraft:wheat", "m:grain"]),
+            ),
+            row(
+                "minecraft:item",
+                "c:crops/wheat",
+                json!(["minecraft:wheat"]),
+            ),
+            row("minecraft:item", "c:gems", json!(["minecraft:stick"])),
+            row(
+                "minecraft:item",
+                "neoforge:fuels",
+                json!(["minecraft:stick"]),
+            ),
+            row(
+                "minecraft:worldgen/biome",
+                "c:is_hot",
+                json!(["minecraft:desert", "m:dunes"]),
+            ),
+        ];
+        fs::write(dump.join("tags.jsonl"), tags.join("\n")).unwrap();
+        let recipe =
+            json!({"id": "minecraft:stick", "json": {"type": "minecraft:crafting_shapeless"}});
+        fs::write(dump.join("recipes.jsonl"), recipe.to_string()).unwrap();
+        let loot = json!({"id": "minecraft:blocks/stone", "json": {"type": "minecraft:block", "pools": []}});
+        fs::write(dump.join("loot_tables.jsonl"), loot.to_string()).unwrap();
+        fs::write(
+            dump.join("summary.json"),
+            json!({"recipes": {"encoded": 1}, "loot_tables": {"encoded": 1},
+                "tags": {"minecraft:item": 4, "minecraft:worldgen/biome": 1}})
+            .to_string(),
+        )
+        .unwrap();
+        let mods = BTreeSet::from(["m".to_owned()]);
+        let run = || {
+            apply(&Options {
+                carries: &carries,
+                dump: &dump,
+                resources: &res,
+                instance: None,
+                mods: &mods,
+                also: &[],
+                loader: Some(&jar),
+            })
+            .unwrap()
+        };
+        let read =
+            |p: PathBuf| -> Value { serde_json::from_slice(&fs::read(&p).unwrap()).unwrap() };
+        for _ in 0..2 {
+            let s = run();
+            let nf = carries.join(crate::loader_data::FOLDER);
+            let pack = carries.join(PACK_FOLDER);
+            assert_eq!(s.tags_in_loader, 2);
+            assert_eq!(
+                s.loader_data
+                    .as_ref()
+                    .map(|c| c.tags.values().sum::<usize>()),
+                Some(5)
+            );
+            // The pack's final values, in the loader's carry: a world with it and a few carries has c:crops.
+            assert_eq!(
+                read(nf.join("data/c/tags/item/crops.json")),
+                json!({"values": ["minecraft:wheat", "m:grain"]})
+            );
+            assert_eq!(
+                read(nf.join("data/c/tags/item/crops/wheat.json")),
+                json!({"values": ["minecraft:wheat"]})
+            );
+            assert!(!pack.join("data/c/tags/item/crops.json").exists());
+            // A tag the loader doesn't define goes to the pack mod; its namespace's tags are its own.
+            assert!(pack.join("data/c/tags/item/gems.json").exists());
+            assert_eq!(
+                read(nf.join("data/neoforge/tags/item/fuels.json")),
+                json!({"values": ["minecraft:stick"]})
+            );
+            assert!(!pack.join("data/neoforge").exists());
+            // The dump is final: a tag of its registries it hasn't goes, as in any carry; worldgen tags stay the jar's.
+            assert!(!nf.join("data/c/tags/item/not_in_java.json").exists());
+            assert_eq!(
+                read(nf.join("data/c/tags/worldgen/biome/is_hot.json")),
+                json!({"values": ["minecraft:desert"]})
+            );
+            assert!(!nf.join("data/minecraft/recipe").exists());
+            // The game's reader takes it beside the pack mod.
+            let manifest = manifest_of(&nf).unwrap();
+            let own = horizon_mod_package::Content::read(&nf, &manifest).unwrap();
+            let pm = manifest_of(&pack).unwrap();
+            let theirs = horizon_mod_package::Content::read(&pack, &pm).unwrap();
+            assert!(
+                horizon_mod_package::content::clash(
+                    ("neoforge", &own.namespaces),
+                    ("kubejs", &theirs.namespaces)
+                )
+                .is_none()
+            );
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 }

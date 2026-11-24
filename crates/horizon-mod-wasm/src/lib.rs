@@ -488,13 +488,16 @@ pub fn load_installed(
             .chain(dev.iter().cloned())
             .collect();
     // Each installed package is read once: its refusal, whether it is native and whether it is
-    // selected all come from that read, since every read hashes the whole package.
-    let mut reads = std::collections::HashMap::new();
-    for path in &installed {
-        reads
-            .entry(path.clone())
-            .or_insert_with(|| horizon_mod_package::Package::read(path));
-    }
+    // selected all come from that read, since every read hashes the whole package. The reads run
+    // side by side: this first one opens every file of every mod folder.
+    let mut unique = installed.clone();
+    unique.sort();
+    unique.dedup();
+    let mut reads: std::collections::HashMap<_, _> = unique
+        .iter()
+        .cloned()
+        .zip(horizon_mod_package::read_packages(&unique))
+        .collect();
     let mut refused: Vec<_> = horizon_mod_package::selection::package_errors(
         installed
             .iter()

@@ -2701,6 +2701,8 @@ struct Listed {
     name: String,
     size: u64,
     modified: u128,
+    /// Its permission bits on Unix (what an executable mode is refused by), 0 elsewhere.
+    mode: u32,
 }
 
 /// A mod folder's content files, sorted by name.
@@ -2716,10 +2718,27 @@ fn walk_mod(root: &Path) -> Result<Vec<Listed>, String> {
 /// A mod folder's content files and their sizes, relative to `root` with `/`
 /// separators, sorted by name.
 pub(crate) fn folder_files(root: &Path) -> Result<Vec<(String, u64)>, String> {
-    Ok(walk_mod(root)?
-        .into_iter()
-        .map(|file| (file.name, file.size))
-        .collect())
+    Ok(folder_files_stamped(root)?.0)
+}
+
+/// [`folder_files`] and a stamp of everything the package checks read from the listing: each
+/// file's name, size, modification time and, on Unix, mode. While it stays the same, so do the
+/// files the checks opened.
+pub(crate) fn folder_files_stamped(root: &Path) -> Result<(Vec<(String, u64)>, u64), String> {
+    use std::hash::{Hash, Hasher};
+    let files = walk_mod(root)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for file in &files {
+        (&file.name, file.size, file.modified, file.mode).hash(&mut hasher);
+    }
+    let stamp = hasher.finish();
+    Ok((
+        files
+            .into_iter()
+            .map(|file| (file.name, file.size))
+            .collect(),
+        stamp,
+    ))
 }
 
 /// Files under `dir`. Symbolic links are not followed: a mod folder holds its
@@ -2749,10 +2768,15 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<Listed>) -> Result<(), String> {
             let rel = path.strip_prefix(root).map_err(|e| e.to_string())?;
             let parts: Option<Vec<&str>> = rel.iter().map(|p| p.to_str()).collect();
             let name = parts.ok_or_else(|| format!("{} is not UTF-8", rel.display()))?;
+            #[cfg(unix)]
+            let mode = std::os::unix::fs::PermissionsExt::mode(&meta.permissions());
+            #[cfg(not(unix))]
+            let mode = 0;
             out.push(Listed {
                 name: name.join("/"),
                 size: meta.len(),
                 modified: modified_nanos(&meta),
+                mode,
             });
         } else {
             return Err(format!(
@@ -2795,6 +2819,7 @@ pub fn source_stamp(path: &Path) -> Result<u64, String> {
         name: String::new(),
         size: meta.len(),
         modified: modified_nanos(&meta),
+        mode: 0,
     }]))
 }
 

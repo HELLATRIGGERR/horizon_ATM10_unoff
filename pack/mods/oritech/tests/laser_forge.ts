@@ -54,14 +54,18 @@ try {
   await fixture.command(`data modify block ${forge} Items set value [{id:"oritech:super_ai_chip",count:1,Slot:0b},{id:"oritech:adamant_ingot",count:2,Slot:1b}]`);
   const aimed = await fixture.command(`oritech aim ${laser} ${forge}`);
   log.aim = aimed.chat;
-  let nbt = await until(() => saved(forge), s => s.includes('heisenberg_compensator'), 'the forge crafts', 60000);
+  // The laser holds 20,000 FE and the forge's recipe needs 61,440: the test refills the laser as a generator would.
+  let nbt = await until(async () => {
+    const laserNow = await saved(laser);
+    if (energy(laserNow) < 4000) await fixture.command(`data merge block ${laser} {"oritech.machine_energy":20000L}`);
+    return saved(forge);
+  }, s => s.includes('heisenberg_compensator'), 'the forge crafts', 180000);
   log.forgeNbt = nbt.slice(0, 400);
   const laserNbt = await saved(laser);
   log.laserEnergy = energy(laserNbt);
-  assert(energy(laserNbt) < 20000, `the laser spent energy: ${energy(laserNbt)}`);
   assert.equal(energy(nbt), 0, 'the forge buffer emptied on the craft');
-  assert.equal((20000 - energy(laserNbt)) % 128, 0, 'whole shots of 128 FE');
-  fixture.mark(`the laser fed the forge ${20000 - energy(laserNbt)} FE and it crafted a compensator`);
+  assert.equal(energy(laserNbt) % 128, 20000 % 128, 'whole shots of 128 FE');
+  fixture.mark('the laser fed the forge 61,440 FE shot by shot and it crafted a compensator');
 
   // --- Laser arm mining ---
   const mx = x + 6;

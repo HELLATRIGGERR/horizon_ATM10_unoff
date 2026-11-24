@@ -372,6 +372,24 @@ pub fn build_with_conditions(
     // what mods add to sets, pools and lists, by priority, then in mod and
     // file order.
     let (mut placed_doc, mut biome_doc) = (None, None);
+    // A carver the engine can't build, or a biome naming a carver nobody registers,
+    // stops the whole worldgen load: such carvers are left out instead.
+    if let Some(entries) = worldgen.get_mut(CARVERS) {
+        carver_registry::keep_readable(entries, &mut warnings);
+    }
+    let carver_names: BTreeSet<String> = biomes::carver_ids(&base.join(CARVERS))?
+        .into_iter()
+        .chain(worldgen.get(CARVERS).into_iter().flatten().map(|(id, _)| id.clone()))
+        .collect();
+    if let Some(entries) = worldgen.get_mut(BIOMES) {
+        for (id, text) in entries.iter_mut() {
+            if let Some(kept) =
+                carver_registry::drop_unknown(id, text, &carver_names, &mut warnings)?
+            {
+                *text = kept;
+            }
+        }
+    }
     for (bundle, entries) in &worldgen {
         if !base.join(bundle).exists() {
             // A mod's worldgen (AE2's `ae2:spatial_storage` biome) needs the base root's bundle

@@ -205,4 +205,33 @@ mod tests {
             assert!(!is_ore(not), "{not}");
         }
     }
+
+    /// The full pack's worldgen loads: `HORIZON_FULLPACK_CONTENT` names a built content
+    /// root (a game's `.horizon-cache/mod-content/<hash>`). Without it the test does nothing.
+    #[test]
+    fn full_pack_worldgen_loads() {
+        let Some(root) = std::env::var_os("HORIZON_FULLPACK_CONTENT") else {
+            return;
+        };
+        let root = std::path::PathBuf::from(root);
+        let assets = crate::assets::Assets::load(&root).unwrap();
+        let data = crate::vanillagen::shared_data_with(
+            &root.join("worldgen"),
+            &Default::default(),
+            assets.registry,
+        )
+        .unwrap_or_else(|e| panic!("worldgen data: {e}"));
+        for dim in ["minecraft:overworld", "minecraft:the_nether", "minecraft:the_end"] {
+            OverworldGenerator::for_world_with_settings(
+                data.clone(),
+                1234,
+                "minecraft:normal",
+                dim,
+                true,
+                None,
+                None,
+            )
+            .unwrap_or_else(|e| panic!("{dim}: {e}"));
+        }
+    }
 }

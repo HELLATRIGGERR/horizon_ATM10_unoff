@@ -3253,8 +3253,9 @@ const BIOME_TAGS: &str = "worldgen/biome_tags.json";
 /// worldgen loader reads each from (id → the file's text): what structure
 /// mods hold, and a mod's own biomes (never vanilla's: `worldgen_entry`).
 /// Noise and density functions change the terrain and are not read from mods.
-const WORLDGEN_BUNDLES: [(&str, &str); 7] = [
+const WORLDGEN_BUNDLES: [(&str, &str); 8] = [
     ("biome", BIOMES),
+    ("carver", CARVERS),
     ("structure", "worldgen/structures.json"),
     ("structure_set", "worldgen/structure_sets.json"),
     ("template_pool", "worldgen/template_pools.json"),
@@ -3436,7 +3437,14 @@ fn place_in_biomes(
     let placed: BTreeSet<String> = bundle(placed, PLACED_FEATURES)?.into_keys().collect();
     let feature_tags = bundle(None, FEATURE_TAGS)?;
     let (entity_categories, entity_tags) = modifier_entities(base, overlay, tags)?;
-    let carver_ids = biomes::carver_ids(&base.join(CARVERS))?;
+    // The mods' carvers joined the bundle in the overlay.
+    let written = out_path(overlay, CARVERS);
+    let carvers = if written.exists() {
+        written
+    } else {
+        base.join(CARVERS)
+    };
+    let carver_ids = biomes::carver_ids(&carvers)?;
     let mut saved = SavedModifiers {
         carver_ids,
         carver_tags: modifier_tags(base, overlay, tags, "worldgen/carver")?,

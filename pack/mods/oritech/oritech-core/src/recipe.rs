@@ -277,6 +277,7 @@ mod tests {
         let dump = std::path::PathBuf::from(dump);
         let registries: Value = serde_json::from_str(&std::fs::read_to_string(dump.join("registries.json")).unwrap()).unwrap();
         let items: std::collections::HashSet<&str> = registries["minecraft:item"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        let fluids: std::collections::HashSet<&str> = registries["minecraft:fluid"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         let mut tags = std::collections::HashMap::<String, Vec<String>>::new();
         for line in std::fs::read_to_string(dump.join("tags.jsonl")).unwrap().lines() {
             let t: Value = serde_json::from_str(line).unwrap();
@@ -308,11 +309,16 @@ mod tests {
                 continue;
             }
             all += 1;
-            if !crate::machine::ALL.iter().any(|s| s.recipe_type == kind) {
+            if !crate::machine::ALL.iter().any(|s| s.recipe_type == kind) && kind != "oritech:centrifuge_fluid" {
                 continue;
             }
             let id = r["id"].as_str().unwrap();
-            let read = parse(id, &r["json"], |v| resolve(v, &items, &tags)).ok().filter(|p| p.results.iter().all(|s| items.contains(s.item.as_str())));
+            // A result item or a fluid the pack lacks fails Java's codec; a fluid tag is never checked.
+            let read = parse(id, &r["json"], |v| resolve(v, &items, &tags)).ok().filter(|p| {
+                p.results.iter().all(|s| items.contains(s.item.as_str()))
+                    && p.fluid_out.iter().all(|(f, _)| fluids.contains(f.as_str()))
+                    && p.fluid_in.as_ref().is_none_or(|f| f.tag || fluids.contains(f.fluid.as_str()))
+            });
             let entry = counts.entry(kind.to_owned()).or_default();
             entry.0 += 1;
             entry.1 += usize::from(read.is_some());
@@ -325,13 +331,21 @@ mod tests {
             got,
             vec![
                 ("oritech:assembler", 28, 28),
+                ("oritech:atomic_forge", 20, 19),
                 ("oritech:bio_generator", 7, 7),
                 ("oritech:centrifuge", 15, 15),
+                ("oritech:centrifuge_fluid", 49, 49),
+                ("oritech:cooler", 4, 4),
                 ("oritech:foundry", 30, 26),
+                ("oritech:fuel_generator", 11, 11),
                 ("oritech:grinder", 108, 107),
-                ("oritech:pulverizer", 115, 115)
+                ("oritech:laser", 3, 3),
+                ("oritech:lava_generator", 2, 2),
+                ("oritech:pulverizer", 115, 115),
+                ("oritech:refinery", 21, 21)
             ]
         );
+        assert_eq!(got.iter().map(|g| g.2).sum::<usize>(), 407);
         assert_eq!(all, 469, "ATM10's recipes of Oritech's own types");
         println!("ATM10: {} of {all} recipes of Oritech's types run on a ported machine", got.iter().map(|g| g.2).sum::<usize>());
     }

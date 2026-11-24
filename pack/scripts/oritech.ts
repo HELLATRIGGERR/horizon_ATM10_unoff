@@ -8,6 +8,7 @@
 // set in the environment:
 //   ORITECH_CARRY             the carry of Oritech             <base>/atm10-work/fullpack/carries/oritech
 //   ORITECH_CONTENT_DIR       the content mod `content` makes  <base>/.build/content/oritech
+//   ORITECH_SOURCE            the Oritech source checkout (its fluid tags go into the test content)  <base>/atm10-work/mod-sources/oritech
 //   ORITECH_STAGE             the staged, modded source        <base>/stage-oritech
 //   ORITECH_TARGET            the staged game's target dir     <base>/.build/target-oritech-game
 //   ORITECH_TOOL_TARGET       target dir of the pack's crate   <base>/.build/target-oritech
@@ -31,6 +32,7 @@ const bundle = join(root, 'pack/mods/oritech');
 const env = (name: string, fallback: string) => resolve(process.env[name] ?? fallback);
 const carry = env('ORITECH_CARRY', join(base, 'atm10-work/fullpack/carries/oritech'));
 const content = env('ORITECH_CONTENT_DIR', join(base, '.build/content/oritech'));
+const oritechSource = env('ORITECH_SOURCE', join(base, 'atm10-work/mod-sources/oritech'));
 const stage = env('ORITECH_STAGE', join(base, 'stage-oritech'));
 const target = env('ORITECH_TARGET', join(base, '.build/target-oritech-game'));
 const toolTarget = env('ORITECH_TOOL_TARGET', join(base, '.build/target-oritech'));
@@ -82,8 +84,12 @@ function makeContent(): void {
   rmSync(content, { recursive: true, force: true });
   // A content mod refuses scripts and binaries (the jar carries a texture-colour helper script).
   cpSync(carry, content, { recursive: true, filter: path => !/\.(sh|bat|cmd|exe|ps1|py)$/i.test(path) });
+  // The carry brings no fluid tags (a mod's own carry doesn't; the full pack's has the final ones): the test content gets the
+  // ones Oritech's own data makes, from the source checkout when there is one. Local only, never committed.
+  const tagSource = join(oritechSource, 'common/src/main/generated/data/c/tags/fluid');
+  if (existsSync(tagSource)) cpSync(tagSource, join(content, 'data/c/tags/fluid'), { recursive: true });
   const blocks = join(content, 'data/oritech/horizon/block');
-  const machines = ['pulverizer_block.json', 'fragment_forge_block.json', 'assembler_block.json', 'foundry_block.json', 'centrifuge_block.json', 'basic_generator_block.json', 'bio_generator_block.json', 'powered_furnace_block.json', 'atomic_forge_block.json', 'laser_arm_block.json'];
+  const machines = ['pulverizer_block.json', 'fragment_forge_block.json', 'assembler_block.json', 'foundry_block.json', 'centrifuge_block.json', 'basic_generator_block.json', 'bio_generator_block.json', 'powered_furnace_block.json', 'atomic_forge_block.json', 'laser_arm_block.json', 'refinery_block.json', 'refinery_module_block.json', 'cooler_block.json', 'fuel_generator_block.json', 'lava_generator_block.json'];
   for (const file of machines) {
     const path = join(blocks, file);
     if (!existsSync(path)) { console.warn(`${file} not in carry`); continue; }

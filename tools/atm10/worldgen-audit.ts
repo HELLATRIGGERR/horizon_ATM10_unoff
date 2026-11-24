@@ -127,7 +127,9 @@ const devMods = readdirSync(carries, { withFileTypes: true })
   .map(d => d.name)
   .sort()
   .filter(id => (only.length ? only.includes(id) : true) && !without.has(id));
-process.env.AE2_TEST_STARTUP_MS = String(Math.max(Number(process.env.AE2_TEST_STARTUP_MS ?? 0), 1_800_000));
+// A first start of the whole pack without a warm cache checks and stages every carry before the world opens: over
+// 90 minutes on a loaded PC.
+process.env.AE2_TEST_STARTUP_MS = String(Math.max(Number(process.env.AE2_TEST_STARTUP_MS ?? 0), 9_000_000));
 console.log(`${devMods.length} carries from ${carries}`);
 const fixture = new WorldFixture('worldgen-audit', 'server-thread', { devMods: devMods.map(id => join(carries, id)) });
 const out = resolve(process.env.WORLDGEN_AUDIT_OUT ?? join(fixture.run, 'worldgen-audit.json'));

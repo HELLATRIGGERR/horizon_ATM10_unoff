@@ -163,7 +163,13 @@ impl LaunchArguments {
                     match arg.as_str() {
                         "--game-dir" | "--gameDir" => context.game_dir = cwd.join(value),
                         "--home" => context.home = cwd.join(value),
-                        "--dev-mod" => context.dev_mods.push(cwd.join(value)),
+                        "--dev-mod" => {
+                            // The player chose this folder: a read checks its manifest, not
+                            // each of its files (`manifest::trust_dev_folder`).
+                            let folder = cwd.join(value);
+                            crate::manifest::trust_dev_folder(&folder);
+                            context.dev_mods.push(folder);
+                        }
                         _ => rest.push(Argument::Value(arg, value)),
                     }
                 }
@@ -199,6 +205,7 @@ mod tests {
         assert_eq!(launch.context.game_dir, cwd.join("instance"));
         assert_eq!(launch.context.home, cwd.join("final-cache"));
         assert_eq!(launch.context.dev_mods, [cwd.join("workspace/source")]);
+        assert!(crate::manifest::dev_folder(&cwd.join("workspace/source")));
         assert_eq!(
             launch.rest,
             [

@@ -10,7 +10,7 @@
 
 use super::Game;
 use crate::game::api_values::{TryIntoApi, TryIntoEngine};
-use horizon_client::{containers::ModContainer, items::ItemStack};
+use horizon_client::{containers::ModContainer, items::ItemStack, text::Text};
 use horizon_core::geometry::Direction;
 use horizon_core::nbt::{Compound, JavaString, Tag};
 use horizon_world::fluid_stack::FluidStack;
@@ -22,7 +22,9 @@ use theurgy_core::{
     crafting::{self, Crafting, Step},
     heat::{Brazier, Consume, Fuel, HeatConsumer},
     recipe::{self, Accumulation, Calcination, Distillation, Incubation, Liquefaction, RecipeResult},
+    reformation::{self, Catalysation, Catalyst, Reformation},
     storage::{self, BUCKET, Tank},
+    vat::{self, VatKind, VatRecipe},
 };
 
 // ---- The apparatus ---------------------------------------------------------------------------------------------
@@ -39,9 +41,16 @@ enum Kind {
     Sulfur,
     Accumulator,
     Tank,
+    Fermentation,
+    Digestion,
+    SourcePedestal,
+    TargetPedestal,
+    ResultPedestal,
+    Emitter,
+    Catalyst,
 }
 
-const KINDS: [(Kind, &str); 10] = [
+const KINDS: [(Kind, &str); 17] = [
     (Kind::Brazier, "theurgy:pyromantic_brazier"),
     (Kind::Oven, "theurgy:calcination_oven"),
     (Kind::Cauldron, "theurgy:liquefaction_cauldron"),
@@ -52,6 +61,13 @@ const KINDS: [(Kind, &str); 10] = [
     (Kind::Sulfur, "theurgy:incubator_sulfur_vessel"),
     (Kind::Accumulator, "theurgy:sal_ammoniac_accumulator"),
     (Kind::Tank, "theurgy:sal_ammoniac_tank"),
+    (Kind::Fermentation, "theurgy:fermentation_vat"),
+    (Kind::Digestion, "theurgy:digestion_vat"),
+    (Kind::SourcePedestal, "theurgy:reformation_source_pedestal"),
+    (Kind::TargetPedestal, "theurgy:reformation_target_pedestal"),
+    (Kind::ResultPedestal, "theurgy:reformation_result_pedestal"),
+    (Kind::Emitter, "theurgy:sulfuric_flux_emitter"),
+    (Kind::Catalyst, "theurgy:mercury_catalyst"),
 ];
 
 impl Kind {
@@ -73,7 +89,8 @@ impl Kind {
     fn slots(self) -> usize {
         match self {
             Self::Oven | Self::Cauldron | Self::Distiller => 2,
-            Self::Tank => 0,
+            Self::Fermentation | Self::Digestion => vat::INPUT_SLOTS + 1,
+            Self::Tank | Self::Emitter => 0,
             _ => 1,
         }
     }
@@ -94,6 +111,7 @@ impl Kind {
             Self::Cauldron => Some(("solventTank", 2 * BUCKET)),
             Self::Accumulator => Some(("waterTank", 10 * BUCKET)),
             Self::Tank => Some(("tank", 2 * BUCKET)),
+            Self::Fermentation | Self::Digestion => Some(("fluidTank", 10 * BUCKET)),
             _ => None,
         }
     }
@@ -112,6 +130,10 @@ struct Book {
     liquefaction: Vec<Liquefaction>,
     incubation: Vec<Incubation>,
     accumulation: Vec<Accumulation>,
+    fermentation: Vec<VatRecipe>,
+    digestion: Vec<VatRecipe>,
+    reformation: Vec<Reformation>,
+    catalysation: Vec<Catalysation>,
 }
 
 /// What an apparatus keeps beside its saved compound: the heat cache, `isProcessing` and `couldCraftLastTick`, the
@@ -128,6 +150,8 @@ struct Live {
     upper_seen: bool,
     vessels: Option<[[i32; 3]; 3]>,
     vessel_inputs: [Option<(String, u32)>; 3],
+    /// The reformation array's pedestals' items (the target's, then the sources'), as the emitter heard them last.
+    array: Vec<Option<String>>,
 }
 
 thread_local! {
@@ -135,12 +159,15 @@ thread_local! {
     static LIVE: RefCell<HashMap<(&'static str, [i32; 3]), Live>> = RefCell::new(HashMap::new());
     /// The last click on a block (level time, position, taken): a second one in the same tick is the off hand's.
     static LAST_CLICK: RefCell<Option<(i64, [i32; 3], bool)>> = const { RefCell::new(None) };
+    /// The pedestals a player has picked with the sulfuric flux emitter in hand (Java keeps them on the client).
+    static SELECTION: RefCell<HashMap<u128, Vec<([i32; 3], Kind)>>> = RefCell::new(HashMap::new());
 }
 
 fn forget() {
     BOOK.with(|b| *b.borrow_mut() = None);
     LIVE.with(|l| l.borrow_mut().clear());
     LAST_CLICK.with(|c| *c.borrow_mut() = None);
+    SELECTION.with(|s| s.borrow_mut().clear());
 }
 
 /// `native_server_started`: the recipe book and the machines' unsaved fields are dropped.
@@ -188,13 +215,37 @@ fn load_book(game: &Game<'_>) -> Book {
             Err(e) => { bad += 1; log::warn!("[theurgy] {e}") }
         }
     }
+    for (list, kind, name) in [(&mut book.fermentation, VatKind::Fermentation, vat::FERMENTATION), (&mut book.digestion, VatKind::Digestion, vat::DIGESTION)] {
+        for r in game.native_recipes_of_type(name).iter() {
+            match VatRecipe::parse(kind, &r.id, &r.json) {
+                Ok(p) => list.push(p),
+                Err(e) => { bad += 1; log::warn!("[theurgy] {e}") }
+            }
+        }
+    }
+    for r in game.native_recipes_of_type(reformation::REFORMATION).iter() {
+        match Reformation::parse(&r.id, &r.json) {
+            Ok(p) => book.reformation.push(p),
+            Err(e) => { bad += 1; log::warn!("[theurgy] {e}") }
+        }
+    }
+    for r in game.native_recipes_of_type(reformation::CATALYSATION).iter() {
+        match Catalysation::parse(&r.id, &r.json) {
+            Ok(p) => book.catalysation.push(p),
+            Err(e) => { bad += 1; log::warn!("[theurgy] {e}") }
+        }
+    }
     log::info!(
-        "[theurgy] recipes: {} calcination, {} distillation, {} liquefaction, {} incubation, {} accumulation ({bad} unread)",
+        "[theurgy] recipes: {} calcination, {} distillation, {} liquefaction, {} incubation, {} accumulation, {} fermentation, {} digestion, {} reformation, {} catalysation ({bad} unread)",
         book.calcination.len(),
         book.distillation.len(),
         book.liquefaction.len(),
         book.incubation.len(),
-        book.accumulation.len()
+        book.accumulation.len(),
+        book.fermentation.len(),
+        book.digestion.len(),
+        book.reformation.len(),
+        book.catalysation.len()
     );
     book
 }
@@ -413,12 +464,23 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
         Kind::Brazier => {
             nbt.insert(key("remainingLitTime"), Tag::Short(0));
         }
-        Kind::Oven | Kind::Cauldron | Kind::Distiller | Kind::Incubator | Kind::Accumulator => {
-            if kind != Kind::Accumulator {
+        Kind::Oven | Kind::Cauldron | Kind::Distiller | Kind::Incubator | Kind::Accumulator | Kind::Fermentation | Kind::Digestion => {
+            if !matches!(kind, Kind::Accumulator | Kind::Fermentation | Kind::Digestion) {
                 nbt.insert(key("heatReceiver"), Tag::Long(0));
             }
             nbt.insert(key("progress"), Tag::Short(0));
             nbt.insert(key("totalTime"), Tag::Short(0));
+        }
+        Kind::Emitter => {
+            nbt.insert(key("mercuryFluxStorage"), Tag::Int(0));
+            nbt.insert(key("progress"), Tag::Short(0));
+            nbt.insert(key("totalTime"), Tag::Short(0));
+            nbt.insert(key("sourcePedestals"), Tag::List(Vec::new()));
+        }
+        Kind::Catalyst => {
+            nbt.insert(key("mercuryFluxStorage"), Tag::Int(0));
+            nbt.insert(key("mercuryFluxToConvert"), Tag::Int(0));
+            nbt.insert(key("currentMercuryFluxPerTick"), Tag::Int(0));
         }
         _ => {}
     }
@@ -431,7 +493,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
 /// `native_block_entity_ticks`: the brazier and the crafting apparatus tick (the vessels and the tank don't).
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
     if let Some(kind) = Kind::of(block)
-        && !matches!(kind, Kind::Mercury | Kind::Salt | Kind::Sulfur | Kind::Tank)
+        && !matches!(kind, Kind::Mercury | Kind::Salt | Kind::Sulfur | Kind::Tank | Kind::SourcePedestal | Kind::TargetPedestal | Kind::ResultPedestal)
     {
         *ticks = true;
     }
@@ -447,7 +509,11 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     let (slots, inputs, outputs): (usize, Vec<usize>, Vec<usize>) = match kind {
         Kind::Oven | Kind::Cauldron | Kind::Distiller => (2, vec![INPUT], vec![INPUT, OUTPUT]),
         Kind::Incubator => (1, Vec::new(), vec![0]),
-        Kind::Tank => return,
+        // The open vat's combined handler: the inputs take and give, the output gives (a closed vat's is read only).
+        Kind::Fermentation | Kind::Digestion => (vat::INPUT_SLOTS + 1, (0..vat::INPUT_SLOTS).collect(), (0..=vat::INPUT_SLOTS).collect()),
+        Kind::Tank | Kind::Emitter => return,
+        // The result pedestal gives only (`PreventInsertWrapper`).
+        Kind::ResultPedestal => (1, Vec::new(), vec![0]),
         _ => (1, vec![0], vec![0]),
     };
     let all: Vec<usize> = (0..slots).collect();
@@ -465,6 +531,9 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         Kind::Oven | Kind::Cauldron | Kind::Distiller => tick_single(game, pos, entity, kind),
         Kind::Incubator => tick_incubator(game, pos, entity),
         Kind::Accumulator => tick_accumulator(game, pos, entity),
+        Kind::Fermentation | Kind::Digestion => tick_vat(game, pos, entity, kind),
+        Kind::Emitter => tick_emitter(game, pos, entity),
+        Kind::Catalyst => tick_catalyst(game, pos, entity),
         _ => {}
     }
 }
@@ -832,6 +901,15 @@ fn click_one_slot(game: &mut Game<'_>, pos: [i32; 3], kind: Kind) -> bool {
                     let book = book(game);
                     inside.as_ref().is_some_and(|s| s.same_item_same_components(&hand)) || takes(game, &book, kind, &hand.item)
                 }
+                // The pedestals' `InputInventory.isItemValid`; the result pedestal's wrapper refuses inserts.
+                Kind::SourcePedestal | Kind::TargetPedestal => item_in_tag(game, &hand.item, "theurgy:alchemical_sulfurs_and_niters"),
+                Kind::ResultPedestal => false,
+                // `canProcess`: an item a catalysation recipe takes.
+                Kind::Catalyst => {
+                    let book = book(game);
+                    let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+                    book.catalysation.iter().any(|r| r.takes(&hand.item, &tags))
+                }
                 _ => kind.vessel_tag().is_some_and(|tag| item_in_tag(game, &hand.item, tag)),
             };
             let taken = insertable(game, inside.as_ref(), &hand, valid);
@@ -916,6 +994,190 @@ fn tick_accumulator(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnt
     set_live(dimension, pos, l);
 }
 
+// ---- The fermentation and digestion vats -----------------------------------------------------------------------
+
+const OUT_SLOT: usize = vat::INPUT_SLOTS;
+
+fn vat_list(book: &Book, kind: Kind) -> &[VatRecipe] {
+    if kind == Kind::Fermentation { &book.fermentation } else { &book.digestion }
+}
+
+/// The tank's validator (`canProcess(FluidStack)`): the fluid it holds, or one a recipe of the vat takes.
+fn vat_takes_fluid(book: &Book, kind: Kind, tank: &Tank, fluid: &str) -> bool {
+    vat::can_process_fluid(vat_list(book, kind), tank.fluid_id(), fluid, &fluid_in_tag)
+}
+
+type Owned = Vec<Option<(String, u32)>>;
+
+fn vat_owned(inputs: &[Option<ItemStack>]) -> Owned {
+    inputs.iter().map(|s| s.as_ref().map(|s| (s.item.to_string(), s.count))).collect()
+}
+
+fn vat_view(owned: &Owned) -> Vec<vat::Stack<'_>> {
+    owned.iter().map(|o| o.as_ref().map(|(i, c)| (i.as_str(), *c))).collect()
+}
+
+/// `getRecipe`: the first recipe (the last found if it still fits) the slots and the tank satisfy.
+fn vat_found(game: &Game<'_>, book: &Book, kind: Kind, owned: &Owned, tank: &Tank, last: Option<usize>) -> Option<usize> {
+    let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+    let view = vat_view(owned);
+    recipe::find(vat_list(book, kind), last, |r| r.matches(&view, tank.fluid_id(), tank.amount, &tags, &fluid_in_tag))
+}
+
+/// `getTotalTime`: the fitting recipe's time, else 200.
+fn vat_total(game: &Game<'_>, book: &Book, kind: Kind, owned: &Owned, tank: &Tank, last: Option<usize>) -> i32 {
+    vat_found(game, book, kind, owned, tank, last).and_then(|i| vat_list(book, kind).get(i)).map_or(vat::DEFAULT_TIME, |r| r.time)
+}
+
+/// `canCraft`: the result fits the output slot whole.
+fn vat_can_craft(game: &Game<'_>, recipe: &VatRecipe, output: Option<&ItemStack>) -> bool {
+    game.native_recipe_result(&recipe.result.json).is_some_and(|r| output_fits(game, output, &r))
+}
+
+/// `FermentationVatBlockEntity.tickServer` (and the digestion vat's): closed, it crafts the recipe the slots and the
+/// tank make; when nothing is processing any more the lid opens. (No redstone: neither the auto close nor the
+/// signals.)
+fn tick_vat(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, kind: Kind) {
+    let dimension = game.native_dimension();
+    let book = book(game);
+    let mut l = live(dimension, pos);
+    let open = game.native_block_property(pos, "open").as_deref() != Some("false");
+    let mut inputs: Vec<Option<ItemStack>> = (0..vat::INPUT_SLOTS).map(|i| slot(game, entity, i)).collect();
+    let mut output = slot(game, entity, OUT_SLOT);
+    let mut tank = read_tank(&entity.nbt, "fluidTank", 10 * BUCKET);
+    let mut c = read_crafting(&entity.nbt, &l);
+    let mut owned = vat_owned(&inputs);
+    if c.progress > 0 && c.total_time == 0 {
+        c.total_time = vat_total(game, &book, kind, &owned, &tank, l.last);
+    }
+    // `onInputItemChanged`: a slot's item (not its count) changed.
+    let keys: [Option<(String, u32)>; 3] = std::array::from_fn(|i| owned[i].as_ref().map(|(item, _)| (item.clone(), 0)));
+    if l.seen && keys != l.vessel_inputs {
+        c.input_changed(vat_total(game, &book, kind, &owned, &tank, l.last));
+    }
+    l.seen = true;
+    let has_input = inputs.iter().any(Option::is_some);
+    let found = if has_input { vat_found(game, &book, kind, &owned, &tank, l.last) } else { None };
+    if found.is_some() {
+        l.last = found;
+    }
+    let recipe = found.and_then(|i| vat_list(&book, kind).get(i)).cloned();
+    let can_craft = || recipe.as_ref().is_some_and(|r| vat_can_craft(game, r, output.as_ref()));
+    let step = c.tick(!open, has_input, can_craft, || vat_total(game, &book, kind, &owned, &tank, l.last));
+    if step == Step::Craft
+        && let Some(r) = &recipe
+        && let Some(result) = game.native_recipe_result(&r.result.json)
+    {
+        let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+        let taken = r.consumption(&vat_view(&owned), &tags);
+        output = Some(merged(output, &result));
+        let mut emptied = false;
+        for (i, n) in taken {
+            inputs[i] = shrink(inputs[i].take(), n);
+            emptied |= inputs[i].is_none();
+        }
+        tank.drain(r.fluid.amount, false);
+        for (i, s) in inputs.iter().enumerate() {
+            set_slot(entity, i, s.clone(), vat::INPUT_SLOTS + 1);
+        }
+        set_slot(entity, OUT_SLOT, output.clone(), vat::INPUT_SLOTS + 1);
+        write_tank(&mut entity.nbt, "fluidTank", &tank);
+        owned = vat_owned(&inputs);
+        if emptied {
+            c.input_changed(vat_total(game, &book, kind, &owned, &tank, l.last));
+        }
+    }
+    l.vessel_inputs = std::array::from_fn(|i| owned[i].as_ref().map(|(item, _)| (item.clone(), 0)));
+    if !c.processing && !open {
+        game.native_set_block_property_with(pos, "open", "true", flags::UPDATE_CLIENTS);
+    }
+    // The fermentation vat's visual `has_output`.
+    if kind == Kind::Fermentation {
+        let want = if output.is_some() { "true" } else { "false" };
+        if game.native_block_property(pos, "has_output").is_some_and(|v| v != want) {
+            game.native_set_block_property_with(pos, "has_output", want, flags::UPDATE_ALL);
+        }
+    }
+    write_crafting(&mut entity.nbt, &c, &mut l);
+    set_live(dimension, pos, l);
+}
+
+/// The slots and tank of the vat at `pos` in the level, and the recipe they make.
+fn vat_state(game: &mut Game<'_>, pos: [i32; 3], kind: Kind) -> (Vec<Option<ItemStack>>, Option<ItemStack>, Tank, Option<usize>) {
+    let inputs: Vec<Option<ItemStack>> = (0..vat::INPUT_SLOTS).map(|i| level_slot(game, pos, i)).collect();
+    let output = level_slot(game, pos, OUT_SLOT);
+    let tank = game.native_with_mod_block_entity(pos, |e| read_tank(&e.nbt, "fluidTank", 10 * BUCKET)).unwrap_or_default();
+    let found = vat_found(game, &book(game), kind, &vat_owned(&inputs), &tank, live(game.native_dimension(), pos).last);
+    (inputs, output, tank, found)
+}
+
+/// `GenericVatInteractionBehaviour.useItemOn` (main hand), then the tank's and the slots' behaviours. Sneaking with an
+/// empty hand opens or closes the lid (closing needs a recipe that can craft); a closed vat refuses everything else.
+fn click_vat(game: &mut Game<'_>, pos: [i32; 3], kind: Kind) -> bool {
+    let hand = game.native_used_stack().clone().filter(|s| s.count > 0);
+    let open = game.native_block_property(pos, "open").as_deref() != Some("false");
+    if !(game.native_sneaking() && hand.is_none()) {
+        if !open {
+            return true;
+        }
+        return click_tank(game, pos, kind) || click_vat_slots(game, pos, kind, hand);
+    }
+    if open {
+        let book = book(game);
+        let (_, output, _, found) = vat_state(game, pos, kind);
+        let can = found.and_then(|i| vat_list(&book, kind).get(i)).is_some_and(|r| vat_can_craft(game, r, output.as_ref()));
+        if can {
+            game.native_set_block_property_with(pos, "open", "false", flags::UPDATE_CLIENTS);
+        }
+    } else {
+        game.native_set_block_property_with(pos, "open", "true", flags::UPDATE_CLIENTS);
+        // `stopProcessing`.
+        let dimension = game.native_dimension();
+        let mut l = live(dimension, pos);
+        l.processing = false;
+        l.could_craft = false;
+        set_live(dimension, pos, l);
+        game.native_with_mod_block_entity(pos, |e| e.nbt.insert(key("progress"), Tag::Short(0)));
+    }
+    true
+}
+
+/// `DynamicOneOutputSlotItemHandlerBehaviour.useItemOn`: an empty hand takes the output, else the first input; a held
+/// stack goes into the first input slot that takes any (`InputInventory.isItemValid`).
+fn click_vat_slots(game: &mut Game<'_>, pos: [i32; 3], kind: Kind, hand: Option<ItemStack>) -> bool {
+    let n = vat::INPUT_SLOTS + 1;
+    let Some(hand) = hand else {
+        for i in [OUT_SLOT, 0, 1, 2] {
+            if let Some(stack) = level_slot(game, pos, i) {
+                set_level_slot(game, pos, i, None, n);
+                give(game, pos, stack);
+                return true;
+            }
+        }
+        return false;
+    };
+    let book = book(game);
+    let (inputs, _, tank, found) = vat_state(game, pos, kind);
+    let owned = vat_owned(&inputs);
+    let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+    let view = vat_view(&owned);
+    let can = vat::can_process_item(vat_list(&book, kind), found, &view, &hand.item, &tags);
+    let _ = tank;
+    for i in 0..vat::INPUT_SLOTS {
+        let elsewhere = inputs.iter().enumerate().any(|(j, s)| j != i && s.as_ref().is_some_and(|s| s.same_item_same_components(&hand)));
+        let taken = insertable(game, inputs[i].as_ref(), &hand, can && !elsewhere);
+        if taken == 0 {
+            continue;
+        }
+        let mut moved = hand.clone();
+        moved.count = taken;
+        set_level_slot(game, pos, i, Some(merged(inputs[i].clone(), &moved)), n);
+        *game.native_used_stack() = shrink(Some(hand), taken);
+        return true;
+    }
+    false
+}
+
 // ---- Fluids: buckets and fluid handlers ------------------------------------------------------------------------
 
 /// Whether tank `name` of an apparatus takes `fluid` (its `FluidTank` validator).
@@ -923,6 +1185,7 @@ fn tank_valid(game: &Game<'_>, kind: Kind, tank: &Tank, fluid: &str) -> bool {
     match kind {
         Kind::Cauldron => fluid_in_tag(fluid, SOLVENT_TAG),
         Kind::Accumulator => accumulator_takes_fluid(&book(game), tank, fluid),
+        Kind::Fermentation | Kind::Digestion => vat_takes_fluid(&book(game), kind, tank, fluid),
         _ => true,
     }
 }
@@ -1019,6 +1282,7 @@ pub(super) fn fluid_fill(entity: &mut ModBlockEntity, resource: &mod_api::FluidS
         Kind::Cauldron => fluid_in_tag(fluid, SOLVENT_TAG),
         // The recipe book of this thread, once an accumulator has ticked; before that any fluid.
         Kind::Accumulator => BOOK.with(|b| b.borrow().as_ref().is_none_or(|b| accumulator_takes_fluid(b, &tank, fluid))),
+        Kind::Fermentation | Kind::Digestion => BOOK.with(|b| b.borrow().as_ref().is_none_or(|b| vat_takes_fluid(b, kind, &tank, fluid))),
         _ => true,
     };
     let taken = tank.fill(fluid, offered.amount(), valid, simulate);
@@ -1044,6 +1308,296 @@ pub(super) fn fluid_drain(entity: &mut ModBlockEntity, resource: Option<&mod_api
         write_tank(&mut entity.nbt, name, &tank);
     }
     *drained = out.and_then(|(fluid, amount)| api_fluid(&fluid, amount));
+}
+
+// ---- The mercurial reformation array and the mercury catalyst ---------------------------------------------------
+
+const EMITTER_ITEM: &str = "theurgy:sulfuric_flux_emitter";
+
+/// `SulfuricFluxEmitterSelectedPoint.CODEC`: `{blockPos: [x, y, z], type}`.
+fn point_tag(pos: [i32; 3], kind: &str) -> Tag {
+    let mut c = Compound::new();
+    c.insert(key("blockPos"), Tag::IntArray(pos.to_vec()));
+    c.insert(key("type"), Tag::String(JavaString::from(kind)));
+    Tag::Compound(c)
+}
+
+fn point_pos(c: &Compound) -> Option<[i32; 3]> {
+    match c.get(&key("blockPos")) {
+        Some(Tag::IntArray(v)) if v.len() == 3 => Some([v[0], v[1], v[2]]),
+        _ => None,
+    }
+}
+
+fn read_pos(nbt: &Compound, name: &str) -> Option<[i32; 3]> {
+    match nbt.get(&key(name)) {
+        Some(Tag::Compound(c)) => point_pos(c),
+        _ => None,
+    }
+}
+
+fn read_sources(nbt: &Compound) -> Vec<[i32; 3]> {
+    match nbt.get(&key("sourcePedestals")) {
+        Some(Tag::List(list)) => list.iter().filter_map(|t| if let Tag::Compound(c) = t { point_pos(c) } else { None }).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The emitter's selected pedestals that are still the right pedestals (`validateMultiblock`).
+#[derive(Default)]
+struct Array {
+    sources: Vec<[i32; 3]>,
+    target: Option<[i32; 3]>,
+    result: Option<[i32; 3]>,
+}
+
+impl Array {
+    fn valid(&self) -> bool {
+        self.target.is_some() && self.result.is_some() && !self.sources.is_empty()
+    }
+}
+
+fn array_of(game: &Game<'_>, nbt: &Compound) -> Array {
+    let is = |p: [i32; 3], k: Kind| game.native_block(p) == k.block();
+    Array {
+        sources: read_sources(nbt).into_iter().filter(|p| is(*p, Kind::SourcePedestal)).collect(),
+        target: read_pos(nbt, "targetPedestal").filter(|p| is(*p, Kind::TargetPedestal)),
+        result: read_pos(nbt, "resultPedestal").filter(|p| is(*p, Kind::ResultPedestal)),
+    }
+}
+
+/// The target pedestal's stack and each source pedestal's.
+fn array_stacks(game: &mut Game<'_>, a: &Array) -> (Option<ItemStack>, Vec<Option<ItemStack>>) {
+    let target = a.target.and_then(|p| level_slot(game, p, 0));
+    let sources = a.sources.iter().map(|p| level_slot(game, *p, 0)).collect();
+    (target, sources)
+}
+
+fn array_found(game: &Game<'_>, book: &Book, target: Option<&ItemStack>, sources: &[Option<ItemStack>], flux: i32, last: Option<usize>) -> Option<usize> {
+    let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+    let view: Vec<reformation::Stack<'_>> = sources.iter().map(|s| s.as_ref().map(|s| (&*s.item, s.count))).collect();
+    let target = target.map(|s| &*s.item);
+    recipe::find(&book.reformation, last, |r| r.matches(target, &view, flux, &tags))
+}
+
+/// `getTotalTime`: the fitting recipe's time, else 100.
+fn array_total(game: &Game<'_>, book: &Book, target: Option<&ItemStack>, sources: &[Option<ItemStack>], flux: i32, last: Option<usize>) -> i32 {
+    crafting::total_time(array_found(game, book, target, sources, flux, last).and_then(|i| book.reformation.get(i)).map(|r| r.time))
+}
+
+fn array_keys(target: Option<&ItemStack>, sources: &[Option<ItemStack>]) -> Vec<Option<String>> {
+    std::iter::once(target).chain(sources.iter().map(Option::as_ref)).map(|s| s.map(|s| s.item.to_string())).collect()
+}
+
+/// `SulfuricFluxEmitterBlockEntity.tickServer`: with a valid array, items on a source pedestal and the target, and
+/// enough flux for a recipe, it crafts every `time` ticks: the sources are used up, the flux spent, the result goes to
+/// the result pedestal (the target stays). (The array is checked every tick, where Java checks it when a pedestal
+/// changes or the emitter is clicked.)
+fn tick_emitter(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
+    let dimension = game.native_dimension();
+    let book = book(game);
+    let mut l = live(dimension, pos);
+    let a = array_of(game, &entity.nbt);
+    let mut flux = int(&entity.nbt, "mercuryFluxStorage");
+    let mut c = read_crafting(&entity.nbt, &l);
+    let (target, mut sources) = array_stacks(game, &a);
+    let has_input = a.valid() && target.is_some() && sources.iter().any(Option::is_some);
+    if c.progress > 0 && c.total_time == 0 {
+        c.total_time = array_total(game, &book, target.as_ref(), &sources, flux, l.last);
+    }
+    let mut keys = array_keys(target.as_ref(), &sources);
+    if l.seen && keys != l.array {
+        c.input_changed(array_total(game, &book, target.as_ref(), &sources, flux, l.last));
+    }
+    l.seen = true;
+    let found = if has_input { array_found(game, &book, target.as_ref(), &sources, flux, l.last) } else { None };
+    if found.is_some() {
+        l.last = found;
+    }
+    let recipe = found.and_then(|i| book.reformation.get(i)).cloned();
+    let result = recipe.as_ref().and_then(|r| game.native_recipe_result(&r.result.json));
+    let output = a.result.and_then(|p| level_slot(game, p, 0));
+    let can_craft = || result.as_ref().is_some_and(|r| output_fits(game, output.as_ref(), r));
+    let step = c.tick(true, has_input, can_craft, || array_total(game, &book, target.as_ref(), &sources, flux, l.last));
+    if step == Step::Craft
+        && let (Some(r), Some(result), Some(out)) = (recipe, result, a.result)
+    {
+        let taken = {
+            let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+            let view: Vec<reformation::Stack<'_>> = sources.iter().map(|s| s.as_ref().map(|s| (&*s.item, s.count))).collect();
+            r.consumption(&view, &tags)
+        };
+        flux -= reformation::extract(flux, reformation::EMITTER_CAPACITY, r.mercury_flux);
+        for (i, n) in taken {
+            sources[i] = shrink(sources[i].take(), n);
+            set_level_slot(game, a.sources[i], 0, sources[i].clone(), 1);
+            game.native_block_entity_sync(a.sources[i]);
+        }
+        set_level_slot(game, out, 0, Some(merged(output, &result)), 1);
+        game.native_block_entity_sync(out);
+        entity.nbt.insert(key("mercuryFluxStorage"), Tag::Int(flux));
+        let now = array_keys(target.as_ref(), &sources);
+        if now != keys {
+            // `onContentTypeChanged`: a source pedestal emptied.
+            c.input_changed(array_total(game, &book, target.as_ref(), &sources, flux, l.last));
+            keys = now;
+        }
+    }
+    l.array = keys;
+    write_crafting(&mut entity.nbt, &c, &mut l);
+    set_live(dimension, pos, l);
+}
+
+const SIDES: [[i32; 3]; 6] = [[0, -1, 0], [0, 1, 0], [0, 0, -1], [1, 0, 0], [0, 0, 1], [-1, 0, 0]];
+
+/// `MercuryCatalystBlockEntity.tickServer`: an item a catalysation recipe takes is consumed and its flux converted
+/// into the storage a few per tick; every 20 ticks it offers 40 to each neighbour that takes mercury flux (here the
+/// sulfuric flux emitter; no pipes). Java's `enabled` state (redstone) is not kept: it is always on.
+fn tick_catalyst(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) {
+    let book = book(game);
+    let held = slot(game, entity, 0);
+    let mut k = Catalyst {
+        stored: int(&entity.nbt, "mercuryFluxStorage"),
+        to_convert: int(&entity.nbt, "mercuryFluxToConvert"),
+        per_tick: int(&entity.nbt, "currentMercuryFluxPerTick"),
+    };
+    let before = k;
+    let consumed = {
+        let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+        let item = held.as_ref().map(|s| s.item.to_string());
+        k.tick(held.is_some(), || {
+            let item = item?;
+            book.catalysation.iter().find(|r| r.takes(&item, &tags)).map(|r| (r.total_flux, r.flux_per_tick))
+        })
+    };
+    if consumed {
+        set_slot(entity, 0, shrink(held, 1), 1);
+    }
+    if game_time(game) % reformation::PUSH_INTERVAL == 0 {
+        for d in SIDES {
+            if k.stored <= 0 {
+                break;
+            }
+            let at = offset(pos, d);
+            if Kind::of(&game.native_block(at)) != Some(Kind::Emitter) {
+                continue;
+            }
+            let offered = reformation::extract(k.stored, reformation::CATALYST_CAPACITY, reformation::PUSH_AMOUNT);
+            let received = game
+                .native_with_mod_block_entity(at, |e| {
+                    let have = int(&e.nbt, "mercuryFluxStorage");
+                    let got = reformation::receive(have, reformation::EMITTER_CAPACITY, offered);
+                    if got > 0 {
+                        e.nbt.insert(key("mercuryFluxStorage"), Tag::Int(have + got));
+                    }
+                    got
+                })
+                .unwrap_or(0);
+            k.stored -= reformation::extract(k.stored, reformation::CATALYST_CAPACITY, received);
+        }
+    }
+    if k != before {
+        entity.nbt.insert(key("mercuryFluxStorage"), Tag::Int(k.stored));
+        entity.nbt.insert(key("mercuryFluxToConvert"), Tag::Int(k.to_convert));
+        entity.nbt.insert(key("currentMercuryFluxPerTick"), Tag::Int(k.per_tick));
+    }
+}
+
+fn acting_uuid(game: &Game<'_>) -> Option<u128> {
+    game.native_acting_player().map(|p| p.uuid())
+}
+
+fn tell(game: &mut Game<'_>, uuid: Option<u128>, line: &str) {
+    if let Some(uuid) = uuid {
+        game.native_action_bar(uuid, Text::literal(line));
+    }
+}
+
+fn summary(sources: usize, target: bool, result: bool) -> String {
+    if sources == 0 && !target && !result {
+        return "Sulfuric flux emitter: nothing selected".to_owned();
+    }
+    let mut missing = Vec::new();
+    if !target {
+        missing.push("no target pedestal");
+    }
+    if sources == 0 {
+        missing.push("no source pedestals");
+    }
+    if !result {
+        missing.push("no result pedestal");
+    }
+    if missing.is_empty() {
+        format!("Sulfuric flux emitter: {sources} source, 1 target and 1 result pedestal")
+    } else {
+        format!("Sulfuric flux emitter: {sources} source pedestal(s); {}", missing.join(", "))
+    }
+}
+
+/// The emitter in hand, right click on a pedestal (`SelectionBehaviour.onRightClickBlock`): it is picked (one target
+/// and one result at most, any number of sources); picking it again takes it back (`cycleMode` has no mode).
+fn select(game: &mut Game<'_>, pos: [i32; 3], kind: Kind) -> bool {
+    let Some(uuid) = acting_uuid(game) else { return false };
+    let now = SELECTION.with(|s| {
+        let mut s = s.borrow_mut();
+        let list = s.entry(uuid).or_default();
+        if let Some(i) = list.iter().position(|(p, _)| *p == pos) {
+            list.remove(i);
+        } else {
+            if kind != Kind::SourcePedestal {
+                list.retain(|(_, k)| *k != kind);
+            }
+            list.push((pos, kind));
+        }
+        list.clone()
+    });
+    let line = summary(
+        now.iter().filter(|(_, k)| *k == Kind::SourcePedestal).count(),
+        now.iter().any(|(_, k)| *k == Kind::TargetPedestal),
+        now.iter().any(|(_, k)| *k == Kind::ResultPedestal),
+    );
+    tell(game, Some(uuid), &line);
+    true
+}
+
+/// `SulfuricFluxEmitterBlockItem.updateCustomBlockEntityTag` and `onPlace`: the placed emitter takes the player's picks
+/// that are within 16 blocks; the picks are used up.
+fn place_emitter(game: &mut Game<'_>, pos: [i32; 3], placer: Option<u128>) {
+    let Some(uuid) = placer else { return };
+    let picked = SELECTION.with(|s| s.borrow_mut().remove(&uuid)).unwrap_or_default();
+    let range = reformation::SELECTION_RANGE;
+    let near = |p: [i32; 3]| (0..3).map(|i| (p[i] - pos[i]).pow(2)).sum::<i32>() < range * range;
+    let kept: Vec<([i32; 3], Kind)> = picked.iter().copied().filter(|(p, _)| near(*p)).collect();
+    let sources: Vec<[i32; 3]> = kept.iter().filter(|(_, k)| *k == Kind::SourcePedestal).map(|(p, _)| *p).collect();
+    let target = kept.iter().rev().find(|(_, k)| *k == Kind::TargetPedestal).map(|(p, _)| *p);
+    let result = kept.iter().rev().find(|(_, k)| *k == Kind::ResultPedestal).map(|(p, _)| *p);
+    game.native_with_mod_block_entity(pos, |e| {
+        e.nbt.insert(key("sourcePedestals"), Tag::List(sources.iter().map(|p| point_tag(*p, "SOURCE")).collect()));
+        match target {
+            Some(p) => e.nbt.insert(key("targetPedestal"), point_tag(p, "TARGET")),
+            None => e.nbt.remove(&key("targetPedestal")),
+        };
+        match result {
+            Some(p) => e.nbt.insert(key("resultPedestal"), point_tag(p, "RESULT")),
+            None => e.nbt.remove(&key("resultPedestal")),
+        };
+    });
+    let line = if kept.len() < picked.len() {
+        format!("{} selected pedestal(s) are out of range and were dropped", picked.len() - kept.len())
+    } else {
+        summary(sources.len(), target.is_some(), result.is_some())
+    };
+    tell(game, Some(uuid), &line);
+}
+
+/// `SulfuricFluxEmitterInteractionBehaviour.useItemOn` (main hand): says which pedestals it has and whether the array
+/// is whole. (No outlines.)
+fn click_emitter(game: &mut Game<'_>, pos: [i32; 3]) -> bool {
+    let Some(nbt) = game.native_with_mod_block_entity(pos, |e| e.nbt.clone()) else { return false };
+    let a = array_of(game, &nbt);
+    let uuid = acting_uuid(game);
+    tell(game, uuid, &summary(a.sources.len(), a.target.is_some(), a.result.is_some()));
+    true
 }
 
 // ---- Clicks and placing ----------------------------------------------------------------------------------------
@@ -1074,19 +1628,27 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: [i32; 3], main_hand: bool, c
         *canceled |= taken;
         return;
     }
+    // The sulfuric flux emitter in hand picks pedestals (`SulfuricFluxEmitterBlockItem.useOn` and the selection
+    // behaviour), sneaking or not.
+    let selecting = main_hand
+        && matches!(kind, Kind::SourcePedestal | Kind::TargetPedestal | Kind::ResultPedestal)
+        && game.native_used_stack().as_ref().is_some_and(|s| s.count > 0 && &*s.item == EMITTER_ITEM);
     // A sneaking player holding something skips the block's own use (`Player.isSecondaryUseActive`).
-    if !main_hand || (game.native_sneaking() && game.native_used_stack().as_ref().is_some_and(|s| s.count > 0)) {
+    if !selecting && (!main_hand || (game.native_sneaking() && game.native_used_stack().as_ref().is_some_and(|s| s.count > 0))) {
         return;
     }
     let pos = if kind.double() && game.native_block_property(pos, "half").as_deref() == Some("upper") { below(pos) } else { pos };
-    let taken = match kind {
+    let taken = if selecting { select(game, pos, kind) } else { match kind {
         Kind::Brazier => click_brazier(game, pos),
         Kind::Oven | Kind::Distiller => click_two_slot(game, pos, kind),
         Kind::Cauldron => click_tank(game, pos, kind) || click_two_slot(game, pos, kind),
         Kind::Incubator | Kind::Mercury | Kind::Salt | Kind::Sulfur => click_one_slot(game, pos, kind),
         Kind::Accumulator => click_tank(game, pos, kind) || click_one_slot(game, pos, kind),
         Kind::Tank => click_tank(game, pos, kind),
-    };
+        Kind::Fermentation | Kind::Digestion => click_vat(game, pos, kind),
+        Kind::SourcePedestal | Kind::TargetPedestal | Kind::ResultPedestal | Kind::Catalyst => click_one_slot(game, pos, kind),
+        Kind::Emitter => click_emitter(game, pos),
+    } };
     if taken {
         game.native_block_entity_sync(pos);
         *canceled = true;
@@ -1114,8 +1676,12 @@ fn replaceable(block: &str) -> bool {
 
 /// `native_on_block_placed_by`: a two-block apparatus' `setPlacedBy` sets its upper half, the same state with
 /// `half=upper`, where the block above can be replaced.
-pub(super) fn placed(game: &mut Game<'_>, pos: [i32; 3]) {
+pub(super) fn placed(game: &mut Game<'_>, pos: [i32; 3], placer: Option<u128>) {
     let Some(kind) = Kind::of(&game.native_block(pos)) else { return };
+    if kind == Kind::Emitter {
+        place_emitter(game, pos, placer);
+        return;
+    }
     if !kind.double() || game.native_block_property(pos, "half").as_deref() != Some("lower") {
         return;
     }

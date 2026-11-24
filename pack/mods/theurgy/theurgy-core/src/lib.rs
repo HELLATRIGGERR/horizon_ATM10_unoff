@@ -8,9 +8,13 @@ pub mod crafting;
 pub mod heat;
 pub mod ingredient;
 pub mod recipe;
+pub mod reformation;
 pub mod storage;
+pub mod vat;
 
 pub use ingredient::{FluidIngredient, Ingredient, SizedFluidIngredient, SizedIngredient};
+pub use reformation::{Catalysation, Catalyst, Reformation};
+pub use vat::{VatKind, VatRecipe};
 pub use recipe::{Accumulation, Calcination, Distillation, Incubation, Liquefaction, RecipeResult};
 
 /// What a tag test asks: is item (or fluid) `id` in tag `tag` (without `#`).

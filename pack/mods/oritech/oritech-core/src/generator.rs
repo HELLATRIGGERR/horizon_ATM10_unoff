@@ -89,6 +89,28 @@ impl Generator {
         }
     }
 
+    /// A fluid generator's tick (`FluidMultiblockGeneratorBlockEntity.tryConsumeInput` in the generator's loop): with
+    /// no burn left, the recipe `find` gives for the tank (its time and the fluid it takes) burns for its time and
+    /// takes the fluid. True when anything changed.
+    pub fn tick_fluid(&mut self, tank: &mut crate::fluid::Tank, ctx: &GenCtx<'_>, find: &dyn Fn(&crate::fluid::Tank) -> Option<(i32, i32)>) -> bool {
+        let before = (self.clone(), tank.clone());
+        if ctx.active && !self.disabled_via_redstone {
+            if self.progress == 0 && self.can_fit(ctx) {
+                if let Some((time, amount)) = find(tank) {
+                    let time = (time as f32 * ctx.speed * (1.0 / ctx.efficiency)) as i32;
+                    self.progress = time;
+                    self.max_burn = time;
+                    tank.take(amount, false);
+                }
+            }
+            if self.progress > 0 && self.can_fit(ctx) {
+                self.progress -= 1;
+                self.energy.amount = (self.energy.amount as f32 + Self::produced(ctx)) as i64;
+            }
+        }
+        (self.clone(), tank.clone()) != before
+    }
+
     /// `outputEnergy`: each target in turn gets what the buffer can give a call (`maxExtract`) and it takes.
     /// `offer(target, amount)` is how much of it that target took.
     pub fn output(&mut self, targets: usize, offer: &mut dyn FnMut(usize, i64) -> i64) -> bool {
@@ -121,6 +143,31 @@ fn take_one(slot: &mut Option<Stack>) {
 mod tests {
     use super::*;
     use crate::machine::{BASIC_GENERATOR, BIO_GENERATOR};
+
+    /// A lava generator: 100 mB of lava burns 120 ticks at the config's energy a tick (the recipe's time at speed 1).
+    #[test]
+    fn a_fluid_generator_burns_its_tank() {
+        use crate::fluid::Tank;
+        let book = RecipeBook::default();
+        let fuel = |_: &str| 0;
+        let ctx = GenCtx { energy_per_tick: 64, speed: 1.0, efficiency: 1.0, active: true, fuel: &fuel, book: &book };
+        let find = |t: &Tank| (t.fluid == "minecraft:lava" && t.amount >= 100).then_some((120, 100));
+        let mut g = Generator::new(Energy { amount: 0, capacity: 100_000, max_insert: 0, max_extract: 512 });
+        let mut tank = Tank::new("minecraft:lava", 250);
+        for _ in 0..120 {
+            g.tick_fluid(&mut tank, &ctx, &find);
+        }
+        assert_eq!((g.energy.amount, tank.amount, g.progress), (120 * 64, 150, 0));
+        for _ in 0..120 {
+            g.tick_fluid(&mut tank, &ctx, &find);
+        }
+        assert_eq!((g.energy.amount, tank.amount), (240 * 64, 50));
+        assert!(!g.tick_fluid(&mut tank, &ctx, &find), "50 mB is not a burn: it idles");
+        let mut full = Generator::new(Energy { amount: 99_990, capacity: 100_000, max_insert: 0, max_extract: 512 });
+        let mut t = Tank::new("minecraft:lava", 250);
+        full.tick_fluid(&mut t, &ctx, &find);
+        assert_eq!((t.amount, full.progress), (250, 0), "a full buffer takes no fluid");
+    }
     use crate::recipe::{Ingredient, Recipe};
 
     fn coal(item: &str) -> i32 {
@@ -201,6 +248,8 @@ mod tests {
             inputs: vec![Ingredient { items: vec!["oritech:packed_wheat".into()] }],
             results: vec![],
             fluids: false,
+            fluid_in: None,
+            fluid_out: Vec::new(),
         }]);
         let c = ctx(&book, 256, true);
         let mut g = Generator::new(Energy { amount: 0, capacity: 400_000, max_insert: 0, max_extract: 2048 });

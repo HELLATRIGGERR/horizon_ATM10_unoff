@@ -210,3 +210,42 @@ bindings = [
   { name = "command", ty = "&mod_api::CommandInvocation", value = "command" },
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]
+
+[[injection]]
+id = "fluid-handler-tanks"
+hook = "fluid_handler_tanks"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fluid_handler_tanks.rs"
+bindings = [
+  { name = "entity", ty = "&mod_api::ModBlockEntity", value = "entity" },
+  { name = "tanks", ty = "&mut Option<Vec<mod_api::NativeFluidTankInfo>>", value = "&mut *tanks" },
+]
+
+[[injection]]
+id = "fluid-handler-fill"
+hook = "fluid_handler_fill"
+hook_version = 1
+kind = "MODIFY_ARG"
+selector = "self.fire_fluid_handler_fill"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/fluid_handler_fill.rs"
+bindings = [
+  { name = "call", ty = "mod_api::__private::FluidHandlerFillCall<'_>", value = "$value" },
+]
+
+[[injection]]
+id = "fluid-handler-drain"
+hook = "fluid_handler_drain"
+hook_version = 1
+kind = "MODIFY_ARG"
+selector = "self.fire_fluid_handler_drain"
+require = 1
+ordinal = 0
+argument = 0
+helper = "hooks/fluid_handler_drain.rs"
+bindings = [
+  { name = "call", ty = "mod_api::__private::FluidHandlerDrainCall<'_>", value = "$value" },
+]

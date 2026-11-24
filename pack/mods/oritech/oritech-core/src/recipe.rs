@@ -38,6 +38,17 @@ pub struct Recipe {
     pub results: Vec<Stack>,
     /// A fluid input or fluid outputs (none of the item machines' recipes in ATM10 has one).
     pub fluids: bool,
+    /// `fluidInput` (`SizedFluidIngredient`) and `fluidOutputs`.
+    pub fluid_in: Option<FluidIn>,
+    pub fluid_out: Vec<(String, i32)>,
+}
+
+/// A recipe's fluid input: a fluid or a fluid tag (`#c:diesel`) and how much of it; a bucket when `amount` is left out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FluidIn {
+    pub fluid: String,
+    pub tag: bool,
+    pub amount: i32,
 }
 
 /// Reads a recipe. `resolve` turns one ingredient's JSON (an object, or a list of alternatives) into its items, none
@@ -70,10 +81,43 @@ pub fn parse(id: &str, json: &Value, resolve: impl Fn(&Value) -> Option<Vec<Stri
         .collect::<Result<Vec<_>, &str>>()?;
     let fluid_in = json.get("fluidInput").is_some_and(|f| f.get("amount").and_then(Value::as_i64).unwrap_or(1) > 0 && f.get("fluid").or_else(|| f.get("tag")).is_some());
     let fluid_out = json.get("fluidOutputs").and_then(Value::as_array).is_some_and(|l| !l.is_empty());
-    Ok(Recipe { id: id.to_owned(), kind, time, inputs, results, fluids: fluid_in || fluid_out })
+    let fluid_in_spec = json.get("fluidInput").and_then(|f| {
+        let name = f.get("fluid").or_else(|| f.get("tag")).and_then(Value::as_str)?;
+        let amount = f.get("amount").and_then(Value::as_i64).and_then(|a| i32::try_from(a).ok()).unwrap_or(1000);
+        let (fluid, tag) = match name.strip_prefix('#') {
+            Some(t) => (t.to_owned(), true),
+            None => (name.to_owned(), f.get("fluid").is_none()),
+        };
+        Some(FluidIn { fluid, tag, amount })
+    });
+    let fluid_outs: Vec<(String, i32)> = json
+        .get("fluidOutputs")
+        .and_then(Value::as_array)
+        .map(|l| {
+            l.iter()
+                .filter_map(|f| {
+                    let name = f.get("fluid").or_else(|| f.get("id")).and_then(Value::as_str)?;
+                    let amount = f.get("amount").and_then(Value::as_i64).and_then(|a| i32::try_from(a).ok()).unwrap_or(1000);
+                    Some((name.to_owned(), amount))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(Recipe { id: id.to_owned(), kind, time, inputs, results, fluids: fluid_in || fluid_out, fluid_in: fluid_in_spec, fluid_out: fluid_outs })
 }
 
 impl Recipe {
+    /// `CentrifugeBlockEntity.recipeInputMatchesTank`: a recipe with no fluid input matches any tank; else the tank
+    /// holds that fluid (`tag(fluid, tag)` tells whether a fluid is in a fluid tag) and enough of it.
+    pub fn fluid_matches(&self, held: &crate::fluid::Tank, tag: &dyn Fn(&str, &str) -> bool) -> bool {
+        let Some(need) = self.fluid_in.as_ref().filter(|f| f.amount > 0) else { return true };
+        if held.is_empty() {
+            return false;
+        }
+        let same = if need.tag { tag(&held.fluid, &need.fluid) } else { held.fluid == need.fluid };
+        same && held.amount >= need.amount
+    }
+
     /// `OritechRecipe.matches`: one ingredient matches the first slot (slot by slot for a single-ingredient recipe);
     /// more are matched anywhere in the inputs, one item each (`complexMatch`).
     pub fn matches(&self, input: &[Option<Stack>]) -> bool {
@@ -233,6 +277,7 @@ mod tests {
         let dump = std::path::PathBuf::from(dump);
         let registries: Value = serde_json::from_str(&std::fs::read_to_string(dump.join("registries.json")).unwrap()).unwrap();
         let items: std::collections::HashSet<&str> = registries["minecraft:item"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        let fluids: std::collections::HashSet<&str> = registries["minecraft:fluid"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
         let mut tags = std::collections::HashMap::<String, Vec<String>>::new();
         for line in std::fs::read_to_string(dump.join("tags.jsonl")).unwrap().lines() {
             let t: Value = serde_json::from_str(line).unwrap();
@@ -264,11 +309,16 @@ mod tests {
                 continue;
             }
             all += 1;
-            if !crate::machine::ALL.iter().any(|s| s.recipe_type == kind) {
+            if !crate::machine::ALL.iter().any(|s| s.recipe_type == kind) && kind != "oritech:centrifuge_fluid" {
                 continue;
             }
             let id = r["id"].as_str().unwrap();
-            let read = parse(id, &r["json"], |v| resolve(v, &items, &tags)).ok().filter(|p| p.results.iter().all(|s| items.contains(s.item.as_str())));
+            // A result item or a fluid the pack lacks fails Java's codec; a fluid tag is never checked.
+            let read = parse(id, &r["json"], |v| resolve(v, &items, &tags)).ok().filter(|p| {
+                p.results.iter().all(|s| items.contains(s.item.as_str()))
+                    && p.fluid_out.iter().all(|(f, _)| fluids.contains(f.as_str()))
+                    && p.fluid_in.as_ref().is_none_or(|f| f.tag || fluids.contains(f.fluid.as_str()))
+            });
             let entry = counts.entry(kind.to_owned()).or_default();
             entry.0 += 1;
             entry.1 += usize::from(read.is_some());
@@ -281,13 +331,21 @@ mod tests {
             got,
             vec![
                 ("oritech:assembler", 28, 28),
+                ("oritech:atomic_forge", 20, 19),
                 ("oritech:bio_generator", 7, 7),
                 ("oritech:centrifuge", 15, 15),
+                ("oritech:centrifuge_fluid", 49, 49),
+                ("oritech:cooler", 4, 4),
                 ("oritech:foundry", 30, 26),
+                ("oritech:fuel_generator", 11, 11),
                 ("oritech:grinder", 108, 107),
-                ("oritech:pulverizer", 115, 115)
+                ("oritech:laser", 3, 3),
+                ("oritech:lava_generator", 2, 2),
+                ("oritech:pulverizer", 115, 115),
+                ("oritech:refinery", 21, 21)
             ]
         );
+        assert_eq!(got.iter().map(|g| g.2).sum::<usize>(), 407);
         assert_eq!(all, 469, "ATM10's recipes of Oritech's own types");
         println!("ATM10: {} of {all} recipes of Oritech's types run on a ported machine", got.iter().map(|g| g.2).sum::<usize>());
     }

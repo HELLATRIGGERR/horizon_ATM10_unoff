@@ -6,7 +6,11 @@
 //! (Rearth/Oritech, CC0-1.0); see the bundle's README.md and LICENSE-oritech.
 pub mod config;
 pub mod energy;
+pub mod fluid;
+pub mod fluid_machine;
+pub mod forge;
 pub mod generator;
+pub mod laser;
 pub mod machine;
 pub mod multiblock;
 pub mod process;

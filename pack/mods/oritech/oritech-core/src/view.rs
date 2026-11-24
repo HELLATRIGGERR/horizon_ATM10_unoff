@@ -87,9 +87,54 @@ impl MachineView {
     }
 }
 
+/// One fluid tank on a machine's screen: the amount and capacity (mB) and the fluid as the game's number for it (0 for
+/// none).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TankView {
+    pub amount: i32,
+    pub capacity: i32,
+    pub fluid: i32,
+}
+
+/// The tanks follow the machine's numbers in the menu data: their count, then each one's amount, capacity and fluid.
+pub fn pack_tanks(out: &mut Vec<i32>, tanks: &[TankView]) {
+    small(out, tanks.len() as i32);
+    for t in tanks {
+        put(out, i64::from(t.amount));
+        put(out, i64::from(t.capacity));
+        small(out, t.fluid);
+    }
+}
+
+/// The tanks in `d` after the machine's numbers; none when the machine has none (or the data hasn't all come).
+pub fn unpack_tanks(d: &[i32]) -> Vec<TankView> {
+    let at = MachineView::SLOTS;
+    let Some(n) = d.get(at).map(|n| (n & 0x7FFF) as usize) else { return Vec::new() };
+    if d.len() < at + 1 + n * 5 {
+        return Vec::new();
+    }
+    (0..n)
+        .map(|i| {
+            let b = at + 1 + i * 5;
+            TankView { amount: get(d, b), capacity: get(d, b + 2), fluid: d[b + 4] & 0x7FFF }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tanks_follow_the_view_on_the_wire() {
+        let mut data = MachineView::default().pack();
+        let tanks = [TankView { amount: 8000, capacity: 8000, fluid: 1471 }, TankView { amount: 0, capacity: 4000, fluid: 0 }];
+        pack_tanks(&mut data, &tanks);
+        let wire: Vec<i32> = data.into_iter().map(|x| i32::from(x as i16)).collect();
+        assert_eq!(unpack_tanks(&wire), tanks.to_vec());
+        assert!(unpack_tanks(&MachineView::default().pack()).is_empty(), "no tanks, no count");
+        assert!(unpack_tanks(&wire[..wire.len() - 1]).is_empty(), "half of the data");
+    }
 
     #[test]
     fn a_view_survives_the_wire() {

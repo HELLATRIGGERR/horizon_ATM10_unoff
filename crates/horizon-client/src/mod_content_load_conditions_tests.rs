@@ -26,6 +26,16 @@ fn worldgen_entry_reads_the_feature_folder() {
         worldgen_entry("data/minecraft/worldgen/biome/plains.json"),
         None
     );
+    // A mod's carvers, which its biomes name (Ars Elemental's vexing caves).
+    assert_eq!(
+        worldgen_entry("data/zinc/worldgen/carver/zinc_cave.json"),
+        Some(("worldgen/carvers.json", "zinc:zinc_cave".to_owned()))
+    );
+    // Twilight Forest's data map for biomes is no biome.
+    assert_eq!(
+        worldgen_entry("data/twilightforest/data_maps/worldgen/biome/magic_map_color.json"),
+        None
+    );
     for folder in ["configured_feature", "configured_carver", "nope"] {
         assert_eq!(
             worldgen_entry(&format!("data/zinc/worldgen/{folder}/ore_zinc.json")),

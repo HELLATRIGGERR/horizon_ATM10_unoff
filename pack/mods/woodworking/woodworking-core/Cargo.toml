@@ -1,0 +1,8 @@
+[package]
+name = "woodworking-core"
+version = "0.1.0"
+edition = "2024"
+license = "LicenseRef-proprietary"
+description = "Woodworking station: family detection, recipe generation and index"
+
+[dependencies]

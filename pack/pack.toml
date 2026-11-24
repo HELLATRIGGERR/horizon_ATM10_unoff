@@ -169,3 +169,12 @@ name = "Applied Mekanistics"
 enabled = true
 feature = "ae2-appmek"
 content = "appmek"
+
+# Woodworking station: a stonecutter-like interface over an external station block. The bundle
+# intercepts `station_block`'s container, provides a recipe list derived at runtime from the
+# world's crafting and stonecutting recipes, and handles crafting server-side.
+[mods.woodworking]
+name = "Woodworking Station"
+enabled = true
+bundle = "mods/woodworking"
+station_block = "sawmill:sawmill"

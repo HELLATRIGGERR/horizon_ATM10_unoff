@@ -47,6 +47,18 @@ name = "justdirethings_swapper"
 source = "runtime/justdirethings_swapper.rs"
 
 [[module]]
+id = "clicker"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_clicker"
+source = "runtime/justdirethings_clicker.rs"
+
+[[module]]
+id = "t2"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_t2"
+source = "runtime/justdirethings_t2.rs"
+
+[[module]]
 id = "paradox-ui"
 file = "crates/horizon-client/src/game.rs"
 name = "justdirethings_paradox_ui"

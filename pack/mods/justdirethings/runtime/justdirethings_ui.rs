@@ -12,6 +12,8 @@ use super::{
     Game,
     justdirethings_machines::{COLLECTOR, ITEM_COLLECTOR, PLACER},
     justdirethings_more::{DROPPER, FLUID_GEN, FLUID_PLACER, SENSOR},
+    justdirethings_clicker::{CLICKER_T1, CLICKER_T2},
+    justdirethings_t2::{BREAKER_T2, PLACER_T2},
     justdirethings_swapper::SWAPPER,
     justdirethings_world::{BREAKER, GENERATOR, PARADOX},
 };
@@ -93,6 +95,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
             own_background: true,
             ..Screen::default()
         });
+        return;
+    }
+    if block == CLICKER_T1 || block == CLICKER_T2 || block == PLACER_T2 || block == BREAKER_T2 {
+        *screen = Some(clicker_screen(block != CLICKER_T1));
         return;
     }
     if block == SWAPPER {
@@ -207,6 +213,18 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if block == SWAPPER {
         draw_swapper(game, data, batch, origin);
+        return;
+    }
+    if block == CLICKER_T1 || block == CLICKER_T2 {
+        draw_clicker(game, block == CLICKER_T2, data, batch, origin);
+        return;
+    }
+    if block == PLACER_T2 {
+        draw_placer2(game, data, batch, origin);
+        return;
+    }
+    if block == BREAKER_T2 {
+        draw_breaker2(game, data, batch, origin);
         return;
     }
     if block == ITEM_COLLECTOR {
@@ -384,6 +402,18 @@ pub(super) fn click(_game: &Game<'_>, block: &str, data: &[i32], at: [f32; 2], r
         click_swapper(data, at, right, button);
         return;
     }
+    if block == CLICKER_T1 || block == CLICKER_T2 {
+        click_clicker(block == CLICKER_T2, data, at, right, button);
+        return;
+    }
+    if block == PLACER_T2 {
+        click_placer2(data, at, right, button);
+        return;
+    }
+    if block == BREAKER_T2 {
+        click_breaker2(data, at, right, button);
+        return;
+    }
     if super::justdirethings_more::owns(block) {
         click_more(block, data, at, right, button);
         return;
@@ -418,6 +448,18 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
     }
     if block == SWAPPER {
         tooltip_swapper(data, at, lines);
+        return;
+    }
+    if block == CLICKER_T1 || block == CLICKER_T2 {
+        tooltip_clicker(block == CLICKER_T2, data, at, lines);
+        return;
+    }
+    if block == PLACER_T2 {
+        tooltip_placer2(data, at, lines);
+        return;
+    }
+    if block == BREAKER_T2 {
+        tooltip_breaker2(data, at, lines);
         return;
     }
     if super::justdirethings_more::owns(block) {
@@ -785,4 +827,341 @@ fn tooltip_swapper(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
             _ => "Not bound: use a Ferricore Wrench on two swappers",
         }.into());
     }
+}
+
+// ---- The Clickers' screens (`ClickerT1Screen`, `ClickerT2Screen` on `BaseMachineScreen`) -----------------------------
+
+/// The T1's buttons (`topSectionTop + 38`): show the fake player, sneak, click type, target; the hold ticks' number
+/// button under them while the click type is a hold; the redstone, direction and tick speed buttons are the placer's.
+const C1_SHOW: [f32; 4] = [2.0, 58.0, 16.0, 16.0];
+const C1_SNEAK: [f32; 4] = [20.0, 58.0, 16.0, 16.0];
+const C1_TYPE: [f32; 4] = [38.0, 58.0, 16.0, 16.0];
+const C1_TARGET: [f32; 4] = [56.0, 58.0, 16.0, 16.0];
+const C1_HOLD: [f32; 4] = [34.0, 75.0, 24.0, 12.0];
+/// The T2's (`topSectionTop + 44` and `+ 62`), beside the area's value buttons and the filter's; its energy bar
+/// stands left of the panel, in the 60 pixels Java's T2 screens widen their top section by.
+const C2_SHOW: [f32; 4] = [8.0, 64.0, 16.0, 16.0];
+const C2_SNEAK: [f32; 4] = [26.0, 64.0, 16.0, 16.0];
+const C2_TYPE: [f32; 4] = [44.0, 64.0, 16.0, 16.0];
+const C2_TARGET: [f32; 4] = [44.0, 82.0, 16.0, 16.0];
+const C2_HOLD: [f32; 4] = [64.0, 84.0, 24.0, 12.0];
+const C2_DIRECTION: [f32; 4] = [116.0, 82.0, 16.0, 16.0];
+const C2_ALLOWLIST: [f32; 4] = [8.0, 82.0, 16.0, 16.0];
+const C2_COMPARE: [f32; 4] = [26.0, 82.0, 16.0, 16.0];
+const C2_ENERGY: [f32; 4] = [-25.0, 25.0, 18.0, 72.0];
+const CLICK_TYPES: [(&str, &str); 3] = [
+    ("justdirethings:gui/buttons/click-right", "Right Click"),
+    ("justdirethings:gui/buttons/click-left", "Left Click"),
+    ("justdirethings:gui/buttons/click-hold", "Hold Click"),
+];
+
+struct ClickerLayout {
+    show: [f32; 4],
+    sneak: [f32; 4],
+    kind: [f32; 4],
+    target: [f32; 4],
+    hold: [f32; 4],
+    redstone: [f32; 4],
+    direction: [f32; 4],
+}
+
+fn clicker_layout(t2: bool) -> ClickerLayout {
+    if t2 {
+        ClickerLayout { show: C2_SHOW, sneak: C2_SNEAK, kind: C2_TYPE, target: C2_TARGET, hold: C2_HOLD, redstone: REDSTONE_BASE, direction: C2_DIRECTION }
+    } else {
+        ClickerLayout { show: C1_SHOW, sneak: C1_SNEAK, kind: C1_TYPE, target: C1_TARGET, hold: C1_HOLD, redstone: REDSTONE, direction: DIRECTION }
+    }
+}
+
+/// The T1's menu: the hopper's with the machine's slot; the T2's: a 9x2 chest's, the machine's slot and the nine filter
+/// slots in a row inside the top section.
+fn clicker_screen(t2: bool) -> Screen {
+    let mut slots = vec![Some(FUEL_SLOT)];
+    if t2 {
+        slots.extend((0..9).map(|i| Some([FILTER_ROW[0] + 18.0 * i as f32, FILTER_ROW[1]])));
+        slots.resize(18, None);
+    } else {
+        slots.resize(5, None);
+    }
+    Screen {
+        width: 176.0,
+        height: 166.0 + TOP + 2.0,
+        slots,
+        inventory_x: INVENTORY[0],
+        inventory_y: INVENTORY[1],
+        own_labels: true,
+        own_background: true,
+        ..Screen::default()
+    }
+}
+
+/// A clicker's screen; the data is `justdirethings_clicker::screen_data`'s.
+fn draw_clicker(game: &Game<'_>, t2: bool, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let l = clicker_layout(t2);
+    let mut pen = Pen { game, batch, origin };
+    if t2 {
+        pen.panel([-30.0, 20.0, 34.0, 102.0]);
+    }
+    frame(&mut pen);
+    pen.slot(FUEL_SLOT);
+    toggle(&mut pen, "justdirethings:gui/buttons/showfakeplayer", l.show, d(data, 7) != 0);
+    toggle(&mut pen, "justdirethings:gui/buttons/click-sneak", l.sneak, d(data, 6) != 0);
+    let kind = d(data, 4).clamp(0, 2);
+    pen.whole(CLICK_TYPES[kind as usize].0, l.kind);
+    let target = justdirethings_core::clicker::Target::from_index(d(data, 5));
+    pen.whole(&format!("justdirethings:gui/buttons/{}", target.button().0), l.target);
+    if kind == 2 {
+        number(&mut pen, l.hold, d(data, 8));
+    }
+    pen.whole(DIRECTIONS[d(data, 2).clamp(0, 5) as usize].0, l.direction);
+    tick_speed(&mut pen, data.get(3).copied().unwrap_or(20));
+    if t2 {
+        for i in 0..9 {
+            pen.slot([FILTER_ROW[0] + 18.0 * i as f32, FILTER_ROW[1]]);
+        }
+        for axis in 0..3 {
+            for row in 0..2 {
+                let [x, y] = value_button(axis, row);
+                pen.whole("justdirethings:gui/buttons/remove", [x, y, 12.0, 12.0]);
+                pen.whole("justdirethings:gui/buttons/add", [x + 30.0, y, 12.0, 12.0]);
+                let value = if row == 0 { format!("{:.1}", f64::from(d(data, 10 + axis)) / 2.0) } else { d(data, 13 + axis).to_string() };
+                pen.text(&value, x + 11.0, y + 2.0, LABEL);
+            }
+        }
+        let allow = d(data, 16) != 0;
+        pen.whole(if allow { "justdirethings:gui/buttons/allowlisttrue" } else { "justdirethings:gui/buttons/allowlistfalse" }, C2_ALLOWLIST);
+        toggle(&mut pen, "justdirethings:gui/buttons/matchnbttrue", C2_COMPARE, d(data, 17) != 0);
+        toggle(&mut pen, "justdirethings:gui/buttons/area", RENDER_AREA, d(data, 18) != 0);
+        let u = 34.0 / 36.0;
+        pen.sprite(POWERBAR, [0.0, 0.0, 18.0 * u, 72.0], C2_ENERGY);
+        let rows = justdirethings_core::t2::Powered { energy: d(data, 9) }.rows().clamp(0, 70) as f32;
+        pen.sprite(POWERBAR, [19.0 * u, 69.0 - rows, 17.0 * u, rows + 1.0], [C2_ENERGY[0] + 1.0, C2_ENERGY[1] + 70.0 - rows, 17.0, rows + 1.0]);
+    }
+    labels_at(&mut pen, d(data, 0), l.redstone, if t2 { "Clicker T2" } else { "Clicker T1" });
+}
+
+/// The menu button a press on a clicker's screen is on (`justdirethings_clicker::button`'s ids): toggles flip on a left
+/// click, the cycling buttons go on (right back), the numbers step up (right down).
+fn click_clicker(t2: bool, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    let l = clicker_layout(t2);
+    let step = |value: i32, n: i32| (value.clamp(0, n - 1) + if right { n - 1 } else { 1 }) % n;
+    *button = if inside(l.redstone, at) {
+        Some(step(d(data, 0), 4))
+    } else if inside(l.direction, at) {
+        Some(34 + step(d(data, 2), 6))
+    } else if inside(TICK_SPEED, at) {
+        Some(if right { 23 } else { 22 })
+    } else if inside(l.kind, at) {
+        Some(40 + step(d(data, 4), 3))
+    } else if inside(l.target, at) {
+        Some(43 + step(d(data, 5), 8))
+    } else if d(data, 4) == 2 && inside(l.hold, at) {
+        Some(if right { 54 } else { 53 })
+    } else if right {
+        None
+    } else if inside(l.sneak, at) {
+        Some(51)
+    } else if inside(l.show, at) {
+        Some(52)
+    } else if !t2 {
+        None
+    } else if inside(RENDER_AREA, at) {
+        Some(9)
+    } else if inside(C2_ALLOWLIST, at) {
+        Some(24)
+    } else if inside(C2_COMPARE, at) {
+        Some(25)
+    } else {
+        (0..3).flat_map(|axis| (0..2).map(move |row| (axis, row))).find_map(|(axis, row)| {
+            let [x, y] = value_button(axis, row);
+            let base = if row == 0 { 10 } else { 16 } + 2 * axis as i32;
+            if inside([x, y, 12.0, 12.0], at) {
+                Some(base + 1)
+            } else if inside([x + 30.0, y, 12.0, 12.0], at) {
+                Some(base)
+            } else {
+                None
+            }
+        })
+    };
+}
+
+fn tooltip_clicker(t2: bool, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    let l = clicker_layout(t2);
+    let line = if inside(l.redstone, at) {
+        redstone_line(Mode::from_index(d(data, 0))).to_owned()
+    } else if inside(l.direction, at) {
+        DIRECTIONS[d(data, 2).clamp(0, 5) as usize].1.to_owned()
+    } else if inside(TICK_SPEED, at) {
+        format!("Speed (Ticks): {}", d(data, 3))
+    } else if inside(l.kind, at) {
+        CLICK_TYPES[d(data, 4).clamp(0, 2) as usize].1.to_owned()
+    } else if inside(l.target, at) {
+        justdirethings_core::clicker::Target::from_index(d(data, 5)).button().1.to_owned()
+    } else if d(data, 4) == 2 && inside(l.hold, at) {
+        format!("Hold Clicks (Ticks): {}", d(data, 8))
+    } else if inside(l.sneak, at) {
+        "Sneak Click".to_owned()
+    } else if inside(l.show, at) {
+        "Show Fake Player".to_owned()
+    } else if t2 && inside(C2_ENERGY, at) {
+        format!("{} / {} FE", d(data, 9), justdirethings_core::t2::CAPACITY)
+    } else if t2 && inside(C2_ALLOWLIST, at) {
+        (if d(data, 16) != 0 { "Allow List" } else { "Deny List" }).to_owned()
+    } else if t2 && inside(C2_COMPARE, at) {
+        "Compare NBT".to_owned()
+    } else if t2 && inside(RENDER_AREA, at) {
+        "Render Area".to_owned()
+    } else {
+        return;
+    };
+    lines.push(line);
+}
+
+// ---- The Block Placer T2's screen (`BlockPlacerT2Screen` on `BaseMachineScreen`) ----------------------------------------
+
+/// The direction button beside the redstone button on the last row.
+const P2_DIRECTION: [f32; 4] = [116.0, 82.0, 16.0, 16.0];
+
+/// The T2 parts every T2 screen shares (`BaseMachineScreen` for a `PoweredMachineBE`, `AreaAffectingBE`, `FilterableBE`):
+/// the energy bar left of the panel, the filter slots, the area's value buttons, the allowlist, compare and render area
+/// buttons. `at`: where in `data` the energy, radius, offsets and flags start.
+fn draw_t2_parts(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize) {
+    for i in 0..9 {
+        pen.slot([FILTER_ROW[0] + 18.0 * i as f32, FILTER_ROW[1]]);
+    }
+    for axis in 0..3 {
+        for row in 0..2 {
+            let [x, y] = value_button(axis, row);
+            pen.whole("justdirethings:gui/buttons/remove", [x, y, 12.0, 12.0]);
+            pen.whole("justdirethings:gui/buttons/add", [x + 30.0, y, 12.0, 12.0]);
+            let value = if row == 0 { format!("{:.1}", f64::from(d(data, energy + 1 + axis)) / 2.0) } else { d(data, energy + 4 + axis).to_string() };
+            pen.text(&value, x + 11.0, y + 2.0, LABEL);
+        }
+    }
+    let allow = d(data, energy + 7) != 0;
+    pen.whole(if allow { "justdirethings:gui/buttons/allowlisttrue" } else { "justdirethings:gui/buttons/allowlistfalse" }, C2_ALLOWLIST);
+    toggle(pen, "justdirethings:gui/buttons/matchnbttrue", C2_COMPARE, d(data, energy + 8) != 0);
+    toggle(pen, "justdirethings:gui/buttons/area", RENDER_AREA, d(data, energy + 9) != 0);
+    let u = 34.0 / 36.0;
+    pen.sprite(POWERBAR, [0.0, 0.0, 18.0 * u, 72.0], C2_ENERGY);
+    let rows = justdirethings_core::t2::Powered { energy: d(data, energy) }.rows().clamp(0, 70) as f32;
+    pen.sprite(POWERBAR, [19.0 * u, 69.0 - rows, 17.0 * u, rows + 1.0], [C2_ENERGY[0] + 1.0, C2_ENERGY[1] + 70.0 - rows, 17.0, rows + 1.0]);
+}
+
+/// The shared T2 buttons a left press is on: render area 9, allowlist 24, compare 25, the value buttons 10 to 21.
+fn click_t2_parts(at: [f32; 2]) -> Option<i32> {
+    if inside(RENDER_AREA, at) {
+        return Some(9);
+    }
+    if inside(C2_ALLOWLIST, at) {
+        return Some(24);
+    }
+    if inside(C2_COMPARE, at) {
+        return Some(25);
+    }
+    (0..3).flat_map(|axis| (0..2).map(move |row| (axis, row))).find_map(|(axis, row)| {
+        let [x, y] = value_button(axis, row);
+        let base = if row == 0 { 10 } else { 16 } + 2 * axis as i32;
+        if inside([x, y, 12.0, 12.0], at) {
+            Some(base + 1)
+        } else if inside([x + 30.0, y, 12.0, 12.0], at) {
+            Some(base)
+        } else {
+            None
+        }
+    })
+}
+
+/// The Placer T2's screen; the data is `justdirethings_t2::screen_data`'s.
+fn draw_placer2(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    pen.panel([-30.0, 20.0, 34.0, 102.0]);
+    frame(&mut pen);
+    pen.slot(FUEL_SLOT);
+    pen.whole(DIRECTIONS[d(data, 2).clamp(0, 5) as usize].0, P2_DIRECTION);
+    tick_speed(&mut pen, data.get(3).copied().unwrap_or(20));
+    draw_t2_parts(&mut pen, data, 4);
+    labels_at(&mut pen, d(data, 0), REDSTONE_BASE, "Block Placer T2");
+}
+
+fn click_placer2(data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    let step = |value: i32, n: i32| (value.clamp(0, n - 1) + if right { n - 1 } else { 1 }) % n;
+    *button = if inside(REDSTONE_BASE, at) {
+        Some(step(d(data, 0), 4))
+    } else if inside(P2_DIRECTION, at) {
+        Some(34 + step(d(data, 2), 6))
+    } else if inside(TICK_SPEED, at) {
+        Some(if right { 23 } else { 22 })
+    } else if right {
+        None
+    } else {
+        click_t2_parts(at)
+    };
+}
+
+fn tooltip_placer2(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    let line = if inside(REDSTONE_BASE, at) {
+        redstone_line(Mode::from_index(d(data, 0))).to_owned()
+    } else if inside(P2_DIRECTION, at) {
+        DIRECTIONS[d(data, 2).clamp(0, 5) as usize].1.to_owned()
+    } else if inside(TICK_SPEED, at) {
+        format!("Speed (Ticks): {}", d(data, 3))
+    } else if inside(C2_ENERGY, at) {
+        format!("{} / {} FE", d(data, 4), justdirethings_core::t2::CAPACITY)
+    } else if inside(C2_ALLOWLIST, at) {
+        (if d(data, 11) != 0 { "Allow List" } else { "Deny List" }).to_owned()
+    } else if inside(C2_COMPARE, at) {
+        "Compare NBT".to_owned()
+    } else if inside(RENDER_AREA, at) {
+        "Render Area".to_owned()
+    } else {
+        return;
+    };
+    lines.push(line);
+}
+
+/// The Breaker T2's screen: its tool slot (the pickaxe outline while empty), the tick speed and the T2 parts; the data is
+/// 0 redstone, 1 whether the slot holds a tool, 2 tick speed, then the T2 parts from 3.
+fn draw_breaker2(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    pen.panel([-30.0, 20.0, 34.0, 102.0]);
+    frame(&mut pen);
+    let src = if d(data, 1) != 0 { [0.0, 0.0, 18.0, 18.0] } else { [18.0, 0.0, 18.0, 18.0] };
+    pen.sprite(SLOT, src, [FUEL_SLOT[0] - 1.0, FUEL_SLOT[1] - 1.0, 18.0, 18.0]);
+    tick_speed(&mut pen, data.get(2).copied().unwrap_or(20));
+    draw_t2_parts(&mut pen, data, 3);
+    labels_at(&mut pen, d(data, 0), REDSTONE_BASE, "Block Breaker T2");
+}
+
+fn click_breaker2(data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    *button = if inside(REDSTONE_BASE, at) {
+        let mode = d(data, 0).clamp(0, 3);
+        Some((mode + if right { 3 } else { 1 }) % 4)
+    } else if inside(TICK_SPEED, at) {
+        Some(if right { 23 } else { 22 })
+    } else if right {
+        None
+    } else {
+        click_t2_parts(at)
+    };
+}
+
+fn tooltip_breaker2(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    let line = if inside(REDSTONE_BASE, at) {
+        redstone_line(Mode::from_index(d(data, 0))).to_owned()
+    } else if inside(TICK_SPEED, at) {
+        format!("Speed (Ticks): {}", d(data, 2))
+    } else if inside(C2_ENERGY, at) {
+        format!("{} / {} FE", d(data, 3), justdirethings_core::t2::CAPACITY)
+    } else if inside(C2_ALLOWLIST, at) {
+        (if d(data, 10) != 0 { "Allow List" } else { "Deny List" }).to_owned()
+    } else if inside(C2_COMPARE, at) {
+        "Compare NBT".to_owned()
+    } else if inside(RENDER_AREA, at) {
+        "Render Area".to_owned()
+    } else {
+        return;
+    };
+    lines.push(line);
 }

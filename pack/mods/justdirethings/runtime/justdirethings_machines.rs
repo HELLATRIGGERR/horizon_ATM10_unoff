@@ -216,7 +216,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
 // ---- The Block Placer T1 ---------------------------------------------------------------------------------------
 
 /// `isStackValid`: an item the world places as a block (`instanceof BlockItem`).
-fn is_block_item(game: &mut Game<'_>, item: &str) -> bool {
+pub(super) fn is_block_item(game: &mut Game<'_>, item: &str) -> bool {
     if let Some(known) = BLOCK_ITEMS.with(|b| b.borrow().get(item).copied()) {
         return known;
     }
@@ -235,16 +235,16 @@ fn y_rot(d: Direction) -> f32 {
     }
 }
 
-/// The block in front of a placer and the stack its fake player holds.
-struct PlaceSpot<'a, 'g> {
-    game: &'a mut Game<'g>,
-    level: mod_api::LevelRef,
-    pos: [i32; 3],
+/// The block in front of a placer (or one of a Placer T2's area) and the stack its fake player holds.
+pub(super) struct PlaceSpot<'a, 'g> {
+    pub(super) game: &'a mut Game<'g>,
+    pub(super) level: mod_api::LevelRef,
+    pub(super) pos: [i32; 3],
     /// The face the fake player clicks (`getDirectionValue`).
-    direction: Direction,
-    stack: Option<ItemStack>,
+    pub(super) direction: Direction,
+    pub(super) stack: Option<ItemStack>,
     /// The stack after the placement, when it placed.
-    used: Option<Option<ItemStack>>,
+    pub(super) used: Option<Option<ItemStack>>,
 }
 
 impl Spot for PlaceSpot<'_, '_> {

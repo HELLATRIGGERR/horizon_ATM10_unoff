@@ -18,7 +18,9 @@ The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlo
 `ParadoxMachineScreen`, `AreaAffectingBE`, `AreaAffectingData`, `BlockPlacerT1BE`, `BlockPlacerT1Screen`,
 `FluidCollectorT1BE`, `FluidCollectorT1Screen`, `ItemCollectorBE`, `ItemCollectorScreen`, `FilterableBE`, `FilterData`,
 `DropperT1BE`, `DropperT1Screen`, `FluidPlacerT1BE`, `SensorT1BE`, `SensorT1`, `SensorT1Screen`, `GeneratorFluidT1BE`,
-`GeneratorFluidT1Screen`, `RefinedFuel`, `BlockSwapperT1BE`, `BlockSwapperT1Screen`, `FerricoreWrench`, `GooTier`, `ArmorTiers`),
+`GeneratorFluidT1Screen`, `RefinedFuel`, `BlockSwapperT1BE`, `BlockSwapperT1Screen`, `FerricoreWrench`, `GooTier`, `ArmorTiers`,
+`ClickerT1BE`, `ClickerT2BE`, `ClickerT1Screen`, `ClickerT2Screen`, `FakePlayerUtil`, `UsefulFakePlayer`, `PoweredMachineBE`,
+`BlockPlacerT2BE`, `BlockBreakerT2BE`),
 not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
@@ -95,6 +97,27 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   all entities standing in that block) on a pulse, or its clock on ignore, where both are in the same dimension; the
   blocks that the tags `c:relocation_not_supported` and `justdirethings:swapperdeny` name and unbreakable ones stay.
   Screen: the partner's icon, the blocks, entity and redstone buttons.
+- **Clicker T1** (`clickert1`): one slot; on its clock (20 ticks) or a pulse the game's fake player (`native_fake_use`,
+  a player of its own, `[JustDiresFake]`) stands just inside the block in front, on the side its direction button names
+  (down by default: it looks down at the block's top), holds the slot's stack and clicks: a right click (the block's
+  and the item's use, then the item's own use: a bucket takes the water in front), a left click (the block hit as a
+  player's first hit, which breaks what one hit breaks; an entity attacked at full strength) or a held use (held the
+  hold button's ticks, then let go; the tick speed stays above them). The target button picks the block, the air
+  (the block past it within reach, else the item's use in the air), or the hostile, passive, adult, baby, player or
+  living creatures in the block in front, found together and clicked one a run; sneaking from its button. The stack the
+  click leaves goes back in the slot; what else the fake holds (a filled bucket from a stack of empty ones) drops.
+  Blocks of the tag `justdirethings:no_auto_click` are left. Screen: the slot, the show-fake-player, sneak, click type,
+  target, hold ticks, redstone, direction and tick speed buttons.
+- **T2 machines** share a 100,000 FE buffer (cables fill it from any side), an area (the block in front by default;
+  radius and offset buttons) and nine filter slots (a denylist by default; allowlist and compare buttons), in a 9x2
+  chest menu whose slot 0 is the machine's; their screens add the energy bar left of the panel.
+  - **Clicker T2**: the Clicker T1 over its area (places nearest first, creatures in the area), what the filter lets
+    through (a block's item, a creature's spawn egg), 250 FE a click that consumed.
+  - **Block Placer T2**: the Placer T1's placement over its area nearest first, where the filter lets the block it is
+    placed against through, 500 FE a placement.
+  - **Block Breaker T2**: on a run it tracks every block of its area to break (not air, liquids or unbreakable ones; the
+    filter on the block's item), nearest first, and mines the first at its tool's speed as the T1 does; the next waits
+    for the following run. 500 FE a break, a point of the tool's wear for each.
 - **Tool and armour tiers**: ferricore, blazegold, celestigem and eclipse alloy tools, armour and the wrench are items of the
   carry (their tool rules, durability and repair, equipment assets). The carry holds no attribute modifiers for
   celestigem's and eclipse alloy's, so the content step adds the mod's own: `GooTier`'s damage bonus (celestigem 4,
@@ -105,8 +128,8 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
 
 `justdirethings-core` holds the rules with unit tests; `tests/goo.ts`, `tests/generator.ts`, `tests/breaker.ts`,
 `tests/fluid.ts`, `tests/crystal.ts`, `tests/paradox.ts`, `tests/placer.ts`, `tests/collector.ts`,
-`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts`, `tests/fluidgen.ts`, `tests/swapper.ts` and
-`tests/tools.ts` run them in a world.
+`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts`, `tests/fluidgen.ts`, `tests/swapper.ts`,
+`tests/tools.ts`, `tests/clicker.ts` and `tests/t2.ts` run them in a world.
 `NOTES.md` lists the differences from Java and what is left.
 
 ## On upstream's hooks (merge of nightly-source/2026-11-18)
@@ -119,4 +142,5 @@ the game, a `MODIFY_ARG` one answers it), `use_item_on` (the Paradox Machine's b
 Ferricore Wrench and the Machine Settings Copier on to the item), `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
 `entity_tick_listened`, `entity_tick_post` (the fluid drop), `random_tick` (the budding block) and
 `fluid_handler_tanks`, `fluid_handler_fill` and `fluid_handler_drain` (the tanks of the Paradox Machine, the Fluid
-Collector, the Fluid Placer and the Fluid Generator), `block_signal` and `is_signal_source` (the Sensor's redstone).
+Collector, the Fluid Placer and the Fluid Generator), `block_signal` and `is_signal_source` (the Sensor's redstone). The Clicker's
+clicks are the engine's `native_fake_use` (`docs/atm10-port.md`, "A click on a mod block"), a helper, not a hook.

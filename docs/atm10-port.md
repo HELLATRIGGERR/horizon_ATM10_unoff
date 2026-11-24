@@ -830,8 +830,10 @@ alloy's the attribute modifiers the jar makes in code. The rules
 crate has unit tests of the config, the recipes, the goo's tick, the redstone modes, the generator, the breaker, the
 fluid drop, the crystal's growth, the Paradox Machine, the placer and the collectors and the screens' data; the world
 tests in `tests/` (`goo`, `generator`, `breaker`, `fluid`, `crystal`, `paradox`, `placer`, `collector`,
-`itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`, `swapper`, `tools`) check them in game time. Not ported yet: the Clicker (it needs
-an engine helper for a fake player's clicks), the T2 machines and the Energy Transmitter, the goo
+`itemcollector`, `dropper`, `fluidplacer`, `sensor`, `fluidgen`, `swapper`, `tools`, `clicker`, `t2`) check them in game time. The
+Clickers click through the engine's fake player (`native_fake_use`, "A click on a mod block"); the Clicker T2, Block
+Placer T2 and Block Breaker T2 share the T2 buffer, area and filter slots. Not ported yet: the Dropper, Sensor, Fluid
+Placer, Fluid Collector and Block Swapper T2, the Energy Transmitter, the Player Accessor, the goo
 soils, the paradox entity and the time wand, the tools, armour and abilities; `NOTES.md` lists them with the
 differences from Java.
 

@@ -145,12 +145,24 @@ the v5 resources and the empty content mod in AE2's place.
   every ability (the toggles, FE, the paxel's, ore scanning, the hammer, flight...), the Pocket Generator, Fuel and
   Fluid Canisters, the wands and the bows are items the carry declares as plain items: they exist and do nothing special.
 
+- Clickers: the fake player is the game's (`native_fake_use`), one for every clicker (the default `[JustDiresFake]` UUID,
+  not the placer's: `placedBy` is not read), and it acts only where a server runs the level (in-frame play clicks
+  nothing). Its look and eye are Java's `setupFakePlayerForUse`, but the hit is not traced: a block target is hit just
+  inside its face (the ray starts inside it, as Java's does for a full block; a lower block such as short grass is hit
+  at the same point, not on its top); an air target uses the block one past it, else the air. The left click on a
+  block is a player's first hit, as Java's fake that never ticks: what one hit doesn't break stays, cracked. A left
+  click in the air target is a right click (Java's `rightClickAirInDirection` ignores the click type). The show-fake-player
+  particles are not drawn; the T2 doesn't charge an FE item in its slot (`chargeItemStack`); the fake's `mayInteract`
+  and place-event checks are not asked; the entity filter matches spawn eggs only (no creature catcher).
+- T2 machines: the energy bar sits left of the 176-pixel panel, and the buttons are placed for that panel (Java's T2
+  screens are 60 pixels wider); the filter slots hold real items as the Item Collector's; the breaker's filter compares
+  blocks only (`blockItemFilter` 0; the drops comparison and the smelter ability are not ported); the Placer T2's filter
+  reads the block it is placed against, as Java's does.
+
 ## What is left
 
-See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Clicker T1 (it needs an engine helper for a
-fake player's clicks: the use of the held item on a block or entity in front of it, and left or right click with a hold,
-through the same path as a player's use; `docs/atm10-port.md` has a design), the Block Swapper's
-cross-dimension swap and block entities, the T2 machines (area, filter slots and a 100,000 FE buffer on each; the Block
-Placer T2 and Block Breaker T2 are the nearest), the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
+See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Block Swapper's
+cross-dimension swap and block entities, the other T2 machines (Dropper, Sensor, Fluid Placer, Fluid Collector and Block
+Swapper T2, on the shared T2 part of `justdirethings_clicker.rs` and `justdirethings_t2.rs`), the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
 accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the
 Pocket Generator, the portal gun and the wands.

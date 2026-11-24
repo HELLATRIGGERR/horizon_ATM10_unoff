@@ -22,7 +22,7 @@
  * - PACK_START_TIMEOUT_S (default 1800): the longest wait for any one step.
  *
  * One full-pack game at a time: it wants about 9 GB. The caller holds the machine's full-pack lock. */
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { freemem, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -46,8 +46,9 @@ const carries = process.env.ATM10_CARRIES ? resolve(process.env.ATM10_CARRIES) :
 if (!carries || !existsSync(join(carries, 'atm10-pack', 'horizon-mod.toml'))) {
   throw new Error('ATM10_CARRIES must name the carries folder final-data wrote (with atm10-pack)');
 }
+// A carry may be a link (a junction) to another carries folder's: the game gets its real folder.
 const mods = readdirSync(carries, { withFileTypes: true })
-  .filter(d => d.isDirectory() && existsSync(join(carries, d.name, 'horizon-mod.toml')))
+  .filter(d => (d.isDirectory() || d.isSymbolicLink()) && existsSync(join(carries, d.name, 'horizon-mod.toml')))
   .map(d => d.name)
   .sort()
   .filter(id => (only.length ? only.includes(id) : true) && !without.has(id));
@@ -87,7 +88,7 @@ class Game {
   constructor(readonly launch: Launch, index: number) {
     this.trace = join(out, `trace-${index}.jsonl`);
     rmSync(this.trace, { force: true });
-    const devMods = [content, ...addons.map(a => a.path), ...mods.map(id => join(carries, id))].flatMap(p => ['--dev-mod', p]);
+    const devMods = [content, ...addons.map(a => a.path), ...mods.map(id => realpathSync(join(carries, id)))].flatMap(p => ['--dev-mod', p]);
     const env: Record<string, string> = {
       ...(process.env as Record<string, string>), HORIZON_HOME: game, HORIZON_LAUNCHER_HOME: join(profile, 'launcher'),
       XDG_DATA_HOME: join(profile, 'data'), XDG_CONFIG_HOME: join(profile, 'config'), HORIZON_LAUNCHER_NO_SELF_UPDATE: '1',

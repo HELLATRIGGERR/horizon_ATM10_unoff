@@ -723,6 +723,56 @@ What doesn't exist yet: the Deep Learner's data from kills, which needs a kill h
 `Instance::data_gained` is what it will call), the Deep Learner item and screen, the Data Center and its I/O port, the Fabrication
 Directive and the attunement of a blank data model. `pack/mods/hostilenetworks/NOTES.md` lists what is left.
 
+## Woodworking station
+
+A stonecutter-like block that turns one log or one plank into any wooden item the world can make from it. The bundle
+(`pack/mods/woodworking`) attaches to a station block whose id sits only in `pack/pack.toml`'s
+`[mods.woodworking] station_block` key; the game reads it at run time, and the world test passes it in
+`WOODWORKING_STATION`.
+
+```sh
+HORIZON_MIXINS=<path>/horizon-mixins WOODWORKING_JOBS=4 bun run pack/scripts/woodworking.ts units stage build
+AE2_RESOURCES=<resources>/26.3 AE2_CONTENT_DIR=<checkout>/content/ae2 bun run pack/scripts/woodworking.ts world
+```
+
+**Recipe generation** (`woodworking-core/src/generator.rs`). The first time a station needs them, the bundle derives
+the recipes from the world's own crafting and stonecutting recipes and item registry; no recipe or item list is
+bundled.
+
+1. *Families.* Every one-ingredient recipe that makes `<ns>:<base>_planks` defines a wood family: its planks, the planks
+   one log gives, and its log variants. The variants are the recipe's items plus the registry's items whose name
+   reduces to `<ns>:<base>` once a stripped marker and a log-like suffix (`_log`, `_wood`, `_stem`, `_hyphae`,
+   `_block`, `_bark`) are removed.
+2. *Plank value.* In a family a log is worth its planks count and a plank is worth one. A recipe whose every slot accepts
+   an item of known value costs the cheapest accepted items' sum, and its result is worth that cost per item. Two
+   passes reach crafts of crafts, such as a chest boat.
+3. *Counts.* An output's best rate gives its count per log (rate × planks per log) and, when one plank makes more than
+   half an item, per plank. A fraction rounds up once it passes 0.3, and a count is never below one. Items that don't
+   stack give one.
+4. Outputs made only from sticks (the stick, ladders) are offered once, for every family's logs and planks.
+5. A log variant converts one for one to the family's other variants. A stripped variant never turns back into a
+   bark-covered one.
+
+Over the full pack's recipe graph the generator makes 19,064 recipes in about 0.2 s. Against the reference set of
+17,529 recipes, 13,361 match exactly and 1,256 differ only in count; 2,912 are missing and 4,447 are extra. Two mods'
+tools and signposts, whose recipes are not plain crafting from wood, make up about 1,300 of the missing ones. The extra ones are
+generic shapes (a framed cube, cups, shelves) offered to families the reference set leaves out.
+
+**Container and screen.** A right click on the station (`right_click_block`) opens its menu; the block's own data
+declares none. The station has a nine-slot `generic_9x1` container. Slot 0 is the input and slot 1 the output
+(read-only); the screen hides the other seven. `entity.data` carries the recipe count, the selected recipe and the input
+item id, two bytes per value because menu data reaches the client as 16-bit values. The client's `screen_draw` reads it
+to draw a 4 × 3 grid of recipe icons. The recipes are read with a player in place, so the first right click builds the
+index, once per world, and the window's client and its server thread share it. A left click on a cell crafts it:
+one input is consumed and the result lands in the output slot. A right click or the scroll button (id `-2`) moves the
+grid.
+
+**World test.** `tests/station.ts` places the station, opens it, puts four oak logs in the input, saves a screenshot
+of the screen, crafts the first recipe and checks that one log was used, then takes the output.
+
+**Not done yet:** the station's own background texture (it draws a plain panel). A client in a different process from its
+server builds its own index on its first right click; only the single-player path (one process) is tested.
+
 ## Porting rules
 
 - Mod assets come from the player's own jars at run time. Never commit jars, textures, models or generated content.

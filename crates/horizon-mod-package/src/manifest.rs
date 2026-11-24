@@ -825,8 +825,12 @@ impl Package {
             }
             check_folder_file(path, MANIFEST)?;
             has_wasm = std::fs::symlink_metadata(path.join(WASM)).is_ok();
-            for (name, _) in crate::content::folder_files(path)? {
-                check_folder_file(path, &name)?;
+            let (files, stamp) = crate::content::folder_files_stamped(path)?;
+            if !checked_folder(path, stamp) {
+                for (name, _) in &files {
+                    check_folder_file(path, name)?;
+                }
+                remember_checked_folder(path, stamp);
             }
             let mut text = String::new();
             std::fs::File::open(path.join(MANIFEST))
@@ -1315,6 +1319,63 @@ pub(crate) fn check_file<R: Read>(
         return Err(ContentFileError::Executable(name.into()));
     }
     Ok(())
+}
+
+/// Mod folders whose every content file passed [`check_folder_file`], with the stamp of the listing
+/// they had then (`content::folder_files_stamped`). A start reads each selected folder several
+/// times (code loading, content selection, the Mods page), and a pack's folders hold hundreds of
+/// thousands of files: each is opened once, not at every read. A file added, removed, resized,
+/// rewritten or (on Unix) given another mode changes the stamp, and the folder is checked again.
+static CHECKED_FOLDERS: std::sync::Mutex<std::collections::BTreeMap<PathBuf, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+fn checked_folder(root: &Path, stamp: u64) -> bool {
+    CHECKED_FOLDERS
+        .lock()
+        .is_ok_and(|checked| checked.get(root) == Some(&stamp))
+}
+
+fn remember_checked_folder(root: &Path, stamp: u64) {
+    if let Ok(mut checked) = CHECKED_FOLDERS.lock() {
+        checked.insert(root.to_owned(), stamp);
+    }
+}
+
+/// [`Package::read`] for each of `paths`, in their order, on up to 8 threads: the first read
+/// of a start opens every file of every folder ([`check_folder_file`]).
+pub fn read_packages(paths: &[PathBuf]) -> Vec<Result<Package, String>> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let threads = std::thread::available_parallelism()
+            .map_or(1, |n| n.get())
+            .min(8)
+            .min(paths.len());
+        if threads > 1 {
+            let next = std::sync::atomic::AtomicUsize::new(0);
+            let mut read: Vec<(usize, Result<Package, String>)> = std::thread::scope(|scope| {
+                let workers: Vec<_> = (0..threads)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            let mut out = Vec::new();
+                            loop {
+                                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some(path) = paths.get(i) else { break };
+                                out.push((i, Package::read(path)));
+                            }
+                            out
+                        })
+                    })
+                    .collect();
+                workers
+                    .into_iter()
+                    .flat_map(|worker| worker.join().expect("package reader"))
+                    .collect()
+            });
+            read.sort_by_key(|(i, _)| *i);
+            return read.into_iter().map(|(_, package)| package).collect();
+        }
+    }
+    paths.iter().map(|path| Package::read(path)).collect()
 }
 
 fn check_folder_file(root: &Path, name: &str) -> Result<(), String> {
@@ -2076,6 +2137,60 @@ issues = \"http://example.org/issues\"
                 Err(ContentFileError::Executable(_))
             ));
         }
+    }
+
+    #[test]
+    fn a_checked_folder_is_checked_again_once_its_files_change() {
+        let root =
+            std::env::temp_dir().join(format!("horizon-checked-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("assets/ruby")).unwrap();
+        std::fs::write(root.join(MANIFEST), EXAMPLE).unwrap();
+        std::fs::write(root.join("assets/ruby/a.json"), b"{}").unwrap();
+        assert!(Package::read(&root).is_ok());
+        let (_, stamp) = crate::content::folder_files_stamped(&root).unwrap();
+        assert!(
+            checked_folder(&root, stamp),
+            "a folder that passed keeps its listing"
+        );
+        assert!(Package::read(&root).is_ok());
+        let refused = |root: &Path| Package::read(root).err().unwrap();
+        // A file added, then one rewritten (its size changes): each read checks the files again.
+        std::fs::write(root.join("assets/ruby/b.txt"), b"#!/bin/sh").unwrap();
+        assert!(refused(&root).contains("unsupported executable"));
+        std::fs::remove_file(root.join("assets/ruby/b.txt")).unwrap();
+        assert!(Package::read(&root).is_ok());
+        std::fs::write(root.join("assets/ruby/a.json"), b"\x7fELF and more").unwrap();
+        assert!(refused(&root).contains("unsupported executable"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn packages_read_side_by_side_answer_in_order() {
+        let root =
+            std::env::temp_dir().join(format!("horizon-read-packages-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let paths: Vec<_> = (0..12)
+            .map(|i| {
+                let dir = root.join(format!("mod{i}"));
+                std::fs::create_dir_all(dir.join("assets/ruby")).unwrap();
+                std::fs::write(dir.join(MANIFEST), EXAMPLE).unwrap();
+                let bytes: &[u8] = if i == 5 { b"MZ" } else { b"{}" };
+                std::fs::write(dir.join("assets/ruby/a.json"), bytes).unwrap();
+                dir
+            })
+            .collect();
+        let read = read_packages(&paths);
+        assert_eq!(read.len(), paths.len());
+        for (i, package) in read.iter().enumerate() {
+            assert_eq!(package.is_err(), i == 5, "mod{i}");
+            assert_eq!(
+                package.as_ref().err(),
+                Package::read(&paths[i]).err().as_ref()
+            );
+        }
+        assert!(read_packages(&[]).is_empty());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

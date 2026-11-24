@@ -191,6 +191,12 @@ impl Game<'_> {
                 canceled = self
                     .use_item_on_block(&hit, hand, Some(stack), mod_api::UsePhase::ItemBeforeBlock)
                     .filter(|answer| *answer != Answer::Pass);
+                // FacadeItem.onItemUseFirst on this client: SUCCESS where the facade goes on
+                // the cable's face, so the hand swings and the click ends below.
+                #[cfg(feature = "ae2-lab")]
+                if canceled.is_none() && self.ae2_predict_facade_use(stack, &hit) {
+                    canceled = Some(Answer::Success);
+                }
             }
             // Player.isSecondaryUseActive with something in either hand
             // keeps the block from reacting by default; an explicit block
@@ -387,6 +393,20 @@ impl Game<'_> {
                 return answer.consumes_action() || answer == Answer::Fail;
             }
             if shelf_reacts {
+                return true;
+            }
+            // PartItem.useOn (PartPlacement.place) on this client once the block passed: SUCCESS
+            // where the cable or part goes in, which swings this hand, FAIL where it doesn't.
+            // Either ends the click: no UseItem or off-hand use follows.
+            #[cfg(feature = "ae2-lab")]
+            if item_used
+                && let Some(fits) = held
+                    .as_ref()
+                    .and_then(|stack| self.ae2_predict_part_use(stack, &hit))
+            {
+                if fits {
+                    self.with_hand(hand, Game::swing_arm);
+                }
                 return true;
             }
             if reacts {

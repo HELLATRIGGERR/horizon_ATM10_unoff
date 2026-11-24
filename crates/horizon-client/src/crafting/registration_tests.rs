@@ -55,6 +55,61 @@ fn unregistered_serializer_refuses_whole_load_after_false_conditions() {
         "conditions must run before serializer lookup: {error}"
     );
 }
+#[test]
+fn a_carried_roots_copy_of_a_replaced_vanilla_special_recipe_is_left_out() {
+    // ATM10's KubeJS dump holds 1.21.1's special armor-dye recipe, whose serializer 26.3 replaced.
+    let root = tempfile::tempdir().unwrap();
+    let marker = root.path().join(horizon_items::content_namespaces::MARKER);
+    std::fs::write(&marker, r#"["atm10_pack"]"#).unwrap();
+    let copies = root.path().join("data/atm10_pack/recipe/minecraft");
+    std::fs::create_dir_all(&copies).unwrap();
+    std::fs::write(
+        copies.join("armor_dye.json"),
+        r#"{"category":"misc","type":"minecraft:crafting_special_armordye"}"#,
+    )
+    .unwrap();
+    let folder = root.path().join("data/minecraft/recipe");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("valid.json"), r#"{"type":"minecraft:crafting_shapeless","ingredients":["minecraft:stone"],"result":{"id":"minecraft:stick","count":3}}"#).unwrap();
+    let items = Items::for_tests(Default::default());
+    let load = crate::test_resources::server_load();
+    let recipes = Recipes::load(root.path(), &items, &PackOverlay::NONE, &load).unwrap();
+    assert_eq!(recipes.crafting.len(), 1);
+    assert_eq!(
+        recipes.by_type["minecraft:crafting"][0].id,
+        "minecraft:valid"
+    );
+    // Any other unregistered serializer still refuses the carried root.
+    std::fs::write(
+        copies.join("future.json"),
+        r#"{"type":"minecraft:future_serializer"}"#,
+    )
+    .unwrap();
+    let error = Recipes::load(root.path(), &items, &PackOverlay::NONE, &load)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        error.contains("unregistered recipe serializer minecraft:future_serializer"),
+        "{error}"
+    );
+    std::fs::remove_file(copies.join("future.json")).unwrap();
+    // A root that carries no content keeps upstream's refusal for the copy too.
+    std::fs::remove_file(&marker).unwrap();
+    std::fs::write(
+        folder.join("armor_dye.json"),
+        r#"{"category":"misc","type":"minecraft:crafting_special_armordye"}"#,
+    )
+    .unwrap();
+    let error = Recipes::load(root.path(), &items, &PackOverlay::NONE, &load)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        error.contains("unregistered recipe serializer minecraft:crafting_special_armordye"),
+        "{error}"
+    );
+}
 struct Machine;
 #[mod_api::__subscriptions]
 impl mod_api::Hooks for Machine {

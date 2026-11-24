@@ -23,6 +23,7 @@ use theurgy_core::{
     heat::{Brazier, Consume, Fuel, HeatConsumer},
     recipe::{self, Accumulation, Calcination, Distillation, Incubation, Liquefaction, RecipeResult},
     storage::{self, BUCKET, Tank},
+    vat::{self, VatKind, VatRecipe},
 };
 
 // ---- The apparatus ---------------------------------------------------------------------------------------------
@@ -39,9 +40,11 @@ enum Kind {
     Sulfur,
     Accumulator,
     Tank,
+    Fermentation,
+    Digestion,
 }
 
-const KINDS: [(Kind, &str); 10] = [
+const KINDS: [(Kind, &str); 12] = [
     (Kind::Brazier, "theurgy:pyromantic_brazier"),
     (Kind::Oven, "theurgy:calcination_oven"),
     (Kind::Cauldron, "theurgy:liquefaction_cauldron"),
@@ -52,6 +55,8 @@ const KINDS: [(Kind, &str); 10] = [
     (Kind::Sulfur, "theurgy:incubator_sulfur_vessel"),
     (Kind::Accumulator, "theurgy:sal_ammoniac_accumulator"),
     (Kind::Tank, "theurgy:sal_ammoniac_tank"),
+    (Kind::Fermentation, "theurgy:fermentation_vat"),
+    (Kind::Digestion, "theurgy:digestion_vat"),
 ];
 
 impl Kind {
@@ -73,6 +78,7 @@ impl Kind {
     fn slots(self) -> usize {
         match self {
             Self::Oven | Self::Cauldron | Self::Distiller => 2,
+            Self::Fermentation | Self::Digestion => vat::INPUT_SLOTS + 1,
             Self::Tank => 0,
             _ => 1,
         }
@@ -94,6 +100,7 @@ impl Kind {
             Self::Cauldron => Some(("solventTank", 2 * BUCKET)),
             Self::Accumulator => Some(("waterTank", 10 * BUCKET)),
             Self::Tank => Some(("tank", 2 * BUCKET)),
+            Self::Fermentation | Self::Digestion => Some(("fluidTank", 10 * BUCKET)),
             _ => None,
         }
     }
@@ -112,6 +119,8 @@ struct Book {
     liquefaction: Vec<Liquefaction>,
     incubation: Vec<Incubation>,
     accumulation: Vec<Accumulation>,
+    fermentation: Vec<VatRecipe>,
+    digestion: Vec<VatRecipe>,
 }
 
 /// What an apparatus keeps beside its saved compound: the heat cache, `isProcessing` and `couldCraftLastTick`, the
@@ -188,13 +197,23 @@ fn load_book(game: &Game<'_>) -> Book {
             Err(e) => { bad += 1; log::warn!("[theurgy] {e}") }
         }
     }
+    for (list, kind, name) in [(&mut book.fermentation, VatKind::Fermentation, vat::FERMENTATION), (&mut book.digestion, VatKind::Digestion, vat::DIGESTION)] {
+        for r in game.native_recipes_of_type(name).iter() {
+            match VatRecipe::parse(kind, &r.id, &r.json) {
+                Ok(p) => list.push(p),
+                Err(e) => { bad += 1; log::warn!("[theurgy] {e}") }
+            }
+        }
+    }
     log::info!(
-        "[theurgy] recipes: {} calcination, {} distillation, {} liquefaction, {} incubation, {} accumulation ({bad} unread)",
+        "[theurgy] recipes: {} calcination, {} distillation, {} liquefaction, {} incubation, {} accumulation, {} fermentation, {} digestion ({bad} unread)",
         book.calcination.len(),
         book.distillation.len(),
         book.liquefaction.len(),
         book.incubation.len(),
-        book.accumulation.len()
+        book.accumulation.len(),
+        book.fermentation.len(),
+        book.digestion.len()
     );
     book
 }
@@ -413,8 +432,8 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
         Kind::Brazier => {
             nbt.insert(key("remainingLitTime"), Tag::Short(0));
         }
-        Kind::Oven | Kind::Cauldron | Kind::Distiller | Kind::Incubator | Kind::Accumulator => {
-            if kind != Kind::Accumulator {
+        Kind::Oven | Kind::Cauldron | Kind::Distiller | Kind::Incubator | Kind::Accumulator | Kind::Fermentation | Kind::Digestion => {
+            if !matches!(kind, Kind::Accumulator | Kind::Fermentation | Kind::Digestion) {
                 nbt.insert(key("heatReceiver"), Tag::Long(0));
             }
             nbt.insert(key("progress"), Tag::Short(0));
@@ -447,6 +466,8 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
     let (slots, inputs, outputs): (usize, Vec<usize>, Vec<usize>) = match kind {
         Kind::Oven | Kind::Cauldron | Kind::Distiller => (2, vec![INPUT], vec![INPUT, OUTPUT]),
         Kind::Incubator => (1, Vec::new(), vec![0]),
+        // The open vat's combined handler: the inputs take and give, the output gives (a closed vat's is read only).
+        Kind::Fermentation | Kind::Digestion => (vat::INPUT_SLOTS + 1, (0..vat::INPUT_SLOTS).collect(), (0..=vat::INPUT_SLOTS).collect()),
         Kind::Tank => return,
         _ => (1, vec![0], vec![0]),
     };
@@ -465,6 +486,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         Kind::Oven | Kind::Cauldron | Kind::Distiller => tick_single(game, pos, entity, kind),
         Kind::Incubator => tick_incubator(game, pos, entity),
         Kind::Accumulator => tick_accumulator(game, pos, entity),
+        Kind::Fermentation | Kind::Digestion => tick_vat(game, pos, entity, kind),
         _ => {}
     }
 }
@@ -916,6 +938,190 @@ fn tick_accumulator(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnt
     set_live(dimension, pos, l);
 }
 
+// ---- The fermentation and digestion vats -----------------------------------------------------------------------
+
+const OUT_SLOT: usize = vat::INPUT_SLOTS;
+
+fn vat_list(book: &Book, kind: Kind) -> &[VatRecipe] {
+    if kind == Kind::Fermentation { &book.fermentation } else { &book.digestion }
+}
+
+/// The tank's validator (`canProcess(FluidStack)`): the fluid it holds, or one a recipe of the vat takes.
+fn vat_takes_fluid(book: &Book, kind: Kind, tank: &Tank, fluid: &str) -> bool {
+    vat::can_process_fluid(vat_list(book, kind), tank.fluid_id(), fluid, &fluid_in_tag)
+}
+
+type Owned = Vec<Option<(String, u32)>>;
+
+fn vat_owned(inputs: &[Option<ItemStack>]) -> Owned {
+    inputs.iter().map(|s| s.as_ref().map(|s| (s.item.to_string(), s.count))).collect()
+}
+
+fn vat_view(owned: &Owned) -> Vec<vat::Stack<'_>> {
+    owned.iter().map(|o| o.as_ref().map(|(i, c)| (i.as_str(), *c))).collect()
+}
+
+/// `getRecipe`: the first recipe (the last found if it still fits) the slots and the tank satisfy.
+fn vat_found(game: &Game<'_>, book: &Book, kind: Kind, owned: &Owned, tank: &Tank, last: Option<usize>) -> Option<usize> {
+    let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+    let view = vat_view(owned);
+    recipe::find(vat_list(book, kind), last, |r| r.matches(&view, tank.fluid_id(), tank.amount, &tags, &fluid_in_tag))
+}
+
+/// `getTotalTime`: the fitting recipe's time, else 200.
+fn vat_total(game: &Game<'_>, book: &Book, kind: Kind, owned: &Owned, tank: &Tank, last: Option<usize>) -> i32 {
+    vat_found(game, book, kind, owned, tank, last).and_then(|i| vat_list(book, kind).get(i)).map_or(vat::DEFAULT_TIME, |r| r.time)
+}
+
+/// `canCraft`: the result fits the output slot whole.
+fn vat_can_craft(game: &Game<'_>, recipe: &VatRecipe, output: Option<&ItemStack>) -> bool {
+    game.native_recipe_result(&recipe.result.json).is_some_and(|r| output_fits(game, output, &r))
+}
+
+/// `FermentationVatBlockEntity.tickServer` (and the digestion vat's): closed, it crafts the recipe the slots and the
+/// tank make; when nothing is processing any more the lid opens. (No redstone: neither the auto close nor the
+/// signals.)
+fn tick_vat(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity, kind: Kind) {
+    let dimension = game.native_dimension();
+    let book = book(game);
+    let mut l = live(dimension, pos);
+    let open = game.native_block_property(pos, "open").as_deref() != Some("false");
+    let mut inputs: Vec<Option<ItemStack>> = (0..vat::INPUT_SLOTS).map(|i| slot(game, entity, i)).collect();
+    let mut output = slot(game, entity, OUT_SLOT);
+    let mut tank = read_tank(&entity.nbt, "fluidTank", 10 * BUCKET);
+    let mut c = read_crafting(&entity.nbt, &l);
+    let mut owned = vat_owned(&inputs);
+    if c.progress > 0 && c.total_time == 0 {
+        c.total_time = vat_total(game, &book, kind, &owned, &tank, l.last);
+    }
+    // `onInputItemChanged`: a slot's item (not its count) changed.
+    let keys: [Option<(String, u32)>; 3] = std::array::from_fn(|i| owned[i].as_ref().map(|(item, _)| (item.clone(), 0)));
+    if l.seen && keys != l.vessel_inputs {
+        c.input_changed(vat_total(game, &book, kind, &owned, &tank, l.last));
+    }
+    l.seen = true;
+    let has_input = inputs.iter().any(Option::is_some);
+    let found = if has_input { vat_found(game, &book, kind, &owned, &tank, l.last) } else { None };
+    if found.is_some() {
+        l.last = found;
+    }
+    let recipe = found.and_then(|i| vat_list(&book, kind).get(i)).cloned();
+    let can_craft = || recipe.as_ref().is_some_and(|r| vat_can_craft(game, r, output.as_ref()));
+    let step = c.tick(!open, has_input, can_craft, || vat_total(game, &book, kind, &owned, &tank, l.last));
+    if step == Step::Craft
+        && let Some(r) = &recipe
+        && let Some(result) = game.native_recipe_result(&r.result.json)
+    {
+        let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+        let taken = r.consumption(&vat_view(&owned), &tags);
+        output = Some(merged(output, &result));
+        let mut emptied = false;
+        for (i, n) in taken {
+            inputs[i] = shrink(inputs[i].take(), n);
+            emptied |= inputs[i].is_none();
+        }
+        tank.drain(r.fluid.amount, false);
+        for (i, s) in inputs.iter().enumerate() {
+            set_slot(entity, i, s.clone(), vat::INPUT_SLOTS + 1);
+        }
+        set_slot(entity, OUT_SLOT, output.clone(), vat::INPUT_SLOTS + 1);
+        write_tank(&mut entity.nbt, "fluidTank", &tank);
+        owned = vat_owned(&inputs);
+        if emptied {
+            c.input_changed(vat_total(game, &book, kind, &owned, &tank, l.last));
+        }
+    }
+    l.vessel_inputs = std::array::from_fn(|i| owned[i].as_ref().map(|(item, _)| (item.clone(), 0)));
+    if !c.processing && !open {
+        game.native_set_block_property_with(pos, "open", "true", flags::UPDATE_CLIENTS);
+    }
+    // The fermentation vat's visual `has_output`.
+    if kind == Kind::Fermentation {
+        let want = if output.is_some() { "true" } else { "false" };
+        if game.native_block_property(pos, "has_output").is_some_and(|v| v != want) {
+            game.native_set_block_property_with(pos, "has_output", want, flags::UPDATE_ALL);
+        }
+    }
+    write_crafting(&mut entity.nbt, &c, &mut l);
+    set_live(dimension, pos, l);
+}
+
+/// The slots and tank of the vat at `pos` in the level, and the recipe they make.
+fn vat_state(game: &mut Game<'_>, pos: [i32; 3], kind: Kind) -> (Vec<Option<ItemStack>>, Option<ItemStack>, Tank, Option<usize>) {
+    let inputs: Vec<Option<ItemStack>> = (0..vat::INPUT_SLOTS).map(|i| level_slot(game, pos, i)).collect();
+    let output = level_slot(game, pos, OUT_SLOT);
+    let tank = game.native_with_mod_block_entity(pos, |e| read_tank(&e.nbt, "fluidTank", 10 * BUCKET)).unwrap_or_default();
+    let found = vat_found(game, &book(game), kind, &vat_owned(&inputs), &tank, live(game.native_dimension(), pos).last);
+    (inputs, output, tank, found)
+}
+
+/// `GenericVatInteractionBehaviour.useItemOn` (main hand), then the tank's and the slots' behaviours. Sneaking with an
+/// empty hand opens or closes the lid (closing needs a recipe that can craft); a closed vat refuses everything else.
+fn click_vat(game: &mut Game<'_>, pos: [i32; 3], kind: Kind) -> bool {
+    let hand = game.native_used_stack().clone().filter(|s| s.count > 0);
+    let open = game.native_block_property(pos, "open").as_deref() != Some("false");
+    if !(game.native_sneaking() && hand.is_none()) {
+        if !open {
+            return true;
+        }
+        return click_tank(game, pos, kind) || click_vat_slots(game, pos, kind, hand);
+    }
+    if open {
+        let book = book(game);
+        let (_, output, _, found) = vat_state(game, pos, kind);
+        let can = found.and_then(|i| vat_list(&book, kind).get(i)).is_some_and(|r| vat_can_craft(game, r, output.as_ref()));
+        if can {
+            game.native_set_block_property_with(pos, "open", "false", flags::UPDATE_CLIENTS);
+        }
+    } else {
+        game.native_set_block_property_with(pos, "open", "true", flags::UPDATE_CLIENTS);
+        // `stopProcessing`.
+        let dimension = game.native_dimension();
+        let mut l = live(dimension, pos);
+        l.processing = false;
+        l.could_craft = false;
+        set_live(dimension, pos, l);
+        game.native_with_mod_block_entity(pos, |e| e.nbt.insert(key("progress"), Tag::Short(0)));
+    }
+    true
+}
+
+/// `DynamicOneOutputSlotItemHandlerBehaviour.useItemOn`: an empty hand takes the output, else the first input; a held
+/// stack goes into the first input slot that takes any (`InputInventory.isItemValid`).
+fn click_vat_slots(game: &mut Game<'_>, pos: [i32; 3], kind: Kind, hand: Option<ItemStack>) -> bool {
+    let n = vat::INPUT_SLOTS + 1;
+    let Some(hand) = hand else {
+        for i in [OUT_SLOT, 0, 1, 2] {
+            if let Some(stack) = level_slot(game, pos, i) {
+                set_level_slot(game, pos, i, None, n);
+                give(game, pos, stack);
+                return true;
+            }
+        }
+        return false;
+    };
+    let book = book(game);
+    let (inputs, _, tank, found) = vat_state(game, pos, kind);
+    let owned = vat_owned(&inputs);
+    let tags = |i: &str, t: &str| item_in_tag(game, i, t);
+    let view = vat_view(&owned);
+    let can = vat::can_process_item(vat_list(&book, kind), found, &view, &hand.item, &tags);
+    let _ = tank;
+    for i in 0..vat::INPUT_SLOTS {
+        let elsewhere = inputs.iter().enumerate().any(|(j, s)| j != i && s.as_ref().is_some_and(|s| s.same_item_same_components(&hand)));
+        let taken = insertable(game, inputs[i].as_ref(), &hand, can && !elsewhere);
+        if taken == 0 {
+            continue;
+        }
+        let mut moved = hand.clone();
+        moved.count = taken;
+        set_level_slot(game, pos, i, Some(merged(inputs[i].clone(), &moved)), n);
+        *game.native_used_stack() = shrink(Some(hand), taken);
+        return true;
+    }
+    false
+}
+
 // ---- Fluids: buckets and fluid handlers ------------------------------------------------------------------------
 
 /// Whether tank `name` of an apparatus takes `fluid` (its `FluidTank` validator).
@@ -923,6 +1129,7 @@ fn tank_valid(game: &Game<'_>, kind: Kind, tank: &Tank, fluid: &str) -> bool {
     match kind {
         Kind::Cauldron => fluid_in_tag(fluid, SOLVENT_TAG),
         Kind::Accumulator => accumulator_takes_fluid(&book(game), tank, fluid),
+        Kind::Fermentation | Kind::Digestion => vat_takes_fluid(&book(game), kind, tank, fluid),
         _ => true,
     }
 }
@@ -1019,6 +1226,7 @@ pub(super) fn fluid_fill(entity: &mut ModBlockEntity, resource: &mod_api::FluidS
         Kind::Cauldron => fluid_in_tag(fluid, SOLVENT_TAG),
         // The recipe book of this thread, once an accumulator has ticked; before that any fluid.
         Kind::Accumulator => BOOK.with(|b| b.borrow().as_ref().is_none_or(|b| accumulator_takes_fluid(b, &tank, fluid))),
+        Kind::Fermentation | Kind::Digestion => BOOK.with(|b| b.borrow().as_ref().is_none_or(|b| vat_takes_fluid(b, kind, &tank, fluid))),
         _ => true,
     };
     let taken = tank.fill(fluid, offered.amount(), valid, simulate);
@@ -1086,6 +1294,7 @@ pub(super) fn right_click(game: &mut Game<'_>, pos: [i32; 3], main_hand: bool, c
         Kind::Incubator | Kind::Mercury | Kind::Salt | Kind::Sulfur => click_one_slot(game, pos, kind),
         Kind::Accumulator => click_tank(game, pos, kind) || click_one_slot(game, pos, kind),
         Kind::Tank => click_tank(game, pos, kind),
+        Kind::Fermentation | Kind::Digestion => click_vat(game, pos, kind),
     };
     if taken {
         game.native_block_entity_sync(pos);

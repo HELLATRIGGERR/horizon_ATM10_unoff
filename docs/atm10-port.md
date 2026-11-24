@@ -216,6 +216,14 @@ loss (cold disk cache, the machine busy rebuilding) also reached the world, at 1
 the 20 minutes after it. 46 blockstates of mods name models 26.3 doesn't have (`minecraft:block/oak_sign`...): the
 missing model, a warning.
 
+AE2's basics in the full pack: `tools/atm10/tests/fullpack-ae2.ts` opens a world with every carry beside AE2 and its
+addons (the AE2 world harness, on the server thread; `FULLPACK_AE2_MODE=in-frame` for the other path) and plays it as
+a player: a fluix glass cable from the creative inventory placed in creative and a given one in survival; a creative
+energy cell, a controller, a cable and a drive placed by use, a 1k cell put in the drive through its screen, a terminal
+put on the cable, opened, and 16 iron stored with a shift-click; an import bus, an export bus and a stone facade put on
+a cable. Each placement by use also wants the player's arm to swing, as vanilla's client swings for a use that returns
+SUCCESS. `PACK_START_ONLY=none` plays it with AE2 alone, in about a minute and without the full-pack lock.
+
 The server thread's tick, over runs 18-22: 5.0-8.8 ms standing at spawn (peak 7.9-15.6 ms); 7.2-16.6 ms on a 400-block
 flight at 10 blocks a second (peak 15-47 ms, and one 1.08 s spike in run 22 not looked into). 637 chunks, 322-1,911
 block entities, 168-228 mobs. Java's ATM10 was not measured beside it: its 8.3 GB heap doesn't fit in what this PC leaves.

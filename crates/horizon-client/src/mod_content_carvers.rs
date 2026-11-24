@@ -36,6 +36,8 @@ pub(super) fn drop_unknown(
 ) -> Result<Option<String>> {
     let mut doc: J = serde_json::from_str(text).map_err(|e| format!("biome {id}: {e}"))?;
     let list = match doc.get("carvers") {
+        // A tag (`#ns:tag`), which 26.3's holder set allows: `expand` reads it.
+        Some(J::Str(name)) if name.starts_with('#') => return Ok(None),
         Some(J::Str(name)) => vec![J::Str(name.clone())],
         Some(J::Arr(list)) => list.clone(),
         _ => return Ok(None),
@@ -131,6 +133,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(serde_json::from_str::<serde_json::Value>(&gone).unwrap()["carvers"], serde_json::json!([]));
+        // A tag of carvers is left as it is, even one no carver id matches.
+        let tagged = r##"{"carvers":"#zinc:caves"}"##;
+        assert!(drop_unknown("zinc:d", tagged, &known, &mut warnings).unwrap().is_none());
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
     }
     #[test]
     fn existing_tag_expands_to_effective_carvers() {

@@ -38,6 +38,9 @@
 //!   (zip or folder) with its world generation rewritten in 26.3's formats
 //!   (`docs/datapack-upgrade.md`), into the folder `<out>`, or into
 //!   `<world>/datapacks/<pack name>-26.3`.
+//! - `refresh-features <carries>`: the worldgen of carries made before the
+//!   carry wrote 26.3's form (configured features and carvers in their 26.3
+//!   folders, features, carvers and biomes rewritten) brought to it, in place.
 //!
 //! The work folder belongs to the user: jars and carried-over files stay
 //! there and are never uploaded or committed.
@@ -47,7 +50,7 @@ use std::{
     process::ExitCode,
 };
 
-const USAGE: &str = "usage: horizon-port-pack import <pack> <work> | inventory <work> [--offline] | fetch <work> [--from <folder>] [<mod id>...] | carry <work> [--resources <prepared>] [<mod id>...] | report <work> | check <jar> <out> | port <pack> <work> [--from <folder>] [--resources <prepared>] | upgrade-datapack <pack> (<out> | --world <world>) | events <jar or folder> [--hooks <hook-counterparts.json>]";
+const USAGE: &str = "usage: horizon-port-pack import <pack> <work> | inventory <work> [--offline] | fetch <work> [--from <folder>] [<mod id>...] | carry <work> [--resources <prepared>] [<mod id>...] | report <work> | check <jar> <out> | port <pack> <work> [--from <folder>] [--resources <prepared>] | upgrade-datapack <pack> (<out> | --world <world>) | refresh-features <carries> | events <jar or folder> [--hooks <hook-counterparts.json>]";
 
 fn main() -> ExitCode {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -174,6 +177,17 @@ fn main() -> ExitCode {
                     println!("{line}");
                 }
                 println!("{}", out.display());
+                Ok(())
+            }
+            Some("refresh-features") => {
+                let r = horizon_port_pack::worldgen::refresh_features(path(1)?).map_err(|e| e.to_string())?;
+                println!(
+                    "{} files read, {} rewritten in 26.3's form, {} moved to 26.3's folders",
+                    r.read, r.rewritten, r.moved
+                );
+                for (kind, n) in r.left {
+                    println!("  left as it is: {kind} {n}");
+                }
                 Ok(())
             }
             Some("events") => {

@@ -458,6 +458,21 @@ impl Modifier {
     }
 }
 
+impl Modifier {
+    /// The placed features an `add_features` modifier names directly (ids,
+    /// not tags), for the worldgen audit; empty for the other kinds.
+    pub(super) fn added_features(&self) -> Vec<String> {
+        let Action::AddFeatures { features, .. } = &self.action else {
+            return Vec::new();
+        };
+        let one = |v: &Value| v.as_str().filter(|s| !s.starts_with('#')).map(full);
+        match features {
+            Value::Array(list) => list.iter().filter_map(one).collect(),
+            v => one(v).into_iter().collect(),
+        }
+    }
+}
+
 /// `ns:path` for an id that may leave out `minecraft:`.
 fn full(id: &str) -> String {
     match id.contains(':') {

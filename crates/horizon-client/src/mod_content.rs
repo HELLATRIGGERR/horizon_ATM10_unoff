@@ -3253,8 +3253,9 @@ const BIOME_TAGS: &str = "worldgen/biome_tags.json";
 /// worldgen loader reads each from (id → the file's text): what structure
 /// mods hold, and a mod's own biomes (never vanilla's: `worldgen_entry`).
 /// Noise and density functions change the terrain and are not read from mods.
-const WORLDGEN_BUNDLES: [(&str, &str); 7] = [
+const WORLDGEN_BUNDLES: [(&str, &str); 8] = [
     ("biome", BIOMES),
+    ("carver", CARVERS),
     ("structure", "worldgen/structures.json"),
     ("structure_set", "worldgen/structure_sets.json"),
     ("template_pool", "worldgen/template_pools.json"),
@@ -3289,8 +3290,9 @@ const COMMAND_REGISTRIES: [(&str, &str); 7] = [
 
 /// A mod file that adds to a worldgen bundle: (bundle, id).
 fn worldgen_entry(file: &str) -> Option<(&'static str, String)> {
-    let (ns, rest) = file.strip_prefix("data/")?.split_once("/worldgen/")?;
-    let (kind, path) = rest.split_once('/')?;
+    // `data/<ns>/worldgen/<kind>/...` only: a data map's `data/<ns>/data_maps/worldgen/biome/x.json` is not a biome.
+    let (ns, rest) = file.strip_prefix("data/")?.split_once('/')?;
+    let (kind, path) = rest.strip_prefix("worldgen/")?.split_once('/')?;
     if kind == "biome" && ns == "minecraft" {
         return None;
     }
@@ -3435,7 +3437,14 @@ fn place_in_biomes(
     let placed: BTreeSet<String> = bundle(placed, PLACED_FEATURES)?.into_keys().collect();
     let feature_tags = bundle(None, FEATURE_TAGS)?;
     let (entity_categories, entity_tags) = modifier_entities(base, overlay, tags)?;
-    let carver_ids = biomes::carver_ids(&base.join(CARVERS))?;
+    // The mods' carvers joined the bundle in the overlay.
+    let written = out_path(overlay, CARVERS);
+    let carvers = if written.exists() {
+        written
+    } else {
+        base.join(CARVERS)
+    };
+    let carver_ids = biomes::carver_ids(&carvers)?;
     let mut saved = SavedModifiers {
         carver_ids,
         carver_tags: modifier_tags(base, overlay, tags, "worldgen/carver")?,
@@ -3663,6 +3672,141 @@ pub fn biome_modifiers_over_packs(
         }
     }
     Ok(Some(out))
+}
+
+/// The biome modifiers of the content root `root`, counted for the worldgen
+/// audit (`worldgen_audit`): every modifier file in its data, which of them
+/// Horizon reads (NeoForge's feature, spawn and `none` types), and which of
+/// those apply to the root's biomes, applied again as the root applied them.
+/// `scan_dirs` are additional directories (the carries) scanned for the raw
+/// `data/<ns>/neoforge/biome_modifier/` files; when empty, `root/data/` is
+/// scanned instead (the unit test copies the files there for that path).
+pub fn biome_modifier_census(root: &Path, scan_dirs: &[&Path]) -> Result<serde_json::Value> {
+    use serde_json::json;
+    let mut files = Vec::new();
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, std::path::PathBuf)>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let path = e.path();
+            let rel = format!("{rel}/{name}");
+            if fs::metadata(&path).is_ok_and(|m| m.is_dir()) {
+                walk(&path, &rel, out);
+            } else if name.ends_with(".json") {
+                out.push((rel, path));
+            }
+        }
+    }
+    // Collect the namespaces and biome_modifier files from the scan directories
+    // (carries) or, when none are given, from root/data/ (unit test path).
+    let mut seen_ns: std::collections::BTreeSet<String> = Default::default();
+    let scan: Vec<&Path> = if scan_dirs.is_empty() {
+        vec![root]
+    } else {
+        scan_dirs.to_vec()
+    };
+    for dir in &scan {
+        let data = dir.join("data");
+        let Ok(rd) = fs::read_dir(&data) else { continue };
+        let mut namespaces: Vec<_> = rd.flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        namespaces.sort();
+        for ns in &namespaces {
+            seen_ns.insert(ns.clone());
+            for folder in ["neoforge/biome_modifier", "forge/biome_modifier"] {
+                let mut found = Vec::new();
+                walk(&data.join(ns).join(folder), &format!("data/{ns}/{folder}"), &mut found);
+                files.extend(found.into_iter().map(|(rel, path)| (ns.clone(), rel, path)));
+            }
+        }
+    }
+    // Deduplicate: keep only the first occurrence of each rel path (a carry
+    // that the content root already processed will appear only in scan_dirs).
+    {
+        let mut seen = std::collections::BTreeSet::new();
+        files.retain(|(_, rel, _)| seen.insert(rel.clone()));
+    }
+    let mut by_type: BTreeMap<String, u64> = BTreeMap::new();
+    let mut not_read: BTreeMap<String, u64> = BTreeMap::new();
+    let mut errors = Vec::new();
+    let mut read = Vec::new();
+    let mut none = 0u64;
+    let mut per_ns: BTreeMap<String, [u64; 3]> = BTreeMap::new();
+    for (ns, rel, path) in &files {
+        per_ns.entry(ns.clone()).or_default()[0] += 1;
+        let text = fs::read_to_string(path).unwrap_or_default();
+        let kind = serde_json::from_str::<J>(&text)
+            .ok()
+            .and_then(|d| d.get("type").and_then(J::as_str).map(str::to_owned))
+            .unwrap_or_else(|| "?".into());
+        *by_type.entry(kind.clone()).or_default() += 1;
+        let mut warnings = Vec::new();
+        match biomes::Modifier::read(ns, rel, &text, &mut warnings) {
+            Ok(Some(m)) => {
+                per_ns.entry(ns.clone()).or_default()[1] += 1;
+                read.push(m);
+            }
+            Ok(None) if warnings.is_empty() => none += 1,
+            Ok(None) => *not_read.entry(kind).or_default() += 1,
+            Err(e) => errors.push(e.to_string()),
+        }
+    }
+    // Applied again over the biomes the root started from.
+    let saved: Option<SavedModifiers> = fs::read(root.join(MODIFIERS))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    let mut unresolved = Vec::new();
+    let mut changed = 0usize;
+    if let Some(saved) = &saved
+        && root.join(BIOMES).exists()
+    {
+        let mut doc = read_json(&root.join(BIOMES))?;
+        for (id, text) in &saved.unmodified {
+            doc.set(id, J::Str(text.clone()));
+        }
+        let bundle = |name: &str| -> BTreeMap<String, String> {
+            fs::read(root.join(name))
+                .ok()
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or_default()
+        };
+        let placed = bundle(PLACED_FEATURES).into_keys().collect();
+        changed = saved
+            .apply(&mut doc, &read, &bundle(BIOME_TAGS), &placed, &mut unresolved)?
+            .len();
+    }
+    let mut added: BTreeMap<String, String> = BTreeMap::new();
+    for m in &read {
+        let ns = &m.source[0];
+        match unresolved.iter().any(|w| w.starts_with(&format!("mod {ns}: {}:", m.source[1]))) {
+            true => {}
+            false => {
+                per_ns.entry(ns.clone()).or_default()[2] += 1;
+                for f in m.added_features() {
+                    added.entry(f).or_insert_with(|| ns.clone());
+                }
+            }
+        }
+    }
+    let applied = read.len() - unresolved.len().min(read.len());
+    Ok(json!({
+        "present": files.len(),
+        "by_type": by_type,
+        "read": read.len(),
+        "none": none,
+        "not_read_types": not_read,
+        "errors": errors,
+        "applied": if saved.is_some() { applied } else { 0 },
+        "unresolved": unresolved,
+        "biomes_changed": changed,
+        "by_namespace": per_ns.iter().map(|(ns, [p, r, a])| (ns.clone(), json!({"present": p, "read": r, "applied": a}))).collect::<serde_json::Map<_, _>>(),
+        "added_features": added,
+    }))
 }
 
 #[path = "mod_content_carvers.rs"]

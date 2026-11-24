@@ -22,7 +22,8 @@ mod settings;
 use density::Context;
 use noise::noise;
 pub use noise::parity_base_amplitude;
-use registries::{biome, carver, dimension_type, structure};
+use registries::{dimension_type, structure};
+pub(crate) use registries::{biome, carver};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, fs, path::Path};
 

@@ -121,7 +121,19 @@ pub fn mod_fluid_named(id: &str) -> Option<ModFluid> {
 fn mod_fluid_of_block_name(name: &str) -> Option<ModFluid> {
     crate::mod_fluids::kind_by_block(name)
         .and_then(FluidKind::mod_fluid)
-        .or_else(|| mod_fluid_named(name))
+        .or_else(|| {
+            // Only fall back to the fluid-id check for FluidLook-registered fluids
+            // (which aren't in the carried registry). If `kind_by_name` already
+            // knows this id, it was registered via the carried path: if it had a
+            // physical block, `kind_by_block` above would have returned it.
+            // Without a physical block (e.g. MI's non-flowing fluids whose block is
+            // `minecraft:air`), the name coincidence is misleading — don't treat the
+            // block as a fluid block or `from_block` will panic on the missing `level`.
+            if crate::mod_fluids::kind_by_name(name).is_some() {
+                return None;
+            }
+            mod_fluid_named(name)
+        })
 }
 
 /// The mod fluid a filled bucket holds.

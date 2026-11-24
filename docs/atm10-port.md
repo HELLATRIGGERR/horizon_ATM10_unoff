@@ -863,7 +863,16 @@ bun run pack/scripts/theurgy.ts content units stage build world
 
 Slice 1 is the core spagyrics chain: the pyromantic brazier, the calcination oven, the liquefaction cauldron, the
 distiller, the incubator with its three vessels, and the sal ammoniac accumulator and tank. They run 652 of the 1,734
-x
+recipes. The fermentation and digestion vats add 290 (the open lid, item and fluid slots, crafting; no redstone), and
+the mercurial reformation array adds 483, so 1,425 recipes have a machine.
+
+- The reformation array is a sulfuric flux emitter beside source, target and result pedestals. With the emitter in hand,
+  a click on a pedestal picks it (one target and one result, any number of sources); placing the emitter takes the picks
+  within 16 blocks. A mercury catalyst holding a mercury shard (the 2 catalysation recipes) feeds flux to an adjacent
+  emitter every 20 ticks. Not ported: mercury pipes and wands, the catalyst's redstone state, the pick outlines, and the
+  catalyser and divination rod blocks.
+- The `c:crops`, `c:eggs`, `c:seeds` and `c:sugars` tags have no members, so the fermentation recipes that ask for them
+  cannot craft.
 
 - The accumulator keeps Theurgy's quirk: its crafting total time starts at 0, so the first tick after a bucket of
   water crafts at once; later crafts take the recipe's 100 ticks.

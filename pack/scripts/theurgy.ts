@@ -94,6 +94,12 @@ function makeContent(): void {
   const vatStates: Record<string, unknown> = {};
   for (const facing of ['north', 'east', 'south', 'west']) for (const open of ['true', 'false']) vatStates[`facing=${facing},open=${open}`] = { model: 'theurgy:block/digestion_vat' };
   writeFileSync(join(content, 'assets/theurgy/blockstates/digestion_vat.json'), JSON.stringify({ variants: vatStates }, null, 2));
+  // Its block definition lists no `open` state either, though the lid has one.
+  const vatBlock = join(content, 'data/theurgy/horizon/block/digestion_vat.json');
+  const vat = JSON.parse(readFileSync(vatBlock, 'utf8'));
+  vat.state_defaults = { ...vat.state_defaults, open: 'true' };
+  vat.state_properties = { ...vat.state_properties, open: ['true', 'false'] };
+  writeFileSync(vatBlock, JSON.stringify(vat, null, 2));
   const atm10 = process.env.ATM10_DIR;
   const mods = atm10 ? join(atm10, 'mods') : '';
   const jar = mods && existsSync(mods) ? readdirSync(mods).find(f => /^theurgy-1\.21\.1-neoforge-.*\.jar$/.test(f)) : undefined;

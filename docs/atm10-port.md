@@ -863,8 +863,7 @@ bun run pack/scripts/theurgy.ts content units stage build world
 
 Slice 1 is the core spagyrics chain: the pyromantic brazier, the calcination oven, the liquefaction cauldron, the
 distiller, the incubator with its three vessels, and the sal ammoniac accumulator and tank. They run 652 of the 1,734
-recipes: 86 calcination, 43 distillation, 297 liquefaction, 222 incubation and 4 accumulation. Not run yet: 483
-reformation, 259 fermentation, 31 digestion, 4 divination rod and 2 catalysation recipes.
+x
 
 - The accumulator keeps Theurgy's quirk: its crafting total time starts at 0, so the first tick after a bucket of
   water crafts at once; later crafts take the recipe's 100 ticks.

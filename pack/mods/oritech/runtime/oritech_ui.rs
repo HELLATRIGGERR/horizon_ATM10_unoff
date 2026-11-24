@@ -27,7 +27,7 @@ fn arrow(generator: bool) -> [f32; 4] {
     if generator { BURN } else { ARROW }
 }
 /// `LabelWidget.DARK_TEXT` and the panel's colours.
-const DARK: u32 = 0x404040;
+const DARK: u32 = 0xFF40_4040;
 const PANEL: u32 = 0xFFC6C6C6;
 const PANEL_EDGE: u32 = 0xFF555555;
 const INSET: u32 = 0xFF373737;
@@ -145,7 +145,7 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     // A multiblock whose cores aren't all there: Java's controller says so in chat on the click that would open it.
     if spec.is_multiblock() && !v.active {
-        pen.text(&format!("Missing machine cores: {}", v.missing), 30.0, 62.0, 0xAA0000);
+        pen.text(&format!("Missing machine cores: {}", v.missing), 30.0, 62.0, 0xFFAA_0000);
     }
 }
 

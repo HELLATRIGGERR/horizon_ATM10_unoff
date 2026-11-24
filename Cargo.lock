@@ -2802,6 +2802,7 @@ version = "0.1.0"
 dependencies = [
  "horizon-addresses",
  "horizon-port-pack",
+ "serde_json",
 ]
 
 [[package]]

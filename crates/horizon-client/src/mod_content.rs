@@ -4903,7 +4903,9 @@ pub fn check_jars(root: &Path, jar_store: &Path) -> std::result::Result<(), JarI
 
 /// What a content root is built from: this build of the game, the base's
 /// manifest and the tables [`build`] rewrites, and every file of every mod
-/// in order. Files count by size and modification time, as build tools do.
+/// in order. Files count by size and modification time, as build tools do: a
+/// folder mod's from its listing ([`horizon_mod_package::content::source_stamp`],
+/// as [`load_root`] stamps its candidates), so no file is opened.
 fn stamp(
     base: &Path,
     jar_store: &Path,
@@ -4925,7 +4927,7 @@ fn stamp(
         ))
     };
     let mut parts = vec![
-        "horizon mod content 7".to_owned(),
+        "horizon mod content 8".to_owned(),
         serde_json::to_string(inventory)?,
     ];
     parts.push(meta(&std::env::current_exe()?)?);
@@ -4938,7 +4940,16 @@ fn stamp(
             parts.push(meta(&base.join(name))?);
         }
     }
-    for m in mods {
+    // Each folder mod's listing, walked side by side. A metadata call per file opened every
+    // file of every mod on one thread, at each start: on a cold disk the longest wait of the
+    // content root, built or reused.
+    let listings = par_map(mods, FILE_THREADS, |m| {
+        let source = m.content.source();
+        (!m.content.files.is_empty() && source.is_dir())
+            .then(|| horizon_mod_package::content::source_stamp(source))
+            .transpose()
+    });
+    for (m, listing) in mods.iter().zip(listings) {
         parts.push(m.id.clone());
         parts.push(format!("jars {}", serde_json::to_string(&m.jars)?));
         for jar in &m.jars {
@@ -4952,10 +4963,8 @@ fn stamp(
         let source = m.content.source();
         if m.content.files.is_empty() {
             // Declared in code only: nothing to read.
-        } else if source.is_dir() {
-            for file in &m.content.files {
-                parts.push(meta(&source.join(file))?);
-            }
+        } else if let Some(listing) = listing? {
+            parts.push(format!("{} {listing:016x}", source.display()));
         } else {
             parts.push(meta(source)?);
         }

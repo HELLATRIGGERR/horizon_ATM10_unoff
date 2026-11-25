@@ -2966,6 +2966,44 @@ fn a_moved_mod_changes_the_stamp() {
     let _ = fs::remove_dir_all(&scratch);
 }
 
+/// A folder mod counts by its listing: each file's name, size and modification time, read from
+/// the folder's entries without opening a file. A copy that keeps them (a restore, a synced
+/// folder) keeps the root; a later time on a file, a file added or one removed builds again.
+#[test]
+fn a_folder_mods_stamp_follows_its_listing() {
+    let declaration = r#"{"template":"minecraft:test"}"#;
+    let (base, mods) = block_base("listing-stamp", &[declaration]);
+    fs::write(base.join("horizon-resources.json"), b"{}").unwrap();
+    let stamp_now = || stamp(&base, &base.join("jars"), &mods, &fixture_inventory(&mods)).unwrap();
+    let dir = mods[0].content.source().to_owned();
+    let first = stamp_now();
+    assert_eq!(stamp_now(), first);
+    let file = dir.join("data/testmod/horizon/block/test.json");
+    let modified = fs::metadata(&file).unwrap().modified().unwrap();
+    let set_modified = |time| {
+        fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(time)
+            .unwrap()
+    };
+    // The same bytes written again, the time kept: the same listing.
+    fs::write(&file, declaration).unwrap();
+    set_modified(modified);
+    assert_eq!(stamp_now(), first);
+    set_modified(modified + std::time::Duration::from_secs(5));
+    let touched = stamp_now();
+    assert_ne!(touched, first);
+    let extra = dir.join("assets/testmod/lang/en_us.json");
+    fs::create_dir_all(extra.parent().unwrap()).unwrap();
+    fs::write(&extra, "{}").unwrap();
+    assert_ne!(stamp_now(), touched);
+    fs::remove_file(&extra).unwrap();
+    assert_eq!(stamp_now(), touched);
+    fs::remove_dir_all(base.parent().unwrap()).unwrap();
+}
+
 /// A mod's file over one the overlay links from the base replaces the link, on
 /// the one volume where that link is a hard link. Writing onto it would change
 /// the base's file, and writing over the mod's would change the mod's.

@@ -3004,6 +3004,94 @@ fn a_folder_mods_stamp_follows_its_listing() {
     fs::remove_dir_all(base.parent().unwrap()).unwrap();
 }
 
+/// The build reads the mods' tags and worldgen files side by side, and takes them in the mods'
+/// and the listings' order: a tag several mods add to lists their values in load order, every
+/// worldgen entry lands, and two builds write the same root.
+#[test]
+fn tags_and_worldgen_files_read_side_by_side_merge_in_load_order() {
+    let base = biome_base("side-by-side");
+    let scratch = base.parent().unwrap().to_owned();
+    let ids = ["alpha", "beta", "gamma"];
+    let mods: Vec<ContentMod> = ids
+        .iter()
+        .map(|id| {
+            let mut files = vec![("horizon-mod.toml".to_owned(), manifest(id, ""))];
+            for i in 0..40 {
+                files.push((
+                    format!("data/minecraft/tags/entity_type/shared{i}.json"),
+                    format!(r#"{{"values":["{id}:a{i}","{id}:b{i}"]}}"#),
+                ));
+                files.push((
+                    format!("data/{id}/tags/entity_type/own{i}.json"),
+                    format!(r#"{{"values":["{id}:c{i}"]}}"#),
+                ));
+                files.push((
+                    format!("data/{id}/worldgen/placed_feature/p{i}.json"),
+                    format!(r#"{{"feature":"{id}:f{i}","placement":[]}}"#),
+                ));
+                // Passed by: the build reads none of these.
+                files.push((format!("data/{id}/recipe/r{i}.json"), "{}".to_owned()));
+            }
+            let files: Vec<(&str, &str)> = files
+                .iter()
+                .map(|(name, text)| (name.as_str(), text.as_str()))
+                .collect();
+            folder_mod(&scratch.join(id), &files)
+        })
+        .collect();
+    let (one, two) = (scratch.join("one"), scratch.join("two"));
+    build_fixture(&base, Path::new(""), &mods, &one).unwrap();
+    build_fixture(&base, Path::new(""), &mods, &two).unwrap();
+    let values = |file: &str| -> Vec<String> {
+        let doc: serde_json::Value =
+            serde_json::from_slice(&fs::read(one.join(file)).unwrap()).unwrap();
+        doc["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap().to_owned())
+            .collect()
+    };
+    let placed: BTreeMap<String, String> =
+        serde_json::from_slice(&fs::read(one.join("worldgen/placed_features.json")).unwrap())
+            .unwrap();
+    for i in 0..40 {
+        let shared: Vec<String> = ids
+            .iter()
+            .flat_map(|id| [format!("{id}:a{i}"), format!("{id}:b{i}")])
+            .collect();
+        assert_eq!(
+            values(&format!("data/minecraft/tags/entity_type/shared{i}.json")),
+            shared
+        );
+        for id in ids {
+            assert_eq!(
+                values(&format!("data/{id}/tags/entity_type/own{i}.json")),
+                [format!("{id}:c{i}")]
+            );
+            assert!(placed[&format!("{id}:p{i}")].contains(&format!("{id}:f{i}")));
+        }
+    }
+    let tree = |root: &Path| -> BTreeMap<PathBuf, Vec<u8>> {
+        let mut files = BTreeMap::new();
+        let mut dirs = vec![root.to_owned()];
+        while let Some(dir) = dirs.pop() {
+            for entry in fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    dirs.push(path);
+                } else {
+                    let bytes = fs::read(&path).unwrap();
+                    files.insert(path.strip_prefix(root).unwrap().to_owned(), bytes);
+                }
+            }
+        }
+        files
+    };
+    assert_eq!(tree(&one), tree(&two));
+    fs::remove_dir_all(&scratch).unwrap();
+}
+
 /// A mod's file over one the overlay links from the base replaces the link, on
 /// the one volume where that link is a hard link. Writing onto it would change
 /// the base's file, and writing over the mod's would change the mod's.

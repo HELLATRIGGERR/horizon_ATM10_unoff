@@ -221,23 +221,37 @@ pub fn build_with_conditions(
                     ));
                 }
             }
-            for file in layer.data.list("data/") {
+            // Tags, biome and structure modifiers and worldgen files are read; the rest is
+            // passed by.
+            let skipped = |file: &str| {
+                let is_tag = file.contains("/tags/") && file.ends_with(".json");
+                !is_tag
+                    && (file.starts_with(&declarations)
+                        || (!biomes::is_modifier(file)
+                            && !structures::is_modifier(file)
+                            && worldgen_entry(file).is_none()))
+            };
+            let files = layer.data.list("data/");
+            // The files read below, read side by side and taken in the listing's order. On a
+            // first start each one is a cold open, which one thread waited on in turn.
+            let wanted: Vec<&str> = files
+                .iter()
+                .map(String::as_str)
+                .filter(|file| !skipped(file))
+                .collect();
+            let mut read = par_map(&wanted, FILE_THREADS, |file| layer.data.read(file)).into_iter();
+            for file in files {
                 if let Some((namespace, _)) = file
                     .strip_prefix("data/")
                     .and_then(|rest| rest.split_once('/'))
                 {
                     namespaces.insert(namespace.to_owned());
                 }
-                let is_tag = file.contains("/tags/") && file.ends_with(".json");
-                if !is_tag
-                    && (file.starts_with(&declarations)
-                        || (!biomes::is_modifier(&file)
-                            && !structures::is_modifier(&file)
-                            && worldgen_entry(&file).is_none()))
-                {
+                if skipped(&file) {
                     continue;
                 }
-                let bytes = layer.data.read(&file).ok_or_else(|| {
+                let is_tag = file.contains("/tags/") && file.ends_with(".json");
+                let bytes = read.next().flatten().ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         format!("{}: {file}", layer.assets.id),

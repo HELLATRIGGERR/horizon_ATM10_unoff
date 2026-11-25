@@ -81,21 +81,25 @@ pub struct FluidPlacer {
     pub tank: Tank,
 }
 
+/// `handleItemStack`: the slot's container gives the tank up to a bucket of what it holds, when it is the tank's fluid.
+pub fn fill_tank_from(tank: &mut Tank, slot: &mut dyn Bucket, capacity: i32, accepts: impl Fn(&str) -> bool) {
+    if tank.amount >= capacity {
+        return;
+    }
+    let Some((fluid, amount)) = slot.peek() else { return };
+    if amount <= 0 || !accepts(&fluid) || (tank.amount > 0 && tank.fluid.as_deref() != Some(&fluid)) {
+        return;
+    }
+    let insert = tank.fill(&fluid, amount, capacity, true);
+    if insert > 0 {
+        slot.drain(insert);
+        tank.fill(&fluid, insert, capacity, false);
+    }
+}
+
 impl FluidPlacer {
-    /// `handleItemStack`: the slot's container gives the tank up to a bucket of what it holds, when it is the tank's fluid.
     fn fill_from(&mut self, slot: &mut dyn Bucket, capacity: i32, accepts: impl Fn(&str) -> bool) {
-        if self.tank.amount >= capacity {
-            return;
-        }
-        let Some((fluid, amount)) = slot.peek() else { return };
-        if amount <= 0 || !accepts(&fluid) || (self.tank.amount > 0 && self.tank.fluid.as_deref() != Some(&fluid)) {
-            return;
-        }
-        let insert = self.tank.fill(&fluid, amount, capacity, true);
-        if insert > 0 {
-            slot.drain(insert);
-            self.tank.fill(&fluid, insert, capacity, false);
-        }
+        fill_tank_from(&mut self.tank, slot, capacity, accepts);
     }
 
     /// One server tick (`tickServer`, `handleItemStack`, `doFluidPlace`). True when it placed a bucket.

@@ -18,7 +18,9 @@ The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlo
 `ParadoxMachineScreen`, `AreaAffectingBE`, `AreaAffectingData`, `BlockPlacerT1BE`, `BlockPlacerT1Screen`,
 `FluidCollectorT1BE`, `FluidCollectorT1Screen`, `ItemCollectorBE`, `ItemCollectorScreen`, `FilterableBE`, `FilterData`,
 `DropperT1BE`, `DropperT1Screen`, `FluidPlacerT1BE`, `SensorT1BE`, `SensorT1`, `SensorT1Screen`, `GeneratorFluidT1BE`,
-`GeneratorFluidT1Screen`, `RefinedFuel`),
+`GeneratorFluidT1Screen`, `RefinedFuel`, `BlockSwapperT1BE`, `BlockSwapperT1Screen`, `FerricoreWrench`, `GooTier`, `ArmorTiers`,
+`ClickerT1BE`, `ClickerT2BE`, `ClickerT1Screen`, `ClickerT2Screen`, `FakePlayerUtil`, `UsefulFakePlayer`, `PoweredMachineBE`,
+`BlockPlacerT2BE`, `BlockBreakerT2BE`, `DropperT2BE`, `SensorT2BE`, `FluidPlacerT2BE`, `FluidCollectorT2BE`, `BlockSwapperT2BE`, `EnergyTransmitterBE`, `TransmitterEnergyStorage`, `EnergyTransmitterScreen`),
 not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
@@ -90,13 +92,64 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   a mB; `fuel_tier*_fe_per_mb`), burning a millibucket a tick while its 5,000,000 FE buffer has room for all of it, and
   offering ten times its 5,000 FE a tick to each neighbour. Redstone control from its button. Screen: the slot, the
   energy and fluid bars, the redstone button.
+- **Block Swapper T1** (`blockswappert1`): two swappers bound with a Ferricore Wrench (a click on each: a machine passes the wrench's click on to it)
+  trade the block in front of each (and, by the entity button, the hostile, passive, adult, baby, player, living, item or
+  all entities standing in that block) on a pulse, or its clock on ignore, where both are in the same dimension; the
+  blocks that the tags `c:relocation_not_supported` and `justdirethings:swapperdeny` name and unbreakable ones stay.
+  Screen: the partner's icon, the blocks, entity and redstone buttons.
+- **Clicker T1** (`clickert1`): one slot; on its clock (20 ticks) or a pulse the game's fake player (`native_fake_use`,
+  a player of its own, `[JustDiresFake]`) stands just inside the block in front, on the side its direction button names
+  (down by default: it looks down at the block's top), holds the slot's stack and clicks: a right click (the block's
+  and the item's use, then the item's own use: a bucket takes the water in front), a left click (the block hit as a
+  player's first hit, which breaks what one hit breaks; an entity attacked at full strength) or a held use (held the
+  hold button's ticks, then let go; the tick speed stays above them). The target button picks the block, the air
+  (the block past it within reach, else the item's use in the air), or the hostile, passive, adult, baby, player or
+  living creatures in the block in front, found together and clicked one a run; sneaking from its button. The stack the
+  click leaves goes back in the slot; what else the fake holds (a filled bucket from a stack of empty ones) drops.
+  Blocks of the tag `justdirethings:no_auto_click` are left. Screen: the slot, the show-fake-player, sneak, click type,
+  target, hold ticks, redstone, direction and tick speed buttons.
+- **T2 machines** share a 100,000 FE buffer (cables fill it from any side), an area (the block in front by default;
+  radius and offset buttons) and nine filter slots (a denylist by default; allowlist and compare buttons), in a 9x2
+  chest menu whose slot 0 is the machine's; their screens add the energy bar left of the panel.
+  - **Clicker T2**: the Clicker T1 over its area (places nearest first, creatures in the area), what the filter lets
+    through (a block's item, a creature's spawn egg), 250 FE a click that consumed.
+  - **Block Placer T2**: the Placer T1's placement over its area nearest first, where the filter lets the block it is
+    placed against through, 500 FE a placement.
+  - **Block Breaker T2**: on a run it tracks every block of its area to break (not air, liquids or unbreakable ones; the
+    filter on the block's item), nearest first, and mines the first at its tool's speed as the T1 does; the next waits
+    for the following run. 500 FE a break, a point of the tool's wear for each.
+  - **Dropper T2**: nine slots and nine filter slots in the 9x2 menu; on a run it lists the first slot with an item (with a
+    filter: the first slot of each filter item, all of which must be there) and drops one listed slot's `dropCount` items
+    each operation, at the area's offset, 25 FE a drop. Its screen has the offset buttons only and the compare button.
+  - **Sensor T2**: the Sensor T1 over its area (every block of it counted, or the entities in it), the filter's nine slots
+    for the blocks' items or the spawn eggs, the count test and amount buttons; each sense pays 2 FE a block of the area (all
+    the buffer when it is short, and then it senses nothing).
+  - **Fluid Placer T2** and **Fluid Collector T2**: the T1s with a 32,000 mB tank, their places found together over the
+    area nearest first and one used each run, 500 FE a bucket; the placer's filter reads the block next to the place in its
+    direction setting, the collector's the fluid's bucket.
+  - **Block Swapper T2**: two bound T2 swappers trade the blocks of their areas (nearest first, the same offsets from each
+    one's starting point, its area's offset), the entities of the area, what the filter lets through, and not what both
+    areas hold; it needs 50 FE for each block of the area to run, and takes 50 FE for each block (both sides count) and
+    entity moved. A radius button's change goes to the partner, and so does the radius of the swapper that was bound last.
+- **Energy Transmitter**: a 1,000,000 FE buffer (the config's `energy_transmitter_t1` values), an area that starts as the
+  block above it, nine filter slots, a redstone button and a show particles button (no particles are drawn). Every 50
+  ticks it scans its area, nearest first, for blocks with a block entity that take Forge Energy and pass the filter and for
+  other transmitters; each tick, while the network of transmitters it sees holds energy, it sends each block up to 1,000 FE
+  less 1% a block of Manhattan distance (rounded down), taken from its own energy, then balances the network (every
+  transmitter the average, the remainder one more each in order). What it holds, takes and gives out in a call is the
+  network's, shared among its transmitters.
+- **Tool and armour tiers**: ferricore, blazegold, celestigem and eclipse alloy tools, armour and the wrench are items of the
+  carry (their tool rules, durability and repair, equipment assets). The carry holds no attribute modifiers for
+  celestigem's and eclipse alloy's, so the content step adds the mod's own: `GooTier`'s damage bonus (celestigem 4,
+  eclipse alloy 5) over each tool's base damage and speed as `createAttributes` gives them, and `ArmorTiers`' armour points,
+  toughness (2 and 3) and eclipse alloy's 0.1 knockback resistance. Their abilities are not ported.
 - The settings come from `config/justdirethings-server.toml` (`goo`, `generator_t1`, `time_crystal`,
   `paradox_machine`, `minimum_machine_tick_speed` is 1).
 
 `justdirethings-core` holds the rules with unit tests; `tests/goo.ts`, `tests/generator.ts`, `tests/breaker.ts`,
 `tests/fluid.ts`, `tests/crystal.ts`, `tests/paradox.ts`, `tests/placer.ts`, `tests/collector.ts`,
-`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts` and `tests/fluidgen.ts` run them in a
-world.
+`tests/itemcollector.ts`, `tests/dropper.ts`, `tests/fluidplacer.ts`, `tests/sensor.ts`, `tests/fluidgen.ts`, `tests/swapper.ts`,
+`tests/tools.ts`, `tests/clicker.ts` and `tests/t2.ts` run them in a world.
 `NOTES.md` lists the differences from Java and what is left.
 
 ## On upstream's hooks (merge of nightly-source/2026-11-18)
@@ -105,7 +158,9 @@ Hooks, all on main (no new fork hook): `world_lifecycle` v2, `server_started`, `
 hook: one type per goo tier and per machine, named after the block), `block_entity`, `block_entity_ticks`,
 `block_entity_tick`, `block_entity_container`, `block_entity_slot_accepts`, `fe_storage`, `fe_extract` (a
 `MODIFY_ARG` on the call into `fire_fe_extract`), `fe_receive`, `menu_button`, `use_on` v2 (a `HEAD` injection reads the call with
-the game, a `MODIFY_ARG` one answers it), `use_item_on`, `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
+the game, a `MODIFY_ARG` one answers it), `use_item_on` (the Paradox Machine's buckets), `use_without_item` (the machines pass the
+Ferricore Wrench and the Machine Settings Copier on to the item), `screen`, `screen_draw`, `screen_click`, `screen_tooltip`,
 `entity_tick_listened`, `entity_tick_post` (the fluid drop), `random_tick` (the budding block) and
 `fluid_handler_tanks`, `fluid_handler_fill` and `fluid_handler_drain` (the tanks of the Paradox Machine, the Fluid
-Collector, the Fluid Placer and the Fluid Generator), `block_signal` and `is_signal_source` (the Sensor's redstone).
+Collector, the Fluid Placer and the Fluid Generator), `block_signal` and `is_signal_source` (the Sensor's redstone). The Clicker's
+clicks are the engine's `native_fake_use` (`docs/atm10-port.md`, "A click on a mod block"), a helper, not a hook.

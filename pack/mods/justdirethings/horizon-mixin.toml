@@ -41,6 +41,36 @@ name = "justdirethings_more"
 source = "runtime/justdirethings_more.rs"
 
 [[module]]
+id = "swapper"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_swapper"
+source = "runtime/justdirethings_swapper.rs"
+
+[[module]]
+id = "clicker"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_clicker"
+source = "runtime/justdirethings_clicker.rs"
+
+[[module]]
+id = "t2"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_t2"
+source = "runtime/justdirethings_t2.rs"
+
+[[module]]
+id = "t2x"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_t2x"
+source = "runtime/justdirethings_t2x.rs"
+
+[[module]]
+id = "transmitter"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_transmitter"
+source = "runtime/justdirethings_transmitter.rs"
+
+[[module]]
 id = "paradox-ui"
 file = "crates/horizon-client/src/game.rs"
 name = "justdirethings_paradox_ui"
@@ -309,6 +339,20 @@ bindings = [
   { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
   { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
   { name = "click", ty = "&mod_api::BlockClick<'_>", value = "click" },
+  { name = "answer", ty = "&mut Option<mod_api::InteractionResult>", value = "&mut *answer" },
+]
+
+# `BaseMachineBlock.useWithoutItem`: a Ferricore Wrench or a Machine Settings Copier in the main hand goes on to the item's
+# `useOn` (the wrench binds a Block Swapper) instead of opening the machine's menu, which the furnace template would.
+[[injection]]
+id = "use-without-item"
+hook = "use_without_item"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/use_without_item.rs"
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+  { name = "state", ty = "horizon_world::registry::BlockStateId", value = "state" },
   { name = "answer", ty = "&mut Option<mod_api::InteractionResult>", value = "&mut *answer" },
 ]
 

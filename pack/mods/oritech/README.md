@@ -27,12 +27,18 @@ player's own jar through `horizon-port-pack carry`. Some of Oritech's assets are
 
 Tanks hold a fluid name and an amount in millibuckets, saved as the `FluidStack` codec under Java's keys (`fluidin` and
 `fluidout` of the centrifuge, `fluidinmain` and `fluidoutmain` of the refinery, `fluid` of the rest) and offered to other
-mods through the engine's fluid handler hooks (`fluid_handler_tanks`, `_fill`, `_drain`). A fluid centrifuge (a
+mods through the engine's fluid handler hooks (`fluid_handler_tanks`, `_fill`, `_drain`). A fluid container used on a machine
+fills from its tanks or empties into them (`MachineBlock.useItemOn`'s `tryFluidBlockItemInteraction`; the bundle names its
+machines to the engine's `fluid_interact_on_use`, which moves the fluid as NeoForge's `FluidUtil.interactWithFluidHandler` does,
+through the side clicked, with the bucket's sound, the container swapped in survival and kept in creative). A fluid centrifuge (a
 `machine_fluid_addon` beside it), the refinery with its modules, the cooler and the fuel and lava generators run in
 `oritech-core/src/fluid_machine.rs` and `generator.rs`. Where this differs from Java:
 
 - a refinery module keeps its own tank (Java's `nodeA` and `nodeB` live in the refinery), so a module taken away takes its fluid;
 - the cooler has no cold-biome bonus, and refuses to add to a slot holding another item;
+- a container used on a machine that moves no fluid (a full tank, an empty bucket on an empty one) goes on to the menu, and
+  the transfer plays the fluid's bucket sound (Java's interaction ends the click whatever moved, silently, and moves up to
+  eight buckets of a container at once);
 - the combi addon, the steam boiler addon and the steam engine are not ported, and no pipe moves fluid: buckets, hoppers
   of other mods and AE2's buses do, through the handler;
 - the machine items are GeckoLib models the engine cannot draw, so the title panel of a screen shows the furnace icon of the

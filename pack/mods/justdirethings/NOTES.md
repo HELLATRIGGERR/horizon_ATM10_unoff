@@ -105,10 +105,9 @@ the v5 resources and the empty content mod in AE2's place.
   order.
 - Fluid drop: a fluid the output's fluid type vaporizes where it lands (Java's `isVaporizedOnPlacement`, water in the
   Nether) stays; Java turns it to air with its vaporize effect.
-- Paradox Machine: a bucket held on it does not fill or empty the tank: the engine calls `use_item_on` only when a trait
-  mod's Part listens to it, so a native bundle's mixin on it never runs (the world test sets `timeFluid` in the saved
-  compound). Fluid pipes use the tank handler hooks and work. The way out is a `listened` gate for it, as
-  `entity_tick_listened`, or the item-side `use_on` v2 as Iron Furnaces uses it.
+- Paradox Machine: a fluid container used on it moves fluid by NeoForge's `FluidUtil.interactWithFluidHandler` rules (the
+  engine's `native_fluid_interact`: a bucket whole, the fluid's bucket sounds), where Java's own `useItemOn` plays the
+  bucket-fill sound and fills a container in part.
 - Paradox Machine: the paradox itself (the entity a full paradox energy spawns) is not ported, so paradox energy stays
   at its most once full; the area and paradox renders (`renderArea`, `renderParadox`) are saved but not drawn.
   The fluid in its screen's bar is drawn in a plain green tint.
@@ -134,12 +133,48 @@ the v5 resources and the empty content mod in AE2's place.
   the one block in front. Compare NBT has no button.
 - Fluid Generator T1: a bucket in its slot is drained whole (4,000 mB holds four buckets); the fluid bars of the Fluid
   Placer and the Fluid Generator are drawn as the Fluid Collector's.
+- Block Swapper T1: both swappers must be in the dimension the game simulates (the engine writes blocks only in the level in
+  place; a swapper bound across dimensions reads as missing); a block with a block entity (a chest, a machine) is not
+  swapped (no engine helper moves a block entity's contents between positions; Java moves them with their NBT); the
+  swap writes both states with neighbour and client updates (flags 3), where Java writes with 51 and then validates the
+  blocks (`canSurvive`, `updateFromNeighbourShapes`); no particles; the bind is by a plain click of the wrench, as Java's (the machine passes the
+  wrench's click on, `use_without_item`; a sneaking click does nothing, where Java's wrench turns the block), the
+  first swapper clicked is remembered by the game (not on the wrench: no foil, no tooltip) and the messages Java shows
+  ("Bound to", "Binding Removed") are not shown; the entity filter is by kind only (the T2's filter slots are not ported).
+- Tools and armour: celestigem's and eclipse alloy's attribute modifiers come from the content step (the carry has none);
+  every ability (the toggles, FE, the paxel's, ore scanning, the hammer, flight...), the Pocket Generator, Fuel and
+  Fluid Canisters, the wands and the bows are items the carry declares as plain items: they exist and do nothing special.
+
+- Clickers: the fake player is the game's (`native_fake_use`), one for every clicker (the default `[JustDiresFake]` UUID,
+  not the placer's: `placedBy` is not read), and it acts only where a server runs the level (in-frame play clicks
+  nothing). Its look and eye are Java's `setupFakePlayerForUse`, but the hit is not traced: a block target is hit just
+  inside its face (the ray starts inside it, as Java's does for a full block; a lower block such as short grass is hit
+  at the same point, not on its top); an air target uses the block one past it, else the air. The left click on a
+  block is a player's first hit, as Java's fake that never ticks: what one hit doesn't break stays, cracked. A left
+  click in the air target is a right click (Java's `rightClickAirInDirection` ignores the click type). The show-fake-player
+  particles are not drawn; the T2 doesn't charge an FE item in its slot (`chargeItemStack`); the fake's `mayInteract`
+  and place-event checks are not asked; the entity filter matches spawn eggs only (no creature catcher).
+- T2 machines: the energy bar sits left of the 176-pixel panel, and the buttons are placed for that panel (Java's T2
+  screens are 60 pixels wider); the filter slots hold real items as the Item Collector's; the breaker's filter compares
+  blocks only (`blockItemFilter` 0; the drops comparison and the smelter ability are not ported); the Placer T2's filter
+  reads the block it is placed against, as Java's does.
+- Dropper T2 and Sensor T2 and the fluid machines and Block Swapper T2: as the other T2 machines, the energy bar (and the fluid
+  bar of the fluid machines) stands left of the 176-pixel panel. The Dropper T2's machine slots are a 3x3 box at x 62. The
+  Sensor T2's per-slot block state filter (right click a filter slot) is not ported, nor is its screen's state list. The
+  Fluid Collector T2 takes only level-0 source blocks even when asked again at the run (Java rechecks the `LiquidBlock` only),
+  and the collector's filter reads the fluid's bucket by name (`<fluid>_bucket`). The Swapper T2 moves only the entities of its
+  own area on its run (the partner moves its own on its run), as Java; a block with a block entity stays where it is, as
+  the T1's; the entity buttons' ids are 70 to 78 (the T1's 5 to 13 are the shared area buttons' here).
+- Energy Transmitter: its storage answers on every side (Java's only on the side it faces); a block that is full when the
+  area is scanned is not charged until the next scan (Java asks `canReceive`, true while full); the FE item in its slot
+  (`drainFromSlot`, the Pocket Generator) is not ported (the slot is not shown); no flow particles; the transmitters of a
+  network are visited in the order the scan found them (Java's hash set order); each transmitter's energy lives in the game's
+  memory while it ticks and is written to its compound on its tick, a changed compound (`data merge`) winning; the energy
+  bar stands left of the panel.
 
 ## What is left
 
-See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Clicker T1 (it needs an engine helper for a
-fake player's clicks: the use of the held item on a block or entity in front of it, and left or right click with a hold,
-through the same path as a player's `use_item_on`, which the engine gates on a trait mod's Part), the Block Swapper,
-the T2 machines, the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
-accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the
+See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Block Swapper's
+cross-dimension swap and block entities, the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
+accelerates block entity ticks), the Player Accessor, the tools, armour and their abilities, the Fuel Canister and the
 Pocket Generator, the portal gun and the wands.

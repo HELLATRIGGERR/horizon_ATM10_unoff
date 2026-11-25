@@ -144,13 +144,13 @@ fn tick_dropper(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity)
 
 /// What the slot's container gives, read before the tick (one bucket at a time; a container that holds less than a
 /// bucket or fills only part isn't drained in parts).
-struct Pail {
+pub(super) struct Pail {
     probe: Option<(String, i32, ItemStack)>,
-    after: Option<ItemStack>,
+    pub(super) after: Option<ItemStack>,
 }
 
 impl Pail {
-    fn new(game: &Game<'_>, stack: Option<&ItemStack>) -> Self {
+    pub(super) fn new(game: &Game<'_>, stack: Option<&ItemStack>) -> Self {
         let probe = stack.filter(|s| s.count == 1).and_then(|s| game.native_item_fluid_drain(s, 1000)).filter(|(_, amount, _)| *amount > 0);
         Self { probe, after: None }
     }
@@ -180,11 +180,11 @@ fn fluid_block(fluid: &str) -> String {
 }
 
 /// The block in front of a fluid placer.
-struct Ahead<'a, 'g> {
-    game: &'a mut Game<'g>,
-    level: mod_api::LevelRef,
-    pos: [i32; 3],
-    dimension: &'static str,
+pub(super) struct Ahead<'a, 'g> {
+    pub(super) game: &'a mut Game<'g>,
+    pub(super) level: mod_api::LevelRef,
+    pub(super) pos: [i32; 3],
+    pub(super) dimension: &'static str,
 }
 
 impl FluidSpot for Ahead<'_, '_> {
@@ -280,7 +280,7 @@ fn filter_passes(filter: Option<&ItemStack>, allowlist: bool, name: &str) -> boo
 }
 
 /// `senseBlock` of the block in front: 1 when it counts. A liquid is tested by its bucket.
-fn sense_block(game: &Game<'_>, level: mod_api::LevelRef, front: [i32; 3], target: Target, filter: Option<&ItemStack>, allowlist: bool) -> i32 {
+pub(super) fn sense_block(game: &Game<'_>, level: mod_api::LevelRef, front: [i32; 3], target: Target, accepts: &dyn Fn(&str) -> bool) -> i32 {
     let Some(state) = game.level_block_state(level, front) else { return 0 };
     let facts = game.res.facts().get(state);
     if target == Target::Air {
@@ -295,14 +295,12 @@ fn sense_block(game: &Game<'_>, level: mod_api::LevelRef, front: [i32; 3], targe
     } else {
         name
     };
-    i32::from(filter_passes(filter, allowlist, &item))
+    i32::from(accepts(&item))
 }
 
 /// `findEntities` in the block in front, each kept by `isValidEntity`: its kind, then the filter (spawn eggs).
-fn sense_entities(game: &Game<'_>, level: mod_api::LevelRef, front: [i32; 3], target: Target, filter: Option<&ItemStack>, allowlist: bool) -> i32 {
-    let min = front.map(f64::from);
-    let max = front.map(|v| f64::from(v) + 1.0);
-    let egg = |kind: &str| filter_passes(filter, allowlist, &format!("{kind}_spawn_egg"));
+pub(super) fn sense_entities(game: &Game<'_>, level: mod_api::LevelRef, min: [f64; 3], max: [f64; 3], target: Target, accepts: &dyn Fn(&str) -> bool) -> i32 {
+    let egg = |kind: &str| accepts(&format!("{kind}_spawn_egg"));
     let mut found = 0;
     if matches!(target, Target::Hostile | Target::Passive | Target::Adult | Target::Child | Target::Living) {
         for m in game.mobs.iter().filter(|m| m.alive()) {
@@ -361,23 +359,17 @@ fn tick_sensor(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) 
     };
     let allowlist = machines::int(&entity.nbt, "allowlist") != 0;
     let filter = machines::slot_stack(game, entity);
-    let key = (dimension.to_owned(), pos);
-    let known = SENSORS.with(|m| m.borrow().get(&key).copied());
-    let mut emit = known.is_some_and(|(e, _, _)| e);
-    if s.tick() {
+    let accepts = |item: &str| filter_passes(filter.as_ref(), allowlist, item);
+    let sensed = s.tick().then(|| {
         let front = machines::beside(pos, side);
         let found = if s.target.is_block() {
-            sense_block(game, level, front, s.target, filter.as_ref(), allowlist)
+            sense_block(game, level, front, s.target, &accepts)
         } else {
-            sense_entities(game, level, front, s.target, filter.as_ref(), allowlist)
+            sense_entities(game, level, front.map(f64::from), front.map(|v| f64::from(v) + 1.0), s.target, &accepts)
         };
-        emit = s.check_count(found);
-    }
-    let state = (emit, s.strong, side);
-    SENSORS.with(|m| m.borrow_mut().insert(key, state));
-    if known != Some(state) && (known.is_some() || emit || s.strong) {
-        notify(game, level, pos);
-    }
+        s.check_count(found)
+    });
+    sensor_signal(game, level, dimension, pos, side, sensed, s.strong);
     machines::keep_clock(dimension, pos, &mut entity.nbt, &before, &s.clock);
     let data = vec![s.target.index(), i32::from(s.strong), i32::from(allowlist), i32::from(has_item(entity)), s.clock.tick_speed];
     if entity.data != data {
@@ -385,9 +377,22 @@ fn tick_sensor(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) 
     }
 }
 
+/// A sensor's signal after a tick: `sensed` is what it found this tick (none when it did not sense); a changed signal (or a
+/// newly loaded sensor) tells the neighbours.
+pub(super) fn sensor_signal(game: &mut Game<'_>, level: mod_api::LevelRef, dimension: &'static str, pos: [i32; 3], side: usize, sensed: Option<bool>, strong: bool) {
+    let key = (dimension.to_owned(), pos);
+    let known = SENSORS.with(|m| m.borrow().get(&key).copied());
+    let emit = sensed.unwrap_or_else(|| known.is_some_and(|(e, _, _)| e));
+    let state = (emit, strong, side);
+    SENSORS.with(|m| m.borrow_mut().insert(key, state));
+    if known != Some(state) && (known.is_some() || emit || strong) {
+        notify(game, level, pos);
+    }
+}
+
 /// `native_is_signal_source`.
 pub(super) fn is_signal_source(block: Option<&str>, source: &mut bool) {
-    if block == Some(SENSOR) {
+    if block == Some(SENSOR) || block == Some(super::justdirethings_t2x::SENSOR_T2) {
         *source = true;
     }
 }
@@ -395,7 +400,7 @@ pub(super) fn is_signal_source(block: Option<&str>, source: &mut bool) {
 /// `SensorT1.getSignal` and `getDirectSignal`: 15 on every side but the one it faces while it senses, the direct
 /// (strong) signal only when its strong setting is on. `face` is the side the reader asks from.
 pub(super) fn block_signal(dimension: &str, block: Option<&str>, pos: [i32; 3], face: Direction, direct: bool, signal: &mut i32) {
-    if block != Some(SENSOR) {
+    if block != Some(SENSOR) && block != Some(super::justdirethings_t2x::SENSOR_T2) {
         return;
     }
     let state = SENSORS.with(|m| m.borrow().get(&(dimension.to_owned(), pos)).copied());

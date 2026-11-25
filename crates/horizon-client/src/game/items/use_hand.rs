@@ -198,13 +198,33 @@ impl Game<'_> {
             let state = self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);
             let mut block_answer =
                 self.use_item_on_block(hit, self.hand, held.as_ref(), mod_api::UsePhase::Block);
+            // The block's own useItemOn: a trait mod's part on it, or a bundle's injection (which
+            // every block asks).
             if block_answer.is_none()
-                && crate::game::fork_compat::part_heard(mod_api::HookId::UseItemOn)
-                && api_values::block_state::block_listens(mod_api::HookId::UseItemOn, state)
+                && crate::game::fork_compat::block_heard(mod_api::HookId::UseItemOn, state)
                 && let Ok(snapshot) = held.try_into_api()
             {
                 let click = self.block_click(hit, self.hand, snapshot.as_ref());
-                self.native_use_item_on(state, &click, &mut block_answer);
+                self.block_use_item_on_hook(state, &click, &mut block_answer);
+            }
+            // A mod block whose useItemOn starts with NeoForge's
+            // `FluidUtil.interactWithFluidHandler(player, hand, level, pos, side)`
+            // (`fluid_interact_on_use`): a fluid container fills from its tank or empties into it
+            // through the side clicked, and SUCCESS ends the click; one that moved nothing goes on
+            // to the block's other uses (PASS_TO_DEFAULT_BLOCK_INTERACTION).
+            if block_answer.is_none()
+                && held.is_some()
+                && self.fluid_interact_on_use(state)
+                && self.native_fluid_interact(
+                    self.hand,
+                    &self.dim.id(),
+                    hit.pos,
+                    horizon_core::geometry::Direction::ALL
+                        .into_iter()
+                        .find(|d| d.normal() == hit.face),
+                )
+            {
+                block_answer = Some(mod_api::InteractionResult::Success);
             }
             let mut chains_sign = false;
             if block_answer.is_none() {
@@ -324,15 +344,13 @@ impl Game<'_> {
                     (result, UseBranch::ItemOn)
                 } else if self.hand == Hand::Main {
                     let mut empty_answer = None;
-                    if mod_api::__private::has_part_hook(mod_api::HookId::UseWithoutItem)
-                        && api_values::block_state::block_listens(
-                            mod_api::HookId::UseWithoutItem,
-                            state,
-                        )
-                        && let Ok(snapshot) = self.held().try_into_api()
+                    if crate::game::fork_compat::block_heard(
+                        mod_api::HookId::UseWithoutItem,
+                        state,
+                    ) && let Ok(snapshot) = self.held().try_into_api()
                     {
                         let click = self.block_click(hit, self.hand, snapshot.as_ref());
-                        self.native_use_without_item(state, &click, &mut empty_answer);
+                        self.block_use_without_item_hook(state, &click, &mut empty_answer);
                     }
                     if empty_answer.is_none()
                         && self
@@ -367,6 +385,19 @@ impl Game<'_> {
                         self.with_block_use_level(|b, level, ticks| {
                             b.use_without_item(level, ticks, state, block_hit, player)
                         })
+                    };
+                    // A mod block whose template's own use passes but whose block entity's
+                    // container has a menu (`native_block_entity_container`): the block opens it,
+                    // as a `MenuProvider` block's useWithoutItem does.
+                    let result = if empty_template_ran
+                        && result == InteractionResult::Pass
+                        && self.mod_menu_opens(hit.pos)
+                    {
+                        empty_template_ran = false;
+                        self.open_block_effect_menu(hit.pos);
+                        InteractionResult::Success
+                    } else {
+                        result
                     };
                     (result, UseBranch::WithoutItem)
                 } else {

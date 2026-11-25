@@ -549,6 +549,34 @@ impl Game<'_> {
         setup: PlayerActionSetup,
     ) -> Result<ScopedActionResult, ActionRefused> {
         let (gi, conn) = self.fake_action_actor(player, action)?;
+        let turn = self.scoped_fake_turn(gi, conn, setup, Default::default(), |game| {
+            game.perform_fake_action(gi, conn, action)
+        })?;
+        Ok(ScopedActionResult::new(
+            turn.answer,
+            turn.held
+                .try_into_api()
+                .expect("action results use load-resolved item keys"),
+            turn.other
+                .try_into_api()
+                .expect("action results use load-resolved item keys"),
+        ))
+    }
+
+    /// The scoped half of [`Self::player_perform_action_scoped`], for any turn of the fake at
+    /// `gi` (`fake_action_actor` found it): its persistent body, items, look and menus are set
+    /// aside for `setup`'s, `play` stands for its per-action state (item use, digging, timers),
+    /// `turn` runs, and all of it is put back, even when the turn refuses. The answer holds what
+    /// the turn returned, the stack left in the main hand, the fake's other stacks and the
+    /// per-action state the turn left (a use still held, `native_fake_use`).
+    pub(super) fn scoped_fake_turn<R>(
+        &mut self,
+        gi: usize,
+        conn: u32,
+        setup: PlayerActionSetup,
+        play: super::lan_actions::GuestPlay,
+        turn: impl FnOnce(&mut Self) -> Result<R, ActionRefused>,
+    ) -> Result<ScopedTurn<R>, ActionRefused> {
         if !setup.eye.iter().all(|v| v.is_finite())
             || !setup.yaw.is_finite()
             || !setup.pitch.is_finite()
@@ -558,9 +586,9 @@ impl Game<'_> {
         let mut state = ScopedPlayerState::new(self.motion, self.items(), setup)?;
         let host = self.lan.as_mut().expect("validated fake's host");
         host.hub.guests.update(gi, |guest| state.swap(guest));
-        let play = host.play.insert(conn, Default::default());
+        let outer_play = host.play.insert(conn, play);
         let menus = host.menus.insert(conn, Default::default());
-        let outcome = self.perform_fake_action(gi, conn, action);
+        let answer = turn(self);
         let host = self.lan.as_mut().expect("guest turns retain the host");
         let (held, other) = host.hub.guests.update(gi, |guest| {
             let held = guest
@@ -583,23 +611,19 @@ impl Game<'_> {
         if let Some(menus) = menus {
             host.menus.insert(conn, menus);
         }
-        host.play.remove(&conn);
-        if let Some(play) = play {
-            host.play.insert(conn, play);
+        let play = host.play.remove(&conn).unwrap_or_default();
+        if let Some(outer) = outer_play {
+            host.play.insert(conn, outer);
         }
-        outcome.map(|outcome| {
-            ScopedActionResult::new(
-                outcome,
-                held.try_into_api()
-                    .expect("action results use load-resolved item keys"),
-                other
-                    .try_into_api()
-                    .expect("action results use load-resolved item keys"),
-            )
+        answer.map(|answer| ScopedTurn {
+            answer,
+            held,
+            other,
+            play,
         })
     }
 
-    fn fake_action_actor(
+    pub(super) fn fake_action_actor(
         &self,
         player: PlayerRef,
         action: PlayerAction,
@@ -653,9 +677,7 @@ impl Game<'_> {
         conn: u32,
         action: PlayerAction,
     ) -> Result<ActionOutcome, ActionRefused> {
-        let acting = Acting::start(&self.fake_action);
-        let failed = std::mem::replace(&mut self.use_failed, false);
-        let consumed = (|| match action {
+        self.fake_acting(|game| match action {
             PlayerAction::UseOn { hand, pos, hit } => {
                 let hit = super::Hit {
                     pos,
@@ -663,23 +685,35 @@ impl Game<'_> {
                     point: hit.point,
                     inside: hit.inside,
                 };
-                self.guest_use_item_on(conn, gi, hit, hand)
+                game.guest_use_item_on(conn, gi, hit, hand)
             }
-            PlayerAction::UseItem { hand } => self.guest_use_item(conn, gi, hand, None),
+            PlayerAction::UseItem { hand } => game.guest_use_item(conn, gi, hand, None),
             PlayerAction::InteractOn {
                 hand,
                 target,
                 location,
             } => {
                 let id = i32::try_from(target.id()).map_err(|_| ActionRefused::InvalidTarget)?;
-                self.guest_interact(conn, gi, id, hand, location)
+                game.guest_interact(conn, gi, id, hand, location)
             }
             PlayerAction::Attack { target } => {
                 let id = i32::try_from(target.id()).map_err(|_| ActionRefused::InvalidTarget)?;
-                self.guest_attack(conn, gi, id)
+                game.guest_attack(conn, gi, id)
             }
-            PlayerAction::BreakBlock { pos } => self.guest_break_block(conn, gi, pos),
-        })();
+            PlayerAction::BreakBlock { pos } => game.guest_break_block(conn, gi, pos),
+        })
+    }
+
+    /// A fake player's action as `perform_action` answers it: `act` runs (true when vanilla's
+    /// result consumed the click), an effect a fake can't take part in is stopped and named, and
+    /// a FAIL that ends the click doesn't read as consumed.
+    pub(super) fn fake_acting(
+        &mut self,
+        act: impl FnOnce(&mut Self) -> Result<bool, ActionRefused>,
+    ) -> Result<ActionOutcome, ActionRefused> {
+        let acting = Acting::start(&self.fake_action);
+        let failed = std::mem::replace(&mut self.use_failed, false);
+        let consumed = act(self);
         // FAIL ends the click, but is not a consuming InteractionResult.
         let consumed = consumed.map(|used| used && !self.use_failed);
         self.use_failed = failed;
@@ -2144,6 +2178,15 @@ impl Game<'_> {
         });
         true
     }
+}
+
+/// What [`Game::scoped_fake_turn`] answers: the turn's own answer, the stack left in the main
+/// hand, the fake's other stacks (inventory, offhand, carried, armour) and its per-action state.
+pub(super) struct ScopedTurn<R> {
+    pub(super) answer: R,
+    pub(super) held: Option<horizon_items::items::ItemStack>,
+    pub(super) other: Vec<horizon_items::items::ItemStack>,
+    pub(super) play: super::lan_actions::GuestPlay,
 }
 
 /// The temporary state of the same persistent guest, not another player or action engine.

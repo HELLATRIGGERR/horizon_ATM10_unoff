@@ -4,6 +4,7 @@
 //! Translated from Just Dire Things 1.5.7 (Direwolf20-MC/JustDireThings, MIT); see the bundle's README.md and
 //! LICENSE-justdirethings.
 pub mod breaker;
+pub mod clicker;
 pub mod config;
 pub mod crystal;
 pub mod fluiddrop;
@@ -14,6 +15,10 @@ pub mod more;
 pub mod paradox;
 pub mod recipe;
 pub mod redstone;
+pub mod swapper;
+pub mod t2;
+pub mod t2x;
+pub mod transmitter;
 pub mod view;
 
 /// `Direction.values()`: down, up, north, south, west, east; a side's index in every per-side array here.

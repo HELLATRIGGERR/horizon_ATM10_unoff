@@ -1,7 +1,9 @@
 /** Oritech's fluid machines, as the `oritech` native bundle and the carry of the player's jar make them (the test world has the
  * mod's defaults, no ATM10 config; the fluid tags of Oritech's own data are added to the content copy).
  *
- * - A cooler (one core beside it) freezes 1,000 mB of water into 3 ice in 200 ticks at 32 FE/t.
+ * - A water bucket used on a cooler (survival) fills its tank with 1,000 mB and leaves the empty bucket in the hand, with no
+ *   menu opening (`MachineBlock.useItemOn`'s fluid interaction). The cooler (one core beside it) freezes the water into
+ *   3 ice in 200 ticks at 32 FE/t.
  * - A centrifuge with a fluid addon turns a dirt and 250 mB of water into clay in 100 ticks at 64 FE/t.
  * - A lava generator (a core above) takes a lava bucket into its tank and burns 100 mB per 120 ticks at 64 FE/t, filling
  *   the pulverizer beside it; the empty bucket moves to its output slot.
@@ -69,7 +71,23 @@ try {
   const cool = `${x} ${y} ${z}`;
   await place(cool, 'oritech:cooler_block[facing=north]');
   await place(`${x - 1} ${y} ${z}`, 'oritech:machine_core_1');
-  await fixture.command(`data merge block ${cool} {"oritech.machine_energy":50000L,fluid:{id:"minecraft:water",amount:1000}}`);
+  // A water bucket used on it fills the tank (survival: the empty bucket comes back), and no menu opens.
+  await fixture.command('gamemode survival @s');
+  await fixture.command(`tp @s ${x + 0.5} ${y} ${z + 2.5} 180 20`);
+  await until(() => fixture.raw(`block ${cool}`), v => v.block === 'oritech:cooler_block', 'the cooler reaches the client');
+  await fixture.replace('hotbar.0', 'minecraft:water_bucket', 1);
+  await fixture.raw(`interact ${cool} south`);
+  {
+    const filled = await until(() => saved(cool), s => tank(s, 'fluid').amount === 1000, 'the bucket fills the cooler', 20000);
+    assert.equal(tank(filled, 'fluid').id, 'minecraft:water');
+    await until(() => fixture.raw('inventory'), v => v.hotbar?.[0]?.item === 'minecraft:bucket', 'the empty bucket is in the hand');
+    await Bun.sleep(500);
+    assert.notEqual((await fixture.raw('screen')).screen, 'container', 'the bucket opens no menu');
+  }
+  await fixture.command('item replace entity @s hotbar.0 with minecraft:air');
+  await fixture.command('gamemode creative @s');
+  fixture.mark('a water bucket used on the cooler fills its tank with 1,000 mB and leaves the empty bucket in the hand');
+  await fixture.command(`data merge block ${cool} {"oritech.machine_energy":50000L}`);
   const c0 = await gametime();
   let nbt = await until(() => saved(cool), s => s.includes('minecraft:ice') && progress(s) === 0, 'the cooler finishes', 90000);
   const coolTicks = (await gametime()) - c0;

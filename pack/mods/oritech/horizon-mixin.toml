@@ -211,6 +211,19 @@ bindings = [
   { name = "ran", ty = "&mut bool", value = "&mut *ran" },
 ]
 
+# `MachineBlock.useItemOn` (and `RefineryModuleBlock`'s) starts with `ItemFluidApi.tryFluidBlockItemInteraction`: a fluid
+# container used on a machine fills from its tanks or empties into them (the engine's `native_fluid_interact`).
+[[injection]]
+id = "fluid-interact-on-use"
+hook = "fluid_interact_on_use"
+hook_version = 1
+kind = "HEAD"
+helper = "hooks/fluid_interact_on_use.rs"
+bindings = [
+  { name = "block", ty = "&str", value = "block" },
+  { name = "takes", ty = "&mut bool", value = "&mut *takes" },
+]
+
 [[injection]]
 id = "fluid-handler-tanks"
 hook = "fluid_handler_tanks"

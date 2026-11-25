@@ -8734,7 +8734,8 @@ impl Game<'_> {
             _ => Direction::East,
         };
         let player = self.use_context();
-        self.with_block_use_level(|b, level, _| {
+        let state = self.world.block(hit.pos[0], hit.pos[1], hit.pos[2]);
+        let (result, branch, changes) = self.with_block_use_level(|b, level, _| {
             let mut level = DryLevel::new(level);
             let hit = horizon_core::geometry::BlockHit {
                 block: horizon_core::position::BlockPos::new(hit.pos[0], hit.pos[1], hit.pos[2]),
@@ -8747,15 +8748,28 @@ impl Game<'_> {
                 inside: hit.inside,
             };
             let mut ticks = horizon_world::level::Ticks::default();
-            let result = if without_item {
-                use horizon_world::level::LevelAccess as _;
-                let state = level.block_state(hit.block);
-                b.use_without_item(&mut level, &mut ticks, state, hit, player)
+            use horizon_world::level::{LevelAccess as _, UseBranch};
+            let state = level.block_state(hit.block);
+            let (result, branch) = if without_item {
+                (
+                    b.use_without_item(&mut level, &mut ticks, state, hit, player),
+                    UseBranch::WithoutItem,
+                )
             } else {
-                b.use_item_on(&mut level, &mut ticks, hit, player, held.map(|s| &*s.item))
+                b.use_item_on_branch(&mut level, &mut ticks, state, hit, player, held.map(|s| &*s.item))
             };
-            (result, (level.changed.into_iter().collect(), level.sounds))
-        })
+            (result, branch, (level.changed.into_iter().collect(), level.sounds))
+        });
+        // A mod block whose template's useWithoutItem passes opens its block entity
+        // container's menu on the server (`mod_menu_opens`): SUCCESS here too, so the hand
+        // swings and no item is used or placed against it.
+        if result == InteractionResult::Pass
+            && branch == horizon_world::level::UseBranch::WithoutItem
+            && self.mod_menu_block(state)
+        {
+            return (InteractionResult::Success, DryUse::default());
+        }
+        (result, changes)
     }
 
     /// MultiPlayerGameMode.useItemOn inside startPrediction, for a block item:
@@ -11879,6 +11893,9 @@ fn in_storage_range(view_distance: i32, center: (i32, i32), x: i32, z: i32) -> b
 // A packet's removals (`RemoveEntities`), apart: this file may not grow.
 #[cfg(test)]
 mod interaction_event_tests;
+
+#[cfg(test)]
+mod native_block_use_prediction_tests;
 
 #[cfg(test)]
 mod native_entity_tests;

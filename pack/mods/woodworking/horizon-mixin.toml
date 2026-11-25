@@ -36,13 +36,16 @@ bindings = [
   { name = "phase", ty = "mod_api::WorldPhase", value = "phase" },
 ]
 
+# The server opened its world: the recipe index is built from its tables there (`native_world_recipes`, no player needed).
 [[injection]]
 id = "server-started"
 hook = "server_started"
 hook_version = 1
 kind = "HEAD"
 helper = "hooks/server_started.rs"
-bindings = []
+bindings = [
+  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
+]
 
 [[injection]]
 id = "block-entity"
@@ -161,19 +164,4 @@ bindings = [
   { name = "at", ty = "[f32; 2]", value = "at" },
   { name = "right", ty = "bool", value = "right" },
   { name = "button", ty = "&mut Option<i32>", value = "&mut *button" },
-]
-
-# A right click on the station opens its menu (the block's own data declares no menu, so the engine's use path would
-# not open one).
-[[injection]]
-id = "right-click-block"
-hook = "right_click_block"
-hook_version = 1
-kind = "HEAD"
-helper = "hooks/right_click_block.rs"
-bindings = [
-  { name = "game", ty = "&mut crate::game::Game<'_>", value = "&mut *self" },
-  { name = "click", ty = "&mod_api::BlockClick<'_>", value = "click" },
-  { name = "result", ty = "&mut mod_api::InteractionResult", value = "&mut *cancellation_result" },
-  { name = "canceled", ty = "&mut bool", value = "&mut *canceled" },
 ]

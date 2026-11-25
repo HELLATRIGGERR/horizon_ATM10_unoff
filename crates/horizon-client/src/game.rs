@@ -2308,6 +2308,8 @@ struct Game<'a> {
     lan_acting_fake: bool,
     /// A fake player's `perform_action` in progress, and what it refused.
     fake_action: std::sync::Arc<native_server::FakeAction>,
+    /// The uses machines' fake players hold over several calls (`native_fake_use`).
+    fake_holds: native_fake_use::FakeHolds,
     /// Command feedback to forward to a guest.
     chat_capture: Option<Vec<horizon_client::text::Text>>,
     /// Packets for the guest acting now, sent once its action returns.
@@ -11988,6 +11990,7 @@ impl<'a> Game<'a> {
             lan_acting_entity: None,
             lan_acting_fake: false,
             fake_action: Default::default(),
+            fake_holds: Default::default(),
             chat_capture: None,
             admin_feedback: Vec::new(),
             console_broadcast: None,

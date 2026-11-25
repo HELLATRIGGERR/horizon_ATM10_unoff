@@ -34,6 +34,12 @@ pub(super) const BREAKER: &str = "justdirethings:blockbreakert1";
 pub(super) const PARADOX: &str = super::justdirethings_time::PARADOX;
 use super::justdirethings_machines::{self as machines, COLLECTOR, ITEM_COLLECTOR, PLACER};
 use super::justdirethings_more::{self as more, DROPPER, FLUID_GEN, FLUID_PLACER, SENSOR};
+use super::justdirethings_swapper::{self as swapper, SWAPPER};
+use super::justdirethings_clicker::{self as clicker, CLICKER_T1, CLICKER_T2};
+use super::justdirethings_t2::{self as t2, BREAKER_T2, PLACER_T2};
+use super::justdirethings_t2x::{self as t2x, DROPPER_T2, FLUID_COLLECTOR_T2, FLUID_PLACER_T2, SENSOR_T2};
+use super::justdirethings_swapper::SWAPPER_T2;
+use super::justdirethings_transmitter::{self as transmitter, TRANSMITTER};
 
 // ---- Settings and the recipe book ------------------------------------------------------------------------------
 
@@ -77,6 +83,11 @@ pub(super) fn opened() {
     super::justdirethings_time::reset();
     machines::reset();
     more::reset();
+    swapper::reset();
+    clicker::reset();
+    t2::reset();
+    t2x::reset();
+    transmitter::reset();
 }
 
 /// `native_world_lifecycle` v2: settings and the recipe book are dropped as the world closes or fails to open.
@@ -88,6 +99,11 @@ pub(super) fn lifecycle(phase: WorldPhase) {
         super::justdirethings_time::reset();
         machines::reset();
         more::reset();
+        swapper::reset();
+        clicker::reset();
+        t2::reset();
+        t2x::reset();
+        transmitter::reset();
     }
 }
 
@@ -269,7 +285,7 @@ fn write_breaker(nbt: &mut Compound, b: &Breaker) {
 
 /// `native_block_entity_types` (compat hook): one type per goo tier and the generator's, named after their blocks.
 pub(super) fn block_entity_types(types: &mut Vec<(String, Vec<String>)>) {
-    for block in Tier::ALL.map(Tier::block).into_iter().chain([GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR, DROPPER, FLUID_PLACER, SENSOR, FLUID_GEN]) {
+    for block in Tier::ALL.map(Tier::block).into_iter().chain([GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR, DROPPER, FLUID_PLACER, SENSOR, FLUID_GEN, SWAPPER, CLICKER_T1, CLICKER_T2, PLACER_T2, BREAKER_T2, DROPPER_T2, SENSOR_T2, FLUID_PLACER_T2, FLUID_COLLECTOR_T2, SWAPPER_T2, TRANSMITTER]) {
         types.push((block.to_owned(), vec![block.to_owned()]));
     }
 }
@@ -291,6 +307,16 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
         put(&mut nbt, "direction", 0);
     } else if block == PARADOX {
         super::justdirethings_time::new_entity(&mut nbt);
+    } else if swapper::owns(block) {
+        swapper::new_entity(&mut nbt);
+    } else if clicker::owns(block) {
+        clicker::new_entity(&mut nbt);
+    } else if t2::owns(block) {
+        t2::new_entity(&mut nbt);
+    } else if t2x::owns(block) {
+        t2x::new_entity(block, &mut nbt);
+    } else if transmitter::owns(block) {
+        transmitter::new_entity(&mut nbt);
     } else if more::owns(block) {
         more::new_entity(block, &mut nbt);
     } else if machines::owns(block) {
@@ -303,7 +329,7 @@ pub(super) fn new_entity(block: &str, entity: &mut Option<Compound>) {
 
 /// `native_block_entity_ticks`: goo and the generator tick.
 pub(super) fn ticks(block: &str, ticks: &mut bool) {
-    if Tier::of_block(block).is_some() || block == GENERATOR || block == BREAKER || block == PARADOX || machines::owns(block) || more::owns(block) {
+    if Tier::of_block(block).is_some() || block == GENERATOR || block == BREAKER || block == PARADOX || machines::owns(block) || more::owns(block) || swapper::owns(block) || clicker::owns(block) || t2::owns(block) || t2x::owns(block) || transmitter::owns(block) {
         *ticks = true;
     }
 }
@@ -322,6 +348,16 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
         machines::tick(game, pos, entity);
     } else if more::owns(entity.id()) {
         more::tick(game, pos, entity);
+    } else if swapper::owns(entity.id()) {
+        swapper::tick(game, pos, entity);
+    } else if clicker::owns(entity.id()) {
+        clicker::tick(game, pos, entity);
+    } else if t2::owns(entity.id()) {
+        t2::tick(game, pos, entity);
+    } else if t2x::owns(entity.id()) {
+        t2x::tick(game, pos, entity);
+    } else if transmitter::owns(entity.id()) {
+        transmitter::tick(game, pos, entity);
     }
 }
 
@@ -395,12 +431,36 @@ pub(super) fn take_use() -> bool {
     USE_TAKEN.with(|u| u.replace(false))
 }
 
+/// The machines (`BaseMachineBlock`'s), all on the furnace template, which opens their menu on a click.
+const MACHINES: &[&str] = &[
+    GENERATOR, BREAKER, PARADOX, PLACER, COLLECTOR, ITEM_COLLECTOR, DROPPER, FLUID_PLACER, SENSOR, FLUID_GEN, SWAPPER, CLICKER_T1, CLICKER_T2, PLACER_T2, BREAKER_T2, DROPPER_T2, SENSOR_T2, FLUID_PLACER_T2, FLUID_COLLECTOR_T2, SWAPPER_T2, TRANSMITTER,
+];
+
+/// `BaseMachineBlock.useWithoutItem` on the server: with the Ferricore Wrench or the Machine Settings Copier in the main hand
+/// the machine passes (`InteractionResult.PASS`), so the item's `useOn` gets the click instead of the menu opening.
+pub(super) fn use_without_item(game: &mut Game<'_>, state: BlockStateId, answer: &mut Option<mod_api::InteractionResult>) {
+    if answer.is_some() || game.remote.is_some() || !game.native_state_block(state).is_some_and(|b| MACHINES.contains(&b)) {
+        return;
+    }
+    let item = game.native_used_stack().as_ref().map(|s| s.item.to_string());
+    if matches!(item.as_deref(), Some("justdirethings:ferricore_wrench" | "justdirethings:machinesettingscopier")) {
+        *answer = Some(mod_api::InteractionResult::Pass);
+    }
+}
+
 /// `GooBlock_Base.useItemOn`: a dead goo fed an item of its tier's revive tag comes alive, with the sculk's spread
 /// sound, and the item is used up unless the player is in creative. On the server only: a client leaves the world to
 /// the server.
 pub(super) fn use_on(game: &mut Game<'_>, stack: &ItemStack, pos: [i32; 3]) {
     USE_TAKEN.with(|u| u.set(false));
     if game.remote.is_some() {
+        return;
+    }
+    // The Ferricore Wrench binds two swappers (`FerricoreWrench.useOn`): a machine passes its click on to the wrench
+    // (`use_without_item`).
+    swapper::wrench(game, &stack.item, pos);
+    if swapper::take_use() {
+        USE_TAKEN.with(|u| u.set(true));
         return;
     }
     let Some(tier) = Tier::of_block(&game.native_block(pos)) else { return };
@@ -439,6 +499,26 @@ pub(super) fn container(block: &str, container: &mut Option<ModContainer>) {
         super::justdirethings_time::container(container);
         return;
     }
+    if swapper::owns(block) && container.is_none() {
+        swapper::container(block, container);
+        return;
+    }
+    if t2x::owns(block) && container.is_none() {
+        t2x::container(block, container);
+        return;
+    }
+    if transmitter::owns(block) && container.is_none() {
+        transmitter::container(container);
+        return;
+    }
+    if clicker::owns(block) && container.is_none() {
+        clicker::container(block, container);
+        return;
+    }
+    if t2::owns(block) && container.is_none() {
+        t2::container(container);
+        return;
+    }
     if more::owns(block) && container.is_none() {
         more::container(block, container);
         return;
@@ -468,13 +548,23 @@ pub(super) fn slot_accepts(block: &str, slot: usize, fuel: bool, accepts: &mut b
     } else if block == BREAKER {
         // The tool slot takes any item, as Java's machine handler does.
         *accepts = *accepts && slot == TOOL;
-    } else if block == PARADOX {
-        // The Paradox Machine's menu has no slot of its own.
+    } else if block == SWAPPER_T2 {
+        swapper::slot_accepts(block, slot, accepts);
+    } else if t2x::owns(block) {
+        t2x::slot_accepts(block, slot, accepts);
+    } else if transmitter::owns(block) {
+        transmitter::slot_accepts(slot, accepts);
+    } else if block == PARADOX || block == SWAPPER {
+        // These machines' menus have no slot of their own.
         *accepts = false;
     } else if machines::owns(block) {
         machines::slot_accepts(block, slot, accepts);
     } else if more::owns(block) {
         more::slot_accepts(slot, accepts);
+    } else if clicker::owns(block) {
+        clicker::slot_accepts(block, slot, accepts);
+    } else if t2::owns(block) {
+        t2::slot_accepts(slot, accepts);
     }
 }
 
@@ -564,6 +654,26 @@ pub(super) fn button(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEn
         more::button(game, pos, entity, id);
         return;
     }
+    if swapper::owns(entity.id()) {
+        swapper::button(game, pos, entity, id);
+        return;
+    }
+    if clicker::owns(entity.id()) {
+        clicker::button(game, pos, entity, id);
+        return;
+    }
+    if t2::owns(entity.id()) {
+        t2::button(game, pos, entity, id);
+        return;
+    }
+    if t2x::owns(entity.id()) {
+        t2x::button(game, pos, entity, id);
+        return;
+    }
+    if transmitter::owns(entity.id()) {
+        transmitter::button(game, pos, entity, id);
+        return;
+    }
     if !(0..4).contains(&id) {
         return;
     }
@@ -588,6 +698,14 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
         more::fe_storage(entity, info);
         return;
     }
+    if entity.id() == TRANSMITTER && info.is_none() {
+        transmitter::fe_storage(entity, info);
+        return;
+    }
+    if (entity.id() == CLICKER_T2 || entity.id() == SWAPPER_T2 || t2::owns(entity.id()) || t2x::owns(entity.id())) && info.is_none() {
+        clicker::fe_storage(entity, info);
+        return;
+    }
     if entity.id() != GENERATOR || info.is_some() {
         return;
     }
@@ -603,6 +721,10 @@ pub(super) fn fe_storage(entity: &ModBlockEntity, info: &mut Option<NativeFeInfo
 pub(super) fn fe_extract(entity: &mut ModBlockEntity, max: i64, simulate: bool, given: &mut Option<i64>) {
     if entity.id() == FLUID_GEN && given.is_none() {
         more::fe_extract(entity, max, simulate, given);
+        return;
+    }
+    if entity.id() == TRANSMITTER && given.is_none() {
+        transmitter::fe_extract(entity, max, simulate, given);
         return;
     }
     if entity.id() != GENERATOR || given.is_some() {

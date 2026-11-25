@@ -1122,6 +1122,15 @@ fn api_stack(tank: &Tank) -> Option<mod_api::FluidStack> {
     Some(mod_api::FluidStack::new(mod_api::__private::fluid_key(&tank.fluid)?, tank.amount.max(0) as u32))
 }
 
+/// `fluid_interact_on_use`: every machine's `useItemOn` (`MachineBlock`, `RefineryModuleBlock`) first tries
+/// `ItemFluidApi.tryFluidBlockItemInteraction` with the container in hand. A machine without tanks moves nothing and
+/// goes on to its menu.
+pub(super) fn fluid_interact_on_use(block: &str, takes: &mut bool) {
+    if machine::of_block(block).is_some() {
+        *takes = true;
+    }
+}
+
 /// `native_fluid_handler_tanks`.
 pub(super) fn fluid_tanks(entity: &ModBlockEntity, tanks: &mut Option<Vec<mod_api::NativeFluidTankInfo>>) {
     let Some(spec) = machine::of_block(entity.id()) else { return };

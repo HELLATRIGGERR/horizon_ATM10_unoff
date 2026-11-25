@@ -93,7 +93,8 @@ transfers are ported as NeoForge has them (`tryFluidTransfer`, `tryFillContainer
 `AndStow` forms with the creative player keeping the container and the result stowed by
 `ItemHandlerHelper.insertItemStacked` or dropped, the fluid type's bucket sounds), and
 `native_fluid_interact(hand, dimension, pos, face)` is `FluidUtil.interactWithFluidHandler`, for a mod block's use to
-call (NeoForge calls it for no block of its own). AE2 meets a native handler as it meets any `IFluidHandler`
+call (NeoForge calls it for no block of its own); the engine calls it on a click on a block a bundle names with
+`fluid_interact_on_use`. AE2 meets a native handler as it meets any `IFluidHandler`
 (`ExternalStorageFacade.FluidHandlerFacade`, `ae2_mod_fluids.rs`): a storage bus lists each tank (only the drainable
 ones under its default extractable-only filter), inserts with `fill` and extracts with `drain(FluidStack)`; import and
 export buses move through it after AE2's own hosts (P2P tunnels, interfaces, pattern providers, the sky stone tank). A

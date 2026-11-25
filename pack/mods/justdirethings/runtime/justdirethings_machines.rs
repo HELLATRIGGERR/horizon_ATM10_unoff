@@ -109,7 +109,7 @@ pub(super) fn write_clock(nbt: &mut Compound, c: &Clock) {
 pub(super) fn read_tank(nbt: &Compound) -> Tank {
     let Some(Tag::Compound(f)) = nbt.get(&key("Fluid")) else { return Tank::default() };
     let Some(Tag::String(id)) = f.get(&key("id")) else { return Tank::default() };
-    let amount = int(f, "amount").clamp(0, COLLECTOR_CAPACITY);
+    let amount = int(f, "amount").clamp(0, justdirethings_core::t2x::FLUID_CAPACITY);
     if amount == 0 {
         return Tank::default();
     }
@@ -216,7 +216,7 @@ pub(super) fn tick(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEnti
 // ---- The Block Placer T1 ---------------------------------------------------------------------------------------
 
 /// `isStackValid`: an item the world places as a block (`instanceof BlockItem`).
-fn is_block_item(game: &mut Game<'_>, item: &str) -> bool {
+pub(super) fn is_block_item(game: &mut Game<'_>, item: &str) -> bool {
     if let Some(known) = BLOCK_ITEMS.with(|b| b.borrow().get(item).copied()) {
         return known;
     }
@@ -235,16 +235,16 @@ fn y_rot(d: Direction) -> f32 {
     }
 }
 
-/// The block in front of a placer and the stack its fake player holds.
-struct PlaceSpot<'a, 'g> {
-    game: &'a mut Game<'g>,
-    level: mod_api::LevelRef,
-    pos: [i32; 3],
+/// The block in front of a placer (or one of a Placer T2's area) and the stack its fake player holds.
+pub(super) struct PlaceSpot<'a, 'g> {
+    pub(super) game: &'a mut Game<'g>,
+    pub(super) level: mod_api::LevelRef,
+    pub(super) pos: [i32; 3],
     /// The face the fake player clicks (`getDirectionValue`).
-    direction: Direction,
-    stack: Option<ItemStack>,
+    pub(super) direction: Direction,
+    pub(super) stack: Option<ItemStack>,
     /// The stack after the placement, when it placed.
-    used: Option<Option<ItemStack>>,
+    pub(super) used: Option<Option<ItemStack>>,
 }
 
 impl Spot for PlaceSpot<'_, '_> {
@@ -326,12 +326,12 @@ fn tick_placer(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntity) 
 
 /// What is around a collector: the source block in front and the fluid container in its slot, one item of which takes
 /// fluid (a bucket's `FluidBucketWrapper` fills only alone).
-struct Around<'a, 'g> {
-    game: &'a mut Game<'g>,
-    level: mod_api::LevelRef,
-    pos: [i32; 3],
-    stack: Option<ItemStack>,
-    changed: bool,
+pub(super) struct Around<'a, 'g> {
+    pub(super) game: &'a mut Game<'g>,
+    pub(super) level: mod_api::LevelRef,
+    pub(super) pos: [i32; 3],
+    pub(super) stack: Option<ItemStack>,
+    pub(super) changed: bool,
 }
 
 impl Source for Around<'_, '_> {
@@ -416,11 +416,16 @@ fn tick_collector(game: &mut Game<'_>, pos: [i32; 3], entity: &mut ModBlockEntit
     }
 }
 
+/// A fluid machine's tank size: the T2 machines' is four times the T1's.
+pub(super) fn capacity_of(block: &str) -> i32 {
+    if super::justdirethings_t2x::is_fluid(block) { justdirethings_core::t2x::FLUID_CAPACITY } else { COLLECTOR_CAPACITY }
+}
+
 /// The collector's tank as a fluid handler (`MACHINE_FLUID_HANDLER` on every side): one tank of any fluid.
 pub(super) fn fluid_tanks(entity: &ModBlockEntity, tanks: &mut Option<Vec<NativeFluidTankInfo>>) {
     let t = read_tank(&entity.nbt);
     let stack = t.fluid.as_deref().and_then(mod_api::__private::fluid_key).map(|k| FluidStack::new(k, t.amount.unsigned_abs())).filter(|_| t.amount > 0);
-    *tanks = Some(vec![NativeFluidTankInfo { stack, capacity: COLLECTOR_CAPACITY, drainable: t.amount > 0 }]);
+    *tanks = Some(vec![NativeFluidTankInfo { stack, capacity: capacity_of(entity.id()), drainable: t.amount > 0 }]);
 }
 
 /// `IFluidHandler.fill` on the collector's tank.
@@ -430,7 +435,7 @@ pub(super) fn fluid_fill(entity: &mut ModBlockEntity, resource: &FluidStack, sim
         return;
     };
     let mut t = read_tank(&entity.nbt);
-    let took = t.fill(fluid, i32::try_from(resource.amount).unwrap_or(i32::MAX), COLLECTOR_CAPACITY, simulate);
+    let took = t.fill(fluid, i32::try_from(resource.amount).unwrap_or(i32::MAX), capacity_of(entity.id()), simulate);
     if took > 0 && !simulate {
         write_tank(&mut entity.nbt, &t);
     }

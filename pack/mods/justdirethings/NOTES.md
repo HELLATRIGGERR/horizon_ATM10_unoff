@@ -165,10 +165,16 @@ the v5 resources and the empty content mod in AE2's place.
   and the collector's filter reads the fluid's bucket by name (`<fluid>_bucket`). The Swapper T2 moves only the entities of its
   own area on its run (the partner moves its own on its run), as Java; a block with a block entity stays where it is, as
   the T1's; the entity buttons' ids are 70 to 78 (the T1's 5 to 13 are the shared area buttons' here).
+- Energy Transmitter: its storage answers on every side (Java's only on the side it faces); a block that is full when the
+  area is scanned is not charged until the next scan (Java asks `canReceive`, true while full); the FE item in its slot
+  (`drainFromSlot`, the Pocket Generator) is not ported (the slot is not shown); no flow particles; the transmitters of a
+  network are visited in the order the scan found them (Java's hash set order); each transmitter's energy lives in the game's
+  memory while it ticks and is written to its compound on its tick, a changed compound (`data merge`) winning; the energy
+  bar stands left of the panel.
 
 ## What is left
 
 See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Block Swapper's
 cross-dimension swap and block entities, the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
-accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the
+accelerates block entity ticks), the Player Accessor, the tools, armour and their abilities, the Fuel Canister and the
 Pocket Generator, the portal gun and the wands.

@@ -88,7 +88,7 @@ function makeContent(): void {
   rmSync(content, { recursive: true, force: true });
   cpSync(carry, content, { recursive: true });
   const blocks = join(content, 'data/justdirethings/horizon/block');
-  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json', 'droppert1.json', 'fluidplacert1.json', 'sensort1.json', 'generatorfluidt1.json', 'blockswappert1.json', 'clickert1.json', 'clickert2.json', 'blockplacert2.json', 'blockbreakert2.json', 'droppert2.json', 'sensort2.json', 'fluidplacert2.json', 'fluidcollectort2.json', 'blockswappert2.json'].includes(f))) {
+  for (const file of readdirSync(blocks).filter(f => ['generatort1.json', 'blockbreakert1.json', 'paradoxmachine.json', 'blockplacert1.json', 'fluidcollectort1.json', 'itemcollector.json', 'droppert1.json', 'fluidplacert1.json', 'sensort1.json', 'generatorfluidt1.json', 'blockswappert1.json', 'clickert1.json', 'clickert2.json', 'blockplacert2.json', 'blockbreakert2.json', 'droppert2.json', 'sensort2.json', 'fluidplacert2.json', 'fluidcollectort2.json', 'blockswappert2.json', 'energytransmitter.json'].includes(f))) {
     const path = join(blocks, file);
     const decl = JSON.parse(readFileSync(path, 'utf8'));
     decl.template = 'minecraft:furnace';

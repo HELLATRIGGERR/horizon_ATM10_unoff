@@ -16,6 +16,7 @@ use super::{
     justdirethings_t2::{BREAKER_T2, PLACER_T2},
     justdirethings_swapper::{SWAPPER, SWAPPER_T2},
     justdirethings_t2x::{DROPPER_T2, FLUID_COLLECTOR_T2, FLUID_PLACER_T2, SENSOR_T2},
+    justdirethings_transmitter::TRANSMITTER,
     justdirethings_world::{BREAKER, GENERATOR, PARADOX},
 };
 use horizon_client::hud::HudBatch;
@@ -104,6 +105,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
     }
     if is_t2x(block) {
         *screen = Some(t2x_screen(block));
+        return;
+    }
+    if block == TRANSMITTER {
+        *screen = Some(t2x_screen(SENSOR_T2));
         return;
     }
     if block == SWAPPER {
@@ -230,6 +235,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if is_t2x(block) {
         draw_t2x(game, block, data, batch, origin);
+        return;
+    }
+    if block == TRANSMITTER {
+        draw_transmitter(game, data, batch, origin);
         return;
     }
     if block == BREAKER_T2 {
@@ -423,6 +432,10 @@ pub(super) fn click(_game: &Game<'_>, block: &str, data: &[i32], at: [f32; 2], r
         click_t2x(block, data, at, right, button);
         return;
     }
+    if block == TRANSMITTER {
+        click_transmitter(data, at, right, button);
+        return;
+    }
     if block == BREAKER_T2 {
         click_breaker2(data, at, right, button);
         return;
@@ -473,6 +486,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
     }
     if is_t2x(block) {
         tooltip_t2x(block, data, at, lines);
+        return;
+    }
+    if block == TRANSMITTER {
+        tooltip_transmitter(data, at, lines);
         return;
     }
     if block == BREAKER_T2 {
@@ -1055,10 +1072,11 @@ const ALL_PARTS: Parts = Parts { radius: true, allow: true, compare: Some(C2_COM
 /// the energy bar left of the panel, the filter slots, the area's value buttons, the allowlist, compare and render area
 /// buttons. `energy`: where in `data` the energy, radius, offsets and flags start.
 fn draw_t2_parts(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize) {
-    draw_t2_parts_with(pen, data, energy, ALL_PARTS);
+    draw_t2_parts_with(pen, data, energy, ALL_PARTS, justdirethings_core::t2::CAPACITY);
 }
 
-fn draw_t2_parts_with(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize, p: Parts) {
+/// `capacity`: what the energy bar's full height is.
+fn draw_t2_parts_with(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize, p: Parts, capacity: i32) {
     for i in 0..9 {
         pen.slot([FILTER_ROW[0] + 18.0 * i as f32, FILTER_ROW[1]]);
     }
@@ -1084,7 +1102,7 @@ fn draw_t2_parts_with(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize, p: Par
     toggle(pen, "justdirethings:gui/buttons/area", RENDER_AREA, d(data, energy + 9) != 0);
     let u = 34.0 / 36.0;
     pen.sprite(POWERBAR, [0.0, 0.0, 18.0 * u, 72.0], C2_ENERGY);
-    let rows = justdirethings_core::t2::Powered { energy: d(data, energy) }.rows().clamp(0, 70) as f32;
+    let rows = (i64::from(d(data, energy)) * 70 / i64::from(capacity.max(1))).clamp(0, 70) as f32;
     pen.sprite(POWERBAR, [19.0 * u, 69.0 - rows, 17.0 * u, rows + 1.0], [C2_ENERGY[0] + 1.0, C2_ENERGY[1] + 70.0 - rows, 17.0, rows + 1.0]);
 }
 
@@ -1283,7 +1301,7 @@ fn draw_t2x(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, or
     pen.panel(if fluid { [-54.0, 20.0, 58.0, 102.0] } else { [-30.0, 20.0, 34.0, 102.0] });
     frame(&mut pen);
     let energy = t2x_energy(block);
-    draw_t2_parts_with(&mut pen, data, energy, t2x_parts(block));
+    draw_t2_parts_with(&mut pen, data, energy, t2x_parts(block), justdirethings_core::t2::CAPACITY);
     match block {
         DROPPER_T2 => {
             for i in 0..9 {
@@ -1407,6 +1425,53 @@ fn tooltip_t2x(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>)
         (if d(data, t2x_energy(block) + 7) != 0 { "Allow List" } else { "Deny List" }).to_owned()
     } else if t2x_parts(block).compare.is_some_and(|c| inside(c, at)) {
         "Compare NBT".to_owned()
+    } else {
+        return;
+    };
+    lines.push(line);
+}
+
+// ---- The Energy Transmitter's screen (`EnergyTransmitterScreen` on `BaseMachineScreen`) -----------------------------------
+
+/// Its show particles button (`topSectionTop + 62`); the data is 0 redstone, 1 show particles, then the T2 parts from 2
+/// (the energy is the network's total), and the buffer of one transmitter last.
+const T_PARTICLES: [f32; 4] = [116.0, 82.0, 16.0, 16.0];
+const T_ENERGY: usize = 2;
+
+fn draw_transmitter(game: &Game<'_>, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    pen.panel([-30.0, 20.0, 34.0, 102.0]);
+    frame(&mut pen);
+    draw_t2_parts_with(&mut pen, data, T_ENERGY, ALL_PARTS, d(data, T_ENERGY + 10).max(1));
+    toggle(&mut pen, "justdirethings:gui/buttons/showfakeplayer", T_PARTICLES, d(data, 1) != 0);
+    labels_at(&mut pen, d(data, 0), REDSTONE_BASE, "Energy Transmitter");
+}
+
+fn click_transmitter(data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    *button = if inside(REDSTONE_BASE, at) {
+        Some((d(data, 0).clamp(0, 3) + if right { 3 } else { 1 }) % 4)
+    } else if right {
+        None
+    } else if inside(T_PARTICLES, at) {
+        Some(27)
+    } else {
+        click_t2_parts(at)
+    };
+}
+
+fn tooltip_transmitter(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    let line = if inside(REDSTONE_BASE, at) {
+        redstone_line(Mode::from_index(d(data, 0))).to_owned()
+    } else if inside(C2_ENERGY, at) {
+        format!("{} / {} FE", d(data, T_ENERGY), d(data, T_ENERGY + 10))
+    } else if inside(T_PARTICLES, at) {
+        "Show Particles".to_owned()
+    } else if inside(C2_ALLOWLIST, at) {
+        (if d(data, T_ENERGY + 7) != 0 { "Allow List" } else { "Deny List" }).to_owned()
+    } else if inside(C2_COMPARE, at) {
+        "Compare NBT".to_owned()
+    } else if inside(RENDER_AREA, at) {
+        "Render Area".to_owned()
     } else {
         return;
     };

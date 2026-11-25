@@ -20,7 +20,7 @@ The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlo
 `DropperT1BE`, `DropperT1Screen`, `FluidPlacerT1BE`, `SensorT1BE`, `SensorT1`, `SensorT1Screen`, `GeneratorFluidT1BE`,
 `GeneratorFluidT1Screen`, `RefinedFuel`, `BlockSwapperT1BE`, `BlockSwapperT1Screen`, `FerricoreWrench`, `GooTier`, `ArmorTiers`,
 `ClickerT1BE`, `ClickerT2BE`, `ClickerT1Screen`, `ClickerT2Screen`, `FakePlayerUtil`, `UsefulFakePlayer`, `PoweredMachineBE`,
-`BlockPlacerT2BE`, `BlockBreakerT2BE`, `DropperT2BE`, `SensorT2BE`, `FluidPlacerT2BE`, `FluidCollectorT2BE`, `BlockSwapperT2BE`),
+`BlockPlacerT2BE`, `BlockBreakerT2BE`, `DropperT2BE`, `SensorT2BE`, `FluidPlacerT2BE`, `FluidCollectorT2BE`, `BlockSwapperT2BE`, `EnergyTransmitterBE`, `TransmitterEnergyStorage`, `EnergyTransmitterScreen`),
 not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
@@ -131,6 +131,13 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
     one's starting point, its area's offset), the entities of the area, what the filter lets through, and not what both
     areas hold; it needs 50 FE for each block of the area to run, and takes 50 FE for each block (both sides count) and
     entity moved. A radius button's change goes to the partner, and so does the radius of the swapper that was bound last.
+- **Energy Transmitter**: a 1,000,000 FE buffer (the config's `energy_transmitter_t1` values), an area that starts as the
+  block above it, nine filter slots, a redstone button and a show particles button (no particles are drawn). Every 50
+  ticks it scans its area, nearest first, for blocks with a block entity that take Forge Energy and pass the filter and for
+  other transmitters; each tick, while the network of transmitters it sees holds energy, it sends each block up to 1,000 FE
+  less 1% a block of Manhattan distance (rounded down), taken from its own energy, then balances the network (every
+  transmitter the average, the remainder one more each in order). What it holds, takes and gives out in a call is the
+  network's, shared among its transmitters.
 - **Tool and armour tiers**: ferricore, blazegold, celestigem and eclipse alloy tools, armour and the wrench are items of the
   carry (their tool rules, durability and repair, equipment assets). The carry holds no attribute modifiers for
   celestigem's and eclipse alloy's, so the content step adds the mod's own: `GooTier`'s damage bonus (celestigem 4,

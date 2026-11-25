@@ -13,6 +13,24 @@ pub struct Config {
     pub fluid_generator: FluidGeneratorSettings,
     pub crystal: CrystalSettings,
     pub paradox: ParadoxSettings,
+    pub transmitter: TransmitterSettings,
+}
+
+/// `energy_transmitter_t1.*`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TransmitterSettings {
+    /// The buffer of each transmitter.
+    pub max_rf: i32,
+    /// The most FE a tick it sends to a machine or another transmitter, and takes in a call.
+    pub rf_per_tick: i32,
+    /// The energy lost per block of distance, in percent.
+    pub loss_per_block: f64,
+}
+
+impl Default for TransmitterSettings {
+    fn default() -> Self {
+        Self { max_rf: 1_000_000, rf_per_tick: 1000, loss_per_block: 1.0 }
+    }
 }
 
 /// `time_crystal.*`: whether the three stage lists replace the normal rules (stage 1 outside the Nether and the End,
@@ -109,6 +127,7 @@ impl Default for Config {
             fluid_generator: FluidGeneratorSettings::default(),
             crystal: CrystalSettings::default(),
             paradox: ParadoxSettings::default(),
+            transmitter: TransmitterSettings::default(),
         }
     }
 }
@@ -161,6 +180,7 @@ impl Config {
         let g = d.generator;
         let p = d.paradox;
         let f = d.fluid_generator;
+        let t = d.transmitter;
         let boolean = |key: &str, default: bool| match values.get(key) {
             Some(Value::Bool(b)) => *b,
             _ => default,
@@ -212,6 +232,11 @@ impl Config {
                 energy_per_entity: float("paradox_machine.paradox_energy_per_entity", p.energy_per_entity),
                 energy_max: float("paradox_machine.paradox_energy_max", p.energy_max),
                 restricted_mobs: boolean("paradox_machine.paradox_restricted_mobs", p.restricted_mobs),
+            },
+            transmitter: TransmitterSettings {
+                max_rf: int("energy_transmitter_t1.energy_transmitter_t1_max_rf", t.max_rf, 1, i32::MAX),
+                rf_per_tick: int("energy_transmitter_t1.energy_transmitter_t1_rf_per_tick", t.rf_per_tick, 1, i32::MAX),
+                loss_per_block: float("energy_transmitter_t1.energy_transmitter_t1_loss_per_block", t.loss_per_block).min(100.0),
             },
         }
     }

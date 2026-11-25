@@ -1032,14 +1032,33 @@ fn merged_resources(
     stacks: &BTreeMap<String, Vec<(usize, Provided)>>,
 ) -> BTreeMap<String, Vec<u8>> {
     let filters: Vec<_> = packs.iter().flat_map(|pack| &pack.filter).collect();
+    let below = |name: &str| !filters.iter().any(|filter| filter.blocks(name));
+    // Every layer of every stack, read side by side on up to 8 threads and taken in the stacks'
+    // order. A pack of mods stacks each of their blockstate and language files, and on a first
+    // start each read is a cold open, which one thread waited on in turn.
+    let reads: Vec<(&crate::resource_source::ResourceSource, &str)> = stacks
+        .iter()
+        .flat_map(|(name, stack)| {
+            below(name)
+                .then_some((base, name.as_str()))
+                .into_iter()
+                .chain(
+                    stack
+                        .iter()
+                        .map(|(_, (_, source, inner))| (source, inner.as_str())),
+                )
+        })
+        .collect();
+    let mut read =
+        crate::par::par_map_on(8, &reads, |(source, name)| source.read(name).ok()).into_iter();
     let mut merged = BTreeMap::new();
     for (name, stack) in stacks {
         let mut layers = Vec::new();
-        if !filters.iter().any(|filter| filter.blocks(name)) {
-            layers.extend(base.read(name).ok());
+        if below(name) {
+            layers.extend(read.next().flatten());
         }
-        for (owner, (_, source, inner)) in stack {
-            let bytes = source.read(inner).ok();
+        for (owner, _) in stack {
+            let bytes = read.next().flatten();
             let bytes = match (bytes, merge_kind(name)) {
                 (Some(bytes), Some(Merge::Sounds)) => Some(
                     packs
@@ -2265,6 +2284,79 @@ mod tests {
             merged["block.anvil.use"]["sounds"],
             serde_json::json!(["kept"])
         );
+        let _ = fs::remove_dir_all(base);
+    }
+    /// Every layer of every stack is read side by side and merged in pack order: whatever thread
+    /// read a file, a language file's later pack wins its keys and a blockstate keeps its
+    /// definitions bottom first, a layer that doesn't parse left out as before.
+    #[test]
+    fn stacked_layers_read_side_by_side_merge_in_pack_order() {
+        let base =
+            std::env::temp_dir().join(format!("horizon-packs-stacks-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let write = |path: PathBuf, text: &str| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, text).unwrap();
+        };
+        let vanilla = base.join("vanilla");
+        write(
+            vanilla.join("assets/minecraft/lang/en_us.json"),
+            r#"{"a":"vanilla","b":"vanilla"}"#,
+        );
+        let ids = ["low", "mid", "high"];
+        let packs: Vec<Pack> = ids
+            .iter()
+            .map(|id| {
+                let dir = base.join(id);
+                write(
+                    dir.join("assets/minecraft/lang/en_us.json"),
+                    &format!(r#"{{"b":"{id}","{id}":"{id}"}}"#),
+                );
+                for i in 0..60 {
+                    write(
+                        dir.join(format!("assets/demo/lang/l{i}.json")),
+                        &format!(r#"{{"k":"{id}","{id}":"{i}"}}"#),
+                    );
+                    let blockstate = if *id == "mid" && i % 7 == 0 {
+                        "not json".to_owned()
+                    } else {
+                        format!(r#"{{"variants":{{"":{{"model":"{id}:{i}"}}}}}}"#)
+                    };
+                    write(
+                        dir.join(format!("assets/demo/blockstates/b{i}.json")),
+                        &blockstate,
+                    );
+                }
+                Pack::mod_layer((*id).into(), Source::Dir(dir))
+            })
+            .collect();
+        let source = resources(
+            crate::resource_source::ResourceSource::directory(vanilla),
+            &packs,
+        )
+        .unwrap();
+        let read = |name: &str| -> serde_json::Value {
+            serde_json::from_slice(&source.read(name).unwrap()).unwrap()
+        };
+        assert_eq!(
+            read("assets/minecraft/lang/en_us.json"),
+            serde_json::json!({"a":"vanilla","b":"high","low":"low","mid":"mid","high":"high"})
+        );
+        for i in 0..60 {
+            assert_eq!(
+                read(&format!("assets/demo/lang/l{i}.json")),
+                serde_json::json!({"k":"high","low":i.to_string(),"mid":i.to_string(),"high":i.to_string()})
+            );
+            let models: Vec<serde_json::Value> = ids
+                .iter()
+                .filter(|id| !(**id == "mid" && i % 7 == 0))
+                .map(|id| serde_json::json!({"variants":{"":{"model":format!("{id}:{i}")}}}))
+                .collect();
+            assert_eq!(
+                read(&format!("assets/demo/blockstates/b{i}.json")),
+                serde_json::json!({BLOCKSTATE_LAYERS: models})
+            );
+        }
         let _ = fs::remove_dir_all(base);
     }
     #[test]

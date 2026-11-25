@@ -194,7 +194,10 @@ pub fn build_with_conditions(
     let _staging = super::root_lifetime::StagingRoot(tables_root.clone());
     let overlay = Overlay::new(base, &tables_root)?;
     let jobs = table_jobs(base, &overlay)?;
-    tables(base, &plan, &overlay, &jobs)?;
+    {
+        let _step = crate::spans::startup::step("mods.build.tables");
+        tables(base, &plan, &overlay, &jobs)?;
+    }
     // Mod files, and every tag addition gathered per tag file.
     let mut tags: BTreeMap<String, TagMerge> = BTreeMap::new();
     let mut warnings = Vec::new();
@@ -221,23 +224,37 @@ pub fn build_with_conditions(
                     ));
                 }
             }
-            for file in layer.data.list("data/") {
+            // Tags, biome and structure modifiers and worldgen files are read; the rest is
+            // passed by.
+            let skipped = |file: &str| {
+                let is_tag = file.contains("/tags/") && file.ends_with(".json");
+                !is_tag
+                    && (file.starts_with(&declarations)
+                        || (!biomes::is_modifier(file)
+                            && !structures::is_modifier(file)
+                            && worldgen_entry(file).is_none()))
+            };
+            let files = layer.data.list("data/");
+            // The files read below, read side by side and taken in the listing's order. On a
+            // first start each one is a cold open, which one thread waited on in turn.
+            let wanted: Vec<&str> = files
+                .iter()
+                .map(String::as_str)
+                .filter(|file| !skipped(file))
+                .collect();
+            let mut read = par_map(&wanted, FILE_THREADS, |file| layer.data.read(file)).into_iter();
+            for file in files {
                 if let Some((namespace, _)) = file
                     .strip_prefix("data/")
                     .and_then(|rest| rest.split_once('/'))
                 {
                     namespaces.insert(namespace.to_owned());
                 }
-                let is_tag = file.contains("/tags/") && file.ends_with(".json");
-                if !is_tag
-                    && (file.starts_with(&declarations)
-                        || (!biomes::is_modifier(&file)
-                            && !structures::is_modifier(&file)
-                            && worldgen_entry(&file).is_none()))
-                {
+                if skipped(&file) {
                     continue;
                 }
-                let bytes = layer.data.read(&file).ok_or_else(|| {
+                let is_tag = file.contains("/tags/") && file.ends_with(".json");
+                let bytes = read.next().flatten().ok_or_else(|| {
                     std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
                         format!("{}: {file}", layer.assets.id),
@@ -563,7 +580,10 @@ pub fn resource_root_with_conditions(
     if inventory.is_empty() && !has_content {
         return Ok(base.to_owned());
     }
-    let mut stamp = stamp(base, jar_store, mods, inventory)?;
+    let mut stamp = {
+        let _step = crate::spans::startup::step("mods.stamp");
+        stamp(base, jar_store, mods, inventory)?
+    };
     if conditions.has_registered() {
         use std::hash::{Hash, Hasher};
         let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -594,6 +614,7 @@ pub fn resource_root_with_conditions(
         return Ok(out);
     }
     if has_content {
+        let _step = crate::spans::startup::step("mods.build");
         for warning in build_with_conditions(base, jar_store, mods, &out, inventory, conditions)? {
             log::warn!("Horizon: {warning}");
         }

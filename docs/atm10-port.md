@@ -280,6 +280,23 @@ loss (cold disk cache, the machine busy rebuilding) also reached the world, at 1
 the 20 minutes after it. 46 blockstates of mods name models 26.3 doesn't have (`minecraft:block/oak_sign`...): the
 missing model, a warning.
 
+On the merged engine, a cold start (the PC just started, so no file of the carries is in the disk cache or known to the
+virus scanner) waits on opening each carried file once, about 1,300 files a second at best on this PC. The content
+root's stamp reads each mod folder's listing, not each file, and the root's build, its stacked resources (every mod's
+blockstates and languages) and the world's data load read their files side by side. Measured on 25.11 with
+`pack-start.ts` (60 carries, 128,544 files, then the whole pack, 618,278 files):
+
+| Merged engine | Content root | Title | In the world |
+|---|--:|--:|--:|
+| 60 carries, cold first start | 19 s | 79 s | |
+| 60 carries, warm first start | 8 s | 22 s | |
+| 60 carries in 26.3 form: cold restart / warm restart (root and data file reused) | 11 s / 3 s | 62 s / 10 s | 71 s / 22 s |
+| The whole pack, cold first start | 84 s | 365 s | |
+
+A restart reuses the content root, but on the merged engine the root's `horizon-data.bin` holds only the root's own
+generated files: the carries' data files, models and textures are read from their folders at every start, which is
+what a cold restart still waits on. The whole pack in 26.3 form opens a world through the title screen and reopens it.
+
 AE2's basics in the full pack: `tools/atm10/tests/fullpack-ae2.ts` opens a world with every carry beside AE2 and its
 addons (the AE2 world harness, on the server thread; `FULLPACK_AE2_MODE=in-frame` for the other path) and plays it as
 a player: a fluix glass cable from the creative inventory placed in creative and a given one in survival; a creative

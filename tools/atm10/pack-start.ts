@@ -277,7 +277,9 @@ async function run(label: string, index: number, create: boolean): Promise<void>
       // session lasts that long, and the next start reads one file for the root's 600,000. Quit once it is there.
       // It is not what this test proves: after PACK_START_DATA_WAIT_S (default 300) the run goes on without it.
       const end = performance.now() + Number(process.env.PACK_START_DATA_WAIT_S ?? 300) * 1000;
-      while (/content root built/.test(readFileSync(g.log, 'utf8')) && performance.now() < end && g.child.exitCode === null) {
+      // A first start builds the root: main's engine says so in its log, the merged engine's starts on an empty cache.
+      const built = launch.content_root === 'built' || /content root built/.test(readFileSync(g.log, 'utf8'));
+      while (built && performance.now() < end && g.child.exitCode === null) {
         if (/wrote horizon-data\.bin|horizon-data\.bin not written/.test(readFileSync(g.log, 'utf8'))) { g.mark('data_file_written'); break; }
         await Bun.sleep(1000);
       }

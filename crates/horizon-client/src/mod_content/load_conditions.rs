@@ -194,7 +194,10 @@ pub fn build_with_conditions(
     let _staging = super::root_lifetime::StagingRoot(tables_root.clone());
     let overlay = Overlay::new(base, &tables_root)?;
     let jobs = table_jobs(base, &overlay)?;
-    tables(base, &plan, &overlay, &jobs)?;
+    {
+        let _step = crate::spans::startup::step("mods.build.tables");
+        tables(base, &plan, &overlay, &jobs)?;
+    }
     // Mod files, and every tag addition gathered per tag file.
     let mut tags: BTreeMap<String, TagMerge> = BTreeMap::new();
     let mut warnings = Vec::new();
@@ -564,7 +567,10 @@ pub fn resource_root_with_conditions(
     if inventory.is_empty() && !has_content {
         return Ok(base.to_owned());
     }
-    let mut stamp = stamp(base, jar_store, mods, inventory)?;
+    let mut stamp = {
+        let _step = crate::spans::startup::step("mods.stamp");
+        stamp(base, jar_store, mods, inventory)?
+    };
     if conditions.has_registered() {
         use std::hash::{Hash, Hasher};
         let mut hash = std::collections::hash_map::DefaultHasher::new();
@@ -595,6 +601,7 @@ pub fn resource_root_with_conditions(
         return Ok(out);
     }
     if has_content {
+        let _step = crate::spans::startup::step("mods.build");
         for warning in build_with_conditions(base, jar_store, mods, &out, inventory, conditions)? {
             log::warn!("Horizon: {warning}");
         }

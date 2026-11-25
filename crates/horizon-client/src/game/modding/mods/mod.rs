@@ -823,7 +823,10 @@ pub(super) fn content_overlay(
             (source.path, source.manifest, declared)
         })
         .collect();
-    let read = read_contents(&requests);
+    let read = {
+        let _step = horizon_client::spans::startup::step("mods.read_contents");
+        read_contents(&requests)
+    };
     for (index, content) in order.into_iter().zip(read) {
         let source = &packages[index];
         let m = source.manifest;
@@ -939,7 +942,10 @@ pub(super) fn content_overlay(
     let prepared = super::load_conditions::content_root_with_conditions(
         root, jar_store, &mods, &cache, &inventory, sources,
     )?;
-    let root = mod_content::resolved_resources(root, prepared, jar_store, &mods, cache)?;
+    let root = {
+        let _step = horizon_client::spans::startup::step("mods.resolve");
+        mod_content::resolved_resources(root, prepared, jar_store, &mods, cache)?
+    };
     let _ = sources.content_base.set(original_base);
     *sources.load_notices.lock().unwrap() = resolved.warnings;
     Ok(ContentOverlay {

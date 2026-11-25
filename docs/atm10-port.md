@@ -485,59 +485,33 @@ The carries hold worldgen data in 26.3's form: `worldgen/feature/` (unwrapped), 
 `a_fresh_carry_writes_worldgen_in_26_3s_form` (port-pack) and `refresh_rewrites_old_carries_without_writing_through_links`
 (worldgen) prove it.
 
-ATM10 8.4, 288 carries, seed 1234, 1,089 chunks per dimension:
+How the content build reads the carries' worldgen:
 
-| | Before (1.21.1 form) | After (26.3 form) |
-|---|--:|--:|
-| Biome modifiers present | 481 | 481 |
-| Biome modifiers read | 359 | 359 |
-| Biome modifiers applied | 296 | 296 |
-| Vanilla biomes changed | 67 | 67 |
-| Registered mod biomes | 0 | 0 |
-| **Overworld** | | |
-| Mod ore blocks | 0 | 2,200,862 |
-| Mods with ores | 0 | 14 |
-| Mod features placing | 0 | 82 |
-| Placed features that can't run | 319 | 181 |
-| Mod structure starts (survey) | 354 | 354 |
-| **The End** | | |
-| Mod ore blocks | 0 | 61,737 |
-| Mods with ores | 0 | 5 |
-| Mod features placing | 0 | 27 |
-| Placed features that can't run | 69 | 5 |
-| **The Nether** | | |
-| Mod ore blocks | 0 | 702,596 |
-| Mods with ores | 0 | 6 |
-| Mod features placing | 0 | 30 |
-| Placed features that can't run | 70 | 5 |
+- Only `data/<ns>/worldgen/<kind>/` is worldgen. NeoForge's data maps under `data/<ns>/data_maps/worldgen/biome/`
+  (Twilight Forest, Undergarden) are not biomes.
+- Mods' biomes, features, placed features, structures, sets, pools, processor lists and carvers join the bundles of
+  `worldgen/`. A configured carver whose type the engine doesn't have (Twilight Forest's `tf_caves` and
+  `highland_caves`, Ad Astra's `crater`, Eternal Starlight's `caves`, Undergarden's `undergarden_cave`) is left
+  out with a warning. So is a mod biome's reference to a carver nobody registers, which would otherwise stop
+  Create New World.
+- The carries' ore features are `minecraft:ore` with `targets` at the top level (Modern Industrialization 20,
+  All the Ores 17). The 1.21.1 `config` wrapper, which the engine refused as `invalid world generation field:
+  targets`, is gone at carry time.
 
-Overworld ores by mod: All the Ores 987K, Modern Industrialization 585K, Railcraft 233K, Silent Gems 100K,
-Oritech 81K, XyCraft World 70K, Occultism 49K, Theurgy 36K, Evilcraft 22K, Silent Gear 16K, Ice and Fire 11K,
-Forbidden Arcanus 8K, Iron's Spellbooks 2K, Draconic Evolution 381. Vanilla ores: 296K. Features placing:
-MI 20, All the Ores 17, Silent Gems 13, Railcraft 9, XyCraft World 7, Forbidden Arcanus 4, Evilcraft 3,
-Oritech 2, and one each from Occultism, Silent Gear, Theurgy, Ice and Fire, Iron's Spellbooks.
+`worldgen_audit::tests::full_pack_worldgen_loads` (horizon-client-lib) builds the overworld, Nether and End
+generators from a built content root. Point `HORIZON_FULLPACK_CONTENT` at a game's
+`.horizon-cache/mod-content/<hash>`. It takes a minute, where a full-pack game start takes far longer.
 
-Overworld structures (survey, radius 64): MVS 95, Better Dungeons 72, Formations Overworld 41,
-Repurposed Structures 26, Ad Astra 22, Mo' Structures 13, AE2 12, Dungeons Arise 12, Tombstone 11,
-Ars Additions 9, Structory 8, CTOV 7, Towns and Towers 7.
+What can't run yet, from the carries:
 
-What still can't run, and why:
-
-- **181 overworld features** (of 263 that the modifiers declare): `basic feature type` 101 (the engine
-  doesn't have the mod's feature type: Yung's Extras 62, Pamhc2trees 50, and others), `radius` 50
-  (Pamhc2trees' trees: NeoForge's 1.21.1 radius integer, not ported), `below_trunk_provider` 13
-  (Ice and Fire 8, Herbs and Harvest 5: a tree part the engine doesn't read), and a few others.
-- **5 End features**: Draconic Evolution 2 (basic feature type), Merrymaking 2, Immersive Engineering 1.
-- **5 Nether features**: Natures Aura 2, Create 1, Immersive Engineering 1, Railcraft 1.
-- **0 mod biomes**: all 67 registered biomes are vanilla. Mod biomes need TerraBlender regions or mod
-  dimensions: 245 biome files in the carries (Regions Unexplored 71, BWG 55, Eternal Starlight 23,
-  Twilight Forest 22, Undergarden 20, and others) define biomes no generator picks.
-- **122 biome modifiers not read**: mods' own modifier types that the engine doesn't have
-  (Aquaculture fish_spawn 36, Productive Bees nest 25, Repurposed Structures 23, Farmer's Delight 9,
-  Apotheosis 6, Actually Additions 5, Big Reactors 3). Translating these to `neoforge:add_features` in
-  the carry, as `lithostitched.rs` does, would bring them in.
-- **63 unresolved modifiers**: mostly Allthemodium's modifiers naming biomes of its own dimension (The Other)
-  and mods naming entity types of uncarried mods.
+- **Mod biomes**: no generator picks them. That needs TerraBlender regions or mod dimensions. The carries hold
+  245 biome files (Regions Unexplored 71, BWG 55, Eternal Starlight 23, Twilight Forest 22, Undergarden 20, and
+  others).
+- **Mods' own biome-modifier types** (Aquaculture's fish_spawn, Productive Bees' nest, Repurposed Structures,
+  Farmer's Delight's add_features_by_filter, Apotheosis, Actually Additions, Big Reactors) are not read.
+  Translating them to `neoforge:add_features` in the carry, as `lithostitched.rs` does, would bring them in.
+- **Mods' own feature and carver types** have no engine code: such features can't run, and such carvers are left
+  out.
 
 ```sh
 ATM10_CARRIES=<carries> bun run tools/atm10/worldgen-ores.ts

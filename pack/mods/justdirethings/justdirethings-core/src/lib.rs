@@ -17,6 +17,7 @@ pub mod recipe;
 pub mod redstone;
 pub mod swapper;
 pub mod t2;
+pub mod t2x;
 pub mod view;
 
 /// `Direction.values()`: down, up, north, south, west, east; a side's index in every per-side array here.

@@ -59,6 +59,12 @@ name = "justdirethings_t2"
 source = "runtime/justdirethings_t2.rs"
 
 [[module]]
+id = "t2x"
+file = "crates/horizon-client/src/game.rs"
+name = "justdirethings_t2x"
+source = "runtime/justdirethings_t2x.rs"
+
+[[module]]
 id = "paradox-ui"
 file = "crates/horizon-client/src/game.rs"
 name = "justdirethings_paradox_ui"

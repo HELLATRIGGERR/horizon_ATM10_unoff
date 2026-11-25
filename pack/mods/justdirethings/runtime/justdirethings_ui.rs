@@ -14,7 +14,8 @@ use super::{
     justdirethings_more::{DROPPER, FLUID_GEN, FLUID_PLACER, SENSOR},
     justdirethings_clicker::{CLICKER_T1, CLICKER_T2},
     justdirethings_t2::{BREAKER_T2, PLACER_T2},
-    justdirethings_swapper::SWAPPER,
+    justdirethings_swapper::{SWAPPER, SWAPPER_T2},
+    justdirethings_t2x::{DROPPER_T2, FLUID_COLLECTOR_T2, FLUID_PLACER_T2, SENSOR_T2},
     justdirethings_world::{BREAKER, GENERATOR, PARADOX},
 };
 use horizon_client::hud::HudBatch;
@@ -99,6 +100,10 @@ pub(super) fn screen(block: &str, screen: &mut Option<Screen>) {
     }
     if block == CLICKER_T1 || block == CLICKER_T2 || block == PLACER_T2 || block == BREAKER_T2 {
         *screen = Some(clicker_screen(block != CLICKER_T1));
+        return;
+    }
+    if is_t2x(block) {
+        *screen = Some(t2x_screen(block));
         return;
     }
     if block == SWAPPER {
@@ -221,6 +226,10 @@ pub(super) fn draw(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBa
     }
     if block == PLACER_T2 {
         draw_placer2(game, data, batch, origin);
+        return;
+    }
+    if is_t2x(block) {
+        draw_t2x(game, block, data, batch, origin);
         return;
     }
     if block == BREAKER_T2 {
@@ -410,6 +419,10 @@ pub(super) fn click(_game: &Game<'_>, block: &str, data: &[i32], at: [f32; 2], r
         click_placer2(data, at, right, button);
         return;
     }
+    if is_t2x(block) {
+        click_t2x(block, data, at, right, button);
+        return;
+    }
     if block == BREAKER_T2 {
         click_breaker2(data, at, right, button);
         return;
@@ -456,6 +469,10 @@ pub(super) fn tooltip(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<S
     }
     if block == PLACER_T2 {
         tooltip_placer2(data, at, lines);
+        return;
+    }
+    if is_t2x(block) {
+        tooltip_t2x(block, data, at, lines);
         return;
     }
     if block == BREAKER_T2 {
@@ -1023,25 +1040,47 @@ fn tooltip_clicker(t2: bool, data: &[i32], at: [f32; 2], lines: &mut Vec<String>
 /// The direction button beside the redstone button on the last row.
 const P2_DIRECTION: [f32; 4] = [116.0, 82.0, 16.0, 16.0];
 
+/// Which of the shared T2 parts a screen has: the radius row (a screen without it has its offset row in the radius row's
+/// place), the allowlist button, and the compare button where it stands (none: no button).
+#[derive(Clone, Copy)]
+struct Parts {
+    radius: bool,
+    allow: bool,
+    compare: Option<[f32; 4]>,
+}
+
+const ALL_PARTS: Parts = Parts { radius: true, allow: true, compare: Some(C2_COMPARE) };
+
 /// The T2 parts every T2 screen shares (`BaseMachineScreen` for a `PoweredMachineBE`, `AreaAffectingBE`, `FilterableBE`):
 /// the energy bar left of the panel, the filter slots, the area's value buttons, the allowlist, compare and render area
-/// buttons. `at`: where in `data` the energy, radius, offsets and flags start.
+/// buttons. `energy`: where in `data` the energy, radius, offsets and flags start.
 fn draw_t2_parts(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize) {
+    draw_t2_parts_with(pen, data, energy, ALL_PARTS);
+}
+
+fn draw_t2_parts_with(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize, p: Parts) {
     for i in 0..9 {
         pen.slot([FILTER_ROW[0] + 18.0 * i as f32, FILTER_ROW[1]]);
     }
     for axis in 0..3 {
         for row in 0..2 {
-            let [x, y] = value_button(axis, row);
+            if row == 0 && !p.radius {
+                continue;
+            }
+            let [x, y] = value_button(axis, if p.radius { row } else { 0 });
             pen.whole("justdirethings:gui/buttons/remove", [x, y, 12.0, 12.0]);
             pen.whole("justdirethings:gui/buttons/add", [x + 30.0, y, 12.0, 12.0]);
             let value = if row == 0 { format!("{:.1}", f64::from(d(data, energy + 1 + axis)) / 2.0) } else { d(data, energy + 4 + axis).to_string() };
             pen.text(&value, x + 11.0, y + 2.0, LABEL);
         }
     }
-    let allow = d(data, energy + 7) != 0;
-    pen.whole(if allow { "justdirethings:gui/buttons/allowlisttrue" } else { "justdirethings:gui/buttons/allowlistfalse" }, C2_ALLOWLIST);
-    toggle(pen, "justdirethings:gui/buttons/matchnbttrue", C2_COMPARE, d(data, energy + 8) != 0);
+    if p.allow {
+        let allow = d(data, energy + 7) != 0;
+        pen.whole(if allow { "justdirethings:gui/buttons/allowlisttrue" } else { "justdirethings:gui/buttons/allowlistfalse" }, C2_ALLOWLIST);
+    }
+    if let Some(at) = p.compare {
+        toggle(pen, "justdirethings:gui/buttons/matchnbttrue", at, d(data, energy + 8) != 0);
+    }
     toggle(pen, "justdirethings:gui/buttons/area", RENDER_AREA, d(data, energy + 9) != 0);
     let u = 34.0 / 36.0;
     pen.sprite(POWERBAR, [0.0, 0.0, 18.0 * u, 72.0], C2_ENERGY);
@@ -1051,17 +1090,21 @@ fn draw_t2_parts(pen: &mut Pen<'_, '_>, data: &[i32], energy: usize) {
 
 /// The shared T2 buttons a left press is on: render area 9, allowlist 24, compare 25, the value buttons 10 to 21.
 fn click_t2_parts(at: [f32; 2]) -> Option<i32> {
+    click_t2_parts_with(at, ALL_PARTS)
+}
+
+fn click_t2_parts_with(at: [f32; 2], p: Parts) -> Option<i32> {
     if inside(RENDER_AREA, at) {
         return Some(9);
     }
-    if inside(C2_ALLOWLIST, at) {
+    if p.allow && inside(C2_ALLOWLIST, at) {
         return Some(24);
     }
-    if inside(C2_COMPARE, at) {
+    if p.compare.is_some_and(|c| inside(c, at)) {
         return Some(25);
     }
-    (0..3).flat_map(|axis| (0..2).map(move |row| (axis, row))).find_map(|(axis, row)| {
-        let [x, y] = value_button(axis, row);
+    (0..3).flat_map(|axis| (0..2).map(move |row| (axis, row))).filter(|(_, row)| p.radius || *row == 1).find_map(|(axis, row)| {
+        let [x, y] = value_button(axis, if p.radius { row } else { 0 });
         let base = if row == 0 { 10 } else { 16 } + 2 * axis as i32;
         if inside([x, y, 12.0, 12.0], at) {
             Some(base + 1)
@@ -1160,6 +1203,210 @@ fn tooltip_breaker2(data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
         "Compare NBT".to_owned()
     } else if inside(RENDER_AREA, at) {
         "Render Area".to_owned()
+    } else {
+        return;
+    };
+    lines.push(line);
+}
+
+// ---- The other T2 machines' screens (`DropperT2Screen`, `SensorT2Screen`, `FluidPlacerT2Screen`, `FluidCollectorT2Screen`,
+// `BlockSwapperT2Screen` on `BaseMachineScreen`) -------------------------------------------------------------------------
+
+fn is_t2x(block: &str) -> bool {
+    block == DROPPER_T2 || block == SENSOR_T2 || block == FLUID_PLACER_T2 || block == FLUID_COLLECTOR_T2 || block == SWAPPER_T2
+}
+
+/// The Dropper T2's nine machine slots (`addSlotBox(…, 62, -1, 3, 18, 3, 18)`), its count and pickup delay number buttons
+/// (`topSectionTop + 41` and `+ 27`) and its compare button, which stands where the allowlist does elsewhere.
+const D2_GRID: [f32; 2] = [62.0, 45.0];
+const D2_COUNT: [f32; 4] = [20.0, 61.0, 24.0, 12.0];
+const D2_DELAY: [f32; 4] = [20.0, 47.0, 24.0, 12.0];
+const D2_PARTS: Parts = Parts { radius: false, allow: false, compare: Some([8.0, 82.0, 16.0, 16.0]) };
+/// The Sensor T2's target, strong or weak, count test and amount buttons (`topSectionTop + 62`; the amount `+ 64`).
+const S2_TARGET: [f32; 4] = [26.0, 82.0, 16.0, 16.0];
+const S2_STRONG: [f32; 4] = [44.0, 82.0, 16.0, 16.0];
+const S2_EQUALITY: [f32; 4] = [104.0, 82.0, 16.0, 16.0];
+const S2_AMOUNT: [f32; 4] = [122.0, 84.0, 24.0, 12.0];
+const S2_PARTS: Parts = Parts { radius: true, allow: true, compare: None };
+/// The fluid machines' second bar, beside the energy bar on the wider side panel.
+const FLUID2: [f32; 4] = [-49.0, 25.0, 18.0, 72.0];
+/// The Swapper T2's blocks, entity and partner icons (`topSectionTop + 44`, `+ 38`).
+const W2_BLOCKS: [f32; 4] = [8.0, 64.0, 16.0, 16.0];
+const W2_ENTITIES: [f32; 4] = [26.0, 64.0, 16.0, 16.0];
+const W2_PARTNER: [f32; 4] = [156.0, 58.0, 16.0, 16.0];
+const EQUALS: [&str; 3] = [">", "<", "="];
+
+/// Where the T2 parts start in each machine's data.
+fn t2x_energy(block: &str) -> usize {
+    match block {
+        DROPPER_T2 => 6,
+        SENSOR_T2 => 5,
+        SWAPPER_T2 => 5,
+        _ => 7,
+    }
+}
+
+fn t2x_parts(block: &str) -> Parts {
+    match block {
+        DROPPER_T2 => D2_PARTS,
+        SENSOR_T2 => S2_PARTS,
+        _ => ALL_PARTS,
+    }
+}
+
+/// The menu: the dropper's nine slots then its filter; the sensor's and swapper's filter slots alone; the fluid machines'
+/// slot then the filter.
+fn t2x_screen(block: &str) -> Screen {
+    let filter = (0..9).map(|i| Some([FILTER_ROW[0] + 18.0 * i as f32, FILTER_ROW[1]]));
+    let mut slots: Vec<Option<[f32; 2]>> = match block {
+        DROPPER_T2 => (0..9).map(|i| Some([D2_GRID[0] + 18.0 * (i % 3) as f32, D2_GRID[1] + 18.0 * (i / 3) as f32])).collect(),
+        SENSOR_T2 | SWAPPER_T2 => vec![None],
+        _ => vec![Some(FUEL_SLOT)],
+    };
+    slots.extend(filter);
+    slots.resize(18, None);
+    Screen {
+        width: 176.0,
+        height: 166.0 + TOP + 2.0,
+        slots,
+        inventory_x: INVENTORY[0],
+        inventory_y: INVENTORY[1],
+        own_labels: true,
+        own_background: true,
+        ..Screen::default()
+    }
+}
+
+fn draw_t2x(game: &Game<'_>, block: &str, data: &[i32], batch: &mut HudBatch, origin: [f32; 2]) {
+    let mut pen = Pen { game, batch, origin };
+    let fluid = block == FLUID_PLACER_T2 || block == FLUID_COLLECTOR_T2;
+    pen.panel(if fluid { [-54.0, 20.0, 58.0, 102.0] } else { [-30.0, 20.0, 34.0, 102.0] });
+    frame(&mut pen);
+    let energy = t2x_energy(block);
+    draw_t2_parts_with(&mut pen, data, energy, t2x_parts(block));
+    match block {
+        DROPPER_T2 => {
+            for i in 0..9 {
+                pen.slot([D2_GRID[0] + 18.0 * (i % 3) as f32, D2_GRID[1] + 18.0 * (i / 3) as f32]);
+            }
+            pen.whole(DIRECTIONS[d(data, 2).clamp(0, 5) as usize].0, DIRECTION);
+            tick_speed(&mut pen, d(data, 3));
+            number(&mut pen, D2_DELAY, d(data, 5));
+            number(&mut pen, D2_COUNT, d(data, 4).max(1));
+            labels_at(&mut pen, d(data, 0), REDSTONE_BASE, "Dropper T2");
+        }
+        SENSOR_T2 => {
+            pen.whole(&format!("justdirethings:gui/buttons/{}", TARGETS[d(data, 0).clamp(0, 8) as usize].0), S2_TARGET);
+            pen.whole(if d(data, 1) != 0 { "justdirethings:gui/buttons/redstonehigh" } else { "justdirethings:gui/buttons/redstonelow" }, S2_STRONG);
+            pen.whole("justdirethings:gui/buttons/blank", S2_EQUALITY);
+            pen.text(EQUALS[d(data, 2).clamp(0, 2) as usize], S2_EQUALITY[0] + 6.0, S2_EQUALITY[1] + 4.0, LABEL);
+            number(&mut pen, S2_AMOUNT, d(data, 3));
+            tick_speed(&mut pen, d(data, 4));
+            let title = pen.game.native_screen_title().unwrap_or_else(|| "Sensor T2".into());
+            let w = HudBatch::text_width(&pen.game.gui.atlas, &title);
+            pen.text(&title, 88.0 - (w / 2.0).floor(), 6.0, LABEL);
+        }
+        SWAPPER_T2 => {
+            pen.whole(if d(data, 1) != 0 { "justdirethings:gui/buttons/filter-block" } else { "justdirethings:gui/buttons/filter-air" }, W2_BLOCKS);
+            pen.whole(SWAP_ENTITY_BUTTONS[d(data, 2).clamp(0, 8) as usize].0, W2_ENTITIES);
+            pen.whole(if d(data, 3) != 0 { "justdirethings:gui/buttons/active" } else { "justdirethings:gui/buttons/inactive" }, W2_PARTNER);
+            labels_at(&mut pen, d(data, 0), REDSTONE_BASE, "Block Swapper T2");
+        }
+        _ => {
+            pen.slot(FUEL_SLOT);
+            fluid_bar(&mut pen, FLUID2, d(data, 3), d(data, 4), d(data, 5));
+            tick_speed(&mut pen, d(data, 2));
+            if block == FLUID_PLACER_T2 {
+                pen.whole(DIRECTIONS[d(data, 6).clamp(0, 5) as usize].0, P2_DIRECTION);
+            }
+            labels_at(&mut pen, d(data, 0), REDSTONE_BASE, if block == FLUID_PLACER_T2 { "Fluid Placer T2" } else { "Fluid Collector T2" });
+        }
+    }
+}
+
+fn click_t2x(block: &str, data: &[i32], at: [f32; 2], right: bool, button: &mut Option<i32>) {
+    let step = |value: i32, n: i32| (value.clamp(0, n - 1) + if right { n - 1 } else { 1 }) % n;
+    let tick = |slot: usize| (inside(TICK_SPEED, at) && d(data, slot) >= 0).then_some(if right { 23 } else { 22 });
+    let redstone = || inside(REDSTONE_BASE, at).then(|| step(d(data, 0), 4));
+    let parts = || if right { None } else { click_t2_parts_with(at, t2x_parts(block)) };
+    *button = match block {
+        DROPPER_T2 => redstone()
+            .or_else(|| inside(DIRECTION, at).then(|| 34 + step(d(data, 2), 6)))
+            .or_else(|| tick(3))
+            .or_else(|| inside(D2_COUNT, at).then_some(if right { 29 } else { 28 }))
+            .or_else(|| inside(D2_DELAY, at).then_some(if right { 31 } else { 30 }))
+            .or_else(parts),
+        SENSOR_T2 => tick(4)
+            .or_else(|| inside(S2_TARGET, at).then_some(32))
+            .or_else(|| inside(S2_STRONG, at).then_some(33))
+            .or_else(|| inside(S2_EQUALITY, at).then(|| 60 + step(d(data, 2), 3)))
+            .or_else(|| inside(S2_AMOUNT, at).then_some(if right { 64 } else { 63 }))
+            .or_else(parts),
+        SWAPPER_T2 => redstone()
+            .or_else(|| (!right && inside(W2_BLOCKS, at)).then_some(4))
+            .or_else(|| inside(W2_ENTITIES, at).then(|| 70 + step(d(data, 2), 9)))
+            .or_else(parts),
+        _ => redstone()
+            .or_else(|| (block == FLUID_PLACER_T2 && inside(P2_DIRECTION, at)).then(|| 34 + step(d(data, 6), 6)))
+            .or_else(|| tick(2))
+            .or_else(parts),
+    };
+}
+
+fn tooltip_t2x(block: &str, data: &[i32], at: [f32; 2], lines: &mut Vec<String>) {
+    let line = if block != SENSOR_T2 && inside(REDSTONE_BASE, at) {
+        redstone_line(Mode::from_index(d(data, 0))).to_owned()
+    } else if inside(C2_ENERGY, at) {
+        format!("{} / {} FE", d(data, t2x_energy(block)), justdirethings_core::t2::CAPACITY)
+    } else if inside(RENDER_AREA, at) {
+        "Render Area".to_owned()
+    } else if block == DROPPER_T2 && inside(DIRECTION, at) {
+        DIRECTIONS[d(data, 2).clamp(0, 5) as usize].1.to_owned()
+    } else if block == DROPPER_T2 && inside(D2_COUNT, at) {
+        format!("Drop count: {}", d(data, 4))
+    } else if block == DROPPER_T2 && inside(D2_DELAY, at) {
+        format!("Pickup delay: {}", d(data, 5))
+    } else if block == DROPPER_T2 && inside(TICK_SPEED, at) {
+        format!("Speed (Ticks): {}", d(data, 3))
+    } else if block == DROPPER_T2 && t2x_parts(block).compare.is_some_and(|c| inside(c, at)) {
+        "Compare NBT".to_owned()
+    } else if block == SENSOR_T2 && inside(S2_TARGET, at) {
+        TARGETS[d(data, 0).clamp(0, 8) as usize].1.to_owned()
+    } else if block == SENSOR_T2 && inside(S2_STRONG, at) {
+        (if d(data, 1) != 0 { "Strong redstone signal" } else { "Weak redstone signal" }).to_owned()
+    } else if block == SENSOR_T2 && inside(S2_EQUALITY, at) {
+        ["Greater than", "Less than", "Equals"][d(data, 2).clamp(0, 2) as usize].to_owned()
+    } else if block == SENSOR_T2 && inside(S2_AMOUNT, at) {
+        format!("Amount: {}", d(data, 3))
+    } else if block == SENSOR_T2 && inside(TICK_SPEED, at) {
+        format!("Speed (Ticks): {}", d(data, 4))
+    } else if block == SWAPPER_T2 && inside(W2_BLOCKS, at) {
+        (if d(data, 1) != 0 { "Swaps blocks" } else { "Leaves blocks" }).to_owned()
+    } else if block == SWAPPER_T2 && inside(W2_ENTITIES, at) {
+        SWAP_ENTITY_BUTTONS[d(data, 2).clamp(0, 8) as usize].1.to_owned()
+    } else if block == SWAPPER_T2 && inside(W2_PARTNER, at) {
+        match (d(data, 4) != 0, d(data, 3) != 0) {
+            (true, true) => "Bound to a swapper",
+            (true, false) => "Bound to (MISSING BLOCK)",
+            _ => "Not bound: use a Ferricore Wrench on two swappers",
+        }
+        .to_owned()
+    } else if (block == FLUID_PLACER_T2 || block == FLUID_COLLECTOR_T2) && inside(TICK_SPEED, at) {
+        format!("Speed (Ticks): {}", d(data, 2))
+    } else if block == FLUID_PLACER_T2 && inside(P2_DIRECTION, at) {
+        DIRECTIONS[d(data, 6).clamp(0, 5) as usize].1.to_owned()
+    } else if (block == FLUID_PLACER_T2 || block == FLUID_COLLECTOR_T2) && inside(FLUID2, at) {
+        let name = match d(data, 3) {
+            0 => "Empty",
+            1 => "Water",
+            2 => "Lava",
+            _ => "Fluid",
+        };
+        format!("{name}: {} / {} mB", d(data, 4), d(data, 5))
+    } else if inside(C2_ALLOWLIST, at) && t2x_parts(block).allow {
+        (if d(data, t2x_energy(block) + 7) != 0 { "Allow List" } else { "Deny List" }).to_owned()
+    } else if t2x_parts(block).compare.is_some_and(|c| inside(c, at)) {
+        "Compare NBT".to_owned()
     } else {
         return;
     };

@@ -20,7 +20,7 @@ The Rust code here was **translated from that source** (`GooBlock_Base`, `GooBlo
 `DropperT1BE`, `DropperT1Screen`, `FluidPlacerT1BE`, `SensorT1BE`, `SensorT1`, `SensorT1Screen`, `GeneratorFluidT1BE`,
 `GeneratorFluidT1Screen`, `RefinedFuel`, `BlockSwapperT1BE`, `BlockSwapperT1Screen`, `FerricoreWrench`, `GooTier`, `ArmorTiers`,
 `ClickerT1BE`, `ClickerT2BE`, `ClickerT1Screen`, `ClickerT2Screen`, `FakePlayerUtil`, `UsefulFakePlayer`, `PoweredMachineBE`,
-`BlockPlacerT2BE`, `BlockBreakerT2BE`),
+`BlockPlacerT2BE`, `BlockBreakerT2BE`, `DropperT2BE`, `SensorT2BE`, `FluidPlacerT2BE`, `FluidCollectorT2BE`, `BlockSwapperT2BE`),
 not written from the mod's behaviour alone, and it is licensed under the same MIT. The source is cloned outside this repository
 (`atm10-work/mod-sources/justdirethings`) and never committed.
 
@@ -118,6 +118,19 @@ the player's own jar through `horizon-port-pack carry`. The screen's text is the
   - **Block Breaker T2**: on a run it tracks every block of its area to break (not air, liquids or unbreakable ones; the
     filter on the block's item), nearest first, and mines the first at its tool's speed as the T1 does; the next waits
     for the following run. 500 FE a break, a point of the tool's wear for each.
+  - **Dropper T2**: nine slots and nine filter slots in the 9x2 menu; on a run it lists the first slot with an item (with a
+    filter: the first slot of each filter item, all of which must be there) and drops one listed slot's `dropCount` items
+    each operation, at the area's offset, 25 FE a drop. Its screen has the offset buttons only and the compare button.
+  - **Sensor T2**: the Sensor T1 over its area (every block of it counted, or the entities in it), the filter's nine slots
+    for the blocks' items or the spawn eggs, the count test and amount buttons; each sense pays 2 FE a block of the area (all
+    the buffer when it is short, and then it senses nothing).
+  - **Fluid Placer T2** and **Fluid Collector T2**: the T1s with a 32,000 mB tank, their places found together over the
+    area nearest first and one used each run, 500 FE a bucket; the placer's filter reads the block next to the place in its
+    direction setting, the collector's the fluid's bucket.
+  - **Block Swapper T2**: two bound T2 swappers trade the blocks of their areas (nearest first, the same offsets from each
+    one's starting point, its area's offset), the entities of the area, what the filter lets through, and not what both
+    areas hold; it needs 50 FE for each block of the area to run, and takes 50 FE for each block (both sides count) and
+    entity moved. A radius button's change goes to the partner, and so does the radius of the swapper that was bound last.
 - **Tool and armour tiers**: ferricore, blazegold, celestigem and eclipse alloy tools, armour and the wrench are items of the
   carry (their tool rules, durability and repair, equipment assets). The carry holds no attribute modifiers for
   celestigem's and eclipse alloy's, so the content step adds the mod's own: `GooTier`'s damage bonus (celestigem 4,

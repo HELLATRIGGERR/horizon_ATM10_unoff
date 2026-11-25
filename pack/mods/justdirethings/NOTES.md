@@ -158,11 +158,17 @@ the v5 resources and the empty content mod in AE2's place.
   screens are 60 pixels wider); the filter slots hold real items as the Item Collector's; the breaker's filter compares
   blocks only (`blockItemFilter` 0; the drops comparison and the smelter ability are not ported); the Placer T2's filter
   reads the block it is placed against, as Java's does.
+- Dropper T2 and Sensor T2 and the fluid machines and Block Swapper T2: as the other T2 machines, the energy bar (and the fluid
+  bar of the fluid machines) stands left of the 176-pixel panel. The Dropper T2's machine slots are a 3x3 box at x 62. The
+  Sensor T2's per-slot block state filter (right click a filter slot) is not ported, nor is its screen's state list. The
+  Fluid Collector T2 takes only level-0 source blocks even when asked again at the run (Java rechecks the `LiquidBlock` only),
+  and the collector's filter reads the fluid's bucket by name (`<fluid>_bucket`). The Swapper T2 moves only the entities of its
+  own area on its run (the partner moves its own on its run), as Java; a block with a block entity stays where it is, as
+  the T1's; the entity buttons' ids are 70 to 78 (the T1's 5 to 13 are the shared area buttons' here).
 
 ## What is left
 
 See `atm10-work/jdt-work/HANDOFF.md` for the next slice. In short: the Block Swapper's
-cross-dimension swap and block entities, the other T2 machines (Dropper, Sensor, Fluid Placer, Fluid Collector and Block
-Swapper T2, on the shared T2 part of `justdirethings_clicker.rs` and `justdirethings_t2.rs`), the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
+cross-dimension swap and block entities, the goo soils, the paradox entity and the time wand (an item with fluid and energy, and an entity that
 accelerates block entity ticks), the energy transmitter, the tools, armour and their abilities, the Fuel Canister and the
 Pocket Generator, the portal gun and the wands.
